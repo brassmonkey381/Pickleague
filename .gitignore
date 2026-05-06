@@ -12,6 +12,9 @@ scripts/package-lock.json
 # Supabase secrets
 supabase/supabase_service_role_key.txt
 
+# Claude local settings (may contain API keys)
+.claude/settings.local.json
+
 # VS
 .vs/
 *.suo

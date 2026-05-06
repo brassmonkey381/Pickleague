@@ -6,16 +6,19 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
+import { REGIONS, getRegionName, inRegion } from '../lib/regions';
+import CourtPicker, { CourtResult } from '../components/CourtPicker';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'> };
 
 type Filters = {
   openOnly: boolean;
-  createdWithin: number | null; // days; null = all time
+  createdWithin: number | null;
   minPlayers: number;
+  region: string | null;
 };
 
-const DEFAULT_FILTERS: Filters = { openOnly: false, createdWithin: null, minPlayers: 0 };
+const DEFAULT_FILTERS: Filters = { openOnly: false, createdWithin: null, minPlayers: 0, region: null };
 
 const CREATED_WITHIN_OPTIONS = [
   { label: 'All time', value: null },
@@ -32,7 +35,7 @@ const MIN_PLAYERS_OPTIONS = [
 ];
 
 function activeFilterCount(f: Filters): number {
-  return (f.openOnly ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0);
+  return (f.openOnly ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0);
 }
 
 function applyFilters(leagues: LeagueWithStats[], f: Filters): LeagueWithStats[] {
@@ -43,6 +46,7 @@ function applyFilters(leagues: LeagueWithStats[], f: Filters): LeagueWithStats[]
       const ageDays = (Date.now() - new Date(l.created_at).getTime()) / 86400000;
       if (ageDays > f.createdWithin) return false;
     }
+    if (f.region !== null && !inRegion(l.home_court_lat ?? null, l.home_court_lng ?? null, f.region)) return false;
     return true;
   });
 }
@@ -68,6 +72,7 @@ export default function LeaguesScreen({ navigation }: Props) {
   const [name, setName]               = useState('');
   const [description, setDescription] = useState('');
   const [isOpen, setIsOpen]           = useState(true);
+  const [homeCourt, setHomeCourt]     = useState<CourtResult | null>(null);
   const [createError, setCreateError] = useState('');
   const [creating, setCreating]       = useState(false);
 
@@ -134,6 +139,9 @@ export default function LeaguesScreen({ navigation }: Props) {
       description: description.trim() || null,
       created_by: user!.id,
       is_open: isOpen,
+      home_court:     homeCourt?.name ?? null,
+      home_court_lat: homeCourt?.lat ?? null,
+      home_court_lng: homeCourt?.lng ?? null,
     }).select().single();
     setCreating(false);
     if (error || !newLeague) { setCreateError(error?.message ?? 'Failed to create league.'); return; }
@@ -146,7 +154,7 @@ export default function LeaguesScreen({ navigation }: Props) {
     });
 
     setShowCreate(false);
-    setName(''); setDescription(''); setIsOpen(true); setCreateError('');
+    setName(''); setDescription(''); setIsOpen(true); setHomeCourt(null); setCreateError('');
     loadLeagues();
   }
 
@@ -237,6 +245,23 @@ export default function LeaguesScreen({ navigation }: Props) {
         {item.description ? (
           <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
         ) : null}
+
+        {/* Home court */}
+        {item.home_court ? (
+          <View style={styles.homeCourtRow}>
+            <Text style={styles.homeCourtPin}>📍</Text>
+            <Text style={styles.homeCourtText} numberOfLines={1}>{item.home_court}</Text>
+            {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null) && (
+              <View style={styles.regionChip}>
+                <Text style={styles.regionChipText}>
+                  {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null)}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <Text style={styles.noCourtText}>📍 No home court set</Text>
+        )}
 
         {/* Stats row */}
         <View style={styles.statsRow}>
@@ -369,6 +394,28 @@ export default function LeaguesScreen({ navigation }: Props) {
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* Region */}
+          <Text style={styles.filterLabel}>Region</Text>
+          <View style={styles.pillRow}>
+            <TouchableOpacity
+              style={[styles.pill, filters.region === null && styles.pillActive]}
+              onPress={() => setFilter('region', null)}
+            >
+              <Text style={[styles.pillText, filters.region === null && styles.pillTextActive]}>All</Text>
+            </TouchableOpacity>
+            {REGIONS.map((r) => (
+              <TouchableOpacity
+                key={r.name}
+                style={[styles.pill, filters.region === r.name && styles.pillActive]}
+                onPress={() => setFilter('region', r.name)}
+              >
+                <Text style={[styles.pillText, filters.region === r.name && styles.pillTextActive]}>
+                  {r.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
 
@@ -459,6 +506,23 @@ export default function LeaguesScreen({ navigation }: Props) {
             />
           </View>
 
+          {/* Home court */}
+          <Text style={styles.modalLabel}>Home Court</Text>
+          <CourtPicker
+            value={homeCourt}
+            onSelect={setHomeCourt}
+            showNoneOption
+            active={showCreate}
+            placeholder="Search for your home court..."
+          />
+          {!homeCourt && (
+            <View style={styles.courtWarning}>
+              <Text style={styles.courtWarningText}>
+                ⚠️  Without a home court, every match entry will require a location to be entered manually.
+              </Text>
+            </View>
+          )}
+
           {createError ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>{createError}</Text>
@@ -525,6 +589,12 @@ const styles = StyleSheet.create({
 
   // Card footer
   cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  homeCourtRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
+  homeCourtPin: { fontSize: 12 },
+  homeCourtText: { fontSize: 12, color: '#555', fontWeight: '500', flex: 1 },
+  regionChip: { backgroundColor: '#e8f5e9', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+  regionChipText: { fontSize: 10, color: '#2e7d32', fontWeight: '700' },
+  noCourtText: { fontSize: 12, color: '#ccc', marginBottom: 10 },
   createdText: { fontSize: 12, color: '#aaa' },
   membershipRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   roleStatusText: { fontSize: 13, fontWeight: '600' },
@@ -558,6 +628,8 @@ const styles = StyleSheet.create({
   cancelText: { textAlign: 'center', color: '#999', marginTop: 16, fontSize: 15 },
   modalHint: { fontSize: 14, color: '#666', marginBottom: 16, lineHeight: 20 },
   codeInput: { fontSize: 22, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
+  courtWarning: { backgroundColor: '#fff8e1', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#ffe082' },
+  courtWarningText: { fontSize: 13, color: '#b8860b', lineHeight: 18 },
   errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginBottom: 8 },
   errorText: { color: '#c62828', fontSize: 14, fontWeight: '600' },
 });

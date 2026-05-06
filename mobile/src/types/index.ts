@@ -4,7 +4,19 @@ export type Profile = {
   full_name: string;
   avatar_url: string | null;
   rating: number;
+  singles_rating: number;
+  doubles_rating: number;
   created_at: string;
+};
+
+export type PlayerLocationRating = {
+  id: string;
+  user_id: string;
+  location_name: string;
+  match_type: 'singles' | 'doubles';
+  rating: number;
+  wins: number;
+  losses: number;
 };
 
 export type League = {
@@ -14,6 +26,9 @@ export type League = {
   created_by: string;
   is_active: boolean;
   is_open: boolean;
+  home_court: string | null;
+  home_court_lat: number | null;
+  home_court_lng: number | null;
   created_at: string;
 };
 
@@ -96,6 +111,11 @@ export type Match = {
   player2_rating_before: number | null;
   player1_rating_after: number | null;
   player2_rating_after: number | null;
+  location_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  was_home_court: boolean | null;
+  is_home_court: boolean | null;
   created_at: string;
   player1?: Profile;
   partner1?: Profile;

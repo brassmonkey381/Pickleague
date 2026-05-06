@@ -8,6 +8,7 @@ import { RouteProp } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
 import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
+import CourtPicker, { CourtResult } from '../components/CourtPicker';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -84,17 +85,25 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [partner2, setPartner2] = useState('');
   const [score1, setScore1] = useState('');
   const [score2, setScore2] = useState('');
+  const [location, setLocation] = useState<CourtResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState<StatusMsg>(null);
 
-  useEffect(() => { loadMembers(); }, []);
+  useEffect(() => { loadLeagueData(); }, []);
 
-  async function loadMembers() {
-    const { data } = await supabase
-      .from('league_members')
-      .select('profile:profiles(*)')
-      .eq('league_id', leagueId);
-    setMembers((data ?? []).map((m: any) => m.profile).filter(Boolean));
+  const [leagueHomeCourt, setLeagueHomeCourt] = useState<string | null>(null);
+
+  async function loadLeagueData() {
+    const [membersRes, leagueRes] = await Promise.all([
+      supabase.from('league_members').select('profile:profiles(*)').eq('league_id', leagueId),
+      supabase.from('leagues').select('home_court, home_court_lat, home_court_lng').eq('id', leagueId).single(),
+    ]);
+    setMembers((membersRes.data ?? []).map((m: any) => m.profile).filter(Boolean));
+    const lg = leagueRes.data;
+    if (lg?.home_court) {
+      setLeagueHomeCourt(lg.home_court);
+      setLocation({ name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
+    }
   }
 
   function resetOnTypeChange(type: MatchType) {
@@ -124,6 +133,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     if (isNaN(s1) || isNaN(s2) || score1 === '' || score2 === '') return setError('Please enter scores for both teams.');
     if (s1 < 0 || s2 < 0) return setError('Scores cannot be negative.');
     if (s1 === s2) return setError('Scores cannot be tied — pickleball always has a winner.');
+    if (!location) return setError('Please enter a match location.');
 
     const winnerTeam = s1 > s2 ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
@@ -138,8 +148,13 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       partner2_id:  matchType === 'doubles' ? partner2 : null,
       player1_score: s1,
       player2_score: s2,
-      winner_id:    winnerId,
-      winner_team:  winnerTeam,
+      winner_id:      winnerId,
+      winner_team:    winnerTeam,
+      location_name:  location?.name ?? null,
+      location_lat:   location?.lat ?? null,
+      location_lng:   location?.lng ?? null,
+      was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
+      is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
     });
     setLoading(false);
 
@@ -222,6 +237,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         </View>
       </View>
 
+      {/* Location */}
+      <View style={styles.locationSection}>
+        <Text style={styles.locationLabel}>
+          Match Location
+          {!location && <Text style={styles.locationRequired}> *</Text>}
+        </Text>
+        <CourtPicker
+          value={location}
+          onSelect={setLocation}
+          active
+          placeholder="Search for the court played at..."
+        />
+      </View>
+
       {/* Status message */}
       {statusMsg && (
         <View style={[styles.statusBox, statusMsg.isError ? styles.statusError : styles.statusSuccess]}>
@@ -266,6 +295,9 @@ const styles = StyleSheet.create({
   statusText: { fontSize: 14, fontWeight: '600' },
   statusTextError: { color: '#c62828' },
   statusTextSuccess: { color: GREEN },
+  locationSection: { marginTop: 8, marginBottom: 4 },
+  locationLabel: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6 },
+  locationRequired: { color: '#c62828' },
   button: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
   buttonDisabled: { backgroundColor: '#a5d6a7' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
