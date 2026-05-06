@@ -1,0 +1,71 @@
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { RootStackParamList } from '../types';
+
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import HomeScreen from '../screens/HomeScreen';
+import LeaguesScreen from '../screens/LeaguesScreen';
+import LeagueDetailScreen from '../screens/LeagueDetailScreen';
+import EventsScreen from '../screens/EventsScreen';
+import CreateEventScreen from '../screens/CreateEventScreen';
+import EventDetailScreen from '../screens/EventDetailScreen';
+import LeagueMembersScreen from '../screens/LeagueMembersScreen';
+import InviteScreen from '../screens/InviteScreen';
+import MatchEntryScreen from '../screens/MatchEntryScreen';
+import MatchHistoryScreen from '../screens/MatchHistoryScreen';
+import CalendarAnalyticsScreen from '../screens/CalendarAnalyticsScreen';
+import StandingsScreen from '../screens/StandingsScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+export default function AppNavigator() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        {session ? (
+          <>
+            <Stack.Screen name="Home" component={HomeScreen} options={{ title: 'Pickleague' }} />
+            <Stack.Screen name="Leagues" component={LeaguesScreen} options={{ title: 'Leagues' }} />
+            <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params.leagueName })} />
+            <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params.leagueName + ' Members' })} />
+            <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Invite Players' }} />
+            <Stack.Screen name="Events" component={EventsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Events' })} />
+            <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ title: 'New Event' }} />
+            <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params.title })} />
+            <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
+            <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params.title })} />
+            <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
+            <Stack.Screen name="Standings" component={StandingsScreen} options={{ title: 'Standings' }} />
+            <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}

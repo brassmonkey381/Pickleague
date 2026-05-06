@@ -1,0 +1,22 @@
+# Expo / React Native
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/.env
+
+# Scripts
+scripts/node_modules/
+scripts/package-lock.json
+
+# Supabase secrets
+supabase/supabase_service_role_key.txt
+
+# VS
+.vs/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,122 @@
+export type Profile = {
+  id: string;
+  username: string;
+  full_name: string;
+  avatar_url: string | null;
+  rating: number;
+  created_at: string;
+};
+
+export type League = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by: string;
+  is_active: boolean;
+  is_open: boolean;
+  created_at: string;
+};
+
+export type LeagueWithStats = League & {
+  memberCount: number;
+  matchCount: number;
+  distinctPlayDays: number;
+  myRole: 'admin' | 'co-admin' | 'member' | null; // null = not a member
+  hasRequested: boolean;
+};
+
+export type LeagueJoinRequest = {
+  id: string;
+  league_id: string;
+  user_id: string;
+  message: string | null;
+  status: 'pending' | 'denied';
+  created_at: string;
+  profile?: Profile;
+};
+
+export type LeagueMember = {
+  id: string;
+  league_id: string;
+  user_id: string;
+  role: 'admin' | 'co-admin' | 'member';
+  joined_at: string;
+  profile?: Profile;
+};
+
+export type LeagueInvite = {
+  id: string;
+  league_id: string;
+  created_by: string;
+  token: string;
+  expires_at: string;
+  max_uses: number | null;
+  used_count: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type LeagueEvent = {
+  id: string;
+  league_id: string;
+  title: string;
+  description: string | null;
+  created_by: string;
+  status: 'voting' | 'scheduled' | 'cancelled';
+  vote_ends_at: string;
+  confirmed_slot_id: string | null;
+  created_at: string;
+  slots?: EventSlot[];
+};
+
+export type EventSlot = {
+  id: string;
+  event_id: string;
+  starts_at: string;
+  ends_at: string;
+  vote_count?: number;
+  my_vote?: boolean;
+};
+
+export type Match = {
+  id: string;
+  league_id: string;
+  match_type: 'singles' | 'doubles';
+  player1_id: string;
+  partner1_id: string | null;
+  player2_id: string;
+  partner2_id: string | null;
+  player1_score: number | null;
+  player2_score: number | null;
+  winner_id: string | null;
+  winner_team: 'team1' | 'team2' | null;
+  status: 'completed';
+  played_at: string;
+  player1_rating_before: number | null;
+  player2_rating_before: number | null;
+  player1_rating_after: number | null;
+  player2_rating_after: number | null;
+  created_at: string;
+  player1?: Profile;
+  partner1?: Profile;
+  player2?: Profile;
+  partner2?: Profile;
+};
+
+export type RootStackParamList = {
+  Login: undefined;
+  Register: undefined;
+  Home: undefined;
+  Leagues: undefined;
+  LeagueDetail: { leagueId: string; leagueName: string };
+  LeagueMembers: { leagueId: string; leagueName: string };
+  Invite: { leagueId: string; leagueName: string };
+  Events: { leagueId: string; leagueName: string };
+  CreateEvent: { leagueId: string };
+  EventDetail: { eventId: string; title: string };
+  MatchEntry: { leagueId: string };
+  MatchHistory: { leagueId?: string; userId?: string; title: string };
+  CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
+  Standings: { leagueId: string };
+  Profile: { userId?: string };
+};
