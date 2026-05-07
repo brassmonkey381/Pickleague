@@ -17,6 +17,7 @@ import {
   generateSingleElim, generateRotatingPartners, generateMLPSchedule, MatchPairing,
 } from '../lib/tournament';
 import AppDateTimePicker from '../components/AppDateTimePicker';
+import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -44,6 +45,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [pools, setPools]                 = useState<string[][] | null>(null);
   const [locking, setLocking]             = useState(false);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
+  const [savedRounds, setSavedRounds]     = useState<any[]>([]);
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
   const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
   const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
@@ -86,14 +88,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setProfileNames(names);
     setProfileRatings(ratings);
 
-    // Load saved matches if tournament is active
+    // Load saved matches + rounds if tournament is active
     if (t?.status === 'active') {
-      const { data: sm } = await supabase
-        .from('tournament_matches')
-        .select('*, round:tournament_rounds(label, round_type)')
-        .eq('tournament_id', tournamentId)
-        .order('match_order');
-      setSavedMatches(sm ?? []);
+      const [smRes, srRes] = await Promise.all([
+        supabase.from('tournament_matches')
+          .select('*, round:tournament_rounds(id, label, round_type, round_number)')
+          .eq('tournament_id', tournamentId)
+          .order('match_order'),
+        supabase.from('tournament_rounds')
+          .select('*')
+          .eq('tournament_id', tournamentId)
+          .order('round_number'),
+      ]);
+      setSavedMatches(smRes.data ?? []);
+      setSavedRounds(srRes.data ?? []);
     }
 
     // Load partner requests if format requires it
@@ -535,6 +543,101 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* ── Pool-play bracket view ── */}
+        {tournament.status === 'active' && tournament.format === 'pool_play' && savedRounds.length > 0 && (() => {
+          const poolRounds   = savedRounds.filter(r => r.round_type === 'pool');
+          const semiRound    = savedRounds.find(r => r.round_type === 'semifinals');
+          const finalRound   = savedRounds.find(r => r.round_type === 'finals');
+
+          // Compute pool standings (wins per team)
+          const teamName = (p1: string | null, p2: string | null) => {
+            if (!p1) return null;
+            const n1 = profileNames[p1] ?? '?';
+            const n2 = p2 ? (profileNames[p2] ?? '?') : null;
+            return n2 ? `${n1} & ${n2}` : n1;
+          };
+
+          type StandingEntry = { key: string; name: string; wins: number; losses: number; p1: string; p2: string | null };
+          const computeStandings = (round: any): StandingEntry[] => {
+            const roundMatches = savedMatches.filter(m => m.round?.id === round.id && m.status === 'completed');
+            const map: Record<string, StandingEntry> = {};
+            for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
+              for (const [p1, p2] of [[m.team1_player1, m.team1_player2], [m.team2_player1, m.team2_player2]] as [string|null, string|null][]) {
+                if (!p1) continue;
+                const key = p1 + '|' + (p2 ?? '');
+                if (!map[key]) map[key] = { key, name: teamName(p1, p2) ?? '?', wins: 0, losses: 0, p1, p2: p2 ?? null };
+              }
+              if (m.status === 'completed' && m.winner_team) {
+                const winKey = m.winner_team === 'team1' ? m.team1_player1 + '|' + (m.team1_player2 ?? '') : m.team2_player1 + '|' + (m.team2_player2 ?? '');
+                const loseKey = m.winner_team === 'team1' ? m.team2_player1 + '|' + (m.team2_player2 ?? '') : m.team1_player1 + '|' + (m.team1_player2 ?? '');
+                if (map[winKey])  map[winKey].wins++;
+                if (map[loseKey]) map[loseKey].losses++;
+              }
+            }
+            return Object.values(map).sort((a, b) => b.wins - a.wins || a.losses - b.losses);
+          };
+
+          const poolAStandings = poolRounds[0] ? computeStandings(poolRounds[0]) : [];
+          const poolBStandings = poolRounds[1] ? computeStandings(poolRounds[1]) : [];
+
+          const semiMatches = semiRound ? savedMatches.filter((m: any) => m.round?.id === semiRound.id) : [];
+          const finalMatch  = finalRound ? savedMatches.find((m: any) => m.round?.id === finalRound.id) : null;
+
+          const toSlot = (label: string, standing?: StandingEntry, match?: any): BracketSlot => {
+            if (match && (match.team1_player1 || match.team2_player1)) {
+              const t1 = teamName(match.team1_player1, match.team1_player2);
+              const t2 = teamName(match.team2_player1, match.team2_player2);
+              const winner = match.winner_team === 'team1' ? t1 : match.winner_team === 'team2' ? t2 : null;
+              const team = winner ?? (t1 && t2 ? `${t1} vs ${t2}` : t1 ?? t2 ?? undefined);
+              const highlight = !!(myUserId && match.team1_player1 === myUserId || match.team1_player2 === myUserId || match.team2_player1 === myUserId || match.team2_player2 === myUserId);
+              return { label, team, highlight };
+            }
+            if (standing) {
+              const highlight = !!(myUserId && (standing.p1 === myUserId || standing.p2 === myUserId));
+              return { label, team: standing.name, highlight };
+            }
+            return { label };
+          };
+
+          return (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Tournament Bracket</Text>
+              <Text style={styles.bracketHint}>Pool play → top 2 from each pool advance to semi-finals → final</Text>
+
+              {/* Pool standings */}
+              {poolRounds.map((round: any, pi: number) => {
+                const standings = pi === 0 ? poolAStandings : poolBStandings;
+                return (
+                  <View key={round.id} style={styles.poolStandingsRow}>
+                    <Text style={styles.poolName}>{round.label}</Text>
+                    {standings.map((s, i) => (
+                      <View key={s.key} style={styles.poolStandingItem}>
+                        <Text style={[styles.poolPos, i < 2 && styles.poolPosAdvance]}>{i + 1}.</Text>
+                        <Text style={[styles.poolTeamName, s.p1 === myUserId || s.p2 === myUserId ? styles.poolTeamMe : null]} numberOfLines={1}>{s.name}</Text>
+                        <Text style={styles.poolRecord}>{s.wins}W-{s.losses}L</Text>
+                        {i < 2 && <Text style={styles.advanceBadge}>Advance</Text>}
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+
+              <View style={styles.bracketDivider} />
+
+              {/* Visual bracket */}
+              <TournamentBracket
+                slotA1={toSlot('1st · Pool A', poolAStandings[0])}
+                slotB2={toSlot('2nd · Pool B', poolBStandings[1])}
+                slotB1={toSlot('1st · Pool B', poolBStandings[0])}
+                slotA2={toSlot('2nd · Pool A', poolAStandings[1])}
+                semi1={toSlot('Semi-Final 1', undefined, semiMatches[0])}
+                semi2={toSlot('Semi-Final 2', undefined, semiMatches[1])}
+                final={toSlot('Grand Final', undefined, finalMatch)}
+              />
+            </View>
+          );
+        })()}
+
         {/* ── Saved schedule (tournament is active) ── */}
         {tournament.status === 'active' && savedMatches.length > 0 && (() => {
           const myCount = savedMatches.filter(m =>
@@ -742,6 +845,17 @@ const styles = StyleSheet.create({
   activeBannerText: { fontSize: 14, color: GREEN, fontWeight: '700' },
   coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
   coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
+  bracketHint: { fontSize: 12, color: '#aaa', marginBottom: 10 },
+  bracketDivider: { height: 1, backgroundColor: '#eee', marginVertical: 12 },
+  poolStandingsRow: { marginBottom: 10 },
+  poolName: { fontSize: 11, fontWeight: '700', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 },
+  poolStandingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, gap: 6 },
+  poolPos: { width: 18, fontSize: 13, fontWeight: '700', color: '#bbb' },
+  poolPosAdvance: { color: '#2e7d32' },
+  poolTeamName: { flex: 1, fontSize: 13, fontWeight: '600', color: '#333' },
+  poolTeamMe: { color: '#2e7d32' },
+  poolRecord: { fontSize: 12, color: '#888' },
+  advanceBadge: { fontSize: 10, color: '#2e7d32', fontWeight: '700', backgroundColor: '#e8f5e9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
   scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
   myMatchesToggleOn: { borderColor: '#2e7d32', backgroundColor: '#e8f5e9' },
