@@ -42,6 +42,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
   const [generatedMatches, setGeneratedMatches] = useState<MatchPairing[] | null>(null);
   const [pools, setPools]                 = useState<string[][] | null>(null);
+  const [locking, setLocking]             = useState(false);
+  const [savedMatches, setSavedMatches]   = useState<any[]>([]);
   const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
   const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
   const [loading, setLoading]             = useState(true);
@@ -82,6 +84,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     });
     setProfileNames(names);
     setProfileRatings(ratings);
+
+    // Load saved matches if tournament is active
+    if (t?.status === 'active') {
+      const { data: sm } = await supabase
+        .from('tournament_matches')
+        .select('*, round:tournament_rounds(label, round_type)')
+        .eq('tournament_id', tournamentId)
+        .order('match_order');
+      setSavedMatches(sm ?? []);
+    }
 
     // Load partner requests if format requires it
     if (requiresPartner(t?.format ?? '') && uid) {
@@ -147,6 +159,74 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         setGeneratedMatches(generateMLPSchedule(teams)); break;
       }
     }
+  }
+
+  // ── Lock in bracket + notify ────────────────────────────────
+  async function lockInBracket() {
+    if (!generatedMatches || !tournament) return;
+
+    Alert.alert(
+      'Lock in bracket?',
+      `This will finalize the schedule and notify all ${approved.length} members. You won't be able to regenerate after this.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Lock In & Notify', style: 'default', onPress: doLockIn },
+      ]
+    );
+  }
+
+  async function doLockIn() {
+    if (!generatedMatches || !tournament) return;
+    setLocking(true);
+
+    // 1. Create a round record
+    const roundType = tournament.format === 'pool_play' ? 'pool'
+      : tournament.format === 'round_robin' ? 'pool' : 'winners';
+    const { data: round, error: rErr } = await supabase
+      .from('tournament_rounds')
+      .insert({
+        tournament_id: tournament.id,
+        round_number: 1,
+        label: FORMAT_META[tournament.format].label + ' Schedule',
+        round_type: roundType,
+      })
+      .select().single();
+    if (rErr) { Alert.alert('Error', rErr.message); setLocking(false); return; }
+
+    // 2. Save all matches
+    const matchRows = generatedMatches.map((m, i) => ({
+      tournament_id: tournament.id,
+      round_id:      round.id,
+      match_order:   i,
+      match_type:    tournament.match_type,
+      team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
+      team1_player2: m.team1[1] ?? null,
+      team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
+      team2_player2: m.team2[1] ?? null,
+    }));
+    const { error: mErr } = await supabase.from('tournament_matches').insert(matchRows);
+    if (mErr) { Alert.alert('Error', mErr.message); setLocking(false); return; }
+
+    // 3. Update tournament status to active
+    await supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id);
+
+    // 4. Notify every approved member
+    const memberIds = approved.map(r => r.user_id);
+    const notifications = memberIds.map(uid => ({
+      user_id:     uid,
+      title:       `🏆 Bracket Set — ${tournament.name}`,
+      body:        `The draw has been finalized! ${generatedMatches.length} matches scheduled. Open the tournament to see your opponents.`,
+      type:        'tournament',
+      entity_id:   tournament.id,
+      entity_type: 'tournament',
+    }));
+    await supabase.from('notifications').insert(notifications);
+
+    setLocking(false);
+    setGeneratedMatches(null);
+    setPools(null);
+    load();
+    Alert.alert('✓ Bracket locked!', `${memberIds.length} member${memberIds.length !== 1 ? 's' : ''} have been notified.`);
   }
 
   // ── Partner requests ────────────────────────────────────────
@@ -392,13 +472,31 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {/* ── Generate bracket (admin only) ── */}
-        {isAdmin && approved.length >= 2 && (
-          <TouchableOpacity style={styles.generateBtn} onPress={generateBracket}>
-            <Text style={styles.generateBtnText}>⚡ Generate {fmt.label} Schedule</Text>
-          </TouchableOpacity>
+        {/* ── Generate / Lock bracket ── */}
+        {tournament.status !== 'active' && isAdmin && approved.length >= 2 && (
+          <>
+            <TouchableOpacity style={styles.generateBtn} onPress={generateBracket}>
+              <Text style={styles.generateBtnText}>⚡ {generatedMatches ? 'Re-generate Preview' : `Generate ${fmt.label} Schedule`}</Text>
+            </TouchableOpacity>
+            {generatedMatches && (
+              <TouchableOpacity
+                style={[styles.lockBtn, locking && styles.lockBtnDisabled]}
+                onPress={lockInBracket}
+                disabled={locking}
+              >
+                <Text style={styles.lockBtnText}>
+                  {locking ? 'Locking in…' : `🔒 Lock In & Notify ${approved.length} Members`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
-        {!isAdmin && isPriv && (
+        {tournament.status === 'active' && (
+          <View style={styles.activeBanner}>
+            <Text style={styles.activeBannerText}>✓ Bracket finalized — all members notified</Text>
+          </View>
+        )}
+        {!isAdmin && isPriv && tournament.status !== 'active' && (
           <View style={styles.coAdminNote}>
             <Text style={styles.coAdminNoteText}>Only the tournament admin can generate the bracket.</Text>
           </View>
@@ -417,9 +515,33 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {/* ── Generated schedule ── */}
+        {/* ── Saved schedule (tournament is active) ── */}
+        {tournament.status === 'active' && savedMatches.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Match Schedule ({savedMatches.length} matches)</Text>
+            {savedMatches.map((m, i) => {
+              const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ');
+              const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ');
+              const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
+              return (
+                <View key={m.id} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
+                  <Text style={styles.matchNum}>{i + 1}</Text>
+                  <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+                  <Text style={styles.vs}>vs</Text>
+                  <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
+                  {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* ── Generated preview schedule (before lock-in) ── */}
         {generatedMatches && generatedMatches.length > 0 && (
           <View style={styles.section}>
+            <View style={styles.previewBanner}>
+              <Text style={styles.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
+            </View>
             <Text style={styles.sectionTitle}>Match Schedule ({generatedMatches.length} matches)</Text>
             {[...new Set(generatedMatches.map(m => m.round))].sort((a,b) => a-b).map(r => (
               <View key={r} style={styles.roundBlock}>
@@ -540,10 +662,20 @@ const styles = StyleSheet.create({
   rejectBtn: { backgroundColor: '#f5f5f5', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   rejectBtnText: { color: '#888', fontSize: 14, fontWeight: '800' },
 
-  generateBtn: { margin: 12, backgroundColor: '#1565c0', borderRadius: 10, padding: 16, alignItems: 'center' },
+  generateBtn: { margin: 12, marginBottom: 6, backgroundColor: '#1565c0', borderRadius: 10, padding: 16, alignItems: 'center' },
   generateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  lockBtn: { margin: 12, marginTop: 0, backgroundColor: GREEN, borderRadius: 10, padding: 16, alignItems: 'center' },
+  lockBtnDisabled: { backgroundColor: '#a5d6a7' },
+  lockBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  activeBanner: { margin: 12, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#c8e6c9' },
+  activeBannerText: { fontSize: 14, color: GREEN, fontWeight: '700' },
   coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
   coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
+  previewBanner: { backgroundColor: '#fff3e0', borderRadius: 8, padding: 10, marginBottom: 10 },
+  previewBannerText: { fontSize: 12, color: '#e65100', fontWeight: '500' },
+  matchRowHighlight: { backgroundColor: '#f0faf0' },
+  matchupHighlight: { color: GREEN, fontWeight: '800' },
+  myMatchTag: { fontSize: 9, color: GREEN, fontWeight: '800', backgroundColor: '#e8f5e9', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
 
   // Partner section
   partnerConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12 },
