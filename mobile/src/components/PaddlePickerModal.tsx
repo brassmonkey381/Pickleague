@@ -12,33 +12,17 @@ export type PaddleSelection = {
   thicknessMm: number | null;
 };
 
-type Brand = { id: string; name: string };
-type Step = 'brand' | 'model' | 'thickness';
+type Brand  = { id: string; name: string };
+type DBModel = { id: string; name: string; thickness_mm: number | null; notes: string | null };
+type Step   = 'brand' | 'model' | 'thickness';
 
 const THICKNESS_OPTIONS = [
   { label: '13 mm', value: 13 },
   { label: '14 mm', value: 14 },
+  { label: '15 mm', value: 15 },
   { label: '16 mm', value: 16 },
   { label: 'Other', value: null },
 ];
-
-// Common models per brand for quick-select suggestions
-const BRAND_MODELS: Record<string, string[]> = {
-  'JOOLA':       ['Ben Johns Hyperion CFS 16', 'Perseus CFS 16', 'Solaire CFS 14', 'Vision CGS 16'],
-  'Selkirk':     ['Vanguard Power Air Invikta', 'SLK Halo XL', 'Epic Polymer Core', 'Amped S2'],
-  'CRBN':        ['CRBN 1X Power Series', 'CRBN 2X', 'CRBN 3X'],
-  'Gearbox':     ['GX6 Power', 'Pro S 14mm', 'CX14E'],
-  'Paddletek':   ['Tempest Wave Pro', 'Bantam TS-5 Pro', 'Phoenix G6'],
-  'Engage':      ['Pursuit MX 6.0', 'Poach Infinity EX', 'Encore MX 6.0'],
-  'Franklin':    ['Ben Johns Signature 13mm', 'Signature Pickleball Pro'],
-  'Head':        ['Radical Pro', 'Extreme Pro', 'Gravity Pro'],
-  'Vatic Pro':   ['Flash 14mm', 'Prism 14mm', 'V7 14mm'],
-  'Electrum':    ['Model E Pro', 'Model E 16mm'],
-  'ProKennex':   ['Pro Speed 14mm', 'Black Ace 14mm'],
-  'Onix':        ['Evoke Premier', 'Stryker 4 Composite'],
-  'Gamma':       ['Compass 206', 'NeuCore Needle 14mm'],
-  'Babolat':     ['RBEL Touch 13', 'RBEL Air Viper'],
-};
 
 type Props = {
   visible: boolean;
@@ -48,29 +32,27 @@ type Props = {
 };
 
 export default function PaddlePickerModal({ visible, onSelect, onClose, initial }: Props) {
-  const [brands, setBrands]       = useState<Brand[]>([]);
-  const [step, setStep]           = useState<Step>('brand');
+  const [brands, setBrands]           = useState<Brand[]>([]);
+  const [dbModels, setDbModels]       = useState<DBModel[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [step, setStep]               = useState<Step>('brand');
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
-  const [modelInput, setModelInput]       = useState('');
-  const [thickness, setThickness]         = useState<number | null>(14);
+  const [modelInput, setModelInput]   = useState('');
+  const [modelSearch, setModelSearch] = useState('');
+  const [thickness, setThickness]     = useState<number | null>(16);
   const [customThickness, setCustomThickness] = useState('');
-  const [brandSearch, setBrandSearch]     = useState('');
-  const [loading, setLoading]             = useState(true);
+  const [brandSearch, setBrandSearch] = useState('');
+  const [loading, setLoading]         = useState(true);
 
   useEffect(() => {
     if (visible) {
       loadBrands();
-      // Pre-fill from initial value
       if (initial) {
         setSelectedBrand({ id: initial.brandId, name: initial.brandName });
         setModelInput(initial.modelName);
         setThickness(initial.thicknessMm);
-        setStep('brand');
       } else {
-        setStep('brand');
-        setSelectedBrand(null);
-        setModelInput('');
-        setThickness(14);
+        reset();
       }
     }
   }, [visible]);
@@ -82,33 +64,65 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
     setLoading(false);
   }
 
+  async function loadModels(brandId: string) {
+    setLoadingModels(true);
+    const { data } = await supabase
+      .from('paddle_models')
+      .select('id, name, thickness_mm, notes')
+      .eq('brand_id', brandId)
+      .order('sort_order');
+    setDbModels((data ?? []) as DBModel[]);
+    setLoadingModels(false);
+  }
+
+  function reset() {
+    setStep('brand');
+    setSelectedBrand(null);
+    setModelInput('');
+    setModelSearch('');
+    setThickness(16);
+    setCustomThickness('');
+    setBrandSearch('');
+    setDbModels([]);
+  }
+
   function pickBrand(brand: Brand) {
     setSelectedBrand(brand);
     setModelInput('');
+    setModelSearch('');
     setStep('model');
+    loadModels(brand.id);
   }
 
-  function confirmModel() {
-    if (!modelInput.trim()) return;
-    setStep('thickness');
+  function pickModel(model: DBModel) {
+    setModelInput(model.name);
+    if (model.thickness_mm) {
+      // Pre-select the model's thickness and skip straight to confirm
+      setThickness(model.thickness_mm);
+      setStep('thickness');
+    } else {
+      setStep('thickness');
+    }
   }
 
   function confirmThickness(val: number | null) {
-    setThickness(val);
     const finalThickness = val ?? (customThickness ? parseFloat(customThickness) : null);
     onSelect({
-      brandId: selectedBrand!.id,
-      brandName: selectedBrand!.name,
-      modelName: modelInput.trim(),
-      thicknessMm: finalThickness,
+      brandId:      selectedBrand!.id,
+      brandName:    selectedBrand!.name,
+      modelName:    modelInput.trim(),
+      thicknessMm:  finalThickness,
     });
+    reset();
   }
 
   const filteredBrands = brandSearch.trim()
     ? brands.filter(b => b.name.toLowerCase().includes(brandSearch.toLowerCase()))
     : brands;
 
-  const suggestions = selectedBrand ? (BRAND_MODELS[selectedBrand.name] ?? []) : [];
+  const filteredModels = modelSearch.trim()
+    ? dbModels.filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+    : dbModels;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -117,34 +131,38 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
 
           {/* Header */}
           <View style={styles.header}>
-            {step !== 'brand' && (
+            {step !== 'brand' ? (
               <TouchableOpacity onPress={() => setStep(step === 'thickness' ? 'model' : 'brand')}>
                 <Text style={styles.back}>← Back</Text>
               </TouchableOpacity>
-            )}
+            ) : <View style={{ width: 60 }} />}
             <Text style={styles.title}>
-              {step === 'brand' ? 'Select Brand' : step === 'model' ? `${selectedBrand?.name} — Model` : 'Thickness'}
+              {step === 'brand' ? 'Select Brand'
+               : step === 'model' ? selectedBrand?.name ?? 'Model'
+               : 'Thickness'}
             </Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={() => { reset(); onClose(); }} style={{ width: 36, alignItems: 'flex-end' }}>
               <Text style={styles.closeBtn}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Step indicator */}
+          {/* Step dots */}
           <View style={styles.steps}>
-            {(['brand', 'model', 'thickness'] as Step[]).map((s, i) => (
-              <View key={s} style={[styles.stepDot, step === s && styles.stepDotActive, i < ['brand','model','thickness'].indexOf(step) && styles.stepDotDone]} />
-            ))}
+            {(['brand', 'model', 'thickness'] as Step[]).map((s, i) => {
+              const done   = ['brand','model','thickness'].indexOf(step) > i;
+              const active = step === s;
+              return <View key={s} style={[styles.stepDot, active && styles.stepDotActive, done && styles.stepDotDone]} />;
+            })}
           </View>
 
-          {/* ── Brand selection ── */}
+          {/* ── BRAND ── */}
           {step === 'brand' && (
             <>
               {loading ? <ActivityIndicator style={{ margin: 24 }} color="#2e7d32" /> : (
                 <>
                   <TextInput
                     style={styles.searchInput}
-                    placeholder="Search brands…"
+                    placeholder={`Search ${brands.length} brands…`}
                     value={brandSearch}
                     onChangeText={setBrandSearch}
                     autoCorrect={false}
@@ -165,37 +183,53 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
             </>
           )}
 
-          {/* ── Model selection ── */}
+          {/* ── MODEL ── */}
           {step === 'model' && (
             <View style={styles.modelContainer}>
-              <Text style={styles.stepLabel}>Enter your paddle model</Text>
               <TextInput
                 style={styles.modelInput}
-                placeholder="e.g. Ben Johns Hyperion CFS 16"
-                value={modelInput}
-                onChangeText={setModelInput}
+                placeholder="Type or search a model…"
+                value={modelSearch || modelInput}
+                onChangeText={v => { setModelSearch(v); setModelInput(v); }}
                 autoFocus
                 returnKeyType="next"
-                onSubmitEditing={confirmModel}
+                onSubmitEditing={() => modelInput.trim() && setStep('thickness')}
               />
-              {suggestions.length > 0 && (
+
+              {loadingModels ? (
+                <ActivityIndicator style={{ marginVertical: 16 }} color="#2e7d32" />
+              ) : filteredModels.length > 0 ? (
                 <>
-                  <Text style={styles.suggestLabel}>Popular {selectedBrand?.name} models</Text>
+                  <Text style={styles.suggestLabel}>
+                    {modelSearch ? `${filteredModels.length} match${filteredModels.length !== 1 ? 'es' : ''}` : `${dbModels.length} known models`}
+                  </Text>
                   <FlatList
-                    data={suggestions}
-                    keyExtractor={s => s}
+                    data={filteredModels}
+                    keyExtractor={m => m.id}
                     style={styles.suggestList}
+                    keyboardShouldPersistTaps="handled"
                     renderItem={({ item }) => (
-                      <TouchableOpacity style={styles.suggestRow} onPress={() => setModelInput(item)}>
-                        <Text style={styles.suggestText}>{item}</Text>
+                      <TouchableOpacity style={styles.suggestRow} onPress={() => pickModel(item)}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.suggestName}>{item.name}</Text>
+                          {(item.thickness_mm || item.notes) && (
+                            <Text style={styles.suggestMeta}>
+                              {[item.thickness_mm ? item.thickness_mm + 'mm' : null, item.notes].filter(Boolean).join(' · ')}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={styles.suggestArrow}>›</Text>
                       </TouchableOpacity>
                     )}
                   />
                 </>
+              ) : (
+                <Text style={styles.noModels}>No models found — type your model name above.</Text>
               )}
+
               <TouchableOpacity
                 style={[styles.nextBtn, !modelInput.trim() && styles.nextBtnDisabled]}
-                onPress={confirmModel}
+                onPress={() => modelInput.trim() && setStep('thickness')}
                 disabled={!modelInput.trim()}
               >
                 <Text style={styles.nextBtnText}>Next — Select Thickness</Text>
@@ -203,22 +237,19 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
             </View>
           )}
 
-          {/* ── Thickness selection ── */}
+          {/* ── THICKNESS ── */}
           {step === 'thickness' && (
             <View style={styles.thicknessContainer}>
+              <Text style={styles.selectedModelPreview}>
+                {selectedBrand?.name} · {modelInput}
+              </Text>
               <Text style={styles.stepLabel}>Core thickness</Text>
-              <Text style={styles.stepHint}>Thicker = more control · Thinner = more power</Text>
+              <Text style={styles.stepHint}>Thicker = more control  ·  Thinner = more power</Text>
               {THICKNESS_OPTIONS.map(opt => (
                 <TouchableOpacity
                   key={String(opt.value)}
                   style={[styles.thicknessRow, thickness === opt.value && opt.value !== null && styles.thicknessRowActive]}
-                  onPress={() => {
-                    if (opt.value !== null) {
-                      confirmThickness(opt.value);
-                    } else {
-                      setThickness(null);
-                    }
-                  }}
+                  onPress={() => opt.value !== null ? confirmThickness(opt.value) : setThickness(null)}
                 >
                   <Text style={[styles.thicknessLabel, thickness === opt.value && opt.value !== null && styles.thicknessLabelActive]}>
                     {opt.label}
@@ -226,7 +257,6 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                   {thickness === opt.value && opt.value !== null && <Text style={styles.checkmark}>✓</Text>}
                 </TouchableOpacity>
               ))}
-              {/* Custom thickness */}
               <View style={styles.customRow}>
                 <TextInput
                   style={styles.customInput}
@@ -254,40 +284,47 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
 
 const GREEN = '#2e7d32';
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%', paddingBottom: 32 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  back: { fontSize: 15, color: GREEN, fontWeight: '600', minWidth: 60 },
-  title: { fontSize: 17, fontWeight: '800', color: '#1a1a1a', flex: 1, textAlign: 'center' },
-  closeBtn: { fontSize: 18, color: '#aaa', minWidth: 36, textAlign: 'right' },
-  steps: { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 10 },
-  stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ddd' },
+  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet:     { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%', paddingBottom: 32 },
+  header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  back:      { fontSize: 15, color: GREEN, fontWeight: '600', width: 60 },
+  title:     { fontSize: 17, fontWeight: '800', color: '#1a1a1a', flex: 1, textAlign: 'center' },
+  closeBtn:  { fontSize: 18, color: '#aaa' },
+  steps:     { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 10 },
+  stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ddd' },
   stepDotActive: { backgroundColor: GREEN, width: 20 },
-  stepDotDone: { backgroundColor: GREEN + '88' },
-  searchInput: { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  list: { maxHeight: 400 },
-  brandRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  brandName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
-  chevron: { fontSize: 20, color: '#ccc' },
-  modelContainer: { padding: 16 },
-  stepLabel: { fontSize: 14, fontWeight: '700', color: '#333', marginBottom: 8 },
-  stepHint: { fontSize: 12, color: '#aaa', marginBottom: 16 },
-  modelInput: { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 16 },
-  suggestLabel: { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  suggestList: { maxHeight: 180, marginBottom: 16 },
-  suggestRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  suggestText: { fontSize: 14, color: '#555' },
-  nextBtn: { backgroundColor: GREEN, borderRadius: 10, padding: 15, alignItems: 'center' },
-  nextBtnDisabled: { backgroundColor: '#ccc' },
-  nextBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  stepDotDone:   { backgroundColor: GREEN + '88' },
+
+  searchInput:  { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
+  list:         { maxHeight: 440 },
+  brandRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
+  brandName:    { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
+  chevron:      { fontSize: 20, color: '#ccc' },
+
+  modelContainer: { flex: 1, padding: 16 },
+  modelInput:     { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 10 },
+  suggestLabel:   { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+  suggestList:    { maxHeight: 260, marginBottom: 12 },
+  suggestRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
+  suggestName:    { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
+  suggestMeta:    { fontSize: 11, color: '#aaa', marginTop: 1 },
+  suggestArrow:   { fontSize: 18, color: '#ccc', marginLeft: 8 },
+  noModels:       { fontSize: 13, color: '#aaa', textAlign: 'center', paddingVertical: 20 },
+  nextBtn:        { backgroundColor: GREEN, borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 8 },
+  nextBtnDisabled:{ backgroundColor: '#ccc' },
+  nextBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+
   thicknessContainer: { padding: 16 },
-  thicknessRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: '#eee', marginBottom: 10 },
+  selectedModelPreview: { fontSize: 13, color: '#888', textAlign: 'center', marginBottom: 14, fontStyle: 'italic' },
+  stepLabel:  { fontSize: 14, fontWeight: '700', color: '#333', marginBottom: 4 },
+  stepHint:   { fontSize: 12, color: '#aaa', marginBottom: 14 },
+  thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: '#eee', marginBottom: 10 },
   thicknessRowActive: { borderColor: GREEN, backgroundColor: '#f0faf0' },
-  thicknessLabel: { fontSize: 16, fontWeight: '600', color: '#333' },
+  thicknessLabel:       { fontSize: 16, fontWeight: '600', color: '#333' },
   thicknessLabelActive: { color: GREEN },
-  checkmark: { fontSize: 18, color: GREEN, fontWeight: '800' },
-  customRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  customInput: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 15 },
-  customConfirm: { backgroundColor: GREEN, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
+  checkmark:    { fontSize: 18, color: GREEN, fontWeight: '800' },
+  customRow:    { flexDirection: 'row', gap: 10, marginTop: 4 },
+  customInput:  { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 15 },
+  customConfirm:{ backgroundColor: GREEN, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
   customConfirmText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 });
