@@ -180,54 +180,73 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     if (!generatedMatches || !tournament) return;
     setLocking(true);
 
-    // 1. Create a round record
-    const roundType = tournament.format === 'pool_play' ? 'pool'
-      : tournament.format === 'round_robin' ? 'pool' : 'winners';
-    const { data: round, error: rErr } = await supabase
-      .from('tournament_rounds')
-      .insert({
+    try {
+      // 1. Create a round record
+      const roundType = tournament.format === 'pool_play' ? 'pool' : 'winners';
+      const { data: round, error: rErr } = await supabase
+        .from('tournament_rounds')
+        .insert({
+          tournament_id: tournament.id,
+          round_number: 1,
+          label: FORMAT_META[tournament.format].label + ' Schedule',
+          round_type: roundType,
+        })
+        .select().single();
+      if (rErr) throw new Error('Could not create round: ' + rErr.message);
+
+      // 2. Save all matches — rotating_partners is always doubles regardless of setting
+      const isRotating = tournament.format === 'rotating_partners' || tournament.format === 'mlp';
+      const matchRows = generatedMatches.map((m, i) => ({
         tournament_id: tournament.id,
-        round_number: 1,
-        label: FORMAT_META[tournament.format].label + ' Schedule',
-        round_type: roundType,
-      })
-      .select().single();
-    if (rErr) { Alert.alert('Error', rErr.message); setLocking(false); return; }
+        round_id:      round.id,
+        match_order:   i,
+        match_type:    isRotating ? 'doubles' : tournament.match_type,
+        team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
+        team1_player2: m.team1[1] && m.team1[1] !== 'BYE' ? m.team1[1] : null,
+        team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
+        team2_player2: m.team2[1] && m.team2[1] !== 'BYE' ? m.team2[1] : null,
+      }));
 
-    // 2. Save all matches
-    const matchRows = generatedMatches.map((m, i) => ({
-      tournament_id: tournament.id,
-      round_id:      round.id,
-      match_order:   i,
-      match_type:    tournament.match_type,
-      team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
-      team1_player2: m.team1[1] ?? null,
-      team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
-      team2_player2: m.team2[1] ?? null,
-    }));
-    const { error: mErr } = await supabase.from('tournament_matches').insert(matchRows);
-    if (mErr) { Alert.alert('Error', mErr.message); setLocking(false); return; }
+      // Insert in batches of 20 to avoid request size issues
+      for (let i = 0; i < matchRows.length; i += 20) {
+        const { error: mErr } = await supabase.from('tournament_matches').insert(matchRows.slice(i, i + 20));
+        if (mErr) throw new Error('Could not save matches: ' + mErr.message);
+      }
 
-    // 3. Update tournament status to active
-    await supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id);
+      // 3. Update tournament status
+      const { error: sErr } = await supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id);
+      if (sErr) throw new Error('Could not update status: ' + sErr.message);
 
-    // 4. Notify every approved member
-    const memberIds = approved.map(r => r.user_id);
-    const notifications = memberIds.map(uid => ({
-      user_id:     uid,
-      title:       `🏆 Bracket Set — ${tournament.name}`,
-      body:        `The draw has been finalized! ${generatedMatches.length} matches scheduled. Open the tournament to see your opponents.`,
-      type:        'tournament',
-      entity_id:   tournament.id,
-      entity_type: 'tournament',
-    }));
-    await supabase.from('notifications').insert(notifications);
+      // 4. Notify each member individually to avoid RLS batch-check timeouts
+      const memberIds = approved.map(r => r.user_id);
+      let notifsFailed = 0;
+      for (const uid of memberIds) {
+        const { error: nErr } = await supabase.from('notifications').insert({
+          user_id:     uid,
+          title:       `🏆 Bracket Set — ${tournament.name}`,
+          body:        `The draw has been finalized! ${generatedMatches.length} matches scheduled. Open the tournament to see your matches.`,
+          type:        'tournament',
+          entity_id:   tournament.id,
+          entity_type: 'tournament',
+        });
+        if (nErr) notifsFailed++;
+      }
 
-    setLocking(false);
-    setGeneratedMatches(null);
-    setPools(null);
-    load();
-    Alert.alert('✓ Bracket locked!', `${memberIds.length} member${memberIds.length !== 1 ? 's' : ''} have been notified.`);
+      setGeneratedMatches(null);
+      setPools(null);
+      load();
+
+      const notified = memberIds.length - notifsFailed;
+      Alert.alert(
+        '✓ Bracket locked!',
+        `Schedule saved — ${notified}/${memberIds.length} members notified.` +
+          (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '')
+      );
+    } catch (err: any) {
+      Alert.alert('Lock-in failed', err.message ?? 'Unknown error. Please try again.');
+    } finally {
+      setLocking(false);
+    }
   }
 
   // ── Partner requests ────────────────────────────────────────
