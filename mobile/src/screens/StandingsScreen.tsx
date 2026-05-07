@@ -97,9 +97,9 @@ export default function StandingsScreen({ route, navigation }: Props) {
         return (
           <TouchableOpacity
             style={[styles.row, index === 0 && styles.rowFirst]}
-            onPress={() => navigation.navigate('MatchHistory', {
+            onPress={() => navigation.navigate('PlayerProfile', {
               userId: item.user_id,
-              title: item.full_name,
+              userName: item.full_name,
             })}
             activeOpacity={0.75}
           >

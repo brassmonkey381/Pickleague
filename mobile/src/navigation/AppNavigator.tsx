@@ -14,6 +14,7 @@ import EventsScreen from '../screens/EventsScreen';
 import CreateEventScreen from '../screens/CreateEventScreen';
 import EventDetailScreen from '../screens/EventDetailScreen';
 import LeagueMembersScreen from '../screens/LeagueMembersScreen';
+import PlayerProfileScreen from '../screens/PlayerProfileScreen';
 import InviteScreen from '../screens/InviteScreen';
 import MatchEntryScreen from '../screens/MatchEntryScreen';
 import MatchHistoryScreen from '../screens/MatchHistoryScreen';
@@ -58,6 +59,7 @@ export default function AppNavigator() {
             <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
             <Stack.Screen name="Standings" component={StandingsScreen} options={{ title: 'Standings' }} />
             <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+            <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
           </>
         ) : (
           <>

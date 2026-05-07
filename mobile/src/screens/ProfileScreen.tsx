@@ -3,13 +3,16 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityInd
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
+import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
 export default function ProfileScreen({ navigation }: Props) {
   const [profile, setProfile]           = useState<Profile | null>(null);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
+  const [badges, setBadges]             = useState<BadgeItem[]>([]);
   const [username, setUsername]         = useState('');
+  const [badgesPublic, setBadgesPublic] = useState(true);
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [userId, setUserId]             = useState<string | null>(null);
@@ -21,26 +24,45 @@ export default function ProfileScreen({ navigation }: Props) {
     if (!user) return;
     setUserId(user.id);
 
-    const [profileRes, locRes] = await Promise.all([
+    const [profileRes, locRes, badgesRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('player_location_ratings')
-        .select('*')
-        .eq('user_id', user.id)
+        .select('*').eq('user_id', user.id)
         .order('rating', { ascending: false }),
+      supabase.from('player_badges')
+        .select('*, badge:badges(*), league:leagues(name)')
+        .eq('user_id', user.id)
+        .order('earned_at'),
     ]);
 
-    if (profileRes.data) { setProfile(profileRes.data); setUsername(profileRes.data.username); }
+    if (profileRes.data) {
+      setProfile(profileRes.data);
+      setUsername(profileRes.data.username);
+      setBadgesPublic(profileRes.data.badges_public ?? true);
+    }
     setLocationRatings((locRes.data ?? []) as PlayerLocationRating[]);
+    setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLoading(false);
   }
 
   async function saveProfile() {
     if (!userId) return;
     setSaving(true);
-    const { error } = await supabase.from('profiles').update({ username }).eq('id', userId);
+    const { error } = await supabase.from('profiles').update({ username, badges_public: badgesPublic }).eq('id', userId);
     if (error) Alert.alert('Error', error.message);
     else Alert.alert('Saved!');
     setSaving(false);
+  }
+
+  async function toggleBadgeVisibility(playerBadgeId: string, hidden: boolean) {
+    await supabase.from('player_badges').update({ is_hidden: hidden }).eq('id', playerBadgeId);
+    setBadges(prev => prev.map(b => b.id === playerBadgeId ? { ...b, is_hidden: hidden } : b));
+  }
+
+  async function setAllBadgesHidden(hidden: boolean) {
+    if (!userId) return;
+    await supabase.from('player_badges').update({ is_hidden: hidden }).eq('user_id', userId);
+    setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
@@ -117,6 +139,65 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
       )}
 
+      {/* Badges */}
+      {badges.length > 0 && (
+        <View style={styles.badgeCard}>
+          <View style={styles.badgeHeader}>
+            <Text style={styles.badgeSectionTitle}>
+              Badges ({badges.filter(b => !b.is_hidden).length} shown)
+            </Text>
+            <View style={styles.badgeActions}>
+              <TouchableOpacity onPress={() => setAllBadgesHidden(false)}>
+                <Text style={styles.badgeActionText}>Show All</Text>
+              </TouchableOpacity>
+              <Text style={styles.badgeSep}>·</Text>
+              <TouchableOpacity onPress={() => setAllBadgesHidden(true)}>
+                <Text style={styles.badgeActionText}>Hide All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <Text style={styles.badgeHint}>Tap a badge to see why you earned it. Use the Hide option inside to control what others see.</Text>
+
+          {/* Profile badges */}
+          {badges.filter(b => b.badge.category === 'profile').length > 0 && (
+            <>
+              <Text style={styles.badgeCatLabel}>Profile</Text>
+              <View style={styles.badgeGrid}>
+                {badges.filter(b => b.badge.category === 'profile').map(b => (
+                  <BadgeDisplay key={b.id} badge={b} isOwner onToggleHide={toggleBadgeVisibility} />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* League badges */}
+          {badges.filter(b => b.badge.category === 'league').length > 0 && (
+            <>
+              <Text style={styles.badgeCatLabel}>League</Text>
+              <View style={styles.badgeGrid}>
+                {badges.filter(b => b.badge.category === 'league').map(b => (
+                  <BadgeDisplay key={b.id} badge={b} isOwner onToggleHide={toggleBadgeVisibility} />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Public toggle */}
+          <View style={styles.privacyRow}>
+            <Text style={styles.privacyLabel}>Show badges on my public profile</Text>
+            <TouchableOpacity
+              style={[styles.privacyToggle, badgesPublic && styles.privacyToggleOn]}
+              onPress={() => setBadgesPublic(v => !v)}
+            >
+              <Text style={[styles.privacyToggleText, badgesPublic && styles.privacyToggleTextOn]}>
+                {badgesPublic ? 'Public' : 'Private'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* Editable username */}
       <View style={styles.fieldGroup}>
         <Text style={styles.fieldLabel}>Username</Text>
@@ -176,6 +257,21 @@ const styles = StyleSheet.create({
   locRatingType: { fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 },
   locRatingRecord: { fontSize: 11, color: '#666', marginTop: 2 },
 
+  badgeCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
+  badgeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  badgeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 },
+  badgeActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  badgeActionText: { fontSize: 12, color: GREEN, fontWeight: '600' },
+  badgeSep: { fontSize: 12, color: '#ccc' },
+  badgeHint: { fontSize: 11, color: '#aaa', marginBottom: 10 },
+  badgeCatLabel: { fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 6, marginBottom: 4 },
+  badgeGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -4, marginBottom: 4 },
+  privacyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
+  privacyLabel: { fontSize: 13, color: '#555', flex: 1 },
+  privacyToggle: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#f5f5f5' },
+  privacyToggleOn: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
+  privacyToggleText: { fontSize: 13, fontWeight: '600', color: '#aaa' },
+  privacyToggleTextOn: { color: GREEN },
   fieldGroup: { marginBottom: 4, marginTop: 8 },
   fieldLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16 },

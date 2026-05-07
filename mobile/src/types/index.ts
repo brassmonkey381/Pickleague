@@ -128,6 +128,7 @@ export type RootStackParamList = {
   Register: undefined;
   Home: undefined;
   Leagues: undefined;
+  PlayerProfile: { userId: string; userName: string };
   LeagueDetail: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
   Invite: { leagueId: string; leagueName: string };
