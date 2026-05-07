@@ -85,19 +85,23 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [partner2, setPartner2] = useState('');
   const [score1, setScore1] = useState('');
   const [score2, setScore2] = useState('');
-  const [location, setLocation] = useState<CourtResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [statusMsg, setStatusMsg] = useState<StatusMsg>(null);
+  const [location, setLocation]     = useState<CourtResult | null>(null);
+  const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
+  const [loading, setLoading]       = useState(false);
+  const [statusMsg, setStatusMsg]   = useState<StatusMsg>(null);
 
   useEffect(() => { loadLeagueData(); }, []);
 
   const [leagueHomeCourt, setLeagueHomeCourt] = useState<string | null>(null);
 
   async function loadLeagueData() {
-    const [membersRes, leagueRes] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser();
+    const [membersRes, leagueRes, paddleRes] = await Promise.all([
       supabase.from('league_members').select('profile:profiles(*)').eq('league_id', leagueId),
       supabase.from('leagues').select('home_court, home_court_lat, home_court_lng').eq('id', leagueId).single(),
+      user ? supabase.from('player_paddles').select('id').eq('user_id', user.id).eq('is_default', true).maybeSingle() : Promise.resolve({ data: null }),
     ]);
+    if (paddleRes.data) setMyDefaultPaddleId(paddleRes.data.id);
     setMembers((membersRes.data ?? []).map((m: any) => m.profile).filter(Boolean));
     const lg = leagueRes.data;
     if (lg?.home_court) {
@@ -139,7 +143,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
 
     setLoading(true);
-    const { error } = await supabase.from('matches').insert({
+    const { data, error } = await supabase.from('matches').insert({
       league_id:    leagueId,
       match_type:   matchType,
       player1_id:   p1,
@@ -155,12 +159,24 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       location_lng:   location?.lng ?? null,
       was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
-    });
+    }).select('id').single();
     setLoading(false);
 
     if (error) {
       setError(error.message);
     } else {
+      // Record paddle usage for all players who have a default paddle
+      // Can be edited within 72h of match
+      if (data && myDefaultPaddleId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        const canEditUntil = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+        await supabase.from('match_paddle_usage').upsert({
+          match_id: (data as any).id,
+          user_id:  user!.id,
+          paddle_id: myDefaultPaddleId,
+          can_edit_until: canEditUntil,
+        });
+      }
       setStatusMsg({ text: 'Match recorded! ELO ratings updated.', isError: false });
       setTimeout(() => navigation.goBack(), 1500);
     }

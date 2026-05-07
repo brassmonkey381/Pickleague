@@ -4,6 +4,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
+import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
@@ -13,6 +14,8 @@ export default function ProfileScreen({ navigation }: Props) {
   const [badges, setBadges]             = useState<BadgeItem[]>([]);
   const [username, setUsername]         = useState('');
   const [badgesPublic, setBadgesPublic] = useState(true);
+  const [defaultPaddle, setDefaultPaddle] = useState<(PaddleSelection & { paddleId: string }) | null>(null);
+  const [showPaddlePicker, setShowPaddlePicker] = useState(false);
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [userId, setUserId]             = useState<string | null>(null);
@@ -24,7 +27,7 @@ export default function ProfileScreen({ navigation }: Props) {
     if (!user) return;
     setUserId(user.id);
 
-    const [profileRes, locRes, badgesRes] = await Promise.all([
+    const [profileRes, locRes, badgesRes, paddleRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('player_location_ratings')
         .select('*').eq('user_id', user.id)
@@ -33,7 +36,16 @@ export default function ProfileScreen({ navigation }: Props) {
         .select('*, badge:badges(*), league:leagues(name)')
         .eq('user_id', user.id)
         .order('earned_at'),
+      supabase.from('player_paddles')
+        .select('*, brand:paddle_brands(id, name)')
+        .eq('user_id', user.id)
+        .eq('is_default', true)
+        .maybeSingle(),
     ]);
+    if (paddleRes.data) {
+      const p = paddleRes.data;
+      setDefaultPaddle({ paddleId: p.id, brandId: p.brand.id, brandName: p.brand.name, modelName: p.model_name, thicknessMm: p.thickness_mm });
+    }
 
     if (profileRes.data) {
       setProfile(profileRes.data);
@@ -52,6 +64,29 @@ export default function ProfileScreen({ navigation }: Props) {
     if (error) Alert.alert('Error', error.message);
     else Alert.alert('Saved!');
     setSaving(false);
+  }
+
+  async function saveDefaultPaddle(sel: PaddleSelection) {
+    if (!userId) return;
+    setShowPaddlePicker(false);
+    // Clear any existing default first
+    await supabase.from('player_paddles').update({ is_default: false }).eq('user_id', userId);
+    // Upsert the new default paddle
+    const { data, error } = await supabase.from('player_paddles').upsert({
+      user_id:      userId,
+      brand_id:     sel.brandId,
+      model_name:   sel.modelName,
+      thickness_mm: sel.thicknessMm,
+      is_default:   true,
+    }, { onConflict: 'user_id,brand_id,model_name' }).select('id').single();
+    if (error) { Alert.alert('Error', error.message); return; }
+    setDefaultPaddle({ ...sel, paddleId: data.id });
+  }
+
+  async function removePaddle() {
+    if (!userId || !defaultPaddle) return;
+    await supabase.from('player_paddles').update({ is_default: false }).eq('id', defaultPaddle.paddleId);
+    setDefaultPaddle(null);
   }
 
   async function toggleBadgeVisibility(playerBadgeId: string, hidden: boolean) {
@@ -138,6 +173,37 @@ export default function ProfileScreen({ navigation }: Props) {
           ))}
         </View>
       )}
+
+      {/* Default Paddle */}
+      <View style={styles.paddleCard}>
+        <View style={styles.paddleHeader}>
+          <Text style={styles.paddleTitle}>🏓 Default Paddle</Text>
+          {defaultPaddle && (
+            <TouchableOpacity onPress={removePaddle}>
+              <Text style={styles.paddleRemove}>Remove</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {defaultPaddle ? (
+          <TouchableOpacity style={styles.paddleSelected} onPress={() => setShowPaddlePicker(true)}>
+            <View style={styles.paddleInfo}>
+              <Text style={styles.paddleBrand}>{defaultPaddle.brandName}</Text>
+              <Text style={styles.paddleModel}>{defaultPaddle.modelName}</Text>
+              {defaultPaddle.thicknessMm != null && (
+                <Text style={styles.paddleThickness}>{defaultPaddle.thicknessMm} mm core</Text>
+              )}
+            </View>
+            <Text style={styles.paddleEdit}>Change</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.paddleEmpty} onPress={() => setShowPaddlePicker(true)}>
+            <Text style={styles.paddleEmptyText}>+ Set your default paddle</Text>
+            <Text style={styles.paddleEmptyHint}>
+              Auto-filled when recording matches. Editable within 72 hours.
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Badges */}
       {badges.length > 0 && (
@@ -227,6 +293,13 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
       </TouchableOpacity>
     </ScrollView>
+
+    <PaddlePickerModal
+      visible={showPaddlePicker}
+      initial={defaultPaddle}
+      onSelect={saveDefaultPaddle}
+      onClose={() => setShowPaddlePicker(false)}
+    />
   );
 }
 
@@ -272,6 +345,19 @@ const styles = StyleSheet.create({
   privacyToggleOn: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
   privacyToggleText: { fontSize: 13, fontWeight: '600', color: '#aaa' },
   privacyToggleTextOn: { color: GREEN },
+  paddleCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
+  paddleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  paddleTitle: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
+  paddleRemove: { fontSize: 13, color: '#c62828' },
+  paddleSelected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#ddd' },
+  paddleInfo: { flex: 1 },
+  paddleBrand: { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  paddleModel: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginTop: 1 },
+  paddleThickness: { fontSize: 12, color: '#2e7d32', marginTop: 2, fontWeight: '500' },
+  paddleEdit: { fontSize: 13, color: '#2e7d32', fontWeight: '600' },
+  paddleEmpty: { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10, padding: 14, alignItems: 'center', borderStyle: 'dashed' },
+  paddleEmptyText: { fontSize: 15, color: '#2e7d32', fontWeight: '600', marginBottom: 4 },
+  paddleEmptyHint: { fontSize: 12, color: '#aaa', textAlign: 'center' },
   fieldGroup: { marginBottom: 4, marginTop: 8 },
   fieldLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16 },
