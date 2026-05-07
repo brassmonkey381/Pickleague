@@ -44,6 +44,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [pools, setPools]                 = useState<string[][] | null>(null);
   const [locking, setLocking]             = useState(false);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
+  const [myMatchesOnly, setMyMatchesOnly] = useState(false);
   const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
   const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
   const [loading, setLoading]             = useState(true);
@@ -516,54 +517,105 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Saved schedule (tournament is active) ── */}
-        {tournament.status === 'active' && savedMatches.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Match Schedule ({savedMatches.length} matches)</Text>
-            {savedMatches.map((m, i) => {
-              const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ');
-              const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ');
-              const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
-              return (
-                <View key={m.id} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
-                  <Text style={styles.matchNum}>{i + 1}</Text>
-                  <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
-                  <Text style={styles.vs}>vs</Text>
-                  <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
-                  {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
-                </View>
-              );
-            })}
-          </View>
-        )}
+        {tournament.status === 'active' && savedMatches.length > 0 && (() => {
+          const myCount = savedMatches.filter(m =>
+            myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId)
+          ).length;
+          const displayed = myMatchesOnly
+            ? savedMatches.filter(m => myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId))
+            : savedMatches;
+
+          return (
+            <View style={styles.section}>
+              {/* Filter toggle */}
+              <View style={styles.scheduleHeader}>
+                <Text style={styles.sectionTitle}>
+                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${savedMatches.length}`})
+                </Text>
+                <TouchableOpacity
+                  style={[styles.myMatchesToggle, myMatchesOnly && styles.myMatchesToggleOn]}
+                  onPress={() => setMyMatchesOnly(v => !v)}
+                >
+                  <Text style={[styles.myMatchesToggleText, myMatchesOnly && styles.myMatchesToggleTextOn]}>
+                    {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {myMatchesOnly && myCount === 0 && (
+                <Text style={styles.noMyMatches}>You have no scheduled matches in this tournament.</Text>
+              )}
+
+              {displayed.map((m, i) => {
+                const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ');
+                const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ');
+                const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
+                return (
+                  <View key={m.id} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
+                    <Text style={styles.matchNum}>{i + 1}</Text>
+                    <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+                    <Text style={styles.vs}>vs</Text>
+                    <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
+                    {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
 
         {/* ── Generated preview schedule (before lock-in) ── */}
-        {generatedMatches && generatedMatches.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.previewBanner}>
-              <Text style={styles.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
-            </View>
-            <Text style={styles.sectionTitle}>Match Schedule ({generatedMatches.length} matches)</Text>
-            {[...new Set(generatedMatches.map(m => m.round))].sort((a,b) => a-b).map(r => (
-              <View key={r} style={styles.roundBlock}>
-                <Text style={styles.roundLabel}>
-                  {generatedMatches.find(m => m.round === r)?.label?.split('·')[0]?.trim() ?? `Round ${r}`}
-                </Text>
-                {generatedMatches.filter(m => m.round === r).map((m, mi) => {
-                  const t1 = m.team1.map(playerName).join(' & ');
-                  const t2 = m.team2.map(playerName).join(' & ');
-                  return (
-                    <View key={mi} style={styles.matchRow}>
-                      <Text style={styles.matchNum}>{mi+1}</Text>
-                      <Text style={styles.matchup} numberOfLines={1}>{t1}</Text>
-                      <Text style={styles.vs}>vs</Text>
-                      <Text style={styles.matchup} numberOfLines={1}>{t2}</Text>
-                    </View>
-                  );
-                })}
+        {generatedMatches && generatedMatches.length > 0 && (() => {
+          const previewFiltered = myMatchesOnly
+            ? generatedMatches.filter(m => myUserId && (m.team1.includes(myUserId) || m.team2.includes(myUserId)))
+            : generatedMatches;
+          const rounds = [...new Set(previewFiltered.map(m => m.round))].sort((a,b) => a-b);
+
+          return (
+            <View style={styles.section}>
+              <View style={styles.previewBanner}>
+                <Text style={styles.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
               </View>
-            ))}
-          </View>
-        )}
+
+              {/* Filter toggle */}
+              <View style={styles.scheduleHeader}>
+                <Text style={styles.sectionTitle}>
+                  Preview ({previewFiltered.length}{myMatchesOnly ? '' : ` of ${generatedMatches.length}`} matches)
+                </Text>
+                <TouchableOpacity
+                  style={[styles.myMatchesToggle, myMatchesOnly && styles.myMatchesToggleOn]}
+                  onPress={() => setMyMatchesOnly(v => !v)}
+                >
+                  <Text style={[styles.myMatchesToggleText, myMatchesOnly && styles.myMatchesToggleTextOn]}>
+                    {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {rounds.map(r => (
+                <View key={r} style={styles.roundBlock}>
+                  <Text style={styles.roundLabel}>
+                    {generatedMatches.find(m => m.round === r)?.label?.split('·')[0]?.trim() ?? `Round ${r}`}
+                  </Text>
+                  {previewFiltered.filter(m => m.round === r).map((m, mi) => {
+                    const t1 = m.team1.map(playerName).join(' & ');
+                    const t2 = m.team2.map(playerName).join(' & ');
+                    const isMyMatch = myUserId && (m.team1.includes(myUserId) || m.team2.includes(myUserId));
+                    return (
+                      <View key={mi} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
+                        <Text style={styles.matchNum}>{mi+1}</Text>
+                        <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+                        <Text style={styles.vs}>vs</Text>
+                        <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
+                        {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          );
+        })()}
 
       </ScrollView>
 
@@ -671,6 +723,12 @@ const styles = StyleSheet.create({
   activeBannerText: { fontSize: 14, color: GREEN, fontWeight: '700' },
   coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
   coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
+  scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
+  myMatchesToggleOn: { borderColor: '#2e7d32', backgroundColor: '#e8f5e9' },
+  myMatchesToggleText: { fontSize: 12, color: '#888', fontWeight: '600' },
+  myMatchesToggleTextOn: { color: '#2e7d32' },
+  noMyMatches: { fontSize: 13, color: '#aaa', textAlign: 'center', paddingVertical: 12 },
   previewBanner: { backgroundColor: '#fff3e0', borderRadius: 8, padding: 10, marginBottom: 10 },
   previewBannerText: { fontSize: 12, color: '#e65100', fontWeight: '500' },
   matchRowHighlight: { backgroundColor: '#f0faf0' },
