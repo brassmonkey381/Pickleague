@@ -544,99 +544,34 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Pool-play bracket view ── */}
-        {tournament.status === 'active' && tournament.format === 'pool_play' && savedRounds.length > 0 && (() => {
-          const poolRounds   = savedRounds.filter(r => r.round_type === 'pool');
-          const semiRound    = savedRounds.find(r => r.round_type === 'semifinals');
-          const finalRound   = savedRounds.find(r => r.round_type === 'finals');
+        {tournament.status === 'active' && tournament.format === 'pool_play' && savedRounds.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tournament Bracket</Text>
 
-          // Compute pool standings (wins per team)
-          const teamName = (p1: string | null, p2: string | null) => {
-            if (!p1) return null;
-            const n1 = profileNames[p1] ?? '?';
-            const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-            return n2 ? `${n1} & ${n2}` : n1;
-          };
-
-          type StandingEntry = { key: string; name: string; wins: number; losses: number; p1: string; p2: string | null };
-          const computeStandings = (round: any): StandingEntry[] => {
-            const roundMatches = savedMatches.filter(m => m.round?.id === round.id && m.status === 'completed');
-            const map: Record<string, StandingEntry> = {};
-            for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
-              for (const [p1, p2] of [[m.team1_player1, m.team1_player2], [m.team2_player1, m.team2_player2]] as [string|null, string|null][]) {
-                if (!p1) continue;
-                const key = p1 + '|' + (p2 ?? '');
-                if (!map[key]) map[key] = { key, name: teamName(p1, p2) ?? '?', wins: 0, losses: 0, p1, p2: p2 ?? null };
-              }
-              if (m.status === 'completed' && m.winner_team) {
-                const winKey = m.winner_team === 'team1' ? m.team1_player1 + '|' + (m.team1_player2 ?? '') : m.team2_player1 + '|' + (m.team2_player2 ?? '');
-                const loseKey = m.winner_team === 'team1' ? m.team2_player1 + '|' + (m.team2_player2 ?? '') : m.team1_player1 + '|' + (m.team1_player2 ?? '');
-                if (map[winKey])  map[winKey].wins++;
-                if (map[loseKey]) map[loseKey].losses++;
-              }
-            }
-            return Object.values(map).sort((a, b) => b.wins - a.wins || a.losses - b.losses);
-          };
-
-          const poolAStandings = poolRounds[0] ? computeStandings(poolRounds[0]) : [];
-          const poolBStandings = poolRounds[1] ? computeStandings(poolRounds[1]) : [];
-
-          const semiMatches = semiRound ? savedMatches.filter((m: any) => m.round?.id === semiRound.id) : [];
-          const finalMatch  = finalRound ? savedMatches.find((m: any) => m.round?.id === finalRound.id) : null;
-
-          const toSlot = (label: string, standing?: StandingEntry, match?: any): BracketSlot => {
-            if (match && (match.team1_player1 || match.team2_player1)) {
-              const t1 = teamName(match.team1_player1, match.team1_player2);
-              const t2 = teamName(match.team2_player1, match.team2_player2);
-              const winner = match.winner_team === 'team1' ? t1 : match.winner_team === 'team2' ? t2 : null;
-              const team = winner ?? (t1 && t2 ? `${t1} vs ${t2}` : t1 ?? t2 ?? undefined);
-              const highlight = !!(myUserId && match.team1_player1 === myUserId || match.team1_player2 === myUserId || match.team2_player1 === myUserId || match.team2_player2 === myUserId);
-              return { label, team, highlight };
-            }
-            if (standing) {
-              const highlight = !!(myUserId && (standing.p1 === myUserId || standing.p2 === myUserId));
-              return { label, team: standing.name, highlight };
-            }
-            return { label };
-          };
-
-          return (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Tournament Bracket</Text>
-              <Text style={styles.bracketHint}>Pool play → top 2 from each pool advance to semi-finals → final</Text>
-
-              {/* Pool standings */}
-              {poolRounds.map((round: any, pi: number) => {
-                const standings = pi === 0 ? poolAStandings : poolBStandings;
-                return (
-                  <View key={round.id} style={styles.poolStandingsRow}>
-                    <Text style={styles.poolName}>{round.label}</Text>
-                    {standings.map((s, i) => (
-                      <View key={s.key} style={styles.poolStandingItem}>
-                        <Text style={[styles.poolPos, i < 2 && styles.poolPosAdvance]}>{i + 1}.</Text>
-                        <Text style={[styles.poolTeamName, s.p1 === myUserId || s.p2 === myUserId ? styles.poolTeamMe : null]} numberOfLines={1}>{s.name}</Text>
-                        <Text style={styles.poolRecord}>{s.wins}W-{s.losses}L</Text>
-                        {i < 2 && <Text style={styles.advanceBadge}>Advance</Text>}
-                      </View>
-                    ))}
-                  </View>
-                );
-              })}
-
-              <View style={styles.bracketDivider} />
-
-              {/* Visual bracket */}
-              <TournamentBracket
-                slotA1={toSlot('1st · Pool A', poolAStandings[0])}
-                slotB2={toSlot('2nd · Pool B', poolBStandings[1])}
-                slotB1={toSlot('1st · Pool B', poolBStandings[0])}
-                slotA2={toSlot('2nd · Pool A', poolAStandings[1])}
-                semi1={toSlot('Semi-Final 1', undefined, semiMatches[0])}
-                semi2={toSlot('Semi-Final 2', undefined, semiMatches[1])}
-                final={toSlot('Grand Final', undefined, finalMatch)}
-              />
+            {/* Advancement criteria */}
+            <View style={styles.advancementCard}>
+              <Text style={styles.advancementTitle}>How teams advance</Text>
+              <Text style={styles.advancementRule}>
+                {'🏆  '}The <Text style={styles.bold}>top 2 teams</Text> from each pool advance to the semi-finals, determined by:
+              </Text>
+              <Text style={styles.advancementPoint}>1.  Best win/loss record</Text>
+              <Text style={styles.advancementPoint}>2.  Point differential (if tied on record)</Text>
             </View>
-          );
-        })()}
+
+            <View style={styles.bracketDivider} />
+
+            {/* Visual bracket — positional labels only, no team names yet */}
+            <TournamentBracket
+              slotA1={{ label: 'Pool A · 1st Place' }}
+              slotB2={{ label: 'Pool B · 2nd Place' }}
+              slotB1={{ label: 'Pool B · 1st Place' }}
+              slotA2={{ label: 'Pool A · 2nd Place' }}
+              semi1={{ label: 'Semi-Final 1' }}
+              semi2={{ label: 'Semi-Final 2' }}
+              final={{ label: 'Grand Final' }}
+            />
+          </View>
+        )}
 
         {/* ── Saved schedule (tournament is active) ── */}
         {tournament.status === 'active' && savedMatches.length > 0 && (() => {
@@ -845,17 +780,12 @@ const styles = StyleSheet.create({
   activeBannerText: { fontSize: 14, color: GREEN, fontWeight: '700' },
   coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
   coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
-  bracketHint: { fontSize: 12, color: '#aaa', marginBottom: 10 },
-  bracketDivider: { height: 1, backgroundColor: '#eee', marginVertical: 12 },
-  poolStandingsRow: { marginBottom: 10 },
-  poolName: { fontSize: 11, fontWeight: '700', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 },
-  poolStandingItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, gap: 6 },
-  poolPos: { width: 18, fontSize: 13, fontWeight: '700', color: '#bbb' },
-  poolPosAdvance: { color: '#2e7d32' },
-  poolTeamName: { flex: 1, fontSize: 13, fontWeight: '600', color: '#333' },
-  poolTeamMe: { color: '#2e7d32' },
-  poolRecord: { fontSize: 12, color: '#888' },
-  advanceBadge: { fontSize: 10, color: '#2e7d32', fontWeight: '700', backgroundColor: '#e8f5e9', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 },
+  bracketDivider: { height: 1, backgroundColor: '#eee', marginVertical: 14 },
+  advancementCard: { backgroundColor: '#f0f4ff', borderRadius: 10, padding: 13, borderWidth: 1, borderColor: '#c5cff5' },
+  advancementTitle: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 7 },
+  advancementRule: { fontSize: 13, color: '#333', lineHeight: 19, marginBottom: 6 },
+  advancementPoint: { fontSize: 13, color: '#444', lineHeight: 18, paddingLeft: 8 },
+  bold: { fontWeight: '700' },
   scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
   myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
   myMatchesToggleOn: { borderColor: '#2e7d32', backgroundColor: '#e8f5e9' },
