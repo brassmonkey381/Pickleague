@@ -163,6 +163,7 @@ export type RootStackParamList = {
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };
   TournamentDetail: { tournamentId: string; tournamentName: string };
+  TournamentMembers: { tournamentId: string; tournamentName: string };
   LeagueDetail: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
   Invite: { leagueId: string; leagueName: string };

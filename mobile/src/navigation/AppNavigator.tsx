@@ -18,6 +18,7 @@ import PlayerProfileScreen from '../screens/PlayerProfileScreen';
 import TournamentsScreen from '../screens/TournamentsScreen';
 import CreateTournamentScreen from '../screens/CreateTournamentScreen';
 import TournamentDetailScreen from '../screens/TournamentDetailScreen';
+import TournamentMembersScreen from '../screens/TournamentMembersScreen';
 import InviteScreen from '../screens/InviteScreen';
 import MatchEntryScreen from '../screens/MatchEntryScreen';
 import MatchHistoryScreen from '../screens/MatchHistoryScreen';
@@ -66,6 +67,7 @@ export default function AppNavigator() {
             <Stack.Screen name="Tournaments" component={TournamentsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' })} />
             <Stack.Screen name="CreateTournament" component={CreateTournamentScreen} options={{ title: 'New Tournament' }} />
             <Stack.Screen name="TournamentDetail" component={TournamentDetailScreen} options={({ route }) => ({ title: route.params.tournamentName })} />
+            <Stack.Screen name="TournamentMembers" component={TournamentMembersScreen} options={({ route }) => ({ title: route.params.tournamentName + ' Members' })} />
           </>
         ) : (
           <>

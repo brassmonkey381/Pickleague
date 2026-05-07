@@ -86,6 +86,14 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     setLoading(false);
     if (err) { setError(err.message); return; }
 
+    // Auto-register creator as approved admin
+    await supabase.from('tournament_registrations').insert({
+      tournament_id: t.id,
+      user_id:       user!.id,
+      status:        'approved',
+      role:          'admin',
+    });
+
     setSuccess(true);
     setTimeout(() => navigation.replace('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }), 800);
   }
