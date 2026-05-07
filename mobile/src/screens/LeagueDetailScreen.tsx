@@ -117,6 +117,11 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       sub: privileged ? 'View members and manage roles' : 'View league members',
       onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
     },
+    {
+      icon: '🎾', label: 'Tournaments',
+      sub: 'Create and manage rec tournaments for this league',
+      onPress: () => navigation.navigate('Tournaments', { leagueId, leagueName }),
+    },
     ...(privileged ? [{
       icon: '✉️', label: 'Invite Players',
       sub: !league?.is_open ? 'League is private — share invite codes' : 'Share invite codes with players',

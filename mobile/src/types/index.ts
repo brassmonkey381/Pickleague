@@ -123,12 +123,46 @@ export type Match = {
   partner2?: Profile;
 };
 
+export type Tournament = {
+  id: string;
+  league_id: string | null;
+  name: string;
+  description: string | null;
+  created_by: string;
+  format: 'round_robin' | 'single_elimination' | 'double_elimination' | 'pool_play' | 'mlp' | 'rotating_partners';
+  match_type: 'singles' | 'doubles';
+  seeding: 'random' | 'elo';
+  pool_count: number;
+  partner_rotation: 'every_match' | 'every_round' | null;
+  registration_mode: 'request' | 'invite_only';
+  max_players: number | null;
+  status: 'registration' | 'active' | 'completed' | 'cancelled';
+  start_time: string | null;
+  location_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  created_at: string;
+};
+
+export type TournamentRegistration = {
+  id: string;
+  tournament_id: string;
+  user_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  seed: number | null;
+  registered_at: string;
+  profile?: Profile;
+};
+
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Home: undefined;
   Leagues: undefined;
   PlayerProfile: { userId: string; userName: string };
+  Tournaments: { leagueId?: string; leagueName?: string };
+  CreateTournament: { leagueId?: string };
+  TournamentDetail: { tournamentId: string; tournamentName: string };
   LeagueDetail: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
   Invite: { leagueId: string; leagueName: string };

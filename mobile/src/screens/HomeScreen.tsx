@@ -35,6 +35,10 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={styles.cardIcon}>🏆</Text>
           <Text style={styles.cardLabel}>Leagues</Text>
         </TouchableOpacity>
+        <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Tournaments', {})}>
+          <Text style={styles.cardIcon}>🎾</Text>
+          <Text style={styles.cardLabel}>Tournaments</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('Profile', {})}>
           <Text style={styles.cardIcon}>👤</Text>
           <Text style={styles.cardLabel}>Profile</Text>
