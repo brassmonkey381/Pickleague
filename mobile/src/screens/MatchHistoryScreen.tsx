@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -25,6 +25,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [matchType, setMatchType]   = useState<TypeFilter>('all');
   const [region, setRegion]         = useState<string | null>(null);
   const [recency, setRecency]       = useState<RecencyFilter>(null);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [myMatchesOnly, setMyMatchesOnly] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -39,8 +41,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       .select(`
         *,
         player1:profiles!matches_player1_id_fkey(id, full_name),
-        player2:profiles!matches_player2_id_fkey(id, full_name)
-      `)   /* location_name, location_lat, location_lng included via * */
+        partner1:profiles!matches_partner1_id_fkey(id, full_name),
+        player2:profiles!matches_player2_id_fkey(id, full_name),
+        partner2:profiles!matches_partner2_id_fkey(id, full_name)
+      `)
       .order('played_at', { ascending: false });
 
     if (leagueId) query = query.eq('league_id', leagueId);
@@ -87,7 +91,15 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const playedAt = new Date(item.played_at);
     const dateStr  = playedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     const timeStr  = playedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const typeTag  = item.match_type === 'doubles' ? ' · 2v2' : '';
+    const isDoubles = item.match_type === 'doubles';
+
+    // Build display names for each side
+    const team1Name = isDoubles && item.partner1?.full_name
+      ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
+      : (item.player1?.full_name ?? 'Unknown');
+    const team2Name = isDoubles && item.partner2?.full_name
+      ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
+      : (item.player2?.full_name ?? 'Unknown');
 
     const locationLine = item.location_name
       ? <Text style={styles.locationText}>📍 {item.location_name}</Text>
@@ -113,10 +125,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.matchup, team1Won && styles.matchupWinner]} numberOfLines={1}>
-                {item.player1?.full_name}
+                {team1Name}
               </Text>
               <Text style={[styles.matchup, !team1Won && styles.matchupWinner]} numberOfLines={1}>
-                vs {item.player2?.full_name}
+                vs {team2Name}
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
@@ -135,10 +147,17 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
     const won      = didWin(item, viewAs);
     const onTeam1  = isOnTeam1(item, viewAs);
-    const opponent = onTeam1 ? item.player2 : item.player1;
     const myScore  = onTeam1 ? item.player1_score : item.player2_score;
     const oppScore = onTeam1 ? item.player2_score : item.player1_score;
     const delta    = ratingChange(item, viewAs);
+
+    // Build opponent line — for doubles show both opponents
+    const oppTeamName = onTeam1 ? team2Name : team1Name;
+    // Build partner line — for doubles show your partner
+    const myPartner = onTeam1 ? item.partner1 : item.partner2;
+    const partnerLine = isDoubles && myPartner?.full_name
+      ? <Text style={styles.partnerText}>🤝 {myPartner.full_name}</Text>
+      : null;
 
     return (
       <View style={[styles.card, won ? styles.win : styles.loss]}>
@@ -148,8 +167,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           </Text>
           <View style={styles.cardInfo}>
             <Text style={styles.opponent} numberOfLines={1}>
-              vs {opponent?.full_name ?? 'Unknown'}{typeTag}
+              vs {oppTeamName}
             </Text>
+            {partnerLine}
             <Text style={styles.dateText}>{dateStr} at {timeStr}</Text>
             {locationLine}
           </View>
@@ -169,17 +189,44 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
   const filtered = useMemo(() => {
     const cutoff = recency ? Date.now() - recency * 86400000 : null;
+    const searchLower = playerSearch.trim().toLowerCase();
+
     return matches.filter((m) => {
       if (matchType !== 'all' && m.match_type !== matchType) return false;
       if (homeAway === 'home' && !m.is_home_court) return false;
       if (homeAway === 'away' && m.is_home_court) return false;
       if (region !== null && !inRegion(m.location_lat, m.location_lng, region)) return false;
       if (cutoff && new Date(m.played_at).getTime() < cutoff) return false;
+
+      // My matches only — show matches where the logged-in user participated
+      if (myMatchesOnly && currentUserId) {
+        const involved = m.player1_id === currentUserId || m.player2_id === currentUserId ||
+                         m.partner1_id === currentUserId || m.partner2_id === currentUserId;
+        if (!involved) return false;
+      }
+
+      // Player name search — match against all four player names
+      if (searchLower) {
+        const names = [
+          m.player1?.full_name,
+          (m as any).partner1?.full_name,
+          m.player2?.full_name,
+          (m as any).partner2?.full_name,
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!names.includes(searchLower)) return false;
+      }
+
       return true;
     });
-  }, [matches, matchType, homeAway, region, recency]);
+  }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch]);
 
-  const activeFilterCount = (homeAway !== 'all' ? 1 : 0) + (matchType !== 'all' ? 1 : 0) + (region !== null ? 1 : 0) + (recency !== null ? 1 : 0);
+  const activeFilterCount =
+    (homeAway !== 'all' ? 1 : 0) +
+    (matchType !== 'all' ? 1 : 0) +
+    (region !== null ? 1 : 0) +
+    (recency !== null ? 1 : 0) +
+    (myMatchesOnly ? 1 : 0) +
+    (playerSearch.trim() ? 1 : 0);
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
 
@@ -196,8 +243,19 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
           </Text>
         </TouchableOpacity>
+        {/* My matches quick toggle — only useful in league-wide view */}
+        {!userId && (
+          <TouchableOpacity
+            style={[styles.filterBtn, myMatchesOnly && styles.filterBtnActive]}
+            onPress={() => setMyMatchesOnly(v => !v)}
+          >
+            <Text style={[styles.filterBtnText, myMatchesOnly && styles.filterBtnTextActive]}>
+              👤 Mine
+            </Text>
+          </TouchableOpacity>
+        )}
         {activeFilterCount > 0 && (
-          <TouchableOpacity onPress={() => { setHomeAway('all'); setMatchType('all'); setRegion(null); setRecency(null); }}>
+          <TouchableOpacity onPress={() => { setHomeAway('all'); setMatchType('all'); setRegion(null); setRecency(null); setMyMatchesOnly(false); setPlayerSearch(''); }}>
             <Text style={styles.clearText}>Clear</Text>
           </TouchableOpacity>
         )}
@@ -206,6 +264,26 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       {/* Filter panel */}
       {showFilters && (
         <View style={styles.filterPanel}>
+          {/* Player name search */}
+          <Text style={styles.filterLabel}>Player Name</Text>
+          <View style={styles.searchRow}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by player name..."
+              placeholderTextColor="#bbb"
+              value={playerSearch}
+              onChangeText={setPlayerSearch}
+              autoCorrect={false}
+              autoCapitalize="words"
+              returnKeyType="search"
+            />
+            {playerSearch.length > 0 && (
+              <TouchableOpacity style={styles.clearSearch} onPress={() => setPlayerSearch('')}>
+                <Text style={styles.clearSearchText}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           <Text style={styles.filterLabel}>Recency</Text>
           <View style={styles.pillRow}>
             {([null, 3, 7, 30, 90] as RecencyFilter[]).map((v) => (
@@ -290,6 +368,7 @@ const styles = StyleSheet.create({
   opponent: { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
   dateText: { fontSize: 12, color: '#888', marginTop: 2 },
   locationText: { fontSize: 11, color: '#aaa', marginTop: 1 },
+  partnerText: { fontSize: 12, color: '#2e7d32', marginTop: 1 },
   cardRight: { alignItems: 'flex-end' },
   matchup: { fontSize: 15, fontWeight: '600', color: '#1a1a1a', flex: 1, marginRight: 8 },
   score: { fontSize: 15, fontWeight: '700', color: '#333' },
@@ -315,6 +394,14 @@ const styles = StyleSheet.create({
   resultMiniLoss: { backgroundColor: '#c62828' },
   resultMiniText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   matchupWinner: { fontWeight: '800', color: '#1a1a1a' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  searchInput: {
+    flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 8, fontSize: 14,
+    backgroundColor: '#fff', color: '#1a1a1a',
+  },
+  clearSearch: { paddingHorizontal: 10, paddingVertical: 8 },
+  clearSearchText: { fontSize: 14, color: '#aaa', fontWeight: '600' },
   leagueMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
   homeAwayBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   homeBadge: { backgroundColor: '#e8f5e9' },
