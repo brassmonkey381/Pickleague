@@ -548,6 +548,64 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Tournament Bracket</Text>
 
+            {/* Pool membership */}
+            {(() => {
+              const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
+              if (poolRounds.length === 0) return null;
+
+              function getTeamName(p1: string | null, p2: string | null): string {
+                if (!p1) return '?';
+                const n1 = profileNames[p1] ?? '?';
+                const n2 = p2 ? (profileNames[p2] ?? '?') : null;
+                return n2 ? `${n1} & ${n2}` : n1;
+              }
+
+              function getPoolTeams(round: any) {
+                const seen = new Set<string>();
+                const teams: { key: string; name: string; isMe: boolean }[] = [];
+                for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
+                  for (const [p1, p2] of [
+                    [m.team1_player1, m.team1_player2],
+                    [m.team2_player1, m.team2_player2],
+                  ] as [string|null, string|null][]) {
+                    if (!p1) continue;
+                    const key = p1 + '|' + (p2 ?? '');
+                    if (!seen.has(key)) {
+                      seen.add(key);
+                      teams.push({ key, name: getTeamName(p1, p2), isMe: p1 === myUserId || p2 === myUserId });
+                    }
+                  }
+                }
+                return teams;
+              }
+
+              return (
+                <View style={styles.poolsRow}>
+                  {poolRounds.map((round: any, pi: number) => (
+                    <View key={round.id} style={styles.poolBlock}>
+                      <Text style={styles.poolBlockTitle}>
+                        Pool {String.fromCharCode(65 + pi)}
+                      </Text>
+                      {getPoolTeams(round).map((t, i) => (
+                        <View key={t.key} style={styles.poolTeamRow}>
+                          <Text style={styles.poolTeamIndex}>{i + 1}</Text>
+                          <Text
+                            style={[styles.poolTeamText, t.isMe && styles.poolTeamTextMe]}
+                            numberOfLines={2}
+                          >
+                            {t.name}
+                          </Text>
+                          {t.isMe && <Text style={styles.youTag}>YOU</Text>}
+                        </View>
+                      ))}
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
+
+            <View style={styles.bracketDivider} />
+
             {/* Advancement criteria */}
             <View style={styles.advancementCard}>
               <Text style={styles.advancementTitle}>How teams advance</Text>
@@ -781,6 +839,14 @@ const styles = StyleSheet.create({
   coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
   coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
   bracketDivider: { height: 1, backgroundColor: '#eee', marginVertical: 14 },
+  poolsRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+  poolBlock: { flex: 1, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 11, borderWidth: 1, borderColor: '#eee' },
+  poolBlockTitle: { fontSize: 12, fontWeight: '800', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
+  poolTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
+  poolTeamIndex: { width: 16, fontSize: 11, fontWeight: '700', color: '#bbb' },
+  poolTeamText: { flex: 1, fontSize: 12, color: '#333', fontWeight: '500', lineHeight: 16 },
+  poolTeamTextMe: { color: '#2e7d32', fontWeight: '700' },
+  youTag: { fontSize: 9, fontWeight: '800', color: '#2e7d32', backgroundColor: '#e8f5e9', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
   advancementCard: { backgroundColor: '#f0f4ff', borderRadius: 10, padding: 13, borderWidth: 1, borderColor: '#c5cff5' },
   advancementTitle: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 7 },
   advancementRule: { fontSize: 13, color: '#333', lineHeight: 19, marginBottom: 6 },
