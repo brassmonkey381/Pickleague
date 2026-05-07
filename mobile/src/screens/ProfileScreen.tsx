@@ -116,6 +116,7 @@ export default function ProfileScreen({ navigation }: Props) {
   }
 
   return (
+    <>
     <ScrollView contentContainerStyle={styles.container}>
       {/* Avatar + name */}
       <View style={styles.avatarSection}>
@@ -300,6 +301,7 @@ export default function ProfileScreen({ navigation }: Props) {
       onSelect={saveDefaultPaddle}
       onClose={() => setShowPaddlePicker(false)}
     />
+    </>
   );
 }
 
