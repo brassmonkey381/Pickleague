@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import { useTheme } from '../lib/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -15,6 +16,8 @@ function toInputString(d: Date): string {
 }
 
 export default function AppDateTimePicker({ visible, value, minimumDate, onChange, onClose }: Props) {
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
   const [temp, setTemp] = useState(toInputString(value));
 
   useEffect(() => {
@@ -34,31 +37,30 @@ export default function AppDateTimePicker({ visible, value, minimumDate, onChang
       width: '100%',
       border: 'none',
       outline: 'none',
-      backgroundColor: '#fff',
+      backgroundColor: colors.surface,
       boxSizing: 'border-box',
-      color: '#1a1a1a',
+      color: colors.text,
       cursor: 'pointer',
     },
   });
 
   return (
-    // position:'fixed' in RN Web maps to CSS position:fixed — escapes scroll containers
-    <View style={styles.overlay}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.header}>
+    <View style={S.overlay}>
+      <Pressable style={S.backdrop} onPress={onClose} />
+      <View style={S.sheet}>
+        <View style={S.header}>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.cancel}>Cancel</Text>
+            <Text style={S.cancel}>Cancel</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Select Date & Time</Text>
+          <Text style={S.title}>Select Date & Time</Text>
           <TouchableOpacity
             onPress={() => { onChange(new Date(temp)); onClose(); }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Text style={styles.done}>Done</Text>
+            <Text style={S.done}>Done</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.inputWrapper}>
+        <View style={S.inputWrapper}>
           {input}
         </View>
       </View>
@@ -66,55 +68,57 @@ export default function AppDateTimePicker({ visible, value, minimumDate, onChang
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    // @ts-ignore — 'fixed' is valid in RN Web but not in RN ViewStyle types
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-    zIndex: 9999,
-  },
-  backdrop: {
-    flex: 1,
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 40,
-    shadowColor: '#000',
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  title: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#333',
-  },
-  cancel: {
-    fontSize: 16,
-    color: '#888',
-  },
-  done: {
-    fontSize: 16,
-    color: '#2e7d32',
-    fontWeight: '700',
-  },
-  inputWrapper: {
-    paddingVertical: 8,
-  },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    overlay: {
+      // @ts-ignore — 'fixed' is valid in RN Web but not in RN ViewStyle types
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-end',
+      zIndex: 9999,
+    },
+    backdrop: {
+      flex: 1,
+    },
+    sheet: {
+      backgroundColor: c.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingBottom: 40,
+      shadowColor: '#000',
+      shadowOpacity: 0.2,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    title: {
+      fontSize: 15,
+      fontWeight: '600',
+      color: c.text,
+    },
+    cancel: {
+      fontSize: 16,
+      color: c.textMuted,
+    },
+    done: {
+      fontSize: 16,
+      color: c.primary,
+      fontWeight: '700',
+    },
+    inputWrapper: {
+      paddingVertical: 8,
+    },
+  });
+}

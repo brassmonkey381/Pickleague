@@ -8,6 +8,7 @@ import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import AppDateTimePicker from '../components/AppDateTimePicker';
+import { useTheme } from '../lib/ThemeContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateEvent'>;
@@ -50,6 +51,8 @@ function fmtTime(d: Date) {
 
 export default function CreateEventScreen({ navigation, route }: Props) {
   const { leagueId } = route.params;
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -161,52 +164,54 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
         {/* Title */}
-        <Text style={styles.label}>Event Title</Text>
+        <Text style={S.label}>Event Title</Text>
         <TextInput
-          style={styles.input}
+          style={S.input}
           placeholder="e.g. May League Night"
+          placeholderTextColor={colors.textMuted}
           value={title}
           onChangeText={setTitle}
         />
 
-        <Text style={styles.label}>Description (optional)</Text>
+        <Text style={S.label}>Description (optional)</Text>
         <TextInput
-          style={[styles.input, styles.multiline]}
+          style={[S.input, S.multiline]}
           placeholder="Location, notes..."
+          placeholderTextColor={colors.textMuted}
           value={description}
           onChangeText={setDescription}
           multiline
         />
 
         {/* Vote deadline */}
-        <Text style={styles.sectionHeader}>Vote Deadline</Text>
-        <Text style={styles.hint}>Players have until this time to mark their availability.</Text>
+        <Text style={S.sectionHeader}>Vote Deadline</Text>
+        <Text style={S.hint}>Players have until this time to mark their availability.</Text>
 
-        <View style={styles.presetRow}>
+        <View style={S.presetRow}>
           {DEADLINE_PRESETS.map((p) => (
             <TouchableOpacity
               key={p.hours}
-              style={[styles.presetBtn, deadlinePreset === p.hours && !customDeadline && styles.presetBtnActive]}
+              style={[S.presetBtn, deadlinePreset === p.hours && !customDeadline && S.presetBtnActive]}
               onPress={() => { setDeadlinePreset(p.hours); setCustomDeadline(null); }}
             >
-              <Text style={[styles.presetBtnText, deadlinePreset === p.hours && !customDeadline && styles.presetBtnTextActive]}>
+              <Text style={[S.presetBtnText, deadlinePreset === p.hours && !customDeadline && S.presetBtnTextActive]}>
                 {p.label}
               </Text>
             </TouchableOpacity>
           ))}
           <TouchableOpacity
-            style={[styles.presetBtn, !!customDeadline && styles.presetBtnActive]}
+            style={[S.presetBtn, !!customDeadline && S.presetBtnActive]}
             onPress={editDeadline}
           >
-            <Text style={[styles.presetBtnText, !!customDeadline && styles.presetBtnTextActive]}>Custom</Text>
+            <Text style={[S.presetBtnText, !!customDeadline && S.presetBtnTextActive]}>Custom</Text>
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.deadlineDisplay} onPress={editDeadline}>
-          <Text style={styles.deadlineLabel}>Closes</Text>
-          <Text style={styles.deadlineValue}>
+        <TouchableOpacity style={S.deadlineDisplay} onPress={editDeadline}>
+          <Text style={S.deadlineLabel}>Closes</Text>
+          <Text style={S.deadlineValue}>
             {voteEndsAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
             {'  '}
             {voteEndsAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
@@ -214,56 +219,56 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         </TouchableOpacity>
 
         {/* Proposed slots */}
-        <Text style={styles.sectionHeader}>Proposed Time Options</Text>
-        <Text style={styles.hint}>Add 2–6 options. Players vote for the ones they can attend.</Text>
+        <Text style={S.sectionHeader}>Proposed Time Options</Text>
+        <Text style={S.hint}>Add 2–6 options. Players vote for the ones they can attend.</Text>
 
         {slots.map((slot, i) => (
-          <View key={i} style={styles.slotCard}>
-            <View style={styles.slotHeader}>
-              <Text style={styles.slotNum}>Option {i + 1}</Text>
+          <View key={i} style={S.slotCard}>
+            <View style={S.slotHeader}>
+              <Text style={S.slotNum}>Option {i + 1}</Text>
               {slots.length > 2 && (
                 <TouchableOpacity onPress={() => removeSlot(i)}>
-                  <Text style={styles.removeBtn}>Remove</Text>
+                  <Text style={S.removeBtn}>Remove</Text>
                 </TouchableOpacity>
               )}
             </View>
-            <View style={styles.slotRow}>
-              <TouchableOpacity style={styles.timeBtn} onPress={() => editSlot(i, 'start')}>
-                <Text style={styles.timeBtnLabel}>Start</Text>
-                <Text style={styles.timeBtnDate}>{fmtDate(slot.startsAt)}</Text>
-                <Text style={styles.timeBtnTime}>{fmtTime(slot.startsAt)}</Text>
+            <View style={S.slotRow}>
+              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'start')}>
+                <Text style={S.timeBtnLabel}>Start</Text>
+                <Text style={S.timeBtnDate}>{fmtDate(slot.startsAt)}</Text>
+                <Text style={S.timeBtnTime}>{fmtTime(slot.startsAt)}</Text>
               </TouchableOpacity>
-              <Text style={styles.arrow}>→</Text>
-              <TouchableOpacity style={styles.timeBtn} onPress={() => editSlot(i, 'end')}>
-                <Text style={styles.timeBtnLabel}>End</Text>
-                <Text style={styles.timeBtnDate}>{fmtDate(slot.endsAt)}</Text>
-                <Text style={styles.timeBtnTime}>{fmtTime(slot.endsAt)}</Text>
+              <Text style={S.arrow}>→</Text>
+              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'end')}>
+                <Text style={S.timeBtnLabel}>End</Text>
+                <Text style={S.timeBtnDate}>{fmtDate(slot.endsAt)}</Text>
+                <Text style={S.timeBtnTime}>{fmtTime(slot.endsAt)}</Text>
               </TouchableOpacity>
             </View>
           </View>
         ))}
 
         {slots.length < 6 && (
-          <TouchableOpacity style={styles.addSlotBtn} onPress={addSlot}>
-            <Text style={styles.addSlotText}>+ Add another time option</Text>
+          <TouchableOpacity style={S.addSlotBtn} onPress={addSlot}>
+            <Text style={S.addSlotText}>+ Add another time option</Text>
           </TouchableOpacity>
         )}
 
         {/* Status message */}
         {statusMsg && (
-          <View style={[styles.statusBox, statusMsg.isError ? styles.statusError : styles.statusSuccess]}>
-            <Text style={[styles.statusText, statusMsg.isError ? styles.statusTextError : styles.statusTextSuccess]}>
+          <View style={[S.statusBox, statusMsg.isError ? S.statusError : S.statusSuccess]}>
+            <Text style={[S.statusText, statusMsg.isError ? S.statusTextError : S.statusTextSuccess]}>
               {statusMsg.isError ? '✕  ' : '✓  '}{statusMsg.text}
             </Text>
           </View>
         )}
 
         <TouchableOpacity
-          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+          style={[S.submitBtn, loading && S.submitBtnDisabled]}
           onPress={submit}
           disabled={loading}
         >
-          <Text style={styles.submitText}>
+          <Text style={S.submitText}>
             {loading ? 'Creating...' : 'Create Event & Open Voting'}
           </Text>
         </TouchableOpacity>
@@ -281,41 +286,42 @@ export default function CreateEventScreen({ navigation, route }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff', flexGrow: 1, paddingBottom: 40 },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 16 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16 },
-  multiline: { height: 72, textAlignVertical: 'top' },
-  sectionHeader: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginTop: 28, marginBottom: 4 },
-  hint: { fontSize: 13, color: '#888', marginBottom: 12 },
-  presetRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
-  presetBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd' },
-  presetBtnActive: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  presetBtnText: { fontSize: 14, color: '#666', fontWeight: '500' },
-  presetBtnTextActive: { color: GREEN, fontWeight: '700' },
-  deadlineDisplay: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#f5f5f5', borderRadius: 8, padding: 12, marginBottom: 4 },
-  deadlineLabel: { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  deadlineValue: { fontSize: 14, color: '#333', fontWeight: '600' },
-  slotCard: { backgroundColor: '#f9f9f9', borderRadius: 10, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#eee' },
-  slotHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-  slotNum: { fontSize: 14, fontWeight: '700', color: '#333' },
-  removeBtn: { fontSize: 13, color: '#c62828' },
-  slotRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  timeBtn: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, backgroundColor: '#fff', alignItems: 'center' },
-  timeBtnLabel: { fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-  timeBtnDate: { fontSize: 13, fontWeight: '600', color: '#333' },
-  timeBtnTime: { fontSize: 12, color: GREEN, marginTop: 2, fontWeight: '600' },
-  arrow: { fontSize: 18, color: '#bbb' },
-  addSlotBtn: { borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 8, borderStyle: 'dashed' },
-  addSlotText: { color: GREEN, fontWeight: '600', fontSize: 15 },
-  statusBox: { borderRadius: 8, padding: 14, marginTop: 12, marginBottom: 4 },
-  statusError: { backgroundColor: '#ffebee' },
-  statusSuccess: { backgroundColor: '#e8f5e9' },
-  statusText: { fontSize: 14, fontWeight: '600' },
-  statusTextError: { color: '#c62828' },
-  statusTextSuccess: { color: GREEN },
-  submitBtn: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 16 },
-  submitBtnDisabled: { backgroundColor: '#a5d6a7' },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 40 },
+    label: { fontSize: 14, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 16 },
+    input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 16, backgroundColor: c.surface, color: c.text },
+    multiline: { height: 72, textAlignVertical: 'top' },
+    sectionHeader: { fontSize: 16, fontWeight: '700', color: c.text, marginTop: 28, marginBottom: 4 },
+    hint: { fontSize: 13, color: c.textMuted, marginBottom: 12 },
+    presetRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
+    presetBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
+    presetBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    presetBtnText: { fontSize: 14, color: c.textSub, fontWeight: '500' },
+    presetBtnTextActive: { color: c.primary, fontWeight: '700' },
+    deadlineDisplay: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.bg, borderRadius: 8, padding: 12, marginBottom: 4 },
+    deadlineLabel: { fontSize: 12, color: c.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+    deadlineValue: { fontSize: 14, color: c.text, fontWeight: '600' },
+    slotCard: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    slotHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+    slotNum: { fontSize: 14, fontWeight: '700', color: c.text },
+    removeBtn: { fontSize: 13, color: c.danger },
+    slotRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    timeBtn: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, backgroundColor: c.surface, alignItems: 'center' },
+    timeBtnLabel: { fontSize: 10, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
+    timeBtnDate: { fontSize: 13, fontWeight: '600', color: c.text },
+    timeBtnTime: { fontSize: 12, color: c.primary, marginTop: 2, fontWeight: '600' },
+    arrow: { fontSize: 18, color: c.border },
+    addSlotBtn: { borderWidth: 1.5, borderColor: c.primary, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 8, borderStyle: 'dashed' },
+    addSlotText: { color: c.primary, fontWeight: '600', fontSize: 15 },
+    statusBox: { borderRadius: 8, padding: 14, marginTop: 12, marginBottom: 4 },
+    statusError: { backgroundColor: '#ffebee' },
+    statusSuccess: { backgroundColor: c.primaryLight },
+    statusText: { fontSize: 14, fontWeight: '600' },
+    statusTextError: { color: c.danger },
+    statusTextSuccess: { color: c.primary },
+    submitBtn: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 16 },
+    submitBtnDisabled: { backgroundColor: c.primary + '80' },
+    submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  });
+}

@@ -4,6 +4,7 @@ import {
   FlatList, StyleSheet, Pressable, ActivityIndicator,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../lib/ThemeContext';
 
 export type PaddleSelection = {
   brandId: string;
@@ -32,6 +33,9 @@ type Props = {
 };
 
 export default function PaddlePickerModal({ visible, onSelect, onClose, initial }: Props) {
+  const { colors: c } = useTheme();
+  const styles = makeStyles(c);
+
   const [brands, setBrands]           = useState<Brand[]>([]);
   const [dbModels, setDbModels]       = useState<DBModel[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -158,11 +162,12 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
           {/* ── BRAND ── */}
           {step === 'brand' && (
             <>
-              {loading ? <ActivityIndicator style={{ margin: 24 }} color="#2e7d32" /> : (
+              {loading ? <ActivityIndicator style={{ margin: 24 }} color={c.primary} /> : (
                 <>
                   <TextInput
                     style={styles.searchInput}
                     placeholder={`Search ${brands.length} brands…`}
+                    placeholderTextColor={c.textMuted}
                     value={brandSearch}
                     onChangeText={setBrandSearch}
                     autoCorrect={false}
@@ -189,6 +194,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
               <TextInput
                 style={styles.modelInput}
                 placeholder="Type or search a model…"
+                placeholderTextColor={c.textMuted}
                 value={modelSearch || modelInput}
                 onChangeText={v => { setModelSearch(v); setModelInput(v); }}
                 autoFocus
@@ -197,7 +203,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
               />
 
               {loadingModels ? (
-                <ActivityIndicator style={{ marginVertical: 16 }} color="#2e7d32" />
+                <ActivityIndicator style={{ marginVertical: 16 }} color={c.primary} />
               ) : filteredModels.length > 0 ? (
                 <>
                   <Text style={styles.suggestLabel}>
@@ -261,6 +267,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                 <TextInput
                   style={styles.customInput}
                   placeholder="Custom mm (e.g. 11.5)"
+                  placeholderTextColor={c.textMuted}
                   keyboardType="decimal-pad"
                   value={customThickness}
                   onChangeText={setCustomThickness}
@@ -282,49 +289,50 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet:     { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%', paddingBottom: 32 },
-  header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  back:      { fontSize: 15, color: GREEN, fontWeight: '600', width: 60 },
-  title:     { fontSize: 17, fontWeight: '800', color: '#1a1a1a', flex: 1, textAlign: 'center' },
-  closeBtn:  { fontSize: 18, color: '#aaa' },
-  steps:     { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 10 },
-  stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: '#ddd' },
-  stepDotActive: { backgroundColor: GREEN, width: 20 },
-  stepDotDone:   { backgroundColor: GREEN + '88' },
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    sheet:     { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%', paddingBottom: 32 },
+    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
+    back:      { fontSize: 15, color: c.primary, fontWeight: '600', width: 60 },
+    title:     { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, textAlign: 'center' },
+    closeBtn:  { fontSize: 18, color: c.textMuted },
+    steps:     { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 10 },
+    stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: c.border },
+    stepDotActive: { backgroundColor: c.primary, width: 20 },
+    stepDotDone:   { backgroundColor: c.primary + '88' },
 
-  searchInput:  { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-  list:         { maxHeight: 440 },
-  brandRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  brandName:    { flex: 1, fontSize: 16, fontWeight: '600', color: '#1a1a1a' },
-  chevron:      { fontSize: 20, color: '#ccc' },
+    searchInput:  { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    list:         { maxHeight: 440 },
+    brandRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.bg },
+    brandName:    { flex: 1, fontSize: 16, fontWeight: '600', color: c.text },
+    chevron:      { fontSize: 20, color: c.textMuted },
 
-  modelContainer: { flex: 1, padding: 16 },
-  modelInput:     { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 10 },
-  suggestLabel:   { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  suggestList:    { maxHeight: 260, marginBottom: 12 },
-  suggestRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  suggestName:    { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
-  suggestMeta:    { fontSize: 11, color: '#aaa', marginTop: 1 },
-  suggestArrow:   { fontSize: 18, color: '#ccc', marginLeft: 8 },
-  noModels:       { fontSize: 13, color: '#aaa', textAlign: 'center', paddingVertical: 20 },
-  nextBtn:        { backgroundColor: GREEN, borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 8 },
-  nextBtnDisabled:{ backgroundColor: '#ccc' },
-  nextBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+    modelContainer: { flex: 1, padding: 16 },
+    modelInput:     { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 10, color: c.text, backgroundColor: c.surface },
+    suggestLabel:   { fontSize: 12, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+    suggestList:    { maxHeight: 260, marginBottom: 12 },
+    suggestRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: c.bg },
+    suggestName:    { fontSize: 14, fontWeight: '600', color: c.text },
+    suggestMeta:    { fontSize: 11, color: c.textMuted, marginTop: 1 },
+    suggestArrow:   { fontSize: 18, color: c.textMuted, marginLeft: 8 },
+    noModels:       { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 20 },
+    nextBtn:        { backgroundColor: c.primary, borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 8 },
+    nextBtnDisabled:{ backgroundColor: c.textMuted },
+    nextBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
 
-  thicknessContainer: { padding: 16 },
-  selectedModelPreview: { fontSize: 13, color: '#888', textAlign: 'center', marginBottom: 14, fontStyle: 'italic' },
-  stepLabel:  { fontSize: 14, fontWeight: '700', color: '#333', marginBottom: 4 },
-  stepHint:   { fontSize: 12, color: '#aaa', marginBottom: 14 },
-  thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: '#eee', marginBottom: 10 },
-  thicknessRowActive: { borderColor: GREEN, backgroundColor: '#f0faf0' },
-  thicknessLabel:       { fontSize: 16, fontWeight: '600', color: '#333' },
-  thicknessLabelActive: { color: GREEN },
-  checkmark:    { fontSize: 18, color: GREEN, fontWeight: '800' },
-  customRow:    { flexDirection: 'row', gap: 10, marginTop: 4 },
-  customInput:  { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 12, fontSize: 15 },
-  customConfirm:{ backgroundColor: GREEN, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
-  customConfirmText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-});
+    thicknessContainer: { padding: 16 },
+    selectedModelPreview: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginBottom: 14, fontStyle: 'italic' },
+    stepLabel:  { fontSize: 14, fontWeight: '700', color: c.textSub, marginBottom: 4 },
+    stepHint:   { fontSize: 12, color: c.textMuted, marginBottom: 14 },
+    thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, marginBottom: 10 },
+    thicknessRowActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    thicknessLabel:       { fontSize: 16, fontWeight: '600', color: c.textSub },
+    thicknessLabelActive: { color: c.primary },
+    checkmark:    { fontSize: 18, color: c.primary, fontWeight: '800' },
+    customRow:    { flexDirection: 'row', gap: 10, marginTop: 4 },
+    customInput:  { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 12, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    customConfirm:{ backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
+    customConfirmText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  });
+}

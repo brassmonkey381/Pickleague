@@ -8,6 +8,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { LeagueEvent, EventSlot, Profile, RootStackParamList } from '../types';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -34,6 +36,9 @@ function useCountdown(endsAt: string) {
 
 export default function EventDetailScreen({ navigation, route }: Props) {
   const { eventId } = route.params;
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const [event, setEvent] = useState<LeagueEvent | null>(null);
   const [slots, setSlots] = useState<EventSlot[]>([]);
   const [memberCount, setMemberCount] = useState(0);
@@ -142,36 +147,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => setCanClose(isPrivileged(r)));
   }, [event?.league_id]);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
-  if (!event) return <Text style={{ padding: 24 }}>Event not found.</Text>;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (!event) return <Text style={{ padding: 24, color: c.text }}>Event not found.</Text>;
 
   const confirmedSlot = event.confirmed_slot_id ? slots.find((s) => s.id === event.confirmed_slot_id) : null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Header */}
-      <View style={styles.header}>
-        {event.description ? <Text style={styles.desc}>{event.description}</Text> : null}
-        <View style={styles.statusRow}>
+      <View style={S.header}>
+        {event.description ? <Text style={S.desc}>{event.description}</Text> : null}
+        <View style={S.statusRow}>
           {votingIsOpen ? (
             <>
-              <View style={styles.dotOpen} />
-              <Text style={styles.statusOpen}>Voting open · {countdown}</Text>
+              <View style={S.dotOpen} />
+              <Text style={S.statusOpen}>Voting open · {countdown}</Text>
             </>
           ) : event.status === 'scheduled' ? (
             <>
-              <View style={styles.dotScheduled} />
-              <Text style={styles.statusScheduled}>Confirmed</Text>
+              <View style={S.dotScheduled} />
+              <Text style={S.statusScheduled}>Confirmed</Text>
             </>
           ) : (
             <>
-              <View style={styles.dotClosed} />
-              <Text style={styles.statusClosed}>Voting closed · {countdown}</Text>
+              <View style={S.dotClosed} />
+              <Text style={S.statusClosed}>Voting closed · {countdown}</Text>
             </>
           )}
         </View>
         {votingIsOpen && (
-          <Text style={styles.voteDeadline}>
+          <Text style={S.voteDeadline}>
             Deadline: {new Date(event.vote_ends_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
           </Text>
         )}
@@ -179,23 +184,23 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Confirmed slot banner */}
       {confirmedSlot && (
-        <View style={styles.confirmedBanner}>
-          <Text style={styles.confirmedLabel}>Confirmed Time</Text>
-          <Text style={styles.confirmedDate}>
+        <View style={S.confirmedBanner}>
+          <Text style={S.confirmedLabel}>Confirmed Time</Text>
+          <Text style={S.confirmedDate}>
             {new Date(confirmedSlot.starts_at).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
           </Text>
-          <Text style={styles.confirmedTime}>
+          <Text style={S.confirmedTime}>
             {new Date(confirmedSlot.starts_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
             {' – '}
             {new Date(confirmedSlot.ends_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
           </Text>
-          <Text style={styles.confirmedAttendeeCount}>{confirmedAttendees.length} player{confirmedAttendees.length !== 1 ? 's' : ''} confirmed</Text>
+          <Text style={S.confirmedAttendeeCount}>{confirmedAttendees.length} player{confirmedAttendees.length !== 1 ? 's' : ''} confirmed</Text>
         </View>
       )}
 
       {/* Voting instruction */}
       {votingIsOpen && (
-        <Text style={styles.voteInstruction}>
+        <Text style={S.voteInstruction}>
           Tap the slots you're available for. You can select multiple.
         </Text>
       )}
@@ -210,37 +215,37 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         return (
           <TouchableOpacity
             key={slot.id}
-            style={[styles.slotCard, isWinner && styles.slotCardWinner, isMyVote && styles.slotCardVoted]}
+            style={[S.slotCard, isWinner && S.slotCardWinner, isMyVote && S.slotCardVoted]}
             onPress={() => toggleVote(slot)}
             disabled={!votingIsOpen || isTogglingThis}
             activeOpacity={votingIsOpen ? 0.7 : 1}
           >
-            <View style={styles.slotTop}>
-              <View style={styles.slotDateBlock}>
-                <Text style={styles.slotDay}>
+            <View style={S.slotTop}>
+              <View style={S.slotDateBlock}>
+                <Text style={S.slotDay}>
                   {new Date(slot.starts_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                 </Text>
-                <Text style={styles.slotTime}>
+                <Text style={S.slotTime}>
                   {new Date(slot.starts_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                   {' – '}
                   {new Date(slot.ends_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               </View>
-              <View style={styles.slotRight}>
-                {isWinner && <Text style={styles.winnerStar}>★</Text>}
+              <View style={S.slotRight}>
+                {isWinner && <Text style={S.winnerStar}>★</Text>}
                 {isMyVote && !isWinner && (
-                  <View style={styles.myVoteBadge}>
-                    <Text style={styles.myVoteText}>✓ Available</Text>
+                  <View style={S.myVoteBadge}>
+                    <Text style={S.myVoteText}>✓ Available</Text>
                   </View>
                 )}
               </View>
             </View>
 
             {/* Progress bar */}
-            <View style={styles.progressBg}>
-              <View style={[styles.progressFill, { width: `${pct * 100}%` as any }, isWinner && styles.progressFillWinner]} />
+            <View style={S.progressBg}>
+              <View style={[S.progressFill, { width: `${pct * 100}%` as any }, isWinner && S.progressFillWinner]} />
             </View>
-            <Text style={styles.voteCount}>
+            <Text style={S.voteCount}>
               {slot.vote_count} / {memberCount} {memberCount === 1 ? 'player' : 'players'} available
             </Text>
           </TouchableOpacity>
@@ -249,22 +254,22 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Creator actions */}
       {canClose && votingIsOpen && (
-        <TouchableOpacity style={styles.closeVoteBtn} onPress={closeVoting}>
-          <Text style={styles.closeVoteText}>Close Voting & Confirm Top Slot</Text>
+        <TouchableOpacity style={S.closeVoteBtn} onPress={closeVoting}>
+          <Text style={S.closeVoteText}>Close Voting & Confirm Top Slot</Text>
         </TouchableOpacity>
       )}
 
       {/* Confirmed attendees */}
       {confirmedAttendees.length > 0 && (
-        <View style={styles.attendeesSection}>
-          <Text style={styles.attendeesTitle}>Confirmed Players ({confirmedAttendees.length})</Text>
+        <View style={S.attendeesSection}>
+          <Text style={S.attendeesTitle}>Confirmed Players ({confirmedAttendees.length})</Text>
           {confirmedAttendees.map((p) => (
-            <View key={p.id} style={styles.attendeeRow}>
-              <View style={styles.attendeeAvatar}>
-                <Text style={styles.attendeeInitial}>{p.full_name[0].toUpperCase()}</Text>
+            <View key={p.id} style={S.attendeeRow}>
+              <View style={S.attendeeAvatar}>
+                <Text style={S.attendeeInitial}>{p.full_name[0].toUpperCase()}</Text>
               </View>
-              <Text style={styles.attendeeName}>{p.full_name}</Text>
-              <Text style={styles.attendeeRating}>{p.rating}</Text>
+              <Text style={S.attendeeName}>{p.full_name}</Text>
+              <Text style={S.attendeeRating}>{p.rating}</Text>
             </View>
           ))}
         </View>
@@ -273,47 +278,48 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: { backgroundColor: '#fff', padding: 16, marginBottom: 8 },
-  desc: { fontSize: 14, color: '#555', marginBottom: 8 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dotOpen: { width: 8, height: 8, borderRadius: 4, backgroundColor: GREEN },
-  dotScheduled: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1565c0' },
-  dotClosed: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#e65100' },
-  statusOpen: { fontSize: 14, color: GREEN, fontWeight: '600' },
-  statusScheduled: { fontSize: 14, color: '#1565c0', fontWeight: '600' },
-  statusClosed: { fontSize: 14, color: '#e65100', fontWeight: '600' },
-  voteDeadline: { fontSize: 12, color: '#888', marginTop: 4 },
-  confirmedBanner: { backgroundColor: '#1565c0', margin: 12, borderRadius: 12, padding: 18, alignItems: 'center' },
-  confirmedLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  confirmedDate: { fontSize: 20, fontWeight: '800', color: '#fff' },
-  confirmedTime: { fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
-  confirmedAttendeeCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 6 },
-  voteInstruction: { fontSize: 13, color: '#888', textAlign: 'center', marginVertical: 8, paddingHorizontal: 16 },
-  slotCard: { backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 10, borderRadius: 12, padding: 14, borderWidth: 2, borderColor: 'transparent', elevation: 1 },
-  slotCardVoted: { borderColor: GREEN, backgroundColor: '#f0faf0' },
-  slotCardWinner: { borderColor: '#1565c0', backgroundColor: '#e8eaf6' },
-  slotTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-  slotDateBlock: {},
-  slotDay: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  slotTime: { fontSize: 14, color: '#555', marginTop: 2 },
-  slotRight: { alignItems: 'flex-end' },
-  winnerStar: { fontSize: 22, color: '#1565c0' },
-  myVoteBadge: { backgroundColor: '#e8f5e9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  myVoteText: { fontSize: 12, color: GREEN, fontWeight: '700' },
-  progressBg: { height: 6, backgroundColor: '#eee', borderRadius: 3, overflow: 'hidden', marginBottom: 6 },
-  progressFill: { height: 6, backgroundColor: GREEN, borderRadius: 3 },
-  progressFillWinner: { backgroundColor: '#1565c0' },
-  voteCount: { fontSize: 12, color: '#888' },
-  closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 10, padding: 16, alignItems: 'center' },
-  closeVoteText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  attendeesSection: { backgroundColor: '#fff', margin: 12, borderRadius: 12, padding: 16 },
-  attendeesTitle: { fontSize: 16, fontWeight: '700', color: '#1a1a1a', marginBottom: 12 },
-  attendeeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  attendeeAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e8f5e9', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  attendeeInitial: { fontSize: 16, fontWeight: '700', color: GREEN },
-  attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: '#1a1a1a' },
-  attendeeRating: { fontSize: 14, fontWeight: '700', color: GREEN },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    header: { backgroundColor: c.surface, padding: 16, marginBottom: 8 },
+    desc: { fontSize: 14, color: c.textSub, marginBottom: 8 },
+    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    dotOpen: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.primary },
+    dotScheduled: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1565c0' },
+    dotClosed: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#e65100' },
+    statusOpen: { fontSize: 14, color: c.primary, fontWeight: '600' },
+    statusScheduled: { fontSize: 14, color: '#1565c0', fontWeight: '600' },
+    statusClosed: { fontSize: 14, color: '#e65100', fontWeight: '600' },
+    voteDeadline: { fontSize: 12, color: c.textMuted, marginTop: 4 },
+    confirmedBanner: { backgroundColor: '#1565c0', margin: 12, borderRadius: 14, padding: 18, alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4 },
+    confirmedLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+    confirmedDate: { fontSize: 20, fontWeight: '800', color: '#fff' },
+    confirmedTime: { fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
+    confirmedAttendeeCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 6 },
+    voteInstruction: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginVertical: 8, paddingHorizontal: 16 },
+    slotCard: { backgroundColor: c.surface, marginHorizontal: 12, marginBottom: 10, borderRadius: 14, padding: 14, borderWidth: 2, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+    slotCardVoted: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    slotCardWinner: { borderColor: '#1565c0', backgroundColor: '#e8eaf6' },
+    slotTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
+    slotDateBlock: {},
+    slotDay: { fontSize: 15, fontWeight: '700', color: c.text },
+    slotTime: { fontSize: 14, color: c.textSub, marginTop: 2 },
+    slotRight: { alignItems: 'flex-end' },
+    winnerStar: { fontSize: 22, color: '#1565c0' },
+    myVoteBadge: { backgroundColor: c.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    myVoteText: { fontSize: 12, color: c.primary, fontWeight: '700' },
+    progressBg: { height: 6, backgroundColor: c.border, borderRadius: 3, overflow: 'hidden', marginBottom: 6 },
+    progressFill: { height: 6, backgroundColor: c.primary, borderRadius: 3 },
+    progressFillWinner: { backgroundColor: '#1565c0' },
+    voteCount: { fontSize: 12, color: c.textMuted },
+    closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 12, padding: 16, alignItems: 'center' },
+    closeVoteText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    attendeesSection: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+    attendeesTitle: { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 12 },
+    attendeeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
+    attendeeAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+    attendeeInitial: { fontSize: 16, fontWeight: '700', color: c.primary },
+    attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: c.text },
+    attendeeRating: { fontSize: 14, fontWeight: '700', color: c.primary },
+  });
+}

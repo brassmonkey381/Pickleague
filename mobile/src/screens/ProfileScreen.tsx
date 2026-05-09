@@ -1,24 +1,82 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
+  ActivityIndicator, ScrollView, Image, Dimensions,
+} from 'react-native';
+
+// container padding 24×2 + card padding 16×2 = 80; 3 gaps × 6 = 18
+const LOC_PILL_W = Math.floor((Dimensions.get('window').width - 80 - 18) / 4);
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../lib/ThemeContext';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
+import AvatarPickerModal from '../components/AvatarPickerModal';
+import TagPickerModal from '../components/TagPickerModal';
+import AvailabilityGrid from '../components/AvailabilityGrid';
+import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
+import { TOTAL_CELLS } from '../lib/availability';
+import { computeReliability } from '../lib/reliability';
+import {
+  computeAllPartnerChemistry, fmtDelta, chemistryColor,
+  ChemistryResult, DoublesMatch,
+} from '../lib/chemistry';
+import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
+
+// Shared progress row used inside the Unlockable Rewards card
+function UnlockProgressRow({
+  prog,
+}: {
+  prog: { text: string; pct: number; showBar: boolean };
+}) {
+  const { colors: c } = useTheme();
+  if (!prog.showBar) {
+    return <Text style={{ fontSize: 11, color: c.textMuted, fontStyle: 'italic' }}>{prog.text}</Text>;
+  }
+  const filled = Math.max(prog.pct, 0.02);
+  const empty  = 1 - filled;
+  return (
+    <>
+      <View style={{ flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border }}>
+        <View style={[{ backgroundColor: c.primary }, { flex: filled }]} />
+        {empty > 0 && <View style={[{ backgroundColor: c.border }, { flex: empty }]} />}
+      </View>
+      <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{prog.text}</Text>
+    </>
+  );
+}
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
 export default function ProfileScreen({ navigation }: Props) {
-  const [profile, setProfile]           = useState<Profile | null>(null);
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const GREEN = colors.primary;
+  const [profile, setProfile]             = useState<Profile | null>(null);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
-  const [badges, setBadges]             = useState<BadgeItem[]>([]);
-  const [username, setUsername]         = useState('');
-  const [badgesPublic, setBadgesPublic] = useState(true);
+  const [badges, setBadges]               = useState<BadgeItem[]>([]);
+  const [username, setUsername]           = useState('');
+  const [tagline, setTagline]             = useState('');
+  const [selectedTags, setSelectedTags]   = useState<string[]>([]);
+  const [avatarId, setAvatarId]           = useState(1);
+  const [photoUrl, setPhotoUrl]           = useState<string | null>(null);
+  const [badgesPublic, setBadgesPublic]   = useState(true);
   const [defaultPaddle, setDefaultPaddle] = useState<(PaddleSelection & { paddleId: string }) | null>(null);
-  const [showPaddlePicker, setShowPaddlePicker] = useState(false);
-  const [loading, setLoading]           = useState(true);
-  const [saving, setSaving]             = useState(false);
-  const [userId, setUserId]             = useState<string | null>(null);
+  const [availability, setAvailability]   = useState<boolean[]>(Array(TOTAL_CELLS).fill(false));
+  const [avSaveStatus, setAvSaveStatus]   = useState<'idle' | 'saving' | 'saved' | 'error' | 'needs-migration'>('idle');
+  const avSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [chemistryResults, setChemistryResults] = useState<ChemistryResult[]>([]);
+  const [partnerNames, setPartnerNames] = useState<Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }>>({});
+  // badgeProgress: keyed by badge name, value is { text, pct, showBar }
+  const [badgeProgress, setBadgeProgress] = useState<Record<string, { text: string; pct: number; showBar: boolean }>>({});
+  const [showPaddlePicker, setShowPaddlePicker]   = useState(false);
+  const [showAvatarPicker, setShowAvatarPicker]   = useState(false);
+  const [showTagPicker, setShowTagPicker]         = useState(false);
+  const [gridScrollLocked, setGridScrollLocked]   = useState(false);
+  const [loading, setLoading]             = useState(true);
+  const [saving, setSaving]               = useState(false);
+  const [userId, setUserId]               = useState<string | null>(null);
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -30,48 +88,232 @@ export default function ProfileScreen({ navigation }: Props) {
     const [profileRes, locRes, badgesRes, paddleRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('player_location_ratings')
-        .select('*').eq('user_id', user.id)
-        .order('rating', { ascending: false }),
+        .select('*').eq('user_id', user.id).order('rating', { ascending: false }),
       supabase.from('player_badges')
         .select('*, badge:badges(*), league:leagues(name)')
-        .eq('user_id', user.id)
-        .order('earned_at'),
+        .eq('user_id', user.id).order('earned_at'),
       supabase.from('player_paddles')
         .select('*, brand:paddle_brands(id, name)')
-        .eq('user_id', user.id)
-        .eq('is_default', true)
-        .maybeSingle(),
+        .eq('user_id', user.id).eq('is_default', true).maybeSingle(),
     ]);
+
     if (paddleRes.data) {
       const p = paddleRes.data;
       setDefaultPaddle({ paddleId: p.id, brandId: p.brand.id, brandName: p.brand.name, modelName: p.model_name, thicknessMm: p.thickness_mm });
     }
-
     if (profileRes.data) {
-      setProfile(profileRes.data);
-      setUsername(profileRes.data.username);
-      setBadgesPublic(profileRes.data.badges_public ?? true);
+      const d = profileRes.data;
+      setProfile(d);
+      setUsername(d.username);
+      setBadgesPublic(d.badges_public ?? true);
+      setAvatarId(d.avatar_id ?? 1);
+      setPhotoUrl(d.avatar_url ?? null);
+      setTagline(d.tagline ?? '');
+      setSelectedTags(d.selected_tags ?? []);
+      const av = d.availability;
+      setAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : Array(TOTAL_CELLS).fill(false));
     }
     setLocationRatings((locRes.data ?? []) as PlayerLocationRating[]);
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLoading(false);
+
+    // Load chemistry + badge progress in background (non-blocking)
+    loadChemistry(user.id);
+    loadBadgeProgress(user.id, profileRes.data);
+  }
+
+  async function loadBadgeProgress(uid: string, prof: any) {
+    if (!prof) return;
+
+    // One query covers win streak, location variety, and match type counts
+    const { data: matches } = await supabase
+      .from('matches')
+      .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
+      .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
+      .order('played_at', { ascending: false })
+      .limit(200);
+
+    const mx = matches ?? [];
+
+    const didWin = (m: any) => {
+      const t1 = m.player1_id === uid || m.partner1_id === uid;
+      return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
+    };
+
+    // Current win streak (matches are newest-first)
+    let streak = 0;
+    for (const m of mx) {
+      if (didWin(m)) streak++;
+      else break;
+    }
+
+    // Distinct courts played
+    const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
+
+    // Doubles and singles counts
+    const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
+    const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
+
+    // Account age in days
+    const memberDays = Math.floor(
+      (Date.now() - new Date(prof.created_at).getTime()) / 86_400_000,
+    );
+
+    const elo = prof.rating ?? 1000;
+
+    const entry = (
+      current: number,
+      target: number,
+      label: (c: number, t: number) => string,
+    ) => ({
+      text:    label(current, target),
+      pct:     Math.min(current / target, 1),
+      showBar: true,
+    });
+
+    const league = () => ({
+      text:    'Progress tracked per-league',
+      pct:     0,
+      showBar: false,
+    });
+
+    setBadgeProgress({
+      'Hot Streak':        entry(streak,       5,    (c, t) => `${c} / ${t} wins in a row`),
+      'Top Rated':         entry(elo,          1150, (c, t) => `${c} / ${t} ELO`),
+      'Veteran':           entry(memberDays,   30,   (c, t) => `${c} / ${t} days as member`),
+      'Court Hopper':      entry(courts,       5,    (c, t) => `${c} / ${t} courts played`),
+      'Doubles Dynamo':    entry(doublesPlayed, 20,  (c, t) => `${c} / ${t} doubles matches`),
+      'Singles Specialist':entry(singlesPlayed, 25,  (c, t) => `${c} / ${t} singles matches`),
+      'First Rally':       entry(Math.min(mx.length, prof.total_matches_played ?? mx.length), 1, (c) => `${c} match${c === 1 ? '' : 'es'} played`),
+      // League-specific — no numeric global progress available
+      'League Leader':     league(),
+      'Hat Trick':         league(),
+      'Home Court Hero':   league(),
+      'League Regular':    league(),
+      'Dominant':          league(),
+      'Iron Player':       league(),
+      'Comeback King':     league(),
+    });
+  }
+
+  async function loadChemistry(uid: string) {
+    const { data } = await supabase
+      .from('matches')
+      .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, player1_rating_before, player2_rating_before')
+      .eq('match_type', 'doubles')
+      .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
+      .limit(500);
+    if (!data || data.length === 0) return;
+
+    const results = computeAllPartnerChemistry(uid, data as DoublesMatch[]);
+    setChemistryResults(results.slice(0, 6));
+
+    if (results.length > 0) {
+      const ids = results.slice(0, 6).map(r => r.partnerId);
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_id, avatar_url')
+        .in('id', ids);
+      const map: Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }> = {};
+      for (const p of (profiles ?? []) as any[]) map[p.id] = p;
+      setPartnerNames(map);
+    }
   }
 
   async function saveProfile() {
     if (!userId) return;
     setSaving(true);
-    const { error } = await supabase.from('profiles').update({ username, badges_public: badgesPublic }).eq('id', userId);
-    if (error) Alert.alert('Error', error.message);
-    else Alert.alert('Saved!');
+
+    const fullPayload = {
+      username,
+      badges_public: badgesPublic,
+      avatar_url:    photoUrl,
+      avatar_id:     avatarId,
+      tagline:       tagline.trim() || null,
+      selected_tags: selectedTags,
+      availability,
+    };
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(fullPayload)
+      .eq('id', userId)
+      .select('id')
+      .single();
+
+    if (!error && data) {
+      Alert.alert('Saved!');
+      setSaving(false);
+      return;
+    }
+
+    // If the migration hasn't been run yet, PostgREST returns PGRST204 for missing
+    // columns and the entire update is rejected — including username.  Fall back to
+    // saving only the columns that always exist so at least the core fields save.
+    const isMissingColumn =
+      error?.code === 'PGRST204' ||
+      error?.message?.toLowerCase().includes('column') ||
+      error?.message?.toLowerCase().includes('schema cache');
+
+    if (isMissingColumn) {
+      const { error: fallbackErr } = await supabase
+        .from('profiles')
+        .update({ username, badges_public: badgesPublic, avatar_url: photoUrl })
+        .eq('id', userId);
+
+      if (fallbackErr) {
+        Alert.alert('Error', fallbackErr.message);
+      } else {
+        Alert.alert(
+          'Partially saved',
+          'Username and photo saved.\n\nRun these two migrations in your Supabase SQL Editor to unlock all features:\n• migration_add_profile_customization.sql\n• migration_add_availability.sql',
+        );
+      }
+    } else if (!data && !error) {
+      // Update ran but matched 0 rows — session / RLS mismatch
+      Alert.alert('Not saved', 'Your session may have expired. Please log out and back in.');
+    } else {
+      Alert.alert('Error', error?.message ?? 'Unknown error');
+    }
+
     setSaving(false);
+  }
+
+  // Auto-saves availability immediately whenever the grid changes.
+  // Fires once per drag-release or preset tap — no debounce needed.
+  async function handleAvailabilityChange(newAv: boolean[]) {
+    setAvailability(newAv);
+    if (!userId) return;
+
+    setAvSaveStatus('saving');
+    if (avSaveTimer.current) clearTimeout(avSaveTimer.current);
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ availability: newAv })
+      .eq('id', userId);
+
+    if (!error) {
+      setAvSaveStatus('saved');
+      avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 2500);
+    } else if (error.code === 'PGRST204' || error.message?.toLowerCase().includes('column')) {
+      setAvSaveStatus('needs-migration');
+    } else {
+      setAvSaveStatus('error');
+      avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 4000);
+    }
+  }
+
+  function handleAvatarSave(id: number, url: string | null) {
+    setAvatarId(id);
+    setPhotoUrl(url);
+    setShowAvatarPicker(false);
   }
 
   async function saveDefaultPaddle(sel: PaddleSelection) {
     if (!userId) return;
     setShowPaddlePicker(false);
-    // Clear any existing default first
     await supabase.from('player_paddles').update({ is_default: false }).eq('user_id', userId);
-    // Upsert the new default paddle
     const { data, error } = await supabase.from('player_paddles').upsert({
       user_id:      userId,
       brand_id:     sel.brandId,
@@ -100,82 +342,152 @@ export default function ProfileScreen({ navigation }: Props) {
     setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={GREEN} />;
 
-  const initials = profile?.full_name
-    .split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2) ?? '?';
+  const earnedBadgeNames = badges.map(b => b.badge.name);
+  const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
+  const currentAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
 
   const singlesRating = profile?.singles_rating ?? profile?.rating ?? 1000;
   const doublesRating = profile?.doubles_rating ?? profile?.rating ?? 1000;
 
-  // Group location ratings by location name
-  const locationGroups: Record<string, { singles?: PlayerLocationRating; doubles?: PlayerLocationRating }> = {};
-  for (const r of locationRatings) {
-    if (!locationGroups[r.location_name]) locationGroups[r.location_name] = {};
-    locationGroups[r.location_name][r.match_type] = r;
-  }
+  // Unlocks progress helpers
+  const lockedAvatars   = AVATARS.filter(a => !!a.unlock);
+  const lockedTagsCount = PLAY_TAGS.filter(t => !!t.unlock).length;
 
   return (
     <>
-    <ScrollView contentContainerStyle={styles.container}>
-      {/* Avatar + name */}
+    <ScrollView contentContainerStyle={styles.container} scrollEnabled={!gridScrollLocked}>
+
+      {/* ── Avatar / photo ─────────────────────────────────────── */}
       <View style={styles.avatarSection}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarInitials}>{initials}</Text>
-        </View>
+        <TouchableOpacity onPress={() => setShowAvatarPicker(true)} activeOpacity={0.8}>
+          {photoUrl ? (
+            <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />
+          ) : (
+            <View style={[styles.avatarCircle, { backgroundColor: currentAvatar.bgColor }]}>
+              <Text style={styles.avatarEmoji}>{currentAvatar.emoji}</Text>
+            </View>
+          )}
+          <View style={styles.avatarEditBadge}>
+            <Text style={styles.avatarEditBadgeText}>✏️</Text>
+          </View>
+        </TouchableOpacity>
         <Text style={styles.fullName}>{profile?.full_name}</Text>
+        {tagline ? <Text style={styles.taglineDisplay}>{tagline}</Text> : null}
+
+        {/* Selected tags display under name */}
+        {selectedTags.length > 0 && (
+          <View style={styles.tagsDisplayRow}>
+            {selectedTags.map(slug => {
+              const tag = PLAY_TAGS.find(t => t.slug === slug);
+              return tag ? (
+                <View key={slug} style={styles.tagDisplayChip}>
+                  <Text style={styles.tagDisplayText}>{tag.label}</Text>
+                </View>
+              ) : null;
+            })}
+          </View>
+        )}
       </View>
 
-      {/* ELO breakdown */}
-      <View style={styles.eloCard}>
-        <Text style={styles.eloCardTitle}>ELO Ratings</Text>
-        <View style={styles.eloRow}>
-          <View style={styles.eloItem}>
-            <Text style={styles.eloValue}>{profile?.rating ?? 1000}</Text>
-            <Text style={styles.eloLabel}>Overall</Text>
-          </View>
-          <View style={styles.eloDivider} />
-          <View style={styles.eloItem}>
-            <Text style={styles.eloValue}>{singlesRating}</Text>
-            <Text style={styles.eloLabel}>Singles</Text>
-          </View>
-          <View style={styles.eloDivider} />
-          <View style={styles.eloItem}>
-            <Text style={styles.eloValue}>{doublesRating}</Text>
-            <Text style={styles.eloLabel}>Doubles</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Location ratings */}
-      {Object.keys(locationGroups).length > 0 && (
-        <View style={styles.locationCard}>
-          <Text style={styles.locationTitle}>Court Ratings</Text>
-          {Object.entries(locationGroups).map(([loc, ratings]) => (
-            <View key={loc} style={styles.locationRow}>
-              <Text style={styles.locationName} numberOfLines={1}>📍 {loc}</Text>
-              <View style={styles.locationRatings}>
-                {ratings.singles && (
-                  <View style={styles.locRatingPill}>
-                    <Text style={styles.locRatingValue}>{ratings.singles.rating}</Text>
-                    <Text style={styles.locRatingType}>1v1</Text>
-                    <Text style={styles.locRatingRecord}>{ratings.singles.wins}W-{ratings.singles.losses}L</Text>
-                  </View>
-                )}
-                {ratings.doubles && (
-                  <View style={[styles.locRatingPill, styles.locRatingPillDoubles]}>
-                    <Text style={styles.locRatingValue}>{ratings.doubles.rating}</Text>
-                    <Text style={styles.locRatingType}>2v2</Text>
-                    <Text style={styles.locRatingRecord}>{ratings.doubles.wins}W-{ratings.doubles.losses}L</Text>
-                  </View>
-                )}
+      {/* ── ELO ratings ─────────────────────────────────────────── */}
+      {(() => {
+        const rel = computeReliability(
+          profile?.total_matches_played ?? 0,
+          profile?.last_match_at ?? null,
+        );
+        return (
+          <View style={styles.eloCard}>
+            <View style={styles.eloCardHeader}>
+              <Text style={styles.cardTitle}>ELO Ratings</Text>
+              <View style={styles.reliabilityPill}>
+                <View style={styles.reliabilityDots}>
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <View key={i} style={[styles.reliabilityDot, i < rel.dots && { backgroundColor: rel.color }]} />
+                  ))}
+                </View>
+                <Text style={[styles.reliabilityLabel, { color: rel.color }]}>{rel.label}</Text>
               </View>
             </View>
-          ))}
+            <Text style={styles.reliabilityDetail}>{rel.detail}</Text>
+            <View style={styles.eloRow}>
+              <View style={styles.eloItem}>
+                <Text style={styles.eloValue}>{profile?.rating ?? 1000}</Text>
+                <Text style={styles.eloLabel}>Overall</Text>
+              </View>
+              <View style={styles.eloDivider} />
+              <View style={styles.eloItem}>
+                <Text style={styles.eloValue}>{singlesRating}</Text>
+                <Text style={styles.eloLabel}>Singles</Text>
+              </View>
+              <View style={styles.eloDivider} />
+              <View style={styles.eloItem}>
+                <Text style={styles.eloValue}>{doublesRating}</Text>
+                <Text style={styles.eloLabel}>Doubles</Text>
+              </View>
+            </View>
+          </View>
+        );
+      })()}
+
+      {/* ── Location ratings ────────────────────────────────────── */}
+      {locationRatings.length > 0 && (
+        <View style={styles.locationCard}>
+          <Text style={styles.cardTitle}>Court Ratings</Text>
+          <View style={styles.locationGrid}>
+            {locationRatings.map(r => (
+              <View key={r.id} style={[styles.locPill, r.match_type === 'doubles' && styles.locPillDoubles]}>
+                <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
+                <Text style={styles.locPillRating}>{r.rating}</Text>
+                <Text style={styles.locPillType}>{r.match_type === 'singles' ? '1v1' : '2v2'}</Text>
+                <Text style={styles.locPillRecord}>{r.wins}W-{r.losses}L</Text>
+              </View>
+            ))}
+          </View>
         </View>
       )}
 
-      {/* Default Paddle */}
+      {/* ── Partner Chemistry ────────────────────────────────────── */}
+      {chemistryResults.length > 0 && (
+        <View style={styles.chemCard}>
+          <Text style={styles.cardTitle}>🤝 Doubles Chemistry</Text>
+          <Text style={styles.chemSubtitle}>Win-rate boost vs your baseline when playing with each partner</Text>
+          {chemistryResults.map(r => {
+            const partner = partnerNames[r.partnerId];
+            if (!partner) return null;
+            const av = AVATAR_LIST.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATAR_LIST[0];
+            const color = chemistryColor(r.overallDelta);
+            const deltaStr = fmtDelta(r.overallDelta);
+            return (
+              <View key={r.partnerId} style={styles.chemRow}>
+                <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
+                  <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
+                </View>
+                <View style={styles.chemInfo}>
+                  <Text style={styles.chemName} numberOfLines={1}>{partner.full_name}</Text>
+                  {r.insights[0] ? (
+                    <Text style={styles.chemInsight} numberOfLines={1}>{r.insights[0]}</Text>
+                  ) : (
+                    <Text style={styles.chemInsight}>{r.matchesTogether} match{r.matchesTogether !== 1 ? 'es' : ''} together</Text>
+                  )}
+                </View>
+                <View style={styles.chemMatchCount}>
+                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}🎾</Text>
+                </View>
+                <View style={[styles.chemBadge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
+                  <Text style={[styles.chemBadgeText, { color }]}>{deltaStr}</Text>
+                </View>
+              </View>
+            );
+          })}
+          {!chemistryResults.some(r => r.significant) && (
+            <Text style={styles.chemHint}>Play 5+ doubles matches with a partner to unlock deeper insights</Text>
+          )}
+        </View>
+      )}
+
+      {/* ── Default Paddle ───────────────────────────────────────── */}
       <View style={styles.paddleCard}>
         <View style={styles.paddleHeader}>
           <Text style={styles.paddleTitle}>🏓 Default Paddle</Text>
@@ -199,14 +511,41 @@ export default function ProfileScreen({ navigation }: Props) {
         ) : (
           <TouchableOpacity style={styles.paddleEmpty} onPress={() => setShowPaddlePicker(true)}>
             <Text style={styles.paddleEmptyText}>+ Set your default paddle</Text>
-            <Text style={styles.paddleEmptyHint}>
-              Auto-filled when recording matches. Editable within 72 hours.
-            </Text>
+            <Text style={styles.paddleEmptyHint}>Auto-filled when recording matches. Editable within 72 hours.</Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {/* Badges */}
+      {/* ── Availability ─────────────────────────────────────────── */}
+      <View style={styles.availCard}>
+        <View style={styles.availHeader}>
+          <View style={styles.availTitleRow}>
+            <Text style={styles.availTitle}>📅 Weekly Availability</Text>
+            {avSaveStatus === 'saving' && (
+              <Text style={styles.avStatusSaving}>Saving…</Text>
+            )}
+            {avSaveStatus === 'saved' && (
+              <Text style={styles.avStatusSaved}>✓ Saved</Text>
+            )}
+            {avSaveStatus === 'error' && (
+              <Text style={styles.avStatusError}>⚠ Save failed</Text>
+            )}
+            {avSaveStatus === 'needs-migration' && (
+              <Text style={styles.avStatusError}>Run migration_add_availability.sql</Text>
+            )}
+          </View>
+          <Text style={styles.availSubtitle}>
+            Auto-saved · used for event filters and player matching
+          </Text>
+        </View>
+        <AvailabilityGrid
+          availability={availability}
+          onChange={handleAvailabilityChange}
+          onScrollLock={setGridScrollLocked}
+        />
+      </View>
+
+      {/* ── Badges ──────────────────────────────────────────────── */}
       {badges.length > 0 && (
         <View style={styles.badgeCard}>
           <View style={styles.badgeHeader}>
@@ -223,10 +562,7 @@ export default function ProfileScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-
-          <Text style={styles.badgeHint}>Tap a badge to see why you earned it. Use the Hide option inside to control what others see.</Text>
-
-          {/* Profile badges */}
+          <Text style={styles.badgeHint}>Tap a badge to see why you earned it.</Text>
           {badges.filter(b => b.badge.category === 'profile').length > 0 && (
             <>
               <Text style={styles.badgeCatLabel}>Profile</Text>
@@ -237,8 +573,6 @@ export default function ProfileScreen({ navigation }: Props) {
               </View>
             </>
           )}
-
-          {/* League badges */}
           {badges.filter(b => b.badge.category === 'league').length > 0 && (
             <>
               <Text style={styles.badgeCatLabel}>League</Text>
@@ -249,8 +583,6 @@ export default function ProfileScreen({ navigation }: Props) {
               </View>
             </>
           )}
-
-          {/* Public toggle */}
           <View style={styles.privacyRow}>
             <Text style={styles.privacyLabel}>Show badges on my public profile</Text>
             <TouchableOpacity
@@ -265,16 +597,151 @@ export default function ProfileScreen({ navigation }: Props) {
         </View>
       )}
 
-      {/* Editable username */}
+      {/* ── Edit section ─────────────────────────────────────────── */}
       <View style={styles.fieldGroup}>
         <Text style={styles.fieldLabel}>Username</Text>
-        <TextInput style={styles.input} value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false} placeholder="your handle" />
+        <TextInput
+          style={styles.input}
+          value={username}
+          onChangeText={setUsername}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="your handle"
+        />
         <Text style={styles.fieldHint}>This is how you appear in league standings.</Text>
       </View>
 
+      <View style={styles.fieldGroup}>
+        <Text style={styles.fieldLabel}>Tagline</Text>
+        <TextInput
+          style={styles.input}
+          value={tagline}
+          onChangeText={t => setTagline(t.slice(0, 50))}
+          placeholder="Describe yourself in 50 chars…"
+          maxLength={50}
+        />
+        <Text style={[styles.fieldHint, tagline.length > 44 && styles.fieldHintWarn]}>
+          {tagline.length}/50 characters
+        </Text>
+      </View>
+
+      {/* Play style tags editor */}
+      <View style={styles.tagsCard}>
+        <View style={styles.tagsHeader}>
+          <Text style={styles.fieldLabel}>Play Style Tags</Text>
+          <TouchableOpacity onPress={() => setShowTagPicker(true)}>
+            <Text style={styles.tagsEditBtn}>{selectedTags.length === 0 ? '+ Add Tags' : 'Edit'}</Text>
+          </TouchableOpacity>
+        </View>
+        {selectedTags.length === 0 ? (
+          <TouchableOpacity onPress={() => setShowTagPicker(true)}>
+            <Text style={styles.tagsEmpty}>Tap to pick up to {maxTagSlots} tags that describe your game</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.tagsRow}>
+            {selectedTags.map(slug => {
+              const tag = PLAY_TAGS.find(t => t.slug === slug);
+              return tag ? (
+                <View key={slug} style={styles.tagChip}>
+                  <Text style={styles.tagChipText}>{tag.label}</Text>
+                </View>
+              ) : null;
+            })}
+          </View>
+        )}
+        <Text style={styles.tagsSlotHint}>{selectedTags.length}/{maxTagSlots} tag slots used</Text>
+      </View>
+
       <TouchableOpacity style={styles.button} onPress={saveProfile} disabled={saving}>
-        <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Save Changes'}</Text>
+        <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
       </TouchableOpacity>
+
+      {/* ── Unlocks progress ─────────────────────────────────────── */}
+      <View style={styles.unlocksCard}>
+        <Text style={styles.unlocksSectionTitle}>🔓 Unlockable Rewards</Text>
+        <Text style={styles.unlocksSubtitle}>Earn badges to unlock special avatars, tags, and tag slots.</Text>
+
+        {/* Avatar unlocks */}
+        <Text style={styles.unlockCatLabel}>Special Avatars</Text>
+        {lockedAvatars.map(av => {
+          const earned = earnedBadgeNames.includes(av.unlock!.badge);
+          const prog   = badgeProgress[av.unlock!.badge];
+          return (
+            <View key={av.id} style={styles.unlockRow}>
+              <View style={[styles.unlockAvatarCircle, { backgroundColor: earned ? av.bgColor : '#eeeeee' }]}>
+                <Text style={[styles.unlockAvatarEmoji, !earned && { opacity: 0.4 }]}>{av.emoji}</Text>
+              </View>
+              <View style={styles.unlockInfo}>
+                <View style={styles.unlockNameRow}>
+                  <Text style={styles.unlockName}>{av.name} Avatar</Text>
+                  {earned && <Text style={styles.earnedCheckText}>✓ Unlocked</Text>}
+                </View>
+                <Text style={styles.unlockBadgeName}>{av.unlock!.badge}</Text>
+                {!earned && prog ? (
+                  <UnlockProgressRow prog={prog} />
+                ) : (
+                  <Text style={styles.unlockReq}>{av.unlock!.description}</Text>
+                )}
+              </View>
+            </View>
+          );
+        })}
+
+        {/* Tag slot unlocks */}
+        <Text style={styles.unlockCatLabel}>Extra Tag Slots</Text>
+        {TAG_SLOT_UNLOCKS.map(u => {
+          const earned = earnedBadgeNames.includes(u.badge);
+          const prog   = badgeProgress[u.badge];
+          return (
+            <View key={u.slots} style={styles.unlockRow}>
+              <View style={[styles.unlockAvatarCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
+                <Text style={[styles.unlockAvatarEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
+              </View>
+              <View style={styles.unlockInfo}>
+                <View style={styles.unlockNameRow}>
+                  <Text style={styles.unlockName}>Tag Slot #{u.slots}</Text>
+                  {earned && <Text style={styles.earnedCheckText}>✓ Unlocked</Text>}
+                </View>
+                <Text style={styles.unlockBadgeName}>{u.badge}</Text>
+                {!earned && prog ? (
+                  <UnlockProgressRow prog={prog} />
+                ) : (
+                  <Text style={styles.unlockReq}>{u.description}</Text>
+                )}
+              </View>
+            </View>
+          );
+        })}
+
+        {/* Locked tags summary with earned count */}
+        {(() => {
+          const earnedTagUnlocks = PLAY_TAGS
+            .filter(t => t.unlock)
+            .filter(t => earnedBadgeNames.includes(t.unlock!.badge)).length;
+          return (
+            <View style={styles.unlockTagsRow}>
+              <Text style={styles.unlockAvatarEmoji}>🏷️</Text>
+              <View style={styles.unlockInfo}>
+                <View style={styles.unlockNameRow}>
+                  <Text style={styles.unlockName}>Exclusive Tags</Text>
+                  <Text style={[styles.earnedCheckText, earnedTagUnlocks === 0 && { color: '#bbb' }]}>
+                    {earnedTagUnlocks}/{lockedTagsCount} earned
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { flex: Math.max(earnedTagUnlocks / lockedTagsCount, 0.02) }]} />
+                  {earnedTagUnlocks < lockedTagsCount && (
+                    <View style={[styles.progressEmpty, { flex: 1 - earnedTagUnlocks / lockedTagsCount }]} />
+                  )}
+                </View>
+                <Text style={styles.unlockReq}>
+                  Earn badges like Hot Streak, Dominant, Veteran, and more to wear exclusive tags.
+                </Text>
+              </View>
+            </View>
+          );
+        })()}
+      </View>
 
       <View style={styles.divider} />
 
@@ -293,6 +760,7 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.secondarySub}>W-L and ELO changes by day</Text>
         </View>
       </TouchableOpacity>
+
     </ScrollView>
 
     <PaddlePickerModal
@@ -301,74 +769,176 @@ export default function ProfileScreen({ navigation }: Props) {
       onSelect={saveDefaultPaddle}
       onClose={() => setShowPaddlePicker(false)}
     />
+
+    {userId && (
+      <AvatarPickerModal
+        visible={showAvatarPicker}
+        currentAvatarId={avatarId}
+        currentPhotoUrl={photoUrl}
+        earnedBadgeNames={earnedBadgeNames}
+        userId={userId}
+        onSave={handleAvatarSave}
+        onClose={() => setShowAvatarPicker(false)}
+      />
+    )}
+
+    <TagPickerModal
+      visible={showTagPicker}
+      selectedTags={selectedTags}
+      maxSlots={maxTagSlots}
+      earnedBadgeNames={earnedBadgeNames}
+      onSave={tags => { setSelectedTags(tags); setShowTagPicker(false); }}
+      onClose={() => setShowTagPicker(false)}
+    />
     </>
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: '#fff', flexGrow: 1 },
-  avatarSection: { alignItems: 'center', marginBottom: 20 },
-  avatar: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#e8f5e9', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  avatarInitials: { fontSize: 34, fontWeight: '800', color: GREEN },
-  fullName: { fontSize: 24, fontWeight: '700', color: '#1a1a1a' },
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const GREEN = c.primary;
+  return StyleSheet.create({
+  container:  { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
 
-  eloCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
-  eloCardTitle: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
-  eloRow: { flexDirection: 'row', alignItems: 'center' },
-  eloItem: { flex: 1, alignItems: 'center' },
-  eloValue: { fontSize: 26, fontWeight: '800', color: GREEN },
-  eloLabel: { fontSize: 12, color: '#888', marginTop: 2 },
-  eloDivider: { width: 1, height: 36, backgroundColor: '#e0e0e0' },
+  // Avatar section
+  avatarSection:    { alignItems: 'center', marginBottom: 20 },
+  avatarCircle:     { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 4 },
+  avatarPhoto:      { width: 90, height: 90, borderRadius: 45, marginBottom: 12 },
+  avatarEmoji:      { fontSize: 48 },
+  avatarEditBadge:  { position: 'absolute', bottom: 10, right: -4, width: 26, height: 26, borderRadius: 13, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+  avatarEditBadgeText: { fontSize: 12 },
+  fullName:         { fontSize: 24, fontWeight: '700', color: c.text, marginBottom: 4 },
+  taglineDisplay:   { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginBottom: 8 },
+  tagsDisplayRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 4 },
+  tagDisplayChip:   { backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  tagDisplayText:   { fontSize: 12, color: GREEN, fontWeight: '600' },
 
-  locationCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
-  locationTitle: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
-  locationRow: { marginBottom: 10 },
-  locationName: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 5 },
-  locationRatings: { flexDirection: 'row', gap: 8 },
-  locRatingPill: { backgroundColor: '#e8f5e9', borderRadius: 8, padding: 8, alignItems: 'center', minWidth: 72 },
-  locRatingPillDoubles: { backgroundColor: '#e3f2fd' },
-  locRatingValue: { fontSize: 18, fontWeight: '800', color: '#1a1a1a' },
-  locRatingType: { fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 },
-  locRatingRecord: { fontSize: 11, color: '#666', marginTop: 2 },
+  // Shared card title
+  cardTitle:  { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
 
-  badgeCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
-  badgeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  badgeSectionTitle: { fontSize: 13, fontWeight: '700', color: '#555', textTransform: 'uppercase', letterSpacing: 0.5 },
-  badgeActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  badgeActionText: { fontSize: 12, color: GREEN, fontWeight: '600' },
-  badgeSep: { fontSize: 12, color: '#ccc' },
-  badgeHint: { fontSize: 11, color: '#aaa', marginBottom: 10 },
-  badgeCatLabel: { fontSize: 11, color: '#bbb', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 6, marginBottom: 4 },
-  badgeGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -4, marginBottom: 4 },
-  privacyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#eee' },
-  privacyLabel: { fontSize: 13, color: '#555', flex: 1 },
-  privacyToggle: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#f5f5f5' },
-  privacyToggleOn: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  privacyToggleText: { fontSize: 13, fontWeight: '600', color: '#aaa' },
+  // ELO + reliability
+  eloCard:            { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  eloCardHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  reliabilityPill:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  reliabilityDots:    { flexDirection: 'row', gap: 3 },
+  reliabilityDot:     { width: 7, height: 7, borderRadius: 4, backgroundColor: c.border },
+  reliabilityLabel:   { fontSize: 11, fontWeight: '700' },
+  reliabilityDetail:  { fontSize: 11, color: c.textMuted, marginBottom: 10 },
+  eloRow:             { flexDirection: 'row', alignItems: 'center' },
+  eloItem:            { flex: 1, alignItems: 'center' },
+  eloValue:           { fontSize: 26, fontWeight: '800', color: GREEN },
+  eloLabel:           { fontSize: 12, color: c.textMuted, marginTop: 2 },
+  eloDivider:         { width: 1, height: 36, backgroundColor: c.border },
+
+  // Chemistry
+  chemCard:           { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  chemSubtitle:       { fontSize: 11, color: c.textMuted, marginBottom: 10 },
+  chemRow:            { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  chemAvatar:         { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  chemAvatarEmoji:    { fontSize: 19 },
+  chemInfo:           { flex: 1 },
+  chemName:           { fontSize: 14, fontWeight: '700', color: c.text },
+  chemInsight:        { fontSize: 11, color: c.textMuted, marginTop: 1 },
+  chemMatchCount:     { paddingHorizontal: 6 },
+  chemMatchCountText: { fontSize: 11, color: c.textMuted },
+  chemBadge:          { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
+  chemBadgeText:      { fontSize: 13, fontWeight: '800' },
+  chemHint:           { fontSize: 11, color: c.textMuted, marginTop: 4 },
+
+  // Location
+  locationCard:   { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  locationGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  locPill:        { width: LOC_PILL_W, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
+  locPillDoubles: { backgroundColor: '#e3f2fd' },
+  locPillCourt:   { fontSize: 9, color: c.textMuted, width: '100%', textAlign: 'center', marginBottom: 2 },
+  locPillRating:  { fontSize: 18, fontWeight: '800', color: c.text, lineHeight: 22 },
+  locPillType:    { fontSize: 9, color: c.textSub, textTransform: 'uppercase' as const, letterSpacing: 0.4, marginTop: 1 },
+  locPillRecord:  { fontSize: 10, color: c.textSub, marginTop: 2 },
+
+  // Paddle
+  paddleCard:      { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  paddleHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  paddleTitle:     { fontSize: 15, fontWeight: '700', color: c.text },
+  paddleRemove:    { fontSize: 13, color: c.danger },
+  paddleSelected:  { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: c.border },
+  paddleInfo:      { flex: 1 },
+  paddleBrand:     { fontSize: 12, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  paddleModel:     { fontSize: 15, fontWeight: '700', color: c.text, marginTop: 1 },
+  paddleThickness: { fontSize: 12, color: GREEN, marginTop: 2, fontWeight: '500' },
+  paddleEdit:      { fontSize: 13, color: GREEN, fontWeight: '600' },
+  paddleEmpty:     { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', borderStyle: 'dashed' },
+  paddleEmptyText: { fontSize: 15, color: GREEN, fontWeight: '600', marginBottom: 4 },
+  paddleEmptyHint: { fontSize: 12, color: c.textMuted, textAlign: 'center' },
+
+  // Availability
+  availCard:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  availHeader:      { marginBottom: 10 },
+  availTitleRow:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  availTitle:       { fontSize: 15, fontWeight: '700', color: c.text },
+  availSubtitle:    { fontSize: 12, color: c.textMuted },
+  avStatusSaving:   { fontSize: 12, color: c.textMuted },
+  avStatusSaved:    { fontSize: 12, color: GREEN, fontWeight: '600' },
+  avStatusError:    { fontSize: 12, color: '#e65100', fontWeight: '600', flexShrink: 1 },
+
+  // Badges
+  badgeCard:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  badgeHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  badgeSectionTitle:{ fontSize: 13, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.8 },
+  badgeActions:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  badgeActionText:  { fontSize: 12, color: GREEN, fontWeight: '600' },
+  badgeSep:         { fontSize: 12, color: c.textMuted },
+  badgeHint:        { fontSize: 11, color: c.textMuted, marginBottom: 10 },
+  badgeCatLabel:    { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 6, marginBottom: 4 },
+  badgeGrid:        { flexDirection: 'row', flexWrap: 'wrap', margin: -4, marginBottom: 4 },
+  privacyRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
+  privacyLabel:     { fontSize: 13, color: c.textSub, flex: 1 },
+  privacyToggle:    { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+  privacyToggleOn:  { borderColor: GREEN, backgroundColor: c.primaryLight },
+  privacyToggleText:{ fontSize: 13, fontWeight: '600', color: c.textMuted },
   privacyToggleTextOn: { color: GREEN },
-  paddleCard: { backgroundColor: '#f9f9f9', borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
-  paddleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  paddleTitle: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  paddleRemove: { fontSize: 13, color: '#c62828' },
-  paddleSelected: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#ddd' },
-  paddleInfo: { flex: 1 },
-  paddleBrand: { fontSize: 12, color: '#888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  paddleModel: { fontSize: 15, fontWeight: '700', color: '#1a1a1a', marginTop: 1 },
-  paddleThickness: { fontSize: 12, color: '#2e7d32', marginTop: 2, fontWeight: '500' },
-  paddleEdit: { fontSize: 13, color: '#2e7d32', fontWeight: '600' },
-  paddleEmpty: { borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10, padding: 14, alignItems: 'center', borderStyle: 'dashed' },
-  paddleEmptyText: { fontSize: 15, color: '#2e7d32', fontWeight: '600', marginBottom: 4 },
-  paddleEmptyHint: { fontSize: 12, color: '#aaa', textAlign: 'center' },
-  fieldGroup: { marginBottom: 4, marginTop: 8 },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16 },
-  fieldHint: { fontSize: 12, color: '#aaa', marginTop: 5 },
-  button: { backgroundColor: GREEN, padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 20 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  divider: { height: 1, backgroundColor: '#eee', marginVertical: 28 },
-  secondaryCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 16, marginBottom: 12 },
+
+  // Edit fields
+  fieldGroup:    { marginBottom: 14, marginTop: 4 },
+  fieldLabel:    { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
+  input:         { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, color: c.text, backgroundColor: c.surface },
+  fieldHint:     { fontSize: 12, color: c.textMuted, marginTop: 5 },
+  fieldHintWarn: { color: '#e65100' },
+
+  // Tags editor
+  tagsCard:      { marginBottom: 14 },
+  tagsHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  tagsEditBtn:   { fontSize: 13, color: GREEN, fontWeight: '700' },
+  tagsEmpty:     { fontSize: 14, color: c.textMuted, fontStyle: 'italic', paddingVertical: 8 },
+  tagsRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 },
+  tagChip:       { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: GREEN },
+  tagChipText:   { fontSize: 13, color: GREEN, fontWeight: '700' },
+  tagsSlotHint:  { fontSize: 12, color: c.textMuted, marginTop: 4 },
+
+  button:        { backgroundColor: GREEN, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 8, marginBottom: 24 },
+  buttonText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  // Unlocks progress
+  unlocksCard:       { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: c.border },
+  unlocksSectionTitle:{ fontSize: 16, fontWeight: '800', color: c.text, marginBottom: 4 },
+  unlocksSubtitle:   { fontSize: 13, color: c.textMuted, marginBottom: 14 },
+  unlockCatLabel:    { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
+  unlockRow:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
+  unlockTagsRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
+  unlockAvatarCircle: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  unlockAvatarEmoji:  { fontSize: 24 },
+  unlockInfo:         { flex: 1 },
+  unlockNameRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 },
+  unlockName:         { fontSize: 14, fontWeight: '700', color: c.text, flex: 1 },
+  earnedCheckText:    { fontSize: 11, color: GREEN, fontWeight: '700' },
+  unlockBadgeName:    { fontSize: 11, color: GREEN, fontWeight: '600', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 2 },
+  unlockReq:          { fontSize: 12, color: c.textMuted },
+  progressTrack:      { flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border },
+  progressFill:       { backgroundColor: GREEN },
+  progressEmpty:      { backgroundColor: c.border },
+
+  divider:       { height: 1, backgroundColor: c.border, marginVertical: 8, marginBottom: 20 },
+  secondaryCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: c.surface, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: c.border },
   secondaryIcon: { fontSize: 28 },
-  secondaryLabel: { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
-  secondarySub: { fontSize: 13, color: '#666', marginTop: 2 },
-});
+  secondaryLabel:{ fontSize: 16, fontWeight: '700', color: c.text },
+  secondarySub:  { fontSize: 13, color: c.textSub, marginTop: 2 },
+  });
+}

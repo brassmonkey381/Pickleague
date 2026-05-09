@@ -8,6 +8,9 @@ import { supabase } from '../lib/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { REGIONS, getRegionName, inRegion } from '../lib/regions';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
+import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'> };
 
@@ -56,6 +59,9 @@ function fmtDate(iso: string) {
 }
 
 export default function LeaguesScreen({ navigation }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const [allLeagues, setAllLeagues]   = useState<LeagueWithStats[]>([]);
   const [loading, setLoading]         = useState(true);
   const [showFilters, setShowFilters] = useState(false);
@@ -76,15 +82,25 @@ export default function LeaguesScreen({ navigation }: Props) {
   const [createError, setCreateError] = useState('');
   const [creating, setCreating]       = useState(false);
 
+  // Per-account create limit
+  const [godmode, setGodmode]                       = useState(false);
+  const [activeAdminLeagueCount, setActiveAdminLeagueCount] = useState(0);
+  const atLeagueLimit = !godmode && activeAdminLeagueCount >= 1;
+
   useEffect(() => { loadLeagues(); }, []);
 
   async function loadLeagues() {
     setLoading(true);
 
-    const [{ data: leagueRows }, { data: { user } }] = await Promise.all([
+    const [{ data: leagueRows }, { data: { user } }, godmodeResult] = await Promise.all([
       supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false }),
       supabase.auth.getUser(),
+      checkGodmode(),
     ]);
+    setGodmode(godmodeResult);
+    if (user?.id) {
+      setActiveAdminLeagueCount(await countActiveAdminLeagues(user.id));
+    }
 
     if (!leagueRows) { setLoading(false); return; }
 
@@ -131,6 +147,10 @@ export default function LeaguesScreen({ navigation }: Props) {
 
   async function createLeague() {
     setCreateError('');
+    if (atLeagueLimit) {
+      setCreateError("You're already running an active league. Close it first or have an admin transfer ownership before starting another.");
+      return;
+    }
     if (!name.trim()) { setCreateError('Please enter a league name.'); return; }
     setCreating(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -228,69 +248,69 @@ export default function LeaguesScreen({ navigation }: Props) {
   function renderLeagueCard({ item }: { item: LeagueWithStats }) {
     return (
       <TouchableOpacity
-        style={styles.card}
+        style={S.card}
         onPress={() => navigation.navigate('LeagueDetail', { leagueId: item.id, leagueName: item.name })}
         activeOpacity={0.75}
       >
         {/* Title row */}
-        <View style={styles.cardTitleRow}>
-          <Text style={styles.leagueName} numberOfLines={1}>{item.name}</Text>
-          <View style={[styles.openBadge, !item.is_open && styles.privateBadge]}>
-            <Text style={[styles.openBadgeText, !item.is_open && styles.privateBadgeText]}>
+        <View style={S.cardTitleRow}>
+          <Text style={S.leagueName} numberOfLines={1}>{item.name}</Text>
+          <View style={[S.openBadge, !item.is_open && S.privateBadge]}>
+            <Text style={[S.openBadgeText, !item.is_open && S.privateBadgeText]}>
               {item.is_open ? 'Open' : 'Private'}
             </Text>
           </View>
         </View>
 
         {item.description ? (
-          <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
+          <Text style={S.description} numberOfLines={2}>{item.description}</Text>
         ) : null}
 
         {/* Home court */}
         {item.home_court ? (
-          <View style={styles.homeCourtRow}>
-            <Text style={styles.homeCourtPin}>📍</Text>
-            <Text style={styles.homeCourtText} numberOfLines={1}>{item.home_court}</Text>
+          <View style={S.homeCourtRow}>
+            <Text style={S.homeCourtPin}>📍</Text>
+            <Text style={S.homeCourtText} numberOfLines={1}>{item.home_court}</Text>
             {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null) && (
-              <View style={styles.regionChip}>
-                <Text style={styles.regionChipText}>
+              <View style={S.regionChip}>
+                <Text style={S.regionChipText}>
                   {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null)}
                 </Text>
               </View>
             )}
           </View>
         ) : (
-          <Text style={styles.noCourtText}>📍 No home court set</Text>
+          <Text style={S.noCourtText}>📍 No home court set</Text>
         )}
 
         {/* Stats row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{item.memberCount}</Text>
-            <Text style={styles.statLabel}>Players</Text>
+        <View style={S.statsRow}>
+          <View style={S.statItem}>
+            <Text style={S.statValue}>{item.memberCount}</Text>
+            <Text style={S.statLabel}>Players</Text>
           </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{item.matchCount}</Text>
-            <Text style={styles.statLabel}>Matches</Text>
+          <View style={S.statDivider} />
+          <View style={S.statItem}>
+            <Text style={S.statValue}>{item.matchCount}</Text>
+            <Text style={S.statLabel}>Matches</Text>
           </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{item.distinctPlayDays}</Text>
-            <Text style={styles.statLabel}>Play Days</Text>
+          <View style={S.statDivider} />
+          <View style={S.statItem}>
+            <Text style={S.statValue}>{item.distinctPlayDays}</Text>
+            <Text style={S.statLabel}>Play Days</Text>
           </View>
         </View>
 
         {/* Footer: created date + role/join status */}
-        <View style={styles.cardFooter}>
-          <Text style={styles.createdText}>Created {fmtDate(item.created_at)}</Text>
+        <View style={S.cardFooter}>
+          <Text style={S.createdText}>Created {fmtDate(item.created_at)}</Text>
         </View>
 
         {/* Role / membership row */}
-        <View style={styles.membershipRow}>
+        <View style={S.membershipRow}>
           <Text style={[
-            styles.roleStatusText,
-            item.myRole ? styles.roleStatusJoined : styles.roleStatusNot,
+            S.roleStatusText,
+            item.myRole ? S.roleStatusJoined : S.roleStatusNot,
           ]}>
             {item.myRole
               ? `Your Role: ${item.myRole.charAt(0).toUpperCase() + item.myRole.slice(1).replace('-', '-')}`
@@ -300,25 +320,25 @@ export default function LeaguesScreen({ navigation }: Props) {
           {/* Open league — show Join if not a member */}
           {!item.myRole && item.is_open && (
             <TouchableOpacity
-              style={styles.joinBtn}
+              style={S.joinBtn}
               onPress={(e) => { e.stopPropagation?.(); joinLeague(item.id); }}
             >
-              <Text style={styles.joinText}>Join</Text>
+              <Text style={S.joinText}>Join</Text>
             </TouchableOpacity>
           )}
 
           {/* Private league — show Request Code if not a member */}
           {!item.myRole && !item.is_open && (
             item.hasRequested ? (
-              <View style={styles.requestedBadge}>
-                <Text style={styles.requestedText}>Requested</Text>
+              <View style={S.requestedBadge}>
+                <Text style={S.requestedText}>Requested</Text>
               </View>
             ) : (
               <TouchableOpacity
-                style={styles.requestBtn}
+                style={S.requestBtn}
                 onPress={(e) => { e.stopPropagation?.(); requestCode(item.id, item.name); }}
               >
-                <Text style={styles.requestText}>Request Code</Text>
+                <Text style={S.requestText}>Request Code</Text>
               </TouchableOpacity>
             )
           )}
@@ -328,51 +348,51 @@ export default function LeaguesScreen({ navigation }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={S.container}>
       {/* Filter bar */}
-      <View style={styles.filterBar}>
-        <Text style={styles.resultCount}>
+      <View style={S.filterBar}>
+        <Text style={S.resultCount}>
           {filtered.length} {filtered.length === 1 ? 'league' : 'leagues'}
         </Text>
         <TouchableOpacity
-          style={[styles.filterBtn, numActiveFilters > 0 && styles.filterBtnActive]}
+          style={[S.filterBtn, numActiveFilters > 0 && S.filterBtnActive]}
           onPress={() => setShowFilters((v) => !v)}
         >
-          <Text style={[styles.filterBtnText, numActiveFilters > 0 && styles.filterBtnTextActive]}>
+          <Text style={[S.filterBtnText, numActiveFilters > 0 && S.filterBtnTextActive]}>
             Filters{numActiveFilters > 0 ? ` (${numActiveFilters})` : ''}
           </Text>
         </TouchableOpacity>
         {numActiveFilters > 0 && (
-          <TouchableOpacity onPress={() => setFilters(DEFAULT_FILTERS)} style={styles.clearBtn}>
-            <Text style={styles.clearBtnText}>Clear</Text>
+          <TouchableOpacity onPress={() => setFilters(DEFAULT_FILTERS)} style={S.clearBtn}>
+            <Text style={S.clearBtnText}>Clear</Text>
           </TouchableOpacity>
         )}
       </View>
 
       {/* Collapsible filter panel */}
       {showFilters && (
-        <View style={styles.filterPanel}>
+        <View style={S.filterPanel}>
           {/* Open only */}
-          <View style={styles.filterRow}>
-            <Text style={styles.filterLabel}>Open leagues only</Text>
+          <View style={S.filterRow}>
+            <Text style={S.filterLabel}>Open leagues only</Text>
             <Switch
               value={filters.openOnly}
               onValueChange={(v) => setFilter('openOnly', v)}
-              trackColor={{ true: GREEN }}
-              thumbColor="#fff"
+              trackColor={{ true: c.primary }}
+              thumbColor={c.surface}
             />
           </View>
 
           {/* Created within */}
-          <Text style={styles.filterLabel}>Created within</Text>
-          <View style={styles.pillRow}>
+          <Text style={S.filterLabel}>Created within</Text>
+          <View style={S.pillRow}>
             {CREATED_WITHIN_OPTIONS.map((o) => (
               <TouchableOpacity
                 key={String(o.value)}
-                style={[styles.pill, filters.createdWithin === o.value && styles.pillActive]}
+                style={[S.pill, filters.createdWithin === o.value && S.pillActive]}
                 onPress={() => setFilter('createdWithin', o.value)}
               >
-                <Text style={[styles.pillText, filters.createdWithin === o.value && styles.pillTextActive]}>
+                <Text style={[S.pillText, filters.createdWithin === o.value && S.pillTextActive]}>
                   {o.label}
                 </Text>
               </TouchableOpacity>
@@ -380,15 +400,15 @@ export default function LeaguesScreen({ navigation }: Props) {
           </View>
 
           {/* Min players */}
-          <Text style={styles.filterLabel}>Minimum players</Text>
-          <View style={styles.pillRow}>
+          <Text style={S.filterLabel}>Minimum players</Text>
+          <View style={S.pillRow}>
             {MIN_PLAYERS_OPTIONS.map((o) => (
               <TouchableOpacity
                 key={o.value}
-                style={[styles.pill, filters.minPlayers === o.value && styles.pillActive]}
+                style={[S.pill, filters.minPlayers === o.value && S.pillActive]}
                 onPress={() => setFilter('minPlayers', o.value)}
               >
-                <Text style={[styles.pillText, filters.minPlayers === o.value && styles.pillTextActive]}>
+                <Text style={[S.pillText, filters.minPlayers === o.value && S.pillTextActive]}>
                   {o.label}
                 </Text>
               </TouchableOpacity>
@@ -396,21 +416,21 @@ export default function LeaguesScreen({ navigation }: Props) {
           </View>
 
           {/* Region */}
-          <Text style={styles.filterLabel}>Region</Text>
-          <View style={styles.pillRow}>
+          <Text style={S.filterLabel}>Region</Text>
+          <View style={S.pillRow}>
             <TouchableOpacity
-              style={[styles.pill, filters.region === null && styles.pillActive]}
+              style={[S.pill, filters.region === null && S.pillActive]}
               onPress={() => setFilter('region', null)}
             >
-              <Text style={[styles.pillText, filters.region === null && styles.pillTextActive]}>All</Text>
+              <Text style={[S.pillText, filters.region === null && S.pillTextActive]}>All</Text>
             </TouchableOpacity>
             {REGIONS.map((r) => (
               <TouchableOpacity
                 key={r.name}
-                style={[styles.pill, filters.region === r.name && styles.pillActive]}
+                style={[S.pill, filters.region === r.name && S.pillActive]}
                 onPress={() => setFilter('region', r.name)}
               >
-                <Text style={[styles.pillText, filters.region === r.name && styles.pillTextActive]}>
+                <Text style={[S.pillText, filters.region === r.name && S.pillTextActive]}>
                   {r.name}
                 </Text>
               </TouchableOpacity>
@@ -425,89 +445,112 @@ export default function LeaguesScreen({ navigation }: Props) {
         renderItem={renderLeagueCard}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListEmptyComponent={
-          <Text style={styles.empty}>
+          <Text style={S.empty}>
             {loading ? 'Loading...' : allLeagues.length === 0 ? 'No leagues yet. Create one!' : 'No leagues match your filters.'}
           </Text>
         }
       />
 
-      <View style={styles.fabRow}>
-        <TouchableOpacity style={styles.fabSecondary} onPress={() => setShowJoinCode(true)}>
-          <Text style={styles.fabSecondaryText}>Enter Code</Text>
+      <View style={S.fabRow}>
+        <TouchableOpacity style={S.fabSecondary} onPress={() => setShowJoinCode(true)}>
+          <Text style={S.fabSecondaryText}>Enter Code</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.fab} onPress={() => setShowCreate(true)}>
-          <Text style={styles.fabText}>+ New League</Text>
+        <TouchableOpacity
+          style={[S.fab, atLeagueLimit && S.fabDisabled]}
+          onPress={() => {
+            if (atLeagueLimit) {
+              Alert.alert(
+                'Active league limit reached',
+                "You're already running an active league. You can only be admin of one active league at a time. Close it first (or have an admin transfer ownership) before starting another.",
+              );
+              return;
+            }
+            setShowCreate(true);
+          }}
+          activeOpacity={0.8}
+        >
+          <Text style={[S.fabText, atLeagueLimit && S.fabTextDisabled]}>
+            {atLeagueLimit ? '+ New League (limit reached)' : '+ New League'}
+          </Text>
         </TouchableOpacity>
       </View>
 
       {/* Join with Code modal */}
       <Modal visible={showJoinCode} animationType="slide" presentationStyle="pageSheet">
-        <ScrollView contentContainerStyle={styles.modal} keyboardShouldPersistTaps="handled">
-          <Text style={styles.modalTitle}>Join with Invite Code</Text>
-          <Text style={styles.modalHint}>
+        <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
+          <Text style={S.modalTitle}>Join with Invite Code</Text>
+          <Text style={S.modalHint}>
             Enter the invite code shared with you. Codes look like{' '}
             <Text style={{ fontWeight: '700' }}>3F7A-B2C9-D1E4</Text>.
           </Text>
           <TextInput
-            style={[styles.input, styles.codeInput]}
+            style={[S.input, S.codeInput]}
             placeholder="XXXX-XXXX-XXXX"
+            placeholderTextColor={c.textMuted}
             value={inviteCode}
             onChangeText={setInviteCode}
             autoCapitalize="characters"
             autoCorrect={false}
           />
           {joinError ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{joinError}</Text>
+            <View style={S.errorBox}>
+              <Text style={S.errorText}>{joinError}</Text>
             </View>
           ) : null}
           <TouchableOpacity
-            style={[styles.button, joining && { backgroundColor: '#a5d6a7' }]}
+            style={[S.button, joining && { backgroundColor: c.primaryLight }]}
             onPress={joinWithCode}
             disabled={joining}
           >
-            <Text style={styles.buttonText}>{joining ? 'Joining...' : 'Join League'}</Text>
+            <Text style={S.buttonText}>{joining ? 'Joining...' : 'Join League'}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { setShowJoinCode(false); setInviteCode(''); setJoinError(''); }}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={S.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </ScrollView>
       </Modal>
 
       {/* Create modal */}
       <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet">
-        <ScrollView contentContainerStyle={styles.modal} keyboardShouldPersistTaps="handled">
-          <Text style={styles.modalTitle}>Create League</Text>
+        <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
+          <Text style={S.modalTitle}>Create League</Text>
 
-          <Text style={styles.modalLabel}>League Name</Text>
-          <TextInput style={styles.input} placeholder="e.g. Tuesday Night Rec" value={name} onChangeText={setName} />
-
-          <Text style={styles.modalLabel}>Description (optional)</Text>
+          <Text style={S.modalLabel}>League Name</Text>
           <TextInput
-            style={[styles.input, { height: 72, textAlignVertical: 'top' }]}
+            style={S.input}
+            placeholder="e.g. Tuesday Night Rec"
+            placeholderTextColor={c.textMuted}
+            value={name}
+            onChangeText={setName}
+          />
+
+          <Text style={S.modalLabel}>Description (optional)</Text>
+          <TextInput
+            style={[S.input, { height: 72, textAlignVertical: 'top' }]}
             placeholder="Skill level, location, notes..."
+            placeholderTextColor={c.textMuted}
             value={description}
             onChangeText={setDescription}
             multiline
           />
 
-          <View style={styles.toggleRow}>
+          <View style={S.toggleRow}>
             <View>
-              <Text style={styles.modalLabel}>Open to join</Text>
-              <Text style={styles.toggleHint}>
+              <Text style={S.modalLabel}>Open to join</Text>
+              <Text style={S.toggleHint}>
                 {isOpen ? 'Anyone can join this league.' : 'Players must be invited.'}
               </Text>
             </View>
             <Switch
               value={isOpen}
               onValueChange={setIsOpen}
-              trackColor={{ true: GREEN }}
-              thumbColor="#fff"
+              trackColor={{ true: c.primary }}
+              thumbColor={c.surface}
             />
           </View>
 
           {/* Home court */}
-          <Text style={styles.modalLabel}>Home Court</Text>
+          <Text style={S.modalLabel}>Home Court</Text>
           <CourtPicker
             value={homeCourt}
             onSelect={setHomeCourt}
@@ -516,29 +559,29 @@ export default function LeaguesScreen({ navigation }: Props) {
             placeholder="Search for your home court..."
           />
           {!homeCourt && (
-            <View style={styles.courtWarning}>
-              <Text style={styles.courtWarningText}>
-                ⚠️  Without a home court, every match entry will require a location to be entered manually.
+            <View style={S.courtWarning}>
+              <Text style={S.courtWarningText}>
+                Without a home court, every match entry will require a location to be entered manually.
               </Text>
             </View>
           )}
 
           {createError ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{createError}</Text>
+            <View style={S.errorBox}>
+              <Text style={S.errorText}>{createError}</Text>
             </View>
           ) : null}
 
           <TouchableOpacity
-            style={[styles.button, creating && { backgroundColor: '#a5d6a7' }]}
+            style={[S.button, creating && { backgroundColor: c.primaryLight }]}
             onPress={createLeague}
             disabled={creating}
           >
-            <Text style={styles.buttonText}>{creating ? 'Creating...' : 'Create League'}</Text>
+            <Text style={S.buttonText}>{creating ? 'Creating...' : 'Create League'}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => { setShowCreate(false); setCreateError(''); }}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={S.cancelText}>Cancel</Text>
           </TouchableOpacity>
         </ScrollView>
       </Modal>
@@ -546,90 +589,91 @@ export default function LeaguesScreen({ navigation }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f0f0' },
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
 
-  // Filter bar
-  filterBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee', gap: 8 },
-  resultCount: { flex: 1, fontSize: 13, color: '#888' },
-  filterBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd' },
-  filterBtnActive: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  filterBtnText: { fontSize: 13, fontWeight: '600', color: '#666' },
-  filterBtnTextActive: { color: GREEN },
-  clearBtn: { paddingHorizontal: 10, paddingVertical: 7 },
-  clearBtnText: { fontSize: 13, color: '#c62828', fontWeight: '600' },
+    // Filter bar
+    filterBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
+    resultCount: { flex: 1, fontSize: 13, color: c.textMuted },
+    filterBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
+    filterBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    filterBtnText: { fontSize: 13, fontWeight: '600', color: c.textSub },
+    filterBtnTextActive: { color: c.primary },
+    clearBtn: { paddingHorizontal: 10, paddingVertical: 7 },
+    clearBtnText: { fontSize: 13, color: c.danger, fontWeight: '600' },
 
-  // Filter panel
-  filterPanel: { backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#eee', gap: 10 },
-  filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  filterLabel: { fontSize: 13, fontWeight: '700', color: '#444', marginBottom: 6 },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  pill: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
-  pillActive: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  pillText: { fontSize: 13, color: '#666', fontWeight: '500' },
-  pillTextActive: { color: GREEN, fontWeight: '700' },
+    // Filter panel
+    filterPanel: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border, gap: 10 },
+    filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    filterLabel: { fontSize: 13, fontWeight: '700', color: c.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
+    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+    pill: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
+    pillTextActive: { color: c.primary, fontWeight: '700' },
 
-  // League card
-  card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8 },
-  cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  leagueName: { fontSize: 17, fontWeight: '800', color: '#1a1a1a', flex: 1, marginRight: 8 },
-  openBadge: { backgroundColor: '#e8f5e9', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  privateBadge: { backgroundColor: '#f5f5f5' },
-  openBadgeText: { fontSize: 11, fontWeight: '700', color: GREEN, textTransform: 'uppercase', letterSpacing: 0.5 },
-  privateBadgeText: { color: '#999' },
-  description: { fontSize: 13, color: '#777', marginBottom: 12 },
+    // League card
+    card: { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+    cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+    leagueName: { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, marginRight: 8 },
+    openBadge: { backgroundColor: c.primaryLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+    privateBadge: { backgroundColor: c.bg },
+    openBadgeText: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+    privateBadgeText: { color: c.textMuted },
+    description: { fontSize: 13, color: c.textSub, marginBottom: 12 },
 
-  // Stats
-  statsRow: { flexDirection: 'row', backgroundColor: '#f8f8f8', borderRadius: 10, padding: 12, marginBottom: 10 },
-  statItem: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
-  statLabel: { fontSize: 11, color: '#999', marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 },
-  statDivider: { width: 1, backgroundColor: '#e5e5e5', marginVertical: 2 },
+    // Stats
+    statsRow: { flexDirection: 'row', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 10 },
+    statItem: { flex: 1, alignItems: 'center' },
+    statValue: { fontSize: 20, fontWeight: '800', color: c.text },
+    statLabel: { fontSize: 11, color: c.textMuted, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 },
+    statDivider: { width: 1, backgroundColor: c.border, marginVertical: 2 },
 
-  // Card footer
-  cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  homeCourtRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
-  homeCourtPin: { fontSize: 12 },
-  homeCourtText: { fontSize: 12, color: '#555', fontWeight: '500', flex: 1 },
-  regionChip: { backgroundColor: '#e8f5e9', paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-  regionChipText: { fontSize: 10, color: '#2e7d32', fontWeight: '700' },
-  noCourtText: { fontSize: 12, color: '#ccc', marginBottom: 10 },
-  createdText: { fontSize: 12, color: '#aaa' },
-  membershipRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
-  roleStatusText: { fontSize: 13, fontWeight: '600' },
-  roleStatusJoined: { color: GREEN },
-  roleStatusNot: { color: '#aaa' },
-  joinBtn: { backgroundColor: '#e8f5e9', paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
-  joinText: { color: GREEN, fontWeight: '700', fontSize: 13 },
-  requestBtn: { backgroundColor: '#fff8e1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ffe082' },
-  requestText: { color: '#b8860b', fontWeight: '700', fontSize: 13 },
-  requestedBadge: { backgroundColor: '#f5f5f5', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-  requestedText: { color: '#aaa', fontWeight: '600', fontSize: 13 },
+    // Card footer
+    cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    homeCourtRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
+    homeCourtPin: { fontSize: 12 },
+    homeCourtText: { fontSize: 12, color: c.textSub, fontWeight: '500', flex: 1 },
+    regionChip: { backgroundColor: c.primaryLight, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
+    regionChipText: { fontSize: 10, color: c.primary, fontWeight: '700' },
+    noCourtText: { fontSize: 12, color: c.textMuted, marginBottom: 10 },
+    createdText: { fontSize: 12, color: c.textMuted },
+    membershipRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border },
+    roleStatusText: { fontSize: 13, fontWeight: '600' },
+    roleStatusJoined: { color: c.primary },
+    roleStatusNot: { color: c.textMuted },
+    joinBtn: { backgroundColor: c.primaryLight, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
+    joinText: { color: c.primary, fontWeight: '700', fontSize: 13 },
+    requestBtn: { backgroundColor: '#fff8e1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ffe082' },
+    requestText: { color: '#b8860b', fontWeight: '700', fontSize: 13 },
+    requestedBadge: { backgroundColor: c.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+    requestedText: { color: c.textMuted, fontWeight: '600', fontSize: 13 },
 
-  empty: { textAlign: 'center', color: '#999', marginTop: 60, fontSize: 15, lineHeight: 22 },
-  fabRow: { position: 'absolute', bottom: 24, right: 16, flexDirection: 'row', gap: 10, alignItems: 'center' },
-  fab: { backgroundColor: GREEN, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
-  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  fabSecondary: { backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 13, borderRadius: 30, elevation: 3, borderWidth: 1.5, borderColor: GREEN },
-  fabSecondaryText: { color: GREEN, fontWeight: '700', fontSize: 14 },
+    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15, lineHeight: 22 },
+    fabRow: { position: 'absolute', bottom: 24, right: 16, flexDirection: 'row', gap: 10, alignItems: 'center' },
+    fab: { backgroundColor: c.primary, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
+    fabDisabled: { backgroundColor: c.border, elevation: 0 },
+    fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    fabTextDisabled: { color: c.textMuted },
+    fabSecondary: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 30, elevation: 3, borderWidth: 1.5, borderColor: c.primary },
+    fabSecondaryText: { color: c.primary, fontWeight: '700', fontSize: 14 },
 
-  // Create modal
-  modal: { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: '#fff' },
-  modalTitle: { fontSize: 26, fontWeight: '800', color: '#1a1a1a', marginBottom: 24 },
-  modalLabel: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 6, marginTop: 16 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, fontSize: 16 },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, backgroundColor: '#f9f9f9', padding: 14, borderRadius: 10 },
-  toggleHint: { fontSize: 12, color: '#aaa', marginTop: 2 },
-  errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
-  errorText: { color: '#c62828', fontSize: 14, fontWeight: '600' },
-  button: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  cancelText: { textAlign: 'center', color: '#999', marginTop: 16, fontSize: 15 },
-  modalHint: { fontSize: 14, color: '#666', marginBottom: 16, lineHeight: 20 },
-  codeInput: { fontSize: 22, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
-  courtWarning: { backgroundColor: '#fff8e1', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#ffe082' },
-  courtWarningText: { fontSize: 13, color: '#b8860b', lineHeight: 18 },
-  errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginBottom: 8 },
-  errorText: { color: '#c62828', fontSize: 14, fontWeight: '600' },
-});
+    // Create modal
+    modal: { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
+    modalTitle: { fontSize: 26, fontWeight: '800', color: c.text, marginBottom: 24 },
+    modalLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 6, marginTop: 16 },
+    input: { borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 14, fontSize: 16, color: c.text, backgroundColor: c.surface },
+    toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, backgroundColor: c.surfaceAlt, padding: 14, borderRadius: 10 },
+    toggleHint: { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
+    errorText: { color: c.danger, fontSize: 14, fontWeight: '600' },
+    button: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
+    buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+    cancelText: { textAlign: 'center', color: c.textMuted, marginTop: 16, fontSize: 15 },
+    modalHint: { fontSize: 14, color: c.textSub, marginBottom: 16, lineHeight: 20 },
+    codeInput: { fontSize: 22, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
+    courtWarning: { backgroundColor: '#fff8e1', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#ffe082' },
+    courtWarningText: { fontSize: 13, color: '#b8860b', lineHeight: 18 },
+  });
+}

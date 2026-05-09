@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import { useTheme } from '../lib/ThemeContext';
 
 export type BadgeItem = {
   id: string;
@@ -24,6 +25,8 @@ type Props = {
 };
 
 export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
+  const { colors: c } = useTheme();
+  const styles = makeStyles(c);
   const [showDetail, setShowDetail] = useState(false);
   const hidden = badge.is_hidden;
 
@@ -115,70 +118,71 @@ export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  // Badge tile
-  card: {
-    width: 84, alignItems: 'center', backgroundColor: '#fff',
-    borderRadius: 12, padding: 10, borderWidth: 1.5, borderColor: '#e8f5e9',
-    margin: 4,
-  },
-  cardHidden: { backgroundColor: '#f5f5f5', borderColor: '#ddd', opacity: 0.55 },
-  icon: { fontSize: 30, marginBottom: 5 },
-  iconHidden: { opacity: 0.4 },
-  name: { fontSize: 11, fontWeight: '700', color: '#333', textAlign: 'center', lineHeight: 14 },
-  nameHidden: { color: '#aaa' },
-  hiddenTag: { fontSize: 9, color: '#bbb', marginTop: 3, fontStyle: 'italic' },
-  leagueTag: { fontSize: 9, color: GREEN, marginTop: 3, textAlign: 'center' },
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    // Badge tile
+    card: {
+      width: 84, alignItems: 'center', backgroundColor: c.surface,
+      borderRadius: 12, padding: 10, borderWidth: 1.5, borderColor: c.primaryLight,
+      margin: 4,
+    },
+    cardHidden: { backgroundColor: c.bg, borderColor: c.border, opacity: 0.55 },
+    icon: { fontSize: 30, marginBottom: 5 },
+    iconHidden: { opacity: 0.4 },
+    name: { fontSize: 11, fontWeight: '700', color: c.text, textAlign: 'center', lineHeight: 14 },
+    nameHidden: { color: c.textMuted },
+    hiddenTag: { fontSize: 9, color: c.textMuted, marginTop: 3, fontStyle: 'italic' },
+    leagueTag: { fontSize: 9, color: c.primary, marginTop: 3, textAlign: 'center' },
 
-  // Modal overlay
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
+    // Modal overlay
+    overlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 32,
+    },
 
-  // Detail card
-  detailCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  detailIcon: { fontSize: 56, marginBottom: 12 },
-  detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  detailName: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
-  catChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  catChipProfile: { backgroundColor: '#e8f5e9' },
-  catChipLeague: { backgroundColor: '#e3f2fd' },
-  catChipText: { fontSize: 11, fontWeight: '700' },
-  catChipTextProfile: { color: GREEN },
-  catChipTextLeague: { color: '#1565c0' },
-  detailDesc: {
-    fontSize: 14, color: '#555', textAlign: 'center',
-    lineHeight: 20, marginBottom: 14,
-  },
-  contextBox: {
-    backgroundColor: '#f0faf0', borderRadius: 10, padding: 12,
-    width: '100%', marginBottom: 10,
-  },
-  contextLabel: { fontSize: 11, fontWeight: '700', color: GREEN, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-  contextText: { fontSize: 14, color: '#333' },
-  detailLeague: { fontSize: 13, color: '#888', marginBottom: 4 },
-  detailDate: { fontSize: 12, color: '#bbb', marginBottom: 16 },
-  hideBtn: {
-    borderWidth: 1.5, borderColor: '#ddd', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 8, marginBottom: 12,
-  },
-  showBtn: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  hideBtnText: { fontSize: 14, color: '#888', fontWeight: '600' },
-  showBtnText: { color: GREEN },
-  dismissHint: { fontSize: 11, color: '#ccc' },
-});
+    // Detail card
+    detailCard: {
+      backgroundColor: c.surface,
+      borderRadius: 20,
+      padding: 24,
+      width: '100%',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOpacity: 0.25,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    detailIcon: { fontSize: 56, marginBottom: 12 },
+    detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    detailName: { fontSize: 20, fontWeight: '800', color: c.text },
+    catChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+    catChipProfile: { backgroundColor: c.primaryLight },
+    catChipLeague: { backgroundColor: '#e3f2fd' },
+    catChipText: { fontSize: 11, fontWeight: '700' },
+    catChipTextProfile: { color: c.primary },
+    catChipTextLeague: { color: '#1565c0' },
+    detailDesc: {
+      fontSize: 14, color: c.textSub, textAlign: 'center',
+      lineHeight: 20, marginBottom: 14,
+    },
+    contextBox: {
+      backgroundColor: c.primaryLight, borderRadius: 10, padding: 12,
+      width: '100%', marginBottom: 10,
+    },
+    contextLabel: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
+    contextText: { fontSize: 14, color: c.text },
+    detailLeague: { fontSize: 13, color: c.textMuted, marginBottom: 4 },
+    detailDate: { fontSize: 12, color: c.textMuted, marginBottom: 16 },
+    hideBtn: {
+      borderWidth: 1.5, borderColor: c.border, borderRadius: 20,
+      paddingHorizontal: 16, paddingVertical: 8, marginBottom: 12,
+    },
+    showBtn: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    hideBtnText: { fontSize: 14, color: c.textMuted, fontWeight: '600' },
+    showBtnText: { color: c.primary },
+    dismissHint: { fontSize: 11, color: c.textMuted },
+  });
+}

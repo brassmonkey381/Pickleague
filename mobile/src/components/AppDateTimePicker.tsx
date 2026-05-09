@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import RNDateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { useTheme } from '../lib/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -13,6 +14,9 @@ type Props = {
 // iOS: bottom-sheet modal with a combined date+time spinner and Cancel/Done buttons.
 // Android: sequential native date dialog then time dialog (key trick forces remount between them).
 export default function AppDateTimePicker({ visible, value, minimumDate, onChange, onClose }: Props) {
+  const { colors: c } = useTheme();
+  const styles = makeStyles(c);
+
   const [phase, setPhase] = useState<'date' | 'time'>('date');
   const [tempDate, setTempDate] = useState<Date>(new Date(value));
   const [iosValue, setIosValue] = useState<Date>(new Date(value));
@@ -86,27 +90,29 @@ export default function AppDateTimePicker({ visible, value, minimumDate, onChang
   );
 }
 
-const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 32,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  cancel: { fontSize: 16, color: '#888' },
-  done: { fontSize: 16, color: '#2e7d32', fontWeight: '700' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    sheet: {
+      backgroundColor: c.surface,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      paddingBottom: 32,
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    cancel: { fontSize: 16, color: c.textMuted },
+    done: { fontSize: 16, color: c.primary, fontWeight: '700' },
+  });
+}

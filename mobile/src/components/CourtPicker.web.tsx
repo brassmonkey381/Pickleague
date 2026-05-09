@@ -8,6 +8,7 @@ import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { useTheme } from '../lib/ThemeContext';
 
 export type CourtResult = {
   name: string;
@@ -44,18 +45,19 @@ export default function CourtPicker({
   placeholder = 'Search for a court or venue...',
   showNoneOption = false,
 }: Props) {
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Browser geolocation — only request when component is actually active
   useEffect(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {} // silently ignore denial
+      () => {}
     );
   }, []);
 
@@ -95,7 +97,6 @@ export default function CourtPicker({
   }
 
   function selectResult(item: NominatimResult) {
-    // Build a short address from components
     const parts = [item.address?.city, item.address?.state].filter(Boolean);
     const address = parts.join(', ');
     onSelect({
@@ -109,34 +110,32 @@ export default function CourtPicker({
     setResults([]);
   }
 
-  // ── Selected state ────────────────────────────────────────
   if (value) {
     return (
-      <View style={styles.selectedCard}>
-        <View style={styles.selectedPin}>
-          <Text style={styles.pinIcon}>📍</Text>
+      <View style={S.selectedCard}>
+        <View style={S.selectedPin}>
+          <Text style={S.pinIcon}>📍</Text>
         </View>
-        <View style={styles.selectedInfo}>
-          <Text style={styles.selectedName} numberOfLines={1}>{value.name}</Text>
+        <View style={S.selectedInfo}>
+          <Text style={S.selectedName} numberOfLines={1}>{value.name}</Text>
           {value.address ? (
-            <Text style={styles.selectedAddr} numberOfLines={1}>{value.address}</Text>
+            <Text style={S.selectedAddr} numberOfLines={1}>{value.address}</Text>
           ) : null}
         </View>
-        <TouchableOpacity style={styles.changeBtn} onPress={() => { onSelect(null); setQuery(''); }}>
-          <Text style={styles.changeBtnText}>Change</Text>
+        <TouchableOpacity style={S.changeBtn} onPress={() => { onSelect(null); setQuery(''); }}>
+          <Text style={S.changeBtnText}>Change</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ── Search state ──────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <View style={S.container}>
       {userCoords && (
-        <Text style={styles.locHint}>📍 Showing nearby results first</Text>
+        <Text style={S.locHint}>📍 Showing nearby results first</Text>
       )}
 
-      <View style={styles.inputRow}>
+      <View style={S.inputRow}>
         {React.createElement('input', {
           type: 'text',
           value: query,
@@ -145,36 +144,36 @@ export default function CourtPicker({
           style: {
             flex: 1,
             height: 48,
-            border: '1px solid #ddd',
+            border: `1px solid ${colors.border}`,
             borderRadius: 8,
             paddingLeft: 14,
             paddingRight: 14,
             fontSize: 15,
-            backgroundColor: '#fff',
-            color: '#1a1a1a',
+            backgroundColor: colors.surface,
+            color: colors.text,
             outline: 'none',
             boxSizing: 'border-box',
             width: '100%',
           },
         })}
         {searching && (
-          <ActivityIndicator style={styles.spinner} size="small" color="#2e7d32" />
+          <ActivityIndicator style={S.spinner} size="small" color={colors.primary} />
         )}
       </View>
 
       {results.length > 0 && (
-        <View style={styles.dropdown}>
+        <View style={S.dropdown}>
           {results.map((item) => {
             const name = item.name || item.display_name.split(',')[0];
             const addr = item.display_name.split(',').slice(1, 3).join(',').trim();
             return (
               <TouchableOpacity
                 key={item.place_id}
-                style={styles.resultRow}
+                style={S.resultRow}
                 onPress={() => selectResult(item)}
               >
-                <Text style={styles.resultName} numberOfLines={1}>{name}</Text>
-                <Text style={styles.resultAddr} numberOfLines={1}>{addr}</Text>
+                <Text style={S.resultName} numberOfLines={1}>{name}</Text>
+                <Text style={S.resultAddr} numberOfLines={1}>{addr}</Text>
               </TouchableOpacity>
             );
           })}
@@ -182,43 +181,44 @@ export default function CourtPicker({
       )}
 
       {showNoneOption && !query && (
-        <TouchableOpacity style={styles.noneBtn} onPress={() => onSelect(null)}>
-          <Text style={styles.noneBtnText}>Skip — no home court</Text>
+        <TouchableOpacity style={S.noneBtn} onPress={() => onSelect(null)}>
+          <Text style={S.noneBtnText}>Skip — no home court</Text>
         </TouchableOpacity>
       )}
     </View>
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { zIndex: 10 },
-  locHint: { fontSize: 12, color: GREEN, fontWeight: '500', marginBottom: 6 },
-  inputRow: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
-  spinner: { position: 'absolute', right: 12 },
-  dropdown: {
-    borderWidth: 1, borderColor: '#eee', borderRadius: 8, marginTop: 2,
-    backgroundColor: '#fff', zIndex: 20,
-    shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8,
-    elevation: 4,
-  },
-  resultRow: {
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: '#f5f5f5',
-  },
-  resultName: { fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
-  resultAddr: { fontSize: 12, color: '#888', marginTop: 1 },
-  selectedCard: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0faf0',
-    borderWidth: 1.5, borderColor: GREEN, borderRadius: 10, padding: 12, gap: 10,
-  },
-  selectedPin: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
-  pinIcon: { fontSize: 20 },
-  selectedInfo: { flex: 1 },
-  selectedName: { fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  selectedAddr: { fontSize: 12, color: '#666', marginTop: 1 },
-  changeBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: GREEN },
-  changeBtnText: { fontSize: 13, color: GREEN, fontWeight: '600' },
-  noneBtn: { marginTop: 8, padding: 10, alignItems: 'center' },
-  noneBtnText: { fontSize: 14, color: '#aaa' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { zIndex: 10 },
+    locHint: { fontSize: 12, color: c.primary, fontWeight: '500', marginBottom: 6 },
+    inputRow: { flexDirection: 'row', alignItems: 'center', position: 'relative' },
+    spinner: { position: 'absolute', right: 12 },
+    dropdown: {
+      borderWidth: 1, borderColor: c.border, borderRadius: 8, marginTop: 2,
+      backgroundColor: c.surface, zIndex: 20,
+      shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8,
+      elevation: 4,
+    },
+    resultRow: {
+      paddingHorizontal: 14, paddingVertical: 10,
+      borderBottomWidth: 1, borderBottomColor: c.border,
+    },
+    resultName: { fontSize: 14, fontWeight: '600', color: c.text },
+    resultAddr: { fontSize: 12, color: c.textMuted, marginTop: 1 },
+    selectedCard: {
+      flexDirection: 'row', alignItems: 'center', backgroundColor: c.primaryLight,
+      borderWidth: 1.5, borderColor: c.primary, borderRadius: 10, padding: 12, gap: 10,
+    },
+    selectedPin: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+    pinIcon: { fontSize: 20 },
+    selectedInfo: { flex: 1 },
+    selectedName: { fontSize: 15, fontWeight: '700', color: c.text },
+    selectedAddr: { fontSize: 12, color: c.textSub, marginTop: 1 },
+    changeBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: c.primary },
+    changeBtnText: { fontSize: 13, color: c.primary, fontWeight: '600' },
+    noneBtn: { marginTop: 8, padding: 10, alignItems: 'center' },
+    noneBtnText: { fontSize: 14, color: c.textMuted },
+  });
+}

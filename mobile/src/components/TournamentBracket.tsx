@@ -14,6 +14,7 @@
 
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { useTheme } from '../lib/ThemeContext';
 
 export type BracketSlot = {
   label: string;            // "1st Pool A", "Winner Semi 1", etc.
@@ -49,7 +50,11 @@ const SEMI2_MID = SEMI2_TOP + SEMI_GROUP_H / 2; // 213
 
 const FINAL_MID  = (SEMI1_MID + SEMI2_MID) / 2; // 136
 
+const FINAL_COLOR = '#b8860b';
+
 function SlotCard({ slot, isFinal }: { slot: BracketSlot; isFinal?: boolean }) {
+  const { colors: c } = useTheme();
+  const styles = makeStyles(c);
   const hasteam = !!slot.team;
   return (
     <View style={[
@@ -71,6 +76,9 @@ function SlotCard({ slot, isFinal }: { slot: BracketSlot; isFinal?: boolean }) {
 }
 
 export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi1, semi2, final }: Props) {
+  const { colors: c } = useTheme();
+  const styles = makeStyles(c);
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.scroll}>
       <View style={[styles.container, { height: TOTAL_H }]}>
@@ -147,76 +155,77 @@ export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi
   );
 }
 
-const BORDER_COLOR = '#555';
-const FINAL_COLOR  = '#b8860b';
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const BORDER_COLOR = c.textSub;
 
-const styles = StyleSheet.create({
-  scroll: { backgroundColor: '#f9f9f9' },
-  container: {
-    // total width = CW + CONN + CW + CONN + CW + 16 (right padding)
-    width: 3 * CW + 2 * CONN + 24,
-    position: 'relative',
-    margin: 8,
-  },
-  abs: { position: 'absolute' },
+  return StyleSheet.create({
+    scroll: { backgroundColor: c.surfaceAlt },
+    container: {
+      // total width = CW + CONN + CW + CONN + CW + 16 (right padding)
+      width: 3 * CW + 2 * CONN + 24,
+      position: 'relative',
+      margin: 8,
+    },
+    abs: { position: 'absolute' },
 
-  // Slot card
-  card: {
-    width: CW, height: CH,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#ddd',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-  },
-  cardFinal: {
-    borderColor: FINAL_COLOR,
-    backgroundColor: '#fffbf0',
-    borderWidth: 2,
-  },
-  cardHighlight: {
-    borderColor: '#2e7d32',
-    backgroundColor: '#f0faf0',
-  },
-  cardLabel: { fontSize: 9, color: '#aaa', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
-  cardLabelFinal: { color: FINAL_COLOR },
-  cardTeam: { fontSize: 13, fontWeight: '700', color: '#1a1a1a' },
-  cardTbd: { color: '#ccc', fontStyle: 'italic' },
-  cardTeamHighlight: { color: '#2e7d32' },
-  cardTeamFinal: { fontSize: 13 },
+    // Slot card
+    card: {
+      width: CW, height: CH,
+      backgroundColor: c.surface,
+      borderRadius: 8,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+    },
+    cardFinal: {
+      borderColor: FINAL_COLOR,
+      backgroundColor: '#fffbf0',
+      borderWidth: 2,
+    },
+    cardHighlight: {
+      borderColor: c.primary,
+      backgroundColor: c.primaryLight,
+    },
+    cardLabel: { fontSize: 9, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+    cardLabelFinal: { color: FINAL_COLOR },
+    cardTeam: { fontSize: 13, fontWeight: '700', color: c.text },
+    cardTbd: { color: c.textMuted, fontStyle: 'italic' },
+    cardTeamHighlight: { color: c.primary },
+    cardTeamFinal: { fontSize: 13 },
 
-  roundLabel: {
-    fontSize: 9, color: '#888', fontWeight: '700',
-    textTransform: 'uppercase', letterSpacing: 0.8,
-  },
-  finalLabel: { color: FINAL_COLOR, fontSize: 10 },
+    roundLabel: {
+      fontSize: 9, color: c.textMuted, fontWeight: '700',
+      textTransform: 'uppercase', letterSpacing: 0.8,
+    },
+    finalLabel: { color: FINAL_COLOR, fontSize: 10 },
 
-  // Bracket connector lines (seeds → semis)
-  connTop: {
-    borderRightWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: BORDER_COLOR,
-    borderBottomRightRadius: 4,
-  },
-  connBottom: {
-    borderRightWidth: 2,
-    borderTopWidth: 2,
-    borderColor: BORDER_COLOR,
-    borderTopRightRadius: 4,
-  },
+    // Bracket connector lines (seeds → semis)
+    connTop: {
+      borderRightWidth: 2,
+      borderBottomWidth: 2,
+      borderColor: BORDER_COLOR,
+      borderBottomRightRadius: 4,
+    },
+    connBottom: {
+      borderRightWidth: 2,
+      borderTopWidth: 2,
+      borderColor: BORDER_COLOR,
+      borderTopRightRadius: 4,
+    },
 
-  // Bracket connector lines (semis → final)
-  connTopFinal: {
-    borderRightWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: FINAL_COLOR,
-    borderBottomRightRadius: 4,
-  },
-  connBottomFinal: {
-    borderRightWidth: 2,
-    borderTopWidth: 2,
-    borderColor: FINAL_COLOR,
-    borderTopRightRadius: 4,
-  },
-});
+    // Bracket connector lines (semis → final)
+    connTopFinal: {
+      borderRightWidth: 2,
+      borderBottomWidth: 2,
+      borderColor: FINAL_COLOR,
+      borderBottomRightRadius: 4,
+    },
+    connBottomFinal: {
+      borderRightWidth: 2,
+      borderTopWidth: 2,
+      borderColor: FINAL_COLOR,
+      borderTopRightRadius: 4,
+    },
+  });
+}

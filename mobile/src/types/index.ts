@@ -3,10 +3,36 @@ export type Profile = {
   username: string;
   full_name: string;
   avatar_url: string | null;
+  avatar_id: number;
+  tagline: string | null;
+  selected_tags: string[];
+  badges_public: boolean;
+  availability: boolean[];
+  total_matches_played: number;
+  last_match_at: string | null;
   rating: number;
   singles_rating: number;
   doubles_rating: number;
+  drilling_enabled: boolean;
+  drill_availability: Record<string, boolean[]>;
+  drill_shot_prefs: string[];
+  drill_partner_prefs: string[];
+  drill_custom_tags: string[];
   created_at: string;
+};
+
+export type DrillRequest = {
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  proposed_slots: { date: string; slot: number }[];
+  message: string | null;
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  accepted_slot: { date: string; slot: number } | null;
+  created_at: string;
+  responded_at: string | null;
+  from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
+  to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
 };
 
 export type PlayerLocationRating = {
@@ -114,6 +140,7 @@ export type Match = {
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
+  is_outdoor: boolean | null;
   was_home_court: boolean | null;
   is_home_court: boolean | null;
   created_at: string;
@@ -154,6 +181,47 @@ export type TournamentRegistration = {
   profile?: Profile;
 };
 
+export type LeagueSeason = {
+  id: string;
+  league_id: string;
+  name: string;
+  start_date: string;   // ISO date "YYYY-MM-DD"
+  end_date: string;
+  total_weeks: number;
+  lock_frequency_weeks: number;
+  total_periods: number;
+  status: 'upcoming' | 'active' | 'completed';
+  elo_reset_applied: boolean;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type SeasonSnapshot = {
+  id: string;
+  season_id: string;
+  league_id: string;
+  period_number: number;
+  snapshot_date: string;
+  user_id: string;
+  elo_at_snapshot: number;
+  rank_at_snapshot: number;
+  wins_in_season: number;
+  losses_in_season: number;
+  profile?: { full_name: string; avatar_id?: number; avatar_url?: string | null };
+};
+
+export type SeasonFinalStanding = {
+  id: string;
+  season_id: string;
+  league_id: string;
+  user_id: string;
+  final_rank: number;
+  median_rank: number;
+  elo_bonus: number;
+  new_elo: number;
+  profile?: { full_name: string; avatar_id?: number; avatar_url?: string | null };
+};
+
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
@@ -164,8 +232,11 @@ export type RootStackParamList = {
   CreateTournament: { leagueId?: string };
   TournamentDetail: { tournamentId: string; tournamentName: string };
   TournamentMembers: { tournamentId: string; tournamentName: string };
+  TournamentMatchHistory: { tournamentId: string; title: string };
+  TournamentInfo: { tournamentId: string; tournamentName: string };
   Notifications: undefined;
   LeagueDetail: { leagueId: string; leagueName: string };
+  LeagueInfo: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
   Invite: { leagueId: string; leagueName: string };
   Events: { leagueId: string; leagueName: string };
@@ -175,5 +246,11 @@ export type RootStackParamList = {
   MatchHistory: { leagueId?: string; userId?: string; title: string };
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
   Standings: { leagueId: string };
+  SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
   Profile: { userId?: string };
+  Settings: undefined;
+  About: undefined;
+  Drill: undefined;
+  DrillSearch: undefined;
+  DrillRequests: undefined;
 };

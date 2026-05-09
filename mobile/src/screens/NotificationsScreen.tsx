@@ -7,6 +7,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
 
@@ -32,10 +34,13 @@ function timeAgo(iso: string): string {
 }
 
 const TYPE_ICON: Record<string, string> = {
-  tournament: '🏆', league: '🎾', match: '🏓', info: '📣',
+  tournament: '🏆', league: '🎾', match: '🏓', drill: '🏓', info: '📣',
 };
 
 export default function NotificationsScreen({ navigation }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading]             = useState(true);
 
@@ -71,18 +76,20 @@ export default function NotificationsScreen({ navigation }: Props) {
       navigation.navigate('TournamentDetail', { tournamentId: n.entity_id, tournamentName: n.title.replace('🏆 ', '') });
     } else if (n.entity_type === 'league' && n.entity_id) {
       navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
+    } else if (n.entity_type === 'drill') {
+      navigation.navigate('DrillRequests');
     }
   }
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
 
   return (
-    <View style={styles.container}>
+    <View style={S.container}>
       {unreadCount > 0 && (
-        <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead}>
-          <Text style={styles.markAllText}>Mark all as read ({unreadCount})</Text>
+        <TouchableOpacity style={S.markAllBtn} onPress={markAllRead}>
+          <Text style={S.markAllText}>Mark all as read ({unreadCount})</Text>
         </TouchableOpacity>
       )}
       <FlatList
@@ -91,26 +98,26 @@ export default function NotificationsScreen({ navigation }: Props) {
         contentContainerStyle={{ padding: 16 }}
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={[styles.card, !item.is_read && styles.cardUnread]}
+            style={[S.card, !item.is_read && S.cardUnread]}
             onPress={() => handleTap(item)}
             onLongPress={() => deleteNotification(item.id)}
           >
-            <View style={styles.iconCol}>
-              <Text style={styles.typeIcon}>{TYPE_ICON[item.type] ?? '📣'}</Text>
-              {!item.is_read && <View style={styles.unreadDot} />}
+            <View style={S.iconCol}>
+              <Text style={S.typeIcon}>{TYPE_ICON[item.type] ?? '📣'}</Text>
+              {!item.is_read && <View style={S.unreadDot} />}
             </View>
-            <View style={styles.content}>
-              <Text style={[styles.title, !item.is_read && styles.titleUnread]}>{item.title}</Text>
-              <Text style={styles.body}>{item.body}</Text>
-              <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
+            <View style={S.content}>
+              <Text style={[S.title, !item.is_read && S.titleUnread]}>{item.title}</Text>
+              <Text style={S.body}>{item.body}</Text>
+              <Text style={S.time}>{timeAgo(item.created_at)}</Text>
             </View>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyIcon}>🔔</Text>
-            <Text style={styles.empty}>No notifications yet.</Text>
-            <Text style={styles.emptySub}>You'll be notified when brackets are set, invites arrive, and more.</Text>
+          <View style={S.emptyWrap}>
+            <Text style={S.emptyIcon}>🔔</Text>
+            <Text style={S.empty}>All quiet here!</Text>
+            <Text style={S.emptySub}>You'll be notified when brackets are set, invites arrive, and more.</Text>
           </View>
         }
       />
@@ -118,22 +125,36 @@ export default function NotificationsScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  markAllBtn: { backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  markAllText: { color: '#2e7d32', fontWeight: '600', fontSize: 14 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: 'row', gap: 12, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
-  cardUnread: { borderLeftWidth: 3, borderLeftColor: '#2e7d32', backgroundColor: '#f9fffe' },
-  iconCol: { alignItems: 'center', gap: 6 },
-  typeIcon: { fontSize: 22 },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2e7d32' },
-  content: { flex: 1 },
-  title: { fontSize: 14, fontWeight: '600', color: '#555', marginBottom: 3 },
-  titleUnread: { color: '#1a1a1a', fontWeight: '700' },
-  body: { fontSize: 13, color: '#444', lineHeight: 18 },
-  time: { fontSize: 11, color: '#aaa', marginTop: 5 },
-  emptyWrap: { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-  emptyIcon: { fontSize: 48, marginBottom: 12 },
-  empty: { fontSize: 17, fontWeight: '700', color: '#555', marginBottom: 6 },
-  emptySub: { fontSize: 13, color: '#aaa', textAlign: 'center', lineHeight: 18 },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container:   { flex: 1, backgroundColor: c.bg },
+    markAllBtn:  { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border },
+    markAllText: { color: c.primary, fontWeight: '600', fontSize: 14 },
+    card: {
+      backgroundColor: c.surface,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 10,
+      flexDirection: 'row',
+      gap: 12,
+      shadowColor: '#000',
+      shadowOpacity: 0.07,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 3,
+    },
+    cardUnread:  { borderLeftWidth: 3, borderLeftColor: c.primary, backgroundColor: c.primaryLight },
+    iconCol:     { alignItems: 'center', gap: 6 },
+    typeIcon:    { fontSize: 22 },
+    unreadDot:   { width: 8, height: 8, borderRadius: 4, backgroundColor: c.primary },
+    content:     { flex: 1 },
+    title:       { fontSize: 14, fontWeight: '600', color: c.textSub, marginBottom: 3 },
+    titleUnread: { color: c.text, fontWeight: '700' },
+    body:        { fontSize: 13, color: c.textSub, lineHeight: 18 },
+    time:        { fontSize: 11, color: c.textMuted, marginTop: 5 },
+    emptyWrap:   { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
+    emptyIcon:   { fontSize: 48, marginBottom: 12 },
+    empty:       { fontSize: 17, fontWeight: '700', color: c.textSub, marginBottom: 6 },
+    emptySub:    { fontSize: 13, color: c.textMuted, textAlign: 'center', lineHeight: 18 },
+  });
+}

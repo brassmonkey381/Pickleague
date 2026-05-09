@@ -1,10 +1,14 @@
 import React, { useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Alert } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
+import { isAvailableAt, TOTAL_CELLS } from '../lib/availability';
+import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Tournaments'>;
@@ -14,24 +18,48 @@ type Props = {
 const STATUS_META: Record<Tournament['status'], { label: string; color: string }> = {
   registration: { label: 'Registration Open', color: '#2e7d32' },
   active:       { label: 'In Progress',        color: '#1565c0' },
-  completed:    { label: 'Completed',           color: '#888'   },
+  completed:    { label: 'Ended',               color: '#888'   },
   cancelled:    { label: 'Cancelled',           color: '#c62828' },
 };
 
 export default function TournamentsScreen({ navigation, route }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const { leagueId, leagueName } = route.params ?? {};
   const [tournaments, setTournaments] = React.useState<Tournament[]>([]);
   const [playerCounts, setPlayerCounts] = React.useState<Record<string, number>>({});
+  const [myAvailability, setMyAvailability] = React.useState<boolean[]>([]);
+  const [filterByAvail, setFilterByAvail] = React.useState(false);
+  const [showEnded, setShowEnded]         = React.useState(false);
+  const [searchQuery, setSearchQuery]     = React.useState('');
+  const [godmode, setGodmode]                             = React.useState(false);
+  const [activeOwnedTournamentCount, setActiveOwnedTournamentCount] = React.useState(0);
+  const atTournamentLimit = !godmode && activeOwnedTournamentCount >= 1;
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
+    const { data: { user } } = await supabase.auth.getUser();
+
     let q = supabase.from('tournaments').select('*').order('created_at', { ascending: false });
     if (leagueId) q = q.eq('league_id', leagueId);
 
-    const { data } = await q;
-    const t = (data ?? []) as Tournament[];
+    const [{ data: tData }, profileRes, godmodeResult] = await Promise.all([
+      q,
+      user
+        ? supabase.from('profiles').select('availability').eq('id', user.id).single()
+        : Promise.resolve({ data: null }),
+      checkGodmode(),
+    ]);
+    setGodmode(godmodeResult);
+    if (user?.id) setActiveOwnedTournamentCount(await countActiveOwnedTournaments(user.id));
+
+    const t = (tData ?? []) as Tournament[];
     setTournaments(t);
+
+    const av = (profileRes as any)?.data?.availability;
+    setMyAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : []);
 
     if (t.length > 0) {
       const ids = t.map(x => x.id);
@@ -46,41 +74,71 @@ export default function TournamentsScreen({ navigation, route }: Props) {
     }
   }
 
+  const hasAvailability = myAvailability.some(Boolean);
+
+  const endedCount = tournaments.filter(t => t.status === 'completed').length;
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+
+  const visibleTournaments = tournaments.filter(t => {
+    if (!showEnded && t.status === 'completed') return false;
+    if (showEnded && trimmedQuery && !t.name.toLowerCase().includes(trimmedQuery)) return false;
+    if (filterByAvail) {
+      if (!t.start_time) return false;
+      if (!isAvailableAt(myAvailability, new Date(t.start_time))) return false;
+    }
+    return true;
+  });
+
   function renderCard({ item }: { item: Tournament }) {
     const fmt    = FORMAT_META[item.format];
     const status = STATUS_META[item.status];
     const count  = playerCounts[item.id] ?? 0;
+    const matchesAvail = hasAvailability && item.start_time
+      ? isAvailableAt(myAvailability, new Date(item.start_time))
+      : null;
 
     return (
       <TouchableOpacity
-        style={styles.card}
+        style={S.card}
         onPress={() => navigation.navigate('TournamentDetail', { tournamentId: item.id, tournamentName: item.name })}
         activeOpacity={0.75}
       >
-        <View style={styles.cardTop}>
-          <Text style={styles.fmtIcon}>{fmt.icon}</Text>
-          <View style={styles.cardInfo}>
-            <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            <Text style={styles.fmt}>{fmt.label} · {item.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
+        <View style={S.cardTop}>
+          <Text style={S.fmtIcon}>{fmt.icon}</Text>
+          <View style={S.cardInfo}>
+            <Text style={S.name} numberOfLines={1}>{item.name}</Text>
+            <Text style={S.fmt}>{fmt.label} · {item.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: status.color + '22' }]}>
-            <Text style={[styles.statusText, { color: status.color }]}>{status.label}</Text>
+          <View style={S.cardBadges}>
+            <View style={[S.statusBadge, { backgroundColor: status.color + '22' }]}>
+              <Text style={[S.statusText, { color: status.color }]}>{status.label}</Text>
+            </View>
+            {matchesAvail === true && (
+              <View style={S.availBadge}>
+                <Text style={S.availBadgeText}>✓ Fits schedule</Text>
+              </View>
+            )}
+            {matchesAvail === false && (
+              <View style={S.unavailBadge}>
+                <Text style={S.unavailBadgeText}>⚠ Schedule conflict</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        <View style={styles.meta}>
-          <Text style={styles.metaItem}>👥 {count}{item.max_players ? ` / ${item.max_players}` : ''} players</Text>
+        <View style={S.meta}>
+          <Text style={S.metaItem}>👥 {count}{item.max_players ? ` / ${item.max_players}` : ''} players</Text>
           {item.start_time && (
-            <Text style={styles.metaItem}>
+            <Text style={S.metaItem}>
               📅 {new Date(item.start_time).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
             </Text>
           )}
           {item.location_name && (
-            <Text style={styles.metaItem} numberOfLines={1}>📍 {item.location_name}</Text>
+            <Text style={S.metaItem} numberOfLines={1}>📍 {item.location_name}</Text>
           )}
         </View>
 
-        <Text style={styles.regMode}>
+        <Text style={S.regMode}>
           {item.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'}
         </Text>
       </TouchableOpacity>
@@ -88,40 +146,126 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={S.container}>
+      {/* Filter bar */}
+      <View style={S.filterBar}>
+        <View style={S.filterChips}>
+          <TouchableOpacity
+            style={[S.filterChip, filterByAvail && S.filterChipActive]}
+            onPress={() => {
+              if (!hasAvailability) return;
+              setFilterByAvail(v => !v);
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={[S.filterChipText, filterByAvail && S.filterChipTextActive]}>
+              📅 Matches my schedule
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[S.filterChip, showEnded && S.filterChipActive]}
+            onPress={() => {
+              setShowEnded(v => {
+                const next = !v;
+                if (!next) setSearchQuery('');
+                return next;
+              });
+            }}
+            activeOpacity={0.8}
+          >
+            <Text style={[S.filterChipText, showEnded && S.filterChipTextActive]}>
+              🏁 Show ended{endedCount > 0 ? ` (${endedCount})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        {!hasAvailability && (
+          <Text style={S.filterHint}>Set availability on your profile to use that filter</Text>
+        )}
+        {showEnded && (
+          <TextInput
+            style={S.searchInput}
+            placeholder="Search by name…"
+            placeholderTextColor={c.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+        )}
+      </View>
+
       <FlatList
-        data={tournaments}
+        data={visibleTournaments}
         keyExtractor={i => i.id}
         renderItem={renderCard}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         ListEmptyComponent={
-          <Text style={styles.empty}>No tournaments yet.{'\n'}Create one to get started!</Text>
+          <Text style={S.empty}>
+            {showEnded && trimmedQuery
+              ? `No tournaments match "${searchQuery.trim()}".`
+              : filterByAvail
+              ? 'No tournaments match your availability.\nTry removing the filter.'
+              : !showEnded && endedCount > 0
+              ? 'No active tournaments.\nToggle "Show ended" to see past tournaments.'
+              : 'No tournaments yet.\nCreate one to get started!'}
+          </Text>
         }
       />
       <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('CreateTournament', { leagueId })}
+        style={[S.fab, atTournamentLimit && S.fabDisabled]}
+        onPress={() => {
+          if (atTournamentLimit) {
+            Alert.alert(
+              'Active tournament limit reached',
+              "You're already running an active tournament. Wait for it to end (or cancel it) before starting another.",
+            );
+            return;
+          }
+          navigation.navigate('CreateTournament', { leagueId });
+        }}
+        activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>+ New Tournament</Text>
+        <Text style={[S.fabText, atTournamentLimit && S.fabTextDisabled]}>
+          {atTournamentLimit ? '+ New Tournament (limit reached)' : '+ New Tournament'}
+        </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f0f0f0' },
-  card: { backgroundColor: '#fff', borderRadius: 14, padding: 16, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6 },
-  cardTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  fmtIcon: { fontSize: 28, marginRight: 10 },
-  cardInfo: { flex: 1 },
-  name: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
-  fmt: { fontSize: 12, color: '#888', marginTop: 2 },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  statusText: { fontSize: 11, fontWeight: '700' },
-  meta: { gap: 3, marginBottom: 8 },
-  metaItem: { fontSize: 12, color: '#666' },
-  regMode: { fontSize: 12, color: '#aaa' },
-  empty: { textAlign: 'center', color: '#999', marginTop: 60, fontSize: 15, lineHeight: 22 },
-  fab: { position: 'absolute', bottom: 24, right: 24, backgroundColor: '#2e7d32', paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
-  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container:           { flex: 1, backgroundColor: c.bg },
+
+    filterBar:           { paddingHorizontal: 16, paddingVertical: 10, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
+    filterChips:         { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+    filterChip:          { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.bg },
+    filterChipActive:    { borderColor: c.primary, backgroundColor: c.primaryLight },
+    filterChipText:      { fontSize: 13, color: c.textMuted, fontWeight: '600' },
+    filterChipTextActive:{ color: c.primary },
+    filterHint:          { fontSize: 11, color: c.textMuted },
+    searchInput:         { backgroundColor: c.bg, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, color: c.text },
+
+    card:                { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+    cardTop:             { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, gap: 10 },
+    fmtIcon:             { fontSize: 28 },
+    cardInfo:            { flex: 1 },
+    cardBadges:          { gap: 4, alignItems: 'flex-end' },
+    name:                { fontSize: 16, fontWeight: '800', color: c.text },
+    fmt:                 { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    statusBadge:         { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+    statusText:          { fontSize: 11, fontWeight: '700' },
+    availBadge:          { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: c.primaryLight },
+    availBadgeText:      { fontSize: 10, fontWeight: '700', color: c.primary },
+    unavailBadge:        { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: '#fff8e1' },
+    unavailBadgeText:    { fontSize: 10, fontWeight: '700', color: '#e65100' },
+    meta:                { gap: 3, marginBottom: 8 },
+    metaItem:            { fontSize: 12, color: c.textSub },
+    regMode:             { fontSize: 12, color: c.textMuted },
+    empty:               { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15, lineHeight: 22 },
+    fab:                 { position: 'absolute', bottom: 24, right: 24, backgroundColor: c.primary, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
+    fabDisabled:         { backgroundColor: c.border, elevation: 0 },
+    fabText:             { color: '#fff', fontWeight: '700', fontSize: 15 },
+    fabTextDisabled:     { color: c.textMuted },
+  });
+}

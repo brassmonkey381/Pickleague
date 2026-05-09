@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ScrollView, Platform,
@@ -9,6 +9,7 @@ import { Picker } from '@react-native-picker/picker';
 import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
+import { useTheme } from '../lib/ThemeContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -19,12 +20,14 @@ type MatchType = 'singles' | 'doubles';
 type StatusMsg = { text: string; isError: boolean } | null;
 
 // Cross-platform player picker: HTML <select> on web, native Picker on iOS/Android
-function PlayerPickerField({ label, value, onChange, members, exclude }: {
+function PlayerPickerField({ label, value, onChange, members, exclude, S, colors }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   members: Profile[];
   exclude: string[];
+  S: ReturnType<typeof makeStyles>;
+  colors: ReturnType<typeof useTheme>['colors'];
 }) {
   const available = members.filter((m) => !exclude.includes(m.id) || m.id === value);
 
@@ -38,10 +41,10 @@ function PlayerPickerField({ label, value, onChange, members, exclude }: {
             fontSize: 15,
             padding: '11px 12px',
             width: '100%',
-            border: '1px solid #ddd',
+            border: `1px solid ${colors.border}`,
             borderRadius: 8,
-            backgroundColor: '#fff',
-            color: value ? '#1a1a1a' : '#aaa',
+            backgroundColor: colors.surface,
+            color: value ? colors.text : colors.textMuted,
             outline: 'none',
             cursor: 'pointer',
             boxSizing: 'border-box',
@@ -58,8 +61,8 @@ function PlayerPickerField({ label, value, onChange, members, exclude }: {
 
   return (
     <>
-      <Text style={styles.label}>{label}</Text>
-      <View style={styles.pickerWrapper}>
+      <Text style={S.label}>{label}</Text>
+      <View style={S.pickerWrapper}>
         {Platform.OS === 'web' ? (
           webSelect
         ) : (
@@ -77,6 +80,9 @@ function PlayerPickerField({ label, value, onChange, members, exclude }: {
 
 export default function MatchEntryScreen({ navigation, route }: Props) {
   const { leagueId } = route.params;
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
+
   const [members, setMembers] = useState<Profile[]>([]);
   const [matchType, setMatchType] = useState<MatchType>('singles');
   const [p1, setP1] = useState('');
@@ -86,6 +92,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [score1, setScore1] = useState('');
   const [score2, setScore2] = useState('');
   const [location, setLocation]     = useState<CourtResult | null>(null);
+  const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(null);
+  const [courtHint, setCourtHint]   = useState<string | null>(null);
   const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
   const [statusMsg, setStatusMsg]   = useState<StatusMsg>(null);
@@ -109,6 +117,73 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       setLocation({ name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
     }
   }
+
+  // Determine indoor/outdoor default for a location.
+  // Primary source: court_locations table (authoritative, keyword-seeded + user-confirmed).
+  // Fallback: aggregate of past match flags at this location.
+  async function learnCourtDefault(locationName: string) {
+    setCourtHint(null);
+    if (!locationName) return;
+
+    // ── Primary: court_locations ───────────────────────────────
+    const { data: court } = await supabase
+      .from('court_locations')
+      .select('has_indoor, has_outdoor, default_outdoor, auto_classified, verified')
+      .eq('name', locationName)
+      .maybeSingle();
+
+    if (court) {
+      const hasBoth = court.has_indoor && court.has_outdoor;
+      const source  = court.verified        ? '✓ verified'
+                    : court.auto_classified  ? 'auto-detected'
+                    : 'learned from past matches';
+
+      if (hasBoth) {
+        setCourtHint(`🏠 / ☀️ Has both indoor and outdoor courts · ${source}`);
+        // Don't pre-select if mixed — let user choose
+      } else if (court.default_outdoor === true) {
+        setIsOutdoor(true);
+        setCourtHint(`☀️ Outdoor · ${source}`);
+      } else if (court.default_outdoor === false) {
+        setIsOutdoor(false);
+        setCourtHint(`🏠 Indoor · ${source}`);
+      } else {
+        // Row exists but no default yet — fall through to match history
+        setCourtHint(null);
+      }
+
+      if (court.default_outdoor !== null || hasBoth) return;
+    }
+
+    // ── Fallback: aggregate of existing match flags ────────────
+    const { data: history } = await supabase
+      .from('matches')
+      .select('is_outdoor')
+      .eq('location_name', locationName)
+      .not('is_outdoor', 'is', null)
+      .limit(100);
+
+    if (!history || history.length < 3) return;
+
+    const outdoorCount = history.filter((m: any) => m.is_outdoor === true).length;
+    const pct          = outdoorCount / history.length;
+
+    if (pct >= 0.80) {
+      setIsOutdoor(true);
+      setCourtHint(`☀️ Outdoor — based on ${history.length} past matches here`);
+    } else if (pct <= 0.20) {
+      setIsOutdoor(false);
+      setCourtHint(`🏠 Indoor — based on ${history.length} past matches here`);
+    } else {
+      setCourtHint(`🏠 / ☀️ Mixed (${Math.round(pct * 100)}% outdoor across ${history.length} matches)`);
+    }
+  }
+
+  // Re-learn when location changes
+  useEffect(() => {
+    if (location?.name) learnCourtDefault(location.name);
+    else { setIsOutdoor(null); setCourtHint(null); }
+  }, [location?.name]);
 
   function resetOnTypeChange(type: MatchType) {
     setMatchType(type);
@@ -159,6 +234,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       location_lng:   location?.lng ?? null,
       was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
+      is_outdoor:     isOutdoor,
     }).select('id').single();
     setLoading(false);
 
@@ -189,17 +265,17 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const p2Name  = members.find((m) => m.id === p2)?.full_name  ?? 'Team 2';
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
 
       {/* Singles / Doubles toggle */}
-      <View style={styles.toggleRow}>
+      <View style={S.toggleRow}>
         {(['singles', 'doubles'] as MatchType[]).map((t) => (
           <TouchableOpacity
             key={t}
-            style={[styles.toggleBtn, matchType === t && styles.toggleBtnActive]}
+            style={[S.toggleBtn, matchType === t && S.toggleBtnActive]}
             onPress={() => resetOnTypeChange(t)}
           >
-            <Text style={[styles.toggleText, matchType === t && styles.toggleTextActive]}>
+            <Text style={[S.toggleText, matchType === t && S.toggleTextActive]}>
               {t === 'singles' ? '1v1  Singles' : '2v2  Doubles'}
             </Text>
           </TouchableOpacity>
@@ -207,57 +283,57 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       </View>
 
       {/* Team 1 */}
-      <View style={styles.teamSection}>
-        <Text style={styles.teamLabel}>Team 1</Text>
-        <PlayerPickerField label="Player" value={p1} onChange={setP1} members={members} exclude={[...team2Players, partner1]} />
+      <View style={S.teamSection}>
+        <Text style={S.teamLabel}>Team 1</Text>
+        <PlayerPickerField label="Player" value={p1} onChange={setP1} members={members} exclude={[...team2Players, partner1]} S={S} colors={colors} />
         {matchType === 'doubles' && (
-          <PlayerPickerField label="Partner" value={partner1} onChange={setPartner1} members={members} exclude={[...team2Players, p1]} />
+          <PlayerPickerField label="Partner" value={partner1} onChange={setPartner1} members={members} exclude={[...team2Players, p1]} S={S} colors={colors} />
         )}
       </View>
 
       {/* Team 2 */}
-      <View style={styles.teamSection}>
-        <Text style={styles.teamLabel}>Team 2</Text>
-        <PlayerPickerField label="Player" value={p2} onChange={setP2} members={members} exclude={[...team1Players, partner2]} />
+      <View style={S.teamSection}>
+        <Text style={S.teamLabel}>Team 2</Text>
+        <PlayerPickerField label="Player" value={p2} onChange={setP2} members={members} exclude={[...team1Players, partner2]} S={S} colors={colors} />
         {matchType === 'doubles' && (
-          <PlayerPickerField label="Partner" value={partner2} onChange={setPartner2} members={members} exclude={[...team1Players, p2]} />
+          <PlayerPickerField label="Partner" value={partner2} onChange={setPartner2} members={members} exclude={[...team1Players, p2]} S={S} colors={colors} />
         )}
       </View>
 
       {/* Score entry */}
-      <View style={styles.scoreCard}>
-        <View style={styles.scoreCol}>
-          <Text style={styles.scoreName} numberOfLines={1}>{p1Name}</Text>
+      <View style={S.scoreCard}>
+        <View style={S.scoreCol}>
+          <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>
           <TextInput
-            style={styles.scoreInput}
+            style={S.scoreInput}
             keyboardType="number-pad"
             value={score1}
             onChangeText={setScore1}
             placeholder="0"
-            placeholderTextColor="#ccc"
+            placeholderTextColor={colors.border}
             maxLength={2}
           />
         </View>
-        <Text style={styles.vs}>vs</Text>
-        <View style={styles.scoreCol}>
-          <Text style={styles.scoreName} numberOfLines={1}>{p2Name}</Text>
+        <Text style={S.vs}>vs</Text>
+        <View style={S.scoreCol}>
+          <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>
           <TextInput
-            style={styles.scoreInput}
+            style={S.scoreInput}
             keyboardType="number-pad"
             value={score2}
             onChangeText={setScore2}
             placeholder="0"
-            placeholderTextColor="#ccc"
+            placeholderTextColor={colors.border}
             maxLength={2}
           />
         </View>
       </View>
 
       {/* Location */}
-      <View style={styles.locationSection}>
-        <Text style={styles.locationLabel}>
+      <View style={S.locationSection}>
+        <Text style={S.locationLabel}>
           Match Location
-          {!location && <Text style={styles.locationRequired}> *</Text>}
+          {!location && <Text style={S.locationRequired}> *</Text>}
         </Text>
         <CourtPicker
           value={location}
@@ -267,54 +343,92 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         />
       </View>
 
+      {/* Indoor / Outdoor */}
+      <View style={S.courtTypeSection}>
+        <Text style={S.courtTypeLabel}>Court Type</Text>
+        {courtHint && (
+          <Text style={S.courtHint}>📍 {courtHint}</Text>
+        )}
+        <View style={S.courtTypeRow}>
+          {([false, true] as const).map(outdoor => (
+            <TouchableOpacity
+              key={String(outdoor)}
+              style={[
+                S.courtTypeBtn,
+                isOutdoor === outdoor && S.courtTypeBtnActive,
+              ]}
+              onPress={() => setIsOutdoor(prev => prev === outdoor ? null : outdoor)}
+            >
+              <Text style={S.courtTypeIcon}>{outdoor ? '☀️' : '🏠'}</Text>
+              <Text style={[
+                S.courtTypeText,
+                isOutdoor === outdoor && S.courtTypeTextActive,
+              ]}>
+                {outdoor ? 'Outdoor' : 'Indoor'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
       {/* Status message */}
       {statusMsg && (
-        <View style={[styles.statusBox, statusMsg.isError ? styles.statusError : styles.statusSuccess]}>
-          <Text style={[styles.statusText, statusMsg.isError ? styles.statusTextError : styles.statusTextSuccess]}>
+        <View style={[S.statusBox, statusMsg.isError ? S.statusError : S.statusSuccess]}>
+          <Text style={[S.statusText, statusMsg.isError ? S.statusTextError : S.statusTextSuccess]}>
             {statusMsg.isError ? '✕  ' : '✓  '}{statusMsg.text}
           </Text>
         </View>
       )}
 
       <TouchableOpacity
-        style={[styles.button, loading && styles.buttonDisabled]}
+        style={[S.button, loading && S.buttonDisabled]}
         onPress={submitMatch}
         disabled={loading}
       >
-        <Text style={styles.buttonText}>{loading ? 'Saving...' : 'Record Match'}</Text>
+        <Text style={S.buttonText}>{loading ? 'Saving...' : 'Record Match'}</Text>
       </TouchableOpacity>
 
     </ScrollView>
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff', flexGrow: 1, paddingBottom: 40 },
-  toggleRow: { flexDirection: 'row', borderRadius: 10, borderWidth: 1.5, borderColor: '#ddd', overflow: 'hidden', marginBottom: 20 },
-  toggleBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: '#fafafa' },
-  toggleBtnActive: { backgroundColor: GREEN },
-  toggleText: { fontSize: 15, fontWeight: '600', color: '#888' },
-  toggleTextActive: { color: '#fff' },
-  teamSection: { backgroundColor: '#f9f9f9', borderRadius: 10, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#eee' },
-  teamLabel: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
-  label: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 5, marginTop: 10 },
-  pickerWrapper: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' },
-  scoreCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9f9f9', borderRadius: 12, padding: 16, marginVertical: 8, gap: 12, borderWidth: 1, borderColor: '#eee' },
-  scoreCol: { flex: 1, alignItems: 'center' },
-  scoreName: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 8, textAlign: 'center' },
-  scoreInput: { borderWidth: 2, borderColor: '#ddd', borderRadius: 10, padding: 12, fontSize: 28, textAlign: 'center', fontWeight: '800', color: '#1a1a1a', width: 72, backgroundColor: '#fff' },
-  vs: { fontSize: 16, fontWeight: '700', color: '#bbb' },
-  statusBox: { borderRadius: 8, padding: 14, marginTop: 8, marginBottom: 4 },
-  statusError: { backgroundColor: '#ffebee' },
-  statusSuccess: { backgroundColor: '#e8f5e9' },
-  statusText: { fontSize: 14, fontWeight: '600' },
-  statusTextError: { color: '#c62828' },
-  statusTextSuccess: { color: GREEN },
-  locationSection: { marginTop: 8, marginBottom: 4 },
-  locationLabel: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6 },
-  locationRequired: { color: '#c62828' },
-  button: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-  buttonDisabled: { backgroundColor: '#a5d6a7' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 40 },
+    toggleRow: { flexDirection: 'row', borderRadius: 10, borderWidth: 1.5, borderColor: c.border, overflow: 'hidden', marginBottom: 20 },
+    toggleBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: c.surfaceAlt },
+    toggleBtnActive: { backgroundColor: c.primary },
+    toggleText: { fontSize: 15, fontWeight: '600', color: c.textMuted },
+    toggleTextActive: { color: '#fff' },
+    teamSection: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    teamLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+    label: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 5, marginTop: 10 },
+    pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 8, overflow: 'hidden', backgroundColor: c.surface },
+    scoreCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginVertical: 8, gap: 12, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    scoreCol: { flex: 1, alignItems: 'center' },
+    scoreName: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 8, textAlign: 'center' },
+    scoreInput: { borderWidth: 2, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 28, textAlign: 'center', fontWeight: '800', color: c.text, width: 72, backgroundColor: c.surface },
+    vs: { fontSize: 16, fontWeight: '700', color: c.border },
+    statusBox: { borderRadius: 8, padding: 14, marginTop: 8, marginBottom: 4 },
+    statusError: { backgroundColor: '#ffebee' },
+    statusSuccess: { backgroundColor: c.primaryLight },
+    statusText: { fontSize: 14, fontWeight: '600' },
+    statusTextError: { color: c.danger },
+    statusTextSuccess: { color: c.primary },
+    locationSection: { marginTop: 8, marginBottom: 4 },
+    locationLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 6 },
+    locationRequired: { color: c.danger },
+    courtTypeSection: { marginTop: 12, marginBottom: 4 },
+    courtTypeLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 4 },
+    courtHint: { fontSize: 12, color: c.textMuted, marginBottom: 6, fontStyle: 'italic' },
+    courtTypeRow: { flexDirection: 'row', gap: 10 },
+    courtTypeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    courtTypeBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    courtTypeIcon: { fontSize: 18 },
+    courtTypeText: { fontSize: 14, fontWeight: '600', color: c.textMuted },
+    courtTypeTextActive: { color: c.primary },
+    button: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+    buttonDisabled: { backgroundColor: c.primary + '80' },
+    buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  });
+}

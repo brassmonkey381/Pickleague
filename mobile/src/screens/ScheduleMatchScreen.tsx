@@ -6,6 +6,8 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { Picker } from '@react-native-picker/picker';
 import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ScheduleMatch'>;
@@ -13,6 +15,9 @@ type Props = {
 };
 
 export default function ScheduleMatchScreen({ navigation, route }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const { leagueId } = route.params;
   const [members, setMembers] = useState<Profile[]>([]);
   const [player1Id, setPlayer1Id] = useState('');
@@ -78,30 +83,30 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   const formattedTime = scheduledAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.label}>Player 1</Text>
-      <View style={styles.pickerWrapper}>
+    <ScrollView contentContainerStyle={S.container}>
+      <Text style={S.label}>Player 1</Text>
+      <View style={S.pickerWrapper}>
         <Picker selectedValue={player1Id} onValueChange={setPlayer1Id}>
           <Picker.Item label="Select player..." value="" />
           {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
         </Picker>
       </View>
 
-      <Text style={styles.label}>Player 2</Text>
-      <View style={styles.pickerWrapper}>
+      <Text style={S.label}>Player 2</Text>
+      <View style={S.pickerWrapper}>
         <Picker selectedValue={player2Id} onValueChange={setPlayer2Id}>
           <Picker.Item label="Select player..." value="" />
           {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
         </Picker>
       </View>
 
-      <Text style={styles.label}>Date & Time</Text>
-      <View style={styles.dateRow}>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={styles.dateBtnText}>{formattedDate}</Text>
+      <Text style={S.label}>Date & Time</Text>
+      <View style={S.dateRow}>
+        <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
+          <Text style={S.dateBtnText}>{formattedDate}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.timeBtn} onPress={() => setShowTimePicker(true)}>
-          <Text style={styles.dateBtnText}>{formattedTime}</Text>
+        <TouchableOpacity style={S.timeBtn} onPress={() => setShowTimePicker(true)}>
+          <Text style={S.dateBtnText}>{formattedTime}</Text>
         </TouchableOpacity>
       </View>
 
@@ -121,21 +126,23 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
         />
       )}
 
-      <TouchableOpacity style={styles.button} onPress={scheduleMatch} disabled={loading}>
-        <Text style={styles.buttonText}>{loading ? 'Scheduling...' : 'Schedule Match'}</Text>
+      <TouchableOpacity style={S.button} onPress={scheduleMatch} disabled={loading}>
+        <Text style={S.buttonText}>{loading ? 'Scheduling...' : 'Schedule Match'}</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: '#fff', flexGrow: 1 },
-  label: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 16 },
-  pickerWrapper: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, overflow: 'hidden' },
-  dateRow: { flexDirection: 'row', gap: 12 },
-  dateBtn: { flex: 2, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, alignItems: 'center' },
-  timeBtn: { flex: 1, borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, alignItems: 'center' },
-  dateBtnText: { fontSize: 15, color: '#333' },
-  button: { backgroundColor: '#2e7d32', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 32 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container:     { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
+    label:         { fontSize: 14, fontWeight: '700', color: c.text, marginBottom: 6, marginTop: 16 },
+    pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 10, overflow: 'hidden', backgroundColor: c.surface },
+    dateRow:       { flexDirection: 'row', gap: 12 },
+    dateBtn:       { flex: 2, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', backgroundColor: c.surface },
+    timeBtn:       { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', backgroundColor: c.surface },
+    dateBtnText:   { fontSize: 15, color: c.text },
+    button:        { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 32 },
+    buttonText:    { color: '#fff', fontSize: 16, fontWeight: '600' },
+  });
+}

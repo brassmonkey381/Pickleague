@@ -3,6 +3,7 @@ import { View, Text, FlatList, StyleSheet, ActivityIndicator, ScrollView, Pressa
 import { Calendar, DateData } from 'react-native-calendars';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../lib/ThemeContext';
 import { Match, RootStackParamList } from '../types';
 
 type Props = { route: RouteProp<RootStackParamList, 'CalendarAnalytics'> };
@@ -16,6 +17,8 @@ type DayRecord = {
 
 export default function CalendarAnalyticsScreen({ route }: Props) {
   const { userId, leagueId } = route.params;
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
   const [dateMap, setDateMap]       = useState<Record<string, DayRecord>>({});
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -52,7 +55,6 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
     const { data } = await query;
     let matches: Match[] = data ?? [];
 
-    // Filter to matches involving the target player (including as doubles partner)
     if (uid) {
       matches = matches.filter((m) =>
         m.player1_id === uid || m.player2_id === uid ||
@@ -60,7 +62,6 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
       );
     }
 
-    // Group by UTC date from played_at
     const map: Record<string, DayRecord> = {};
     for (const match of matches) {
       const dateKey = match.played_at.slice(0, 10);
@@ -83,18 +84,17 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
     setLoading(false);
   }
 
-  // Build markedDates for the calendar
   const markedDates: Record<string, any> = {};
   for (const [date, record] of Object.entries(dateMap)) {
     const isSelected   = date === selectedDate;
     const netPositive  = record.ratingDelta > 0 || record.wins > record.losses;
     const dotColor     = currentUserId
-      ? (netPositive ? '#2e7d32' : '#c62828')
-      : '#2e7d32'; // league view: always green dot
+      ? (netPositive ? colors.primary : colors.danger)
+      : colors.primary;
 
     markedDates[date] = {
       selected: isSelected,
-      selectedColor: '#2e7d32',
+      selectedColor: colors.primary,
       marked: true,
       dotColor: isSelected ? '#fff' : dotColor,
     };
@@ -102,10 +102,10 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
 
   const selectedDayRecord = selectedDate ? dateMap[selectedDate] : null;
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
+  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={S.container}>
       <Calendar
         markedDates={markedDates}
         dayComponent={({ date, state }: any) => {
@@ -121,33 +121,33 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
                 )
               }
               style={({ pressed }) => [
-                styles.dayCell,
-                isSelected && styles.dayCellSelected,
-                pressed && styles.dayCellPressed,
+                S.dayCell,
+                isSelected && S.dayCellSelected,
+                pressed && S.dayCellPressed,
               ]}
             >
               <Text style={[
-                styles.dayNum,
-                isDisabled && styles.dayDisabled,
-                isSelected && styles.dayNumSelected,
+                S.dayNum,
+                isDisabled && S.dayDisabled,
+                isSelected && S.dayNumSelected,
               ]}>
                 {date?.day}
               </Text>
               {record && currentUserId && (
-                <Text style={[styles.dayRecord, isSelected && styles.dayTextSelected]}>
+                <Text style={[S.dayRecord, isSelected && S.dayTextSelected]}>
                   {record.wins}W-{record.losses}L
                 </Text>
               )}
               {record && !currentUserId && (
-                <Text style={[styles.dayRecord, isSelected && styles.dayTextSelected]}>
+                <Text style={[S.dayRecord, isSelected && S.dayTextSelected]}>
                   {record.matches.length}
                 </Text>
               )}
               {record && currentUserId && record.ratingDelta !== 0 && (
                 <Text style={[
-                  styles.dayElo,
-                  record.ratingDelta > 0 ? styles.eloUp : styles.eloDown,
-                  isSelected && styles.dayTextSelected,
+                  S.dayElo,
+                  record.ratingDelta > 0 ? S.eloUp : S.eloDown,
+                  isSelected && S.dayTextSelected,
                 ]}>
                   {record.ratingDelta > 0 ? '+' : ''}{record.ratingDelta}
                 </Text>
@@ -156,47 +156,49 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
           );
         }}
         theme={{
-          calendarBackground: '#fff',
-          textSectionTitleColor: '#666',
-          todayTextColor: '#2e7d32',
-          arrowColor: '#2e7d32',
+          calendarBackground: colors.surface,
+          textSectionTitleColor: colors.textSub,
+          dayTextColor: colors.text,
+          monthTextColor: colors.text,
+          todayTextColor: colors.primary,
+          arrowColor: colors.primary,
         }}
       />
 
       {Object.keys(dateMap).length === 0 && (
-        <Text style={styles.hint}>No match data found for this view.</Text>
+        <Text style={S.hint}>No match data found for this view.</Text>
       )}
 
       {selectedDayRecord ? (
-        <View style={styles.dayDetail}>
-          <Text style={styles.detailDate}>
+        <View style={S.dayDetail}>
+          <Text style={S.detailDate}>
             {new Date(selectedDate! + 'T12:00:00').toLocaleDateString(undefined, {
               weekday: 'long', month: 'long', day: 'numeric',
             })}
           </Text>
 
           {currentUserId && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryBadge}>
-                <Text style={styles.summaryNum}>{selectedDayRecord.wins}</Text>
-                <Text style={styles.summaryLabel}>Wins</Text>
+            <View style={S.summaryRow}>
+              <View style={S.summaryBadge}>
+                <Text style={S.summaryNum}>{selectedDayRecord.wins}</Text>
+                <Text style={S.summaryLabel}>Wins</Text>
               </View>
-              <View style={styles.summaryBadge}>
-                <Text style={styles.summaryNum}>{selectedDayRecord.losses}</Text>
-                <Text style={styles.summaryLabel}>Losses</Text>
+              <View style={S.summaryBadge}>
+                <Text style={S.summaryNum}>{selectedDayRecord.losses}</Text>
+                <Text style={S.summaryLabel}>Losses</Text>
               </View>
-              <View style={styles.summaryBadge}>
+              <View style={S.summaryBadge}>
                 <Text style={[
-                  styles.summaryNum,
-                  selectedDayRecord.ratingDelta >= 0 ? styles.eloUp : styles.eloDown,
+                  S.summaryNum,
+                  selectedDayRecord.ratingDelta >= 0 ? S.eloUp : S.eloDown,
                 ]}>
                   {selectedDayRecord.ratingDelta >= 0 ? '+' : ''}{selectedDayRecord.ratingDelta}
                 </Text>
-                <Text style={styles.summaryLabel}>ELO</Text>
+                <Text style={S.summaryLabel}>ELO</Text>
               </View>
-              <View style={styles.summaryBadge}>
-                <Text style={styles.summaryNum}>{selectedDayRecord.matches.length}</Text>
-                <Text style={styles.summaryLabel}>Matches</Text>
+              <View style={S.summaryBadge}>
+                <Text style={S.summaryNum}>{selectedDayRecord.matches.length}</Text>
+                <Text style={S.summaryLabel}>Matches</Text>
               </View>
             </View>
           )}
@@ -212,12 +214,12 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
 
               if (!currentUserId) {
                 return (
-                  <View style={styles.matchRow}>
-                    <Text style={styles.matchOpponent}>
+                  <View style={S.matchRow}>
+                    <Text style={S.matchOpponent}>
                       {item.player1?.full_name} vs {item.player2?.full_name}
                     </Text>
-                    <Text style={styles.matchScore}>{item.player1_score}–{item.player2_score}</Text>
-                    <Text style={styles.matchTime}>{timeStr}</Text>
+                    <Text style={S.matchScore}>{item.player1_score}–{item.player2_score}</Text>
+                    <Text style={S.matchTime}>{timeStr}</Text>
                   </View>
                 );
               }
@@ -230,15 +232,15 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
               const typeTag  = item.match_type === 'doubles' ? ' (2v2)' : '';
 
               return (
-                <View style={styles.matchRow}>
-                  <Text style={[styles.matchResult, won ? styles.winText : styles.lossText]}>
+                <View style={S.matchRow}>
+                  <Text style={[S.matchResult, won ? S.winText : S.lossText]}>
                     {won ? 'W' : 'L'}
                   </Text>
-                  <Text style={styles.matchOpponent} numberOfLines={1}>
+                  <Text style={S.matchOpponent} numberOfLines={1}>
                     vs {opponent?.full_name ?? 'Unknown'}{typeTag}
                   </Text>
-                  <Text style={styles.matchScore}>{myScore}–{oppScore}</Text>
-                  <Text style={styles.matchTime}>{timeStr}</Text>
+                  <Text style={S.matchScore}>{myScore}–{oppScore}</Text>
+                  <Text style={S.matchTime}>{timeStr}</Text>
                 </View>
               );
             }}
@@ -246,38 +248,40 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
         </View>
       ) : (
         Object.keys(dateMap).length > 0 && (
-          <Text style={styles.hint}>Tap a highlighted date to see match details.</Text>
+          <Text style={S.hint}>Tap a highlighted date to see match details.</Text>
         )
       )}
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  dayCell: { width: 44, height: 52, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, borderRadius: 6 },
-  dayCellSelected: { backgroundColor: '#2e7d32' },
-  dayCellPressed: { opacity: 0.6 },
-  dayNum: { fontSize: 14, color: '#1a1a1a', fontWeight: '500' },
-  dayNumSelected: { color: '#fff' },
-  dayDisabled: { color: '#ccc' },
-  dayRecord: { fontSize: 8, color: '#2e7d32', fontWeight: '700', marginTop: 1 },
-  dayElo: { fontSize: 8, fontWeight: '700', marginTop: 0 },
-  dayTextSelected: { color: '#fff' },
-  eloUp:   { color: '#2e7d32' },
-  eloDown: { color: '#c62828' },
-  dayDetail: { backgroundColor: '#fff', margin: 12, borderRadius: 12, padding: 16 },
-  detailDate: { fontSize: 18, fontWeight: '700', color: '#1a1a1a', marginBottom: 12 },
-  summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  summaryBadge: { flex: 1, alignItems: 'center', backgroundColor: '#f5f5f5', borderRadius: 8, padding: 10 },
-  summaryNum: { fontSize: 20, fontWeight: '800', color: '#1a1a1a' },
-  summaryLabel: { fontSize: 10, color: '#888', marginTop: 2, textTransform: 'uppercase' },
-  matchRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', gap: 8 },
-  matchResult: { fontSize: 15, fontWeight: '800', width: 20 },
-  winText:  { color: '#2e7d32' },
-  lossText: { color: '#c62828' },
-  matchOpponent: { flex: 1, fontSize: 14, fontWeight: '600', color: '#333' },
-  matchScore: { fontSize: 14, fontWeight: '700', color: '#555' },
-  matchTime: { fontSize: 11, color: '#aaa' },
-  hint: { textAlign: 'center', color: '#aaa', marginTop: 24, fontSize: 14, padding: 16 },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    dayCell: { width: 44, height: 52, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, borderRadius: 6 },
+    dayCellSelected: { backgroundColor: c.primary },
+    dayCellPressed: { opacity: 0.6 },
+    dayNum: { fontSize: 14, color: c.text, fontWeight: '500' },
+    dayNumSelected: { color: '#fff' },
+    dayDisabled: { color: c.textMuted },
+    dayRecord: { fontSize: 8, color: c.primary, fontWeight: '700', marginTop: 1 },
+    dayElo: { fontSize: 8, fontWeight: '700', marginTop: 0 },
+    dayTextSelected: { color: '#fff' },
+    eloUp:   { color: c.primary },
+    eloDown: { color: c.danger },
+    dayDetail: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+    detailDate: { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 12 },
+    summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+    summaryBadge: { flex: 1, alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10 },
+    summaryNum: { fontSize: 20, fontWeight: '800', color: c.text },
+    summaryLabel: { fontSize: 10, color: c.textMuted, marginTop: 2, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.6 },
+    matchRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
+    matchResult: { fontSize: 15, fontWeight: '800', width: 20 },
+    winText:  { color: c.primary },
+    lossText: { color: c.danger },
+    matchOpponent: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text },
+    matchScore: { fontSize: 14, fontWeight: '700', color: c.textSub },
+    matchTime: { fontSize: 11, color: c.textMuted },
+    hint: { textAlign: 'center', color: c.textMuted, marginTop: 24, fontSize: 14, padding: 16 },
+  });
+}

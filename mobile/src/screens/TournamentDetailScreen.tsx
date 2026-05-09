@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
-  StyleSheet, Alert, ActivityIndicator, FlatList,
+  StyleSheet, Alert, ActivityIndicator, FlatList, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -16,8 +16,11 @@ import {
   FORMAT_META, seedPlayers, generateRoundRobin, generatePoolPlay,
   generateSingleElim, generateRotatingPartners, generateMLPSchedule, MatchPairing,
 } from '../lib/tournament';
+import { checkGodmode } from '../lib/godmode';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -35,6 +38,8 @@ type PartnerRequest = {
 
 export default function TournamentDetailScreen({ navigation, route }: Props) {
   const { tournamentId } = route.params;
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
 
   const [tournament, setTournament]       = useState<Tournament | null>(null);
   const [registrations, setRegistrations] = useState<TournamentRegistration[]>([]);
@@ -57,6 +62,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Partner selection modal
   const [showPartnerModal, setShowPartnerModal] = useState(false);
 
+  // Godmode (Brian Stockman superuser bypass)
+  const [godmode, setGodmode] = useState(false);
+
+  // Edit-tournament modal (admin only)
+  const [showEditModal, setShowEditModal]     = useState(false);
+  const [editName, setEditName]               = useState('');
+  const [editDesc, setEditDesc]               = useState('');
+  const [editLocation, setEditLocation]       = useState('');
+  const [editMaxPlayers, setEditMaxPlayers]   = useState('');
+  const [editStartTime, setEditStartTime]     = useState<Date | null>(null);
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [savingEdit, setSavingEdit]           = useState(false);
+
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
@@ -64,14 +82,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const uid = user?.id ?? null;
     setMyUserId(uid);
 
-    const [tRes, regRes, role] = await Promise.all([
+    const [tRes, regRes, role, godmodeResult] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
       supabase.from('tournament_registrations')
         .select('*, profile:profiles(id, full_name, rating)')
         .eq('tournament_id', tournamentId)
         .order('role'),
       getTournamentRole(tournamentId),
+      checkGodmode(),
     ]);
+    setGodmode(godmodeResult);
 
     const t = tRes.data as Tournament;
     setTournament(t);
@@ -88,8 +108,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setProfileNames(names);
     setProfileRatings(ratings);
 
-    // Load saved matches + rounds if tournament is active
-    if (t?.status === 'active') {
+    // Load saved matches + rounds if tournament is active OR completed
+    if (t?.status === 'active' || t?.status === 'completed') {
       const [smRes, srRes] = await Promise.all([
         supabase.from('tournament_matches')
           .select('*, round:tournament_rounds(id, label, round_type, round_number)')
@@ -136,6 +156,64 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Bracket release time ────────────────────────────────────
+  // ── Godmode delete (Brian only) ────────────────────────────
+  function deleteTournament() {
+    if (!tournament) return;
+    Alert.alert(
+      `Delete "${tournament.name}"?`,
+      'This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete Tournament',
+          style: 'destructive',
+          onPress: async () => {
+            const { data, error } = await supabase.from('tournaments').delete().eq('id', tournament.id).select();
+            if (error) Alert.alert('Delete failed', error.message);
+            else if (!data || data.length === 0) {
+              Alert.alert('Delete blocked', 'No rows were deleted. The DELETE RLS policy may not be in place — apply supabase/migration_add_godmode_delete.sql.');
+            } else navigation.goBack();
+          },
+        },
+      ],
+    );
+  }
+
+  // ── Edit tournament (admin) ────────────────────────────────
+  function openEditModal() {
+    if (!tournament) return;
+    setEditName(tournament.name);
+    setEditDesc(tournament.description ?? '');
+    setEditLocation(tournament.location_name ?? '');
+    setEditMaxPlayers(tournament.max_players != null ? String(tournament.max_players) : '');
+    setEditStartTime(tournament.start_time ? new Date(tournament.start_time) : null);
+    setShowEditModal(true);
+  }
+
+  async function saveTournamentEdits() {
+    if (!tournament) return;
+    const name = editName.trim();
+    if (!name) { Alert.alert('', 'Tournament name is required.'); return; }
+    const maxPlayersN = editMaxPlayers.trim() ? parseInt(editMaxPlayers.trim(), 10) : null;
+    if (editMaxPlayers.trim() && (Number.isNaN(maxPlayersN!) || maxPlayersN! < 2)) {
+      Alert.alert('', 'Max players must be a number ≥ 2.'); return;
+    }
+
+    setSavingEdit(true);
+    const { error } = await supabase.from('tournaments').update({
+      name,
+      description:   editDesc.trim() || null,
+      location_name: editLocation.trim() || null,
+      max_players:   maxPlayersN,
+      start_time:    editStartTime ? editStartTime.toISOString() : null,
+    }).eq('id', tournament.id);
+    setSavingEdit(false);
+
+    if (error) { Alert.alert('Error', error.message); return; }
+    setShowEditModal(false);
+    load();
+  }
+
   async function saveBracketReleaseTime(date: Date) {
     setShowReleasePicker(false);
     await supabase.from('tournaments').update({ bracket_release_time: date.toISOString() }).eq('id', tournamentId);
@@ -284,8 +362,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     return profileNames[id] ?? '…';
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
-  if (!tournament) return <Text style={styles.empty}>Tournament not found.</Text>;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (!tournament) return <Text style={S.empty}>Tournament not found.</Text>;
 
   const fmt        = FORMAT_META[tournament.format];
   const approved   = registrations.filter(r => r.status === 'approved');
@@ -317,19 +395,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 48 }}>
+      <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 48 }}>
 
         {/* ── Header ── */}
-        <View style={styles.headerCard}>
-          <View style={styles.headerTop}>
-            <Text style={styles.fmtIcon}>{fmt.icon}</Text>
+        <View style={S.headerCard}>
+          <View style={S.headerTop}>
+            <Text style={S.fmtIcon}>{fmt.icon}</Text>
             <View style={{ flex: 1 }}>
-              <Text style={styles.fmtLabel}>{fmt.label}</Text>
-              <Text style={styles.fmtDesc}>{fmt.description}</Text>
+              <Text style={S.fmtLabel}>{fmt.label}</Text>
+              <Text style={S.fmtDesc}>{fmt.description}</Text>
             </View>
             {myRole && (
-              <View style={[styles.myRoleBadge, { backgroundColor: tournamentRoleBadgeColor(myRole) + '22', borderColor: tournamentRoleBadgeColor(myRole) + '55' }]}>
-                <Text style={[styles.myRoleText, { color: tournamentRoleBadgeColor(myRole) }]}>
+              <View style={[S.myRoleBadge, { backgroundColor: tournamentRoleBadgeColor(myRole) + '22', borderColor: tournamentRoleBadgeColor(myRole) + '55' }]}>
+                <Text style={[S.myRoleText, { color: tournamentRoleBadgeColor(myRole) }]}>
                   {tournamentRoleLabel(myRole)}
                 </Text>
               </View>
@@ -337,33 +415,75 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
 
           {/* Settings chips */}
-          <View style={styles.chipsRow}>
-            <Text style={styles.chip}>{tournament.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
-            <Text style={styles.chip}>{tournament.seeding === 'elo' ? '📊 ELO seeded' : '🎲 Random'}</Text>
-            {tournament.format === 'pool_play' && <Text style={styles.chip}>{tournament.pool_count} pools</Text>}
-            {tournament.partner_rotation && <Text style={styles.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
-            <Text style={styles.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
+          <View style={S.chipsRow}>
+            <Text style={S.chip}>{tournament.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
+            <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 ELO seeded' : '🎲 Random'}</Text>
+            {tournament.format === 'pool_play' && <Text style={S.chip}>{tournament.pool_count} pools</Text>}
+            {tournament.partner_rotation && <Text style={S.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
+            <Text style={S.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
           </View>
 
           {tournament.start_time && (
-            <Text style={styles.metaLine}>📅 {new Date(tournament.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
+            <Text style={S.metaLine}>📅 {new Date(tournament.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
           )}
-          {tournament.location_name && <Text style={styles.metaLine}>📍 {tournament.location_name}</Text>}
-          {tournament.description && <Text style={styles.desc}>{tournament.description}</Text>}
+          {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
+          {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
         </View>
+
+        {/* ── Quick action row ── */}
+        <View style={S.quickActionsRow}>
+          <TouchableOpacity
+            style={S.quickActionBtn}
+            onPress={() => navigation.navigate('TournamentInfo', { tournamentId, tournamentName: tournament.name })}
+            activeOpacity={0.7}
+          >
+            <Text style={S.quickActionText}>ℹ️ How this works</Text>
+          </TouchableOpacity>
+          {isAdmin && (godmode || (tournament.status !== 'completed' && tournament.status !== 'cancelled')) && (
+            <TouchableOpacity
+              style={[S.quickActionBtn, S.quickActionBtnPrimary]}
+              onPress={openEditModal}
+              activeOpacity={0.7}
+            >
+              <Text style={[S.quickActionText, S.quickActionTextPrimary]}>Edit Tournament</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {(tournament.status === 'completed' || tournament.status === 'cancelled') && (
+          <View style={S.closedBanner}>
+            <Text style={S.closedBannerText}>
+              🔒 This tournament is {tournament.status === 'completed' ? 'ended' : 'cancelled'} — edits are locked.
+            </Text>
+          </View>
+        )}
+
+        {/* ── Match History (active or completed tournaments) ── */}
+        {(tournament.status === 'active' || tournament.status === 'completed') && (
+          <TouchableOpacity
+            style={S.historyBtn}
+            onPress={() => navigation.navigate('TournamentMatchHistory', {
+              tournamentId,
+              title: `${tournament.name} History`,
+            })}
+            activeOpacity={0.85}
+          >
+            <Text style={S.historyBtnText}>📜  Match History</Text>
+            <Text style={S.historyBtnSub}>All scheduled and completed matches</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── Member: bracket release countdown ── */}
         {myReg?.status === 'approved' && !generatedMatches && (
-          <View style={styles.infoBox}>
+          <View style={S.infoBox}>
             {bracketLabel ? (
               <>
-                <Text style={styles.infoIcon}>⏰</Text>
-                <Text style={styles.infoText}>{bracketLabel}</Text>
+                <Text style={S.infoIcon}>⏰</Text>
+                <Text style={S.infoText}>{bracketLabel}</Text>
               </>
             ) : (
               <>
-                <Text style={styles.infoIcon}>🗓️</Text>
-                <Text style={styles.infoText}>Bracket release date hasn't been set yet. Check back soon!</Text>
+                <Text style={S.infoIcon}>🗓️</Text>
+                <Text style={S.infoText}>Bracket release date hasn't been set yet. Check back soon!</Text>
               </>
             )}
           </View>
@@ -371,8 +491,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
         {/* ── Admin: set bracket release time ── */}
         {isPriv && !generatedMatches && (
-          <TouchableOpacity style={styles.setReleaseBtn} onPress={() => setShowReleasePicker(true)}>
-            <Text style={styles.setReleaseBtnText}>
+          <TouchableOpacity style={S.setReleaseBtn} onPress={() => setShowReleasePicker(true)}>
+            <Text style={S.setReleaseBtnText}>
               {tournament.bracket_release_time
                 ? `⏰ Bracket release: ${new Date(tournament.bracket_release_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}  (tap to change)`
                 : '⏰ Set expected bracket release time'}
@@ -382,20 +502,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
         {/* ── Registration ── */}
         {canRegister && (
-          <TouchableOpacity style={styles.registerBtn} onPress={register}>
-            <Text style={styles.registerBtnText}>📝 Request to Join</Text>
+          <TouchableOpacity style={S.registerBtn} onPress={register}>
+            <Text style={S.registerBtnText}>📝 Request to Join</Text>
           </TouchableOpacity>
         )}
         {tournament.registration_mode === 'invite_only' && !myReg && (
-          <View style={styles.inviteNote}>
-            <Text style={styles.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
+          <View style={S.inviteNote}>
+            <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
           </View>
         )}
         {myReg && (
-          <View style={[styles.myRegBadge,
-            myReg.status === 'approved' ? styles.regApproved :
-            myReg.status === 'rejected' ? styles.regRejected : styles.regPending]}>
-            <Text style={styles.myRegText}>
+          <View style={[S.myRegBadge,
+            myReg.status === 'approved' ? S.regApproved :
+            myReg.status === 'rejected' ? S.regRejected : S.regPending]}>
+            <Text style={S.myRegText}>
               {myReg.status === 'approved' ? '✓ You\'re in the tournament!'
                : myReg.status === 'rejected' ? '✗ Request not approved'
                : '⏳ Registration pending — an admin will review your request shortly.'}
@@ -405,43 +525,43 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
         {/* ── Partner section (MLP / fixed format + approved member) ── */}
         {requiresPartner(tournament.format) && myReg?.status === 'approved' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Your Partner</Text>
+          <View style={S.section}>
+            <Text style={S.sectionTitle}>Your Partner</Text>
 
             {myConfirmedPartner ? (
-              <View style={styles.partnerConfirmed}>
-                <Text style={styles.partnerConfirmedIcon}>🤝</Text>
-                <Text style={styles.partnerConfirmedName}>{playerName(myPartnerUserId ?? undefined)}</Text>
-                <Text style={styles.partnerConfirmedNote}>Partner confirmed</Text>
+              <View style={S.partnerConfirmed}>
+                <Text style={S.partnerConfirmedIcon}>🤝</Text>
+                <Text style={S.partnerConfirmedName}>{playerName(myPartnerUserId ?? undefined)}</Text>
+                <Text style={S.partnerConfirmedNote}>Partner confirmed</Text>
               </View>
             ) : myPartnerReqSent ? (
-              <View style={styles.partnerPending}>
-                <Text style={styles.partnerPendingText}>
+              <View style={S.partnerPending}>
+                <Text style={S.partnerPendingText}>
                   ⏳ Waiting for {playerName(myPartnerReqSent.requested_id)} to accept your request.
                 </Text>
                 <TouchableOpacity onPress={() => cancelPartnerRequest(myPartnerReqSent.id)}>
-                  <Text style={styles.cancelReqText}>Cancel request</Text>
+                  <Text style={S.cancelReqText}>Cancel request</Text>
                 </TouchableOpacity>
               </View>
             ) : myPartnerReqReceived ? (
-              <View style={styles.partnerRequest}>
-                <Text style={styles.partnerReqText}>
+              <View style={S.partnerRequest}>
+                <Text style={S.partnerReqText}>
                   {playerName(myPartnerReqReceived.requester_id)} wants to be your partner!
                 </Text>
-                <View style={styles.partnerReqActions}>
-                  <TouchableOpacity style={styles.acceptBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, true)}>
-                    <Text style={styles.acceptBtnText}>Accept</Text>
+                <View style={S.partnerReqActions}>
+                  <TouchableOpacity style={S.acceptBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, true)}>
+                    <Text style={S.acceptBtnText}>Accept</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.declineBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, false)}>
-                    <Text style={styles.declineBtnText}>Decline</Text>
+                  <TouchableOpacity style={S.declineBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, false)}>
+                    <Text style={S.declineBtnText}>Decline</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <>
-                <Text style={styles.noPartnerText}>You don't have a partner yet.</Text>
-                <TouchableOpacity style={styles.findPartnerBtn} onPress={() => setShowPartnerModal(true)}>
-                  <Text style={styles.findPartnerBtnText}>🔍 Find a Partner</Text>
+                <Text style={S.noPartnerText}>You don't have a partner yet.</Text>
+                <TouchableOpacity style={S.findPartnerBtn} onPress={() => setShowPartnerModal(true)}>
+                  <Text style={S.findPartnerBtnText}>🔍 Find a Partner</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -449,14 +569,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Approved players ── */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>
+        <View style={S.section}>
+          <View style={S.sectionHeaderRow}>
+            <Text style={S.sectionTitle}>
               Players ({approved.length}{tournament.max_players ? `/${tournament.max_players}` : ''})
             </Text>
             {isPriv && (
               <TouchableOpacity onPress={() => navigation.navigate('TournamentMembers', { tournamentId, tournamentName: tournament.name })}>
-                <Text style={styles.manageLinkText}>Manage Roles →</Text>
+                <Text style={S.manageLinkText}>Manage Roles →</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -464,35 +584,35 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             const role = r.role as TournamentRole;
             const bc = tournamentRoleBadgeColor(role);
             return (
-              <View key={r.id} style={styles.playerRow}>
-                <Text style={styles.playerSeed}>#{i + 1}</Text>
-                <Text style={styles.playerName}>{r.profile?.full_name ?? '—'}</Text>
-                <Text style={styles.playerRating}>{(r.profile as any)?.rating ?? 1000}</Text>
+              <View key={r.id} style={S.playerRow}>
+                <Text style={S.playerSeed}>#{i + 1}</Text>
+                <Text style={S.playerName}>{r.profile?.full_name ?? '—'}</Text>
+                <Text style={S.playerRating}>{(r.profile as any)?.rating ?? 1000}</Text>
                 {role !== 'member' && (
-                  <View style={[styles.rolePill, { backgroundColor: bc + '22', borderColor: bc }]}>
-                    <Text style={[styles.rolePillText, { color: bc }]}>{tournamentRoleLabel(role)}</Text>
+                  <View style={[S.rolePill, { backgroundColor: bc + '22', borderColor: bc }]}>
+                    <Text style={[S.rolePillText, { color: bc }]}>{tournamentRoleLabel(role)}</Text>
                   </View>
                 )}
               </View>
             );
           })}
-          {approved.length === 0 && <Text style={styles.emptySection}>No approved players yet.</Text>}
+          {approved.length === 0 && <Text style={S.emptySection}>No approved players yet.</Text>}
         </View>
 
         {/* ── Pending requests (admin/co-admin only) ── */}
         {isPriv && pending.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Pending Requests ({pending.length})</Text>
+          <View style={S.section}>
+            <Text style={S.sectionTitle}>Pending Requests ({pending.length})</Text>
             {pending.map(r => (
-              <View key={r.id} style={styles.pendingRow}>
-                <Text style={styles.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
-                <Text style={styles.playerRating}>{(r.profile as any)?.rating ?? 1000} ELO</Text>
-                <View style={styles.pendingActions}>
-                  <TouchableOpacity style={styles.approveBtn} onPress={() => approveReg(r.id)}>
-                    <Text style={styles.approveBtnText}>✓</Text>
+              <View key={r.id} style={S.pendingRow}>
+                <Text style={S.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
+                <Text style={S.playerRating}>{(r.profile as any)?.rating ?? 1000} ELO</Text>
+                <View style={S.pendingActions}>
+                  <TouchableOpacity style={S.approveBtn} onPress={() => approveReg(r.id)}>
+                    <Text style={S.approveBtnText}>✓</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.rejectBtn} onPress={() => rejectReg(r.id)}>
-                    <Text style={styles.rejectBtnText}>✕</Text>
+                  <TouchableOpacity style={S.rejectBtn} onPress={() => rejectReg(r.id)}>
+                    <Text style={S.rejectBtnText}>✕</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -501,18 +621,18 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Generate / Lock bracket ── */}
-        {tournament.status !== 'active' && isAdmin && approved.length >= 2 && (
+        {tournament.status === 'registration' && isAdmin && approved.length >= 2 && (
           <>
-            <TouchableOpacity style={styles.generateBtn} onPress={generateBracket}>
-              <Text style={styles.generateBtnText}>⚡ {generatedMatches ? 'Re-generate Preview' : `Generate ${fmt.label} Schedule`}</Text>
+            <TouchableOpacity style={S.generateBtn} onPress={generateBracket}>
+              <Text style={S.generateBtnText}>⚡ {generatedMatches ? 'Re-generate Preview' : `Generate ${fmt.label} Schedule`}</Text>
             </TouchableOpacity>
             {generatedMatches && (
               <TouchableOpacity
-                style={[styles.lockBtn, locking && styles.lockBtnDisabled]}
+                style={[S.lockBtn, locking && S.lockBtnDisabled]}
                 onPress={lockInBracket}
                 disabled={locking}
               >
-                <Text style={styles.lockBtnText}>
+                <Text style={S.lockBtnText}>
                   {locking ? 'Locking in…' : `🔒 Lock In & Notify ${approved.length} Members`}
                 </Text>
               </TouchableOpacity>
@@ -520,119 +640,210 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </>
         )}
         {tournament.status === 'active' && (
-          <View style={styles.activeBanner}>
-            <Text style={styles.activeBannerText}>✓ Bracket finalized — all members notified</Text>
+          <View style={S.activeBanner}>
+            <Text style={S.activeBannerText}>✓ Bracket finalized — all members notified</Text>
           </View>
         )}
-        {!isAdmin && isPriv && tournament.status !== 'active' && (
-          <View style={styles.coAdminNote}>
-            <Text style={styles.coAdminNoteText}>Only the tournament admin can generate the bracket.</Text>
+        {tournament.status === 'completed' && (
+          <View style={S.completedBanner}>
+            <Text style={S.completedBannerText}>🏁 Tournament Complete</Text>
+          </View>
+        )}
+        {!isAdmin && isPriv && tournament.status === 'registration' && (
+          <View style={S.coAdminNote}>
+            <Text style={S.coAdminNoteText}>Only the tournament admin can generate the bracket.</Text>
           </View>
         )}
 
         {/* ── Pools ── */}
         {pools && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Pool Assignments ({tournament.seeding === 'elo' ? 'ELO snake-draft' : 'random'})</Text>
+          <View style={S.section}>
+            <Text style={S.sectionTitle}>Pool Assignments ({tournament.seeding === 'elo' ? 'ELO snake-draft' : 'random'})</Text>
             {pools.map((pool, pi) => (
-              <View key={pi} style={styles.poolCard}>
-                <Text style={styles.poolLabel}>Pool {String.fromCharCode(65 + pi)}</Text>
-                {pool.map(uid => <Text key={uid} style={styles.poolPlayer}>• {playerName(uid)}</Text>)}
+              <View key={pi} style={S.poolCard}>
+                <Text style={S.poolLabel}>Pool {String.fromCharCode(65 + pi)}</Text>
+                {pool.map(uid => <Text key={uid} style={S.poolPlayer}>• {playerName(uid)}</Text>)}
               </View>
             ))}
           </View>
         )}
 
         {/* ── Pool-play bracket view ── */}
-        {tournament.status === 'active' && tournament.format === 'pool_play' && savedRounds.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tournament Bracket</Text>
+        {(tournament.status === 'active' || tournament.status === 'completed') && tournament.format === 'pool_play' && savedRounds.length > 0 && (() => {
+          const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
+          if (poolRounds.length === 0) return null;
 
-            {/* Pool membership */}
-            {(() => {
-              const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
-              if (poolRounds.length === 0) return null;
+          type Stat = {
+            key: string; name: string; isMe: boolean;
+            wins: number; losses: number; pf: number; pa: number;
+          };
 
-              function getTeamName(p1: string | null, p2: string | null): string {
-                if (!p1) return '?';
-                const n1 = profileNames[p1] ?? '?';
-                const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-                return n2 ? `${n1} & ${n2}` : n1;
+          function teamKey(p1: string, p2: string | null) { return p1 + '|' + (p2 ?? ''); }
+          function teamDisplayName(p1: string | null, p2: string | null): string {
+            if (!p1) return '?';
+            const n1 = profileNames[p1] ?? '?';
+            const n2 = p2 ? (profileNames[p2] ?? '?') : null;
+            return n2 ? `${n1} & ${n2}` : n1;
+          }
+
+          function computeStandings(round: any): Stat[] {
+            const stats = new Map<string, Stat>();
+            const ensure = (p1: string | null, p2: string | null): Stat | null => {
+              if (!p1) return null;
+              const key = teamKey(p1, p2);
+              if (!stats.has(key)) {
+                stats.set(key, {
+                  key, name: teamDisplayName(p1, p2),
+                  isMe: p1 === myUserId || p2 === myUserId,
+                  wins: 0, losses: 0, pf: 0, pa: 0,
+                });
               }
+              return stats.get(key)!;
+            };
 
-              function getPoolTeams(round: any) {
-                const seen = new Set<string>();
-                const teams: { key: string; name: string; isMe: boolean }[] = [];
-                for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
-                  for (const [p1, p2] of [
-                    [m.team1_player1, m.team1_player2],
-                    [m.team2_player1, m.team2_player2],
-                  ] as [string|null, string|null][]) {
-                    if (!p1) continue;
-                    const key = p1 + '|' + (p2 ?? '');
-                    if (!seen.has(key)) {
-                      seen.add(key);
-                      teams.push({ key, name: getTeamName(p1, p2), isMe: p1 === myUserId || p2 === myUserId });
-                    }
-                  }
-                }
-                return teams;
+            for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
+              const t1 = ensure(m.team1_player1, m.team1_player2);
+              const t2 = ensure(m.team2_player1, m.team2_player2);
+              if (!t1 || !t2) continue;
+              if (m.status === 'completed' && m.winner_team) {
+                t1.pf += m.team1_score ?? 0; t1.pa += m.team2_score ?? 0;
+                t2.pf += m.team2_score ?? 0; t2.pa += m.team1_score ?? 0;
+                if (m.winner_team === 'team1') { t1.wins++; t2.losses++; }
+                else                            { t2.wins++; t1.losses++; }
               }
+            }
 
-              return (
-                <View style={styles.poolsRow}>
-                  {poolRounds.map((round: any, pi: number) => (
-                    <View key={round.id} style={styles.poolBlock}>
-                      <Text style={styles.poolBlockTitle}>
-                        Pool {String.fromCharCode(65 + pi)}
-                      </Text>
-                      {getPoolTeams(round).map((t, i) => (
-                        <View key={t.key} style={styles.poolTeamRow}>
-                          <Text style={styles.poolTeamIndex}>{i + 1}</Text>
-                          <Text
-                            style={[styles.poolTeamText, t.isMe && styles.poolTeamTextMe]}
-                            numberOfLines={2}
-                          >
+            return Array.from(stats.values()).sort((a, b) => {
+              if (a.wins !== b.wins) return b.wins - a.wins;
+              return (b.pf - b.pa) - (a.pf - a.pa);
+            });
+          }
+
+          // Compute standings for the first 2 pools (bracket assumes A & B)
+          const standA = poolRounds[0] ? computeStandings(poolRounds[0]) : [];
+          const standB = poolRounds[1] ? computeStandings(poolRounds[1]) : [];
+          const poolMatchesPlayed = poolRounds.every((r: any) =>
+            savedMatches.filter((m: any) => m.round?.id === r.id).every((m: any) => m.status === 'completed')
+          );
+
+          // Look up actual playoff matches if they exist
+          function findPlayoffMatch(roundType: 'semifinals' | 'finals', orderIdx: number) {
+            const rounds = savedRounds.filter((r: any) => r.round_type === roundType);
+            if (rounds.length === 0) return null;
+            // Use match_order to disambiguate semi-final 1 vs 2 within the same round
+            const candidates = savedMatches
+              .filter((m: any) => rounds.some((r: any) => r.id === m.round?.id))
+              .sort((a: any, b: any) => (a.match_order ?? 0) - (b.match_order ?? 0));
+            return candidates[orderIdx] ?? null;
+          }
+
+          function winnerOfMatch(m: any | null, fallback?: { name?: string; isMe?: boolean }) {
+            if (!m || m.status !== 'completed' || !m.winner_team) return fallback;
+            const isT1 = m.winner_team === 'team1';
+            const p1 = isT1 ? m.team1_player1 : m.team2_player1;
+            const p2 = isT1 ? m.team1_player2 : m.team2_player2;
+            if (!p1) return fallback;
+            return {
+              name: teamDisplayName(p1, p2),
+              isMe: p1 === myUserId || p2 === myUserId,
+            };
+          }
+
+          const semi1Match = findPlayoffMatch('semifinals', 0);
+          const semi2Match = findPlayoffMatch('semifinals', 1);
+          const finalMatch = findPlayoffMatch('finals',     0);
+
+          const a1 = standA[0]; const a2 = standA[1];
+          const b1 = standB[0]; const b2 = standB[1];
+
+          const semi1Winner = winnerOfMatch(semi1Match);
+          const semi2Winner = winnerOfMatch(semi2Match);
+          const finalWinner = winnerOfMatch(finalMatch);
+
+          return (
+            <View style={S.section}>
+              <Text style={S.sectionTitle}>Tournament Bracket</Text>
+
+              {/* Pool standings */}
+              <View style={S.poolsRow}>
+                {poolRounds.map((round: any, pi: number) => {
+                  const standings = pi === 0 ? standA : pi === 1 ? standB : computeStandings(round);
+                  return (
+                    <View key={round.id} style={S.poolBlock}>
+                      <Text style={S.poolBlockTitle}>Pool {String.fromCharCode(65 + pi)}</Text>
+                      {standings.map((t, i) => (
+                        <View key={t.key} style={S.poolTeamRow}>
+                          <Text style={S.poolTeamIndex}>{i + 1}</Text>
+                          <Text style={[S.poolTeamText, t.isMe && S.poolTeamTextMe]} numberOfLines={2}>
                             {t.name}
                           </Text>
-                          {t.isMe && <Text style={styles.youTag}>YOU</Text>}
+                          {(t.wins > 0 || t.losses > 0) && (
+                            <Text style={[S.poolTeamRecord, i < 2 && S.poolTeamRecordAdvanced]}>
+                              {t.wins}-{t.losses}
+                            </Text>
+                          )}
+                          {t.isMe && <Text style={S.youTag}>YOU</Text>}
                         </View>
                       ))}
+                      {standings.length === 0 && <Text style={S.poolEmpty}>No teams yet</Text>}
                     </View>
-                  ))}
-                </View>
-              );
-            })()}
+                  );
+                })}
+              </View>
 
-            <View style={styles.bracketDivider} />
+              <View style={S.bracketDivider} />
 
-            {/* Advancement criteria */}
-            <View style={styles.advancementCard}>
-              <Text style={styles.advancementTitle}>How teams advance</Text>
-              <Text style={styles.advancementRule}>
-                {'🏆  '}The <Text style={styles.bold}>top 2 teams</Text> from each pool advance to the semi-finals, determined by:
-              </Text>
-              <Text style={styles.advancementPoint}>1.  Best win/loss record</Text>
-              <Text style={styles.advancementPoint}>2.  Point differential (if tied on record)</Text>
+              {/* Advancement criteria */}
+              <View style={S.advancementCard}>
+                <Text style={S.advancementTitle}>How teams advance</Text>
+                <Text style={S.advancementRule}>
+                  {'🏆  '}The <Text style={S.bold}>top 2 teams</Text> from each pool advance to the semi-finals, determined by:
+                </Text>
+                <Text style={S.advancementPoint}>1.  Best win/loss record</Text>
+                <Text style={S.advancementPoint}>2.  Point differential (if tied on record)</Text>
+                {poolMatchesPlayed && a1 && b2 && (
+                  <Text style={S.advancementResultLine}>
+                    ✓ Pools complete — top 2 from each pool seeded into the bracket below.
+                  </Text>
+                )}
+              </View>
+
+              <View style={S.bracketDivider} />
+
+              {/* Visual bracket — populated with actual team names + winners where available */}
+              <TournamentBracket
+                slotA1={{ label: 'Pool A · 1st Place', team: a1?.name, highlight: a1?.isMe }}
+                slotB2={{ label: 'Pool B · 2nd Place', team: b2?.name, highlight: b2?.isMe }}
+                slotB1={{ label: 'Pool B · 1st Place', team: b1?.name, highlight: b1?.isMe }}
+                slotA2={{ label: 'Pool A · 2nd Place', team: a2?.name, highlight: a2?.isMe }}
+                semi1={{
+                  label: semi1Match?.status === 'completed'
+                    ? `Semi 1: ${semi1Match.team1_score}–${semi1Match.team2_score}`
+                    : 'Semi-Final 1',
+                  team: semi1Winner?.name,
+                  highlight: semi1Winner?.isMe,
+                }}
+                semi2={{
+                  label: semi2Match?.status === 'completed'
+                    ? `Semi 2: ${semi2Match.team1_score}–${semi2Match.team2_score}`
+                    : 'Semi-Final 2',
+                  team: semi2Winner?.name,
+                  highlight: semi2Winner?.isMe,
+                }}
+                final={{
+                  label: finalMatch?.status === 'completed'
+                    ? `Final: ${finalMatch.team1_score}–${finalMatch.team2_score}`
+                    : 'Grand Final',
+                  team: finalWinner?.name,
+                  highlight: finalWinner?.isMe,
+                }}
+              />
             </View>
+          );
+        })()}
 
-            <View style={styles.bracketDivider} />
-
-            {/* Visual bracket — positional labels only, no team names yet */}
-            <TournamentBracket
-              slotA1={{ label: 'Pool A · 1st Place' }}
-              slotB2={{ label: 'Pool B · 2nd Place' }}
-              slotB1={{ label: 'Pool B · 1st Place' }}
-              slotA2={{ label: 'Pool A · 2nd Place' }}
-              semi1={{ label: 'Semi-Final 1' }}
-              semi2={{ label: 'Semi-Final 2' }}
-              final={{ label: 'Grand Final' }}
-            />
-          </View>
-        )}
-
-        {/* ── Saved schedule (tournament is active) ── */}
-        {tournament.status === 'active' && savedMatches.length > 0 && (() => {
+        {/* ── Saved schedule (tournament is active or completed) ── */}
+        {(tournament.status === 'active' || tournament.status === 'completed') && savedMatches.length > 0 && (() => {
           const myCount = savedMatches.filter(m =>
             myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId)
           ).length;
@@ -641,40 +852,84 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             : savedMatches;
 
           return (
-            <View style={styles.section}>
+            <View style={S.section}>
               {/* Filter toggle */}
-              <View style={styles.scheduleHeader}>
-                <Text style={styles.sectionTitle}>
+              <View style={S.scheduleHeader}>
+                <Text style={S.sectionTitle}>
                   Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${savedMatches.length}`})
                 </Text>
                 <TouchableOpacity
-                  style={[styles.myMatchesToggle, myMatchesOnly && styles.myMatchesToggleOn]}
+                  style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
                   onPress={() => setMyMatchesOnly(v => !v)}
                 >
-                  <Text style={[styles.myMatchesToggleText, myMatchesOnly && styles.myMatchesToggleTextOn]}>
+                  <Text style={[S.myMatchesToggleText, myMatchesOnly && S.myMatchesToggleTextOn]}>
                     {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {myMatchesOnly && myCount === 0 && (
-                <Text style={styles.noMyMatches}>You have no scheduled matches in this tournament.</Text>
+                <Text style={S.noMyMatches}>You have no scheduled matches in this tournament.</Text>
               )}
 
-              {displayed.map((m, i) => {
-                const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ');
-                const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ');
-                const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
-                return (
-                  <View key={m.id} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
-                    <Text style={styles.matchNum}>{i + 1}</Text>
-                    <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
-                    <Text style={styles.vs}>vs</Text>
-                    <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
-                    {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
-                  </View>
+              {(() => {
+                // Group by round so the user can see how each round shaped the next.
+                const groups: { round: any | null; matches: any[] }[] = [];
+                const idxByRound = new Map<string, number>();
+                for (const m of displayed) {
+                  const key = m.round?.id ?? '__no_round__';
+                  let idx = idxByRound.get(key);
+                  if (idx === undefined) {
+                    idx = groups.length;
+                    idxByRound.set(key, idx);
+                    groups.push({ round: m.round ?? null, matches: [] });
+                  }
+                  groups[idx].matches.push(m);
+                }
+                groups.sort((a, b) =>
+                  (a.round?.round_number ?? 999) - (b.round?.round_number ?? 999),
                 );
-              })}
+
+                let globalIdx = 0;
+                return groups.map((group, gi) => (
+                  <View key={group.round?.id ?? `g${gi}`} style={gi > 0 && S.roundBlock}>
+                    {group.round?.label && (
+                      <Text style={S.scheduleRoundLabel}>{group.round.label}</Text>
+                    )}
+                    {group.matches.map((m) => {
+                      const i = globalIdx++;
+                      const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ') || '—';
+                      const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ') || '—';
+                      const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
+                      const completed = m.status === 'completed' && m.winner_team != null;
+                      const team1Won = m.winner_team === 'team1';
+                      return (
+                        <View key={m.id} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
+                          <Text style={S.matchNum}>{i + 1}</Text>
+                          <Text style={[
+                            S.matchup,
+                            completed && team1Won && S.matchupWinner,
+                            completed && !team1Won && S.matchupLoser,
+                            isMyMatch && S.matchupHighlight,
+                          ]} numberOfLines={1}>{t1}</Text>
+                          {completed ? (
+                            <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
+                          ) : (
+                            <Text style={S.vs}>vs</Text>
+                          )}
+                          <Text style={[
+                            S.matchup,
+                            completed && !team1Won && S.matchupWinner,
+                            completed && team1Won && S.matchupLoser,
+                            isMyMatch && S.matchupHighlight,
+                          ]} numberOfLines={1}>{t2}</Text>
+                          {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ));
+              })()}
             </View>
           );
         })()}
@@ -687,29 +942,29 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           const rounds = [...new Set(previewFiltered.map(m => m.round))].sort((a,b) => a-b);
 
           return (
-            <View style={styles.section}>
-              <View style={styles.previewBanner}>
-                <Text style={styles.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
+            <View style={S.section}>
+              <View style={S.previewBanner}>
+                <Text style={S.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
               </View>
 
               {/* Filter toggle */}
-              <View style={styles.scheduleHeader}>
-                <Text style={styles.sectionTitle}>
+              <View style={S.scheduleHeader}>
+                <Text style={S.sectionTitle}>
                   Preview ({previewFiltered.length}{myMatchesOnly ? '' : ` of ${generatedMatches.length}`} matches)
                 </Text>
                 <TouchableOpacity
-                  style={[styles.myMatchesToggle, myMatchesOnly && styles.myMatchesToggleOn]}
+                  style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
                   onPress={() => setMyMatchesOnly(v => !v)}
                 >
-                  <Text style={[styles.myMatchesToggleText, myMatchesOnly && styles.myMatchesToggleTextOn]}>
+                  <Text style={[S.myMatchesToggleText, myMatchesOnly && S.myMatchesToggleTextOn]}>
                     {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {rounds.map(r => (
-                <View key={r} style={styles.roundBlock}>
-                  <Text style={styles.roundLabel}>
+                <View key={r} style={S.roundBlock}>
+                  <Text style={S.roundLabel}>
                     {generatedMatches.find(m => m.round === r)?.label?.split('·')[0]?.trim() ?? `Round ${r}`}
                   </Text>
                   {previewFiltered.filter(m => m.round === r).map((m, mi) => {
@@ -717,12 +972,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     const t2 = m.team2.map(playerName).join(' & ');
                     const isMyMatch = myUserId && (m.team1.includes(myUserId) || m.team2.includes(myUserId));
                     return (
-                      <View key={mi} style={[styles.matchRow, isMyMatch && styles.matchRowHighlight]}>
-                        <Text style={styles.matchNum}>{mi+1}</Text>
-                        <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t1}</Text>
-                        <Text style={styles.vs}>vs</Text>
-                        <Text style={[styles.matchup, isMyMatch && styles.matchupHighlight]} numberOfLines={1}>{t2}</Text>
-                        {isMyMatch && <Text style={styles.myMatchTag}>YOU</Text>}
+                      <View key={mi} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
+                        <Text style={S.matchNum}>{mi+1}</Text>
+                        <Text style={[S.matchup, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t1}</Text>
+                        <Text style={S.vs}>vs</Text>
+                        <Text style={[S.matchup, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t2}</Text>
+                        {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
                       </View>
                     );
                   })}
@@ -731,6 +986,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             </View>
           );
         })()}
+
+        {/* ── Godmode delete (Brian only) ── */}
+        {godmode && (
+          <TouchableOpacity style={S.dangerBtn} onPress={deleteTournament} activeOpacity={0.85}>
+            <Text style={S.dangerBtnText}>🗑  Delete Tournament (godmode)</Text>
+            <Text style={S.dangerBtnSub}>Removes the tournament and everything cascaded under it.</Text>
+          </TouchableOpacity>
+        )}
 
       </ScrollView>
 
@@ -745,166 +1008,287 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       {/* ── Partner selection modal ── */}
       <Modal visible={showPartnerModal} transparent animationType="slide" onRequestClose={() => setShowPartnerModal(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setShowPartnerModal(false)}>
-          <Pressable style={styles.modalSheet} onPress={() => {}}>
-            <Text style={styles.modalTitle}>Request a Partner</Text>
-            <Text style={styles.modalSubtitle}>{availablePartners.length} player{availablePartners.length !== 1 ? 's' : ''} available</Text>
+        <Pressable style={S.modalOverlay} onPress={() => setShowPartnerModal(false)}>
+          <Pressable style={S.modalSheet} onPress={() => {}}>
+            <Text style={S.modalTitle}>Request a Partner</Text>
+            <Text style={S.modalSubtitle}>{availablePartners.length} player{availablePartners.length !== 1 ? 's' : ''} available</Text>
             <FlatList
               data={availablePartners}
               keyExtractor={i => i.id}
               scrollEnabled={availablePartners.length > 6}
               style={{ maxHeight: 320 }}
               renderItem={({ item }) => (
-                <TouchableOpacity style={styles.partnerOption} onPress={() => sendPartnerRequest(item.user_id)}>
-                  <View style={styles.partnerOptionAvatar}>
-                    <Text style={styles.partnerOptionInitial}>{(item.profile?.full_name ?? '?')[0].toUpperCase()}</Text>
+                <TouchableOpacity style={S.partnerOption} onPress={() => sendPartnerRequest(item.user_id)}>
+                  <View style={S.partnerOptionAvatar}>
+                    <Text style={S.partnerOptionInitial}>{(item.profile?.full_name ?? '?')[0].toUpperCase()}</Text>
                   </View>
-                  <Text style={styles.partnerOptionName}>{item.profile?.full_name}</Text>
-                  <Text style={styles.partnerOptionRating}>{(item.profile as any)?.rating ?? 1000} ELO</Text>
+                  <Text style={S.partnerOptionName}>{item.profile?.full_name}</Text>
+                  <Text style={S.partnerOptionRating}>{(item.profile as any)?.rating ?? 1000} ELO</Text>
                 </TouchableOpacity>
               )}
-              ListEmptyComponent={<Text style={styles.modalEmpty}>All players are already partnered.</Text>}
+              ListEmptyComponent={<Text style={S.modalEmpty}>All players are already partnered.</Text>}
             />
-            <TouchableOpacity style={styles.modalClose} onPress={() => setShowPartnerModal(false)}>
-              <Text style={styles.modalCloseText}>Close</Text>
+            <TouchableOpacity style={S.modalClose} onPress={() => setShowPartnerModal(false)}>
+              <Text style={S.modalCloseText}>Close</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ── Edit tournament modal ──────────────────────────── */}
+      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowEditModal(false)}>
+        <ScrollView contentContainerStyle={S.editModal} keyboardShouldPersistTaps="handled">
+          <Text style={S.editModalTitle}>Edit Tournament</Text>
+
+          <Text style={S.editFieldLabel}>Name</Text>
+          <TextInput
+            style={S.editInput}
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Tournament name"
+            placeholderTextColor={c.textMuted}
+            maxLength={80}
+          />
+
+          <Text style={S.editFieldLabel}>Description</Text>
+          <TextInput
+            style={[S.editInput, S.editInputMultiline]}
+            value={editDesc}
+            onChangeText={setEditDesc}
+            placeholder="What's this tournament about?"
+            placeholderTextColor={c.textMuted}
+            multiline
+            numberOfLines={4}
+            maxLength={500}
+          />
+
+          <Text style={S.editFieldLabel}>Start time</Text>
+          <TouchableOpacity style={S.editInput} onPress={() => setShowStartPicker(true)}>
+            <Text style={editStartTime ? S.editDateText : S.editDatePlaceholder}>
+              {editStartTime
+                ? editStartTime.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                : 'Tap to set'}
+            </Text>
+          </TouchableOpacity>
+          {editStartTime && (
+            <TouchableOpacity onPress={() => setEditStartTime(null)} style={{ paddingVertical: 6, alignSelf: 'flex-start' }}>
+              <Text style={{ fontSize: 13, color: c.danger, fontWeight: '600' }}>Clear start time</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={S.editFieldLabel}>Location</Text>
+          <TextInput
+            style={S.editInput}
+            value={editLocation}
+            onChangeText={setEditLocation}
+            placeholder="Where is it being held?"
+            placeholderTextColor={c.textMuted}
+            maxLength={200}
+          />
+
+          <Text style={S.editFieldLabel}>Max players</Text>
+          <TextInput
+            style={S.editInput}
+            value={editMaxPlayers}
+            onChangeText={setEditMaxPlayers}
+            placeholder="No cap"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            maxLength={4}
+          />
+
+          <TouchableOpacity
+            style={[S.editSaveBtn, savingEdit && S.editSaveBtnDisabled]}
+            onPress={saveTournamentEdits}
+            disabled={savingEdit}
+          >
+            <Text style={S.editSaveBtnText}>{savingEdit ? 'Saving…' : 'Save Changes'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={S.editCancelBtn} onPress={() => setShowEditModal(false)}>
+            <Text style={S.editCancelBtnText}>Cancel</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Modal>
+
+      <AppDateTimePicker
+        visible={showStartPicker}
+        value={editStartTime ?? new Date()}
+        onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
+        onClose={() => setShowStartPicker(false)}
+      />
     </>
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  empty: { textAlign: 'center', marginTop: 60, color: '#999' },
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    empty: { textAlign: 'center', marginTop: 60, color: c.textMuted, fontSize: 15 },
 
-  headerCard: { backgroundColor: '#fff', padding: 16, marginBottom: 8 },
-  headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-  fmtIcon: { fontSize: 30, marginTop: 2 },
-  fmtLabel: { fontSize: 16, fontWeight: '800', color: '#1a1a1a' },
-  fmtDesc: { fontSize: 12, color: '#888', marginTop: 2 },
-  myRoleBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
-  myRoleText: { fontSize: 11, fontWeight: '700' },
-  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  chip: { backgroundColor: '#f5f5f5', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontSize: 12, color: '#555', fontWeight: '500' },
-  metaLine: { fontSize: 13, color: '#666', marginBottom: 3 },
-  desc: { fontSize: 13, color: '#777', marginTop: 6 },
+    headerCard: { backgroundColor: c.surface, padding: 16, marginBottom: 8, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+    headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+    fmtIcon: { fontSize: 30, marginTop: 2 },
+    fmtLabel: { fontSize: 16, fontWeight: '800', color: c.text },
+    fmtDesc: { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    myRoleBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
+    myRoleText: { fontSize: 11, fontWeight: '700' },
+    chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+    chip: { backgroundColor: c.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontSize: 12, color: c.textSub, fontWeight: '500' },
+    metaLine: { fontSize: 13, color: c.textSub, marginBottom: 3 },
+    desc: { fontSize: 13, color: c.textMuted, marginTop: 6 },
 
-  infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#ffe082' },
-  infoIcon: { fontSize: 22 },
-  infoText: { flex: 1, fontSize: 14, color: '#b8860b', fontWeight: '500' },
+    infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#ffe082' },
+    infoIcon: { fontSize: 22 },
+    infoText: { flex: 1, fontSize: 14, color: '#b8860b', fontWeight: '500' },
 
-  setReleaseBtn: { margin: 12, marginBottom: 4, backgroundColor: '#f0f0f0', borderRadius: 10, padding: 12 },
-  setReleaseBtnText: { fontSize: 13, color: '#555', fontWeight: '500' },
+    setReleaseBtn: { margin: 12, marginBottom: 4, backgroundColor: c.bg, borderRadius: 12, padding: 12 },
+    setReleaseBtnText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
+    historyBtn: { margin: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 12, padding: 14, flexDirection: 'column', borderWidth: 1, borderColor: c.border, elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4 },
+    historyBtnText: { fontSize: 15, fontWeight: '700', color: c.text },
+    historyBtnSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
 
-  registerBtn: { margin: 12, backgroundColor: GREEN, borderRadius: 10, padding: 16, alignItems: 'center' },
-  registerBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  inviteNote: { margin: 12, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 14 },
-  inviteNoteText: { fontSize: 13, color: '#888' },
-  myRegBadge: { margin: 12, borderRadius: 10, padding: 14 },
-  regApproved: { backgroundColor: '#e8f5e9' },
-  regPending:  { backgroundColor: '#fff8e1' },
-  regRejected: { backgroundColor: '#ffebee' },
-  myRegText: { fontSize: 14, fontWeight: '600', color: '#333' },
+    quickActionsRow: { flexDirection: 'row', gap: 8, marginHorizontal: 12, marginBottom: 8, marginTop: 0 },
+    quickActionBtn:  { flex: 1, backgroundColor: c.surface, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
+    quickActionBtnPrimary:   { backgroundColor: c.primaryLight, borderColor: c.primary },
+    quickActionText:         { fontSize: 13, fontWeight: '700', color: c.textSub },
+    quickActionTextPrimary:  { color: c.primary },
 
-  section: { backgroundColor: '#fff', margin: 12, marginTop: 0, marginBottom: 8, borderRadius: 12, padding: 14 },
-  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 },
-  manageLinkText: { fontSize: 12, color: GREEN, fontWeight: '600' },
-  emptySection: { fontSize: 13, color: '#ccc', textAlign: 'center', paddingVertical: 8 },
+    closedBanner:     { marginHorizontal: 12, marginBottom: 8, backgroundColor: '#fff8e1', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#ffe082' },
+    closedBannerText: { fontSize: 13, color: '#b8860b', fontWeight: '600' },
+    dangerBtn:        { margin: 12, marginTop: 16, backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.danger + '88' },
+    dangerBtnText:    { fontSize: 15, fontWeight: '800', color: c.danger },
+    dangerBtnSub:     { fontSize: 12, color: c.textMuted, marginTop: 4 },
 
-  playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  playerSeed: { width: 28, fontSize: 12, color: '#bbb', fontWeight: '600' },
-  playerName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1a1a1a' },
-  playerRating: { fontSize: 13, fontWeight: '700', color: GREEN, marginRight: 6 },
-  rolePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
-  rolePillText: { fontSize: 10, fontWeight: '700' },
+    editModal:        { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
+    editModalTitle:   { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 6 },
+    editFieldLabel:   { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 18, marginBottom: 6 },
+    editInput:        { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 16, marginBottom: 4, backgroundColor: c.surface, color: c.text },
+    editInputMultiline: { minHeight: 96, textAlignVertical: 'top' },
+    editDateText:     { fontSize: 15, color: c.text },
+    editDatePlaceholder: { fontSize: 15, color: c.textMuted },
+    editSaveBtn:      { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 24 },
+    editSaveBtnDisabled: { backgroundColor: '#a5d6a7' },
+    editSaveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 16 },
+    editCancelBtn:    { padding: 14, alignItems: 'center' },
+    editCancelBtnText:{ fontSize: 15, color: c.textMuted },
 
-  pendingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  pendingActions: { flexDirection: 'row', gap: 6 },
-  approveBtn: { backgroundColor: GREEN, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  approveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  rejectBtn: { backgroundColor: '#f5f5f5', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  rejectBtnText: { color: '#888', fontSize: 14, fontWeight: '800' },
+    registerBtn: { margin: 12, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
+    registerBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+    inviteNote: { margin: 12, backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 14 },
+    inviteNoteText: { fontSize: 13, color: c.textMuted },
+    myRegBadge: { margin: 12, borderRadius: 12, padding: 14 },
+    regApproved: { backgroundColor: c.primaryLight },
+    regPending:  { backgroundColor: '#fff8e1' },
+    regRejected: { backgroundColor: '#ffebee' },
+    myRegText: { fontSize: 14, fontWeight: '600', color: c.text },
 
-  generateBtn: { margin: 12, marginBottom: 6, backgroundColor: '#1565c0', borderRadius: 10, padding: 16, alignItems: 'center' },
-  generateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  lockBtn: { margin: 12, marginTop: 0, backgroundColor: GREEN, borderRadius: 10, padding: 16, alignItems: 'center' },
-  lockBtnDisabled: { backgroundColor: '#a5d6a7' },
-  lockBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  activeBanner: { margin: 12, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#c8e6c9' },
-  activeBannerText: { fontSize: 14, color: GREEN, fontWeight: '700' },
-  coAdminNote: { margin: 12, marginTop: 0, backgroundColor: '#f5f5f5', borderRadius: 10, padding: 12 },
-  coAdminNoteText: { fontSize: 13, color: '#aaa', textAlign: 'center' },
-  bracketDivider: { height: 1, backgroundColor: '#eee', marginVertical: 14 },
-  poolsRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
-  poolBlock: { flex: 1, backgroundColor: '#f9f9f9', borderRadius: 10, padding: 11, borderWidth: 1, borderColor: '#eee' },
-  poolBlockTitle: { fontSize: 12, fontWeight: '800', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
-  poolTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
-  poolTeamIndex: { width: 16, fontSize: 11, fontWeight: '700', color: '#bbb' },
-  poolTeamText: { flex: 1, fontSize: 12, color: '#333', fontWeight: '500', lineHeight: 16 },
-  poolTeamTextMe: { color: '#2e7d32', fontWeight: '700' },
-  youTag: { fontSize: 9, fontWeight: '800', color: '#2e7d32', backgroundColor: '#e8f5e9', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
-  advancementCard: { backgroundColor: '#f0f4ff', borderRadius: 10, padding: 13, borderWidth: 1, borderColor: '#c5cff5' },
-  advancementTitle: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 7 },
-  advancementRule: { fontSize: 13, color: '#333', lineHeight: 19, marginBottom: 6 },
-  advancementPoint: { fontSize: 13, color: '#444', lineHeight: 18, paddingLeft: 8 },
-  bold: { fontWeight: '700' },
-  scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
-  myMatchesToggleOn: { borderColor: '#2e7d32', backgroundColor: '#e8f5e9' },
-  myMatchesToggleText: { fontSize: 12, color: '#888', fontWeight: '600' },
-  myMatchesToggleTextOn: { color: '#2e7d32' },
-  noMyMatches: { fontSize: 13, color: '#aaa', textAlign: 'center', paddingVertical: 12 },
-  previewBanner: { backgroundColor: '#fff3e0', borderRadius: 8, padding: 10, marginBottom: 10 },
-  previewBannerText: { fontSize: 12, color: '#e65100', fontWeight: '500' },
-  matchRowHighlight: { backgroundColor: '#f0faf0' },
-  matchupHighlight: { color: GREEN, fontWeight: '800' },
-  myMatchTag: { fontSize: 9, color: GREEN, fontWeight: '800', backgroundColor: '#e8f5e9', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
+    section: { backgroundColor: c.surface, margin: 12, marginTop: 0, marginBottom: 8, borderRadius: 14, padding: 14, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
+    sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    sectionTitle: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
+    manageLinkText: { fontSize: 12, color: c.primary, fontWeight: '600' },
+    emptySection: { fontSize: 15, color: c.textMuted, textAlign: 'center', paddingVertical: 8 },
 
-  // Partner section
-  partnerConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12 },
-  partnerConfirmedIcon: { fontSize: 24 },
-  partnerConfirmedName: { flex: 1, fontSize: 15, fontWeight: '700', color: '#1a1a1a' },
-  partnerConfirmedNote: { fontSize: 12, color: GREEN },
-  partnerPending: { backgroundColor: '#fff8e1', borderRadius: 10, padding: 12 },
-  partnerPendingText: { fontSize: 13, color: '#b8860b', marginBottom: 6 },
-  cancelReqText: { fontSize: 12, color: '#c62828', fontWeight: '600' },
-  partnerRequest: { backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12 },
-  partnerReqText: { fontSize: 14, fontWeight: '600', color: '#1a1a1a', marginBottom: 10 },
-  partnerReqActions: { flexDirection: 'row', gap: 10 },
-  acceptBtn: { flex: 1, backgroundColor: GREEN, borderRadius: 8, padding: 10, alignItems: 'center' },
-  acceptBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-  declineBtn: { flex: 1, backgroundColor: '#f5f5f5', borderRadius: 8, padding: 10, alignItems: 'center' },
-  declineBtnText: { color: '#888', fontWeight: '600', fontSize: 14 },
-  noPartnerText: { fontSize: 13, color: '#aaa', marginBottom: 10 },
-  findPartnerBtn: { backgroundColor: '#e8f5e9', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: GREEN },
-  findPartnerBtnText: { color: GREEN, fontWeight: '700', fontSize: 14 },
+    playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: c.bg },
+    playerSeed: { width: 28, fontSize: 12, color: c.border, fontWeight: '600' },
+    playerName: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text },
+    playerRating: { fontSize: 13, fontWeight: '700', color: c.primary, marginRight: 6 },
+    rolePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
+    rolePillText: { fontSize: 10, fontWeight: '700' },
 
-  // Pools & schedule
-  poolCard: { backgroundColor: '#f9f9f9', borderRadius: 8, padding: 10, marginBottom: 8 },
-  poolLabel: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 4 },
-  poolPlayer: { fontSize: 13, color: '#444', paddingVertical: 2 },
-  roundBlock: { marginBottom: 12 },
-  roundLabel: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  matchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  matchNum: { width: 20, fontSize: 11, color: '#bbb', fontWeight: '600' },
-  matchup: { flex: 1, fontSize: 13, fontWeight: '600', color: '#1a1a1a' },
-  vs: { fontSize: 11, color: '#bbb', fontWeight: '700' },
+    pendingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
+    pendingActions: { flexDirection: 'row', gap: 6 },
+    approveBtn: { backgroundColor: c.primary, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    approveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+    rejectBtn: { backgroundColor: c.bg, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    rejectBtnText: { color: c.textMuted, fontSize: 14, fontWeight: '800' },
 
-  // Partner modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: '#1a1a1a', marginBottom: 4 },
-  modalSubtitle: { fontSize: 13, color: '#888', marginBottom: 14 },
-  partnerOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f5f5f5' },
-  partnerOptionAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e8f5e9', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  partnerOptionInitial: { fontSize: 16, fontWeight: '700', color: GREEN },
-  partnerOptionName: { flex: 1, fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
-  partnerOptionRating: { fontSize: 13, fontWeight: '700', color: GREEN },
-  modalEmpty: { textAlign: 'center', color: '#aaa', paddingVertical: 20 },
-  modalClose: { marginTop: 16, padding: 14, alignItems: 'center' },
-  modalCloseText: { fontSize: 15, color: '#aaa' },
-});
+    generateBtn: { margin: 12, marginBottom: 6, backgroundColor: '#1565c0', borderRadius: 12, padding: 16, alignItems: 'center' },
+    generateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    lockBtn: { margin: 12, marginTop: 0, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
+    lockBtnDisabled: { backgroundColor: '#a5d6a7' },
+    lockBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    activeBanner: { margin: 12, backgroundColor: c.primaryLight, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#c8e6c9' },
+    activeBannerText: { fontSize: 14, color: c.primary, fontWeight: '700' },
+    completedBanner: { margin: 12, backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
+    completedBannerText: { fontSize: 14, color: c.textSub, fontWeight: '700' },
+    coAdminNote: { margin: 12, marginTop: 0, backgroundColor: c.bg, borderRadius: 12, padding: 12 },
+    coAdminNoteText: { fontSize: 13, color: c.textMuted, textAlign: 'center' },
+    bracketDivider: { height: 1, backgroundColor: c.border, marginVertical: 14 },
+    poolsRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
+    poolBlock: { flex: 1, backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 11, borderWidth: 1, borderColor: c.border },
+    poolBlockTitle: { fontSize: 12, fontWeight: '800', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
+    poolTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
+    poolTeamIndex: { width: 16, fontSize: 11, fontWeight: '700', color: c.border },
+    poolTeamText: { flex: 1, fontSize: 12, color: c.text, fontWeight: '500', lineHeight: 16 },
+    poolTeamTextMe: { color: c.primary, fontWeight: '700' },
+    poolTeamRecord: { fontSize: 11, fontWeight: '700', color: c.textMuted, marginRight: 4 },
+    poolTeamRecordAdvanced: { color: c.primary },
+    poolEmpty: { fontSize: 11, color: c.textMuted, fontStyle: 'italic', paddingVertical: 4 },
+    advancementResultLine: { fontSize: 12, color: c.primary, fontWeight: '600', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border },
+    youTag: { fontSize: 9, fontWeight: '800', color: c.primary, backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
+    advancementCard: { backgroundColor: '#f0f4ff', borderRadius: 10, padding: 13, borderWidth: 1, borderColor: '#c5cff5' },
+    advancementTitle: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 7 },
+    advancementRule: { fontSize: 13, color: c.text, lineHeight: 19, marginBottom: 6 },
+    advancementPoint: { fontSize: 13, color: c.textSub, lineHeight: 18, paddingLeft: 8 },
+    bold: { fontWeight: '700' },
+    scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    myMatchesToggleOn: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    myMatchesToggleText: { fontSize: 12, color: c.textMuted, fontWeight: '600' },
+    myMatchesToggleTextOn: { color: c.primary },
+    noMyMatches: { fontSize: 15, color: c.textMuted, textAlign: 'center', paddingVertical: 12 },
+    previewBanner: { backgroundColor: '#fff3e0', borderRadius: 8, padding: 10, marginBottom: 10 },
+    previewBannerText: { fontSize: 12, color: '#e65100', fontWeight: '500' },
+    matchRowHighlight: { backgroundColor: c.primaryLight },
+    matchupHighlight: { color: c.primary, fontWeight: '800' },
+    matchupWinner: { fontWeight: '800', color: c.text },
+    matchupLoser:  { color: c.textMuted },
+    matchScore: { fontSize: 13, fontWeight: '800', color: c.textSub, paddingHorizontal: 4 },
+    scheduleRoundLabel: { fontSize: 12, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 4 },
+    myMatchTag: { fontSize: 9, color: c.primary, fontWeight: '800', backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
+
+    // Partner section
+    partnerConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.primaryLight, borderRadius: 10, padding: 12 },
+    partnerConfirmedIcon: { fontSize: 24 },
+    partnerConfirmedName: { flex: 1, fontSize: 15, fontWeight: '700', color: c.text },
+    partnerConfirmedNote: { fontSize: 12, color: c.primary },
+    partnerPending: { backgroundColor: '#fff8e1', borderRadius: 10, padding: 12 },
+    partnerPendingText: { fontSize: 13, color: '#b8860b', marginBottom: 6 },
+    cancelReqText: { fontSize: 12, color: c.danger, fontWeight: '600' },
+    partnerRequest: { backgroundColor: c.primaryLight, borderRadius: 10, padding: 12 },
+    partnerReqText: { fontSize: 14, fontWeight: '600', color: c.text, marginBottom: 10 },
+    partnerReqActions: { flexDirection: 'row', gap: 10 },
+    acceptBtn: { flex: 1, backgroundColor: c.primary, borderRadius: 8, padding: 10, alignItems: 'center' },
+    acceptBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    declineBtn: { flex: 1, backgroundColor: c.bg, borderRadius: 8, padding: 10, alignItems: 'center' },
+    declineBtnText: { color: c.textMuted, fontWeight: '600', fontSize: 14 },
+    noPartnerText: { fontSize: 15, color: c.textMuted, marginBottom: 10 },
+    findPartnerBtn: { backgroundColor: c.primaryLight, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.primary },
+    findPartnerBtnText: { color: c.primary, fontWeight: '700', fontSize: 14 },
+
+    // Pools & schedule
+    poolCard: { backgroundColor: c.surfaceAlt, borderRadius: 8, padding: 10, marginBottom: 8 },
+    poolLabel: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 4 },
+    poolPlayer: { fontSize: 13, color: c.textSub, paddingVertical: 2 },
+    roundBlock: { marginBottom: 12 },
+    roundLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
+    matchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: c.bg },
+    matchNum: { width: 20, fontSize: 11, color: c.border, fontWeight: '600' },
+    matchup: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
+    vs: { fontSize: 11, color: c.border, fontWeight: '700' },
+
+    // Partner modal
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalSheet: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
+    modalTitle: { fontSize: 20, fontWeight: '800', color: c.text, marginBottom: 4 },
+    modalSubtitle: { fontSize: 13, color: c.textMuted, marginBottom: 14 },
+    partnerOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.bg },
+    partnerOptionAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+    partnerOptionInitial: { fontSize: 16, fontWeight: '700', color: c.primary },
+    partnerOptionName: { flex: 1, fontSize: 15, fontWeight: '600', color: c.text },
+    partnerOptionRating: { fontSize: 13, fontWeight: '700', color: c.primary },
+    modalEmpty: { textAlign: 'center', color: c.textMuted, paddingVertical: 20, fontSize: 15 },
+    modalClose: { marginTop: 16, padding: 14, alignItems: 'center' },
+    modalCloseText: { fontSize: 15, color: c.textMuted },
+  });
+}

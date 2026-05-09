@@ -10,6 +10,8 @@ import { RootStackParamList } from '../types';
 import { TournamentFormat, FORMAT_META } from '../lib/tournament';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
+import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
+import { useTheme } from '../lib/ThemeContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateTournament'>;
@@ -21,20 +23,22 @@ const FORMATS: TournamentFormat[] = [
   'pool_play', 'mlp', 'rotating_partners',
 ];
 
-function Pill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Pill({ label, active, onPress, S }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles> }) {
   return (
-    <TouchableOpacity style={[styles.pill, active && styles.pillActive]} onPress={onPress}>
-      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
+    <TouchableOpacity style={[S.pill, active && S.pillActive]} onPress={onPress}>
+      <Text style={[S.pillText, active && S.pillTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
-  return <Text style={styles.sectionHeader}>{title}</Text>;
+function SectionHeader({ title, S }: { title: string; S: ReturnType<typeof makeStyles> }) {
+  return <Text style={S.sectionHeader}>{title}</Text>;
 }
 
 export default function CreateTournamentScreen({ navigation, route }: Props) {
   const { leagueId } = route.params ?? {};
+  const { colors } = useTheme();
+  const S = makeStyles(colors);
 
   // Basics
   const [name, setName]               = useState('');
@@ -64,6 +68,19 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
+
+    // Per-account active-tournament limit (godmode bypasses)
+    if (user?.id) {
+      const [godmode, activeCount] = await Promise.all([
+        checkGodmode(),
+        countActiveOwnedTournaments(user.id),
+      ]);
+      if (!godmode && activeCount >= 1) {
+        setLoading(false);
+        setError("You're already running an active tournament. Wait for it to end (or cancel it) before starting another.");
+        return;
+      }
+    }
 
     const { data: t, error: err } = await supabase.from('tournaments').insert({
       league_id:         leagueId ?? null,
@@ -102,72 +119,72 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
 
         {/* ── Basics ── */}
-        <SectionHeader title="Basics" />
+        <SectionHeader title="Basics" S={S} />
 
-        <Text style={styles.label}>Tournament Name *</Text>
-        <TextInput style={styles.input} placeholder="e.g. Spring Smash Classic" value={name} onChangeText={setName} />
+        <Text style={S.label}>Tournament Name *</Text>
+        <TextInput style={S.input} placeholder="e.g. Spring Smash Classic" placeholderTextColor={colors.textMuted} value={name} onChangeText={setName} />
 
-        <Text style={styles.label}>Description (optional)</Text>
-        <TextInput style={[styles.input, styles.multiline]} placeholder="Rules, prizes, notes…" value={description} onChangeText={setDescription} multiline />
+        <Text style={S.label}>Description (optional)</Text>
+        <TextInput style={[S.input, S.multiline]} placeholder="Rules, prizes, notes…" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} multiline />
 
-        <Text style={styles.label}>Date & Time</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={styles.dateBtnText}>
+        <Text style={S.label}>Date & Time</Text>
+        <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
+          <Text style={S.dateBtnText}>
             {startTime
               ? startTime.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
               : 'Set date & time'}
           </Text>
           {startTime && (
             <TouchableOpacity onPress={() => setStartTime(null)}>
-              <Text style={styles.clearDate}>✕</Text>
+              <Text style={S.clearDate}>✕</Text>
             </TouchableOpacity>
           )}
         </TouchableOpacity>
 
-        <Text style={styles.label}>Location</Text>
+        <Text style={S.label}>Location</Text>
         <CourtPicker value={location} onSelect={setLocation} active showNoneOption placeholder="Search for tournament venue…" />
 
-        <Text style={styles.label}>Max Players</Text>
-        <TextInput style={[styles.input, styles.inputSmall]} placeholder="No limit" keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
+        <Text style={S.label}>Max Players</Text>
+        <TextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
 
         {/* ── Format ── */}
-        <SectionHeader title="Format" />
+        <SectionHeader title="Format" S={S} />
 
-        <View style={styles.formatGrid}>
+        <View style={S.formatGrid}>
           {FORMATS.map(f => {
             const meta = FORMAT_META[f];
             const active = format === f;
             return (
               <TouchableOpacity
                 key={f}
-                style={[styles.formatCard, active && styles.formatCardActive]}
+                style={[S.formatCard, active && S.formatCardActive]}
                 onPress={() => setFormat(f)}
               >
-                <Text style={styles.formatIcon}>{meta.icon}</Text>
-                <Text style={[styles.formatLabel, active && styles.formatLabelActive]}>{meta.label}</Text>
-                <Text style={styles.formatDesc}>{meta.description}</Text>
+                <Text style={S.formatIcon}>{meta.icon}</Text>
+                <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
+                <Text style={S.formatDesc}>{meta.description}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
         {/* ── Match type ── */}
-        <SectionHeader title="Match Type" />
-        <View style={styles.pillRow}>
-          <Pill label="1v1  Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} />
-          <Pill label="2v2  Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} />
+        <SectionHeader title="Match Type" S={S} />
+        <View style={S.pillRow}>
+          <Pill label="1v1  Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} />
+          <Pill label="2v2  Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
         </View>
 
         {/* ── Seeding ── */}
-        <SectionHeader title="Player Seeding" />
-        <View style={styles.pillRow}>
-          <Pill label="🎲 Random draw"  active={seeding === 'random'} onPress={() => setSeeding('random')} />
-          <Pill label="📊 ELO-based"   active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    />
+        <SectionHeader title="Player Seeding" S={S} />
+        <View style={S.pillRow}>
+          <Pill label="🎲 Random draw"  active={seeding === 'random'} onPress={() => setSeeding('random')} S={S} />
+          <Pill label="📊 ELO-based"   active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
         </View>
-        <Text style={styles.hint}>
+        <Text style={S.hint}>
           {seeding === 'elo'
             ? 'Players are sorted by ELO. Pools and brackets use snake-draft to balance skill levels.'
             : 'Players are assigned randomly to pools and brackets.'}
@@ -176,54 +193,54 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Pool count (pool play only) ── */}
         {format === 'pool_play' && (
           <>
-            <SectionHeader title="Number of Pools" />
-            <View style={styles.pillRow}>
+            <SectionHeader title="Number of Pools" S={S} />
+            <View style={S.pillRow}>
               {[2, 3, 4, 6].map(n => (
-                <Pill key={n} label={`${n} pools`} active={poolCount === n} onPress={() => setPoolCount(n)} />
+                <Pill key={n} label={`${n} pools`} active={poolCount === n} onPress={() => setPoolCount(n)} S={S} />
               ))}
             </View>
-            <Text style={styles.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by ELO when seeding is on.</Text>
+            <Text style={S.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by ELO when seeding is on.</Text>
           </>
         )}
 
         {/* ── Partner rotation (rotating_partners only) ── */}
         {format === 'rotating_partners' && (
           <>
-            <SectionHeader title="Partner Rotation" />
-            <View style={styles.pillRow}>
-              <Pill label="Every match"  active={partnerRotation === 'every_match'}  onPress={() => setPartnerRotation('every_match')}  />
-              <Pill label="Every round"  active={partnerRotation === 'every_round'}  onPress={() => setPartnerRotation('every_round')}  />
+            <SectionHeader title="Partner Rotation" S={S} />
+            <View style={S.pillRow}>
+              <Pill label="Every match"  active={partnerRotation === 'every_match'}  onPress={() => setPartnerRotation('every_match')}  S={S} />
+              <Pill label="Every round"  active={partnerRotation === 'every_round'}  onPress={() => setPartnerRotation('every_round')}  S={S} />
             </View>
-            <Text style={styles.hint}>Partners rotate so every player pairs with different teammates over the course of the tournament.</Text>
+            <Text style={S.hint}>Partners rotate so every player pairs with different teammates over the course of the tournament.</Text>
           </>
         )}
 
         {/* ── Registration ── */}
-        <SectionHeader title="Registration" />
-        <Text style={styles.closedNote}>🔒 All tournaments are closed — players must be approved to participate.</Text>
+        <SectionHeader title="Registration" S={S} />
+        <Text style={S.closedNote}>🔒 All tournaments are closed — players must be approved to participate.</Text>
 
-        <View style={styles.toggleRow}>
+        <View style={S.toggleRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Invite only</Text>
-            <Text style={styles.hint}>{inviteOnly ? 'Only players you invite can register.' : 'Players can request to join; you approve them.'}</Text>
+            <Text style={S.label}>Invite only</Text>
+            <Text style={S.hint}>{inviteOnly ? 'Only players you invite can register.' : 'Players can request to join; you approve them.'}</Text>
           </View>
-          <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: '#2e7d32' }} thumbColor="#fff" />
+          <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: colors.primary }} thumbColor="#fff" />
         </View>
 
         {/* ── Status / submit ── */}
         {error ? (
-          <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View>
+          <View style={S.errorBox}><Text style={S.errorText}>{error}</Text></View>
         ) : null}
         {success ? (
-          <View style={styles.successBox}><Text style={styles.successText}>✓ Tournament created!</Text></View>
+          <View style={S.successBox}><Text style={S.successText}>✓ Tournament created!</Text></View>
         ) : null}
 
         <TouchableOpacity
-          style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+          style={[S.submitBtn, loading && S.submitBtnDisabled]}
           onPress={submit}
           disabled={loading || success}
         >
-          <Text style={styles.submitText}>{loading ? 'Creating…' : 'Create Tournament'}</Text>
+          <Text style={S.submitText}>{loading ? 'Creating…' : 'Create Tournament'}</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -238,37 +255,38 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: '#fff', flexGrow: 1, paddingBottom: 48 },
-  sectionHeader: { fontSize: 15, fontWeight: '800', color: '#1a1a1a', marginTop: 28, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', paddingBottom: 6 },
-  label: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6, marginTop: 12 },
-  hint: { fontSize: 12, color: '#aaa', marginTop: 6, lineHeight: 17 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 13, fontSize: 15, color: '#1a1a1a' },
-  multiline: { height: 68, textAlignVertical: 'top' },
-  inputSmall: { width: 120 },
-  dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 13 },
-  dateBtnText: { fontSize: 15, color: '#555' },
-  clearDate: { fontSize: 15, color: '#aaa', paddingHorizontal: 4 },
-  formatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  formatCard: { width: '47%', borderWidth: 1.5, borderColor: '#eee', borderRadius: 12, padding: 12, backgroundColor: '#fafafa' },
-  formatCardActive: { borderColor: GREEN, backgroundColor: '#f0faf0' },
-  formatIcon: { fontSize: 26, marginBottom: 4 },
-  formatLabel: { fontSize: 13, fontWeight: '700', color: '#444' },
-  formatLabelActive: { color: GREEN },
-  formatDesc: { fontSize: 11, color: '#aaa', marginTop: 3, lineHeight: 15 },
-  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: '#ddd', backgroundColor: '#fafafa' },
-  pillActive: { borderColor: GREEN, backgroundColor: '#e8f5e9' },
-  pillText: { fontSize: 13, color: '#666', fontWeight: '500' },
-  pillTextActive: { color: GREEN, fontWeight: '700' },
-  closedNote: { fontSize: 13, color: '#888', backgroundColor: '#f9f9f9', borderRadius: 8, padding: 10, marginBottom: 4 },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f9f9f9', borderRadius: 10, padding: 14, marginTop: 8 },
-  errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
-  errorText: { color: '#c62828', fontSize: 14, fontWeight: '600' },
-  successBox: { backgroundColor: '#e8f5e9', borderRadius: 8, padding: 12, marginTop: 12 },
-  successText: { color: GREEN, fontSize: 14, fontWeight: '700' },
-  submitBtn: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
-  submitBtnDisabled: { backgroundColor: '#a5d6a7' },
-  submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 48 },
+    sectionHeader: { fontSize: 15, fontWeight: '800', color: c.text, marginTop: 28, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: c.border, paddingBottom: 6 },
+    label: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 12 },
+    hint: { fontSize: 12, color: c.textMuted, marginTop: 6, lineHeight: 17 },
+    input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 13, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    multiline: { height: 68, textAlignVertical: 'top' },
+    inputSmall: { width: 120 },
+    dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 13 },
+    dateBtnText: { fontSize: 15, color: c.textSub },
+    clearDate: { fontSize: 15, color: c.textMuted, paddingHorizontal: 4 },
+    formatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    formatCard: { width: '47%', borderWidth: 1.5, borderColor: c.border, borderRadius: 14, padding: 12, backgroundColor: c.surfaceAlt, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    formatCardActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    formatIcon: { fontSize: 26, marginBottom: 4 },
+    formatLabel: { fontSize: 13, fontWeight: '700', color: c.textSub },
+    formatLabelActive: { color: c.primary },
+    formatDesc: { fontSize: 11, color: c.textMuted, marginTop: 3, lineHeight: 15 },
+    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
+    pillTextActive: { color: c.primary, fontWeight: '700' },
+    closedNote: { fontSize: 13, color: c.textMuted, backgroundColor: c.surfaceAlt, borderRadius: 8, padding: 10, marginBottom: 4 },
+    toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 14, marginTop: 8 },
+    errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
+    errorText: { color: c.danger, fontSize: 14, fontWeight: '600' },
+    successBox: { backgroundColor: c.primaryLight, borderRadius: 8, padding: 12, marginTop: 12 },
+    successText: { color: c.primary, fontSize: 14, fontWeight: '700' },
+    submitBtn: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
+    submitBtnDisabled: { backgroundColor: c.primary + '80' },
+    submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  });
+}

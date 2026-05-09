@@ -3,10 +3,15 @@ import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Pl
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Register'> };
 
 export default function RegisterScreen({ navigation }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -57,74 +62,88 @@ export default function RegisterScreen({ navigation }: Props) {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.nameRow}>
+      <View style={S.hero}>
+        <Text style={S.heroTitle}>Create Account</Text>
+        <Text style={S.heroSub}>Join your pickleball league today</Text>
+      </View>
+      <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
+        <View style={S.nameRow}>
           <TextInput
-            style={[styles.input, styles.nameInput]}
+            style={[S.input, S.nameInput]}
             placeholder="First Name"
+            placeholderTextColor={c.textMuted}
             value={firstName}
             onChangeText={setFirstName}
           />
           <TextInput
-            style={[styles.input, styles.nameInput]}
+            style={[S.input, S.nameInput]}
             placeholder="Last Name"
+            placeholderTextColor={c.textMuted}
             value={lastName}
             onChangeText={setLastName}
           />
         </View>
 
         <TextInput
-          style={styles.input}
+          style={S.input}
           placeholder="Email"
+          placeholderTextColor={c.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
           value={email}
           onChangeText={setEmail}
         />
         <TextInput
-          style={styles.input}
+          style={S.input}
           placeholder="Password"
+          placeholderTextColor={c.textMuted}
           secureTextEntry
           value={password}
           onChangeText={setPassword}
         />
         <TextInput
-          style={[styles.input, passwordsMatch && styles.inputValid, passwordsMismatch && styles.inputInvalid]}
+          style={[S.input, passwordsMatch && S.inputValid, passwordsMismatch && S.inputInvalid]}
           placeholder="Confirm Password"
+          placeholderTextColor={c.textMuted}
           secureTextEntry
           value={confirmPassword}
           onChangeText={setConfirmPassword}
         />
-        {passwordsMatch && <Text style={styles.matchText}>Passwords match</Text>}
-        {passwordsMismatch && <Text style={styles.mismatchText}>Passwords do not match</Text>}
+        {passwordsMatch && <Text style={S.matchText}>Passwords match</Text>}
+        {passwordsMismatch && <Text style={S.mismatchText}>Passwords do not match</Text>}
 
-        {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-        {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
+        {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
+        {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}
 
-        <TouchableOpacity style={styles.button} onPress={signUp} disabled={loading}>
-          <Text style={styles.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
+        <TouchableOpacity style={S.button} onPress={signUp} disabled={loading}>
+          <Text style={S.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.link}>Already have an account? Sign in</Text>
+          <Text style={S.link}>Already have an account? Sign in</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flexGrow: 1, justifyContent: 'center', padding: 24, backgroundColor: '#fff' },
-  nameRow: { flexDirection: 'row', gap: 10, marginBottom: 0 },
-  nameInput: { flex: 1 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 14, marginBottom: 12, fontSize: 16 },
-  inputValid: { borderColor: '#2e7d32' },
-  inputInvalid: { borderColor: '#c62828' },
-  matchText: { color: '#2e7d32', fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
-  mismatchText: { color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
-  errorText: { color: '#c62828', fontSize: 14, marginBottom: 12, textAlign: 'center' },
-  successText: { color: '#2e7d32', fontSize: 14, marginBottom: 12, textAlign: 'center', fontWeight: '600' },
-  button: { backgroundColor: '#2e7d32', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 8 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  link: { textAlign: 'center', color: '#2e7d32', marginTop: 20, fontSize: 15 },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    hero:         { backgroundColor: c.headerBg, paddingTop: 60, paddingBottom: 32, alignItems: 'center', paddingHorizontal: 24 },
+    heroTitle:    { fontSize: 28, fontWeight: '800', color: c.headerText, marginBottom: 4 },
+    heroSub:      { fontSize: 15, color: c.headerSub },
+    container:    { flexGrow: 1, padding: 24, backgroundColor: c.bg },
+    nameRow:      { flexDirection: 'row', gap: 10, marginBottom: 0 },
+    nameInput:    { flex: 1 },
+    input:        { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, backgroundColor: c.surface, color: c.text },
+    inputValid:   { borderColor: c.primary },
+    inputInvalid: { borderColor: c.danger },
+    matchText:    { color: c.primary, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
+    mismatchText: { color: c.danger, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
+    errorText:    { color: c.danger, fontSize: 14, marginBottom: 12, textAlign: 'center' },
+    successText:  { color: c.primary, fontSize: 14, marginBottom: 12, textAlign: 'center', fontWeight: '600' },
+    button:       { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 8 },
+    buttonText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
+    link:         { textAlign: 'center', color: c.primary, marginTop: 20, fontSize: 15 },
+  });
+}

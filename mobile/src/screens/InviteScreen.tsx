@@ -8,6 +8,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { LeagueInvite, RootStackParamList } from '../types';
+import { useTheme } from '../lib/ThemeContext';
+import { gs } from '../lib/globalStyles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Invite'>;
@@ -28,6 +30,9 @@ function daysLeft(expiresAt: string): string {
 }
 
 export default function InviteScreen({ navigation, route }: Props) {
+  const { colors: c } = useTheme();
+  const S = makeStyles(c);
+
   const { leagueId, leagueName } = route.params;
   const [invite, setInvite] = useState<LeagueInvite | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,22 +98,22 @@ export default function InviteScreen({ navigation, route }: Props) {
     });
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#2e7d32" />;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.subtitle}>
+    <ScrollView contentContainerStyle={S.container}>
+      <Text style={S.subtitle}>
         Share this code with players you want to invite to{' '}
-        <Text style={styles.leagueName}>{leagueName}</Text>.
+        <Text style={S.leagueName}>{leagueName}</Text>.
       </Text>
 
       {invite ? (
         <>
           {/* Code display */}
-          <View style={styles.codeCard}>
-            <Text style={styles.codeLabel}>Invite Code</Text>
-            <Text style={styles.code}>{formatToken(invite.token)}</Text>
-            <Text style={styles.expiry}>
+          <View style={S.codeCard}>
+            <Text style={S.codeLabel}>Invite Code</Text>
+            <Text style={S.code}>{formatToken(invite.token)}</Text>
+            <Text style={S.expiry}>
               {daysLeft(invite.expires_at)}
               {invite.max_uses != null
                 ? `  ·  ${invite.used_count} / ${invite.max_uses} uses`
@@ -117,34 +122,34 @@ export default function InviteScreen({ navigation, route }: Props) {
           </View>
 
           {/* Actions */}
-          <TouchableOpacity style={styles.primaryBtn} onPress={share}>
-            <Text style={styles.primaryBtnText}>📤  Share via Text / Email</Text>
+          <TouchableOpacity style={S.primaryBtn} onPress={share}>
+            <Text style={S.primaryBtnText}>📤  Share via Text / Email</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.secondaryBtn} onPress={copyCode}>
-            <Text style={styles.secondaryBtnText}>{copied ? '✓  Copied!' : '📋  Copy Code'}</Text>
+          <TouchableOpacity style={S.secondaryBtn} onPress={copyCode}>
+            <Text style={S.secondaryBtnText}>{copied ? '✓  Copied!' : '📋  Copy Code'}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.dangerBtn} onPress={revokeInvite}>
-            <Text style={styles.dangerBtnText}>Revoke & Generate New Code</Text>
+          <TouchableOpacity style={S.dangerBtn} onPress={revokeInvite}>
+            <Text style={S.dangerBtnText}>Revoke & Generate New Code</Text>
           </TouchableOpacity>
         </>
       ) : (
         <>
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyIcon}>🔒</Text>
-            <Text style={styles.emptyText}>No active invite code.</Text>
-            <Text style={styles.emptyHint}>Generate one to start inviting players.</Text>
+          <View style={S.emptyCard}>
+            <Text style={S.emptyIcon}>🔒</Text>
+            <Text style={S.emptyText}>No active invite code.</Text>
+            <Text style={S.emptyHint}>Generate one to start inviting players.</Text>
           </View>
 
-          <TouchableOpacity style={styles.primaryBtn} onPress={generateInvite}>
-            <Text style={styles.primaryBtnText}>Generate Invite Code</Text>
+          <TouchableOpacity style={S.primaryBtn} onPress={generateInvite}>
+            <Text style={S.primaryBtnText}>Generate Invite Code</Text>
           </TouchableOpacity>
         </>
       )}
 
-      <View style={styles.infoBox}>
-        <Text style={styles.infoText}>
+      <View style={S.infoBox}>
+        <Text style={S.infoText}>
           Recipients open the app, go to Leagues, tap "Join with Code", and enter this code.
           {'\n\n'}
           Codes expire after 7 days. You can revoke and regenerate at any time.
@@ -154,25 +159,50 @@ export default function InviteScreen({ navigation, route }: Props) {
   );
 }
 
-const GREEN = '#2e7d32';
-const styles = StyleSheet.create({
-  container: { padding: 24, flexGrow: 1, backgroundColor: '#fff' },
-  subtitle: { fontSize: 15, color: '#555', lineHeight: 22, marginBottom: 24 },
-  leagueName: { fontWeight: '700', color: '#1a1a1a' },
-  codeCard: { backgroundColor: '#f9f9f9', borderRadius: 16, padding: 28, alignItems: 'center', marginBottom: 20, borderWidth: 1.5, borderColor: '#eee' },
-  codeLabel: { fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
-  code: { fontSize: 34, fontWeight: '800', color: '#1a1a1a', letterSpacing: 6, fontVariant: ['tabular-nums'] as any },
-  expiry: { fontSize: 13, color: '#888', marginTop: 10 },
-  primaryBtn: { backgroundColor: GREEN, padding: 16, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  secondaryBtn: { borderWidth: 1.5, borderColor: GREEN, padding: 14, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
-  secondaryBtnText: { color: GREEN, fontSize: 15, fontWeight: '600' },
-  dangerBtn: { padding: 14, alignItems: 'center', marginBottom: 8 },
-  dangerBtnText: { color: '#c62828', fontSize: 14 },
-  emptyCard: { backgroundColor: '#f9f9f9', borderRadius: 16, padding: 36, alignItems: 'center', marginBottom: 24 },
-  emptyIcon: { fontSize: 40, marginBottom: 12 },
-  emptyText: { fontSize: 17, fontWeight: '700', color: '#333', marginBottom: 4 },
-  emptyHint: { fontSize: 14, color: '#aaa' },
-  infoBox: { backgroundColor: '#f0f0f0', borderRadius: 10, padding: 14, marginTop: 8 },
-  infoText: { fontSize: 13, color: '#666', lineHeight: 20 },
-});
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container:      { padding: 24, flexGrow: 1, backgroundColor: c.bg },
+    subtitle:       { fontSize: 15, color: c.textSub, lineHeight: 22, marginBottom: 24 },
+    leagueName:     { fontWeight: '700', color: c.text },
+    codeCard: {
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 14,
+      padding: 28,
+      alignItems: 'center',
+      marginBottom: 20,
+      borderWidth: 1.5,
+      borderColor: c.border,
+      shadowColor: '#000',
+      shadowOpacity: 0.07,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 3,
+    },
+    codeLabel:      { fontSize: 12, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
+    code:           { fontSize: 34, fontWeight: '800', color: c.text, letterSpacing: 6, fontVariant: ['tabular-nums'] as any },
+    expiry:         { fontSize: 13, color: c.textMuted, marginTop: 10 },
+    primaryBtn:     { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
+    primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    secondaryBtn:   { borderWidth: 1.5, borderColor: c.primary, padding: 14, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
+    secondaryBtnText:{ color: c.primary, fontSize: 15, fontWeight: '600' },
+    dangerBtn:      { padding: 14, alignItems: 'center', marginBottom: 8 },
+    dangerBtnText:  { color: c.danger, fontSize: 14 },
+    emptyCard: {
+      backgroundColor: c.surfaceAlt,
+      borderRadius: 14,
+      padding: 36,
+      alignItems: 'center',
+      marginBottom: 24,
+      shadowColor: '#000',
+      shadowOpacity: 0.07,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 3,
+    },
+    emptyIcon:      { fontSize: 40, marginBottom: 12 },
+    emptyText:      { fontSize: 17, fontWeight: '700', color: c.text, marginBottom: 4 },
+    emptyHint:      { fontSize: 14, color: c.textMuted },
+    infoBox:        { backgroundColor: c.bg, borderRadius: 10, padding: 14, marginTop: 8, borderWidth: 1, borderColor: c.border },
+    infoText:       { fontSize: 13, color: c.textSub, lineHeight: 20 },
+  });
+}
