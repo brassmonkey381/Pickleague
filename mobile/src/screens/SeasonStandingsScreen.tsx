@@ -346,6 +346,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
       {/* ── Live standings ─────────────────────────────────────── */}
       {activeTab === 'live' && (
+        <>
         <View style={S.tableCard}>
           <Text style={S.tableTitle}>Live Standings</Text>
           <Text style={S.tableSubtitle}>Based on matches played since season start</Text>
@@ -378,6 +379,71 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           ))}
         </View>
+
+        {/* How a period locks in */}
+        <View style={S.infoCard}>
+          <Text style={S.infoTitle}>📌 How periods lock in</Text>
+          <Text style={S.infoBody}>
+            Every {season.lock_frequency_weeks} week{season.lock_frequency_weeks > 1 ? 's' : ''} an admin snapshots the live standings as a locked period. Your rank in each period is what counts toward final standings — your day-to-day ELO can't undo a great period finish.
+          </Text>
+        </View>
+
+        {/* Median final-standings calc */}
+        <View style={S.infoCard}>
+          <Text style={S.infoTitle}>📊 How final standings are calculated</Text>
+          <Text style={S.infoBody}>
+            At season end, we take each player's <Text style={S.infoBold}>median rank across all {totalPeriods} periods</Text> and sort by it. Median (vs average) means one bad week won't tank your finish — consistency wins.
+          </Text>
+        </View>
+
+        {/* ELO reset legend */}
+        <View style={S.infoCard}>
+          <Text style={S.infoTitle}>♻️ End-of-period ELO reset</Text>
+          <Text style={S.infoBody}>
+            Every time a period locks in, everyone's overall, singles, gendered-doubles, and mixed-doubles ELO soft-resets — but the top 5 of that period keep a head start going into the next one:
+          </Text>
+          <View style={S.bonusList}>
+            {[
+              { rank: '🥇 1st', bonus: 80 },
+              { rank: '🥈 2nd', bonus: 55 },
+              { rank: '🥉 3rd', bonus: 35 },
+              { rank: '4th',   bonus: 20 },
+              { rank: '5th',   bonus: 10 },
+            ].map(b => (
+              <Text key={b.rank} style={S.bonusLine}>
+                {b.rank}  →  1000 + {b.bonus} = <Text style={S.infoBold}>{1000 + b.bonus} ELO</Text>
+              </Text>
+            ))}
+            <Text style={S.bonusNote}>Everyone else snaps back to <Text style={S.infoBold}>1000</Text>. Finishing each period strong is its own incentive — your boost stacks on a clean slate.</Text>
+          </View>
+          <Text style={[S.infoBody, { marginTop: 10 }]}>
+            At season end, your <Text style={S.infoBold}>median rank across all periods</Text> determines one final reset (same bonus ladder) — that's the ELO you carry into next season.
+          </Text>
+        </View>
+
+        {/* Badge previews */}
+        <View style={S.infoCard}>
+          <Text style={S.infoTitle}>🏅 Badges up for grabs</Text>
+          <Text style={S.infoBody}>
+            Finish well to earn unique league badges that show on your profile:
+          </Text>
+          {[
+            { icon: '🥇', name: 'Period Champion',  desc: `Finish #1 in any of the ${totalPeriods} locked periods` },
+            { icon: '👑', name: 'Season Crown',     desc: 'Finish #1 in the final season standings' },
+            { icon: '🥈', name: 'Season Silver',    desc: 'Finish #2 in the final season standings' },
+            { icon: '🥉', name: 'Season Bronze',    desc: 'Finish #3 in the final season standings' },
+            { icon: '🌟', name: 'Period Sweeper',   desc: 'Take #1 in every locked period of the season' },
+          ].map(b => (
+            <View key={b.name} style={S.badgePrevRow}>
+              <Text style={S.badgePrevIcon}>{b.icon}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={S.badgePrevName}>{b.name}</Text>
+                <Text style={S.badgePrevDesc}>{b.desc}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+        </>
       )}
 
       {/* ── Period snapshot ────────────────────────────────────── */}
@@ -549,5 +615,16 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     bonusLegendTitle:{ fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
     bonusLine:      { fontSize: 13, color: c.textSub, marginBottom: 2 },
     bonusNote:      { fontSize: 12, color: c.textMuted, marginTop: 4 },
+
+    // Live-tab info cards
+    infoCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    infoTitle:      { fontSize: 14, fontWeight: '800', color: c.text, marginBottom: 6 },
+    infoBody:       { fontSize: 13, color: c.textSub, lineHeight: 19 },
+    infoBold:       { fontWeight: '700', color: c.text },
+    bonusList:      { marginTop: 8, paddingLeft: 4 },
+    badgePrevRow:   { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
+    badgePrevIcon:  { fontSize: 26, width: 32, textAlign: 'center' },
+    badgePrevName:  { fontSize: 14, fontWeight: '700', color: c.text },
+    badgePrevDesc:  { fontSize: 12, color: c.textMuted, marginTop: 1 },
   });
 }

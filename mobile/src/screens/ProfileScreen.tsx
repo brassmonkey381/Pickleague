@@ -3,16 +3,17 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
   ActivityIndicator, ScrollView, Image, Dimensions,
 } from 'react-native';
+import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 
 // container padding 24×2 + card padding 16×2 = 80; 3 gaps × 6 = 18
 const LOC_PILL_W = Math.floor((Dimensions.get('window').width - 80 - 18) / 4);
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { Gender, Profile, PlayerLocationRating, RootStackParamList } from '../types';
+import { Gender, Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
-import AvatarPickerModal from '../components/AvatarPickerModal';
+import AvatarPickerModal, { PremiumAvatar } from '../components/AvatarPickerModal';
 import TagPickerModal from '../components/TagPickerModal';
 import AvailabilityGrid from '../components/AvailabilityGrid';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
@@ -47,6 +48,191 @@ function UnlockProgressRow({
   );
 }
 
+// ── ELO history chart ─────────────────────────────────────────────────
+// Reconstructs each ELO facet's trajectory by walking the user's match
+// history chronologically and applying each match's delta (overall
+// rating_after - rating_before) to the relevant facet:
+//   singles match            → singles
+//   doubles_category=gendered → doubles_gendered
+//   doubles_category=mixed    → doubles_mixed
+//   doubles_category=unspecified → no split impact
+// Overall accumulates every match's delta. Period/season ELO resets are
+// ignored — this shows a player's match-only skill trajectory, which
+// reads more cleanly than the absolute ELO column (which periodically
+// snaps back to 1000+bonus).
+type EloMatchRow = {
+  played_at: string;
+  match_type: 'singles' | 'doubles';
+  doubles_category: 'gendered' | 'mixed' | 'unspecified' | null;
+  player1_id: string; partner1_id: string | null;
+  player2_id: string; partner2_id: string | null;
+  player1_rating_before: number | null;
+  player1_rating_after:  number | null;
+  player2_rating_before: number | null;
+  player2_rating_after:  number | null;
+};
+
+type Series = {
+  points: { t: number; overall: number; singles: number; gendered: number; mixed: number }[];
+};
+
+function computeEloSeries(matches: EloMatchRow[], userId: string): Series {
+  const points: Series['points'] = [];
+  let overall = 1000, singles = 1000, gendered = 1000, mixed = 1000;
+
+  // Seed at "before first match" if there's at least one match
+  if (matches.length > 0) {
+    const first = matches[0];
+    const t0 = new Date(first.played_at).getTime();
+    points.push({ t: t0 - 86_400_000, overall, singles, gendered, mixed });
+  }
+
+  for (const m of matches) {
+    const onTeam1 = m.player1_id === userId || m.partner1_id === userId;
+    const before  = onTeam1 ? m.player1_rating_before : m.player2_rating_before;
+    const after   = onTeam1 ? m.player1_rating_after  : m.player2_rating_after;
+    if (before == null || after == null) continue;
+    const delta = after - before;
+
+    overall += delta;
+    if (m.match_type === 'singles') {
+      singles += delta;
+    } else if (m.doubles_category === 'gendered') {
+      gendered += delta;
+    } else if (m.doubles_category === 'mixed') {
+      mixed += delta;
+    }
+    // unspecified → no split impact
+
+    points.push({
+      t: new Date(m.played_at).getTime(),
+      overall, singles, gendered, mixed,
+    });
+  }
+  return { points };
+}
+
+const FACET_COLORS = {
+  overall:  '#4caf50', // green
+  singles:  '#1976d2', // blue
+  gendered: '#00897b', // teal
+  mixed:    '#8e24aa', // purple
+} as const;
+
+function EloHistoryChart({
+  matches, userId, colors: c,
+}: {
+  matches: EloMatchRow[];
+  userId: string;
+  colors: ReturnType<typeof useTheme>['colors'];
+}) {
+  const series = computeEloSeries(matches, userId);
+  const n = series.points.length;
+  if (n < 2) {
+    return (
+      <Text style={{ fontSize: 12, color: c.textMuted, textAlign: 'center', paddingVertical: 16 }}>
+        Play a few matches to see your ELO trajectory.
+      </Text>
+    );
+  }
+
+  const W = 320;
+  const H = 180;
+  const PAD = { top: 12, right: 12, bottom: 30, left: 38 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const allValues = series.points.flatMap(p => [p.overall, p.singles, p.gendered, p.mixed]);
+  let yMin = Math.min(...allValues);
+  let yMax = Math.max(...allValues);
+  // Pad y-range so lines aren't flush against the top/bottom
+  const yPad = Math.max(20, (yMax - yMin) * 0.1);
+  yMin = Math.floor((yMin - yPad) / 10) * 10;
+  yMax = Math.ceil((yMax + yPad) / 10) * 10;
+  const yRange = Math.max(yMax - yMin, 10);
+
+  const xMin = series.points[0].t;
+  const xMax = series.points[n - 1].t;
+  const xRange = Math.max(xMax - xMin, 1);
+
+  const xScale = (t: number) => PAD.left + ((t - xMin) / xRange) * innerW;
+  const yScale = (v: number) => PAD.top  + (1 - (v - yMin) / yRange) * innerH;
+
+  const polyline = (key: 'overall' | 'singles' | 'gendered' | 'mixed') =>
+    series.points
+      .map(p => `${xScale(p.t).toFixed(1)},${yScale(p[key]).toFixed(1)}`)
+      .join(' ');
+
+  // Y-axis tick values (3 ticks: min, mid, max — rounded to nearest 10)
+  const yTicks = [yMin, Math.round((yMin + yMax) / 2 / 10) * 10, yMax];
+
+  // X-axis ticks: first, middle, last date
+  const xTickTimes = n >= 3
+    ? [xMin, series.points[Math.floor(n / 2)].t, xMax]
+    : [xMin, xMax];
+  const fmtDate = (t: number) =>
+    new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return (
+    <View>
+      {/* Legend */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 4 }}>
+        {[
+          { key: 'overall',  label: 'Overall',      color: FACET_COLORS.overall  },
+          { key: 'singles',  label: '1v1',          color: FACET_COLORS.singles  },
+          { key: 'gendered', label: '2v2 Gendered', color: FACET_COLORS.gendered },
+          { key: 'mixed',    label: '2v2 Mixed',    color: FACET_COLORS.mixed    },
+        ].map(item => (
+          <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View style={{ width: 14, height: 3, backgroundColor: item.color, borderRadius: 2 }} />
+            <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{item.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`}>
+        {/* Y grid lines + labels */}
+        {yTicks.map(v => (
+          <React.Fragment key={`y-${v}`}>
+            <SvgLine
+              x1={PAD.left} x2={W - PAD.right}
+              y1={yScale(v)} y2={yScale(v)}
+              stroke={c.border} strokeWidth={0.5} strokeDasharray="3,3"
+            />
+            <SvgText
+              x={PAD.left - 4} y={yScale(v) + 3}
+              fontSize="9" fill={c.textMuted} textAnchor="end"
+            >
+              {v}
+            </SvgText>
+          </React.Fragment>
+        ))}
+
+        {/* X tick labels */}
+        {xTickTimes.map((t, i) => (
+          <SvgText
+            key={`x-${i}`}
+            x={xScale(t)} y={H - PAD.bottom + 14}
+            fontSize="9" fill={c.textMuted}
+            textAnchor={i === 0 ? 'start' : i === xTickTimes.length - 1 ? 'end' : 'middle'}
+          >
+            {fmtDate(t)}
+          </SvgText>
+        ))}
+
+        {/* Lines (overall last so it sits on top) */}
+        <Polyline points={polyline('mixed')}    stroke={FACET_COLORS.mixed}    strokeWidth={1.8} fill="none" />
+        <Polyline points={polyline('gendered')} stroke={FACET_COLORS.gendered} strokeWidth={1.8} fill="none" />
+        <Polyline points={polyline('singles')}  stroke={FACET_COLORS.singles}  strokeWidth={1.8} fill="none" />
+        <Polyline points={polyline('overall')}  stroke={FACET_COLORS.overall}  strokeWidth={2.4} fill="none" />
+
+        {/* Endpoint markers on the overall line */}
+        <Circle cx={xScale(series.points[n - 1].t)} cy={yScale(series.points[n - 1].overall)} r={3.5} fill={FACET_COLORS.overall} />
+      </Svg>
+    </View>
+  );
+}
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
 export default function ProfileScreen({ navigation }: Props) {
@@ -68,6 +254,10 @@ export default function ProfileScreen({ navigation }: Props) {
   const [avSaveStatus, setAvSaveStatus]   = useState<'idle' | 'saving' | 'saved' | 'error' | 'needs-migration'>('idle');
   const avSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [chemistryResults, setChemistryResults] = useState<ChemistryResult[]>([]);
+  const [eloHistory, setEloHistory] = useState<EloMatchRow[]>([]);
+  const [premiumAvatars, setPremiumAvatars]   = useState<PremiumAvatar[]>([]);
+  const [cosmeticBadges, setCosmeticBadges]   = useState<ShopItem[]>([]);
+  const [equippedPremium, setEquippedPremium] = useState<PremiumAvatar | null>(null);
   const [partnerNames, setPartnerNames] = useState<Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }>>({});
   // badgeProgress: keyed by badge name, value is { text, pct, showBar }
   const [badgeProgress, setBadgeProgress] = useState<Record<string, { text: string; pct: number; showBar: boolean }>>({});
@@ -112,6 +302,12 @@ export default function ProfileScreen({ navigation }: Props) {
       setTagline(d.tagline ?? '');
       setGender(d.gender ?? null);
       setSelectedTags(d.selected_tags ?? []);
+      // Equipped premium avatar (driven by avatar_emoji + avatar_bg_color)
+      if (d.avatar_emoji && d.avatar_bg_color) {
+        setEquippedPremium({ slug: 'equipped', name: 'Premium', emoji: d.avatar_emoji, bgColor: d.avatar_bg_color });
+      } else {
+        setEquippedPremium(null);
+      }
       const av = d.availability;
       setAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : Array(TOTAL_CELLS).fill(false));
     }
@@ -119,9 +315,41 @@ export default function ProfileScreen({ navigation }: Props) {
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLoading(false);
 
-    // Load chemistry + badge progress in background (non-blocking)
+    // Load chemistry + badge progress + ELO history + shop purchases (non-blocking)
     loadChemistry(user.id);
     loadBadgeProgress(user.id, profileRes.data);
+    loadEloHistory(user.id);
+    loadShopPurchases(user.id);
+  }
+
+  async function loadShopPurchases(uid: string) {
+    const { data } = await supabase
+      .from('player_shop_purchases')
+      .select('shop_item_id, item:shop_items(*)')
+      .eq('user_id', uid);
+
+    const items = ((data ?? []) as any[]).map(r => r.item).filter(Boolean) as ShopItem[];
+    setPremiumAvatars(
+      items
+        .filter(i => i.category === 'avatar')
+        .map(i => ({
+          slug: i.slug,
+          name: i.name,
+          emoji: i.payload?.emoji ?? i.icon,
+          bgColor: i.payload?.bgColor ?? '#eeeeee',
+        }))
+    );
+    setCosmeticBadges(items.filter(i => i.category === 'cosmetic_badge'));
+  }
+
+  async function loadEloHistory(uid: string) {
+    const { data } = await supabase
+      .from('matches')
+      .select('played_at, match_type, doubles_category, player1_id, partner1_id, player2_id, partner2_id, player1_rating_before, player1_rating_after, player2_rating_before, player2_rating_after')
+      .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
+      .order('played_at', { ascending: true })
+      .limit(500);
+    setEloHistory((data ?? []) as EloMatchRow[]);
   }
 
   async function loadBadgeProgress(uid: string, prof: any) {
@@ -228,12 +456,14 @@ export default function ProfileScreen({ navigation }: Props) {
 
     const fullPayload = {
       username,
-      badges_public: badgesPublic,
-      avatar_url:    photoUrl,
-      avatar_id:     avatarId,
-      tagline:       tagline.trim() || null,
-      gender:        gender,
-      selected_tags: selectedTags,
+      badges_public:   badgesPublic,
+      avatar_url:      photoUrl,
+      avatar_id:       avatarId,
+      avatar_emoji:    equippedPremium?.emoji    ?? null,
+      avatar_bg_color: equippedPremium?.bgColor  ?? null,
+      tagline:         tagline.trim() || null,
+      gender:          gender,
+      selected_tags:   selectedTags,
       availability,
     };
 
@@ -307,9 +537,10 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  function handleAvatarSave(id: number, url: string | null) {
+  function handleAvatarSave(id: number, url: string | null, premium: PremiumAvatar | null) {
     setAvatarId(id);
     setPhotoUrl(url);
+    setEquippedPremium(premium);
     setShowAvatarPicker(false);
   }
 
@@ -349,7 +580,10 @@ export default function ProfileScreen({ navigation }: Props) {
 
   const earnedBadgeNames = badges.map(b => b.badge.name);
   const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
-  const currentAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
+  const cartoonAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
+  const displayAvatar = equippedPremium
+    ? { emoji: equippedPremium.emoji, bgColor: equippedPremium.bgColor }
+    : { emoji: cartoonAvatar.emoji, bgColor: cartoonAvatar.bgColor };
 
   const singlesRating      = profile?.singles_rating       ?? profile?.rating ?? 1000;
   const doublesRating      = profile?.doubles_rating       ?? profile?.rating ?? 1000;
@@ -369,16 +603,25 @@ export default function ProfileScreen({ navigation }: Props) {
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />
           ) : (
-            <View style={[styles.avatarCircle, { backgroundColor: currentAvatar.bgColor }]}>
-              <Text style={styles.avatarEmoji}>{currentAvatar.emoji}</Text>
+            <View style={[styles.avatarCircle, { backgroundColor: displayAvatar.bgColor }]}>
+              <Text style={styles.avatarEmoji}>{displayAvatar.emoji}</Text>
             </View>
           )}
           <View style={styles.avatarEditBadge}>
             <Text style={styles.avatarEditBadgeText}>✏️</Text>
           </View>
         </TouchableOpacity>
-        <Text style={styles.fullName}>{profile?.full_name}</Text>
+        <Text style={[styles.fullName, profile?.name_color ? { color: profile.name_color } : null]}>
+          {profile?.full_name}
+        </Text>
         {tagline ? <Text style={styles.taglineDisplay}>{tagline}</Text> : null}
+
+        {/* Pickle balance pill — tap to visit Shop */}
+        <TouchableOpacity style={styles.pickleBalancePill} onPress={() => navigation.navigate('Shop')}>
+          <Text style={styles.pickleBalanceEmoji}>🥒</Text>
+          <Text style={styles.pickleBalanceValue}>{profile?.pickles ?? 0}</Text>
+          <Text style={styles.pickleBalanceLabel}>pickles · tap to shop</Text>
+        </TouchableOpacity>
 
         {/* Selected tags display under name */}
         {selectedTags.length > 0 && (
@@ -436,9 +679,32 @@ export default function ProfileScreen({ navigation }: Props) {
                 <Text style={styles.eloLabel}>2v2 Mixed</Text>
               </View>
             </View>
+
+            {/* ELO trajectory chart */}
+            {userId && (
+              <View style={styles.eloChartContainer}>
+                <Text style={styles.eloChartTitle}>Trajectory</Text>
+                <EloHistoryChart matches={eloHistory} userId={userId} colors={colors} />
+              </View>
+            )}
           </View>
         );
       })()}
+
+      {/* ── Cosmetic shop badges ────────────────────────────────── */}
+      {cosmeticBadges.length > 0 && (
+        <View style={styles.locationCard}>
+          <Text style={styles.cardTitle}>🥒 From the Shop</Text>
+          <View style={styles.shopBadgeGrid}>
+            {cosmeticBadges.map(b => (
+              <View key={b.id} style={styles.shopBadgeCard}>
+                <Text style={styles.shopBadgeIcon}>{b.icon}</Text>
+                <Text style={styles.shopBadgeName} numberOfLines={1}>{b.name}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* ── Location ratings ────────────────────────────────────── */}
       {locationRatings.length > 0 && (
@@ -819,8 +1085,10 @@ export default function ProfileScreen({ navigation }: Props) {
         visible={showAvatarPicker}
         currentAvatarId={avatarId}
         currentPhotoUrl={photoUrl}
+        currentPremium={equippedPremium}
         earnedBadgeNames={earnedBadgeNames}
         userId={userId}
+        purchasedAvatars={premiumAvatars}
         onSave={handleAvatarSave}
         onClose={() => setShowAvatarPicker(false)}
       />
@@ -845,6 +1113,16 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
   // Avatar section
   avatarSection:    { alignItems: 'center', marginBottom: 20 },
+  pickleBalancePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 16, backgroundColor: c.primaryLight,
+    borderWidth: 1, borderColor: c.primary,
+    marginTop: 8,
+  },
+  pickleBalanceEmoji: { fontSize: 14 },
+  pickleBalanceValue: { fontSize: 14, fontWeight: '800', color: c.primary },
+  pickleBalanceLabel: { fontSize: 11, color: c.primary, opacity: 0.85 },
   avatarCircle:     { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 4 },
   avatarPhoto:      { width: 90, height: 90, borderRadius: 45, marginBottom: 12 },
   avatarEmoji:      { fontSize: 48 },
@@ -872,6 +1150,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   eloValue:           { fontSize: 26, fontWeight: '800', color: GREEN },
   eloLabel:           { fontSize: 12, color: c.textMuted, marginTop: 2 },
   eloDivider:         { width: 1, height: 36, backgroundColor: c.border },
+  eloChartContainer:  { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border },
+  eloChartTitle:      { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, textAlign: 'center' },
 
   // Chemistry
   chemCard:           { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
@@ -891,6 +1171,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   // Location
   locationCard:   { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   locationGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  shopBadgeGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  shopBadgeCard:  { width: '30%', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4, borderWidth: 1, borderColor: c.border },
+  shopBadgeIcon:  { fontSize: 28, marginBottom: 4 },
+  shopBadgeName:  { fontSize: 11, fontWeight: '700', color: c.text, textAlign: 'center' },
   locPill:        { width: LOC_PILL_W, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
   locPillDoubles: { backgroundColor: '#e3f2fd' },
   locPillMixed:   { backgroundColor: '#f3e5f5' },

@@ -37,6 +37,7 @@ import AboutScreen from '../screens/AboutScreen';
 import DrillScreen from '../screens/DrillScreen';
 import DrillSearchScreen from '../screens/DrillSearchScreen';
 import DrillRequestsScreen from '../screens/DrillRequestsScreen';
+import ShopScreen from '../screens/ShopScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -110,6 +111,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Drill" component={DrillScreen} options={{ title: 'Drill Partners' }} />
                 <Stack.Screen name="DrillSearch" component={DrillSearchScreen} options={{ title: 'Find Drillers' }} />
                 <Stack.Screen name="DrillRequests" component={DrillRequestsScreen} options={{ title: 'Drill Requests' }} />
+                <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '🥒 Pickle Shop' }} />
               </>
             ) : (
               <>

@@ -13,6 +13,11 @@ export type Profile = {
   total_matches_played: number;
   last_match_at: string | null;
   gender: Gender | null;
+  pickles: number;
+  welcome_pickles_granted: boolean;
+  name_color: string | null;
+  avatar_emoji: string | null;
+  avatar_bg_color: string | null;
   rating: number;
   singles_rating: number;
   doubles_rating: number;
@@ -61,6 +66,8 @@ export type League = {
   home_court: string | null;
   home_court_lat: number | null;
   home_court_lng: number | null;
+  prize_pool: number;
+  payout_structure: number[];
   created_at: string;
 };
 
@@ -127,6 +134,29 @@ export type EventSlot = {
 
 export type DoublesCategory = 'gendered' | 'mixed' | 'unspecified';
 
+export type ShopCategory = 'avatar' | 'cosmetic_badge' | 'flair';
+
+export type ShopItem = {
+  id: string;
+  category: ShopCategory;
+  slug: string;
+  name: string;
+  description: string;
+  icon: string;
+  cost: number;
+  payload: Record<string, any>;
+  is_active: boolean;
+  sort_order: number;
+};
+
+export type ShopPurchase = {
+  id: string;
+  user_id: string;
+  shop_item_id: string;
+  cost_paid: number;
+  purchased_at: string;
+};
+
 export type Match = {
   id: string;
   league_id: string;
@@ -177,6 +207,9 @@ export type Tournament = {
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
+  prize_pool: number;
+  pickle_ante: number;
+  payout_structure: number[];
   created_at: string;
 };
 
@@ -201,6 +234,8 @@ export type LeagueSeason = {
   total_periods: number;
   status: 'upcoming' | 'active' | 'completed';
   elo_reset_applied: boolean;
+  prize_pool: number;
+  payout_structure: number[];
   created_by: string | null;
   created_at: string;
 };
@@ -261,4 +296,5 @@ export type RootStackParamList = {
   Drill: undefined;
   DrillSearch: undefined;
   DrillRequests: undefined;
+  Shop: undefined;
 };

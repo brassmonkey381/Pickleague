@@ -10,25 +10,36 @@ import { useTheme } from '../lib/ThemeContext';
 
 const COLS = 5;
 
+export type PremiumAvatar = {
+  slug: string;
+  name: string;
+  emoji: string;
+  bgColor: string;
+};
+
 type Props = {
   visible: boolean;
   currentAvatarId: number;
   currentPhotoUrl: string | null;
+  currentPremium: PremiumAvatar | null;
   earnedBadgeNames: string[];
   userId: string;
-  onSave: (avatarId: number, photoUrl: string | null) => void;
+  purchasedAvatars: PremiumAvatar[];
+  onSave: (avatarId: number, photoUrl: string | null, premium: PremiumAvatar | null) => void;
   onClose: () => void;
 };
 
 export default function AvatarPickerModal({
-  visible, currentAvatarId, currentPhotoUrl, earnedBadgeNames, userId, onSave, onClose,
+  visible, currentAvatarId, currentPhotoUrl, currentPremium, earnedBadgeNames, userId,
+  purchasedAvatars, onSave, onClose,
 }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
-  const [selectedId, setSelectedId]         = useState(currentAvatarId);
-  const [photoUrl, setPhotoUrl]             = useState(currentPhotoUrl);
-  const [lockedHint, setLockedHint]         = useState<AvatarDef | null>(null);
-  const [uploading, setUploading]           = useState(false);
+  const [selectedId, setSelectedId]                 = useState(currentAvatarId);
+  const [photoUrl, setPhotoUrl]                     = useState(currentPhotoUrl);
+  const [selectedPremium, setSelectedPremium]       = useState<PremiumAvatar | null>(currentPremium);
+  const [lockedHint, setLockedHint]                 = useState<AvatarDef | null>(null);
+  const [uploading, setUploading]                   = useState(false);
 
   const isUnlocked = (av: AvatarDef) =>
     !av.unlock || earnedBadgeNames.includes(av.unlock.badge);
@@ -78,10 +89,20 @@ export default function AvatarPickerModal({
     }
     setLockedHint(null);
     setSelectedId(av.id);
+    setSelectedPremium(null);
     if (photoUrl) setPhotoUrl(null);
   }
 
-  const previewAvatar = AVATARS.find(a => a.id === selectedId) ?? AVATARS[0];
+  function handlePremiumPress(p: PremiumAvatar) {
+    setLockedHint(null);
+    setSelectedPremium(p);
+    if (photoUrl) setPhotoUrl(null);
+  }
+
+  const cartoonPreview = AVATARS.find(a => a.id === selectedId) ?? AVATARS[0];
+  const previewEmoji   = selectedPremium ? selectedPremium.emoji   : cartoonPreview.emoji;
+  const previewBg      = selectedPremium ? selectedPremium.bgColor : cartoonPreview.bgColor;
+  const previewName    = photoUrl ? 'Your Photo' : selectedPremium ? selectedPremium.name : cartoonPreview.name;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -91,7 +112,7 @@ export default function AvatarPickerModal({
             <Text style={S.headerBtnText}>Cancel</Text>
           </TouchableOpacity>
           <Text style={S.headerTitle}>Choose Avatar</Text>
-          <TouchableOpacity onPress={() => onSave(selectedId, photoUrl)} style={S.headerBtn}>
+          <TouchableOpacity onPress={() => onSave(selectedId, photoUrl, photoUrl ? null : selectedPremium)} style={S.headerBtn}>
             <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
           </TouchableOpacity>
         </View>
@@ -101,11 +122,11 @@ export default function AvatarPickerModal({
             {photoUrl ? (
               <Image source={{ uri: photoUrl }} style={S.previewPhoto} />
             ) : (
-              <View style={[S.previewCircle, { backgroundColor: previewAvatar.bgColor }]}>
-                <Text style={S.previewEmoji}>{previewAvatar.emoji}</Text>
+              <View style={[S.previewCircle, { backgroundColor: previewBg }]}>
+                <Text style={S.previewEmoji}>{previewEmoji}</Text>
               </View>
             )}
-            <Text style={S.previewName}>{photoUrl ? 'Your Photo' : previewAvatar.name}</Text>
+            <Text style={S.previewName}>{previewName}</Text>
           </View>
 
           <View style={S.photoRow}>
@@ -123,12 +144,36 @@ export default function AvatarPickerModal({
             )}
           </View>
 
+          {purchasedAvatars.length > 0 && (
+            <>
+              <Text style={S.sectionLabel}>🥒 Premium (from Shop)</Text>
+              <View style={S.grid}>
+                {purchasedAvatars.map(p => {
+                  const selected = selectedPremium?.slug === p.slug && !photoUrl;
+                  return (
+                    <TouchableOpacity
+                      key={p.slug}
+                      style={[S.cell, selected && S.cellSelected]}
+                      onPress={() => handlePremiumPress(p)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[S.cellCircle, { backgroundColor: p.bgColor }]}>
+                        <Text style={S.cellEmoji}>{p.emoji}</Text>
+                      </View>
+                      <Text style={S.cellName} numberOfLines={1}>{p.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </>
+          )}
+
           <Text style={S.orLabel}>— or pick a cartoon avatar —</Text>
 
           <View style={S.grid}>
             {AVATARS.map(av => {
               const unlocked = isUnlocked(av);
-              const selected = av.id === selectedId && !photoUrl;
+              const selected = av.id === selectedId && !photoUrl && !selectedPremium;
               return (
                 <TouchableOpacity
                   key={av.id}
@@ -206,6 +251,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     removePhotoBtnText: { fontSize: 13, color: c.danger, fontWeight: '600' },
 
     orLabel:      { textAlign: 'center', fontSize: 13, color: c.textMuted, marginBottom: 16 },
+    sectionLabel: { fontSize: 13, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
 
     grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start', marginBottom: 12 },
     cell:         { width: CELL_SIZE, alignItems: 'center', padding: 4, borderRadius: 12, borderWidth: 2, borderColor: 'transparent' },

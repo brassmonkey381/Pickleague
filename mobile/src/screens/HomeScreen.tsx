@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { icon: '🏆', label: 'Leagues',     screen: 'Leagues',     params: undefined },
   { icon: '🎾', label: 'Tournaments', screen: 'Tournaments', params: {} },
   { icon: '🏓', label: 'Drill',       screen: 'Drill',       params: undefined },
+  { icon: '🛒', label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '👤', label: 'Profile',     screen: 'Profile',     params: {} },
   { icon: '⚙️', label: 'Settings',   screen: 'Settings',    params: undefined },
   { icon: '🥒', label: 'About',       screen: 'About',       params: undefined },
@@ -21,11 +22,16 @@ export default function HomeScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const [profile, setProfile]         = useState<Profile | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeBalance, setWelcomeBalance] = useState(0);
 
   useFocusEffect(useCallback(() => {
     loadProfile();
     loadUnread();
   }, []));
+
+  // Claim welcome pickles once per account, on first home visit after signup.
+  useEffect(() => { claimWelcomePicklesOnce(); }, []);
 
   async function loadProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -40,6 +46,18 @@ export default function HomeScreen({ navigation }: Props) {
       .select('*', { count: 'exact', head: true })
       .eq('is_read', false);
     setUnreadCount(count ?? 0);
+  }
+
+  async function claimWelcomePicklesOnce() {
+    const { data, error } = await supabase.rpc('claim_welcome_pickles');
+    if (error) return;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row?.granted) {
+      setWelcomeBalance(row.new_balance ?? 1000);
+      setWelcomeOpen(true);
+      // Refresh profile so the home pickle balance reflects the new total
+      loadProfile();
+    }
   }
 
   const s = makeStyles(colors);
@@ -73,9 +91,20 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Divider */}
         <View style={s.heroDivider} />
 
-        {/* Greeting */}
+        {/* Greeting — tap your name to open your profile */}
         <Text style={s.welcomeLabel}>Welcome back,</Text>
-        <Text style={s.heroName}>{profile?.full_name ?? '...'}</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
+          <Text style={[s.heroName, profile?.name_color ? { color: profile.name_color } : null]}>
+            {profile?.full_name ?? '...'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Pickle balance */}
+        <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
+          <Text style={s.pickleEmoji}>🥒</Text>
+          <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+          <Text style={s.pickleLabel}>pickles · tap to shop</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ── ELO stats strip ─────────────────────────── */}
@@ -119,6 +148,37 @@ export default function HomeScreen({ navigation }: Props) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* ── Welcome pickles modal ────────────────────────── */}
+      <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={() => setWelcomeOpen(false)}>
+        <View style={s.welcomeBackdrop}>
+          <View style={s.welcomeCard}>
+            <Text style={s.welcomeEmoji}>🥒</Text>
+            <Text style={s.welcomeTitle}>Welcome to Pickleague!</Text>
+            <Text style={s.welcomeBody}>
+              Here's <Text style={s.welcomeAmount}>1,000 pickles</Text> to get you started.
+            </Text>
+            <Text style={s.welcomeSub}>
+              Spend them in the Pickle Shop on premium avatars, cosmetic badges, or profile flair.
+            </Text>
+            <Text style={s.welcomeBalance}>Your balance: 🥒 {welcomeBalance}</Text>
+            <View style={s.welcomeBtnRow}>
+              <TouchableOpacity
+                style={[s.welcomeBtn, s.welcomeBtnSecondary]}
+                onPress={() => setWelcomeOpen(false)}
+              >
+                <Text style={s.welcomeBtnSecondaryText}>Later</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.welcomeBtn}
+                onPress={() => { setWelcomeOpen(false); navigation.navigate('Shop'); }}
+              >
+                <Text style={s.welcomeBtnText}>Visit Shop</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -164,6 +224,32 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     statValue: { fontSize: 20, fontWeight: '800', color: c.text },
     statLabel: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
     statDivider: { width: 1, backgroundColor: c.border, marginVertical: 4 },
+
+    picklePill: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      alignSelf: 'flex-start',
+      backgroundColor: 'rgba(255,255,255,0.18)',
+      paddingHorizontal: 14, paddingVertical: 8,
+      borderRadius: 20, marginTop: 12,
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    },
+    pickleEmoji: { fontSize: 16 },
+    pickleValue: { fontSize: 16, fontWeight: '800', color: c.headerText },
+    pickleLabel: { fontSize: 12, color: c.headerSub, marginLeft: 4 },
+
+    welcomeBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+    welcomeCard:     { backgroundColor: c.surface, borderRadius: 18, padding: 28, alignItems: 'center', maxWidth: 380, width: '100%', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
+    welcomeEmoji:    { fontSize: 64, marginBottom: 8 },
+    welcomeTitle:    { fontSize: 22, fontWeight: '900', color: c.text, marginBottom: 10, textAlign: 'center' },
+    welcomeBody:     { fontSize: 15, color: c.textSub, textAlign: 'center', lineHeight: 22, marginBottom: 6 },
+    welcomeAmount:   { fontWeight: '900', color: c.primary, fontSize: 17 },
+    welcomeSub:      { fontSize: 13, color: c.textMuted, textAlign: 'center', lineHeight: 19, marginBottom: 14 },
+    welcomeBalance:  { fontSize: 14, fontWeight: '700', color: c.primary, marginBottom: 18, backgroundColor: c.primaryLight, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, overflow: 'hidden' },
+    welcomeBtnRow:   { flexDirection: 'row', gap: 10, width: '100%' },
+    welcomeBtn:      { flex: 1, backgroundColor: c.primary, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
+    welcomeBtnText:  { color: '#fff', fontWeight: '800', fontSize: 14 },
+    welcomeBtnSecondary: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    welcomeBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
 
     grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, marginTop: 8 },
     card:     {
