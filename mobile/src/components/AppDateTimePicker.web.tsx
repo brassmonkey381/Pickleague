@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -19,14 +19,37 @@ export default function AppDateTimePicker({ visible, value, minimumDate, onChang
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const [temp, setTemp] = useState(toInputString(value));
+  const inputRef = useRef<any>(null);
 
   useEffect(() => {
     if (visible) setTemp(toInputString(value));
   }, [visible]);
 
+  // Auto-open the browser's native date/time picker as soon as the sheet
+  // becomes visible. showPicker() requires a recent browser (Chrome 99+,
+  // Safari 16.4+, Firefox 101+) and must be called from a user-gesture
+  // stack; the click on the field that triggered visibility qualifies.
+  useEffect(() => {
+    if (!visible) return;
+    const id = setTimeout(() => {
+      const el = inputRef.current as HTMLInputElement | null;
+      if (!el) return;
+      try {
+        el.focus();
+        if (typeof (el as any).showPicker === 'function') {
+          (el as any).showPicker();
+        }
+      } catch {
+        // Older browsers or detached input — fall back to manual click.
+      }
+    }, 50);
+    return () => clearTimeout(id);
+  }, [visible]);
+
   if (!visible) return null;
 
   const input = React.createElement('input', {
+    ref: inputRef,
     type: 'datetime-local',
     value: temp,
     min: minimumDate ? toInputString(minimumDate) : undefined,

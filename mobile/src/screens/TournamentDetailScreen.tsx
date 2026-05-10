@@ -65,6 +65,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   // Godmode (Brian Stockman superuser bypass)
   const [godmode, setGodmode] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting]                   = useState(false);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -160,24 +162,24 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // ── Godmode delete (Brian only) ────────────────────────────
   function deleteTournament() {
     if (!tournament) return;
-    Alert.alert(
-      `Delete "${tournament.name}"?`,
-      'This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete Tournament',
-          style: 'destructive',
-          onPress: async () => {
-            const { data, error } = await supabase.from('tournaments').delete().eq('id', tournament.id).select();
-            if (error) Alert.alert('Delete failed', error.message);
-            else if (!data || data.length === 0) {
-              Alert.alert('Delete blocked', 'No rows were deleted. The DELETE RLS policy may not be in place — apply supabase/migration_add_godmode_delete.sql.');
-            } else navigation.goBack();
-          },
-        },
-      ],
-    );
+    setShowDeleteConfirm(true);
+  }
+
+  async function confirmDeleteTournament() {
+    if (!tournament) return;
+    setDeleting(true);
+    const { data, error } = await supabase.from('tournaments').delete().eq('id', tournament.id).select();
+    setDeleting(false);
+    if (error) {
+      Alert.alert('Delete failed', error.message);
+      return;
+    }
+    if (!data || data.length === 0) {
+      Alert.alert('Delete blocked', 'No rows were deleted. The DELETE RLS policy may not be in place — apply supabase/migration_add_godmode_delete.sql.');
+      return;
+    }
+    setShowDeleteConfirm(false);
+    navigation.goBack();
   }
 
   // ── Edit tournament (admin) ────────────────────────────────
@@ -1134,6 +1136,40 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
         onClose={() => setShowStartPicker(false)}
       />
+
+      {/* Godmode delete confirm */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={S.confirmBackdrop}>
+          <View style={S.confirmCard}>
+            <Text style={S.confirmTitle}>🗑  Delete "{tournament?.name}"?</Text>
+            <Text style={S.confirmBody}>
+              This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone.
+            </Text>
+            <View style={S.confirmBtnRow}>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnSecondary]}
+                onPress={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                <Text style={S.confirmBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnDanger]}
+                onPress={confirmDeleteTournament}
+                disabled={deleting}
+              >
+                {deleting
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={S.confirmBtnDangerText}>Delete Tournament</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -1175,6 +1211,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     closedBannerText: { fontSize: 13, color: '#b8860b', fontWeight: '600' },
     dangerBtn:        { margin: 12, marginTop: 16, backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.danger + '88' },
     dangerBtnText:    { fontSize: 15, fontWeight: '800', color: c.danger },
+
+    confirmBackdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+    confirmCard:            { backgroundColor: c.surface, borderRadius: 16, padding: 22, maxWidth: 460, width: '100%' },
+    confirmTitle:           { fontSize: 18, fontWeight: '900', color: c.text, marginBottom: 10 },
+    confirmBody:            { fontSize: 13, color: c.textSub, lineHeight: 19, marginBottom: 18 },
+    confirmBtnRow:          { flexDirection: 'row', gap: 10 },
+    confirmBtn:             { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+    confirmBtnSecondary:    { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    confirmBtnSecondaryText:{ color: c.textSub, fontWeight: '700', fontSize: 14 },
+    confirmBtnDanger:       { backgroundColor: c.danger },
+    confirmBtnDangerText:   { color: '#fff', fontWeight: '800', fontSize: 14 },
     dangerBtnSub:     { fontSize: 12, color: c.textMuted, marginTop: 4 },
 
     editModal:        { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
