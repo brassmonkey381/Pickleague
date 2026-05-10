@@ -89,13 +89,19 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={s.statItem}>
           <Text style={s.statEmoji}>🏓</Text>
           <Text style={s.statValue}>{profile?.singles_rating ?? '—'}</Text>
-          <Text style={s.statLabel}>Singles</Text>
+          <Text style={s.statLabel}>1v1</Text>
         </View>
         <View style={s.statDivider} />
         <View style={s.statItem}>
           <Text style={s.statEmoji}>🤝</Text>
           <Text style={s.statValue}>{profile?.doubles_rating ?? '—'}</Text>
-          <Text style={s.statLabel}>Doubles</Text>
+          <Text style={s.statLabel}>2v2 Gend.</Text>
+        </View>
+        <View style={s.statDivider} />
+        <View style={s.statItem}>
+          <Text style={s.statEmoji}>♀♂</Text>
+          <Text style={s.statValue}>{profile?.mixed_doubles_rating ?? '—'}</Text>
+          <Text style={s.statLabel}>2v2 Mixed</Text>
         </View>
       </View>
 

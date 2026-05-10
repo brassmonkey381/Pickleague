@@ -229,7 +229,9 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
               const opponent = onTeam1 ? item.player2 : item.player1;
               const myScore  = onTeam1 ? item.player1_score : item.player2_score;
               const oppScore = onTeam1 ? item.player2_score : item.player1_score;
-              const typeTag  = item.match_type === 'doubles' ? ' (2v2)' : '';
+              const typeTag  = item.match_type === 'doubles'
+                ? ` (2v2 ${item.doubles_category === 'gendered' ? 'Gend.' : item.doubles_category === 'mixed' ? 'Mixed' : '?'})`
+                : '';
 
               return (
                 <View style={S.matchRow}>

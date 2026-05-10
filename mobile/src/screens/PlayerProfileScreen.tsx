@@ -79,7 +79,11 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const reliability   = computeReliability(profile.total_matches_played ?? 0, profile.last_match_at ?? null);
   const leagueBadges  = badges.filter(b => b.badge.category === 'league');
 
-  const locationGroups: Record<string, { singles?: PlayerLocationRating; doubles?: PlayerLocationRating }> = {};
+  const locationGroups: Record<string, {
+    singles?: PlayerLocationRating;
+    doubles_gendered?: PlayerLocationRating;
+    doubles_mixed?: PlayerLocationRating;
+  }> = {};
   for (const r of locationRatings) {
     if (!locationGroups[r.location_name]) locationGroups[r.location_name] = {};
     locationGroups[r.location_name][r.match_type] = r;
@@ -125,12 +129,17 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
           <Text style={styles.eloValue}>{profile.singles_rating ?? profile.rating}</Text>
-          <Text style={styles.eloLabel}>Singles</Text>
+          <Text style={styles.eloLabel}>1v1</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
           <Text style={styles.eloValue}>{profile.doubles_rating ?? profile.rating}</Text>
-          <Text style={styles.eloLabel}>Doubles</Text>
+          <Text style={styles.eloLabel}>2v2 Gendered</Text>
+        </View>
+        <View style={styles.eloDivider} />
+        <View style={styles.eloItem}>
+          <Text style={styles.eloValue}>{profile.mixed_doubles_rating ?? profile.rating}</Text>
+          <Text style={styles.eloLabel}>2v2 Mixed</Text>
         </View>
       </View>
       <View style={styles.relRow}>
@@ -203,10 +212,16 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
                     <Text style={styles.locType}>1v1 · {r.singles.wins}W-{r.singles.losses}L</Text>
                   </View>
                 )}
-                {r.doubles && (
+                {r.doubles_gendered && (
                   <View style={[styles.locPill, styles.locPillD]}>
-                    <Text style={styles.locVal}>{r.doubles.rating}</Text>
-                    <Text style={styles.locType}>2v2 · {r.doubles.wins}W-{r.doubles.losses}L</Text>
+                    <Text style={styles.locVal}>{r.doubles_gendered.rating}</Text>
+                    <Text style={styles.locType}>2v2 Gend. · {r.doubles_gendered.wins}W-{r.doubles_gendered.losses}L</Text>
+                  </View>
+                )}
+                {r.doubles_mixed && (
+                  <View style={[styles.locPill, styles.locPillM]}>
+                    <Text style={styles.locVal}>{r.doubles_mixed.rating}</Text>
+                    <Text style={styles.locType}>2v2 Mixed · {r.doubles_mixed.wins}W-{r.doubles_mixed.losses}L</Text>
                   </View>
                 )}
               </View>
@@ -268,6 +283,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     locRatings: { flexDirection: 'row', gap: 8 },
     locPill: { backgroundColor: c.primaryLight, borderRadius: 8, padding: 8, alignItems: 'center', minWidth: 80 },
     locPillD: { backgroundColor: '#e3f2fd' },
+    locPillM: { backgroundColor: '#f3e5f5' },
     locVal: { fontSize: 18, fontWeight: '800', color: c.text },
     locType: { fontSize: 10, color: c.textSub, marginTop: 2 },
     actionBtn: { backgroundColor: c.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: c.border, marginTop: 4 },

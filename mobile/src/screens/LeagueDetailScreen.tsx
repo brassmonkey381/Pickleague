@@ -227,11 +227,6 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   const options: Option[] = [
     {
-      icon: '📊', label: 'Standings',
-      sub: 'Overall player ELO rankings',
-      onPress: () => navigation.navigate('Standings', { leagueId }),
-    },
-    {
       icon: '🏓', label: 'Record Match',
       sub: 'Enter a singles or doubles result',
       onPress: () => navigation.navigate('MatchEntry', { leagueId }),

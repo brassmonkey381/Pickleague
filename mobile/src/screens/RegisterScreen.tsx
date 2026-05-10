@@ -2,9 +2,16 @@ import React, { useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
-import { RootStackParamList } from '../types';
+import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+
+const GENDER_OPTIONS: { value: Gender; label: string }[] = [
+  { value: 'male',              label: 'Male' },
+  { value: 'female',            label: 'Female' },
+  { value: 'other',             label: 'Other' },
+  { value: 'prefer-not-to-say', label: 'Prefer not to say' },
+];
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Register'> };
 
@@ -17,6 +24,7 @@ export default function RegisterScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [gender, setGender] = useState<Gender | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -30,6 +38,10 @@ export default function RegisterScreen({ navigation }: Props) {
 
     if (!firstName.trim() || !lastName.trim() || !email.trim()) {
       setErrorMessage('Please fill in all fields.');
+      return;
+    }
+    if (!gender) {
+      setErrorMessage('Please select your gender — used to classify doubles matches as Gendered or Mixed.');
       return;
     }
     if (password.length < 6) {
@@ -48,7 +60,7 @@ export default function RegisterScreen({ navigation }: Props) {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { username, full_name: fullName } },
+      options: { data: { username, full_name: fullName, gender } },
     });
     setLoading(false);
 
@@ -93,6 +105,23 @@ export default function RegisterScreen({ navigation }: Props) {
           value={email}
           onChangeText={setEmail}
         />
+
+        <Text style={S.fieldLabel}>Gender</Text>
+        <Text style={S.fieldHint}>Used to classify doubles matches as Gendered (M+M+M+M / F+F+F+F) or Mixed.</Text>
+        <View style={S.genderRow}>
+          {GENDER_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.value}
+              style={[S.genderPill, gender === opt.value && S.genderPillActive]}
+              onPress={() => setGender(opt.value)}
+            >
+              <Text style={[S.genderPillText, gender === opt.value && S.genderPillTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <TextInput
           style={S.input}
           placeholder="Password"
@@ -138,6 +167,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     input:        { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, backgroundColor: c.surface, color: c.text },
     inputValid:   { borderColor: c.primary },
     inputInvalid: { borderColor: c.danger },
+    fieldLabel:   { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 4, marginTop: 4 },
+    fieldHint:    { fontSize: 12, color: c.textMuted, marginBottom: 8 },
+    genderRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+    genderPill:   { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
+    genderPillActive:     { borderColor: c.primary, backgroundColor: c.primaryLight },
+    genderPillText:       { fontSize: 14, color: c.textSub, fontWeight: '600' },
+    genderPillTextActive: { color: c.primary, fontWeight: '700' },
     matchText:    { color: c.primary, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
     mismatchText: { color: c.danger, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
     errorText:    { color: c.danger, fontSize: 14, marginBottom: 12, textAlign: 'center' },

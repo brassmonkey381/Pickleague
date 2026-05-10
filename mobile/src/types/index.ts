@@ -1,3 +1,5 @@
+export type Gender = 'male' | 'female' | 'other' | 'prefer-not-to-say';
+
 export type Profile = {
   id: string;
   username: string;
@@ -10,9 +12,11 @@ export type Profile = {
   availability: boolean[];
   total_matches_played: number;
   last_match_at: string | null;
+  gender: Gender | null;
   rating: number;
   singles_rating: number;
   doubles_rating: number;
+  mixed_doubles_rating: number;
   drilling_enabled: boolean;
   drill_availability: Record<string, boolean[]>;
   drill_shot_prefs: string[];
@@ -35,11 +39,13 @@ export type DrillRequest = {
   to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
 };
 
+export type LocationMatchType = 'singles' | 'doubles_gendered' | 'doubles_mixed';
+
 export type PlayerLocationRating = {
   id: string;
   user_id: string;
   location_name: string;
-  match_type: 'singles' | 'doubles';
+  match_type: LocationMatchType;
   rating: number;
   wins: number;
   losses: number;
@@ -119,10 +125,13 @@ export type EventSlot = {
   my_vote?: boolean;
 };
 
+export type DoublesCategory = 'gendered' | 'mixed' | 'unspecified';
+
 export type Match = {
   id: string;
   league_id: string;
   match_type: 'singles' | 'doubles';
+  doubles_category: DoublesCategory | null; // null for singles
   player1_id: string;
   partner1_id: string | null;
   player2_id: string;
@@ -245,7 +254,6 @@ export type RootStackParamList = {
   MatchEntry: { leagueId: string };
   MatchHistory: { leagueId?: string; userId?: string; title: string };
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
-  Standings: { leagueId: string };
   SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
   Profile: { userId?: string };
   Settings: undefined;

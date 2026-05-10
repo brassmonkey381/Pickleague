@@ -7,7 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { Picker } from '@react-native-picker/picker';
 import { supabase } from '../lib/supabase';
-import { Profile, RootStackParamList } from '../types';
+import { DoublesCategory, Profile, RootStackParamList } from '../types';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -264,6 +264,18 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const p1Name  = members.find((m) => m.id === p1)?.full_name  ?? 'Team 1';
   const p2Name  = members.find((m) => m.id === p2)?.full_name  ?? 'Team 2';
 
+  // Derive doubles category preview (mirrors server logic in classify_doubles_match).
+  // Server is the source of truth — this is purely informational so the recorder
+  // knows which ELO bucket the match will hit.
+  const doublesCategory: DoublesCategory | null = (() => {
+    if (matchType !== 'doubles') return null;
+    if (!p1 || !partner1 || !p2 || !partner2) return null;
+    const ids = [p1, partner1, p2, partner2];
+    const genders = ids.map(id => members.find(m => m.id === id)?.gender ?? null);
+    if (genders.some(g => g == null || g === 'prefer-not-to-say')) return 'unspecified';
+    return new Set(genders).size === 1 ? 'gendered' : 'mixed';
+  })();
+
   return (
     <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
 
@@ -299,6 +311,27 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           <PlayerPickerField label="Partner" value={partner2} onChange={setPartner2} members={members} exclude={[...team1Players, p2]} S={S} colors={colors} />
         )}
       </View>
+
+      {/* Doubles category preview */}
+      {doublesCategory && (
+        <View style={[
+          S.categoryCard,
+          doublesCategory === 'gendered'    && S.categoryCardGendered,
+          doublesCategory === 'mixed'       && S.categoryCardMixed,
+          doublesCategory === 'unspecified' && S.categoryCardUnspecified,
+        ]}>
+          <Text style={S.categoryHeader}>
+            {doublesCategory === 'gendered'    ? '🏓 2v2 Gendered'    :
+             doublesCategory === 'mixed'       ? '🏓 2v2 Mixed'       :
+                                                 '⚠️ 2v2 Uncategorized'}
+          </Text>
+          <Text style={S.categorySub}>
+            {doublesCategory === 'gendered'    ? 'All four players share the same gender — updates Gendered Doubles ELO.' :
+             doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles ELO.'              :
+                                                 'At least one player hasn\'t set a gender (or chose Prefer not to say). This match will be saved but won\'t affect any ELO until everyone sets a gender.'}
+          </Text>
+        </View>
+      )}
 
       {/* Score entry */}
       <View style={S.scoreCard}>
@@ -402,6 +435,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     toggleTextActive: { color: '#fff' },
     teamSection: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
     teamLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+
+    categoryCard:            { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5 },
+    categoryCardGendered:    { backgroundColor: c.primaryLight, borderColor: c.primary },
+    categoryCardMixed:       { backgroundColor: '#f3e5f5',      borderColor: '#8e24aa' },
+    categoryCardUnspecified: { backgroundColor: '#fff8e1',      borderColor: '#f57f17' },
+    categoryHeader:          { fontSize: 14, fontWeight: '800', color: c.text, marginBottom: 4 },
+    categorySub:             { fontSize: 12, color: c.textSub, lineHeight: 16 },
     label: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 5, marginTop: 10 },
     pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 8, overflow: 'hidden', backgroundColor: c.surface },
     scoreCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginVertical: 8, gap: 12, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },

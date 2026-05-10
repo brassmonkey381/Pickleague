@@ -27,7 +27,13 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -41,6 +47,18 @@
         }
       ],
       "@react-native-community/datetimepicker"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a6b4311e-5bd8-4fab-bc6d-51ad44bfbe7c"
+      }
+    },
+    "owner": "brassmonkey381",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a6b4311e-5bd8-4fab-bc6d-51ad44bfbe7c"
+    }
   }
 }

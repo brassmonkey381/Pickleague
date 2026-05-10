@@ -9,7 +9,7 @@ const LOC_PILL_W = Math.floor((Dimensions.get('window').width - 80 - 18) / 4);
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
+import { Gender, Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
 import AvatarPickerModal from '../components/AvatarPickerModal';
@@ -58,6 +58,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
   const [username, setUsername]           = useState('');
   const [tagline, setTagline]             = useState('');
+  const [gender, setGender]               = useState<Gender | null>(null);
   const [selectedTags, setSelectedTags]   = useState<string[]>([]);
   const [avatarId, setAvatarId]           = useState(1);
   const [photoUrl, setPhotoUrl]           = useState<string | null>(null);
@@ -109,6 +110,7 @@ export default function ProfileScreen({ navigation }: Props) {
       setAvatarId(d.avatar_id ?? 1);
       setPhotoUrl(d.avatar_url ?? null);
       setTagline(d.tagline ?? '');
+      setGender(d.gender ?? null);
       setSelectedTags(d.selected_tags ?? []);
       const av = d.availability;
       setAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : Array(TOTAL_CELLS).fill(false));
@@ -230,6 +232,7 @@ export default function ProfileScreen({ navigation }: Props) {
       avatar_url:    photoUrl,
       avatar_id:     avatarId,
       tagline:       tagline.trim() || null,
+      gender:        gender,
       selected_tags: selectedTags,
       availability,
     };
@@ -348,8 +351,9 @@ export default function ProfileScreen({ navigation }: Props) {
   const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
   const currentAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
 
-  const singlesRating = profile?.singles_rating ?? profile?.rating ?? 1000;
-  const doublesRating = profile?.doubles_rating ?? profile?.rating ?? 1000;
+  const singlesRating      = profile?.singles_rating       ?? profile?.rating ?? 1000;
+  const doublesRating      = profile?.doubles_rating       ?? profile?.rating ?? 1000;
+  const mixedDoublesRating = profile?.mixed_doubles_rating ?? profile?.rating ?? 1000;
 
   // Unlocks progress helpers
   const lockedAvatars   = AVATARS.filter(a => !!a.unlock);
@@ -419,12 +423,17 @@ export default function ProfileScreen({ navigation }: Props) {
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
                 <Text style={styles.eloValue}>{singlesRating}</Text>
-                <Text style={styles.eloLabel}>Singles</Text>
+                <Text style={styles.eloLabel}>1v1</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
                 <Text style={styles.eloValue}>{doublesRating}</Text>
-                <Text style={styles.eloLabel}>Doubles</Text>
+                <Text style={styles.eloLabel}>2v2 Gendered</Text>
+              </View>
+              <View style={styles.eloDivider} />
+              <View style={styles.eloItem}>
+                <Text style={styles.eloValue}>{mixedDoublesRating}</Text>
+                <Text style={styles.eloLabel}>2v2 Mixed</Text>
               </View>
             </View>
           </View>
@@ -436,14 +445,23 @@ export default function ProfileScreen({ navigation }: Props) {
         <View style={styles.locationCard}>
           <Text style={styles.cardTitle}>Court Ratings</Text>
           <View style={styles.locationGrid}>
-            {locationRatings.map(r => (
-              <View key={r.id} style={[styles.locPill, r.match_type === 'doubles' && styles.locPillDoubles]}>
-                <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
-                <Text style={styles.locPillRating}>{r.rating}</Text>
-                <Text style={styles.locPillType}>{r.match_type === 'singles' ? '1v1' : '2v2'}</Text>
-                <Text style={styles.locPillRecord}>{r.wins}W-{r.losses}L</Text>
-              </View>
-            ))}
+            {locationRatings.map(r => {
+              const pillStyle =
+                r.match_type === 'doubles_gendered' ? styles.locPillDoubles :
+                r.match_type === 'doubles_mixed'    ? styles.locPillMixed   : null;
+              const typeLabel =
+                r.match_type === 'singles'          ? '1v1'           :
+                r.match_type === 'doubles_gendered' ? '2v2 Gendered'  :
+                                                      '2v2 Mixed';
+              return (
+                <View key={r.id} style={[styles.locPill, pillStyle]}>
+                  <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
+                  <Text style={styles.locPillRating}>{r.rating}</Text>
+                  <Text style={styles.locPillType}>{typeLabel}</Text>
+                  <Text style={styles.locPillRecord}>{r.wins}W-{r.losses}L</Text>
+                </View>
+              );
+            })}
           </View>
         </View>
       )}
@@ -623,6 +641,32 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={[styles.fieldHint, tagline.length > 44 && styles.fieldHintWarn]}>
           {tagline.length}/50 characters
         </Text>
+      </View>
+
+      <View style={styles.fieldGroup}>
+        <Text style={styles.fieldLabel}>Gender</Text>
+        <Text style={styles.fieldHint}>
+          Used to classify doubles matches as 2v2 Gendered or 2v2 Mixed.
+          Until set, your doubles matches won't affect doubles ELO.
+        </Text>
+        <View style={styles.genderRow}>
+          {([
+            { v: 'male',              label: 'Male' },
+            { v: 'female',            label: 'Female' },
+            { v: 'other',             label: 'Other' },
+            { v: 'prefer-not-to-say', label: 'Prefer not to say' },
+          ] as { v: Gender; label: string }[]).map(({ v, label }) => (
+            <TouchableOpacity
+              key={v}
+              style={[styles.genderPill, gender === v && styles.genderPillActive]}
+              onPress={() => setGender(v)}
+            >
+              <Text style={[styles.genderPillText, gender === v && styles.genderPillTextActive]}>
+                {label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       {/* Play style tags editor */}
@@ -849,6 +893,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   locationGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   locPill:        { width: LOC_PILL_W, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
   locPillDoubles: { backgroundColor: '#e3f2fd' },
+  locPillMixed:   { backgroundColor: '#f3e5f5' },
   locPillCourt:   { fontSize: 9, color: c.textMuted, width: '100%', textAlign: 'center', marginBottom: 2 },
   locPillRating:  { fontSize: 18, fontWeight: '800', color: c.text, lineHeight: 22 },
   locPillType:    { fontSize: 9, color: c.textSub, textTransform: 'uppercase' as const, letterSpacing: 0.4, marginTop: 1 },
@@ -902,6 +947,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   input:         { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, color: c.text, backgroundColor: c.surface },
   fieldHint:     { fontSize: 12, color: c.textMuted, marginTop: 5 },
   fieldHintWarn: { color: '#e65100' },
+
+  // Gender picker
+  genderRow:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+  genderPill:          { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
+  genderPillActive:    { borderColor: GREEN, backgroundColor: c.primaryLight },
+  genderPillText:      { fontSize: 14, color: c.textSub, fontWeight: '600' },
+  genderPillTextActive:{ color: GREEN, fontWeight: '700' },
 
   // Tags editor
   tagsCard:      { marginBottom: 14 },

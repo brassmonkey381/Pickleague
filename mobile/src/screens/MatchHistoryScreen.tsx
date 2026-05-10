@@ -12,6 +12,7 @@ type HomeAwayFilter     = 'all' | 'home' | 'away';
 type TypeFilter         = 'all' | 'singles' | 'doubles';
 type RecencyFilter      = 3 | 7 | 30 | 90 | null; // days; null = all time
 type IndoorOutdoorFilter = 'all' | 'outdoor' | 'indoor' | 'unknown';
+type DoublesCategoryFilter = 'all' | 'gendered' | 'mixed' | 'unspecified';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
@@ -83,6 +84,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     outdoorColor: { color: '#f57f17' },
     indoorColor:  { color: '#1565c0' },
     unknownColor: { color: c.textMuted },
+    catBadge:        { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, marginTop: 2 },
+    catGenderedBg:   { backgroundColor: c.primaryLight },
+    catMixedBg:      { backgroundColor: '#f3e5f5' },
+    catUnspecBg:     { backgroundColor: c.bg },
+    catText:         { fontSize: 11, fontWeight: '700' },
+    catGenderedColor:{ color: c.primary },
+    catMixedColor:   { color: '#8e24aa' },
+    catUnspecColor:  { color: c.textMuted },
     empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
     calendarBtn: { backgroundColor: c.primaryLight, borderRadius: 10, padding: 14, marginBottom: 12, alignItems: 'center' },
     calendarBtnText: { color: c.primary, fontWeight: '700', fontSize: 15 },
@@ -104,6 +113,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [playerSearch, setPlayerSearch] = useState('');
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
   const [indoorOutdoor, setIndoorOutdoor] = useState<IndoorOutdoorFilter>('all');
+  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>('all');
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -190,6 +200,24 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       </View>
     );
 
+    const categoryBadge = isDoubles ? (
+      <View style={[
+        S.catBadge,
+        item.doubles_category === 'gendered' ? S.catGenderedBg :
+        item.doubles_category === 'mixed'    ? S.catMixedBg    : S.catUnspecBg,
+      ]}>
+        <Text style={[
+          S.catText,
+          item.doubles_category === 'gendered' ? S.catGenderedColor :
+          item.doubles_category === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
+        ]}>
+          {item.doubles_category === 'gendered' ? '2v2 Gendered' :
+           item.doubles_category === 'mixed'    ? '2v2 Mixed'    :
+                                                  '2v2 Unspecified'}
+        </Text>
+      </View>
+    ) : null;
+
     const homeAwayBadge = item.is_home_court != null
       ? (
         <View style={[S.homeAwayBadge, item.is_home_court ? S.homeBadge : S.awayBadge]}>
@@ -223,6 +251,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
               </View>
               {homeAwayBadge}
               {indoorOutdoorBadge}
+              {categoryBadge}
             </View>
           </View>
           <Text style={S.dateText}>{dateStr} at {timeStr}</Text>
@@ -268,6 +297,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             )}
             {homeAwayBadge}
             {indoorOutdoorBadge}
+            {categoryBadge}
           </View>
         </View>
       </View>
@@ -287,6 +317,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       if (indoorOutdoor === 'outdoor' && m.is_outdoor !== true) return false;
       if (indoorOutdoor === 'indoor'  && m.is_outdoor !== false) return false;
       if (indoorOutdoor === 'unknown' && m.is_outdoor !== null) return false;
+      if (doublesCategory !== 'all') {
+        if (m.match_type !== 'doubles') return false;
+        if (m.doubles_category !== doublesCategory) return false;
+      }
 
       // My matches only — show matches where the logged-in user participated
       if (myMatchesOnly && currentUserId) {
@@ -308,7 +342,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
       return true;
     });
-  }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch, indoorOutdoor]);
+  }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch, indoorOutdoor, doublesCategory]);
 
   const activeFilterCount =
     (homeAway !== 'all' ? 1 : 0) +
@@ -317,7 +351,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     (recency !== null ? 1 : 0) +
     (myMatchesOnly ? 1 : 0) +
     (playerSearch.trim() ? 1 : 0) +
-    (indoorOutdoor !== 'all' ? 1 : 0);
+    (indoorOutdoor !== 'all' ? 1 : 0) +
+    (doublesCategory !== 'all' ? 1 : 0);
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
 
@@ -346,7 +381,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         )}
         {activeFilterCount > 0 && (
-          <TouchableOpacity onPress={() => { setHomeAway('all'); setMatchType('all'); setRegion(null); setRecency(null); setMyMatchesOnly(false); setPlayerSearch(''); setIndoorOutdoor('all'); }}>
+          <TouchableOpacity onPress={() => { setHomeAway('all'); setMatchType('all'); setRegion(null); setRecency(null); setMyMatchesOnly(false); setPlayerSearch(''); setIndoorOutdoor('all'); setDoublesCategory('all'); }}>
             <Text style={S.clearText}>Clear</Text>
           </TouchableOpacity>
         )}
@@ -402,6 +437,19 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
                   {v === 'all' ? 'All' : v === 'singles' ? '1v1' : '2v2'}
                 </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={S.filterLabel}>Doubles Category</Text>
+          <View style={S.pillRow}>
+            {([
+              { v: 'all',         label: 'All' },
+              { v: 'gendered',    label: '2v2 Gendered' },
+              { v: 'mixed',       label: '2v2 Mixed' },
+              { v: 'unspecified', label: '2v2 Unspecified' },
+            ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
+              <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
+                <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>

@@ -242,8 +242,11 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         return (
           <TouchableOpacity
             style={S.row}
-            onPress={() => showOptions(item)}
-            activeOpacity={manageable ? 0.7 : 1}
+            onPress={() => navigation.navigate('PlayerProfile', {
+              userId:   item.user_id,
+              userName: item.profile?.full_name ?? 'Player',
+            })}
+            activeOpacity={0.7}
           >
             <View style={S.memberAvatar}>
               <Text style={S.memberAvatarText}>
@@ -257,7 +260,15 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{roleLabel(role)}</Text>
             </View>
-            {manageable && <Text style={S.chevron}>›</Text>}
+            {manageable && (
+              <TouchableOpacity
+                style={S.kebab}
+                onPress={(e) => { e.stopPropagation?.(); showOptions(item); }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={S.kebabText}>⋮</Text>
+              </TouchableOpacity>
+            )}
           </TouchableOpacity>
         );
       }}
@@ -367,6 +378,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     badge:            { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
     badgeText:        { fontSize: 11, fontWeight: '700' },
     chevron:          { fontSize: 22, color: c.textMuted, marginLeft: 8 },
+    kebab:            { paddingHorizontal: 10, paddingVertical: 4, marginLeft: 4 },
+    kebabText:        { fontSize: 22, color: c.textMuted, fontWeight: '700' },
     empty:            { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
 
     modalRoot:        { flex: 1, backgroundColor: c.surface },

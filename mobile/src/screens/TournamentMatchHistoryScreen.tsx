@@ -3,13 +3,27 @@ import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, 
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
-import { RootStackParamList } from '../types';
+import { DoublesCategory, Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 
 type TypeFilter   = 'all' | 'singles' | 'doubles';
 type StatusFilter = 'all' | 'completed' | 'pending';
+type DoublesCategoryFilter = 'all' | 'gendered' | 'mixed' | 'unspecified';
 
-type Profile = { id: string; full_name: string };
+type Profile = { id: string; full_name: string; gender: Gender | null };
+
+function classifyDoubles(
+  p1: Profile | null | undefined,
+  p2: Profile | null | undefined,
+  p3: Profile | null | undefined,
+  p4: Profile | null | undefined,
+): DoublesCategory {
+  const profs = [p1, p2, p3, p4];
+  if (profs.some(p => !p)) return 'unspecified';
+  const genders = profs.map(p => p!.gender);
+  if (genders.some(g => g == null || g === 'prefer-not-to-say')) return 'unspecified';
+  return new Set(genders).size === 1 ? 'gendered' : 'mixed';
+}
 
 type TMatch = {
   id: string;
@@ -50,6 +64,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const [statusFilter, setStatusFilter]   = useState<StatusFilter>('all');
   const [playerSearch, setPlayerSearch]   = useState('');
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
+  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>('all');
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -63,10 +78,10 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
       .from('tournament_matches')
       .select(`
         *,
-        team1p1:profiles!tournament_matches_team1_player1_fkey(id, full_name),
-        team1p2:profiles!tournament_matches_team1_player2_fkey(id, full_name),
-        team2p1:profiles!tournament_matches_team2_player1_fkey(id, full_name),
-        team2p2:profiles!tournament_matches_team2_player2_fkey(id, full_name),
+        team1p1:profiles!tournament_matches_team1_player1_fkey(id, full_name, gender),
+        team1p2:profiles!tournament_matches_team1_player2_fkey(id, full_name, gender),
+        team2p1:profiles!tournament_matches_team2_player1_fkey(id, full_name, gender),
+        team2p2:profiles!tournament_matches_team2_player2_fkey(id, full_name, gender),
         round:tournament_rounds(id, label, round_number)
       `)
       .eq('tournament_id', tournamentId)
@@ -96,6 +111,25 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     const team2Name  = teamName(item.team2p1, item.team2p2);
     const team1Won   = item.winner_team === 'team1';
     const completed  = item.status === 'completed' && item.winner_team != null;
+    const cat: DoublesCategory | null = isDoubles
+      ? classifyDoubles(item.team1p1, item.team1p2, item.team2p1, item.team2p2)
+      : null;
+    const categoryBadge = cat ? (
+      <View style={[
+        S.catBadge,
+        cat === 'gendered' ? S.catGenderedBg :
+        cat === 'mixed'    ? S.catMixedBg    : S.catUnspecBg,
+      ]}>
+        <Text style={[
+          S.catText,
+          cat === 'gendered' ? S.catGenderedColor :
+          cat === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
+        ]}>
+          {cat === 'gendered' ? '2v2 Gendered' :
+           cat === 'mixed'    ? '2v2 Mixed'    : '2v2 Unspecified'}
+        </Text>
+      </View>
+    ) : null;
 
     const dateStr = item.scheduled_at
       ? new Date(item.scheduled_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -132,6 +166,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
             <View style={S.cardRight}>
               <Text style={S.score}>{myScore} – {oppScore}</Text>
               <Text style={S.typeTag}>{isDoubles ? '2v2' : '1v1'}</Text>
+              {categoryBadge}
             </View>
           </View>
         </View>
@@ -166,6 +201,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
               <Text style={S.pendingTag}>Not played</Text>
             )}
             <Text style={S.typeTag}>{isDoubles ? '2v2' : '1v1'}</Text>
+            {categoryBadge}
           </View>
         </View>
         {item.round?.label && <Text style={S.roundText}>{item.round.label}</Text>}
@@ -184,6 +220,12 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
 
       if (myMatchesOnly && currentUserId && !involvesUser(m, currentUserId)) return false;
 
+      if (doublesCategory !== 'all') {
+        if (m.match_type !== 'doubles') return false;
+        const c = classifyDoubles(m.team1p1, m.team1p2, m.team2p1, m.team2p2);
+        if (c !== doublesCategory) return false;
+      }
+
       if (searchLower) {
         const names = [
           m.team1p1?.full_name,
@@ -196,13 +238,14 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
 
       return true;
     });
-  }, [matches, matchType, statusFilter, myMatchesOnly, currentUserId, playerSearch]);
+  }, [matches, matchType, statusFilter, myMatchesOnly, currentUserId, playerSearch, doublesCategory]);
 
   const activeFilterCount =
     (matchType !== 'all' ? 1 : 0) +
     (statusFilter !== 'all' ? 1 : 0) +
     (myMatchesOnly ? 1 : 0) +
-    (playerSearch.trim() ? 1 : 0);
+    (playerSearch.trim() ? 1 : 0) +
+    (doublesCategory !== 'all' ? 1 : 0);
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
 
@@ -226,7 +269,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
           <Text style={[S.filterBtnText, myMatchesOnly && S.filterBtnTextActive]}>👤 Mine</Text>
         </TouchableOpacity>
         {activeFilterCount > 0 && (
-          <TouchableOpacity onPress={() => { setMatchType('all'); setStatusFilter('all'); setMyMatchesOnly(false); setPlayerSearch(''); }}>
+          <TouchableOpacity onPress={() => { setMatchType('all'); setStatusFilter('all'); setMyMatchesOnly(false); setPlayerSearch(''); setDoublesCategory('all'); }}>
             <Text style={S.clearText}>Clear</Text>
           </TouchableOpacity>
         )}
@@ -272,6 +315,20 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
                 <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
                   {v === 'all' ? 'All' : v === 'singles' ? '1v1' : '2v2'}
                 </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={S.filterLabel}>Doubles Category</Text>
+          <View style={S.pillRow}>
+            {([
+              { v: 'all',         label: 'All' },
+              { v: 'gendered',    label: '2v2 Gendered' },
+              { v: 'mixed',       label: '2v2 Mixed' },
+              { v: 'unspecified', label: '2v2 Unspecified' },
+            ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
+              <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
+                <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -341,5 +398,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     clearSearch: { paddingHorizontal: 10, paddingVertical: 8 },
     clearSearchText: { fontSize: 14, color: c.textMuted, fontWeight: '600' },
     empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
+
+    catBadge:        { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, marginTop: 2 },
+    catGenderedBg:   { backgroundColor: c.primaryLight },
+    catMixedBg:      { backgroundColor: '#f3e5f5' },
+    catUnspecBg:     { backgroundColor: c.bg },
+    catText:         { fontSize: 11, fontWeight: '700' },
+    catGenderedColor:{ color: c.primary },
+    catMixedColor:   { color: '#8e24aa' },
+    catUnspecColor:  { color: c.textMuted },
   });
 }
