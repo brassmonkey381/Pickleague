@@ -47,6 +47,7 @@ export default function MlpTeamSection({
   // Create team modal
   const [showCreate, setShowCreate]     = useState(false);
   const [newTeamName, setNewTeamName]   = useState('');
+  const [createError, setCreateError]   = useState<string | null>(null);
 
   // Invite picker — keyed by team_id we're inviting INTO
   const [invitingTeamId, setInvitingTeamId] = useState<string | null>(null);
@@ -110,18 +111,40 @@ export default function MlpTeamSection({
 
   // ── Actions ─────────────────────────────────────────────────────────
   async function createTeam() {
-    if (!newTeamName.trim()) return;
+    setCreateError(null);
+    const trimmed = newTeamName.trim();
+    if (!trimmed) {
+      setCreateError('Pick a team name first.');
+      return;
+    }
     setBusy(true);
-    const { error } = await supabase.rpc('create_mlp_team', {
-      p_tournament_id: tournamentId,
-      p_name:          newTeamName.trim(),
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    setShowCreate(false);
-    setNewTeamName('');
-    await load();
-    onTeamsChanged?.();
+    try {
+      const { data, error } = await supabase.rpc('create_mlp_team', {
+        p_tournament_id: tournamentId,
+        p_name:          trimmed,
+      });
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[MLP create_mlp_team]', error);
+        const hint = error.message?.toLowerCase().includes('does not exist')
+          ? '\n\nThe migration may not be applied yet — run supabase/migration_add_mlp_teams.sql in the SQL Editor.'
+          : '';
+        setCreateError(`${error.message ?? 'Unknown error'}${hint}`);
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log('[MLP create_mlp_team] created team', data);
+      setShowCreate(false);
+      setNewTeamName('');
+      await load();
+      onTeamsChanged?.();
+    } catch (e: any) {
+      // eslint-disable-next-line no-console
+      console.error('[MLP create_mlp_team] threw', e);
+      setCreateError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function requestJoin(teamId: string) {
@@ -404,7 +427,7 @@ export default function MlpTeamSection({
       )}
 
       {/* Create team modal */}
-      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => setShowCreate(false)}>
+      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => { setShowCreate(false); setCreateError(null); }}>
         <View style={S.modalBackdrop}>
           <View style={S.modalCard}>
             <Text style={S.modalTitle}>Create your team</Text>
@@ -417,15 +440,18 @@ export default function MlpTeamSection({
               placeholder="e.g. Dink Dynasty"
               placeholderTextColor={c.textMuted}
               value={newTeamName}
-              onChangeText={setNewTeamName}
+              onChangeText={t => { setNewTeamName(t); if (createError) setCreateError(null); }}
               maxLength={40}
               autoFocus
             />
+            {createError && (
+              <Text style={S.modalErrorText}>{createError}</Text>
+            )}
             <View style={S.modalBtnRow}>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={() => { setShowCreate(false); setNewTeamName(''); }}>
+              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={() => { setShowCreate(false); setNewTeamName(''); setCreateError(null); }}>
                 <Text style={S.modalBtnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnPrimary]} onPress={createTeam} disabled={busy || !newTeamName.trim()}>
+              <TouchableOpacity style={[S.modalBtn, S.modalBtnPrimary, (busy || !newTeamName.trim()) && S.modalBtnDim]} onPress={createTeam} disabled={busy || !newTeamName.trim()}>
                 {busy ? <ActivityIndicator color="#fff" /> : <Text style={S.modalBtnPrimaryText}>Create</Text>}
               </TouchableOpacity>
             </View>
@@ -528,5 +554,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalBtnPrimaryText:{ color: '#fff', fontWeight: '800', fontSize: 14 },
     modalBtnSecondary:  { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     modalBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
+    modalBtnDim:           { opacity: 0.5 },
+    modalErrorText:        { fontSize: 12, color: c.danger, marginBottom: 12, lineHeight: 17 },
   });
 }
