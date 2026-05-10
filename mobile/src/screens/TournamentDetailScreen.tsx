@@ -452,6 +452,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               <Text style={[S.quickActionText, S.quickActionTextPrimary]}>Edit Tournament</Text>
             </TouchableOpacity>
           )}
+          {isPriv && tournament.status === 'registration' && (
+            <TouchableOpacity
+              style={[S.quickActionBtn, S.quickActionBtnPrimary]}
+              onPress={() => navigation.navigate('TournamentInvitePlayers', { tournamentId, tournamentName: tournament.name })}
+              activeOpacity={0.7}
+            >
+              <Text style={[S.quickActionText, S.quickActionTextPrimary]}>+ Invite Players</Text>
+            </TouchableOpacity>
+          )}
         </View>
         {(tournament.status === 'completed' || tournament.status === 'cancelled') && (
           <View style={S.closedBanner}>

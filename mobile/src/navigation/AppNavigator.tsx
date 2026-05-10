@@ -40,6 +40,7 @@ import DrillRequestsScreen from '../screens/DrillRequestsScreen';
 import ShopScreen from '../screens/ShopScreen';
 import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
+import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -116,6 +117,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '🥒 Pickle Shop' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
+                <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
               </>
             ) : (
               <>
