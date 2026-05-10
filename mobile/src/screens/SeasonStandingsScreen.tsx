@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { AVATARS } from '../data/profileCustomization';
+import PicklePotCard from '../components/PicklePotCard';
 import { useTheme } from '../lib/ThemeContext';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -277,6 +278,19 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           </Text>
         )}
       </View>
+
+      {/* ── Pickle pot ─────────────────────────────────────────── */}
+      <PicklePotCard
+        scopeType="season"
+        scopeId={seasonId}
+        scopeLabel="Season"
+        pool={season.prize_pool ?? 0}
+        structure={season.payout_structure ?? [60, 25, 15]}
+        isAdmin={isPrivileged(myRole as any)}
+        canDistribute={finals.length > 0}
+        members={live.map(r => ({ id: r.user_id, full_name: r.full_name }))}
+        onChange={() => load()}
+      />
 
       {/* ── Admin action bar ───────────────────────────────────── */}
       {isPrivileged(myRole as any) && (

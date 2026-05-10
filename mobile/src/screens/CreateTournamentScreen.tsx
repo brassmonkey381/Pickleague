@@ -58,13 +58,28 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   // Registration
   const [inviteOnly, setInviteOnly]   = useState(false);
 
+  // Pickle pot
+  const [ante, setAnte]               = useState('0');
+  const [payoutText, setPayoutText]   = useState('60,25,15');
+
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState(false);
 
+  function parsePayout(): number[] | null {
+    const parts = payoutText.split(',').map(s => parseInt(s.trim(), 10));
+    if (parts.some(n => !Number.isFinite(n) || n < 0)) return null;
+    if (parts.reduce((a, b) => a + b, 0) !== 100) return null;
+    return parts;
+  }
+
   async function submit() {
     setError('');
     if (!name.trim()) { setError('Please enter a tournament name.'); return; }
+    const anteNum = parseInt(ante, 10);
+    if (!Number.isFinite(anteNum) || anteNum < 0) { setError('Ante must be 0 or a positive number.'); return; }
+    const structure = parsePayout();
+    if (!structure) { setError('Payout structure must be comma-separated percentages summing to 100 (e.g. 60,25,15).'); return; }
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -98,6 +113,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       location_name:     location?.name ?? null,
       location_lat:      location?.lat ?? null,
       location_lng:      location?.lng ?? null,
+      pickle_ante:       anteNum,
+      payout_structure:  structure,
     }).select().single();
 
     setLoading(false);
@@ -226,6 +243,34 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           </View>
           <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: colors.primary }} thumbColor="#fff" />
         </View>
+
+        {/* ── Pickle pot ── */}
+        <SectionHeader title="🥒 Pickle Pot" S={S} />
+
+        <Text style={S.label}>Entry Ante</Text>
+        <TextInput
+          style={[S.input, S.inputSmall]}
+          placeholder="0"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="number-pad"
+          value={ante}
+          onChangeText={setAnte}
+        />
+        <Text style={S.hint}>
+          Pickles each player pays on approval. Goes into the prize pool. Set to 0 for free entry.
+        </Text>
+
+        <Text style={S.label}>Payout Structure</Text>
+        <TextInput
+          style={S.input}
+          placeholder="60,25,15"
+          placeholderTextColor={colors.textMuted}
+          value={payoutText}
+          onChangeText={setPayoutText}
+        />
+        <Text style={S.hint}>
+          Comma-separated percentages for top finishers (must sum to 100). Default is 60% / 25% / 15% for 1st / 2nd / 3rd. Locked once registration closes.
+        </Text>
 
         {/* ── Status / submit ── */}
         {error ? (

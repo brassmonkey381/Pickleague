@@ -19,6 +19,7 @@ import {
 import { checkGodmode } from '../lib/godmode';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
+import PicklePotCard from '../components/PicklePotCard';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -471,6 +472,23 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.historyBtnSub}>All scheduled and completed matches</Text>
           </TouchableOpacity>
         )}
+
+        {/* ── Pickle pot ── */}
+        <PicklePotCard
+          scopeType="tournament"
+          scopeId={tournamentId}
+          scopeLabel="Tournament"
+          pool={tournament.prize_pool ?? 0}
+          ante={tournament.pickle_ante ?? 0}
+          structure={tournament.payout_structure ?? [60, 25, 15]}
+          isAdmin={isPriv}
+          canDistribute={tournament.status === 'completed'}
+          members={approved.map(r => ({
+            id: r.user_id,
+            full_name: r.profile?.full_name ?? 'Unknown',
+          }))}
+          onChange={() => load()}
+        />
 
         {/* ── Member: bracket release countdown ── */}
         {myReg?.status === 'approved' && !generatedMatches && (
