@@ -49,8 +49,10 @@ export default function MlpTeamSection({
   const [newTeamName, setNewTeamName]   = useState('');
   const [createError, setCreateError]   = useState<string | null>(null);
 
-  // Invite picker — keyed by team_id we're inviting INTO
+  // Invite flow
   const [invitingTeamId, setInvitingTeamId] = useState<string | null>(null);
+  const [pendingInvite, setPendingInvite]   = useState<{ teamId: string; teamName: string; user: PickedUser } | null>(null);
+  const [inviteError, setInviteError]       = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
 
@@ -171,17 +173,39 @@ export default function MlpTeamSection({
     onTeamsChanged?.();
   }
 
-  async function inviteUser(teamId: string, u: PickedUser) {
-    setBusy(true);
-    const { error } = await supabase.rpc('mlp_invite', {
-      p_team_id: teamId,
-      p_user_id: u.id,
-      p_message: null,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+  // Step 1 of invite flow: user picked from UserPickerModal → stash and
+  // open the confirm dialog (closing the picker behind it).
+  function pickInvitee(teamId: string, u: PickedUser) {
+    const team = teams.find(t => t.id === teamId);
+    setPendingInvite({ teamId, teamName: team?.name ?? '', user: u });
     setInvitingTeamId(null);
-    await load();
+    setInviteError(null);
+  }
+
+  // Step 2: user confirms in the dialog → fire the RPC.
+  async function confirmInvite() {
+    if (!pendingInvite) return;
+    setInviteError(null);
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc('mlp_invite', {
+        p_team_id: pendingInvite.teamId,
+        p_user_id: pendingInvite.user.id,
+        p_message: null,
+      });
+      if (error) {
+        // eslint-disable-next-line no-console
+        console.warn('[MLP mlp_invite]', error);
+        setInviteError(error.message ?? 'Unknown error');
+        return;
+      }
+      setPendingInvite(null);
+      await load();
+    } catch (e: any) {
+      setInviteError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function clearSlot(teamId: string, slot: MlpTeamSlot) {
@@ -470,10 +494,49 @@ export default function MlpTeamSection({
               [t.captain_id, t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id].filter(Boolean) as string[]
             ),
           ]}
-          onPick={u => inviteUser(invitingTeamId, u)}
+          onPick={u => pickInvitee(invitingTeamId!, u)}
           onClose={() => setInvitingTeamId(null)}
         />
       )}
+
+      {/* Invite confirmation dialog */}
+      <Modal
+        visible={!!pendingInvite}
+        transparent animationType="fade"
+        onRequestClose={() => { setPendingInvite(null); setInviteError(null); }}
+      >
+        <View style={S.modalBackdrop}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>Send invite?</Text>
+            {pendingInvite && (
+              <Text style={S.modalBody}>
+                Invite <Text style={{ fontWeight: '800', color: c.text }}>{pendingInvite.user.full_name}</Text> to join{' '}
+                <Text style={{ fontWeight: '800', color: c.text }}>{pendingInvite.teamName}</Text>?{'\n\n'}
+                They'll get a notification and can accept or decline.
+              </Text>
+            )}
+            {inviteError && <Text style={S.modalErrorText}>{inviteError}</Text>}
+            <View style={S.modalBtnRow}>
+              <TouchableOpacity
+                style={[S.modalBtn, S.modalBtnSecondary]}
+                onPress={() => { setPendingInvite(null); setInviteError(null); }}
+                disabled={busy}
+              >
+                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.modalBtn, S.modalBtnPrimary, busy && S.modalBtnDim]}
+                onPress={confirmInvite}
+                disabled={busy}
+              >
+                {busy
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={S.modalBtnPrimaryText}>Send Invite</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
