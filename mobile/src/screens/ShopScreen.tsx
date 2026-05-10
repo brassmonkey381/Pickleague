@@ -28,6 +28,9 @@ export default function ShopScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [buying, setBuying]   = useState<string | null>(null);
 
+  // Buy flow
+  const [confirmingItem, setConfirmingItem]     = useState<ShopItem | null>(null);
+
   // Gift flow
   const [giftItem, setGiftItem]                 = useState<ShopItem | null>(null);
   const [giftRecipient, setGiftRecipient]       = useState<PickedUser | null>(null);
@@ -85,39 +88,32 @@ export default function ShopScreen({ navigation }: Props) {
     setGiftMessage('');
   }
 
-  async function buy(item: ShopItem) {
+  function startBuy(item: ShopItem) {
     if (owned.has(item.id)) return;
     if (pickles < item.cost) {
       Alert.alert('Not enough pickles', `You have ${pickles} 🥒 — ${item.name} costs ${item.cost} 🥒.`);
       return;
     }
+    setConfirmingItem(item);
+  }
 
-    Alert.alert(
-      `Buy ${item.name}?`,
-      `${item.description}\n\nCost: ${item.cost} 🥒\nBalance after: ${pickles - item.cost} 🥒`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm', style: 'default',
-          onPress: async () => {
-            setBuying(item.id);
-            const { data, error } = await supabase.rpc('purchase_shop_item', { p_item_id: item.id });
-            setBuying(null);
-            if (error) { Alert.alert('Error', error.message); return; }
+  async function confirmBuy() {
+    const item = confirmingItem;
+    if (!item) return;
+    setBuying(item.id);
+    const { data, error } = await supabase.rpc('purchase_shop_item', { p_item_id: item.id });
+    setBuying(null);
+    if (error) { Alert.alert('Error', error.message); return; }
 
-            // RPC returns table → first row
-            const row = Array.isArray(data) ? data[0] : data;
-            if (!row?.success) {
-              Alert.alert('Could not purchase', row?.message ?? 'Unknown error');
-              return;
-            }
-            setPickles(row.new_balance);
-            setOwned(prev => new Set(prev).add(item.id));
-            Alert.alert('Purchased!', `${item.name} is yours. ${item.category === 'avatar' ? 'Pick it on your profile.' : item.category === 'flair' ? 'Applied to your profile.' : 'It\'ll show on your profile.'}`);
-          },
-        },
-      ]
-    );
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) {
+      Alert.alert('Could not purchase', row?.message ?? 'Unknown error');
+      return;
+    }
+    setPickles(row.new_balance);
+    setOwned(prev => new Set(prev).add(item.id));
+    setConfirmingItem(null);
+    Alert.alert('Purchased!', `${item.name} is in your inventory. Equip / hide it from your Profile.`);
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: c.bg }} size="large" color={c.primary} />;
@@ -182,7 +178,7 @@ export default function ShopScreen({ navigation }: Props) {
                         isOwned   && S.buyBtnOwned,
                         !canAfford && !isOwned && S.buyBtnDisabled,
                       ]}
-                      onPress={() => buy(item)}
+                      onPress={() => startBuy(item)}
                       disabled={isOwned || isBuying || !canAfford}
                     >
                       <Text style={[
@@ -206,6 +202,62 @@ export default function ShopScreen({ navigation }: Props) {
           </View>
         )}
       </ScrollView>
+
+      {/* Confirm Buy */}
+      <Modal
+        visible={!!confirmingItem}
+        transparent animationType="fade"
+        onRequestClose={() => setConfirmingItem(null)}
+      >
+        <View style={S.modalBackdrop}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>Confirm Purchase</Text>
+            {confirmingItem && (
+              <>
+                <View style={S.giftPreviewRow}>
+                  <View style={[S.giftIconBox, { backgroundColor: confirmingItem.payload?.bgColor ?? c.surfaceAlt }]}>
+                    <Text style={S.giftIconEmoji}>{confirmingItem.icon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.giftRecipientName}>{confirmingItem.name}</Text>
+                    <Text style={S.giftItemName} numberOfLines={3}>{confirmingItem.description}</Text>
+                  </View>
+                </View>
+
+                <View style={S.confirmCostBox}>
+                  <View style={S.confirmCostRow}>
+                    <Text style={S.confirmCostLabel}>Cost</Text>
+                    <Text style={S.confirmCostValue}>🥒 {confirmingItem.cost}</Text>
+                  </View>
+                  <View style={S.confirmCostRow}>
+                    <Text style={S.confirmCostLabel}>Balance after</Text>
+                    <Text style={S.confirmCostValue}>🥒 {pickles - confirmingItem.cost}</Text>
+                  </View>
+                </View>
+
+                <View style={S.modalBtnRow}>
+                  <TouchableOpacity
+                    style={[S.modalBtn, S.modalBtnSecondary]}
+                    onPress={() => setConfirmingItem(null)}
+                    disabled={!!buying}
+                  >
+                    <Text style={S.modalBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[S.modalBtn, S.modalBtnPrimary]}
+                    onPress={confirmBuy}
+                    disabled={!!buying}
+                  >
+                    {buying === confirmingItem.id
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={S.modalBtnPrimaryText}>Confirm Buy</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Pick a recipient */}
       <UserPickerModal
@@ -351,5 +403,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalBtnPrimaryText:{ color: '#fff', fontWeight: '800', fontSize: 14 },
     modalBtnSecondary: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     modalBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
+
+    confirmCostBox:    { backgroundColor: c.primaryLight, borderRadius: 10, padding: 12, marginBottom: 16 },
+    confirmCostRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+    confirmCostLabel:  { fontSize: 13, color: c.textSub, fontWeight: '600' },
+    confirmCostValue:  { fontSize: 14, color: c.primary, fontWeight: '800' },
   });
 }
