@@ -86,21 +86,21 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       .select('rating, availability')
       .eq('id', user.id)
       .single();
-    const myRating = myProfileRes.data?.rating ?? 1000;
+    const myRating = myProfileRes.data?.rating ?? 3.25;
     const myAv: boolean[] = myProfileRes.data?.availability ?? [];
 
     const memberIds = members.map(m => m.user_id);
-    const memberRatings = members.map(m => m.profile?.rating ?? 1000);
+    const memberRatings = members.map(m => m.profile?.rating ?? 3.25);
     const avgElo = memberRatings.length
-      ? Math.round(memberRatings.reduce((a, b) => a + b, 0) / memberRatings.length)
+      ? memberRatings.reduce((a, b) => a + b, 0) / memberRatings.length
       : myRating;
 
     const { data: candidates } = await supabase
       .from('profiles')
       .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url')
       .not('id', 'in', `(${memberIds.join(',')})`)
-      .gte('rating', avgElo - 350)
-      .lte('rating', avgElo + 350)
+      .gte('rating', avgElo - 1.75)
+      .lte('rating', avgElo + 1.75)
       .limit(50);
 
     const scored: SuggestedPlayer[] = (candidates ?? []).map((p: any) => {
@@ -180,8 +180,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
 
   const avgLeagueElo = members.length
-    ? Math.round(members.reduce((s, m) => s + (m.profile?.rating ?? 1000), 0) / members.length)
-    : 1000;
+    ? +(members.reduce((s, m) => s + (m.profile?.rating ?? 3.25), 0) / members.length).toFixed(2)
+    : 3.25;
 
   return (
     <>
@@ -225,7 +225,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
           <View style={S.memberCountRow}>
             <Text style={S.count}>
-              {members.length} member{members.length !== 1 ? 's' : ''} · avg {avgLeagueElo} ELO
+              {members.length} member{members.length !== 1 ? 's' : ''} · avg {avgLeagueElo.toFixed(2)} PLUPR
             </Text>
             {isPrivileged(myRole) && (
               <TouchableOpacity style={S.suggestBtn} onPress={openSuggest}>
@@ -255,7 +255,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
             </View>
             <View style={S.info}>
               <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
-              <Text style={S.rating}>{item.profile?.rating ?? 1000} ELO</Text>
+              <Text style={S.rating}>{(item.profile?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
             </View>
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{roleLabel(role)}</Text>
@@ -286,7 +286,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           <View>
             <Text style={S.modalTitle}>✨ Suggested Players</Text>
             <Text style={S.modalSubtitle}>
-              Similar ELO to {leagueName} · sorted by schedule overlap
+              Similar PLUPR to {leagueName} · sorted by schedule overlap
             </Text>
           </View>
           <TouchableOpacity onPress={() => setShowSuggest(false)} style={S.modalClose}>
@@ -305,12 +305,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         ) : (
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
             <Text style={S.suggestHint}>
-              Players ranked by schedule overlap with you, then by ELO proximity to league average ({avgLeagueElo}).{'\n'}
+              Players ranked by schedule overlap with you, then by PLUPR proximity to league average ({avgLeagueElo.toFixed(2)}).{'\n'}
               Share your invite link to bring them in.
             </Text>
             {suggestions.map((p, idx) => {
               const avatar = AVATARS.find(a => a.id === (p.avatar_id ?? 1)) ?? AVATARS[0];
-              const eloDiffLabel = p.eloDiff === 0 ? 'same ELO' : `${p.eloDiff > 0 ? '+' : ''}${p.eloDiff < 0 ? '' : ''}${p.rating - avgLeagueElo} vs avg`;
+              const ratingDiff = p.rating - avgLeagueElo;
+              const eloDiffLabel = Math.abs(ratingDiff) < 0.005 ? 'same PLUPR' : `${ratingDiff > 0 ? '+' : ''}${ratingDiff.toFixed(2)} vs avg`;
               const hasOverlap = p.overlapHours > 0;
               return (
                 <View key={p.id} style={S.suggestCard}>
@@ -325,7 +326,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                     <Text style={S.suggestSub}>@{p.username}</Text>
                     <View style={S.suggestPills}>
                       <View style={S.eloPill}>
-                        <Text style={S.eloPillText}>{p.rating} ELO</Text>
+                        <Text style={S.eloPillText}>{p.rating.toFixed(2)} PLUPR</Text>
                       </View>
                       <View style={[S.overlapPill, !hasOverlap && S.overlapPillNone]}>
                         <Text style={[S.overlapPillText, !hasOverlap && S.overlapPillNoneText]}>

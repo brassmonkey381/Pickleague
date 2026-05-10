@@ -253,7 +253,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           can_edit_until: canEditUntil,
         });
       }
-      setStatusMsg({ text: 'Match recorded! ELO ratings updated.', isError: false });
+      setStatusMsg({ text: 'Match recorded! PLUPR ratings updated.', isError: false });
       setTimeout(() => navigation.goBack(), 1500);
     }
   }
@@ -266,7 +266,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
   // Derive doubles category preview (mirrors server logic in classify_doubles_match).
   // Server is the source of truth — this is purely informational so the recorder
-  // knows which ELO bucket the match will hit.
+  // knows which PLUPR bucket the match will hit.
   const doublesCategory: DoublesCategory | null = (() => {
     if (matchType !== 'doubles') return null;
     if (!p1 || !partner1 || !p2 || !partner2) return null;
@@ -326,9 +326,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                                                  '⚠️ 2v2 Uncategorized'}
           </Text>
           <Text style={S.categorySub}>
-            {doublesCategory === 'gendered'    ? 'All four players share the same gender — updates Gendered Doubles ELO.' :
-             doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles ELO.'              :
-                                                 'At least one player hasn\'t set a gender (or chose Prefer not to say). This match will be saved but won\'t affect any ELO until everyone sets a gender.'}
+            {doublesCategory === 'gendered'    ? 'All four players share the same gender — updates Gendered Doubles PLUPR.' :
+             doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles PLUPR.'             :
+                                                 'At least one player hasn\'t set a gender (or chose Prefer not to say). This match will be saved but won\'t affect any PLUPR until everyone sets a gender.'}
           </Text>
         </View>
       )}

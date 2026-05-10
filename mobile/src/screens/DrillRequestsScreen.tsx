@@ -151,7 +151,7 @@ export default function DrillRequestsScreen({}: Props) {
                 <View style={{ flex: 1 }}>
                   <Text style={S.name}>{otherProfile?.full_name ?? 'Unknown'}</Text>
                   <Text style={S.sub}>
-                    {otherProfile?.rating ?? 1000} ELO · {timeAgo(item.created_at)}
+                    {(otherProfile?.rating ?? 3.25).toFixed(2)} PLUPR · {timeAgo(item.created_at)}
                   </Text>
                 </View>
                 <View style={[

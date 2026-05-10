@@ -67,22 +67,22 @@ export default function LeagueInfoScreen({ route }: Props) {
         <Row S={S} label="Home court"  value={league.home_court ?? 'Not set'} />
       </Section>
 
-      {/* ── Match scoring + ELO ─────────────────────────────── */}
-      <Section S={S} title="Match scoring & ELO">
+      {/* ── Match scoring + PLUPR ───────────────────────────── */}
+      <Section S={S} title="Match scoring & PLUPR">
         <Para S={S}>
-          Every recorded match in this league updates each participant's ELO rating using <Text style={S.bold}>K = 32</Text>.
-          Singles matches compare the two players directly. Doubles matches compare the <Text style={S.bold}>average</Text> rating
-          of each pair, then apply the same ELO delta to both teammates on the same side.
+          Every recorded match updates each participant's <Text style={S.bold}>PLUPR</Text> (Pickleague Universal
+          Pickleball Rating). Singles matches compare the two players directly. Doubles matches compare the
+          <Text style={S.bold}> average</Text> PLUPR of each pair, then apply the same delta to both teammates.
         </Para>
         <Para S={S}>
           The expected score for each side is{' '}
-          <Text style={S.mono}>1 / (1 + 10^((opponent − you) / 400))</Text>.
-          Beating a higher-rated opponent yields more points than beating an equal one; losing to a much higher-rated
-          opponent costs less than losing to an equal one.
+          <Text style={S.mono}>1 / (1 + 10^((opp − you) / 2.0))</Text>. Each match's actual delta is multiplied by a
+          score-margin factor (close games count less than blowouts) and a K factor that decays with match count.
         </Para>
         <Para S={S}>
-          A match's <Text style={S.bold}>before</Text> and <Text style={S.bold}>after</Text> ELO are saved on the match
-          row, so player profiles and match history can show rating progression over time.
+          A match's <Text style={S.bold}>before</Text> and <Text style={S.bold}>after</Text> PLUPR are saved on the
+          match row so player profiles and match history can show rating progression over time. See "Scoring Algo" in
+          Settings for the full formula.
         </Para>
       </Section>
 
@@ -109,13 +109,13 @@ export default function LeagueInfoScreen({ route }: Props) {
         {seasons.length === 0 ? (
           <Para S={S}>
             This league has not run any seasons yet. Admins can start one to track standings over discrete
-            lock-in periods, with median-rank scoring and an end-of-season ELO reset.
+            lock-in periods, with median-rank scoring and a per-period PLUPR reset.
           </Para>
         ) : (
           <>
             <Para S={S}>
               Each season runs for a fixed number of weeks with a regular <Text style={S.bold}>lock-in cadence</Text>.
-              At the end of every lock-in period, an admin captures a snapshot of the standings (rank by wins, ELO as tiebreak).
+              At the end of every lock-in period, an admin captures a snapshot of the standings (rank by wins, PLUPR as tiebreak).
               At the end of the season, each player's <Text style={S.bold}>median snapshot rank</Text> across periods becomes
               their season score — lowest median wins.
             </Para>
@@ -166,7 +166,7 @@ export default function LeagueInfoScreen({ route }: Props) {
             })}
           </View>
           <Para S={S}>
-            Tournament matches do <Text style={S.bold}>not</Text> affect league ELO — they're tracked separately,
+            Tournament matches do <Text style={S.bold}>not</Text> affect league PLUPR — they're tracked separately,
             with their own bracket structure, round-by-round results, and per-format advancement rules. Open a
             tournament's "How this works" page for the specifics.
           </Para>

@@ -45,11 +45,11 @@ export const AVATARS: AvatarDef[] = [
   },
   {
     id: 19, emoji: '👑', name: 'Royalty',  bgColor: '#fff9c4',
-    unlock: { badge: 'League Leader', description: 'Reach #1 in a league\'s ELO standings' },
+    unlock: { badge: 'League Leader', description: 'Reach #1 in a league\'s PLUPR standings' },
   },
   {
     id: 20, emoji: '🏆', name: 'Champion', bgColor: '#fff8e1',
-    unlock: { badge: 'Top Rated',     description: 'Reach an overall ELO of 1150 or higher' },
+    unlock: { badge: 'Top Rated',     description: 'Reach an overall PLUPR of 4.0 or higher' },
   },
 ];
 
@@ -103,7 +103,7 @@ export const PLAY_TAGS: TagDef[] = [
   { slug: 'iron-defender',      label: '💪 Iron Defender',       unlock: { badge: 'Iron Player',       description: 'Play 5 different days in a league' } },
   { slug: 'hat-trick-hero',     label: '🪄 Hat Trick Hero',      unlock: { badge: 'Hat Trick',         description: 'Win 3+ matches in one day' } },
   { slug: 'home-court-king',    label: '🏠 Home Court King',     unlock: { badge: 'Home Court Hero',   description: 'Win 5 home-court matches' } },
-  { slug: 'the-champion',       label: '🏆 The Champion',        unlock: { badge: 'Top Rated',         description: 'Reach ELO of 1150+' } },
+  { slug: 'the-champion',       label: '🏆 The Champion',        unlock: { badge: 'Top Rated',         description: 'Reach PLUPR of 4.0+' } },
   { slug: 'globe-trotter',      label: '🌍 Globe Trotter',       unlock: { badge: 'Court Hopper',      description: 'Play at 5+ different courts' } },
   { slug: 'double-trouble',     label: '🤝 Double Trouble',      unlock: { badge: 'Doubles Dynamo',    description: 'Play 20 doubles matches' } },
   { slug: 'single-minded',      label: '🎯 Single-Minded',       unlock: { badge: 'Singles Specialist', description: 'Play 25 singles matches' } },
@@ -115,7 +115,7 @@ export const BASE_TAG_SLOTS = 3;
 
 export const TAG_SLOT_UNLOCKS: TagSlotUnlock[] = [
   { slots: 4, badge: 'Veteran',   description: 'Be a Pickleague member for 30+ days' },
-  { slots: 5, badge: 'Top Rated', description: 'Reach an ELO of 1150 or higher' },
+  { slots: 5, badge: 'Top Rated', description: 'Reach a PLUPR of 4.0 or higher' },
 ];
 
 export function computeMaxTagSlots(earnedBadgeNames: string[]): number {

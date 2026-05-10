@@ -1,6 +1,6 @@
 /**
  * Tournament bracket and scheduling utilities.
- * All functions are pure — they take player IDs (and optional ELO ratings)
+ * All functions are pure — they take player IDs (and optional PLUPR ratings)
  * and return structured match/pool data ready to insert into the DB.
  */
 
@@ -30,14 +30,14 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// ── Seeded order (best ELO first) ────────────────────────────
+// ── Seeded order (best PLUPR first) ──────────────────────────
 export function seedPlayers(
   playerIds: string[],
   ratings: Record<string, number>,
   mode: 'random' | 'elo'
 ): string[] {
   if (mode === 'random') return shuffle(playerIds);
-  return [...playerIds].sort((a, b) => (ratings[b] ?? 1000) - (ratings[a] ?? 1000));
+  return [...playerIds].sort((a, b) => (ratings[b] ?? 3.25) - (ratings[a] ?? 3.25));
 }
 
 // ── Round Robin (singles) ─────────────────────────────────────
@@ -64,7 +64,7 @@ export function generateRoundRobin(playerIds: string[]): MatchPairing[] {
 }
 
 // ── Pool assignment ───────────────────────────────────────────
-// Snake-draft for ELO seeding: 1→A, 2→B, 3→C, 4→C, 5→B, 6→A, …
+// Snake-draft for PLUPR seeding: 1→A, 2→B, 3→C, 4→C, 5→B, 6→A, …
 export function assignPools(
   seededPlayers: string[],
   poolCount: number

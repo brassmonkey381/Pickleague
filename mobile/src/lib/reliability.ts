@@ -1,5 +1,5 @@
 /**
- * Reliability score — how trustworthy an ELO rating is.
+ * Reliability score — how trustworthy a PLUPR rating is.
  *
  * Formula:
  *   base  = min(totalMatches, 30) / 30          (30 matches → fully established)

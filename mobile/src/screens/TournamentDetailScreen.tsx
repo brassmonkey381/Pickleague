@@ -104,7 +104,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const names: Record<string, string> = {};
     const ratings: Record<string, number> = {};
     regs.forEach(r => {
-      if (r.profile) { names[r.user_id] = r.profile.full_name; ratings[r.user_id] = (r.profile as any).rating ?? 1000; }
+      if (r.profile) { names[r.user_id] = r.profile.full_name; ratings[r.user_id] = (r.profile as any).rating ?? 3.25; }
     });
     setProfileNames(names);
     setProfileRatings(ratings);
@@ -418,7 +418,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           {/* Settings chips */}
           <View style={S.chipsRow}>
             <Text style={S.chip}>{tournament.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
-            <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 ELO seeded' : '🎲 Random'}</Text>
+            <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 PLUPR seeded' : '🎲 Random'}</Text>
             {tournament.format === 'pool_play' && <Text style={S.chip}>{tournament.pool_count} pools</Text>}
             {tournament.partner_rotation && <Text style={S.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
             <Text style={S.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
@@ -605,7 +605,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               <View key={r.id} style={S.playerRow}>
                 <Text style={S.playerSeed}>#{i + 1}</Text>
                 <Text style={S.playerName}>{r.profile?.full_name ?? '—'}</Text>
-                <Text style={S.playerRating}>{(r.profile as any)?.rating ?? 1000}</Text>
+                <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)}</Text>
                 {role !== 'member' && (
                   <View style={[S.rolePill, { backgroundColor: bc + '22', borderColor: bc }]}>
                     <Text style={[S.rolePillText, { color: bc }]}>{tournamentRoleLabel(role)}</Text>
@@ -624,7 +624,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {pending.map(r => (
               <View key={r.id} style={S.pendingRow}>
                 <Text style={S.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
-                <Text style={S.playerRating}>{(r.profile as any)?.rating ?? 1000} ELO</Text>
+                <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
                 <View style={S.pendingActions}>
                   <TouchableOpacity style={S.approveBtn} onPress={() => approveReg(r.id)}>
                     <Text style={S.approveBtnText}>✓</Text>
@@ -676,7 +676,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         {/* ── Pools ── */}
         {pools && (
           <View style={S.section}>
-            <Text style={S.sectionTitle}>Pool Assignments ({tournament.seeding === 'elo' ? 'ELO snake-draft' : 'random'})</Text>
+            <Text style={S.sectionTitle}>Pool Assignments ({tournament.seeding === 'elo' ? 'PLUPR snake-draft' : 'random'})</Text>
             {pools.map((pool, pi) => (
               <View key={pi} style={S.poolCard}>
                 <Text style={S.poolLabel}>Pool {String.fromCharCode(65 + pi)}</Text>
@@ -1041,7 +1041,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     <Text style={S.partnerOptionInitial}>{(item.profile?.full_name ?? '?')[0].toUpperCase()}</Text>
                   </View>
                   <Text style={S.partnerOptionName}>{item.profile?.full_name}</Text>
-                  <Text style={S.partnerOptionRating}>{(item.profile as any)?.rating ?? 1000} ELO</Text>
+                  <Text style={S.partnerOptionRating}>{((item.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
                 </TouchableOpacity>
               )}
               ListEmptyComponent={<Text style={S.modalEmpty}>All players are already partnered.</Text>}

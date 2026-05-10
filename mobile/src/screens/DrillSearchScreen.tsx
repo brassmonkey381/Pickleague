@@ -63,7 +63,7 @@ export default function DrillSearchScreen({}: Props) {
     const myAvail   = pruneStale(myProfileRes.data?.drill_availability ?? {});
     const myShots   = (myProfileRes.data?.drill_shot_prefs ?? []) as string[];
     const myPartner = (myProfileRes.data?.drill_partner_prefs ?? []) as string[];
-    const myRating  = myProfileRes.data?.rating ?? 1000;
+    const myRating  = myProfileRes.data?.rating ?? 3.25;
     setMe({ id: user.id, rating: myRating, avail: myAvail, shots: myShots, partner: myPartner });
 
     const { data: others } = await supabase
@@ -83,7 +83,7 @@ export default function DrillSearchScreen({}: Props) {
         id: p.id,
         full_name: p.full_name ?? 'Unknown',
         username: p.username ?? '',
-        rating: p.rating ?? 1000,
+        rating: p.rating ?? 3.25,
         avatar_id: p.avatar_id ?? 1,
         avatar_url: p.avatar_url,
         drill_availability: theirAvail,
@@ -115,7 +115,7 @@ export default function DrillSearchScreen({}: Props) {
     } else if (sort === 'shots') {
       sorted.sort((a, b) => b.sharedShots - a.sharedShots || b.overlap.length - a.overlap.length);
     } else {
-      sorted.sort((a, b) => Math.abs(a.rating - (me?.rating ?? 1000)) - Math.abs(b.rating - (me?.rating ?? 1000)));
+      sorted.sort((a, b) => Math.abs(a.rating - (me?.rating ?? 3.25)) - Math.abs(b.rating - (me?.rating ?? 3.25)));
     }
     return sorted;
   }, [candidates, search, sort, me]);
@@ -172,9 +172,9 @@ export default function DrillSearchScreen({}: Props) {
         renderItem={({ item }) => {
           const avatar = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
           const overlapHrs = (item.overlap.length * 0.5).toFixed(1).replace(/\.0$/, '');
-          const eloDiff    = item.rating - (me?.rating ?? 1000);
-          const eloDiffLabel = eloDiff === 0 ? 'same ELO' :
-                               `${eloDiff > 0 ? '+' : ''}${eloDiff} vs you`;
+          const eloDiff    = item.rating - (me?.rating ?? 3.25);
+          const eloDiffLabel = Math.abs(eloDiff) < 0.005 ? 'same PLUPR' :
+                               `${eloDiff > 0 ? '+' : ''}${eloDiff.toFixed(2)} vs you`;
 
           return (
             <View style={S.card}>
@@ -184,7 +184,7 @@ export default function DrillSearchScreen({}: Props) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
-                  <Text style={S.username}>@{item.username} · {item.rating} ELO ({eloDiffLabel})</Text>
+                  <Text style={S.username}>@{item.username} · {item.rating.toFixed(2)} PLUPR ({eloDiffLabel})</Text>
                 </View>
               </View>
 

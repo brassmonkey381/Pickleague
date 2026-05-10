@@ -109,7 +109,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
             </View>
             <View style={S.info}>
               <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
-              <Text style={S.rating}>{(item.profile as any)?.rating ?? 1000} ELO</Text>
+              <Text style={S.rating}>{((item.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
             </View>
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{tournamentRoleLabel(role)}</Text>

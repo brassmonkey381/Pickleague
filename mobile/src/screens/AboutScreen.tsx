@@ -45,7 +45,7 @@ export default function AboutScreen({}: Props) {
         {[
           { icon: '😄', title: 'Fun first',       desc: 'Great sport, great people, no drama.' },
           { icon: '📅', title: 'Frequent play',   desc: 'Tools that make it easy to schedule and actually show up.' },
-          { icon: '⚖️', title: 'Fair matchups',   desc: 'ELO ratings that put you against the right opponents.' },
+          { icon: '⚖️', title: 'Fair matchups',   desc: 'PLUPR ratings that put you against the right opponents.' },
           { icon: '🤝', title: 'Community',       desc: 'Built for the groups and friendships that make pickleball great.' },
           { icon: '📈', title: 'Real improvement', desc: 'Track your game over time and see yourself get better.' },
         ].map(({ icon, title, desc }) => (

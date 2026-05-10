@@ -115,7 +115,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       return {
         user_id: uid,
         full_name: m.profile?.full_name ?? 'Unknown',
-        rating: m.profile?.rating ?? 1000,
+        rating: m.profile?.rating ?? 3.25,
         avatar_id: m.profile?.avatar_id ?? 1,
         avatar_url: m.profile?.avatar_url ?? null,
         wins, losses,
@@ -184,8 +184,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
   async function completeSeason() {
     Alert.alert(
-      'Complete Season & Reset ELO',
-      'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global ELO to 1000 + rank bonus\n• Mark the season as completed\n\n⚠️ This cannot be undone.',
+      'Complete Season & Reset PLUPR',
+      'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global PLUPR to 3.25 + rank bonus\n• Mark the season as completed\n\n⚠️ This cannot be undone.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -195,7 +195,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             const { error } = await supabase.rpc('complete_season', { p_season_id: seasonId });
             setCompleting(false);
             if (error) Alert.alert('Error', error.message);
-            else { Alert.alert('Season complete!', 'Final standings locked and ELO reset applied.'); load(); }
+            else { Alert.alert('Season complete!', 'Final standings locked and PLUPR reset applied.'); load(); }
           },
         },
       ]
@@ -369,7 +369,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             <Text style={[S.th, S.thName]}>Player</Text>
             <Text style={S.th}>W</Text>
             <Text style={S.th}>L</Text>
-            <Text style={S.th}>ELO</Text>
+            <Text style={S.th}>PLUPR</Text>
           </View>
           {live.length === 0 && (
             <Text style={S.empty}>No matches recorded yet this season.</Text>
@@ -398,7 +398,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         <View style={S.infoCard}>
           <Text style={S.infoTitle}>📌 How periods lock in</Text>
           <Text style={S.infoBody}>
-            Every {season.lock_frequency_weeks} week{season.lock_frequency_weeks > 1 ? 's' : ''} an admin snapshots the live standings as a locked period. Your rank in each period is what counts toward final standings — your day-to-day ELO can't undo a great period finish.
+            Every {season.lock_frequency_weeks} week{season.lock_frequency_weeks > 1 ? 's' : ''} an admin snapshots the live standings as a locked period. Your rank in each period is what counts toward final standings — your day-to-day PLUPR can't undo a great period finish.
           </Text>
         </View>
 
@@ -410,28 +410,28 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           </Text>
         </View>
 
-        {/* ELO reset legend */}
+        {/* PLUPR reset legend */}
         <View style={S.infoCard}>
-          <Text style={S.infoTitle}>♻️ End-of-period ELO reset</Text>
+          <Text style={S.infoTitle}>♻️ End-of-period PLUPR reset</Text>
           <Text style={S.infoBody}>
-            Every time a period locks in, everyone's overall, singles, gendered-doubles, and mixed-doubles ELO soft-resets — but the top 5 of that period keep a head start going into the next one:
+            Every time a period locks in, everyone's overall, singles, gendered-doubles, and mixed-doubles PLUPR soft-resets — but the top 5 of that period keep a head start going into the next one:
           </Text>
           <View style={S.bonusList}>
             {[
-              { rank: '🥇 1st', bonus: 80 },
-              { rank: '🥈 2nd', bonus: 55 },
-              { rank: '🥉 3rd', bonus: 35 },
-              { rank: '4th',   bonus: 20 },
-              { rank: '5th',   bonus: 10 },
+              { rank: '🥇 1st', bonus: 0.400 },
+              { rank: '🥈 2nd', bonus: 0.275 },
+              { rank: '🥉 3rd', bonus: 0.175 },
+              { rank: '4th',   bonus: 0.100 },
+              { rank: '5th',   bonus: 0.050 },
             ].map(b => (
               <Text key={b.rank} style={S.bonusLine}>
-                {b.rank}  →  1000 + {b.bonus} = <Text style={S.infoBold}>{1000 + b.bonus} ELO</Text>
+                {b.rank}  →  3.250 + {b.bonus.toFixed(3)} = <Text style={S.infoBold}>{(3.25 + b.bonus).toFixed(3)} PLUPR</Text>
               </Text>
             ))}
-            <Text style={S.bonusNote}>Everyone else snaps back to <Text style={S.infoBold}>1000</Text>. Finishing each period strong is its own incentive — your boost stacks on a clean slate.</Text>
+            <Text style={S.bonusNote}>Everyone else snaps back to <Text style={S.infoBold}>3.250</Text>. Finishing each period strong is its own incentive — your boost stacks on a clean slate.</Text>
           </View>
           <Text style={[S.infoBody, { marginTop: 10 }]}>
-            At season end, your <Text style={S.infoBold}>median rank across all periods</Text> determines one final reset (same bonus ladder) — that's the ELO you carry into next season.
+            At season end, your <Text style={S.infoBold}>median rank across all periods</Text> determines one final reset (same bonus ladder) — that's the PLUPR you carry into next season.
           </Text>
         </View>
 
@@ -473,7 +473,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               <Text style={[S.th, S.thName]}>Player</Text>
               <Text style={S.th}>W</Text>
               <Text style={S.th}>L</Text>
-              <Text style={S.th}>ELO</Text>
+              <Text style={S.th}>PLUPR</Text>
             </View>
             {period.rows.map((row, i) => (
               <TouchableOpacity
@@ -490,7 +490,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                 </View>
                 <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
                 <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
-                <Text style={S.td}>{row.elo_at_snapshot}</Text>
+                <Text style={S.td}>{Number(row.elo_at_snapshot ?? 3.25).toFixed(2)}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -513,7 +513,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                 <Text style={[S.th, S.thName]}>Player</Text>
                 <Text style={S.th}>Median</Text>
                 <Text style={S.th}>Bonus</Text>
-                <Text style={S.th}>New ELO</Text>
+                <Text style={S.th}>New PLUPR</Text>
               </View>
               {finals.map((row, i) => (
                 <TouchableOpacity
@@ -530,27 +530,27 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </View>
                   <Text style={S.td}>{row.median_rank.toFixed(1)}</Text>
                   <Text style={[S.td, row.elo_bonus > 0 && S.tdBonus]}>
-                    {row.elo_bonus > 0 ? `+${row.elo_bonus}` : '—'}
+                    {row.elo_bonus > 0 ? `+${Number(row.elo_bonus).toFixed(3)}` : '—'}
                   </Text>
-                  <Text style={[S.td, S.tdNewElo]}>{row.new_elo}</Text>
+                  <Text style={[S.td, S.tdNewElo]}>{Number(row.new_elo ?? 3.25).toFixed(3)}</Text>
                 </TouchableOpacity>
               ))}
 
-              {/* ELO reset legend */}
+              {/* PLUPR reset legend */}
               <View style={S.bonusLegend}>
                 <Text style={S.bonusLegendTitle}>Rank Bonuses Applied</Text>
                 {[
-                  { rank: '🥇 #1', bonus: 80 },
-                  { rank: '🥈 #2', bonus: 55 },
-                  { rank: '🥉 #3', bonus: 35 },
-                  { rank: '4th',   bonus: 20 },
-                  { rank: '5th',   bonus: 10 },
+                  { rank: '🥇 #1', bonus: 0.400 },
+                  { rank: '🥈 #2', bonus: 0.275 },
+                  { rank: '🥉 #3', bonus: 0.175 },
+                  { rank: '4th',   bonus: 0.100 },
+                  { rank: '5th',   bonus: 0.050 },
                 ].map(b => (
                   <Text key={b.rank} style={S.bonusLine}>
-                    {b.rank} → 1000 + {b.bonus} = {1000 + b.bonus} ELO
+                    {b.rank} → 3.250 + {b.bonus.toFixed(3)} = {(3.25 + b.bonus).toFixed(3)} PLUPR
                   </Text>
                 ))}
-                <Text style={S.bonusNote}>All others reset to 1000 ELO</Text>
+                <Text style={S.bonusNote}>All others reset to 3.250 PLUPR</Text>
               </View>
             </>
           )}

@@ -292,7 +292,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             <Text style={S.score}>{myScore} – {oppScore}</Text>
             {delta != null && (
               <Text style={[S.elo, delta >= 0 ? S.eloUp : S.eloDown]}>
-                {delta >= 0 ? '+' : ''}{delta} ELO
+                {delta >= 0 ? '+' : ''}{delta.toFixed(3)} PLUPR
               </Text>
             )}
             {homeAwayBadge}

@@ -48,18 +48,18 @@ function UnlockProgressRow({
   );
 }
 
-// ── ELO history chart ─────────────────────────────────────────────────
-// Reconstructs each ELO facet's trajectory by walking the user's match
+// ── PLUPR history chart ───────────────────────────────────────────────
+// Reconstructs each PLUPR facet's trajectory by walking the user's match
 // history chronologically and applying each match's delta (overall
 // rating_after - rating_before) to the relevant facet:
 //   singles match            → singles
 //   doubles_category=gendered → doubles_gendered
 //   doubles_category=mixed    → doubles_mixed
 //   doubles_category=unspecified → no split impact
-// Overall accumulates every match's delta. Period/season ELO resets are
+// Overall accumulates every match's delta. Period/season PLUPR resets are
 // ignored — this shows a player's match-only skill trajectory, which
-// reads more cleanly than the absolute ELO column (which periodically
-// snaps back to 1000+bonus).
+// reads more cleanly than the absolute PLUPR column (which periodically
+// snaps back to 3.250+bonus).
 type EloMatchRow = {
   played_at: string;
   match_type: 'singles' | 'doubles';
@@ -78,7 +78,7 @@ type Series = {
 
 function computeEloSeries(matches: EloMatchRow[], userId: string): Series {
   const points: Series['points'] = [];
-  let overall = 1000, singles = 1000, gendered = 1000, mixed = 1000;
+  let overall = 3.25, singles = 3.25, gendered = 3.25, mixed = 3.25;
 
   // Seed at "before first match" if there's at least one match
   if (matches.length > 0) {
@@ -131,7 +131,7 @@ function EloHistoryChart({
   if (n < 2) {
     return (
       <Text style={{ fontSize: 12, color: c.textMuted, textAlign: 'center', paddingVertical: 16 }}>
-        Play a few matches to see your ELO trajectory.
+        Play a few matches to see your PLUPR trajectory.
       </Text>
     );
   }
@@ -146,10 +146,10 @@ function EloHistoryChart({
   let yMin = Math.min(...allValues);
   let yMax = Math.max(...allValues);
   // Pad y-range so lines aren't flush against the top/bottom
-  const yPad = Math.max(20, (yMax - yMin) * 0.1);
-  yMin = Math.floor((yMin - yPad) / 10) * 10;
-  yMax = Math.ceil((yMax + yPad) / 10) * 10;
-  const yRange = Math.max(yMax - yMin, 10);
+  const yPad = Math.max(0.1, (yMax - yMin) * 0.1);
+  yMin = Math.floor((yMin - yPad) * 10) / 10;
+  yMax = Math.ceil((yMax + yPad) * 10) / 10;
+  const yRange = Math.max(yMax - yMin, 0.1);
 
   const xMin = series.points[0].t;
   const xMax = series.points[n - 1].t;
@@ -163,8 +163,8 @@ function EloHistoryChart({
       .map(p => `${xScale(p.t).toFixed(1)},${yScale(p[key]).toFixed(1)}`)
       .join(' ');
 
-  // Y-axis tick values (3 ticks: min, mid, max — rounded to nearest 10)
-  const yTicks = [yMin, Math.round((yMin + yMax) / 2 / 10) * 10, yMax];
+  // Y-axis tick values (3 ticks: min, mid, max — rounded to nearest 0.1)
+  const yTicks = [yMin, Math.round((yMin + yMax) / 2 * 10) / 10, yMax];
 
   // X-axis ticks: first, middle, last date
   const xTickTimes = n >= 3
@@ -203,7 +203,7 @@ function EloHistoryChart({
               x={PAD.left - 4} y={yScale(v) + 3}
               fontSize="9" fill={c.textMuted} textAnchor="end"
             >
-              {v}
+              {v.toFixed(2)}
             </SvgText>
           </React.Fragment>
         ))}
@@ -315,7 +315,7 @@ export default function ProfileScreen({ navigation }: Props) {
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLoading(false);
 
-    // Load chemistry + badge progress + ELO history + shop purchases (non-blocking)
+    // Load chemistry + badge progress + PLUPR history + shop purchases (non-blocking)
     loadChemistry(user.id);
     loadBadgeProgress(user.id, profileRes.data);
     loadEloHistory(user.id);
@@ -389,7 +389,7 @@ export default function ProfileScreen({ navigation }: Props) {
       (Date.now() - new Date(prof.created_at).getTime()) / 86_400_000,
     );
 
-    const elo = prof.rating ?? 1000;
+    const elo = prof.rating ?? 3.25;
 
     const entry = (
       current: number,
@@ -409,7 +409,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
     setBadgeProgress({
       'Hot Streak':        entry(streak,       5,    (c, t) => `${c} / ${t} wins in a row`),
-      'Top Rated':         entry(elo,          1150, (c, t) => `${c} / ${t} ELO`),
+      'Top Rated':         entry(elo,          4.0,  (c, t) => `${c.toFixed(2)} / ${t.toFixed(2)} PLUPR`),
       'Veteran':           entry(memberDays,   30,   (c, t) => `${c} / ${t} days as member`),
       'Court Hopper':      entry(courts,       5,    (c, t) => `${c} / ${t} courts played`),
       'Doubles Dynamo':    entry(doublesPlayed, 20,  (c, t) => `${c} / ${t} doubles matches`),
@@ -585,9 +585,9 @@ export default function ProfileScreen({ navigation }: Props) {
     ? { emoji: equippedPremium.emoji, bgColor: equippedPremium.bgColor }
     : { emoji: cartoonAvatar.emoji, bgColor: cartoonAvatar.bgColor };
 
-  const singlesRating      = profile?.singles_rating       ?? profile?.rating ?? 1000;
-  const doublesRating      = profile?.doubles_rating       ?? profile?.rating ?? 1000;
-  const mixedDoublesRating = profile?.mixed_doubles_rating ?? profile?.rating ?? 1000;
+  const singlesRating      = profile?.singles_rating       ?? profile?.rating ?? 3.25;
+  const doublesRating      = profile?.doubles_rating       ?? profile?.rating ?? 3.25;
+  const mixedDoublesRating = profile?.mixed_doubles_rating ?? profile?.rating ?? 3.25;
 
   // Unlocks progress helpers
   const lockedAvatars   = AVATARS.filter(a => !!a.unlock);
@@ -638,7 +638,7 @@ export default function ProfileScreen({ navigation }: Props) {
         )}
       </View>
 
-      {/* ── ELO ratings ─────────────────────────────────────────── */}
+      {/* ── PLUPR ratings ───────────────────────────────────────── */}
       {(() => {
         const rel = computeReliability(
           profile?.total_matches_played ?? 0,
@@ -647,7 +647,7 @@ export default function ProfileScreen({ navigation }: Props) {
         return (
           <View style={styles.eloCard}>
             <View style={styles.eloCardHeader}>
-              <Text style={styles.cardTitle}>ELO Ratings</Text>
+              <Text style={styles.cardTitle}>PLUPR Ratings</Text>
               <View style={styles.reliabilityPill}>
                 <View style={styles.reliabilityDots}>
                   {Array.from({ length: 5 }, (_, i) => (
@@ -660,27 +660,27 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.reliabilityDetail}>{rel.detail}</Text>
             <View style={styles.eloRow}>
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{profile?.rating ?? 1000}</Text>
+                <Text style={styles.eloValue}>{(profile?.rating ?? 3.25).toFixed(2)}</Text>
                 <Text style={styles.eloLabel}>Overall</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{singlesRating}</Text>
+                <Text style={styles.eloValue}>{singlesRating.toFixed(2)}</Text>
                 <Text style={styles.eloLabel}>1v1</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{doublesRating}</Text>
+                <Text style={styles.eloValue}>{doublesRating.toFixed(2)}</Text>
                 <Text style={styles.eloLabel}>2v2 Gendered</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{mixedDoublesRating}</Text>
+                <Text style={styles.eloValue}>{mixedDoublesRating.toFixed(2)}</Text>
                 <Text style={styles.eloLabel}>2v2 Mixed</Text>
               </View>
             </View>
 
-            {/* ELO trajectory chart */}
+            {/* PLUPR trajectory chart */}
             {userId && (
               <View style={styles.eloChartContainer}>
                 <Text style={styles.eloChartTitle}>Trajectory</Text>
@@ -913,7 +913,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.fieldLabel}>Gender</Text>
         <Text style={styles.fieldHint}>
           Used to classify doubles matches as 2v2 Gendered or 2v2 Mixed.
-          Until set, your doubles matches won't affect doubles ELO.
+          Until set, your doubles matches won't affect doubles PLUPR.
         </Text>
         <View style={styles.genderRow}>
           {([
@@ -1059,7 +1059,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.secondaryIcon}>📜</Text>
         <View>
           <Text style={styles.secondaryLabel}>Match History</Text>
-          <Text style={styles.secondarySub}>All your results with dates & ELO changes</Text>
+          <Text style={styles.secondarySub}>All your results with dates & PLUPR changes</Text>
         </View>
       </TouchableOpacity>
 
@@ -1067,7 +1067,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.secondaryIcon}>🗓️</Text>
         <View>
           <Text style={styles.secondaryLabel}>Calendar Analytics</Text>
-          <Text style={styles.secondarySub}>W-L and ELO changes by day</Text>
+          <Text style={styles.secondarySub}>W-L and PLUPR changes by day</Text>
         </View>
       </TouchableOpacity>
 
@@ -1137,7 +1137,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   // Shared card title
   cardTitle:  { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
 
-  // ELO + reliability
+  // PLUPR + reliability
   eloCard:            { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   eloCardHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
   reliabilityPill:    { flexDirection: 'row', alignItems: 'center', gap: 5 },

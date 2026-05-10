@@ -345,6 +345,12 @@ export default function SettingsScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('About')}
         />
         <Divider />
+        <ActionRow
+          label="Scoring Algo"
+          desc="How PLUPR is calculated"
+          onPress={() => navigation.navigate('ScoringAlgo')}
+        />
+        <Divider />
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Version</Text>
           <Text style={styles.rowDetail}>1.0.0</Text>

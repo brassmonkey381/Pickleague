@@ -297,4 +297,5 @@ export type RootStackParamList = {
   DrillSearch: undefined;
   DrillRequests: undefined;
   Shop: undefined;
+  ScoringAlgo: undefined;
 };

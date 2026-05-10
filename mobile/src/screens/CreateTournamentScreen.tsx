@@ -199,11 +199,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <SectionHeader title="Player Seeding" S={S} />
         <View style={S.pillRow}>
           <Pill label="🎲 Random draw"  active={seeding === 'random'} onPress={() => setSeeding('random')} S={S} />
-          <Pill label="📊 ELO-based"   active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
+          <Pill label="📊 PLUPR-based" active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
         </View>
         <Text style={S.hint}>
           {seeding === 'elo'
-            ? 'Players are sorted by ELO. Pools and brackets use snake-draft to balance skill levels.'
+            ? 'Players are sorted by PLUPR. Pools and brackets use snake-draft to balance skill levels.'
             : 'Players are assigned randomly to pools and brackets.'}
         </Text>
 
@@ -216,7 +216,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                 <Pill key={n} label={`${n} pools`} active={poolCount === n} onPress={() => setPoolCount(n)} S={S} />
               ))}
             </View>
-            <Text style={S.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by ELO when seeding is on.</Text>
+            <Text style={S.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on.</Text>
           </>
         )}
 

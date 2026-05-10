@@ -18,12 +18,12 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     headline: 'Every player faces every other player exactly once.',
     flow: [
       'A circle-method schedule pairs every player with every other player.',
-      'Standings are tracked by win-loss record, with ELO as the tiebreaker.',
+      'Standings are tracked by win-loss record, with PLUPR as the tiebreaker.',
       'No elimination — everyone plays every round.',
     ],
     advancement: [
       'There\'s no bracket. The standings table is the result.',
-      'Top spot = highest wins; ties broken by ELO rating.',
+      'Top spot = highest wins; ties broken by PLUPR rating.',
     ],
   },
   single_elimination: {
@@ -54,7 +54,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
   pool_play: {
     headline: 'Round-robin pools, then a knockout bracket from the top finishers.',
     flow: [
-      'Players are split into balanced pools (snake-draft for ELO seeding, otherwise random).',
+      'Players are split into balanced pools (snake-draft for PLUPR seeding, otherwise random).',
       'Inside each pool, every team plays every other team once.',
       'Top 2 from each pool advance to the semi-finals; semi winners play in the grand final.',
     ],
@@ -69,7 +69,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     flow: [
       'Each pair of approved players is locked in as a fixed team.',
       'Teams play every other team once in a circle-method round robin.',
-      'Standings are by wins, with ELO of the team average as tiebreaker.',
+      'Standings are by wins, with PLUPR of the team average as tiebreaker.',
     ],
     advancement: [
       'No bracket — the round-robin standings are the final order.',
@@ -84,7 +84,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     ],
     advancement: [
       'No bracket — every match is independent.',
-      'Standings are tracked per individual: wins desc, ELO as tiebreak.',
+      'Standings are tracked per individual: wins desc, PLUPR as tiebreak.',
     ],
   },
 };
@@ -135,7 +135,7 @@ export default function TournamentInfoScreen({ route }: Props) {
       {/* ── At a glance ────────────────────────────────────── */}
       <Section S={S} title="At a glance">
         <Row S={S} label="Match type"        value={t.match_type === 'doubles' ? '2v2 Doubles' : '1v1 Singles'} />
-        <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? '📊 ELO-seeded' : '🎲 Random draw'} />
+        <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? '📊 PLUPR-seeded' : '🎲 Random draw'} />
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}
         <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'} />
@@ -162,15 +162,15 @@ export default function TournamentInfoScreen({ route }: Props) {
       <Section S={S} title="Seeding rules">
         <Para S={S}>
           {t.seeding === 'elo'
-            ? 'Players are sorted by current ELO rating before pairing. The strongest seed plays the weakest in round 1, second-strongest plays second-weakest, and so on. Pool play uses a snake-draft (1→A, 2→B, 3→B, 4→A …) so every pool gets a balanced spread of strength.'
-            : 'Players are shuffled into a random order before pairing — no ELO bias.'}
+            ? 'Players are sorted by current PLUPR rating before pairing. The strongest seed plays the weakest in round 1, second-strongest plays second-weakest, and so on. Pool play uses a snake-draft (1→A, 2→B, 3→B, 4→A …) so every pool gets a balanced spread of strength.'
+            : 'Players are shuffled into a random order before pairing — no PLUPR bias.'}
         </Para>
       </Section>
 
-      {/* ── ELO impact ────────────────────────────────────── */}
-      <Section S={S} title="ELO impact">
+      {/* ── PLUPR impact ────────────────────────────────────── */}
+      <Section S={S} title="PLUPR impact">
         <Para S={S}>
-          Tournament matches are tracked in their own table and do <Text style={S.bold}>not</Text> affect league ELO ratings.
+          Tournament matches are tracked in their own table and do <Text style={S.bold}>not</Text> affect league PLUPR ratings.
           Bracket results, scores, and the round-by-round flow are visible in the tournament's bracket view and match history.
         </Para>
       </Section>

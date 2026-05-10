@@ -192,9 +192,9 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
                   S.summaryNum,
                   selectedDayRecord.ratingDelta >= 0 ? S.eloUp : S.eloDown,
                 ]}>
-                  {selectedDayRecord.ratingDelta >= 0 ? '+' : ''}{selectedDayRecord.ratingDelta}
+                  {selectedDayRecord.ratingDelta >= 0 ? '+' : ''}{selectedDayRecord.ratingDelta.toFixed(3)}
                 </Text>
-                <Text style={S.summaryLabel}>ELO</Text>
+                <Text style={S.summaryLabel}>PLUPR</Text>
               </View>
               <View style={S.summaryBadge}>
                 <Text style={S.summaryNum}>{selectedDayRecord.matches.length}</Text>

@@ -120,25 +120,25 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <Text style={styles.matchCount}>{matchCount} matches played</Text>
       </View>
 
-      {/* ELO strip + reliability */}
+      {/* PLUPR strip + reliability */}
       <View style={styles.eloCard}>
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{profile.rating}</Text>
+          <Text style={styles.eloValue}>{(profile.rating ?? 3.25).toFixed(2)}</Text>
           <Text style={styles.eloLabel}>Overall</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{profile.singles_rating ?? profile.rating}</Text>
+          <Text style={styles.eloValue}>{(profile.singles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
           <Text style={styles.eloLabel}>1v1</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{profile.doubles_rating ?? profile.rating}</Text>
+          <Text style={styles.eloValue}>{(profile.doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
           <Text style={styles.eloLabel}>2v2 Gendered</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{profile.mixed_doubles_rating ?? profile.rating}</Text>
+          <Text style={styles.eloValue}>{(profile.mixed_doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
           <Text style={styles.eloLabel}>2v2 Mixed</Text>
         </View>
       </View>

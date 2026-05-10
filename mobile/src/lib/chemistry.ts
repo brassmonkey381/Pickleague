@@ -4,7 +4,7 @@
  *
  * Matrix approach:
  *   For player A paired with player B we build two win-rate vectors
- *   indexed by opponent ELO bucket:
+ *   indexed by opponent PLUPR bucket:
  *
  *     together[bucket] = wins_together / matches_together
  *     without[bucket]  = wins_without  / matches_without   (A with any other partner)
@@ -18,7 +18,7 @@
  *   overall_delta = win_rate_together - baseline_win_rate
  */
 
-export const ELO_BUCKETS = ['< 900', '900–1100', '1100–1300', '1300+'] as const;
+export const ELO_BUCKETS = ['< 2.75', '2.75–3.25', '3.25–3.75', '3.75+'] as const;
 export type EloBucket = typeof ELO_BUCKETS[number];
 
 export type BucketStats = {
@@ -51,11 +51,11 @@ export type DoublesMatch = {
   player2_rating_before: number | null;
 };
 
-function eloBucket(elo: number): EloBucket {
-  if (elo < 900)  return '< 900';
-  if (elo < 1100) return '900–1100';
-  if (elo < 1300) return '1100–1300';
-  return '1300+';
+function eloBucket(plupr: number): EloBucket {
+  if (plupr < 2.75) return '< 2.75';
+  if (plupr < 3.25) return '2.75–3.25';
+  if (plupr < 3.75) return '3.25–3.75';
+  return '3.75+';
 }
 
 /** True if myId is on the winning team in match m */
@@ -65,12 +65,12 @@ function didWin(m: DoublesMatch, myId: string): boolean {
          (!onTeam1 && m.winner_team === 'team2');
 }
 
-/** Approximate opponent ELO — only team-captain rating is stored */
+/** Approximate opponent PLUPR — only team-captain rating is stored */
 function opponentElo(m: DoublesMatch, myId: string): number {
   const onTeam1 = m.player1_id === myId || m.partner1_id === myId;
   return onTeam1
-    ? (m.player2_rating_before ?? 1000)
-    : (m.player1_rating_before ?? 1000);
+    ? (m.player2_rating_before ?? 3.25)
+    : (m.player1_rating_before ?? 3.25);
 }
 
 /** True if myId and partnerId were on the same team */
@@ -173,7 +173,7 @@ export function computeChemistry(
       const b   = validBuckets[0];
       const bPct = Math.round(Math.abs(b.delta) * 100);
       const dir  = b.delta > 0 ? '+' : '-';
-      insights.push(`${dir}${bPct}% vs ${b.label} ELO opponents together`);
+      insights.push(`${dir}${bPct}% vs ${b.label} PLUPR opponents together`);
     }
   }
 

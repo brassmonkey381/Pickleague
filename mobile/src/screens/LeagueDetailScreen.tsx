@@ -243,7 +243,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     },
     {
       icon: '🗓️', label: 'Calendar Analytics',
-      sub: 'W-L records and ELO changes by day',
+      sub: 'W-L records and PLUPR changes by day',
       onPress: () => navigation.navigate('CalendarAnalytics', { leagueId, title: `${leagueName} Calendar` }),
     },
     {
@@ -352,7 +352,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           <Text style={S.noSeasonIcon}>🏆</Text>
           <View style={S.noSeasonText}>
             <Text style={S.noSeasonTitle}>No Active Season</Text>
-            <Text style={S.noSeasonSub}>Start a season to track standings over time with periodic rankings lock-in and end-of-season ELO resets.</Text>
+            <Text style={S.noSeasonSub}>Start a season to track standings over time with periodic rankings lock-in and end-of-period PLUPR resets.</Text>
           </View>
           <Text style={S.noSeasonCta}>Start →</Text>
         </TouchableOpacity>
@@ -573,7 +573,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
                 </Text>
               ))}
               <Text style={S.previewReset}>
-                ELO soft-reset after final period: top 5 players carry rank bonuses (+80/+55/+35/+20/+10), everyone else resets to 1000.
+                PLUPR soft-reset after each period: top 5 players carry rank bonuses (+0.40/+0.275/+0.175/+0.10/+0.05), everyone else resets to 3.250.
               </Text>
             </View>
           )}
