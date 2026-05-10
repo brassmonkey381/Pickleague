@@ -195,7 +195,7 @@ export type Tournament = {
   name: string;
   description: string | null;
   created_by: string;
-  format: 'round_robin' | 'single_elimination' | 'double_elimination' | 'pool_play' | 'mlp' | 'rotating_partners';
+  format: 'round_robin' | 'single_elimination' | 'double_elimination' | 'pool_play' | 'mlp' | 'mlp_random' | 'rotating_partners';
   match_type: 'singles' | 'doubles';
   seeding: 'random' | 'elo';
   pool_count: number;
@@ -211,6 +211,41 @@ export type Tournament = {
   pickle_ante: number;
   payout_structure: number[];
   created_at: string;
+};
+
+export type MlpTeamSlot = 'male_1' | 'male_2' | 'female_1' | 'female_2';
+
+export type MlpTeam = {
+  id: string;
+  tournament_id: string;
+  name: string;
+  captain_id: string | null;
+  male_1_id: string | null;
+  male_2_id: string | null;
+  female_1_id: string | null;
+  female_2_id: string | null;
+  status: 'forming' | 'locked';
+  seed: number | null;
+  is_random_generated: boolean;
+  created_at: string;
+  // Joined profile fields populated by the screen layer
+  captain?:  { id: string; full_name: string } | null;
+  male_1?:   { id: string; full_name: string } | null;
+  male_2?:   { id: string; full_name: string } | null;
+  female_1?: { id: string; full_name: string } | null;
+  female_2?: { id: string; full_name: string } | null;
+};
+
+export type MlpTeamJoinRequest = {
+  id: string;
+  team_id: string;
+  user_id: string;
+  direction: 'invite' | 'request';
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  message: string | null;
+  created_at: string;
+  responded_at: string | null;
+  user_profile?: { id: string; full_name: string } | null;
 };
 
 export type TournamentRegistration = {

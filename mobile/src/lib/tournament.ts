@@ -10,6 +10,7 @@ export type TournamentFormat =
   | 'double_elimination'
   | 'pool_play'
   | 'mlp'
+  | 'mlp_random'
   | 'rotating_partners';
 
 export type MatchPairing = {
@@ -168,6 +169,7 @@ export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string
   single_elimination:  { label: 'Single Elim',       icon: '🏆', description: 'One loss and you\'re out.' },
   double_elimination:  { label: 'Double Elim',       icon: '🔁', description: 'Two losses to be eliminated.' },
   pool_play:           { label: 'Pool Play',          icon: '🏊', description: 'Balanced pools, then bracket.' },
-  mlp:                 { label: 'MLP / Fixed Teams',  icon: '🤝', description: 'Pre-formed teams compete.' },
+  mlp:                 { label: 'MLP / Fixed Teams',  icon: '🤝', description: 'Teams of 4 (2M + 2W). Captains form rosters and lock in.' },
+  mlp_random:          { label: 'MLP / Random Teams', icon: '🎲', description: 'Teams of 4 auto-generated from approved players (random or snake-draft) with wacky names.' },
   rotating_partners:   { label: 'Rotating Partners',  icon: '🔀', description: 'Partners rotate each round.' },
 };

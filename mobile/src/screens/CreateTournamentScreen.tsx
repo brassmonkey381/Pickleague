@@ -20,7 +20,7 @@ type Props = {
 
 const FORMATS: TournamentFormat[] = [
   'round_robin', 'single_elimination', 'double_elimination',
-  'pool_play', 'mlp', 'rotating_partners',
+  'pool_play', 'mlp', 'mlp_random', 'rotating_partners',
 ];
 
 function Pill({ label, active, onPress, S }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles> }) {

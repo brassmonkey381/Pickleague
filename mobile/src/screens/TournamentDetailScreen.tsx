@@ -20,6 +20,7 @@ import { checkGodmode } from '../lib/godmode';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
 import PicklePotCard from '../components/PicklePotCard';
+import MlpTeamSection from '../components/MlpTeamSection';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -491,6 +492,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           }))}
           onChange={() => load()}
         />
+
+        {/* ── MLP teams (Fixed or Random) ── */}
+        {(tournament.format === 'mlp' || tournament.format === 'mlp_random') && (
+          <View style={S.mlpCard}>
+            <MlpTeamSection
+              tournamentId={tournamentId}
+              format={tournament.format}
+              tournamentStatus={tournament.status}
+              isPriv={isPriv}
+              currentUserId={myUserId}
+              approvedRegistrations={registrations.filter(r => r.status === 'approved')}
+              bracketAlreadyGenerated={savedMatches.length > 0}
+              onTeamsChanged={() => load()}
+            />
+          </View>
+        )}
 
         {/* ── Member: bracket release countdown ── */}
         {myReg?.status === 'approved' && !generatedMatches && (
@@ -1192,6 +1209,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     desc: { fontSize: 13, color: c.textMuted, marginTop: 6 },
 
     infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#ffe082' },
+    mlpCard: { margin: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
     infoIcon: { fontSize: 22 },
     infoText: { flex: 1, fontSize: 14, color: '#b8860b', fontWeight: '500' },
 
