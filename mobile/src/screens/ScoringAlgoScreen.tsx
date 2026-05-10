@@ -25,14 +25,10 @@ export default function ScoringAlgoScreen() {
           with three decimal places. New players start at <B S={S}>3.250</B>.
           Higher = stronger.
         </P>
-        <P S={S}>
-          The scale is intentionally close to <B S={S}>DUPR</B>, so a player's
-          PLUPR roughly maps to DUPR for visual reference (we don't share
-          data with DUPR).
-        </P>
-        <Bullet S={S}>1000 ELO ≈ 3.250 PLUPR</Bullet>
-        <Bullet S={S}>100 ELO points ≈ 0.5 PLUPR points</Bullet>
-        <Bullet S={S}>1 PLUPR point ≈ 200 ELO points</Bullet>
+        <Bullet S={S}>Beginner range: ~2.500–3.250</Bullet>
+        <Bullet S={S}>Intermediate: ~3.250–4.000</Bullet>
+        <Bullet S={S}>Advanced: ~4.000–5.000</Bullet>
+        <Bullet S={S}>Expert / pro: 5.000+</Bullet>
       </Section>
 
       {/* Per-match formula */}
@@ -46,10 +42,10 @@ export default function ScoringAlgoScreen() {
         <Sub S={S}>1 · Expected score</Sub>
         <Mono S={S}>{`expected = 1 / (1 + 10^((opp − you) / 2.0))`}</Mono>
         <P S={S}>
-          Standard ELO-style logistic. Beating a higher-rated opponent yields
+          A standard logistic curve. Beating a higher-rated opponent yields
           a bigger delta than beating an equal one; losing to a much higher
-          opponent costs less. The divisor <B S={S}>2.0</B> is the PLUPR-scale
-          equivalent of ELO's classic <B S={S}>400</B>.
+          opponent costs less. The divisor <B S={S}>2.0</B> sets the rating
+          gap at which a 10× expected-score swing happens.
         </P>
 
         <Sub S={S}>2 · K factor (decays with experience)</Sub>
@@ -131,10 +127,10 @@ delta  = K × margin × (actual − expected)`}</Mono>
       {/* History */}
       <Section S={S} title="What changed in v1?">
         <P S={S}>
-          PLUPR v1 replaces the previous K=32 ELO system. We wiped all
-          rating history and replayed every recorded match in chronological
-          order, so every player's PLUPR reflects their match history under
-          the new algorithm.
+          PLUPR v1 replaces an earlier integer-scale rating system. We
+          wiped all rating history and replayed every recorded match in
+          chronological order, so every player's PLUPR reflects their
+          match history under the current algorithm.
         </P>
         <P S={S}>
           Match snapshots (<B S={S}>before</B> / <B S={S}>after</B> ratings)
