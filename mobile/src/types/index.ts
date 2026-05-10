@@ -298,4 +298,5 @@ export type RootStackParamList = {
   DrillRequests: undefined;
   Shop: undefined;
   ScoringAlgo: undefined;
+  GiftPickles: undefined;
 };

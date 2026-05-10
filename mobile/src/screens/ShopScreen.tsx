@@ -1,13 +1,14 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert,
+  ActivityIndicator, Alert, Modal, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { ShopCategory, ShopItem, ShopPurchase, RootStackParamList } from '../types';
+import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -27,11 +28,20 @@ export default function ShopScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [buying, setBuying]   = useState<string | null>(null);
 
+  // Gift flow
+  const [giftItem, setGiftItem]                 = useState<ShopItem | null>(null);
+  const [giftRecipient, setGiftRecipient]       = useState<PickedUser | null>(null);
+  const [giftMessage, setGiftMessage]           = useState('');
+  const [showUserPicker, setShowUserPicker]     = useState(false);
+  const [sendingGift, setSendingGift]           = useState(false);
+  const [myUserId, setMyUserId]                 = useState<string | null>(null);
+
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
+    setMyUserId(user.id);
 
     const [profileRes, itemsRes, ownedRes] = await Promise.all([
       supabase.from('profiles').select('pickles').eq('id', user.id).single(),
@@ -43,6 +53,36 @@ export default function ShopScreen({ navigation }: Props) {
     setItems((itemsRes.data ?? []) as ShopItem[]);
     setOwned(new Set(((ownedRes.data ?? []) as ShopPurchase[]).map(p => p.shop_item_id)));
     setLoading(false);
+  }
+
+  function startGift(item: ShopItem) {
+    if (pickles < item.cost) {
+      Alert.alert('Not enough pickles', `You have ${pickles} 🥒 — gifting ${item.name} costs ${item.cost} 🥒.`);
+      return;
+    }
+    setGiftItem(item);
+    setGiftRecipient(null);
+    setGiftMessage('');
+    setShowUserPicker(true);
+  }
+
+  async function confirmGift() {
+    if (!giftItem || !giftRecipient) return;
+    setSendingGift(true);
+    const { data, error } = await supabase.rpc('gift_shop_item', {
+      p_item_id:   giftItem.id,
+      p_recipient: giftRecipient.id,
+      p_message:   giftMessage.trim() || null,
+    });
+    setSendingGift(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) { Alert.alert('Could not gift', row?.message ?? 'Unknown error'); return; }
+    setPickles(row.new_balance);
+    Alert.alert('Gift sent!', `${giftItem.name} is now in ${giftRecipient.full_name}'s inventory.`);
+    setGiftItem(null);
+    setGiftRecipient(null);
+    setGiftMessage('');
   }
 
   async function buy(item: ShopItem) {
@@ -130,10 +170,12 @@ export default function ShopScreen({ navigation }: Props) {
                   </View>
                   <Text style={S.cardName} numberOfLines={1}>{item.name}</Text>
                   <Text style={S.cardDesc} numberOfLines={3}>{item.description}</Text>
-                  <View style={S.cardFooter}>
+                  <View style={S.costRow}>
                     <View style={S.costPill}>
                       <Text style={S.costText}>🥒 {item.cost}</Text>
                     </View>
+                  </View>
+                  <View style={S.actionRow}>
                     <TouchableOpacity
                       style={[
                         S.buyBtn,
@@ -147,8 +189,15 @@ export default function ShopScreen({ navigation }: Props) {
                         S.buyBtnText,
                         (isOwned || !canAfford) && S.buyBtnTextDim,
                       ]}>
-                        {isOwned ? '✓ Owned' : isBuying ? '…' : canAfford ? 'Buy' : 'Need more 🥒'}
+                        {isOwned ? '✓ Owned' : isBuying ? '…' : canAfford ? 'Buy' : 'Need 🥒'}
                       </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[S.giftBtn, !canAfford && S.giftBtnDisabled]}
+                      onPress={() => startGift(item)}
+                      disabled={!canAfford || isBuying}
+                    >
+                      <Text style={[S.giftBtnText, !canAfford && S.giftBtnTextDim]}>🎁 Gift</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -157,6 +206,74 @@ export default function ShopScreen({ navigation }: Props) {
           </View>
         )}
       </ScrollView>
+
+      {/* Pick a recipient */}
+      <UserPickerModal
+        visible={showUserPicker}
+        title={giftItem ? `Gift ${giftItem.name}` : 'Pick recipient'}
+        excludeUserIds={myUserId ? [myUserId] : []}
+        onPick={(u) => { setGiftRecipient(u); setShowUserPicker(false); }}
+        onClose={() => { setShowUserPicker(false); if (!giftRecipient) setGiftItem(null); }}
+      />
+
+      {/* Confirm gift */}
+      <Modal
+        visible={!!giftItem && !!giftRecipient && !showUserPicker}
+        transparent animationType="fade"
+        onRequestClose={() => { setGiftItem(null); setGiftRecipient(null); }}
+      >
+        <View style={S.modalBackdrop}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>Send as Gift</Text>
+            {giftItem && giftRecipient && (
+              <>
+                <View style={S.giftPreviewRow}>
+                  <View style={[S.giftIconBox, { backgroundColor: giftItem.payload?.bgColor ?? c.surfaceAlt }]}>
+                    <Text style={S.giftIconEmoji}>{giftItem.icon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.giftLabel}>To</Text>
+                    <Text style={S.giftRecipientName}>{giftRecipient.full_name}</Text>
+                    <Text style={S.giftItemName}>{giftItem.name} · 🥒 {giftItem.cost}</Text>
+                  </View>
+                </View>
+
+                <Text style={S.giftFieldLabel}>Optional message</Text>
+                <TextInput
+                  style={S.giftMessage}
+                  placeholder="Add a note (optional)…"
+                  placeholderTextColor={c.textMuted}
+                  value={giftMessage}
+                  onChangeText={setGiftMessage}
+                  maxLength={200}
+                  multiline
+                />
+
+                <Text style={S.giftBalance}>Your balance after: 🥒 {pickles - giftItem.cost}</Text>
+
+                <View style={S.modalBtnRow}>
+                  <TouchableOpacity
+                    style={[S.modalBtn, S.modalBtnSecondary]}
+                    onPress={() => { setGiftItem(null); setGiftRecipient(null); setGiftMessage(''); }}
+                    disabled={sendingGift}
+                  >
+                    <Text style={S.modalBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[S.modalBtn, S.modalBtnPrimary]}
+                    onPress={confirmGift}
+                    disabled={sendingGift}
+                  >
+                    {sendingGift
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={S.modalBtnPrimaryText}>Send Gift</Text>}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -202,13 +319,37 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     cardName:  { fontSize: 14, fontWeight: '800', color: c.text, textAlign: 'center', marginBottom: 4 },
     cardDesc:  { fontSize: 11, color: c.textMuted, textAlign: 'center', minHeight: 44, lineHeight: 15 },
 
-    cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, gap: 6 },
-    costPill:   { backgroundColor: c.surfaceAlt, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: c.border },
+    costRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginTop: 10 },
+    costPill:   { backgroundColor: c.surfaceAlt, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignSelf: 'flex-start' },
     costText:   { fontSize: 12, fontWeight: '700', color: c.text },
+    actionRow:  { flexDirection: 'row', gap: 6, marginTop: 8 },
     buyBtn:     { flex: 1, backgroundColor: c.primary, paddingVertical: 7, borderRadius: 10, alignItems: 'center' },
     buyBtnOwned:{ backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     buyBtnDisabled: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     buyBtnText: { fontSize: 12, fontWeight: '700', color: '#fff' },
     buyBtnTextDim: { color: c.textMuted },
+    giftBtn:        { flex: 1, backgroundColor: c.surfaceAlt, paddingVertical: 7, borderRadius: 10, alignItems: 'center', borderWidth: 1.5, borderColor: c.primary },
+    giftBtnDisabled:{ borderColor: c.border, backgroundColor: c.surfaceAlt },
+    giftBtnText:    { fontSize: 12, fontWeight: '700', color: c.primary },
+    giftBtnTextDim: { color: c.textMuted },
+
+    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+    modalCard:     { backgroundColor: c.surface, borderRadius: 16, padding: 20, width: '100%', maxWidth: 460 },
+    modalTitle:    { fontSize: 18, fontWeight: '900', color: c.text, marginBottom: 12 },
+    giftPreviewRow:    { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+    giftIconBox:       { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
+    giftIconEmoji:     { fontSize: 28 },
+    giftLabel:         { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7 },
+    giftRecipientName: { fontSize: 16, fontWeight: '800', color: c.text, marginTop: 1 },
+    giftItemName:      { fontSize: 12, color: c.textSub, marginTop: 2 },
+    giftFieldLabel:    { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 4, marginBottom: 6 },
+    giftMessage:       { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 14, color: c.text, minHeight: 60, textAlignVertical: 'top' },
+    giftBalance:       { fontSize: 12, color: c.textSub, marginTop: 10, marginBottom: 14 },
+    modalBtnRow:       { flexDirection: 'row', gap: 10 },
+    modalBtn:          { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+    modalBtnPrimary:   { backgroundColor: c.primary },
+    modalBtnPrimaryText:{ color: '#fff', fontWeight: '800', fontSize: 14 },
+    modalBtnSecondary: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    modalBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
   });
 }

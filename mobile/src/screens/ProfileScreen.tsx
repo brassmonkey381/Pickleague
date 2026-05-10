@@ -233,6 +233,59 @@ function EloHistoryChart({
   );
 }
 
+function InvRow({
+  icon, bgColor, name, gift, message, isHidden,
+  actionLabel, actionDisabled, onAction, onToggleHidden, styles,
+}: {
+  icon: string; bgColor: string; name: string;
+  gift: string | null; message: string | null;
+  isHidden: boolean;
+  actionLabel?: string; actionDisabled?: boolean; onAction?: () => void;
+  onToggleHidden: () => void;
+  styles: any;
+}) {
+  return (
+    <View style={[styles.invRow, isHidden && styles.invRowHidden]}>
+      <View style={[styles.invIconBox, { backgroundColor: bgColor }]}>
+        <Text style={styles.invIconEmoji}>{icon}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.invName, isHidden && styles.invNameDim]} numberOfLines={1}>{name}</Text>
+        {gift && (
+          <Text style={styles.invGiftLabel} numberOfLines={1}>
+            🎁 Gift{message ? ` · "${message}"` : ''}
+          </Text>
+        )}
+      </View>
+      <TouchableOpacity onPress={onToggleHidden} style={styles.invHideBtn}>
+        <Text style={styles.invHideText}>{isHidden ? '🙈' : '👁️'}</Text>
+      </TouchableOpacity>
+      {actionLabel && (
+        <TouchableOpacity
+          style={[styles.invActionBtn, actionDisabled && styles.invActionBtnDim]}
+          onPress={onAction}
+          disabled={actionDisabled}
+        >
+          <Text style={[styles.invActionText, actionDisabled && styles.invActionTextDim]}>
+            {actionLabel}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+type PurchaseWithItem = {
+  id: string;                 // purchase row id
+  shop_item_id: string;
+  is_hidden: boolean;
+  gifted_by_user_id: string | null;
+  gift_message: string | null;
+  cost_paid: number;
+  purchased_at: string;
+  item: ShopItem;
+};
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
 export default function ProfileScreen({ navigation }: Props) {
@@ -258,6 +311,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const [premiumAvatars, setPremiumAvatars]   = useState<PremiumAvatar[]>([]);
   const [cosmeticBadges, setCosmeticBadges]   = useState<ShopItem[]>([]);
   const [equippedPremium, setEquippedPremium] = useState<PremiumAvatar | null>(null);
+  const [shopPurchases, setShopPurchases]     = useState<PurchaseWithItem[]>([]);
   const [partnerNames, setPartnerNames] = useState<Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }>>({});
   // badgeProgress: keyed by badge name, value is { text, pct, showBar }
   const [badgeProgress, setBadgeProgress] = useState<Record<string, { text: string; pct: number; showBar: boolean }>>({});
@@ -325,10 +379,14 @@ export default function ProfileScreen({ navigation }: Props) {
   async function loadShopPurchases(uid: string) {
     const { data } = await supabase
       .from('player_shop_purchases')
-      .select('shop_item_id, item:shop_items(*)')
-      .eq('user_id', uid);
+      .select('id, shop_item_id, is_hidden, gifted_by_user_id, gift_message, cost_paid, purchased_at, item:shop_items(*)')
+      .eq('user_id', uid)
+      .order('purchased_at', { ascending: false });
 
-    const items = ((data ?? []) as any[]).map(r => r.item).filter(Boolean) as ShopItem[];
+    const purchases = ((data ?? []) as any[]).filter(r => r.item) as PurchaseWithItem[];
+    setShopPurchases(purchases);
+
+    const items = purchases.map(p => p.item);
     setPremiumAvatars(
       items
         .filter(i => i.category === 'avatar')
@@ -340,6 +398,38 @@ export default function ProfileScreen({ navigation }: Props) {
         }))
     );
     setCosmeticBadges(items.filter(i => i.category === 'cosmetic_badge'));
+  }
+
+  async function equipAvatar(emoji: string | null, bgColor: string | null) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ avatar_emoji: emoji, avatar_bg_color: bgColor })
+      .eq('id', userId);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setEquippedPremium(emoji && bgColor ? { slug: 'equipped', name: 'Premium', emoji, bgColor } : null);
+    setProfile(p => p ? { ...p, avatar_emoji: emoji, avatar_bg_color: bgColor } : p);
+  }
+
+  async function applyFlair(value: string | null) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ name_color: value })
+      .eq('id', userId);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setProfile(p => p ? { ...p, name_color: value } : p);
+  }
+
+  async function togglePurchaseHidden(purchaseId: string, currentlyHidden: boolean) {
+    const { error } = await supabase.rpc('set_purchase_hidden', {
+      p_purchase_id: purchaseId,
+      p_hidden:      !currentlyHidden,
+    });
+    if (error) { Alert.alert('Error', error.message); return; }
+    setShopPurchases(prev => prev.map(p =>
+      p.id === purchaseId ? { ...p, is_hidden: !currentlyHidden } : p,
+    ));
   }
 
   async function loadEloHistory(uid: string) {
@@ -691,20 +781,101 @@ export default function ProfileScreen({ navigation }: Props) {
         );
       })()}
 
-      {/* ── Cosmetic shop badges ────────────────────────────────── */}
-      {cosmeticBadges.length > 0 && (
-        <View style={styles.locationCard}>
-          <Text style={styles.cardTitle}>🥒 From the Shop</Text>
-          <View style={styles.shopBadgeGrid}>
-            {cosmeticBadges.map(b => (
-              <View key={b.id} style={styles.shopBadgeCard}>
-                <Text style={styles.shopBadgeIcon}>{b.icon}</Text>
-                <Text style={styles.shopBadgeName} numberOfLines={1}>{b.name}</Text>
+      {/* ── Pickle Shop Inventory ─────────────────────────────── */}
+      {shopPurchases.length > 0 && (() => {
+        const avatars  = shopPurchases.filter(p => p.item.category === 'avatar');
+        const flairs   = shopPurchases.filter(p => p.item.category === 'flair');
+        const badges   = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
+        return (
+          <View style={styles.locationCard}>
+            <Text style={styles.cardTitle}>🥒 Pickle Shop Inventory</Text>
+
+            {/* Avatars */}
+            {avatars.length > 0 && (
+              <View style={styles.invSection}>
+                <Text style={styles.invSectionTitle}>Avatars</Text>
+                {avatars.map(p => {
+                  const equipped = profile?.avatar_emoji === p.item.payload?.emoji
+                                && profile?.avatar_bg_color === p.item.payload?.bgColor;
+                  return (
+                    <InvRow
+                      key={p.id}
+                      icon={p.item.icon}
+                      bgColor={p.item.payload?.bgColor ?? '#eee'}
+                      name={p.item.name}
+                      gift={p.gifted_by_user_id}
+                      message={p.gift_message}
+                      isHidden={p.is_hidden}
+                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
+                      actionDisabled={equipped}
+                      onAction={() => equipAvatar(p.item.payload?.emoji ?? null, p.item.payload?.bgColor ?? null)}
+                      styles={styles}
+                    />
+                  );
+                })}
+                {profile?.avatar_emoji && (
+                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => equipAvatar(null, null)}>
+                    <Text style={styles.invUnequipText}>↺ Revert to cartoon avatar</Text>
+                  </TouchableOpacity>
+                )}
               </View>
-            ))}
+            )}
+
+            {/* Flair */}
+            {flairs.length > 0 && (
+              <View style={styles.invSection}>
+                <Text style={styles.invSectionTitle}>Name Color Flair</Text>
+                {flairs.map(p => {
+                  const value    = p.item.payload?.value as string | undefined;
+                  const equipped = !!value && profile?.name_color === value;
+                  return (
+                    <InvRow
+                      key={p.id}
+                      icon={p.item.icon}
+                      bgColor={value ?? '#eee'}
+                      name={p.item.name}
+                      gift={p.gifted_by_user_id}
+                      message={p.gift_message}
+                      isHidden={p.is_hidden}
+                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                      actionLabel={equipped ? '✓ Active' : 'Apply'}
+                      actionDisabled={equipped}
+                      onAction={() => applyFlair(value ?? null)}
+                      styles={styles}
+                    />
+                  );
+                })}
+                {profile?.name_color && (
+                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyFlair(null)}>
+                    <Text style={styles.invUnequipText}>↺ Revert to default name color</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {/* Cosmetic Badges */}
+            {badges.length > 0 && (
+              <View style={styles.invSection}>
+                <Text style={styles.invSectionTitle}>Cosmetic Badges</Text>
+                {badges.map(p => (
+                  <InvRow
+                    key={p.id}
+                    icon={p.item.icon}
+                    bgColor={p.item.payload?.bgColor ?? '#fff8e1'}
+                    name={p.item.name}
+                    gift={p.gifted_by_user_id}
+                    message={p.gift_message}
+                    isHidden={p.is_hidden}
+                    onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                    styles={styles}
+                  />
+                ))}
+              </View>
+            )}
           </View>
-        </View>
-      )}
+        );
+      })()}
 
       {/* ── Location ratings ────────────────────────────────────── */}
       {locationRatings.length > 0 && (
@@ -1175,6 +1346,25 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   shopBadgeCard:  { width: '30%', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4, borderWidth: 1, borderColor: c.border },
   shopBadgeIcon:  { fontSize: 28, marginBottom: 4 },
   shopBadgeName:  { fontSize: 11, fontWeight: '700', color: c.text, textAlign: 'center' },
+
+  // Inventory rows
+  invSection:        { marginTop: 10 },
+  invSectionTitle:   { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 },
+  invRow:            { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
+  invRowHidden:      { opacity: 0.55 },
+  invIconBox:        { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  invIconEmoji:      { fontSize: 18 },
+  invName:           { fontSize: 14, fontWeight: '700', color: c.text },
+  invNameDim:        { color: c.textMuted },
+  invGiftLabel:      { fontSize: 11, color: c.textSub, marginTop: 1 },
+  invHideBtn:        { paddingHorizontal: 6, paddingVertical: 4 },
+  invHideText:       { fontSize: 16 },
+  invActionBtn:      { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.primary },
+  invActionBtnDim:   { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+  invActionText:     { fontSize: 12, color: '#fff', fontWeight: '700' },
+  invActionTextDim:  { color: c.textMuted },
+  invUnequipBtn:     { paddingVertical: 8, paddingHorizontal: 4, marginTop: 2 },
+  invUnequipText:    { fontSize: 12, color: c.textMuted, fontWeight: '600' },
   locPill:        { width: LOC_PILL_W, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
   locPillDoubles: { backgroundColor: '#e3f2fd' },
   locPillMixed:   { backgroundColor: '#f3e5f5' },

@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
+import { isGodmodeUserId } from '../lib/godmode';
 
 const PREFS_KEY = 'pickleague_prefs';
 
@@ -356,6 +357,20 @@ export default function SettingsScreen({ navigation }: Props) {
           <Text style={styles.rowDetail}>1.0.0</Text>
         </View>
       </View>
+
+      {/* ── Godmode (only shown to godmode user) ─────── */}
+      {isGodmodeUserId(userId) && (
+        <>
+          <SectionHeader title="🛠️ Godmode" />
+          <View style={styles.card}>
+            <ActionRow
+              label="Gift Pickles"
+              desc="Send pickles to any user"
+              onPress={() => navigation.navigate('GiftPickles')}
+            />
+          </View>
+        </>
+      )}
 
       {/* ── Appearance ───────────────────────── */}
       <SectionHeader title="Appearance" />
