@@ -116,9 +116,9 @@ delta  = K × margin × (actual − expected)`}</Mono>
       {/* Facets */}
       <Section S={S} title="Four PLUPR facets per player">
         <Bullet S={S}><B S={S}>Overall</B> — every match counts</Bullet>
-        <Bullet S={S}><B S={S}>1v1</B> — singles only</Bullet>
-        <Bullet S={S}><B S={S}>2v2 Gendered</B> — same-gender doubles</Bullet>
-        <Bullet S={S}><B S={S}>2v2 Mixed</B> — mixed-gender doubles</Bullet>
+        <Bullet S={S}><B S={S}>Singles</B> — 1v1 only</Bullet>
+        <Bullet S={S}><B S={S}>Gendered Doubles</B> — same-gender doubles</Bullet>
+        <Bullet S={S}><B S={S}>Mixed Doubles</B> — mixed-gender doubles</Bullet>
         <P S={S}>
           See your trajectory across all four on the chart in your Profile.
         </P>

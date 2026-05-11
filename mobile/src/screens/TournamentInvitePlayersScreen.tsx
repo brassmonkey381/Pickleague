@@ -47,7 +47,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     // 1. Existing tournament registrations (any status) — exclude these.
     const regsRes = await supabase
       .from('tournament_registrations')
-      .select('user_id, status, profile:profiles(rating)')
+      .select('user_id, status, profile:profiles!tournament_registrations_user_id_fkey(rating)')
       .eq('tournament_id', tournamentId);
 
     const regs = (regsRes.data ?? []) as any[];

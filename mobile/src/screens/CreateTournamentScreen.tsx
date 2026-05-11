@@ -191,8 +191,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Match type ── */}
         <SectionHeader title="Match Type" S={S} />
         <View style={S.pillRow}>
-          <Pill label="1v1  Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} />
-          <Pill label="2v2  Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
+          <Pill label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} />
+          <Pill label="Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
         </View>
 
         {/* ── Seeding ── */}

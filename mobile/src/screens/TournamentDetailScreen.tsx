@@ -68,6 +68,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [godmode, setGodmode] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]                   = useState(false);
+  const [deleteError, setDeleteError]             = useState<string | null>(null);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -89,7 +90,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const [tRes, regRes, role, godmodeResult] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
       supabase.from('tournament_registrations')
-        .select('*, profile:profiles(id, full_name, rating)')
+        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating)')
         .eq('tournament_id', tournamentId)
         .order('role'),
       getTournamentRole(tournamentId),
@@ -129,7 +130,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     }
 
     // Load partner requests if format requires it
-    if (requiresPartner(t?.format ?? '') && uid) {
+    if (requiresPartner(t?.format ?? '', t?.match_type ?? '') && uid) {
       const { data: pr } = await supabase
         .from('tournament_partner_requests')
         .select('*, requesterProfile:profiles!tournament_partner_requests_requester_id_fkey(id, full_name), requestedProfile:profiles!tournament_partner_requests_requested_id_fkey(id, full_name)')
@@ -159,28 +160,75 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     load();
   }
 
+  // Invitee responds to a tournament invite (admin-sent). Notifies the inviter.
+  async function respondToTournamentInvite(regId: string, accept: boolean) {
+    const { error } = await supabase.rpc('tournament_respond_to_invite', {
+      p_registration_id: regId,
+      p_accept: accept,
+    });
+    if (error) {
+      Alert.alert(accept ? 'Accept failed' : 'Decline failed', error.message);
+      return;
+    }
+    load();
+  }
+
   // ── Bracket release time ────────────────────────────────────
   // ── Godmode delete (Brian only) ────────────────────────────
   function deleteTournament() {
     if (!tournament) return;
+    setDeleteError(null);
     setShowDeleteConfirm(true);
   }
 
   async function confirmDeleteTournament() {
     if (!tournament) return;
     setDeleting(true);
-    const { data, error } = await supabase.from('tournaments').delete().eq('id', tournament.id).select();
-    setDeleting(false);
-    if (error) {
-      Alert.alert('Delete failed', error.message);
-      return;
+    setDeleteError(null);
+    try {
+      // Try the SECURITY DEFINER RPC first (bypasses RLS entirely). Falls
+      // back to a direct DELETE if the RPC hasn't been deployed yet.
+      const rpcRes = await supabase.rpc('godmode_delete_tournament', {
+        p_tournament_id: tournament.id,
+      });
+      console.warn('[delete tournament rpc]', rpcRes);
+
+      if (rpcRes.error) {
+        const msg = rpcRes.error.message ?? '';
+        const looksMissing =
+          /function .* does not exist|Could not find the function|404|PGRST202/i.test(msg);
+        if (!looksMissing) {
+          setDeleteError(msg || 'Delete failed.');
+          return;
+        }
+        // RPC missing — fall back to direct delete via RLS policy.
+        const fallback = await supabase
+          .from('tournaments')
+          .delete()
+          .eq('id', tournament.id)
+          .select();
+        console.warn('[delete tournament fallback]', fallback);
+        if (fallback.error) {
+          setDeleteError(fallback.error.message ?? 'Delete failed.');
+          return;
+        }
+        if (!fallback.data || fallback.data.length === 0) {
+          setDeleteError(
+            'No rows were deleted. Run supabase/migration_add_godmode_delete_rpc.sql ' +
+            '(or migration_add_godmode_delete.sql) in Supabase SQL Editor.'
+          );
+          return;
+        }
+      }
+
+      setShowDeleteConfirm(false);
+      navigation.goBack();
+    } catch (e: any) {
+      console.warn('[delete tournament] exception', e);
+      setDeleteError(e?.message ?? String(e));
+    } finally {
+      setDeleting(false);
     }
-    if (!data || data.length === 0) {
-      Alert.alert('Delete blocked', 'No rows were deleted. The DELETE RLS policy may not be in place — apply supabase/migration_add_godmode_delete.sql.');
-      return;
-    }
-    setShowDeleteConfirm(false);
-    navigation.goBack();
   }
 
   // ── Edit tournament (admin) ────────────────────────────────
@@ -372,6 +420,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const fmt        = FORMAT_META[tournament.format];
   const approved   = registrations.filter(r => r.status === 'approved');
   const pending    = registrations.filter(r => r.status === 'pending');
+  // Pending registrations split: admin-invited (waiting on invitee) vs self-submitted requests.
+  const pendingInvited  = pending.filter(r => r.invited_by != null);
+  const pendingRequests = pending.filter(r => r.invited_by == null);
+  // Public "Players" list: approved members + outstanding invites (the people the
+  // tournament is actively trying to fill its roster with). Join-requests stay
+  // admin-only since admins haven't decided on them yet.
+  const rosterShown = [...approved, ...pendingInvited];
   const myReg      = registrations.find(r => r.user_id === myUserId);
   const isPriv     = isTournamentPrivileged(myRole);
   const isAdmin    = myRole === 'admin';
@@ -420,7 +475,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
           {/* Settings chips */}
           <View style={S.chipsRow}>
-            <Text style={S.chip}>{tournament.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
+            <Text style={S.chip}>{tournament.match_type === 'doubles' ? 'Doubles' : 'Singles'}</Text>
             <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 PLUPR seeded' : '🎲 Random'}</Text>
             {tournament.format === 'pool_play' && <Text style={S.chip}>{tournament.pool_count} pools</Text>}
             {tournament.partner_rotation && <Text style={S.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
@@ -557,7 +612,27 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
           </View>
         )}
-        {myReg && (
+        {myReg && myReg.status === 'pending' && myReg.invited_by ? (
+          <View style={[S.myRegBadge, S.regPending]}>
+            <Text style={S.myRegText}>
+              📨 {playerName(myReg.invited_by)} invited you to this tournament.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: c.primary, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => respondToTournamentInvite(myReg.id, true)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Accept invite</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1.5, borderColor: c.border, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => respondToTournamentInvite(myReg.id, false)}
+              >
+                <Text style={{ color: c.textSub, fontWeight: '700' }}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : myReg && (
           <View style={[S.myRegBadge,
             myReg.status === 'approved' ? S.regApproved :
             myReg.status === 'rejected' ? S.regRejected : S.regPending]}>
@@ -570,7 +645,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Partner section (MLP / fixed format + approved member) ── */}
-        {requiresPartner(tournament.format) && myReg?.status === 'approved' && (
+        {requiresPartner(tournament.format, tournament.match_type) && myReg?.status === 'approved' && (
           <View style={S.section}>
             <Text style={S.sectionTitle}>Your Partner</Text>
 
@@ -614,11 +689,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {/* ── Approved players ── */}
+        {/* ── Players (approved + outstanding invites) ── */}
         <View style={S.section}>
           <View style={S.sectionHeaderRow}>
             <Text style={S.sectionTitle}>
-              Players ({approved.length}{tournament.max_players ? `/${tournament.max_players}` : ''})
+              Players ({rosterShown.length}{tournament.max_players ? `/${tournament.max_players}` : ''})
             </Text>
             {isPriv && (
               <TouchableOpacity onPress={() => navigation.navigate('TournamentMembers', { tournamentId, tournamentName: tournament.name })}>
@@ -626,15 +701,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             )}
           </View>
-          {approved.map((r, i) => {
+          {rosterShown.map((r, i) => {
             const role = r.role as TournamentRole;
             const bc = tournamentRoleBadgeColor(role);
+            const isInvitePending = r.status === 'pending';
             return (
               <View key={r.id} style={S.playerRow}>
                 <Text style={S.playerSeed}>#{i + 1}</Text>
-                <Text style={S.playerName}>{r.profile?.full_name ?? '—'}</Text>
+                <Text style={[S.playerName, isInvitePending && { color: c.textMuted, fontStyle: 'italic' }]}>
+                  {r.profile?.full_name ?? '—'}
+                </Text>
                 <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)}</Text>
-                {role !== 'member' && (
+                {isInvitePending ? (
+                  <View style={[S.rolePill, { backgroundColor: '#fff3cd', borderColor: '#d4a72c' }]}>
+                    <Text style={[S.rolePillText, { color: '#8a6d00' }]}>📨 invited</Text>
+                  </View>
+                ) : role !== 'member' && (
                   <View style={[S.rolePill, { backgroundColor: bc + '22', borderColor: bc }]}>
                     <Text style={[S.rolePillText, { color: bc }]}>{tournamentRoleLabel(role)}</Text>
                   </View>
@@ -642,14 +724,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </View>
             );
           })}
-          {approved.length === 0 && <Text style={S.emptySection}>No approved players yet.</Text>}
+          {rosterShown.length === 0 && <Text style={S.emptySection}>No players yet.</Text>}
         </View>
 
-        {/* ── Pending requests (admin/co-admin only) ── */}
-        {isPriv && pending.length > 0 && (
+        {/* ── Pending join requests (admin/co-admin only) ── */}
+        {isPriv && pendingRequests.length > 0 && (
           <View style={S.section}>
-            <Text style={S.sectionTitle}>Pending Requests ({pending.length})</Text>
-            {pending.map(r => (
+            <Text style={S.sectionTitle}>Pending Requests ({pendingRequests.length})</Text>
+            {pendingRequests.map(r => (
               <View key={r.id} style={S.pendingRow}>
                 <Text style={S.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
                 <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
@@ -1167,7 +1249,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       <Modal
         visible={showDeleteConfirm}
         transparent animationType="fade"
-        onRequestClose={() => setShowDeleteConfirm(false)}
+        onRequestClose={() => (deleting ? null : setShowDeleteConfirm(false))}
       >
         <View style={S.confirmBackdrop}>
           <View style={S.confirmCard}>
@@ -1175,6 +1257,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.confirmBody}>
               This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone.
             </Text>
+            {deleteError ? (
+              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 10 }}>
+                {deleteError}
+              </Text>
+            ) : null}
             <View style={S.confirmBtnRow}>
               <TouchableOpacity
                 style={[S.confirmBtn, S.confirmBtnSecondary]}

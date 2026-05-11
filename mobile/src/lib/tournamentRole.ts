@@ -31,9 +31,22 @@ export function tournamentRoleBadgeColor(role: TournamentRole): string {
   return '#888';
 }
 
-/** Formats need fixed pre-assigned partners */
-export function requiresPartner(format: string): boolean {
-  return format === 'mlp';
+/** Whether this tournament needs each player to lock in a fixed doubles
+ *  partner before the bracket can be drawn.
+ *
+ *  Truthy for: doubles tournaments using a bracket format that pairs
+ *  the same two players across all their matches — round-robin,
+ *  single/double elimination, pool play.
+ *
+ *  Falsy for:
+ *   - Singles tournaments (no partner concept).
+ *   - MLP / MLP-Random (teams of 4, handled by MlpTeamSection).
+ *   - Rotating-partners (partners change every match/round, no fixed pair). */
+export function requiresPartner(format: string, matchType: string): boolean {
+  if (matchType !== 'doubles') return false;
+  if (format === 'mlp' || format === 'mlp_random') return false;
+  if (format === 'rotating_partners') return false;
+  return true;
 }
 
 /** How long until bracket_release_time, as a human string */

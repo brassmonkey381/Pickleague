@@ -129,17 +129,17 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
           <Text style={styles.eloValue}>{(profile.singles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
-          <Text style={styles.eloLabel}>1v1</Text>
+          <Text style={styles.eloLabel}>Singles</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
           <Text style={styles.eloValue}>{(profile.doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
-          <Text style={styles.eloLabel}>2v2 Gendered</Text>
+          <Text style={styles.eloLabel}>Gendered Doubles</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
           <Text style={styles.eloValue}>{(profile.mixed_doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
-          <Text style={styles.eloLabel}>2v2 Mixed</Text>
+          <Text style={styles.eloLabel}>Mixed Doubles</Text>
         </View>
       </View>
       <View style={styles.relRow}>
@@ -209,19 +209,19 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
                 {r.singles && (
                   <View style={styles.locPill}>
                     <Text style={styles.locVal}>{r.singles.rating}</Text>
-                    <Text style={styles.locType}>1v1 · {r.singles.wins}W-{r.singles.losses}L</Text>
+                    <Text style={styles.locType}>Singles · {r.singles.wins}W-{r.singles.losses}L</Text>
                   </View>
                 )}
                 {r.doubles_gendered && (
                   <View style={[styles.locPill, styles.locPillD]}>
                     <Text style={styles.locVal}>{r.doubles_gendered.rating}</Text>
-                    <Text style={styles.locType}>2v2 Gend. · {r.doubles_gendered.wins}W-{r.doubles_gendered.losses}L</Text>
+                    <Text style={styles.locType}>Gendered Doubles · {r.doubles_gendered.wins}W-{r.doubles_gendered.losses}L</Text>
                   </View>
                 )}
                 {r.doubles_mixed && (
                   <View style={[styles.locPill, styles.locPillM]}>
                     <Text style={styles.locVal}>{r.doubles_mixed.rating}</Text>
-                    <Text style={styles.locType}>2v2 Mixed · {r.doubles_mixed.wins}W-{r.doubles_mixed.losses}L</Text>
+                    <Text style={styles.locType}>Mixed Doubles · {r.doubles_mixed.wins}W-{r.doubles_mixed.losses}L</Text>
                   </View>
                 )}
               </View>

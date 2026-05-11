@@ -29,6 +29,10 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const { leagueId, leagueName } = route.params ?? {};
   const [tournaments, setTournaments] = React.useState<Tournament[]>([]);
   const [playerCounts, setPlayerCounts] = React.useState<Record<string, number>>({});
+  // tournamentId → my registration metadata for the role pill
+  const [myRegs, setMyRegs] = React.useState<
+    Record<string, { status: 'pending' | 'approved' | 'rejected'; role: string | null; invited_by: string | null }>
+  >({});
   const [myAvailability, setMyAvailability] = React.useState<boolean[]>([]);
   const [filterByAvail, setFilterByAvail] = React.useState(false);
   const [showEnded, setShowEnded]         = React.useState(false);
@@ -63,15 +67,53 @@ export default function TournamentsScreen({ navigation, route }: Props) {
 
     if (t.length > 0) {
       const ids = t.map(x => x.id);
-      const { data: regs } = await supabase
-        .from('tournament_registrations')
-        .select('tournament_id')
-        .in('tournament_id', ids)
-        .eq('status', 'approved');
+      // Count approved members AND outstanding invites (status='pending' with
+      // an inviter set) — both occupy a slot on the public roster.
+      // Also pull THIS user's own row per tournament so the card can show
+      // their role pill.
+      const [{ data: regs }, mineRes] = await Promise.all([
+        supabase
+          .from('tournament_registrations')
+          .select('tournament_id, status, invited_by')
+          .in('tournament_id', ids)
+          .in('status', ['approved', 'pending']),
+        user
+          ? supabase
+              .from('tournament_registrations')
+              .select('tournament_id, status, role, invited_by')
+              .in('tournament_id', ids)
+              .eq('user_id', user.id)
+          : Promise.resolve({ data: null } as any),
+      ]);
       const counts: Record<string, number> = {};
-      (regs ?? []).forEach(r => { counts[r.tournament_id] = (counts[r.tournament_id] ?? 0) + 1; });
+      (regs ?? []).forEach(r => {
+        if (r.status === 'approved' || (r.status === 'pending' && r.invited_by != null)) {
+          counts[r.tournament_id] = (counts[r.tournament_id] ?? 0) + 1;
+        }
+      });
       setPlayerCounts(counts);
+
+      const mine: typeof myRegs = {};
+      (mineRes?.data ?? []).forEach((r: any) => {
+        mine[r.tournament_id] = { status: r.status, role: r.role ?? null, invited_by: r.invited_by ?? null };
+      });
+      setMyRegs(mine);
     }
+  }
+
+  function rolePillFor(tournamentId: string): { label: string; color: string } {
+    const reg = myRegs[tournamentId];
+    if (!reg) return { label: 'Not joined', color: '#888' };
+    if (reg.status === 'rejected') return { label: '✗ Declined', color: '#c62828' };
+    if (reg.status === 'pending') {
+      return reg.invited_by
+        ? { label: '📨 Invited', color: '#b8860b' }
+        : { label: '⏳ Request pending', color: '#b8860b' };
+    }
+    // approved
+    if (reg.role === 'admin')    return { label: '👑 Admin',    color: '#6d28d9' };
+    if (reg.role === 'co-admin') return { label: '🛡 Co-admin', color: '#2563eb' };
+    return { label: '✓ Member', color: '#2e7d32' };
   }
 
   const hasAvailability = myAvailability.some(Boolean);
@@ -107,12 +149,20 @@ export default function TournamentsScreen({ navigation, route }: Props) {
           <Text style={S.fmtIcon}>{fmt.icon}</Text>
           <View style={S.cardInfo}>
             <Text style={S.name} numberOfLines={1}>{item.name}</Text>
-            <Text style={S.fmt}>{fmt.label} · {item.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
+            <Text style={S.fmt}>{fmt.label} · {item.match_type === 'doubles' ? 'Doubles' : 'Singles'}</Text>
           </View>
           <View style={S.cardBadges}>
             <View style={[S.statusBadge, { backgroundColor: status.color + '22' }]}>
               <Text style={[S.statusText, { color: status.color }]}>{status.label}</Text>
             </View>
+            {(() => {
+              const r = rolePillFor(item.id);
+              return (
+                <View style={[S.roleBadge, { backgroundColor: r.color + '1a', borderColor: r.color }]}>
+                  <Text style={[S.roleBadgeText, { color: r.color }]}>{r.label}</Text>
+                </View>
+              );
+            })()}
             {matchesAvail === true && (
               <View style={S.availBadge}>
                 <Text style={S.availBadgeText}>✓ Fits schedule</Text>
@@ -255,6 +305,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     fmt:                 { fontSize: 12, color: c.textMuted, marginTop: 2 },
     statusBadge:         { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
     statusText:          { fontSize: 11, fontWeight: '700' },
+    roleBadge:           { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
+    roleBadgeText:       { fontSize: 10, fontWeight: '700' },
     availBadge:          { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: c.primaryLight },
     availBadgeText:      { fontSize: 10, fontWeight: '700', color: c.primary },
     unavailBadge:        { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: '#fff8e1' },

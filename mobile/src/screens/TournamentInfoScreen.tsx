@@ -134,7 +134,7 @@ export default function TournamentInfoScreen({ route }: Props) {
 
       {/* ── At a glance ────────────────────────────────────── */}
       <Section S={S} title="At a glance">
-        <Row S={S} label="Match type"        value={t.match_type === 'doubles' ? '2v2 Doubles' : '1v1 Singles'} />
+        <Row S={S} label="Match type"        value={t.match_type === 'doubles' ? 'Doubles' : 'Singles'} />
         <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? '📊 PLUPR-seeded' : '🎲 Random draw'} />
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}

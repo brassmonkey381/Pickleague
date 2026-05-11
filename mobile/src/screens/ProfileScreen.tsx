@@ -179,9 +179,9 @@ function EloHistoryChart({
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 4 }}>
         {[
           { key: 'overall',  label: 'Overall',      color: FACET_COLORS.overall  },
-          { key: 'singles',  label: '1v1',          color: FACET_COLORS.singles  },
-          { key: 'gendered', label: '2v2 Gendered', color: FACET_COLORS.gendered },
-          { key: 'mixed',    label: '2v2 Mixed',    color: FACET_COLORS.mixed    },
+          { key: 'singles',  label: 'Singles',          color: FACET_COLORS.singles  },
+          { key: 'gendered', label: 'Gendered Doubles', color: FACET_COLORS.gendered },
+          { key: 'mixed',    label: 'Mixed Doubles',    color: FACET_COLORS.mixed    },
         ].map(item => (
           <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <View style={{ width: 14, height: 3, backgroundColor: item.color, borderRadius: 2 }} />
@@ -756,17 +756,17 @@ export default function ProfileScreen({ navigation }: Props) {
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
                 <Text style={styles.eloValue}>{singlesRating.toFixed(2)}</Text>
-                <Text style={styles.eloLabel}>1v1</Text>
+                <Text style={styles.eloLabel}>Singles</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
                 <Text style={styles.eloValue}>{doublesRating.toFixed(2)}</Text>
-                <Text style={styles.eloLabel}>2v2 Gendered</Text>
+                <Text style={styles.eloLabel}>Gendered Doubles</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
                 <Text style={styles.eloValue}>{mixedDoublesRating.toFixed(2)}</Text>
-                <Text style={styles.eloLabel}>2v2 Mixed</Text>
+                <Text style={styles.eloLabel}>Mixed Doubles</Text>
               </View>
             </View>
 
@@ -887,9 +887,9 @@ export default function ProfileScreen({ navigation }: Props) {
                 r.match_type === 'doubles_gendered' ? styles.locPillDoubles :
                 r.match_type === 'doubles_mixed'    ? styles.locPillMixed   : null;
               const typeLabel =
-                r.match_type === 'singles'          ? '1v1'           :
-                r.match_type === 'doubles_gendered' ? '2v2 Gendered'  :
-                                                      '2v2 Mixed';
+                r.match_type === 'singles'          ? 'Singles'           :
+                r.match_type === 'doubles_gendered' ? 'Gendered Doubles'  :
+                                                      'Mixed Doubles';
               return (
                 <View key={r.id} style={[styles.locPill, pillStyle]}>
                   <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
@@ -1083,7 +1083,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <View style={styles.fieldGroup}>
         <Text style={styles.fieldLabel}>Gender</Text>
         <Text style={styles.fieldHint}>
-          Used to classify doubles matches as 2v2 Gendered or 2v2 Mixed.
+          Used to classify doubles matches as Gendered Doubles or Mixed Doubles.
           Until set, your doubles matches won't affect doubles PLUPR.
         </Text>
         <View style={styles.genderRow}>

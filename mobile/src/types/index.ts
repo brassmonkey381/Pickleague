@@ -255,6 +255,7 @@ export type TournamentRegistration = {
   status: 'pending' | 'approved' | 'rejected';
   seed: number | null;
   registered_at: string;
+  invited_by: string | null;  // null = user requested in themselves; uuid = admin invite
   profile?: Profile;
 };
 

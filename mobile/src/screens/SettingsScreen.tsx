@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Switch, Alert,
+  View, Text, ScrollView, StyleSheet, Switch, Alert, Modal,
   TextInput, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -49,6 +49,14 @@ export default function SettingsScreen({ navigation }: Props) {
   const [email, setEmail]             = useState('');
   const [resetSent, setResetSent]     = useState(false);
   const [userId, setUserId]           = useState<string | null>(null);
+
+  const [signOutOpen, setSignOutOpen]   = useState(false);
+  const [signingOut, setSigningOut]     = useState(false);
+
+  const [deleteOpen, setDeleteOpen]     = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteError, setDeleteError]   = useState('');
+  const [deleting, setDeleting]         = useState(false);
 
   useEffect(() => {
     loadPrefs();
@@ -118,30 +126,72 @@ export default function SettingsScreen({ navigation }: Props) {
     }
   }
 
-  function confirmSignOut() {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: () => supabase.auth.signOut() },
-    ]);
+  function openSignOut() {
+    setSignOutOpen(true);
   }
 
-  function confirmDeleteAccount() {
-    Alert.alert(
-      'Delete account',
-      'This permanently removes your account, profile, and all match history. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete my account',
-          style: 'destructive',
-          onPress: () =>
-            Alert.alert(
-              'Request received',
-              'Account deletion requires verification. Please email support@pickleague.app with your request and we will process it within 48 hours.'
-            ),
-        },
-      ]
-    );
+  async function doSignOut() {
+    setSigningOut(true);
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      setSigningOut(false);
+      setSignOutOpen(false);
+    }
+  }
+
+  function openDeleteAccount() {
+    setDeletePassword('');
+    setDeleteError('');
+    setDeleteOpen(true);
+  }
+
+  function closeDeleteAccount() {
+    if (deleting) return;
+    setDeleteOpen(false);
+    setDeletePassword('');
+    setDeleteError('');
+  }
+
+  async function doDeleteAccount() {
+    setDeleteError('');
+    if (!email) {
+      setDeleteError('Email missing — try reloading the page.');
+      return;
+    }
+    if (!deletePassword) {
+      setDeleteError('Enter your current password to confirm.');
+      return;
+    }
+    setDeleting(true);
+    try {
+      // Re-verify password by signing in with it. signInWithPassword returns
+      // a fresh session for the same user — no harmful side effects.
+      const verify = await supabase.auth.signInWithPassword({
+        email,
+        password: deletePassword,
+      });
+      if (verify.error) {
+        setDeleteError(verify.error.message ?? 'Password is incorrect.');
+        setDeleting(false);
+        return;
+      }
+
+      const { error: rpcError } = await supabase.rpc('delete_my_account');
+      if (rpcError) {
+        setDeleteError(rpcError.message ?? 'Failed to delete account.');
+        setDeleting(false);
+        return;
+      }
+
+      // auth.users row is gone — the existing session is invalid. Sign out
+      // locally so the navigator flips back to Login.
+      await supabase.auth.signOut();
+    } catch (e: any) {
+      setDeleteError(e?.message ?? String(e));
+    } finally {
+      setDeleting(false);
+    }
   }
 
   // ── Sub-components ──────────────────────────────────────────────
@@ -301,8 +351,8 @@ export default function SettingsScreen({ navigation }: Props) {
         <SegmentRow<MatchType>
           label="Default match type"
           options={[
-            { label: '1v1 Singles', value: 'singles' },
-            { label: '2v2 Doubles', value: 'doubles' },
+            { label: 'Singles', value: 'singles' },
+            { label: 'Doubles', value: 'doubles' },
           ]}
           value={prefs.defaultMatchType}
           onSelect={(v) => savePrefs({ ...prefs, defaultMatchType: v })}
@@ -390,17 +440,101 @@ export default function SettingsScreen({ navigation }: Props) {
       {/* ── Danger zone ──────────────────────── */}
       <SectionHeader title="Account Actions" />
       <View style={styles.card}>
-        <ActionRow label="Sign out" onPress={confirmSignOut} />
+        <ActionRow label="Sign out" onPress={openSignOut} />
         <Divider />
         <ActionRow
           label="Delete account"
           desc="Permanently remove your account and all data"
-          onPress={confirmDeleteAccount}
+          onPress={openDeleteAccount}
           danger
         />
       </View>
 
       <View style={{ height: 48 }} />
+
+      {/* ── Sign-out confirm modal ─────────────────────────────── */}
+      <Modal
+        visible={signOutOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => (signingOut ? null : setSignOutOpen(false))}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Sign out?</Text>
+            <Text style={styles.modalBody}>You'll need to sign back in to use Pickleague.</Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={() => setSignOutOpen(false)}
+                disabled={signingOut}
+              >
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnPrimary]}
+                onPress={doSignOut}
+                disabled={signingOut}
+              >
+                {signingOut
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.modalBtnPrimaryText}>Sign out</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Delete-account confirm modal ───────────────────────── */}
+      <Modal
+        visible={deleteOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeDeleteAccount}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={[styles.modalTitle, { color: '#c62828' }]}>Delete account</Text>
+            <Text style={styles.modalBody}>
+              This permanently removes your account, profile, ratings, match history, pickles, and
+              everything else tied to it. This cannot be undone.
+            </Text>
+            <Text style={styles.modalBody}>
+              Enter your password to confirm.
+            </Text>
+            <TextInput
+              style={styles.passwordInput}
+              value={deletePassword}
+              onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
+              placeholder="Current password"
+              placeholderTextColor="#aaa"
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete="current-password"
+              editable={!deleting}
+            />
+            {deleteError ? <Text style={styles.modalError}>{deleteError}</Text> : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnGhost]}
+                onPress={closeDeleteAccount}
+                disabled={deleting}
+              >
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnDanger, !deletePassword && { opacity: 0.5 }]}
+                onPress={doDeleteAccount}
+                disabled={deleting || !deletePassword}
+              >
+                {deleting
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.modalBtnPrimaryText}>Delete my account</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -425,4 +559,17 @@ const styles = StyleSheet.create({
   segmentBtnActive:   { backgroundColor: '#2e7d32' },
   segmentText:        { fontSize: 13, fontWeight: '600', color: '#666' },
   segmentTextActive:  { color: '#fff' },
+  modalBackdrop:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard:          { width: '100%', maxWidth: 440, backgroundColor: '#fff', borderRadius: 14, padding: 22 },
+  modalTitle:         { fontSize: 18, fontWeight: '800', color: '#1a1a1a', marginBottom: 10 },
+  modalBody:          { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 12 },
+  modalError:         { color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 8 },
+  passwordInput:      { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#1a1a1a', backgroundColor: '#fafafa', marginBottom: 6 },
+  modalActions:       { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
+  modalBtn:           { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, minWidth: 96, alignItems: 'center', justifyContent: 'center' },
+  modalBtnGhost:      { backgroundColor: '#f0f0f0' },
+  modalBtnGhostText:  { color: '#444', fontSize: 14, fontWeight: '700' },
+  modalBtnPrimary:    { backgroundColor: '#2e7d32' },
+  modalBtnDanger:     { backgroundColor: '#c62828' },
+  modalBtnPrimaryText:{ color: '#fff', fontSize: 14, fontWeight: '700' },
 });

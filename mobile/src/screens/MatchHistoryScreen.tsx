@@ -211,9 +211,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           item.doubles_category === 'gendered' ? S.catGenderedColor :
           item.doubles_category === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
         ]}>
-          {item.doubles_category === 'gendered' ? '2v2 Gendered' :
-           item.doubles_category === 'mixed'    ? '2v2 Mixed'    :
-                                                  '2v2 Unspecified'}
+          {item.doubles_category === 'gendered' ? 'Gendered Doubles' :
+           item.doubles_category === 'mixed'    ? 'Mixed Doubles'    :
+                                                  'Unspecified Doubles'}
         </Text>
       </View>
     ) : null;
@@ -247,7 +247,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
               <View style={S.leagueMeta}>
                 <Text style={S.score}>{item.player1_score} – {item.player2_score}</Text>
-                <Text style={S.typeTag}>{item.match_type === 'doubles' ? '2v2' : '1v1'}</Text>
+                <Text style={S.typeTag}>{item.match_type === 'doubles' ? 'Doubles' : 'Singles'}</Text>
               </View>
               {homeAwayBadge}
               {indoorOutdoorBadge}
@@ -435,7 +435,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             {(['all', 'singles', 'doubles'] as TypeFilter[]).map((v) => (
               <TouchableOpacity key={v} style={[S.pill, matchType === v && S.pillActive]} onPress={() => setMatchType(v)}>
                 <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'singles' ? '1v1' : '2v2'}
+                  {v === 'all' ? 'All' : v === 'singles' ? 'Singles' : 'Doubles'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -444,9 +444,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           <View style={S.pillRow}>
             {([
               { v: 'all',         label: 'All' },
-              { v: 'gendered',    label: '2v2 Gendered' },
-              { v: 'mixed',       label: '2v2 Mixed' },
-              { v: 'unspecified', label: '2v2 Unspecified' },
+              { v: 'gendered',    label: 'Gendered Doubles' },
+              { v: 'mixed',       label: 'Mixed Doubles' },
+              { v: 'unspecified', label: 'Unspecified Doubles' },
             ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
               <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
                 <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>

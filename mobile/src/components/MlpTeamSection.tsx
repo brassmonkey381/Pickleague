@@ -54,6 +54,10 @@ export default function MlpTeamSection({
   const [pendingInvite, setPendingInvite]   = useState<{ teamId: string; teamName: string; user: PickedUser } | null>(null);
   const [inviteError, setInviteError]       = useState<string | null>(null);
 
+  // Leave/disband flow
+  const [leaveConfirm, setLeaveConfirm]   = useState<{ teamId: string; teamName: string; asCaptain: boolean } | null>(null);
+  const [leaveError, setLeaveError]       = useState<string | null>(null);
+
   useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
 
   async function load() {
@@ -230,6 +234,26 @@ export default function MlpTeamSection({
     onTeamsChanged?.();
   }
 
+  async function confirmLeaveTeam() {
+    if (!leaveConfirm) return;
+    setLeaveError(null);
+    setBusy(true);
+    try {
+      const { error } = await supabase.rpc('mlp_leave_team', { p_team_id: leaveConfirm.teamId });
+      if (error) {
+        setLeaveError(error.message ?? 'Failed to leave team.');
+        return;
+      }
+      setLeaveConfirm(null);
+      await load();
+      onTeamsChanged?.();
+    } catch (e: any) {
+      setLeaveError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function generateRandomTeams(mode: 'random' | 'snake') {
     setBusy(true);
     const { data, error } = await supabase.rpc('generate_random_mlp_teams', {
@@ -402,6 +426,19 @@ export default function MlpTeamSection({
               </View>
             )}
 
+            {/* Leave / Disband button — visible to any team member while forming */}
+            {format === 'mlp' && isMyTeam && t.status === 'forming' && tournamentStatus === 'registration' && (
+              <TouchableOpacity
+                style={S.leaveBtn}
+                onPress={() => setLeaveConfirm({ teamId: t.id, teamName: t.name, asCaptain: isCaptain })}
+                disabled={busy}
+              >
+                <Text style={S.leaveBtnText}>
+                  {isCaptain ? '🗑  Disband Team' : '🚪 Leave Team'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {/* Player POV — invite to me */}
             {format === 'mlp' && !isMyTeam && t.status === 'forming' && currentUserId
               && myReqHere?.direction === 'invite' && myReqHere?.status === 'pending' && (
@@ -537,6 +574,52 @@ export default function MlpTeamSection({
           </View>
         </View>
       </Modal>
+
+      {/* Leave / Disband confirm modal */}
+      <Modal
+        visible={!!leaveConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => (busy ? null : setLeaveConfirm(null))}
+      >
+        <View style={S.modalBackdrop}>
+          <View style={S.modalCard}>
+            <Text style={S.modalTitle}>
+              {leaveConfirm?.asCaptain ? `Disband "${leaveConfirm?.teamName}"?` : `Leave "${leaveConfirm?.teamName}"?`}
+            </Text>
+            <Text style={S.modalBody}>
+              {leaveConfirm?.asCaptain
+                ? 'You\'re the captain. Disbanding deletes the team and removes every member from it. Pending invites and join requests for this team will also be cancelled. This cannot be undone.'
+                : 'You\'ll be removed from this team. You can request to join another team or create your own after.'}
+            </Text>
+            {leaveError ? (
+              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 8 }}>
+                {leaveError}
+              </Text>
+            ) : null}
+            <View style={S.modalBtnRow}>
+              <TouchableOpacity
+                style={[S.modalBtn, S.modalBtnSecondary]}
+                onPress={() => { setLeaveConfirm(null); setLeaveError(null); }}
+                disabled={busy}
+              >
+                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.modalBtn, { backgroundColor: '#c62828' }, busy && S.modalBtnDim]}
+                onPress={confirmLeaveTeam}
+                disabled={busy}
+              >
+                {busy
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={S.modalBtnPrimaryText}>
+                      {leaveConfirm?.asCaptain ? 'Disband team' : 'Leave team'}
+                    </Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -592,6 +675,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     lockBtn:     { backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center', marginTop: 10 },
     lockBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+    leaveBtn:    { marginTop: 12, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: c.danger, backgroundColor: c.surface },
+    leaveBtnText:{ color: c.danger, fontWeight: '700', fontSize: 13 },
 
     requestBtn:     { marginTop: 8, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1.5, borderColor: c.primary },
     requestBtnText: { color: c.primary, fontWeight: '700', fontSize: 13 },

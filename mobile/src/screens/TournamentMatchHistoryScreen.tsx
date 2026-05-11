@@ -125,8 +125,8 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
           cat === 'gendered' ? S.catGenderedColor :
           cat === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
         ]}>
-          {cat === 'gendered' ? '2v2 Gendered' :
-           cat === 'mixed'    ? '2v2 Mixed'    : '2v2 Unspecified'}
+          {cat === 'gendered' ? 'Gendered Doubles' :
+           cat === 'mixed'    ? 'Mixed Doubles'    : 'Unspecified Doubles'}
         </Text>
       </View>
     ) : null;
@@ -165,7 +165,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
             </View>
             <View style={S.cardRight}>
               <Text style={S.score}>{myScore} – {oppScore}</Text>
-              <Text style={S.typeTag}>{isDoubles ? '2v2' : '1v1'}</Text>
+              <Text style={S.typeTag}>{isDoubles ? 'Doubles' : 'Singles'}</Text>
               {categoryBadge}
             </View>
           </View>
@@ -200,7 +200,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
             ) : (
               <Text style={S.pendingTag}>Not played</Text>
             )}
-            <Text style={S.typeTag}>{isDoubles ? '2v2' : '1v1'}</Text>
+            <Text style={S.typeTag}>{isDoubles ? 'Doubles' : 'Singles'}</Text>
             {categoryBadge}
           </View>
         </View>
@@ -313,7 +313,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
             {(['all', 'singles', 'doubles'] as TypeFilter[]).map((v) => (
               <TouchableOpacity key={v} style={[S.pill, matchType === v && S.pillActive]} onPress={() => setMatchType(v)}>
                 <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'singles' ? '1v1' : '2v2'}
+                  {v === 'all' ? 'All' : v === 'singles' ? 'Singles' : 'Doubles'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -323,9 +323,9 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
           <View style={S.pillRow}>
             {([
               { v: 'all',         label: 'All' },
-              { v: 'gendered',    label: '2v2 Gendered' },
-              { v: 'mixed',       label: '2v2 Mixed' },
-              { v: 'unspecified', label: '2v2 Unspecified' },
+              { v: 'gendered',    label: 'Gendered Doubles' },
+              { v: 'mixed',       label: 'Mixed Doubles' },
+              { v: 'unspecified', label: 'Unspecified Doubles' },
             ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
               <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
                 <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>

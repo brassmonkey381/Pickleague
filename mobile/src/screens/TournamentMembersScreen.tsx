@@ -36,7 +36,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
 
     const { data } = await supabase
       .from('tournament_registrations')
-      .select('*, profile:profiles(id, full_name, rating)')
+      .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating)')
       .eq('tournament_id', tournamentId)
       .eq('status', 'approved')
       .order('role');

@@ -288,7 +288,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
             onPress={() => resetOnTypeChange(t)}
           >
             <Text style={[S.toggleText, matchType === t && S.toggleTextActive]}>
-              {t === 'singles' ? '1v1  Singles' : '2v2  Doubles'}
+              {t === 'singles' ? 'Singles' : 'Doubles'}
             </Text>
           </TouchableOpacity>
         ))}
@@ -321,9 +321,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           doublesCategory === 'unspecified' && S.categoryCardUnspecified,
         ]}>
           <Text style={S.categoryHeader}>
-            {doublesCategory === 'gendered'    ? '🏓 2v2 Gendered'    :
-             doublesCategory === 'mixed'       ? '🏓 2v2 Mixed'       :
-                                                 '⚠️ 2v2 Uncategorized'}
+            {doublesCategory === 'gendered'    ? '🏓 Gendered Doubles' :
+             doublesCategory === 'mixed'       ? '🏓 Mixed Doubles'    :
+                                                 '⚠️ Uncategorized Doubles'}
           </Text>
           <Text style={S.categorySub}>
             {doublesCategory === 'gendered'    ? 'All four players share the same gender — updates Gendered Doubles PLUPR.' :
