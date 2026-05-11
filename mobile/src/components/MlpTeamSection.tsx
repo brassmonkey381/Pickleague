@@ -234,6 +234,42 @@ export default function MlpTeamSection({
     onTeamsChanged?.();
   }
 
+  // Captain re-slots themselves into their own team after clearing their slot.
+  // Auto-routes by gender (male/other → male_1 then male_2, female → female_1 then female_2).
+  async function captainJoinOwnTeam(team: MlpTeam) {
+    if (!currentUserId) return;
+    const me = profileMap[currentUserId];
+    const gender = me?.gender;
+    if (!gender || gender === 'prefer-not-to-say') {
+      Alert.alert('Set your gender', 'Open your profile and set your gender (male/female/other) before joining a team slot.');
+      return;
+    }
+
+    let slot: MlpTeamSlot | null = null;
+    if (gender === 'female') {
+      if (team.female_1_id == null) slot = 'female_1';
+      else if (team.female_2_id == null) slot = 'female_2';
+    } else {
+      if (team.male_1_id == null) slot = 'male_1';
+      else if (team.male_2_id == null) slot = 'male_2';
+    }
+    if (!slot) {
+      Alert.alert('No open slot', `Both ${gender === 'female' ? 'female' : 'male'} slots are filled. Clear one first.`);
+      return;
+    }
+
+    setBusy(true);
+    const { error } = await supabase.rpc('mlp_set_slot', {
+      p_team_id: team.id,
+      p_slot:    slot,
+      p_user_id: currentUserId,
+    });
+    setBusy(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    await load();
+    onTeamsChanged?.();
+  }
+
   async function confirmLeaveTeam() {
     if (!leaveConfirm) return;
     setLeaveError(null);
@@ -383,6 +419,22 @@ export default function MlpTeamSection({
                   </TouchableOpacity>
                 )}
 
+                {/* Captain isn't in any slot → let them re-add themselves */}
+                {currentUserId &&
+                  t.captain_id === currentUserId &&
+                  t.male_1_id   !== currentUserId &&
+                  t.male_2_id   !== currentUserId &&
+                  t.female_1_id !== currentUserId &&
+                  t.female_2_id !== currentUserId && (
+                  <TouchableOpacity
+                    style={[S.captainBtn, { marginTop: 8 }]}
+                    onPress={() => captainJoinOwnTeam(t)}
+                    disabled={busy}
+                  >
+                    <Text style={S.captainBtnText}>＋ Add me to a slot</Text>
+                  </TouchableOpacity>
+                )}
+
                 {teamReqs.filter(r => r.direction === 'request').length > 0 && (
                   <View style={S.reqList}>
                     <Text style={S.reqListTitle}>Pending requests to join</Text>
@@ -426,16 +478,25 @@ export default function MlpTeamSection({
               </View>
             )}
 
-            {/* Leave / Disband button — visible to any team member while forming */}
-            {format === 'mlp' && isMyTeam && t.status === 'forming' && tournamentStatus === 'registration' && (
+            {/* Leave Team — non-captain members only */}
+            {format === 'mlp' && isMyTeam && !isCaptain && t.status === 'forming' && tournamentStatus === 'registration' && (
               <TouchableOpacity
                 style={S.leaveBtn}
-                onPress={() => setLeaveConfirm({ teamId: t.id, teamName: t.name, asCaptain: isCaptain })}
+                onPress={() => setLeaveConfirm({ teamId: t.id, teamName: t.name, asCaptain: false })}
                 disabled={busy}
               >
-                <Text style={S.leaveBtnText}>
-                  {isCaptain ? '🗑  Disband Team' : '🚪 Leave Team'}
-                </Text>
+                <Text style={S.leaveBtnText}>🚪 Leave Team</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Disband Team — captain only, separate destructive action */}
+            {format === 'mlp' && isMyTeam && isCaptain && t.status === 'forming' && tournamentStatus === 'registration' && (
+              <TouchableOpacity
+                style={S.disbandBtn}
+                onPress={() => setLeaveConfirm({ teamId: t.id, teamName: t.name, asCaptain: true })}
+                disabled={busy}
+              >
+                <Text style={S.disbandBtnText}>🗑  Disband Team</Text>
               </TouchableOpacity>
             )}
 
@@ -677,6 +738,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     lockBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
     leaveBtn:    { marginTop: 12, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: c.danger, backgroundColor: c.surface },
     leaveBtnText:{ color: c.danger, fontWeight: '700', fontSize: 13 },
+    disbandBtn:  { marginTop: 12, paddingVertical: 10, alignItems: 'center', borderRadius: 10, backgroundColor: c.danger },
+    disbandBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
 
     requestBtn:     { marginTop: 8, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1.5, borderColor: c.primary },
     requestBtnText: { color: c.primary, fontWeight: '700', fontSize: 13 },
