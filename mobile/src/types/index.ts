@@ -275,6 +275,32 @@ export type MlpTeamJoinRequest = {
   user_profile?: { id: string; full_name: string } | null;
 };
 
+// Doubles partnership for non-MLP doubles tournaments (round-robin /
+// single-elim / double-elim / pool-play). Two slots, no gender semantics.
+export type DoublesPair = {
+  id: string;
+  tournament_id: string;
+  name: string;
+  captain_id: string | null;
+  partner_1_id: string | null;
+  partner_2_id: string | null;
+  status: 'forming' | 'locked';
+  seed: number | null;
+  is_random_generated: boolean;
+  created_at: string;
+};
+
+export type DoublesPairJoinRequest = {
+  id: string;
+  pair_id: string;
+  user_id: string;
+  direction: 'invite' | 'request';
+  status: 'pending' | 'accepted' | 'declined' | 'cancelled';
+  message: string | null;
+  responded_at: string | null;
+  created_at: string;
+};
+
 export type TournamentRegistration = {
   id: string;
   tournament_id: string;
@@ -350,7 +376,20 @@ export type RootStackParamList = {
   Events: { leagueId: string; leagueName: string };
   CreateEvent: { leagueId: string };
   EventDetail: { eventId: string; title: string };
-  MatchEntry: { leagueId: string };
+  MatchEntry: {
+    leagueId: string;
+    // When set, recording a scheduled tournament match — the screen updates
+    // that tournament_matches row instead of inserting a new league match.
+    tournamentId?: string;
+    tournamentMatchId?: string;
+    tournamentName?: string;
+    // Pre-fill the player + match-type fields when arriving from a schedule.
+    prefillMatchType?: 'singles' | 'doubles';
+    prefillTeam1Player?: string;
+    prefillTeam1Partner?: string;
+    prefillTeam2Player?: string;
+    prefillTeam2Partner?: string;
+  };
   MatchHistory: {
     leagueId?: string;
     userId?: string;

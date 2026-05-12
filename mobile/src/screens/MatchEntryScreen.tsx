@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { DoublesCategory, Profile, RootStackParamList } from '../types';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useTheme } from '../lib/ThemeContext';
+import { isGodmodeUserId } from '../lib/godmode';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -79,16 +80,25 @@ function PlayerPickerField({ label, value, onChange, members, exclude, S, colors
 }
 
 export default function MatchEntryScreen({ navigation, route }: Props) {
-  const { leagueId } = route.params;
+  const {
+    leagueId,
+    tournamentId,
+    tournamentMatchId,
+    tournamentName,
+    prefillMatchType,
+    prefillTeam1Player, prefillTeam1Partner,
+    prefillTeam2Player, prefillTeam2Partner,
+  } = route.params;
+  const isTournamentMatch = !!tournamentMatchId;
   const { colors } = useTheme();
   const S = makeStyles(colors);
 
   const [members, setMembers] = useState<Profile[]>([]);
-  const [matchType, setMatchType] = useState<MatchType>('singles');
-  const [p1, setP1] = useState('');
-  const [partner1, setPartner1] = useState('');
-  const [p2, setP2] = useState('');
-  const [partner2, setPartner2] = useState('');
+  const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'singles');
+  const [p1, setP1] = useState(prefillTeam1Player ?? '');
+  const [partner1, setPartner1] = useState(prefillTeam1Partner ?? '');
+  const [p2, setP2] = useState(prefillTeam2Player ?? '');
+  const [partner2, setPartner2] = useState(prefillTeam2Partner ?? '');
   const [score1, setScore1] = useState('');
   const [score2, setScore2] = useState('');
   const [location, setLocation]     = useState<CourtResult | null>(null);
@@ -104,12 +114,50 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
   async function loadLeagueData() {
     const { data: { user } } = await supabase.auth.getUser();
-    const [membersRes, leagueRes, paddleRes] = await Promise.all([
+    if (user) {
+      const { data: paddle } = await supabase.from('player_paddles')
+        .select('id').eq('user_id', user.id).eq('is_default', true).maybeSingle();
+      if (paddle) setMyDefaultPaddleId(paddle.id);
+    }
+
+    // ── Tournament match: members come from tournament_registrations, location
+    //    comes from the tournament itself. (league_members may be empty or
+    //    irrelevant — tournaments can have approved players who aren't members
+    //    of the parent league, or no parent league at all.)
+    if (isTournamentMatch && tournamentId) {
+      const [regsRes, tournRes] = await Promise.all([
+        supabase
+          .from('tournament_registrations')
+          .select('profile:profiles!tournament_registrations_user_id_fkey(*)')
+          .eq('tournament_id', tournamentId)
+          .eq('status', 'approved'),
+        supabase
+          .from('tournaments')
+          .select('location_name, location_lat, location_lng')
+          .eq('id', tournamentId)
+          .single(),
+      ]);
+      setMembers(((regsRes.data ?? []) as any[]).map(r => r.profile).filter(Boolean));
+      const t = tournRes.data;
+      if (t?.location_name) {
+        setLocation({
+          name: t.location_name,
+          address: '',
+          lat: t.location_lat ?? 0,
+          lng: t.location_lng ?? 0,
+          placeId: '',
+        });
+        // Reuse the same indoor/outdoor learner so the toggle defaults correctly.
+        learnCourtDefault(t.location_name);
+      }
+      return;
+    }
+
+    // ── League / casual match (existing path) ──
+    const [membersRes, leagueRes] = await Promise.all([
       supabase.from('league_members').select('profile:profiles(*)').eq('league_id', leagueId),
       supabase.from('leagues').select('home_court, home_court_lat, home_court_lng').eq('id', leagueId).single(),
-      user ? supabase.from('player_paddles').select('id').eq('user_id', user.id).eq('is_default', true).maybeSingle() : Promise.resolve({ data: null }),
     ]);
-    if (paddleRes.data) setMyDefaultPaddleId(paddleRes.data.id);
     setMembers((membersRes.data ?? []).map((m: any) => m.profile).filter(Boolean));
     const lg = leagueRes.data;
     if (lg?.home_court) {
@@ -212,21 +260,50 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     if (isNaN(s1) || isNaN(s2) || score1 === '' || score2 === '') return setError('Please enter scores for both teams.');
     if (s1 < 0 || s2 < 0) return setError('Scores cannot be negative.');
     if (s1 === s2) return setError('Scores cannot be tied — pickleball always has a winner.');
-    if (!location) return setError('Please enter a match location.');
+    // Tournament matches inherit the tournament's location; only require for league matches.
+    if (!isTournamentMatch && !location) return setError('Please enter a match location.');
 
     const winnerTeam = s1 > s2 ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
 
     setLoading(true);
 
-    // Match goes in as 'pending'. The entering user auto-confirms whichever
-    // team they're on — the OTHER team must confirm within 1 hour or the row
-    // is deleted (via the expire_pending_matches cron job).
+    // ── Tournament match: update the existing tournament_matches row ──
+    // The on_tournament_match_completed trigger fires when status flips to
+    // 'completed' and applies PLUPR to the right facet/scope automatically.
+    if (isTournamentMatch && tournamentMatchId) {
+      const { error: tmErr } = await supabase
+        .from('tournament_matches')
+        .update({
+          team1_score: s1,
+          team2_score: s2,
+          winner_team: winnerTeam,
+          status:      'completed',
+        })
+        .eq('id', tournamentMatchId);
+      setLoading(false);
+      if (tmErr) {
+        setError(tmErr.message);
+        return;
+      }
+      setStatusMsg({ text: 'Tournament match recorded. PLUPR updated.', isError: false });
+      setTimeout(() => navigation.goBack(), 1500);
+      return;
+    }
+
+    // ── League / casual match: insert into `matches` as pending (confirm flow) ──
+    // The entering user auto-confirms whichever team they're on — the OTHER
+    // team must confirm within 1 hour or the row is deleted (via the
+    // expire_pending_matches cron job).
+    //
+    // Godmode shortcut: insert as 'completed' with both team confirms set to
+    // the godmode user, so PLUPR applies immediately and no expiry is needed.
     const { data: { user } } = await supabase.auth.getUser();
     const enteringUid = user?.id ?? null;
     const isOnTeam1 = enteringUid && (enteringUid === p1 || (matchType === 'doubles' && enteringUid === partner1));
     const isOnTeam2 = enteringUid && (enteringUid === p2 || (matchType === 'doubles' && enteringUid === partner2));
-    const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const isGod = isGodmodeUserId(enteringUid);
+    const deadline = isGod ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase.from('matches').insert({
       league_id:    leagueId,
@@ -245,10 +322,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_outdoor:     isOutdoor,
-      status:             'pending',
+      status:             isGod ? 'completed' : 'pending',
       confirm_deadline:   deadline,
-      team1_confirmed_by: isOnTeam1 ? enteringUid : null,
-      team2_confirmed_by: isOnTeam2 ? enteringUid : null,
+      team1_confirmed_by: isGod ? enteringUid : (isOnTeam1 ? enteringUid : null),
+      team2_confirmed_by: isGod ? enteringUid : (isOnTeam2 ? enteringUid : null),
     }).select('id').single();
     setLoading(false);
 
@@ -268,10 +345,12 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         });
       }
       setStatusMsg({
-        text: 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.',
+        text: isGod
+          ? 'Match recorded and confirmed (godmode). PLUPR updated.'
+          : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.',
         isError: false,
       });
-      setTimeout(() => navigation.goBack(), 2500);
+      setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
     }
   }
 
@@ -296,19 +375,34 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   return (
     <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
 
-      {/* Singles / Doubles toggle */}
+      {/* Tournament-match banner */}
+      {isTournamentMatch && (
+        <View style={S.tournamentBanner}>
+          <Text style={S.tournamentBannerTitle}>🏆 Recording a tournament match</Text>
+          <Text style={S.tournamentBannerBody}>
+            {tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.
+          </Text>
+        </View>
+      )}
+
+      {/* Singles / Doubles toggle — locked in tournament mode */}
       <View style={S.toggleRow}>
-        {(['singles', 'doubles'] as MatchType[]).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[S.toggleBtn, matchType === t && S.toggleBtnActive]}
-            onPress={() => resetOnTypeChange(t)}
-          >
-            <Text style={[S.toggleText, matchType === t && S.toggleTextActive]}>
-              {t === 'singles' ? 'Singles' : 'Doubles'}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {(['singles', 'doubles'] as MatchType[]).map((t) => {
+          const isActive = matchType === t;
+          const disabled = isTournamentMatch && !isActive;
+          return (
+            <TouchableOpacity
+              key={t}
+              style={[S.toggleBtn, isActive && S.toggleBtnActive, disabled && { opacity: 0.4 }]}
+              onPress={() => disabled ? null : resetOnTypeChange(t)}
+              disabled={disabled}
+            >
+              <Text style={[S.toggleText, isActive && S.toggleTextActive]}>
+                {t === 'singles' ? 'Singles' : 'Doubles'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
       {/* Team 1 */}
@@ -445,6 +539,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 40 },
+    tournamentBanner:      { backgroundColor: c.primaryLight, borderLeftWidth: 4, borderLeftColor: c.primary, borderRadius: 10, padding: 12, marginBottom: 16 },
+    tournamentBannerTitle: { fontSize: 14, fontWeight: '800', color: c.text, marginBottom: 4 },
+    tournamentBannerBody:  { fontSize: 13, color: c.textSub, lineHeight: 18 },
     toggleRow: { flexDirection: 'row', borderRadius: 10, borderWidth: 1.5, borderColor: c.border, overflow: 'hidden', marginBottom: 20 },
     toggleBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: c.surfaceAlt },
     toggleBtnActive: { backgroundColor: c.primary },

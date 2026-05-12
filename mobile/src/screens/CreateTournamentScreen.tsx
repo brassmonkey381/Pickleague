@@ -196,15 +196,15 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         </View>
 
         {/* ── Seeding ── */}
-        <SectionHeader title="Player Seeding" S={S} />
+        <SectionHeader title="Bracket Seeding" S={S} />
         <View style={S.pillRow}>
           <Pill label="🎲 Random draw"  active={seeding === 'random'} onPress={() => setSeeding('random')} S={S} />
           <Pill label="📊 PLUPR-based" active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
         </View>
         <Text style={S.hint}>
           {seeding === 'elo'
-            ? 'Players are sorted by PLUPR. Pools and brackets use snake-draft to balance skill levels.'
-            : 'Players are assigned randomly to pools and brackets.'}
+            ? 'Determines bracket structure and which players face off in each round. Players are sorted by PLUPR; pools and brackets use snake-draft so the top seed faces the bottom seed and skill levels stay balanced across pools.'
+            : 'Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.'}
         </Text>
 
         {/* ── Pool count (pool play only) ── */}

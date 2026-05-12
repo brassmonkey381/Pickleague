@@ -163,6 +163,71 @@ export function generateMLPSchedule(teams: [string, string][]): MatchPairing[] {
   }));
 }
 
+// ── Doubles team helpers ──────────────────────────────────────
+// For non-MLP doubles tournaments (round-robin / single-elim / pool play),
+// every team is a fixed pair drawn from doubles_pairs (or a random pairing
+// of unpaired approved players at bracket draw time). These wrap the
+// underlying singles generators by treating each pair as a single token.
+
+/** Sort pairs by combined PLUPR (average of partners), descending. */
+export function seedTeams(
+  teams: [string, string][],
+  ratings: Record<string, number>,
+  mode: 'random' | 'elo',
+): [string, string][] {
+  if (mode === 'random') return shuffle(teams);
+  return [...teams].sort((a, b) => {
+    const ar = ((ratings[a[0]] ?? 3.25) + (ratings[a[1]] ?? 3.25)) / 2;
+    const br = ((ratings[b[0]] ?? 3.25) + (ratings[b[1]] ?? 3.25)) / 2;
+    return br - ar;
+  });
+}
+
+/** Round-robin between pairs (same shape as generateMLPSchedule). */
+export function generateDoublesRoundRobin(teams: [string, string][]): MatchPairing[] {
+  const tokenIds = teams.map((_, i) => `__T${i}`);
+  return generateRoundRobin(tokenIds).map(m => ({
+    ...m,
+    team1: teams[parseInt(m.team1[0].slice(3))],
+    team2: teams[parseInt(m.team2[0].slice(3))],
+  }));
+}
+
+/** Single-elim bracket between pairs. Returns round-1 only — later rounds
+ *  fill in as results come in. */
+export function generateDoublesSingleElim(seededTeams: [string, string][]): MatchPairing[] {
+  const tokenIds = seededTeams.map((_, i) => `__T${i}`);
+  return generateSingleElim(tokenIds).map(m => ({
+    ...m,
+    team1: seededTeams[parseInt(m.team1[0].slice(3))],
+    team2: seededTeams[parseInt(m.team2[0].slice(3))],
+  }));
+}
+
+/** Pool play between pairs: snake-draft teams into pools, then round-robin within each pool. */
+export function generateDoublesPoolPlay(
+  seededTeams: [string, string][],
+  poolCount: number,
+): { pools: [string, string][][]; matches: MatchPairing[] } {
+  // Snake-assign teams to pools by their pre-sorted order.
+  const pools: [string, string][][] = Array.from({ length: poolCount }, () => []);
+  seededTeams.forEach((team, i) => {
+    const snakePos = i % (poolCount * 2);
+    const poolIdx  = snakePos < poolCount ? snakePos : poolCount * 2 - 1 - snakePos;
+    pools[Math.min(poolIdx, poolCount - 1)].push(team);
+  });
+
+  const matches: MatchPairing[] = [];
+  pools.forEach((pool, pi) => {
+    const poolMatches = generateDoublesRoundRobin(pool).map(m => ({
+      ...m,
+      label: `Pool ${String.fromCharCode(65 + pi)} · Round ${m.round}`,
+    }));
+    matches.push(...poolMatches);
+  });
+  return { pools, matches };
+}
+
 // ── Format labels ─────────────────────────────────────────────
 export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string; description: string }> = {
   round_robin:         { label: 'Round Robin',       icon: '🔄', description: 'Every player faces every other player.' },

@@ -13,8 +13,11 @@ import {
   TournamentRole,
 } from '../lib/tournamentRole';
 import {
-  FORMAT_META, seedPlayers, generateRoundRobin, generatePoolPlay,
-  generateSingleElim, generateRotatingPartners, generateMLPSchedule, MatchPairing,
+  FORMAT_META, seedPlayers, seedTeams,
+  generateRoundRobin, generatePoolPlay, generateSingleElim,
+  generateRotatingPartners, generateMLPSchedule,
+  generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesPoolPlay,
+  MatchPairing,
 } from '../lib/tournament';
 import { checkGodmode } from '../lib/godmode';
 import { formatPlupr } from '../lib/plupr';
@@ -22,6 +25,7 @@ import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
 import PicklePotCard from '../components/PicklePotCard';
 import MlpTeamSection from '../components/MlpTeamSection';
+import DoublesPairSection from '../components/DoublesPairSection';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -51,7 +55,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
   const [generatedMatches, setGeneratedMatches] = useState<MatchPairing[] | null>(null);
   const [pools, setPools]                 = useState<string[][] | null>(null);
+  // Fixed doubles pairs (non-MLP doubles formats). Loaded alongside regs.
+  const [doublesPairs, setDoublesPairs]   = useState<{ partner_1_id: string | null; partner_2_id: string | null }[]>([]);
   const [locking, setLocking]             = useState(false);
+  const [showLockInConfirm, setShowLockInConfirm] = useState(false);
+  const [lockInError, setLockInError]     = useState<string | null>(null);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
   const [savedRounds, setSavedRounds]     = useState<any[]>([]);
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
@@ -106,6 +114,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
     const regs = (regRes.data ?? []) as TournamentRegistration[];
     setRegistrations(regs);
+
+    // Doubles pair list (only relevant for non-MLP doubles formats — harmless
+    // to load for others, returns empty).
+    const { data: pairs } = await supabase
+      .from('doubles_pairs')
+      .select('partner_1_id, partner_2_id')
+      .eq('tournament_id', tournamentId);
+    setDoublesPairs((pairs ?? []) as any);
 
     const names: Record<string, string> = {};
     const ratings: Record<string, number> = {};
@@ -289,6 +305,62 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const approved = registrations.filter(r => r.status === 'approved').map(r => r.user_id);
     if (approved.length < 2) { Alert.alert('Need at least 2 approved players.'); return; }
 
+    // ── Doubles tournaments with fixed pairs (round-robin / elim / pool play) ──
+    // Build teams from doubles_pairs, then auto-pair any unpaired approved
+    // players randomly so the preview reflects what lock-in will look like.
+    const usesFixedPairs = tournament.match_type === 'doubles'
+      && tournament.format !== 'mlp'
+      && tournament.format !== 'mlp_random'
+      && tournament.format !== 'rotating_partners';
+
+    if (usesFixedPairs) {
+      const approvedSet = new Set(approved);
+      const teams: [string, string][] = [];
+      const paired = new Set<string>();
+      for (const p of doublesPairs) {
+        if (p.partner_1_id && p.partner_2_id
+            && approvedSet.has(p.partner_1_id) && approvedSet.has(p.partner_2_id)) {
+          teams.push([p.partner_1_id, p.partner_2_id]);
+          paired.add(p.partner_1_id);
+          paired.add(p.partner_2_id);
+        }
+      }
+      // Random-pair the leftovers (preview only — does NOT persist to DB).
+      const leftovers = approved.filter(uid => !paired.has(uid));
+      // Shuffle by Math.random
+      for (let i = leftovers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
+      }
+      for (let i = 0; i + 1 < leftovers.length; i += 2) {
+        teams.push([leftovers[i], leftovers[i + 1]]);
+      }
+      // If there's an odd one out, they sit this preview out.
+      if (teams.length < 2) {
+        Alert.alert('Not enough teams', 'Need at least 2 doubles pairs to generate a bracket.');
+        return;
+      }
+      const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
+
+      switch (tournament.format) {
+        case 'round_robin':
+          setGeneratedMatches(generateDoublesRoundRobin(seededTeams)); break;
+        case 'single_elimination':
+        case 'double_elimination':
+          setGeneratedMatches(generateDoublesSingleElim(seededTeams)); break;
+        case 'pool_play': {
+          const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
+          // pools here are [team, team][] — flatten to player-id rows for the
+          // existing pools state shape.
+          setPools(p.map(pool => pool.flat()));
+          setGeneratedMatches(m);
+          break;
+        }
+      }
+      return;
+    }
+
+    // ── Singles + MLP + Rotating-partners: existing per-player logic ──
     const seeded = seedPlayers(approved, profileRatings, tournament.seeding);
 
     switch (tournament.format) {
@@ -312,17 +384,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Lock in bracket + notify ────────────────────────────────
-  async function lockInBracket() {
+  // Alert.alert with multiple buttons collapses to a single OK on web, which
+  // killed this flow. Use a Modal instead — same pattern as Disband Team,
+  // Delete Tournament confirm, etc.
+  function lockInBracket() {
     if (!generatedMatches || !tournament) return;
-
-    Alert.alert(
-      'Lock in bracket?',
-      `This will finalize the schedule and notify all ${approved.length} members. You won't be able to regenerate after this.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Lock In & Notify', style: 'default', onPress: doLockIn },
-      ]
-    );
+    setLockInError(null);
+    setShowLockInConfirm(true);
   }
 
   async function doLockIn() {
@@ -330,6 +398,49 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setLocking(true);
 
     try {
+      // 0. Persist any novel doubles pairs used in the bracket preview.
+      //    Non-MLP doubles tournaments may have included random pairings of
+      //    previously-unpaired approved players — those rows weren't written
+      //    to doubles_pairs yet. Insert them now so the pair section UI
+      //    reflects every team that actually got locked in.
+      const usesFixedPairs = tournament.match_type === 'doubles'
+        && tournament.format !== 'mlp'
+        && tournament.format !== 'mlp_random'
+        && tournament.format !== 'rotating_partners';
+
+      if (usesFixedPairs) {
+        const alreadyPaired = new Set<string>();
+        for (const p of doublesPairs) {
+          if (p.partner_1_id) alreadyPaired.add(p.partner_1_id);
+          if (p.partner_2_id) alreadyPaired.add(p.partner_2_id);
+        }
+        // Collect distinct teams from the generated matches.
+        const novelPairs: { p1: string; p2: string }[] = [];
+        const seenKey = new Set<string>();
+        for (const m of generatedMatches) {
+          for (const team of [m.team1, m.team2]) {
+            const [a, b] = team;
+            if (!a || !b || a === 'BYE' || b === 'BYE') continue;
+            if (alreadyPaired.has(a) || alreadyPaired.has(b)) continue;
+            const key = [a, b].sort().join('|');
+            if (seenKey.has(key)) continue;
+            seenKey.add(key);
+            novelPairs.push({ p1: a, p2: b });
+          }
+        }
+        if (novelPairs.length > 0) {
+          const { error: pairErr } = await supabase.rpc('persist_random_doubles_pairs', {
+            p_tournament_id: tournament.id,
+            p_pairs: novelPairs,
+          });
+          if (pairErr) {
+            // Non-fatal — bracket lock-in can still proceed.
+            // eslint-disable-next-line no-console
+            console.warn('[lock-in] failed to persist novel doubles pairs', pairErr);
+          }
+        }
+      }
+
       // 1. Create a round record
       const roundType = tournament.format === 'pool_play' ? 'pool' : 'winners';
       const { data: round, error: rErr } = await supabase
@@ -383,6 +494,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       setGeneratedMatches(null);
       setPools(null);
+      setShowLockInConfirm(false);
       load();
 
       const notified = memberIds.length - notifsFailed;
@@ -392,7 +504,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '')
       );
     } catch (err: any) {
-      Alert.alert('Lock-in failed', err.message ?? 'Unknown error. Please try again.');
+      setLockInError(err?.message ?? 'Unknown error. Please try again.');
     } finally {
       setLocking(false);
     }
@@ -658,48 +770,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {/* ── Partner section (MLP / fixed format + approved member) ── */}
-        {requiresPartner(tournament.format, tournament.match_type) && myReg?.status === 'approved' && (
+        {/* ── Doubles partner pair (non-MLP doubles formats) ── */}
+        {requiresPartner(tournament.format, tournament.match_type) && (
           <View style={S.section}>
-            <Text style={S.sectionTitle}>Your Partner</Text>
-
-            {myConfirmedPartner ? (
-              <View style={S.partnerConfirmed}>
-                <Text style={S.partnerConfirmedIcon}>🤝</Text>
-                <Text style={S.partnerConfirmedName}>{playerName(myPartnerUserId ?? undefined)}</Text>
-                <Text style={S.partnerConfirmedNote}>Partner confirmed</Text>
-              </View>
-            ) : myPartnerReqSent ? (
-              <View style={S.partnerPending}>
-                <Text style={S.partnerPendingText}>
-                  ⏳ Waiting for {playerName(myPartnerReqSent.requested_id)} to accept your request.
-                </Text>
-                <TouchableOpacity onPress={() => cancelPartnerRequest(myPartnerReqSent.id)}>
-                  <Text style={S.cancelReqText}>Cancel request</Text>
-                </TouchableOpacity>
-              </View>
-            ) : myPartnerReqReceived ? (
-              <View style={S.partnerRequest}>
-                <Text style={S.partnerReqText}>
-                  {playerName(myPartnerReqReceived.requester_id)} wants to be your partner!
-                </Text>
-                <View style={S.partnerReqActions}>
-                  <TouchableOpacity style={S.acceptBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, true)}>
-                    <Text style={S.acceptBtnText}>Accept</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={S.declineBtn} onPress={() => respondToPartnerRequest(myPartnerReqReceived.id, false)}>
-                    <Text style={S.declineBtnText}>Decline</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : (
-              <>
-                <Text style={S.noPartnerText}>You don't have a partner yet.</Text>
-                <TouchableOpacity style={S.findPartnerBtn} onPress={() => setShowPartnerModal(true)}>
-                  <Text style={S.findPartnerBtnText}>🔍 Find a Partner</Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <DoublesPairSection
+              tournamentId={tournamentId}
+              tournamentStatus={tournament.status}
+              isPriv={isPriv}
+              currentUserId={myUserId}
+              approvedRegistrations={registrations.filter(r => r.status === 'approved')}
+              onPairsChanged={() => load()}
+            />
           </View>
         )}
 
@@ -1045,8 +1126,28 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                       const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
                       const completed = m.status === 'completed' && m.winner_team != null;
                       const team1Won = m.winner_team === 'team1';
+                      // Tappable when not yet recorded. Completed rows are inert —
+                      // they're history at that point. The League_id we pass is the
+                      // tournament's league_id (may be null for standalone tournaments).
+                      const tappable = !completed && !!m.team1_player1 && !!m.team2_player1;
+                      const handlePress = () => navigation.navigate('MatchEntry', {
+                        leagueId:           tournament?.league_id ?? '',
+                        tournamentId:       tournament?.id,
+                        tournamentMatchId:  m.id,
+                        tournamentName:     tournament?.name,
+                        prefillMatchType:   m.match_type,
+                        prefillTeam1Player: m.team1_player1 ?? undefined,
+                        prefillTeam1Partner:m.team1_player2 ?? undefined,
+                        prefillTeam2Player: m.team2_player1 ?? undefined,
+                        prefillTeam2Partner:m.team2_player2 ?? undefined,
+                      });
+                      const Row: any = tappable ? TouchableOpacity : View;
                       return (
-                        <View key={m.id} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
+                        <Row
+                          key={m.id}
+                          style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
+                          {...(tappable ? { onPress: handlePress, activeOpacity: 0.6 } : {})}
+                        >
                           <Text style={S.matchNum}>{i + 1}</Text>
                           <Text style={[
                             S.matchup,
@@ -1066,7 +1167,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                             isMyMatch && S.matchupHighlight,
                           ]} numberOfLines={1}>{t2}</Text>
                           {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
-                        </View>
+                          {tappable && !isMyMatch && (
+                            <Text style={S.recordChevron}>›</Text>
+                          )}
+                        </Row>
                       );
                     })}
                   </View>
@@ -1283,6 +1387,45 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         />
       </Modal>
 
+      {/* Lock-in bracket confirm */}
+      <Modal
+        visible={showLockInConfirm}
+        transparent animationType="fade"
+        onRequestClose={() => (locking ? null : setShowLockInConfirm(false))}
+      >
+        <View style={S.confirmBackdrop}>
+          <View style={S.confirmCard}>
+            <Text style={S.confirmTitle}>Lock in bracket?</Text>
+            <Text style={S.confirmBody}>
+              This finalizes the schedule and notifies all {approved.length} member{approved.length === 1 ? '' : 's'}. You won't be able to regenerate after this.
+            </Text>
+            {lockInError ? (
+              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 10 }}>
+                {lockInError}
+              </Text>
+            ) : null}
+            <View style={S.confirmBtnRow}>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnSecondary]}
+                onPress={() => setShowLockInConfirm(false)}
+                disabled={locking}
+              >
+                <Text style={S.confirmBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.confirmBtn, S.confirmBtnDanger, locking && { opacity: 0.7 }]}
+                onPress={doLockIn}
+                disabled={locking}
+              >
+                {locking
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={S.confirmBtnDangerText}>Lock In & Notify</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Godmode delete confirm */}
       <Modal
         visible={showDeleteConfirm}
@@ -1463,6 +1606,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     matchScore: { fontSize: 13, fontWeight: '800', color: c.textSub, paddingHorizontal: 4 },
     scheduleRoundLabel: { fontSize: 12, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 4 },
     myMatchTag: { fontSize: 9, color: c.primary, fontWeight: '800', backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
+    recordChevron: { fontSize: 18, color: c.textMuted, fontWeight: '700', marginLeft: 4 },
 
     // Partner section
     partnerConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.primaryLight, borderRadius: 10, padding: 12 },
