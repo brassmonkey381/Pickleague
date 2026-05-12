@@ -99,21 +99,23 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 }
 
 export default function MatchHistoryScreen({ navigation, route }: Props) {
-  const { leagueId, userId } = route.params;
+  const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly } = route.params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const [matches, setMatches]       = useState<Match[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
-  const [showFilters, setShowFilters] = useState(false);
+  // Open filter drawer by default when arriving with pre-applied filters so
+  // the user can see what's been narrowed for them.
+  const [showFilters, setShowFilters] = useState(!!(initialMatchType || initialDoublesCategory || initialMyMatchesOnly));
   const [homeAway, setHomeAway]     = useState<HomeAwayFilter>('all');
-  const [matchType, setMatchType]   = useState<TypeFilter>('all');
+  const [matchType, setMatchType]   = useState<TypeFilter>(initialMatchType ?? 'all');
   const [region, setRegion]         = useState<string | null>(null);
   const [recency, setRecency]       = useState<RecencyFilter>(null);
   const [playerSearch, setPlayerSearch] = useState('');
-  const [myMatchesOnly, setMyMatchesOnly] = useState(false);
+  const [myMatchesOnly, setMyMatchesOnly] = useState(!!initialMyMatchesOnly);
   const [indoorOutdoor, setIndoorOutdoor] = useState<IndoorOutdoorFilter>('all');
-  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>('all');
+  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>(initialDoublesCategory ?? 'all');
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {

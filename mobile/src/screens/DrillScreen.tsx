@@ -7,10 +7,12 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { RootStackParamList } from '../types';
+import { DrillSession, RootStackParamList } from '../types';
 import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
-import { DrillAvailability, pruneStale, totalSlots } from '../lib/drillTime';
+import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
+
+type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string };
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Drill'> };
 
@@ -31,6 +33,10 @@ export default function DrillScreen({ navigation }: Props) {
   const [saveStatus, setSaveStatus]           = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [sessions, setSessions]               = useState<SessionWithPartner[]>([]);
+  const [sessionFilter, setSessionFilter]     = useState<'upcoming' | 'past'>('upcoming');
+  const [scheduledMatches, setScheduledMatches] = useState<{ date: string; slot: number; length_minutes: number }[]>([]);
+
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
@@ -38,7 +44,7 @@ export default function DrillScreen({ navigation }: Props) {
     if (!user) return;
     setUserId(user.id);
 
-    const [profileRes, requestsRes] = await Promise.all([
+    const [profileRes, requestsRes, sessionsRes, matchesRes, tournamentsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('drilling_enabled, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
@@ -49,6 +55,29 @@ export default function DrillScreen({ navigation }: Props) {
         .select('id', { count: 'exact', head: true })
         .eq('to_user_id', user.id)
         .eq('status', 'pending'),
+      supabase
+        .from('drill_sessions')
+        .select(`
+          *,
+          p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
+          p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
+        `)
+        .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
+        .order('session_date')
+        .order('session_slot'),
+      // Scheduled matches I'm part of (any of the 4 player slots), still upcoming.
+      supabase
+        .from('matches')
+        .select('scheduled_at, player1_id, partner1_id, player2_id, partner2_id, status')
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', new Date().toISOString())
+        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`),
+      // Tournaments I'm approved into that have a known start time + expected length.
+      supabase
+        .from('tournament_registrations')
+        .select('tournament:tournaments(start_time, expected_length_hours, status)')
+        .eq('user_id', user.id)
+        .eq('status', 'approved'),
     ]);
 
     if (profileRes.data) {
@@ -59,6 +88,37 @@ export default function DrillScreen({ navigation }: Props) {
       setCustomTags(profileRes.data.drill_custom_tags ?? []);
     }
     setPendingCount((requestsRes as any).count ?? 0);
+
+    const rows = ((sessionsRes as any).data ?? []) as any[];
+    setSessions(rows.map(r => ({
+      ...r,
+      partner_id: r.player1_id === user.id ? r.player2_id : r.player1_id,
+      partner_name: r.player1_id === user.id ? (r.p2?.full_name ?? 'Unknown') : (r.p1?.full_name ?? 'Unknown'),
+    })));
+
+    // Build the red overlay list:
+    //  - Scheduled matches: 60-min default since `matches` has no length yet.
+    //  - Tournaments I'm approved into: full expected window, split per-day
+    //    so weekend-long events paint each day's cells correctly.
+    const matchRows = ((matchesRes as any).data ?? []) as { scheduled_at: string | null }[];
+    const matchOverlays = matchRows
+      .filter(m => m.scheduled_at != null)
+      .map(m => {
+        const d = new Date(m.scheduled_at as string);
+        const slot = d.getHours() * 2 + (d.getMinutes() >= 30 ? 1 : 0);
+        return { date: isoDate(d), slot, length_minutes: 60 };
+      });
+
+    const tRows = ((tournamentsRes as any).data ?? []) as { tournament: { start_time: string | null; expected_length_hours: number | null; status: string } | null }[];
+    const tournamentOverlays = tRows.flatMap(r => {
+      const t = r.tournament;
+      if (!t || !t.start_time || t.expected_length_hours == null) return [];
+      if (t.status === 'completed' || t.status === 'cancelled') return [];
+      return spanToDailyOverlays(new Date(t.start_time), Number(t.expected_length_hours));
+    });
+
+    setScheduledMatches([...matchOverlays, ...tournamentOverlays]);
+
     setLoading(false);
   }
 
@@ -123,6 +183,19 @@ export default function DrillScreen({ navigation }: Props) {
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
 
   const totalSlotsCount = totalSlots(availability);
+
+  const today = isoDate(new Date());
+  const upcomingSessions = sessions.filter(s => s.session_date >= today);
+  const pastSessions     = sessions.filter(s => s.session_date <  today).reverse();
+  const visibleSessions  = sessionFilter === 'upcoming' ? upcomingSessions : pastSessions;
+
+  // Yellow-paint the grid for upcoming sessions inside the rolling 7-day window.
+  const visibleDates = new Set(rollingDates());
+  const confirmedSlots = upcomingSessions
+    .filter(s => visibleDates.has(s.session_date))
+    .map(s => ({ date: s.session_date, slot: s.session_slot, length_minutes: s.length_minutes }));
+  // Red-paint scheduled matches inside the same window.
+  const matchOverlay = scheduledMatches.filter(m => visibleDates.has(m.date));
 
   return (
     <ScrollView
@@ -193,15 +266,58 @@ export default function DrillScreen({ navigation }: Props) {
             </Text>
           )}
 
+          {/* Drill sessions card */}
+          <View style={S.card}>
+            <View style={S.sessionsHeader}>
+              <Text style={S.cardTitle}>Drill Sessions</Text>
+              <View style={S.filterRow}>
+                {(['upcoming', 'past'] as const).map(f => (
+                  <TouchableOpacity
+                    key={f}
+                    style={[S.filterPill, sessionFilter === f && S.filterPillActive]}
+                    onPress={() => setSessionFilter(f)}
+                  >
+                    <Text style={[S.filterPillText, sessionFilter === f && S.filterPillTextActive]}>
+                      {f === 'upcoming' ? `Upcoming (${upcomingSessions.length})` : `Past (${pastSessions.length})`}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            {visibleSessions.length === 0 ? (
+              <Text style={S.sessionsEmpty}>
+                {sessionFilter === 'upcoming'
+                  ? 'No upcoming sessions yet. Find a partner and accept a request to schedule one.'
+                  : 'No past sessions yet.'}
+              </Text>
+            ) : (
+              <View style={{ marginTop: 10, gap: 8 }}>
+                {visibleSessions.map(s => (
+                  <View key={s.id} style={S.sessionRow}>
+                    <View style={[S.sessionDot, sessionFilter === 'past' && S.sessionDotPast]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={S.sessionTitle}>{s.partner_name}</Text>
+                      <Text style={S.sessionSub}>
+                        {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotRangeLabel(s.session_slot, s.length_minutes ?? 60)} · {durationLabel(s.length_minutes ?? 60)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
           {/* Availability grid */}
           <View style={S.card}>
             <Text style={S.cardTitle}>Your Drill Availability</Text>
-            <Text style={S.cardSub}>Next 7 days · drag to paint your free slots</Text>
+            <Text style={S.cardSub}>Next 7 days · drag to paint your free slots · yellow = drill · red = match/tournament</Text>
             <View style={{ marginTop: 10 }}>
               <DrillAvailabilityGrid
                 availability={availability}
                 onChange={onAvailabilityChange}
                 onScrollLock={setScrollLocked}
+                confirmedSlots={confirmedSlots}
+                scheduledMatchSlots={matchOverlay}
               />
             </View>
           </View>
@@ -349,5 +465,18 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     addBtnText:    { color: '#fff', fontSize: 14, fontWeight: '700' },
     customChip:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
     customChipText:{ fontSize: 13, color: c.primary, fontWeight: '600' },
+
+    sessionsHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 6 },
+    filterRow:         { flexDirection: 'row', gap: 6 },
+    filterPill:        { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    filterPillActive:  { backgroundColor: c.primaryLight, borderColor: c.primary },
+    filterPillText:    { fontSize: 11, fontWeight: '700', color: c.textSub },
+    filterPillTextActive: { color: c.primary },
+    sessionsEmpty:     { fontSize: 13, color: c.textMuted, marginTop: 10, lineHeight: 19 },
+    sessionRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: c.surfaceAlt, borderRadius: 10 },
+    sessionDot:        { width: 10, height: 10, borderRadius: 5, backgroundColor: '#f5c542' },
+    sessionDotPast:    { backgroundColor: c.textMuted },
+    sessionTitle:      { fontSize: 14, fontWeight: '700', color: c.text },
+    sessionSub:        { fontSize: 12, color: c.textSub, marginTop: 1 },
   });
 }

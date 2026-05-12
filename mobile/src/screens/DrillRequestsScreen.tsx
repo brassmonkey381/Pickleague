@@ -1,13 +1,14 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert,
+  Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { DrillRequest, RootStackParamList } from '../types';
-import { dateLabel, dateSubLabel, slotLabel, slotFullLabel } from '../lib/drillTime';
+import { DrillRequest, DrillRequestMessage, RootStackParamList } from '../types';
+import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
 import { AVATARS } from '../data/profileCustomization';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
@@ -22,6 +23,13 @@ export default function DrillRequestsScreen({}: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [requests, setRequests] = useState<DrillRequest[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Per-request slot selection for the incoming Accept flow.
+  // Key = request.id, value = index into proposed_slots that the receiver picked.
+  const [selectedSlotIdx, setSelectedSlotIdx] = useState<Record<string, number>>({});
+
+  // Chat modal state
+  const [chatRequest, setChatRequest] = useState<DrillRequest | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
@@ -62,22 +70,14 @@ export default function DrillRequestsScreen({}: Props) {
     load();
   }
 
-  function pickSlotAndAccept(req: DrillRequest) {
-    if (req.proposed_slots.length === 1) {
-      respondToRequest(req, 'accept', req.proposed_slots[0]);
+  function acceptWithSelectedSlot(req: DrillRequest) {
+    const idx = selectedSlotIdx[req.id];
+    const slot = idx != null ? req.proposed_slots[idx] : null;
+    if (!slot) {
+      Alert.alert('Pick a time', 'Tap one of the proposed times before accepting.');
       return;
     }
-    Alert.alert(
-      'Pick a time',
-      'Which slot works for you?',
-      [
-        ...req.proposed_slots.map(s => ({
-          text: slotFullLabel(s),
-          onPress: () => respondToRequest(req, 'accept', s),
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]
-    );
+    respondToRequest(req, 'accept', slot);
   }
 
   async function cancelRequest(req: DrillRequest) {
@@ -179,49 +179,249 @@ export default function DrillRequestsScreen({}: Props) {
 
               {/* Slots display */}
               <Text style={S.slotsLabel}>
-                {isAccepted && item.accepted_slot ? 'Confirmed time' : 'Proposed times'}
+                {isAccepted && item.accepted_slot
+                  ? `Confirmed time · ${durationLabel(item.length_minutes ?? 60)} drill`
+                  : tab === 'incoming' && isPending
+                    ? `Pick a time below to enable Accept · ${durationLabel(item.length_minutes ?? 60)} drill`
+                    : `Proposed times · ${durationLabel(item.length_minutes ?? 60)} drill`}
               </Text>
               <View style={S.slotsWrap}>
                 {(isAccepted && item.accepted_slot
                   ? [item.accepted_slot]
                   : item.proposed_slots
-                ).map((s, i) => (
-                  <View key={i} style={[S.slotChip, isAccepted && S.slotChipAccepted]}>
-                    <Text style={[S.slotChipText, isAccepted && S.slotChipTextAccepted]}>
-                      {dateLabel(s.date)} {dateSubLabel(s.date)} · {slotLabel(s.slot)}
-                    </Text>
-                  </View>
-                ))}
+                ).map((s, i) => {
+                  const interactable = tab === 'incoming' && isPending && !isAccepted;
+                  const selected = selectedSlotIdx[item.id] === i;
+                  const showAsAccepted = isAccepted || (interactable && selected);
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={[S.slotChip, showAsAccepted && S.slotChipAccepted]}
+                      onPress={interactable ? () => setSelectedSlotIdx(prev => ({ ...prev, [item.id]: i })) : undefined}
+                      activeOpacity={interactable ? 0.7 : 1}
+                      disabled={!interactable}
+                    >
+                      <Text style={[S.slotChipText, showAsAccepted && S.slotChipTextAccepted]}>
+                        {selected ? '✓ ' : ''}{dateLabel(s.date)} {dateSubLabel(s.date)} · {slotLabel(s.slot)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
 
               {/* Actions */}
               {tab === 'incoming' && isPending && (
-                <View style={S.actions}>
-                  <TouchableOpacity
-                    style={[S.actionBtn, S.acceptBtn]}
-                    onPress={() => pickSlotAndAccept(item)}
-                  >
-                    <Text style={S.acceptText}>✓ Accept</Text>
+                <>
+                  <View style={S.actions}>
+                    <TouchableOpacity
+                      style={[
+                        S.actionBtn,
+                        S.acceptBtn,
+                        selectedSlotIdx[item.id] == null && S.actionBtnDim,
+                      ]}
+                      onPress={() => acceptWithSelectedSlot(item)}
+                      disabled={selectedSlotIdx[item.id] == null}
+                    >
+                      <Text style={S.acceptText}>✓ Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[S.actionBtn, S.declineBtn]}
+                      onPress={() => respondToRequest(item, 'decline')}
+                    >
+                      <Text style={S.declineText}>Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
+                    <Text style={S.replyBtnText}>💬 Reply to {otherProfile?.full_name?.split(' ')[0] ?? 'them'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[S.actionBtn, S.declineBtn]}
-                    onPress={() => respondToRequest(item, 'decline')}
-                  >
-                    <Text style={S.declineText}>Decline</Text>
-                  </TouchableOpacity>
-                </View>
+                </>
               )}
               {tab === 'outgoing' && isPending && (
-                <TouchableOpacity style={S.cancelBtn} onPress={() => cancelRequest(item)}>
-                  <Text style={S.cancelText}>Cancel request</Text>
+                <>
+                  <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
+                    <Text style={S.replyBtnText}>💬 Open chat</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={S.cancelBtn} onPress={() => cancelRequest(item)}>
+                    <Text style={S.cancelText}>Cancel request</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+              {/* Chat is available even after accept/decline so the pair can coordinate */}
+              {!isPending && (
+                <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
+                  <Text style={S.replyBtnText}>💬 Chat</Text>
                 </TouchableOpacity>
               )}
             </View>
           );
         }}
       />
+
+      <DrillChatModal
+        visible={!!chatRequest}
+        request={chatRequest}
+        currentUserId={userId}
+        onClose={() => setChatRequest(null)}
+      />
     </View>
   );
+}
+
+// ── Chat modal ─────────────────────────────────────────────
+function DrillChatModal({
+  visible, request, currentUserId, onClose,
+}: {
+  visible: boolean;
+  request: DrillRequest | null;
+  currentUserId: string | null;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const S = makeChatStyles(colors);
+  const [messages, setMessages] = useState<DrillRequestMessage[]>([]);
+  const [draft, setDraft]       = useState('');
+  const [sending, setSending]   = useState(false);
+  const [loadingMsgs, setLoadingMsgs] = useState(true);
+  const listRef = useRef<ScrollView | null>(null);
+
+  useEffect(() => {
+    if (!visible || !request) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingMsgs(true);
+      const { data } = await supabase
+        .from('drill_request_messages')
+        .select('*')
+        .eq('request_id', request.id)
+        .order('created_at');
+      if (!cancelled) {
+        setMessages((data ?? []) as DrillRequestMessage[]);
+        setLoadingMsgs(false);
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 50);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visible, request?.id]);
+
+  async function sendMessage() {
+    if (!request || !currentUserId) return;
+    const body = draft.trim();
+    if (!body) return;
+    setSending(true);
+    const { data, error } = await supabase
+      .from('drill_request_messages')
+      .insert({ request_id: request.id, sender_id: currentUserId, body })
+      .select()
+      .single();
+    setSending(false);
+    if (error) {
+      Alert.alert('Send failed', error.message);
+      return;
+    }
+    setMessages(prev => [...prev, data as DrillRequestMessage]);
+    setDraft('');
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+  }
+
+  if (!request) return null;
+  const otherName =
+    (currentUserId === request.from_user_id ? request.to_profile : request.from_profile)?.full_name
+    ?? 'Drill partner';
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={S.backdrop}
+      >
+        <View style={S.sheet}>
+          <View style={S.header}>
+            <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={S.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            ref={listRef}
+            style={S.messageList}
+            contentContainerStyle={{ padding: 12 }}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+          >
+            {loadingMsgs ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : messages.length === 0 ? (
+              <Text style={S.empty}>
+                No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept.
+              </Text>
+            ) : (
+              messages.map(m => {
+                const mine = m.sender_id === currentUserId;
+                return (
+                  <View key={m.id} style={[S.bubbleRow, mine && S.bubbleRowMine]}>
+                    <View style={[S.bubble, mine ? S.bubbleMine : S.bubbleTheirs]}>
+                      <Text style={[S.bubbleText, mine && S.bubbleTextMine]}>{m.body}</Text>
+                      <Text style={[S.bubbleTime, mine && S.bubbleTimeMine]}>
+                        {new Date(m.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+
+          <View style={S.composer}>
+            <TextInput
+              style={S.input}
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Type a message…"
+              placeholderTextColor={colors.textMuted}
+              multiline
+              maxLength={500}
+              editable={!sending}
+            />
+            <TouchableOpacity
+              style={[S.sendBtn, (!draft.trim() || sending) && S.sendBtnDim]}
+              onPress={sendMessage}
+              disabled={!draft.trim() || sending}
+            >
+              {sending
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={S.sendBtnText}>Send</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    sheet:       { backgroundColor: c.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '85%', minHeight: 420 },
+    header:      { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    title:       { flex: 1, fontSize: 16, fontWeight: '800', color: c.text },
+    close:       { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
+    messageList: { flex: 1 },
+    empty:       { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 40, lineHeight: 20 },
+    bubbleRow:   { flexDirection: 'row', marginBottom: 6 },
+    bubbleRowMine: { justifyContent: 'flex-end' },
+    bubble:      { maxWidth: '80%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },
+    bubbleMine:  { backgroundColor: c.primary, borderBottomRightRadius: 4 },
+    bubbleTheirs:{ backgroundColor: c.surfaceAlt, borderBottomLeftRadius: 4 },
+    bubbleText:  { fontSize: 14, color: c.text, lineHeight: 19 },
+    bubbleTextMine: { color: '#fff' },
+    bubbleTime:  { fontSize: 10, color: c.textMuted, marginTop: 2 },
+    bubbleTimeMine: { color: 'rgba(255,255,255,0.7)' },
+    composer:    { flexDirection: 'row', padding: 10, gap: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface, alignItems: 'flex-end' },
+    input:       { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 100, fontSize: 14, color: c.text, backgroundColor: c.bg },
+    sendBtn:     { backgroundColor: c.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
+    sendBtnDim:  { opacity: 0.5 },
+    sendBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  });
 }
 
 function timeAgo(iso: string): string {
@@ -278,10 +478,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     actions:     { flexDirection: 'row', gap: 10 },
     actionBtn:   { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center' },
+    actionBtnDim:{ opacity: 0.4 },
     acceptBtn:   { backgroundColor: c.primary },
     acceptText:  { color: '#fff', fontWeight: '800', fontSize: 14 },
     declineBtn:  { backgroundColor: c.surfaceAlt, borderWidth: 1.5, borderColor: c.border },
     declineText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
+    replyBtn:    { marginTop: 10, padding: 10, borderRadius: 10, alignItems: 'center', backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    replyBtnText:{ color: c.primary, fontWeight: '700', fontSize: 13 },
     cancelBtn:   { padding: 10, alignItems: 'center' },
     cancelText:  { color: c.danger, fontSize: 13, fontWeight: '600' },
   });

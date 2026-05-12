@@ -36,13 +36,37 @@ type Props = {
   availability: DrillAvailability;
   onChange: (av: DrillAvailability) => void;
   onScrollLock: (locked: boolean) => void;
+  // Confirmed drill sessions (yellow). Painted yellow over the full
+  // length_minutes / 30 cells starting at `slot`.
+  confirmedSlots?: { date: string; slot: number; length_minutes?: number }[];
+  // Scheduled match commitments (red). Wins over both availability and
+  // drill-confirmed paint, since competitive matches outrank drills.
+  scheduledMatchSlots?: { date: string; slot: number; length_minutes?: number }[];
 };
 
-export default function DrillAvailabilityGrid({ availability, onChange, onScrollLock }: Props) {
+export default function DrillAvailabilityGrid({ availability, onChange, onScrollLock, confirmedSlots, scheduledMatchSlots }: Props) {
   const { colors, isDark } = useTheme();
-  const SEL_BG  = colors.primary;
+  const SEL_BG       = colors.primary;
+  const CONFIRMED_BG = isDark ? '#caa028' : '#f5c542';
+  const MATCH_BG     = isDark ? '#a13434' : '#e75555';
   const EVEN_BG = isDark ? '#1a2818' : '#ebebeb';
   const ODD_BG  = isDark ? '#243024' : '#f4f4f4';
+
+  // Fast lookup sets keyed by "YYYY-MM-DD:slot", each expanded over their length.
+  function expandToSet(slots: { date: string; slot: number; length_minutes?: number }[] | undefined): Set<string> {
+    const s = new Set<string>();
+    for (const c of slots ?? []) {
+      const span = Math.max(1, Math.ceil((c.length_minutes ?? 60) / 30));
+      for (let i = 0; i < span; i++) {
+        const sl = c.slot + i;
+        if (sl >= DRILL_SLOTS_PER_DAY) break; // don't bleed past midnight
+        s.add(`${c.date}:${sl}`);
+      }
+    }
+    return s;
+  }
+  const confirmedSet = useMemo(() => expandToSet(confirmedSlots), [confirmedSlots]);
+  const matchSet     = useMemo(() => expandToSet(scheduledMatchSlots), [scheduledMatchSlots]);
 
   const dates = useMemo(() => rollingDates(), []);
   const numDays = dates.length;
@@ -204,6 +228,22 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
           ? <Text style={[st.hoursLabel, { color: colors.primary }]}>{totalHours}h available · next 7 days</Text>
           : <Text style={[st.noHoursLabel, { color: colors.textMuted }]}>No drill availability set</Text>
         }
+        {(confirmedSet.size > 0 || matchSet.size > 0) && (
+          <View style={st.legendGroup}>
+            {confirmedSet.size > 0 && (
+              <View style={st.legendRow}>
+                <View style={[st.legendSwatch, { backgroundColor: CONFIRMED_BG }]} />
+                <Text style={[st.legendText, { color: colors.textSub }]}>Drill</Text>
+              </View>
+            )}
+            {matchSet.size > 0 && (
+              <View style={st.legendRow}>
+                <View style={[st.legendSwatch, { backgroundColor: MATCH_BG }]} />
+                <Text style={[st.legendText, { color: colors.textSub }]}>Match</Text>
+              </View>
+            )}
+          </View>
+        )}
         <View style={st.controlsRight}>
           {hasAny && (
             <TouchableOpacity onPress={clearAll} style={st.clearBtn}>
@@ -276,7 +316,15 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
               </View>
               {dates.map((date) => {
                 const isSelected = slotsFor(av, date)[slot];
-                const bg = isSelected ? SEL_BG : (even ? EVEN_BG : ODD_BG);
+                const key = `${date}:${slot}`;
+                const isMatch     = matchSet.has(key);
+                const isConfirmed = confirmedSet.has(key);
+                // Match (red) > drill (yellow) > available (green) > default
+                const bg = isMatch
+                  ? MATCH_BG
+                  : isConfirmed
+                    ? CONFIRMED_BG
+                    : isSelected ? SEL_BG : (even ? EVEN_BG : ODD_BG);
                 return <GridCell key={date} bg={bg} />;
               })}
             </View>
@@ -290,9 +338,13 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
 }
 
 const st = StyleSheet.create({
-  controls:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  controls:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', rowGap: 4 },
   hoursLabel:      { fontSize: 13, fontWeight: '700' },
   noHoursLabel:    { fontSize: 12 },
+  legendGroup:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  legendRow:       { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendSwatch:    { width: 12, height: 12, borderRadius: 2 },
+  legendText:      { fontSize: 11, fontWeight: '600' },
   controlsRight:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
   clearBtn:        { paddingHorizontal: 10, paddingVertical: 5 },
   clearBtnText:    { fontSize: 12, fontWeight: '600' },

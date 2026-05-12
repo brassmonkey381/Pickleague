@@ -26,6 +26,9 @@ export default function DrillRequestModal({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [lengthMinutes, setLengthMinutes] = useState<number>(60);
+
+  const LENGTH_OPTIONS = [30, 60, 90, 120];
 
   // Group slots by date for display
   const groups = useMemo(() => {
@@ -61,6 +64,7 @@ export default function DrillRequestModal({
       to_user_id:   toUserId,
       proposed_slots: proposed,
       message: message.trim() || null,
+      length_minutes: lengthMinutes,
     });
     setSending(false);
     if (error) {
@@ -68,6 +72,7 @@ export default function DrillRequestModal({
     } else {
       setPicked(new Set());
       setMessage('');
+      setLengthMinutes(60);
       onSent();
       onClose();
     }
@@ -127,6 +132,25 @@ export default function DrillRequestModal({
             ))
           )}
 
+          <Text style={S.label}>Session length</Text>
+          <View style={S.lengthRow}>
+            {LENGTH_OPTIONS.map(m => {
+              const on = lengthMinutes === m;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  style={[S.lengthChip, on && S.lengthChipOn]}
+                  onPress={() => setLengthMinutes(m)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[S.lengthChipText, on && S.lengthChipTextOn]}>
+                    {m < 60 ? `${m}m` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h ${m % 60}m`}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <Text style={S.label}>Optional message</Text>
           <TextInput
             style={S.messageInput}
@@ -175,6 +199,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotChipTextOn:{ color: c.primary, fontWeight: '800' },
 
     label:       { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 12, marginBottom: 6 },
+    lengthRow:   { flexDirection: 'row', gap: 8, marginBottom: 4 },
+    lengthChip:  { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    lengthChipOn:{ borderColor: c.primary, backgroundColor: c.primaryLight },
+    lengthChipText:  { fontSize: 14, color: c.textSub, fontWeight: '700' },
+    lengthChipTextOn:{ color: c.primary, fontWeight: '800' },
     messageInput:{ borderWidth: 1.5, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 14, color: c.text, backgroundColor: c.surface, minHeight: 80 },
     charCount:   { fontSize: 11, color: c.textMuted, textAlign: 'right', marginTop: 4 },
 

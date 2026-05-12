@@ -38,10 +38,33 @@ export type DrillRequest = {
   message: string | null;
   status: 'pending' | 'accepted' | 'declined' | 'cancelled';
   accepted_slot: { date: string; slot: number } | null;
+  length_minutes: number;
   created_at: string;
   responded_at: string | null;
   from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
   to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
+};
+
+export type DrillRequestMessage = {
+  id: string;
+  request_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+};
+
+export type DrillSession = {
+  id: string;
+  request_id: string | null;
+  player1_id: string;
+  player2_id: string;
+  session_date: string;  // YYYY-MM-DD
+  session_slot: number;  // 0..47 (half-hour grid)
+  length_minutes: number;
+  starts_at: string | null;
+  notes: string | null;
+  reminder_dismissed_by: string[];
+  created_at: string;
 };
 
 export type LocationMatchType = 'singles' | 'doubles_gendered' | 'doubles_mixed';
@@ -204,6 +227,7 @@ export type Tournament = {
   max_players: number | null;
   status: 'registration' | 'active' | 'completed' | 'cancelled';
   start_time: string | null;
+  expected_length_hours: number | null;
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
@@ -324,7 +348,17 @@ export type RootStackParamList = {
   CreateEvent: { leagueId: string };
   EventDetail: { eventId: string; title: string };
   MatchEntry: { leagueId: string };
-  MatchHistory: { leagueId?: string; userId?: string; title: string };
+  MatchHistory: {
+    leagueId?: string;
+    userId?: string;
+    title: string;
+    // Pre-applied filters when arriving from a deep link (e.g. tapping a PLUPR
+    // facet on Home goes to MatchHistory already filtered to that facet).
+    initialMatchType?: 'singles' | 'doubles';
+    initialDoublesCategory?: 'gendered' | 'mixed' | 'unspecified';
+    // When set, only show matches that this user participated in.
+    initialMyMatchesOnly?: boolean;
+  };
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
   SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
   Profile: { userId?: string };

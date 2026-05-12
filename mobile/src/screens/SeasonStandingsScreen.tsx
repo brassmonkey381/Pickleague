@@ -16,6 +16,98 @@ import { useTheme } from '../lib/ThemeContext';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+// Local ISO date "YYYY-MM-DD" for a period N relative to a season's start.
+function computePeriodDate(s: { start_date: string; lock_frequency_weeks: number }, periodNumber: number): string {
+  const d = new Date(s.start_date + 'T00:00:00');
+  d.setDate(d.getDate() + periodNumber * s.lock_frequency_weeks * 7);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Compute W-L standings for league members against a match list, optionally
+// windowed by [startIso, endIso] on played_at. Sorts PLUPR desc → (W-L) desc → W desc.
+function computeStandings(
+  members: any[],
+  matches: any[],
+  startIso?: string,
+  endIso?: string,
+): LiveRow[] {
+  const inRange = matches.filter(m => {
+    if (!m.played_at) return false;
+    if (startIso && m.played_at < startIso) return false;
+    if (endIso   && m.played_at > endIso)   return false;
+    return true;
+  });
+  return members.map(m => {
+    const uid = m.user_id;
+    const wins = inRange.filter(x =>
+      (x.player1_id  === uid && x.winner_team === 'team1') ||
+      (x.partner1_id === uid && x.winner_team === 'team1') ||
+      (x.player2_id  === uid && x.winner_team === 'team2') ||
+      (x.partner2_id === uid && x.winner_team === 'team2')
+    ).length;
+    const losses = inRange.filter(x =>
+      (x.player1_id  === uid && x.winner_team === 'team2') ||
+      (x.partner1_id === uid && x.winner_team === 'team2') ||
+      (x.player2_id  === uid && x.winner_team === 'team1') ||
+      (x.partner2_id === uid && x.winner_team === 'team1')
+    ).length;
+    return {
+      user_id: uid,
+      full_name: m.profile?.full_name ?? 'Unknown',
+      rating: m.profile?.rating ?? 3.25,
+      avatar_id: m.profile?.avatar_id ?? 1,
+      avatar_url: m.profile?.avatar_url ?? null,
+      wins, losses,
+    };
+  }).sort((a, b) =>
+    (b.rating - a.rating) ||
+    ((b.wins - b.losses) - (a.wins - a.losses)) ||
+    (b.wins - a.wins)
+  );
+}
+
+// Median-rank final standings derived from period snapshots (locked or computed).
+function computeMedianFinals(
+  periods: SnapshotPeriod[],
+  members: any[],
+  leagueId: string,
+  seasonId: string,
+): SeasonFinalStanding[] {
+  // Collect each member's ranks across all periods.
+  const ranks: Record<string, number[]> = {};
+  for (const period of periods) {
+    for (const row of period.rows) {
+      if (!ranks[row.user_id]) ranks[row.user_id] = [];
+      ranks[row.user_id].push(row.rank_at_snapshot);
+    }
+  }
+  function median(arr: number[]): number {
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = sorted.length / 2;
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[Math.floor(mid)];
+  }
+  const memberProfileById = new Map(members.map(m => [m.user_id, m.profile]));
+
+  const ranked = Object.entries(ranks)
+    .map(([user_id, rs]) => ({ user_id, median_rank: median(rs) }))
+    .sort((a, b) => a.median_rank - b.median_rank);
+
+  return ranked.map((r, i) => ({
+    id: `computed-final-${r.user_id}`,
+    season_id: seasonId,
+    league_id: leagueId,
+    user_id: r.user_id,
+    final_rank: i + 1,
+    median_rank: r.median_rank,
+    elo_bonus: 0,
+    new_elo: 3.25,
+    profile: memberProfileById.get(r.user_id) ?? undefined,
+  }));
+}
+
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SeasonStandings'>;
   route: RouteProp<RootStackParamList, 'SeasonStandings'>;
@@ -27,7 +119,14 @@ type LiveRow = {
   wins: number; losses: number;
 };
 
-type SnapshotPeriod = { periodNumber: number; date: string; rows: SeasonSnapshot[] };
+type SnapshotPeriod = {
+  periodNumber: number;
+  date: string;
+  rows: SeasonSnapshot[];
+  // True when the row comes from season_snapshots; false when computed
+  // on-the-fly from match data for a period that hasn't been locked yet.
+  locked: boolean;
+};
 
 export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const { seasonId, leagueId, leagueName } = route.params;
@@ -47,7 +146,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const [seasonRes, snapshotsRes, finalsRes, role] = await Promise.all([
+    const [seasonRes, snapshotsRes, finalsRes, role, membersRes, matchesRes] = await Promise.all([
       supabase.from('league_seasons').select('*').eq('id', seasonId).single(),
       supabase.from('season_snapshots')
         .select('*, profile:profiles(full_name, avatar_id, avatar_url)')
@@ -58,78 +157,85 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         .eq('season_id', seasonId)
         .order('final_rank'),
       getLeagueRole(leagueId),
+      supabase.from('league_members')
+        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url)')
+        .eq('league_id', leagueId),
+      // Pull every league match (date + winner). We'll re-filter client-side
+      // per-period and for the live tab.
+      supabase.from('matches')
+        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at')
+        .eq('league_id', leagueId),
     ]);
 
     const s = seasonRes.data as LeagueSeason;
     setSeason(s);
     setMyRole(role);
 
-    // Group snapshots by period
-    const byPeriod: Record<number, SeasonSnapshot[]> = {};
-    for (const row of (snapshotsRes.data ?? []) as SeasonSnapshot[]) {
-      if (!byPeriod[row.period_number]) byPeriod[row.period_number] = [];
-      byPeriod[row.period_number].push(row);
-    }
-    const periodList = Object.entries(byPeriod).map(([n, rows]) => ({
-      periodNumber: Number(n),
-      date: rows[0].snapshot_date,
-      rows,
-    }));
-    setPeriods(periodList);
-    setFinals((finalsRes.data ?? []) as SeasonFinalStanding[]);
-
-    // Live standings from matches during this season
-    if (s) await loadLive(s);
-    setLoading(false);
-  }
-
-  async function loadLive(s: LeagueSeason) {
-    const [membersRes, matchesRes] = await Promise.all([
-      supabase.from('league_members')
-        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url)')
-        .eq('league_id', leagueId),
-      supabase.from('matches')
-        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team')
-        .eq('league_id', leagueId)
-        .gte('played_at', s.start_date)
-        .lte('played_at', new Date().toISOString()),
-    ]);
-
     const members = (membersRes.data ?? []) as any[];
-    const matches = (matchesRes.data ?? []) as any[];
+    const allMatches = (matchesRes.data ?? []) as any[];
 
-    const rows: LiveRow[] = members.map(m => {
-      const uid = m.user_id;
-      const wins = matches.filter(x =>
-        (x.player1_id  === uid && x.winner_team === 'team1') ||
-        (x.partner1_id === uid && x.winner_team === 'team1') ||
-        (x.player2_id  === uid && x.winner_team === 'team2') ||
-        (x.partner2_id === uid && x.winner_team === 'team2')
-      ).length;
-      const losses = matches.filter(x =>
-        (x.player1_id  === uid && x.winner_team === 'team2') ||
-        (x.partner1_id === uid && x.winner_team === 'team2') ||
-        (x.player2_id  === uid && x.winner_team === 'team1') ||
-        (x.partner2_id === uid && x.winner_team === 'team1')
-      ).length;
-      return {
-        user_id: uid,
-        full_name: m.profile?.full_name ?? 'Unknown',
-        rating: m.profile?.rating ?? 3.25,
-        avatar_id: m.profile?.avatar_id ?? 1,
-        avatar_url: m.profile?.avatar_url ?? null,
-        wins, losses,
-      };
-    }).sort((a, b) => b.wins - a.wins || b.rating - a.rating);
+    // Live = matches from season start through now
+    const todayIso = new Date().toISOString();
+    setLive(computeStandings(members, allMatches, s?.start_date, todayIso));
 
-    setLive(rows);
+    // Group locked snapshots by period
+    const lockedByPeriod = new Map<number, SeasonSnapshot[]>();
+    for (const row of (snapshotsRes.data ?? []) as SeasonSnapshot[]) {
+      if (!lockedByPeriod.has(row.period_number)) lockedByPeriod.set(row.period_number, []);
+      lockedByPeriod.get(row.period_number)!.push(row);
+    }
+
+    // Build ALL period tabs (locked use snapshot rows; unlocked are computed
+    // on-the-fly from match data filtered by snapshot date).
+    const allPeriods: SnapshotPeriod[] = [];
+    if (s) {
+      for (let p = 1; p <= s.total_periods; p++) {
+        const snapshotDate = computePeriodDate(s, p);
+        const locked = lockedByPeriod.get(p);
+        if (locked) {
+          allPeriods.push({ periodNumber: p, date: snapshotDate, rows: locked, locked: true });
+        } else {
+          const computedLive = computeStandings(members, allMatches, s.start_date, snapshotDate + 'T23:59:59');
+          // Re-shape into SeasonSnapshot rows so the existing renderer just works.
+          const synthRows: SeasonSnapshot[] = computedLive.map((r, i) => ({
+            id: `computed-${p}-${r.user_id}`,
+            season_id: seasonId,
+            league_id: leagueId,
+            period_number: p,
+            snapshot_date: snapshotDate,
+            user_id: r.user_id,
+            elo_at_snapshot: r.rating,
+            rank_at_snapshot: i + 1,
+            wins_in_season: r.wins,
+            losses_in_season: r.losses,
+            profile: { full_name: r.full_name, avatar_id: r.avatar_id, avatar_url: r.avatar_url },
+          }));
+          allPeriods.push({ periodNumber: p, date: snapshotDate, rows: synthRows, locked: false });
+        }
+      }
+    }
+    setPeriods(allPeriods);
+
+    // Final standings: prefer the locked rows if they exist; otherwise compute
+    // median rank across all periods (locked + computed).
+    const storedFinals = (finalsRes.data ?? []) as SeasonFinalStanding[];
+    if (storedFinals.length > 0) {
+      setFinals(storedFinals);
+    } else if (allPeriods.length > 0) {
+      setFinals(computeMedianFinals(allPeriods, members, leagueId, seasonId));
+    } else {
+      setFinals([]);
+    }
+
+    setLoading(false);
   }
 
   // ── Admin actions ─────────────────────────────────────────────
 
   function nextPeriodNumber(): number {
-    if (periods.length === 0) return 1;
-    return Math.max(...periods.map(p => p.periodNumber)) + 1;
+    const lockedOnly = periods.filter(p => p.locked);
+    if (lockedOnly.length === 0) return 1;
+    return Math.max(...lockedOnly.map(p => p.periodNumber)) + 1;
   }
 
   function nextLockDate(): string {
@@ -154,7 +260,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   function canComplete(): boolean {
     if (!season || !isPrivileged(myRole as any)) return false;
     if (season.elo_reset_applied) return false;
-    return periods.length > 0;
+    return periods.some(p => p.locked);
   }
 
   async function lockPeriod() {
@@ -229,10 +335,13 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
   if (!season) return <Text style={S.empty}>Season not found.</Text>;
 
-  const lockedCount    = periods.length;
+  const lockedCount    = periods.filter(p => p.locked).length;
   const totalPeriods   = season.total_periods;
   const nextPeriod     = nextPeriodNumber();
   const allPeriodsLocked = lockedCount >= totalPeriods;
+  // Finals are "real" only when every period is locked AND the DB has rows.
+  // Otherwise it's a historical preview computed from match data.
+  const finalsAreComputed = !(lockedCount >= totalPeriods && season.status === 'completed');
 
   const statusColor = season.status === 'completed' ? colors.textMuted
                     : season.status === 'active'    ? colors.primary
@@ -466,8 +575,14 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         if (!period) return null;
         return (
           <View style={S.tableCard}>
-            <Text style={S.tableTitle}>Period {period.periodNumber} — Locked In</Text>
-            <Text style={S.tableSubtitle}>Locked {fmtDate(period.date)}</Text>
+            <Text style={S.tableTitle}>
+              Period {period.periodNumber} {period.locked ? '— Locked In' : '— Historical Preview'}
+            </Text>
+            <Text style={S.tableSubtitle}>
+              {period.locked
+                ? `Locked ${fmtDate(period.date)}`
+                : `Computed from matches played through ${fmtDate(period.date)} — not yet locked in`}
+            </Text>
             <View style={S.tableHeader}>
               <Text style={[S.th, S.thRank]}>#</Text>
               <Text style={[S.th, S.thName]}>Player</Text>
@@ -500,12 +615,16 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       {/* ── Final standings ────────────────────────────────────── */}
       {activeTab === 'final' && (
         <View style={S.tableCard}>
-          <Text style={S.tableTitle}>🏆 Final Season Standings</Text>
+          <Text style={S.tableTitle}>
+            🏆 {finalsAreComputed ? 'Final Standings — Historical Preview' : 'Final Season Standings'}
+          </Text>
           <Text style={S.tableSubtitle}>
-            Ranked by median position across {lockedCount} locked period{lockedCount !== 1 ? 's' : ''}
+            {finalsAreComputed
+              ? `Ranked by median position across ${totalPeriods} period${totalPeriods !== 1 ? 's' : ''} (computed from match data — season not yet completed)`
+              : `Ranked by median position across ${lockedCount} locked period${lockedCount !== 1 ? 's' : ''}`}
           </Text>
           {finals.length === 0 ? (
-            <Text style={S.empty}>Complete the season to compute final standings.</Text>
+            <Text style={S.empty}>No matches recorded yet this season.</Text>
           ) : (
             <>
               <View style={S.tableHeader}>

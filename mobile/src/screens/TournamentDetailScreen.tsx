@@ -77,6 +77,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [editLocation, setEditLocation]       = useState('');
   const [editMaxPlayers, setEditMaxPlayers]   = useState('');
   const [editStartTime, setEditStartTime]     = useState<Date | null>(null);
+  const [editLengthHours, setEditLengthHours] = useState('');
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
 
@@ -239,6 +240,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setEditLocation(tournament.location_name ?? '');
     setEditMaxPlayers(tournament.max_players != null ? String(tournament.max_players) : '');
     setEditStartTime(tournament.start_time ? new Date(tournament.start_time) : null);
+    setEditLengthHours(tournament.expected_length_hours != null ? String(tournament.expected_length_hours) : '');
     setShowEditModal(true);
   }
 
@@ -250,14 +252,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     if (editMaxPlayers.trim() && (Number.isNaN(maxPlayersN!) || maxPlayersN! < 2)) {
       Alert.alert('', 'Max players must be a number ≥ 2.'); return;
     }
+    let lengthN: number | null = null;
+    if (editLengthHours.trim()) {
+      lengthN = parseFloat(editLengthHours.trim());
+      if (Number.isNaN(lengthN) || lengthN < 0.5 || lengthN > 168) {
+        Alert.alert('', 'Expected length must be between 0.5 and 168 hours.'); return;
+      }
+    }
 
     setSavingEdit(true);
     const { error } = await supabase.from('tournaments').update({
       name,
-      description:   editDesc.trim() || null,
-      location_name: editLocation.trim() || null,
-      max_players:   maxPlayersN,
-      start_time:    editStartTime ? editStartTime.toISOString() : null,
+      description:           editDesc.trim() || null,
+      location_name:         editLocation.trim() || null,
+      max_players:           maxPlayersN,
+      start_time:            editStartTime ? editStartTime.toISOString() : null,
+      expected_length_hours: lengthN,
     }).eq('id', tournament.id);
     setSavingEdit(false);
 
@@ -484,6 +494,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
           {tournament.start_time && (
             <Text style={S.metaLine}>📅 {new Date(tournament.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
+          )}
+          {tournament.expected_length_hours != null && (
+            <Text style={S.metaLine}>⏱️ ~{tournament.expected_length_hours}h expected</Text>
           )}
           {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
@@ -1191,18 +1204,38 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           />
 
           <Text style={S.editFieldLabel}>Start time</Text>
-          <TouchableOpacity style={S.editInput} onPress={() => setShowStartPicker(true)}>
+          <TouchableOpacity
+            style={[S.editInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+            onPress={() => setShowStartPicker(true)}
+            activeOpacity={0.7}
+          >
             <Text style={editStartTime ? S.editDateText : S.editDatePlaceholder}>
               {editStartTime
                 ? editStartTime.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
                 : 'Tap to set'}
             </Text>
+            <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: c.primaryLight }}>
+              <Text style={{ fontSize: 12, color: c.primary, fontWeight: '700' }}>
+                📅 {editStartTime ? 'Change' : 'Pick'}
+              </Text>
+            </View>
           </TouchableOpacity>
           {editStartTime && (
             <TouchableOpacity onPress={() => setEditStartTime(null)} style={{ paddingVertical: 6, alignSelf: 'flex-start' }}>
               <Text style={{ fontSize: 13, color: c.danger, fontWeight: '600' }}>Clear start time</Text>
             </TouchableOpacity>
           )}
+
+          <Text style={S.editFieldLabel}>Expected length (hours)</Text>
+          <TextInput
+            style={S.editInput}
+            value={editLengthHours}
+            onChangeText={setEditLengthHours}
+            placeholder="e.g. 3, 4.5"
+            placeholderTextColor={c.textMuted}
+            keyboardType="decimal-pad"
+            maxLength={6}
+          />
 
           <Text style={S.editFieldLabel}>Location</Text>
           <TextInput
@@ -1236,14 +1269,18 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.editCancelBtnText}>Cancel</Text>
           </TouchableOpacity>
         </ScrollView>
-      </Modal>
 
-      <AppDateTimePicker
-        visible={showStartPicker}
-        value={editStartTime ?? new Date()}
-        onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
-        onClose={() => setShowStartPicker(false)}
-      />
+        {/* Datetime picker MUST live inside the edit Modal so its position:fixed
+            overlay shares the same stacking context. Otherwise on web the page-
+            sheet Modal renders above the picker and it appears hidden until
+            the edit modal closes. */}
+        <AppDateTimePicker
+          visible={showStartPicker}
+          value={editStartTime ?? new Date()}
+          onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
+          onClose={() => setShowStartPicker(false)}
+        />
+      </Modal>
 
       {/* Godmode delete confirm */}
       <Modal

@@ -4,8 +4,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { Profile, RootStackParamList } from '../types';
+import { DrillSession, Profile, RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
+import { isoDate, slotRangeLabel } from '../lib/drillTime';
 
 // Module-level flag — fires once per app session (resets on app reload).
 let godmodeGrantClaimedThisSession = false;
@@ -30,9 +31,13 @@ export default function HomeScreen({ navigation }: Props) {
   const [godmodeOpen, setGodmodeOpen] = useState(false);
   const [godmodeBalance, setGodmodeBalance] = useState(0);
 
+  // Drill sessions today (player1 or player2 = me). Used for the morning-of banner.
+  const [drillsToday, setDrillsToday] = useState<(DrillSession & { partner_name: string })[]>([]);
+
   useFocusEffect(useCallback(() => {
     loadProfile();
     loadUnread();
+    loadDrillsToday();
   }, []));
 
   // Claim welcome pickles once per account, on first home visit after signup.
@@ -53,6 +58,42 @@ export default function HomeScreen({ navigation }: Props) {
       .select('*', { count: 'exact', head: true })
       .eq('is_read', false);
     setUnreadCount(count ?? 0);
+  }
+
+  async function loadDrillsToday() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setDrillsToday([]); return; }
+    const today = isoDate(new Date());
+    const { data } = await supabase
+      .from('drill_sessions')
+      .select(`
+        *,
+        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
+        p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
+      `)
+      .eq('session_date', today)
+      .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
+      .order('session_slot');
+    const rows = (data ?? []) as any[];
+    // Hide dismissed-by-me sessions.
+    const visible = rows
+      .filter(r => !(r.reminder_dismissed_by ?? []).includes(user.id))
+      .map(r => ({
+        ...r,
+        partner_name: r.player1_id === user.id ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
+      }));
+    setDrillsToday(visible);
+  }
+
+  async function dismissDrillReminder(session: DrillSession) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const next = Array.from(new Set([...(session.reminder_dismissed_by ?? []), user.id]));
+    setDrillsToday(prev => prev.filter(s => s.id !== session.id));
+    await supabase
+      .from('drill_sessions')
+      .update({ reminder_dismissed_by: next })
+      .eq('id', session.id);
   }
 
   async function claimWelcomePicklesOnce() {
@@ -135,31 +176,83 @@ export default function HomeScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* ── Today's drill session reminders ───────────────── */}
+      {drillsToday.map(s2 => (
+        <TouchableOpacity
+          key={s2.id}
+          style={s.drillBanner}
+          onPress={() => navigation.navigate('DrillRequests')}
+          activeOpacity={0.85}
+        >
+          <Text style={s.drillBannerEmoji}>🏓</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.drillBannerTitle}>Drill with {s2.partner_name} today!</Text>
+            <Text style={s.drillBannerSub}>{slotRangeLabel(s2.session_slot, s2.length_minutes ?? 60)} · tap for details</Text>
+          </View>
+          <TouchableOpacity
+            onPress={(e) => { e.stopPropagation(); dismissDrillReminder(s2); }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={s.drillBannerClose}>✕</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      ))}
+
       {/* ── PLUPR stats strip ───────────────────────── */}
       <View style={s.statsCard}>
-        <View style={s.statItem}>
+        <TouchableOpacity
+          style={s.statItem}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('MatchHistory', { title: 'Your Matches', initialMyMatchesOnly: true })}
+        >
           <Text style={s.statEmoji}>⭐</Text>
           <Text style={[s.statValue, { color: colors.primary }]}>{(profile?.rating ?? 3.25).toFixed(2)}</Text>
           <Text style={s.statLabel}>Overall PLUPR</Text>
-        </View>
+        </TouchableOpacity>
         <View style={s.statDivider} />
-        <View style={s.statItem}>
+        <TouchableOpacity
+          style={s.statItem}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('MatchHistory', {
+            title: 'Your Singles Matches',
+            initialMyMatchesOnly: true,
+            initialMatchType: 'singles',
+          })}
+        >
           <Text style={s.statEmoji}>🏓</Text>
           <Text style={s.statValue}>{profile?.singles_rating != null ? profile.singles_rating.toFixed(2) : '—'}</Text>
           <Text style={s.statLabel}>Singles</Text>
-        </View>
+        </TouchableOpacity>
         <View style={s.statDivider} />
-        <View style={s.statItem}>
+        <TouchableOpacity
+          style={s.statItem}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('MatchHistory', {
+            title: 'Your Gendered Doubles',
+            initialMyMatchesOnly: true,
+            initialMatchType: 'doubles',
+            initialDoublesCategory: 'gendered',
+          })}
+        >
           <Text style={s.statEmoji}>🤝</Text>
           <Text style={s.statValue}>{profile?.doubles_rating != null ? profile.doubles_rating.toFixed(2) : '—'}</Text>
           <Text style={s.statLabel}>Gendered Doubles</Text>
-        </View>
+        </TouchableOpacity>
         <View style={s.statDivider} />
-        <View style={s.statItem}>
+        <TouchableOpacity
+          style={s.statItem}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('MatchHistory', {
+            title: 'Your Mixed Doubles',
+            initialMyMatchesOnly: true,
+            initialMatchType: 'doubles',
+            initialDoublesCategory: 'mixed',
+          })}
+        >
           <Text style={s.statEmoji}>♀♂</Text>
           <Text style={s.statValue}>{profile?.mixed_doubles_rating != null ? profile.mixed_doubles_rating.toFixed(2) : '—'}</Text>
           <Text style={s.statLabel}>Mixed Doubles</Text>
-        </View>
+        </TouchableOpacity>
       </View>
 
       {/* ── Nav grid ────────────────────────────────── */}
@@ -297,6 +390,18 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     pickleEmoji: { fontSize: 16 },
     pickleValue: { fontSize: 16, fontWeight: '800', color: c.headerText },
     pickleLabel: { fontSize: 12, color: c.headerSub, marginLeft: 4 },
+
+    drillBanner: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      backgroundColor: c.primaryLight,
+      borderLeftWidth: 4, borderLeftColor: c.primary,
+      paddingHorizontal: 14, paddingVertical: 12,
+      marginHorizontal: 14, marginTop: 12, borderRadius: 10,
+    },
+    drillBannerEmoji: { fontSize: 22 },
+    drillBannerTitle: { fontSize: 14, fontWeight: '800', color: c.text },
+    drillBannerSub:   { fontSize: 12, color: c.textSub, marginTop: 1 },
+    drillBannerClose: { fontSize: 18, fontWeight: '700', color: c.textMuted, paddingHorizontal: 6 },
 
     welcomeBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
     welcomeCard:     { backgroundColor: c.surface, borderRadius: 18, padding: 28, alignItems: 'center', maxWidth: 380, width: '100%', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },

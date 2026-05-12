@@ -531,15 +531,81 @@ export default function MlpTeamSection({
         );
       })}
 
-      {/* Players without a team list */}
-      {format === 'mlp' && tournamentStatus === 'registration' && playersWithoutTeam.length > 0 && (
-        <View style={S.unteamedBox}>
-          <Text style={S.unteamedTitle}>{playersWithoutTeam.length} approved player{playersWithoutTeam.length === 1 ? '' : 's'} not yet on a team</Text>
-          <Text style={S.unteamedNames} numberOfLines={3}>
-            {playersWithoutTeam.map(r => (r.profile?.full_name ?? '?')).join(' · ')}
-          </Text>
-        </View>
-      )}
+      {/* Players without a team — captain gets a one-tap invite per row */}
+      {format === 'mlp' && tournamentStatus === 'registration' && playersWithoutTeam.length > 0 && (() => {
+        const cap = isCaptain ? myTeam : null;
+        const maleOpenings   = cap ? (cap.male_1_id   == null ? 1 : 0) + (cap.male_2_id   == null ? 1 : 0) : 0;
+        const femaleOpenings = cap ? (cap.female_1_id == null ? 1 : 0) + (cap.female_2_id == null ? 1 : 0) : 0;
+        const canCaptainInvite = !!cap && cap.status === 'forming';
+
+        return (
+          <View style={S.unteamedBox}>
+            <View style={S.unteamedHeader}>
+              <Text style={S.unteamedTitle}>
+                {playersWithoutTeam.length} approved player{playersWithoutTeam.length === 1 ? '' : 's'} not yet on a team
+              </Text>
+              {canCaptainInvite && (
+                <Text style={S.unteamedSlots}>
+                  Your team: {maleOpenings} ♂ open · {femaleOpenings} ♀ open
+                </Text>
+              )}
+            </View>
+            <View style={{ marginTop: 10, gap: 6 }}>
+              {playersWithoutTeam.map(r => {
+                const prof = profileMap[r.user_id];
+                const gender = prof?.gender;
+                const isFemale = gender === 'female';
+                const genderHasOpening = canCaptainInvite && (isFemale ? femaleOpenings > 0 : maleOpenings > 0);
+                const existingFromCap = canCaptainInvite
+                  ? requests.find(rq => rq.team_id === cap!.id && rq.user_id === r.user_id)
+                  : null;
+                const alreadyInvited  = existingFromCap?.direction === 'invite';
+                const alreadyRequested = existingFromCap?.direction === 'request';
+
+                return (
+                  <View key={r.user_id} style={S.unteamedRow}>
+                    <Text style={S.unteamedRowName} numberOfLines={1}>
+                      {prof?.full_name ?? r.profile?.full_name ?? '?'}
+                    </Text>
+                    <View style={[
+                      S.unteamedGender,
+                      isFemale ? S.unteamedGenderF : gender === 'male' ? S.unteamedGenderM : S.unteamedGenderO,
+                    ]}>
+                      <Text style={S.unteamedGenderText}>
+                        {isFemale ? '♀ F' : gender === 'male' ? '♂ M' : gender ? '⚥' : '?'}
+                      </Text>
+                    </View>
+                    {canCaptainInvite && (
+                      alreadyInvited ? (
+                        <Text style={S.unteamedInvited}>📨 invited</Text>
+                      ) : alreadyRequested ? (
+                        <Text style={S.unteamedRequested}>⏳ requested</Text>
+                      ) : genderHasOpening ? (
+                        <TouchableOpacity
+                          style={S.unteamedInviteBtn}
+                          onPress={() => pickInvitee(cap!.id, {
+                            id: r.user_id,
+                            full_name: prof?.full_name ?? r.profile?.full_name ?? '',
+                            username: '',
+                            avatar_id: null,
+                            avatar_emoji: null,
+                            avatar_bg_color: null,
+                          })}
+                          disabled={busy}
+                        >
+                          <Text style={S.unteamedInviteBtnText}>+ Invite</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={S.unteamedFull}>slots full</Text>
+                      )
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        );
+      })()}
 
       {/* Generate bracket */}
       {isPriv && allLocked && !bracketAlreadyGenerated && (
@@ -747,8 +813,22 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     pendingNote: { fontSize: 12, color: c.textMuted, fontStyle: 'italic', textAlign: 'center', marginTop: 8 },
 
     unteamedBox:   { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 8, borderWidth: 1, borderColor: c.border },
-    unteamedTitle: { fontSize: 12, fontWeight: '700', color: c.textSub, marginBottom: 4 },
+    unteamedTitle: { fontSize: 12, fontWeight: '700', color: c.textSub },
     unteamedNames: { fontSize: 12, color: c.textMuted, lineHeight: 17 },
+    unteamedHeader:{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', rowGap: 2 },
+    unteamedSlots: { fontSize: 11, color: c.textMuted, fontWeight: '600' },
+    unteamedRow:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: c.surface, borderRadius: 8 },
+    unteamedRowName: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
+    unteamedGender:  { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
+    unteamedGenderM: { backgroundColor: '#cfe6ff' },
+    unteamedGenderF: { backgroundColor: '#ffd6e7' },
+    unteamedGenderO: { backgroundColor: c.surfaceAlt },
+    unteamedGenderText: { fontSize: 10, fontWeight: '800', color: '#333' },
+    unteamedInviteBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 7, backgroundColor: c.primary },
+    unteamedInviteBtnText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+    unteamedInvited:   { fontSize: 11, fontWeight: '700', color: '#b8860b' },
+    unteamedRequested: { fontSize: 11, fontWeight: '700', color: c.primary },
+    unteamedFull:      { fontSize: 11, fontWeight: '600', color: c.textMuted },
 
     generateBtn:     { marginTop: 16, backgroundColor: c.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
     generateBtnText: { color: '#fff', fontWeight: '900', fontSize: 15, letterSpacing: 0.5 },

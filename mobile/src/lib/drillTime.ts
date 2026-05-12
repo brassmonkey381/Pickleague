@@ -56,6 +56,47 @@ export function slotFullLabel(s: DrillSlot): string {
   return `${dateLabel(s.date)} ${dateSubLabel(s.date)} · ${slotLabel(s.slot)}`;
 }
 
+/** "6:00pm – 7:00pm" given a starting slot and a length in minutes. */
+export function slotRangeLabel(startSlot: number, lengthMinutes: number): string {
+  const endSlot = Math.min(48, startSlot + Math.ceil(lengthMinutes / 30));
+  // slotLabel(48) would say "12pm" wrongly — special-case midnight wrap.
+  const endLabel = endSlot >= 48 ? '12am' : slotLabel(endSlot);
+  return `${slotLabel(startSlot)} – ${endLabel}`;
+}
+
+/** Human label for a duration in minutes, e.g. "1h" or "1h 30m". */
+export function durationLabel(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/** Convert a JS Date + length in hours into one or more `{date, slot, length_minutes}`
+ *  overlays — splitting at midnight so multi-day events paint each day correctly. */
+export function spanToDailyOverlays(
+  start: Date,
+  lengthHours: number,
+): { date: string; slot: number; length_minutes: number }[] {
+  const out: { date: string; slot: number; length_minutes: number }[] = [];
+  let remainingMin = Math.max(30, Math.round(lengthHours * 60));
+  let cur = new Date(start);
+
+  while (remainingMin > 0) {
+    const date = isoDate(cur);
+    const slot = cur.getHours() * 2 + (cur.getMinutes() >= 30 ? 1 : 0);
+    const minutesAvailableToday = (DRILL_SLOTS_PER_DAY - slot) * 30;
+    if (minutesAvailableToday <= 0) break;
+    const chunk = Math.min(remainingMin, minutesAvailableToday);
+    out.push({ date, slot, length_minutes: chunk });
+    remainingMin -= chunk;
+    // Jump to next day at midnight, local time.
+    cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1, 0, 0, 0);
+  }
+  return out;
+}
+
 /** Strip stale dates (anything before today). */
 export function pruneStale(av: DrillAvailability, now: Date = new Date()): DrillAvailability {
   const today = isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate()));
