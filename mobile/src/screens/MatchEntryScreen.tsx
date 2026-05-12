@@ -218,6 +218,16 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
 
     setLoading(true);
+
+    // Match goes in as 'pending'. The entering user auto-confirms whichever
+    // team they're on — the OTHER team must confirm within 1 hour or the row
+    // is deleted (via the expire_pending_matches cron job).
+    const { data: { user } } = await supabase.auth.getUser();
+    const enteringUid = user?.id ?? null;
+    const isOnTeam1 = enteringUid && (enteringUid === p1 || (matchType === 'doubles' && enteringUid === partner1));
+    const isOnTeam2 = enteringUid && (enteringUid === p2 || (matchType === 'doubles' && enteringUid === partner2));
+    const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
     const { data, error } = await supabase.from('matches').insert({
       league_id:    leagueId,
       match_type:   matchType,
@@ -235,6 +245,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
       is_outdoor:     isOutdoor,
+      status:             'pending',
+      confirm_deadline:   deadline,
+      team1_confirmed_by: isOnTeam1 ? enteringUid : null,
+      team2_confirmed_by: isOnTeam2 ? enteringUid : null,
     }).select('id').single();
     setLoading(false);
 
@@ -253,8 +267,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           can_edit_until: canEditUntil,
         });
       }
-      setStatusMsg({ text: 'Match recorded! PLUPR ratings updated.', isError: false });
-      setTimeout(() => navigation.goBack(), 1500);
+      setStatusMsg({
+        text: 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.',
+        isError: false,
+      });
+      setTimeout(() => navigation.goBack(), 2500);
     }
   }
 

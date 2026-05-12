@@ -17,6 +17,7 @@ import {
   generateSingleElim, generateRotatingPartners, generateMLPSchedule, MatchPairing,
 } from '../lib/tournament';
 import { checkGodmode } from '../lib/godmode';
+import { formatPlupr } from '../lib/plupr';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
 import PicklePotCard from '../components/PicklePotCard';
@@ -91,7 +92,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const [tRes, regRes, role, godmodeResult] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
       supabase.from('tournament_registrations')
-        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating)')
+        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played)')
         .eq('tournament_id', tournamentId)
         .order('role'),
       getTournamentRole(tournamentId),
@@ -724,7 +725,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 <Text style={[S.playerName, isInvitePending && { color: c.textMuted, fontStyle: 'italic' }]}>
                   {r.profile?.full_name ?? '—'}
                 </Text>
-                <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)}</Text>
+                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}</Text>
                 {isInvitePending ? (
                   <View style={[S.rolePill, { backgroundColor: '#fff3cd', borderColor: '#d4a72c' }]}>
                     <Text style={[S.rolePillText, { color: '#8a6d00' }]}>📨 invited</Text>
@@ -747,7 +748,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {pendingRequests.map(r => (
               <View key={r.id} style={S.pendingRow}>
                 <Text style={S.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
-                <Text style={S.playerRating}>{((r.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
+                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
                 <View style={S.pendingActions}>
                   <TouchableOpacity style={S.approveBtn} onPress={() => approveReg(r.id)}>
                     <Text style={S.approveBtnText}>✓</Text>
@@ -1164,7 +1165,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     <Text style={S.partnerOptionInitial}>{(item.profile?.full_name ?? '?')[0].toUpperCase()}</Text>
                   </View>
                   <Text style={S.partnerOptionName}>{item.profile?.full_name}</Text>
-                  <Text style={S.partnerOptionRating}>{((item.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
+                  <Text style={S.partnerOptionRating}>{formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR</Text>
                 </TouchableOpacity>
               )}
               ListEmptyComponent={<Text style={S.modalEmpty}>All players are already partnered.</Text>}

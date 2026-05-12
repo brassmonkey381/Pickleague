@@ -10,6 +10,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { getLeagueRole, isPrivileged, roleBadgeColor, roleLabel, LeagueRole } from '../lib/leagueRole';
 import { LeagueMember, LeagueJoinRequest, RootStackParamList } from '../types';
 import { availabilityOverlap, totalAvailableSlots, TOTAL_CELLS } from '../lib/availability';
+import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 
 type Props = {
@@ -57,7 +58,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     const [membersRes, requestsRes] = await Promise.all([
       supabase
         .from('league_members')
-        .select('*, profile:profiles(id, full_name, rating)')
+        .select('*, profile:profiles(id, full_name, rating, total_matches_played)')
         .eq('league_id', leagueId)
         .order('role'),
       isPrivileged(role)
@@ -255,7 +256,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
             </View>
             <View style={S.info}>
               <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
-              <Text style={S.rating}>{(item.profile?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
+              <Text style={S.rating}>{formatPlupr(item.profile?.rating, item.profile?.total_matches_played)} PLUPR</Text>
             </View>
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{roleLabel(role)}</Text>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput, Alert } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -25,6 +25,20 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     card: { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderLeftWidth: 4, borderLeftColor: c.border, elevation: 3, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6 },
     win:  { borderLeftColor: c.primary },
     loss: { borderLeftColor: c.danger },
+
+    pendingCard:       { borderLeftColor: '#d4a72c', backgroundColor: '#fffaeb' },
+    pendingHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    pendingBadgeText:  { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.5 },
+    pendingDeadline:   { fontSize: 12, fontWeight: '700', color: '#8a6d00' },
+    pendingMatchup:    { fontSize: 14, fontWeight: '700', color: c.text },
+    pendingScore:      { fontSize: 22, fontWeight: '900', color: c.text, marginVertical: 4 },
+    pendingTeamRow:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 },
+    pendingTeamStatus: { fontSize: 11, fontWeight: '700' },
+    pendingTeamDone:   { color: '#2e7d32' },
+    pendingTeamWaiting:{ color: '#8a6d00' },
+    confirmBtn:        { backgroundColor: c.primary, paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 4 },
+    confirmBtnText:    { color: '#fff', fontWeight: '800', fontSize: 14 },
+    pendingNote:       { fontSize: 12, color: c.textSub, fontStyle: 'italic', marginTop: 6 },
     leagueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
     typeTag: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' },
     cardHeader: { flexDirection: 'row', alignItems: 'center' },
@@ -157,6 +171,15 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return match.player1_id === uid || match.partner1_id === uid;
   }
 
+  async function confirmMatch(matchId: string) {
+    const { error } = await supabase.rpc('confirm_match', { p_match_id: matchId });
+    if (error) {
+      Alert.alert('Confirm failed', error.message);
+      return;
+    }
+    loadMatches();
+  }
+
   function didWin(match: Match, uid: string) {
     return isOnTeam1(match, uid) ? match.winner_team === 'team1' : match.winner_team === 'team2';
   }
@@ -176,6 +199,67 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       item.partner1_id === uid || item.partner2_id === uid;
 
     const viewAs = userId ?? (currentUserId && inMatch(currentUserId) ? currentUserId : null);
+
+    // Pending match — custom card with a Confirm button when the viewer's
+    // team hasn't confirmed yet. PLUPRs aren't applied until both teams sign off.
+    if (item.status === 'pending') {
+      const isDoubles = item.match_type === 'doubles';
+      const team1Name = isDoubles && item.partner1?.full_name
+        ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
+        : (item.player1?.full_name ?? 'Unknown');
+      const team2Name = isDoubles && item.partner2?.full_name
+        ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
+        : (item.player2?.full_name ?? 'Unknown');
+      const team1Done = !!item.team1_confirmed_by;
+      const team2Done = !!item.team2_confirmed_by;
+      const callerOnTeam1 = !!currentUserId && (currentUserId === item.player1_id || currentUserId === item.partner1_id);
+      const callerOnTeam2 = !!currentUserId && (currentUserId === item.player2_id || currentUserId === item.partner2_id);
+      const myTeamConfirmed = (callerOnTeam1 && team1Done) || (callerOnTeam2 && team2Done);
+      const canCallerConfirm = (callerOnTeam1 && !team1Done) || (callerOnTeam2 && !team2Done);
+
+      // Deadline countdown
+      let deadlineLabel = '';
+      if (item.confirm_deadline) {
+        const msLeft = new Date(item.confirm_deadline).getTime() - Date.now();
+        if (msLeft > 0) {
+          const m = Math.max(1, Math.round(msLeft / 60000));
+          deadlineLabel = m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m left` : `${m}m left`;
+        } else {
+          deadlineLabel = 'expired';
+        }
+      }
+
+      return (
+        <View style={[S.card, S.pendingCard]}>
+          <View style={S.pendingHeader}>
+            <Text style={S.pendingBadgeText}>⏳ Pending confirmation</Text>
+            {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
+          </View>
+          <Text style={S.pendingMatchup} numberOfLines={1}>{team1Name}</Text>
+          <Text style={S.pendingScore}>{item.player1_score} – {item.player2_score}</Text>
+          <Text style={S.pendingMatchup} numberOfLines={1}>vs {team2Name}</Text>
+          <View style={S.pendingTeamRow}>
+            <Text style={[S.pendingTeamStatus, team1Done ? S.pendingTeamDone : S.pendingTeamWaiting]}>
+              {team1Done ? '✓ Team 1 confirmed' : '… Team 1 waiting'}
+            </Text>
+            <Text style={[S.pendingTeamStatus, team2Done ? S.pendingTeamDone : S.pendingTeamWaiting]}>
+              {team2Done ? '✓ Team 2 confirmed' : '… Team 2 waiting'}
+            </Text>
+          </View>
+          {canCallerConfirm && (
+            <TouchableOpacity style={S.confirmBtn} onPress={() => confirmMatch(item.id)}>
+              <Text style={S.confirmBtnText}>✓ Confirm this match</Text>
+            </TouchableOpacity>
+          )}
+          {!canCallerConfirm && myTeamConfirmed && (
+            <Text style={S.pendingNote}>Your team confirmed. Waiting on the other team.</Text>
+          )}
+          {!canCallerConfirm && !myTeamConfirmed && !inMatch(currentUserId ?? '') && (
+            <Text style={S.pendingNote}>Awaiting confirmation from both teams.</Text>
+          )}
+        </View>
+      );
+    }
 
     const playedAt = new Date(item.played_at);
     const dateStr  = playedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });

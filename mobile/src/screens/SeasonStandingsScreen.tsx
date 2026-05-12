@@ -13,6 +13,7 @@ import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { AVATARS } from '../data/profileCustomization';
 import PicklePotCard from '../components/PicklePotCard';
 import { useTheme } from '../lib/ThemeContext';
+import { formatPlupr } from '../lib/plupr';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -59,6 +60,7 @@ function computeStandings(
       avatar_id: m.profile?.avatar_id ?? 1,
       avatar_url: m.profile?.avatar_url ?? null,
       wins, losses,
+      total_matches_played: m.profile?.total_matches_played ?? 0,
     };
   }).sort((a, b) =>
     (b.rating - a.rating) ||
@@ -117,6 +119,7 @@ type LiveRow = {
   user_id: string; full_name: string; rating: number;
   avatar_id: number; avatar_url: string | null;
   wins: number; losses: number;
+  total_matches_played: number;
 };
 
 type SnapshotPeriod = {
@@ -158,7 +161,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         .order('final_rank'),
       getLeagueRole(leagueId),
       supabase.from('league_members')
-        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url)')
+        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url, total_matches_played)')
         .eq('league_id', leagueId),
       // Pull every league match (date + winner). We'll re-filter client-side
       // per-period and for the live tab.
@@ -498,7 +501,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               </View>
               <Text style={[S.td, S.tdWin]}>{row.wins}</Text>
               <Text style={[S.td, S.tdLoss]}>{row.losses}</Text>
-              <Text style={S.td}>{row.rating}</Text>
+              <Text style={S.td}>{formatPlupr(row.rating, row.total_matches_played)}</Text>
             </TouchableOpacity>
           ))}
         </View>

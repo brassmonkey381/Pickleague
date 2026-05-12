@@ -19,6 +19,7 @@ import AvailabilityGrid from '../components/AvailabilityGrid';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
 import { TOTAL_CELLS } from '../lib/availability';
 import { computeReliability } from '../lib/reliability';
+import { formatPlupr } from '../lib/plupr';
 import {
   computeAllPartnerChemistry, fmtDelta, chemistryColor,
   ChemistryResult, DoublesMatch,
@@ -750,22 +751,22 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.reliabilityDetail}>{rel.detail}</Text>
             <View style={styles.eloRow}>
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{(profile?.rating ?? 3.25).toFixed(2)}</Text>
+                <Text style={styles.eloValue}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
                 <Text style={styles.eloLabel}>Overall</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{singlesRating.toFixed(2)}</Text>
+                <Text style={styles.eloValue}>{formatPlupr(singlesRating, profile?.total_matches_played)}</Text>
                 <Text style={styles.eloLabel}>Singles</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{doublesRating.toFixed(2)}</Text>
+                <Text style={styles.eloValue}>{formatPlupr(doublesRating, profile?.total_matches_played)}</Text>
                 <Text style={styles.eloLabel}>Gendered Doubles</Text>
               </View>
               <View style={styles.eloDivider} />
               <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{mixedDoublesRating.toFixed(2)}</Text>
+                <Text style={styles.eloValue}>{formatPlupr(mixedDoublesRating, profile?.total_matches_played)}</Text>
                 <Text style={styles.eloLabel}>Mixed Doubles</Text>
               </View>
             </View>

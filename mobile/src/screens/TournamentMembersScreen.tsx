@@ -9,6 +9,7 @@ import {
   tournamentRoleLabel, tournamentRoleBadgeColor,
 } from '../lib/tournamentRole';
 import { TournamentRegistration, RootStackParamList } from '../types';
+import { formatPlupr } from '../lib/plupr';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentMembers'>;
@@ -36,7 +37,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
 
     const { data } = await supabase
       .from('tournament_registrations')
-      .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating)')
+      .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played)')
       .eq('tournament_id', tournamentId)
       .eq('status', 'approved')
       .order('role');
@@ -109,7 +110,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
             </View>
             <View style={S.info}>
               <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
-              <Text style={S.rating}>{((item.profile as any)?.rating ?? 3.25).toFixed(2)} PLUPR</Text>
+              <Text style={S.rating}>{formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR</Text>
             </View>
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{tournamentRoleLabel(role)}</Text>

@@ -7,6 +7,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, Profile, RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import { isoDate, slotRangeLabel } from '../lib/drillTime';
+import { formatPlupr } from '../lib/plupr';
 
 // Module-level flag — fires once per app session (resets on app reload).
 let godmodeGrantClaimedThisSession = false;
@@ -206,7 +207,7 @@ export default function HomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('MatchHistory', { title: 'Your Matches', initialMyMatchesOnly: true })}
         >
           <Text style={s.statEmoji}>⭐</Text>
-          <Text style={[s.statValue, { color: colors.primary }]}>{(profile?.rating ?? 3.25).toFixed(2)}</Text>
+          <Text style={[s.statValue, { color: colors.primary }]}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Overall PLUPR</Text>
         </TouchableOpacity>
         <View style={s.statDivider} />
@@ -220,7 +221,7 @@ export default function HomeScreen({ navigation }: Props) {
           })}
         >
           <Text style={s.statEmoji}>🏓</Text>
-          <Text style={s.statValue}>{profile?.singles_rating != null ? profile.singles_rating.toFixed(2) : '—'}</Text>
+          <Text style={s.statValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Singles</Text>
         </TouchableOpacity>
         <View style={s.statDivider} />
@@ -235,7 +236,7 @@ export default function HomeScreen({ navigation }: Props) {
           })}
         >
           <Text style={s.statEmoji}>🤝</Text>
-          <Text style={s.statValue}>{profile?.doubles_rating != null ? profile.doubles_rating.toFixed(2) : '—'}</Text>
+          <Text style={s.statValue}>{formatPlupr(profile?.doubles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Gendered Doubles</Text>
         </TouchableOpacity>
         <View style={s.statDivider} />
@@ -250,7 +251,7 @@ export default function HomeScreen({ navigation }: Props) {
           })}
         >
           <Text style={s.statEmoji}>♀♂</Text>
-          <Text style={s.statValue}>{profile?.mixed_doubles_rating != null ? profile.mixed_doubles_rating.toFixed(2) : '—'}</Text>
+          <Text style={s.statValue}>{formatPlupr(profile?.mixed_doubles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Mixed Doubles</Text>
         </TouchableOpacity>
       </View>

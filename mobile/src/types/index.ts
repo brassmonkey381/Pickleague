@@ -193,7 +193,10 @@ export type Match = {
   player2_score: number | null;
   winner_id: string | null;
   winner_team: 'team1' | 'team2' | null;
-  status: 'completed';
+  status: 'pending' | 'scheduled' | 'completed';
+  team1_confirmed_by: string | null;
+  team2_confirmed_by: string | null;
+  confirm_deadline: string | null;
   played_at: string;
   player1_rating_before: number | null;
   player2_rating_before: number | null;

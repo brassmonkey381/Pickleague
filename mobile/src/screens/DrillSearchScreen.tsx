@@ -13,6 +13,7 @@ import {
 import { findShotPref, findPartnerPref } from '../data/drillOptions';
 import { AVATARS } from '../data/profileCustomization';
 import DrillRequestModal from '../components/DrillRequestModal';
+import { formatPlupr } from '../lib/plupr';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'> };
 
@@ -21,6 +22,7 @@ type Candidate = {
   full_name: string;
   username: string;
   rating: number;
+  total_matches_played: number;
   avatar_id: number;
   avatar_url: string | null;
   drill_availability: DrillAvailability;
@@ -68,7 +70,7 @@ export default function DrillSearchScreen({}: Props) {
 
     const { data: others } = await supabase
       .from('profiles')
-      .select('id, full_name, username, rating, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
+      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
       .eq('drilling_enabled', true)
       .neq('id', user.id)
       .limit(100);
@@ -84,6 +86,7 @@ export default function DrillSearchScreen({}: Props) {
         full_name: p.full_name ?? 'Unknown',
         username: p.username ?? '',
         rating: p.rating ?? 3.25,
+        total_matches_played: p.total_matches_played ?? 0,
         avatar_id: p.avatar_id ?? 1,
         avatar_url: p.avatar_url,
         drill_availability: theirAvail,
@@ -184,7 +187,7 @@ export default function DrillSearchScreen({}: Props) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
-                  <Text style={S.username}>@{item.username} · {item.rating.toFixed(2)} PLUPR ({eloDiffLabel})</Text>
+                  <Text style={S.username}>@{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR ({eloDiffLabel})</Text>
                 </View>
               </View>
 

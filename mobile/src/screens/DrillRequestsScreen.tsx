@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillRequest, DrillRequestMessage, RootStackParamList } from '../types';
 import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
+import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
@@ -39,8 +40,8 @@ export default function DrillRequestsScreen({}: Props) {
     setUserId(user.id);
 
     const fkField = tab === 'incoming'
-      ? 'from_profile:profiles!drill_requests_from_user_id_fkey(id, full_name, avatar_id, avatar_url, rating)'
-      : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating)';
+      ? 'from_profile:profiles!drill_requests_from_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played)'
+      : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played)';
 
     const { data } = await supabase
       .from('drill_requests')
@@ -151,7 +152,7 @@ export default function DrillRequestsScreen({}: Props) {
                 <View style={{ flex: 1 }}>
                   <Text style={S.name}>{otherProfile?.full_name ?? 'Unknown'}</Text>
                   <Text style={S.sub}>
-                    {(otherProfile?.rating ?? 3.25).toFixed(2)} PLUPR · {timeAgo(item.created_at)}
+                    {formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR · {timeAgo(item.created_at)}
                   </Text>
                 </View>
                 <View style={[

@@ -12,6 +12,7 @@ import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
 import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
+import { formatPlupr } from '../lib/plupr';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PlayerProfile'>;
@@ -123,22 +124,22 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       {/* PLUPR strip + reliability */}
       <View style={styles.eloCard}>
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{(profile.rating ?? 3.25).toFixed(2)}</Text>
+          <Text style={styles.eloValue}>{formatPlupr(profile.rating, profile.total_matches_played)}</Text>
           <Text style={styles.eloLabel}>Overall</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{(profile.singles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
+          <Text style={styles.eloValue}>{formatPlupr(profile.singles_rating ?? profile.rating, profile.total_matches_played)}</Text>
           <Text style={styles.eloLabel}>Singles</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{(profile.doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
+          <Text style={styles.eloValue}>{formatPlupr(profile.doubles_rating ?? profile.rating, profile.total_matches_played)}</Text>
           <Text style={styles.eloLabel}>Gendered Doubles</Text>
         </View>
         <View style={styles.eloDivider} />
         <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{(profile.mixed_doubles_rating ?? profile.rating ?? 3.25).toFixed(2)}</Text>
+          <Text style={styles.eloValue}>{formatPlupr(profile.mixed_doubles_rating ?? profile.rating, profile.total_matches_played)}</Text>
           <Text style={styles.eloLabel}>Mixed Doubles</Text>
         </View>
       </View>

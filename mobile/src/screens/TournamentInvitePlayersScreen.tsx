@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { AVATARS } from '../data/profileCustomization';
+import { formatPlupr } from '../lib/plupr';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInvitePlayers'>;
@@ -20,6 +21,7 @@ type Candidate = {
   full_name: string;
   username: string;
   rating: number;
+  total_matches_played: number;
   avatar_id: number | null;
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
@@ -67,7 +69,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     //    (+/- 1.5 PLUPR) so the recommendation list isn't huge.
     const { data: profs } = await supabase
       .from('profiles')
-      .select('id, full_name, username, rating, avatar_id, avatar_emoji, avatar_bg_color')
+      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color')
       .gte('rating', avg - 1.5)
       .lte('rating', avg + 1.5)
       .order('full_name')
@@ -80,6 +82,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
         full_name: p.full_name,
         username: p.username,
         rating: p.rating,
+        total_matches_played: p.total_matches_played ?? 0,
         avatar_id: p.avatar_id,
         avatar_emoji: p.avatar_emoji,
         avatar_bg_color: p.avatar_bg_color,
@@ -183,7 +186,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
               <View style={{ flex: 1 }}>
                 <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
                 <Text style={S.sub} numberOfLines={1}>
-                  @{item.username} · {item.rating.toFixed(2)} PLUPR · {ratingDeltaTxt}
+                  @{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR · {ratingDeltaTxt}
                 </Text>
               </View>
               {item.invitedNow ? (
