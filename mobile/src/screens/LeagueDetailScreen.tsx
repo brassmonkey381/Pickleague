@@ -21,8 +21,34 @@ type Props = {
 };
 type Option = { icon: string; label: string; sub: string; onPress: () => void; adminOnly?: boolean };
 
+type LatestChampion = {
+  tournamentId:   string;
+  tournamentName: string;
+  teamName:       string;
+  winners:        string[];      // full names
+  record:         string | null; // "12-4" or null when no record data
+};
+
+type ComingUpItem = {
+  key:    string;
+  kind:   'tournament' | 'event';
+  icon:   string;
+  title:  string;
+  whenLabel: string;
+  whenMs: number;
+  badge?: string;        // e.g. "Voting"
+  onPress: () => void;
+};
+
 const WEEK_PRESETS    = [3, 6, 12] as const;
 const LOCK_PRESETS    = [1, 2, 4]  as const;
+
+function formatRoster(names: string[]): string {
+  if (names.length === 0) return 'the champions';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
 
 export default function LeagueDetailScreen({ navigation, route }: Props) {
   const { leagueId, leagueName } = route.params;
@@ -35,6 +61,10 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);
   const [pastSeasons, setPastSeasons]   = useState<LeagueSeason[]>([]);
   const [godmode, setGodmode]           = useState(false);
+  const [latestChampion, setLatestChampion] = useState<LatestChampion | null>(null);
+  const [upcomingTournaments, setUpcomingTournaments] = useState<ComingUpItem[]>([]);
+  const [upcomingEvents, setUpcomingEvents]           = useState<ComingUpItem[]>([]);
+  const [comingUpLoaded, setComingUpLoaded]           = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [deleteError, setDeleteError]   = useState<string | null>(null);
@@ -88,6 +118,145 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     setPastSeasons((completedRes.data ?? []) as LeagueSeason[]);
     setGodmode(godmodeResult);
     setLoading(false);
+
+    // Fire the league-recap + coming-up loaders in parallel after the main
+    // render. Errors here are non-fatal — the cards just won't render.
+    void loadLatestChampion();
+    void loadComingUp();
+  }
+
+  async function loadLatestChampion() {
+    // Most recent completed tournament in this league.
+    const { data: t } = await supabase
+      .from('tournaments')
+      .select('id, name, status')
+      .eq('league_id', leagueId)
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!t) { setLatestChampion(null); return; }
+
+    // First-place winners from the champion-badges table (MLP auto-payout).
+    const { data: badges } = await supabase
+      .from('tournament_champion_badges')
+      .select('user_id, team_name, team_id')
+      .eq('tournament_id', t.id)
+      .eq('place', 1);
+    if (!badges || badges.length === 0) { setLatestChampion(null); return; }
+
+    const winnerUids  = badges.map((b: any) => b.user_id);
+    const teamName    = (badges[0] as any).team_name ?? 'Champions';
+    const winningTeamId = (badges[0] as any).team_id ?? null;
+
+    const [profilesRes, standingsRes] = await Promise.all([
+      supabase.from('profiles').select('id, full_name').in('id', winnerUids),
+      winningTeamId
+        ? supabase.rpc('mlp_team_standings', { p_tournament_id: t.id })
+        : Promise.resolve({ data: null } as any),
+    ]);
+
+    const nameMap: Record<string, string> = {};
+    for (const p of (profilesRes.data ?? []) as any[]) nameMap[p.id] = p.full_name ?? '—';
+    const winners = winnerUids.map((u: string) => nameMap[u] ?? '—');
+
+    let record: string | null = null;
+    if (winningTeamId && standingsRes?.data) {
+      const winRow = (standingsRes.data as any[]).find(r => r.team_id === winningTeamId);
+      if (winRow) record = `${winRow.sub_matches_won}-${winRow.sub_matches_lost}`;
+    }
+
+    setLatestChampion({
+      tournamentId: t.id,
+      tournamentName: t.name,
+      teamName,
+      winners,
+      record,
+    });
+  }
+
+  async function loadComingUp() {
+    const fmt = (ms: number) => new Date(ms).toLocaleString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+    });
+
+    const [tRes, scheduledRes, votingRes] = await Promise.all([
+      supabase.from('tournaments')
+        .select('id, name, start_time, status')
+        .eq('league_id', leagueId)
+        .in('status', ['registration', 'active'])
+        .order('start_time', { ascending: true, nullsFirst: false })
+        .limit(5),
+      // Scheduled events with a confirmed future slot.
+      supabase.from('league_events')
+        .select('id, title, status, confirmed_slot_id, event_slots:event_slots!league_events_confirmed_slot_id_fkey(starts_at)')
+        .eq('league_id', leagueId)
+        .eq('status', 'scheduled'),
+      // Events currently being voted on.
+      supabase.from('league_events')
+        .select('id, title, status, vote_ends_at')
+        .eq('league_id', leagueId)
+        .eq('status', 'voting'),
+    ]);
+
+    // Tournaments
+    const tItems: ComingUpItem[] = [];
+    for (const t of ((tRes.data ?? []) as any[])) {
+      if (!t.start_time) continue;
+      const ms = new Date(t.start_time).getTime();
+      if (ms < Date.now()) continue;
+      tItems.push({
+        key:   `t-${t.id}`,
+        kind:  'tournament',
+        icon:  '🎾',
+        title: t.name,
+        whenLabel: fmt(ms),
+        whenMs: ms,
+        onPress: () => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }),
+      });
+    }
+    tItems.sort((a, b) => a.whenMs - b.whenMs);
+
+    // Events: scheduled (with future slot) + voting (with vote_ends_at in future)
+    const eItems: ComingUpItem[] = [];
+
+    for (const ev of ((scheduledRes.data ?? []) as any[])) {
+      const slot = Array.isArray(ev.event_slots) ? ev.event_slots[0] : ev.event_slots;
+      if (!slot?.starts_at) continue;
+      const ms = new Date(slot.starts_at).getTime();
+      if (ms < Date.now()) continue;
+      eItems.push({
+        key:   `e-${ev.id}`,
+        kind:  'event',
+        icon:  '📅',
+        title: ev.title,
+        whenLabel: fmt(ms),
+        whenMs: ms,
+        onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
+      });
+    }
+
+    for (const ev of ((votingRes.data ?? []) as any[])) {
+      if (!ev.vote_ends_at) continue;
+      const ms = new Date(ev.vote_ends_at).getTime();
+      if (ms < Date.now()) continue;
+      eItems.push({
+        key:   `v-${ev.id}`,
+        kind:  'event',
+        icon:  '🗳️',
+        title: ev.title,
+        whenLabel: `Voting ends ${fmt(ms)}`,
+        whenMs: ms,
+        badge: 'Voting',
+        onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
+      });
+    }
+    eItems.sort((a, b) => a.whenMs - b.whenMs);
+
+    setUpcomingTournaments(tItems.slice(0, 2));
+    setUpcomingEvents(eItems.slice(0, 3));
+    setComingUpLoaded(true);
   }
 
   function deleteLeague() {
@@ -376,6 +545,93 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           <Text style={S.noSeasonCta}>Start →</Text>
         </TouchableOpacity>
       ) : null}
+
+      {/* ── Latest tournament champion ─────────────────────────── */}
+      {latestChampion && (
+        <TouchableOpacity
+          style={S.championCard}
+          onPress={() => navigation.navigate('TournamentDetail', {
+            tournamentId: latestChampion.tournamentId,
+            tournamentName: latestChampion.tournamentName,
+          })}
+          activeOpacity={0.85}
+        >
+          <Text style={S.championLabel}>🏆 Latest Tournament Champion</Text>
+          <Text style={S.championLead}>
+            <Text style={S.championTeam}>{latestChampion.teamName}</Text>
+            {' '}took home {latestChampion.tournamentName}!
+          </Text>
+          {latestChampion.record && (
+            <Text style={S.championRecord}>Final record: {latestChampion.record}</Text>
+          )}
+          <Text style={S.championRoster}>
+            🎉 Congrats to {formatRoster(latestChampion.winners)}!
+          </Text>
+          <Text style={S.championLink}>View tournament →</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ── Upcoming tournaments ───────────────────────────────── */}
+      {comingUpLoaded && (
+        <View style={S.comingUpCard}>
+          <Text style={S.comingUpHeader}>🎾 Upcoming Tournaments</Text>
+          {upcomingTournaments.length === 0 ? (
+            <Text style={S.comingUpEmpty}>No upcoming tournaments.</Text>
+          ) : (
+            upcomingTournaments.map(item => (
+              <TouchableOpacity
+                key={item.key}
+                style={S.comingUpRow}
+                onPress={item.onPress}
+                activeOpacity={0.7}
+              >
+                <Text style={S.comingUpIcon}>{item.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.comingUpTitle}>{item.title}</Text>
+                  <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
+                </View>
+                {item.badge && (
+                  <View style={S.comingUpBadge}>
+                    <Text style={S.comingUpBadgeText}>{item.badge}</Text>
+                  </View>
+                )}
+                <Text style={S.comingUpChevron}>›</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+      )}
+
+      {/* ── Upcoming events (scheduled + currently voting) ─────── */}
+      {comingUpLoaded && (
+        <View style={S.comingUpCard}>
+          <Text style={S.comingUpHeader}>📅 Upcoming Events</Text>
+          {upcomingEvents.length === 0 ? (
+            <Text style={S.comingUpEmpty}>No upcoming events.</Text>
+          ) : (
+            upcomingEvents.map(item => (
+              <TouchableOpacity
+                key={item.key}
+                style={S.comingUpRow}
+                onPress={item.onPress}
+                activeOpacity={0.7}
+              >
+                <Text style={S.comingUpIcon}>{item.icon}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.comingUpTitle}>{item.title}</Text>
+                  <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
+                </View>
+                {item.badge && (
+                  <View style={S.comingUpBadge}>
+                    <Text style={S.comingUpBadgeText}>{item.badge}</Text>
+                  </View>
+                )}
+                <Text style={S.comingUpChevron}>›</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+      )}
 
       {/* ── Past seasons ───────────────────────────────────────── */}
       {pastSeasons.length > 0 && (
@@ -692,6 +948,25 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     noSeasonTitle:      { fontSize: 15, fontWeight: '700', color: c.text, marginBottom: 2 },
     noSeasonSub:        { fontSize: 12, color: c.textMuted, lineHeight: 16 },
     noSeasonCta:        { fontSize: 15, color: c.primary, fontWeight: '700' },
+
+    championCard:       { backgroundColor: '#fff8e1', borderRadius: 14, padding: 16, marginTop: 12, borderWidth: 1.5, borderColor: '#e6c875', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    championLabel:      { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 },
+    championLead:       { fontSize: 15, color: c.text, lineHeight: 21, marginBottom: 4 },
+    championTeam:       { fontWeight: '900', color: '#a7740a' },
+    championRecord:     { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 4 },
+    championRoster:     { fontSize: 13, color: c.textSub, lineHeight: 19 },
+    championLink:       { fontSize: 13, fontWeight: '700', color: c.primary, marginTop: 8 },
+
+    comingUpCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginTop: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    comingUpHeader:     { fontSize: 12, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 },
+    comingUpRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: c.bg, gap: 12 },
+    comingUpIcon:       { fontSize: 22 },
+    comingUpTitle:      { fontSize: 15, fontWeight: '700', color: c.text },
+    comingUpWhen:       { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    comingUpChevron:    { fontSize: 22, color: c.textMuted, fontWeight: '600' },
+    comingUpEmpty:      { fontSize: 13, color: c.textMuted, fontStyle: 'italic', paddingVertical: 8 },
+    comingUpBadge:      { backgroundColor: '#fff3cd', borderColor: '#d4a72c', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginRight: 6 },
+    comingUpBadgeText:  { fontSize: 10, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.4 },
 
     pastSeasonsCard:    { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginTop: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
     pastSeasonsHeader:  { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },

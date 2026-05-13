@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
+import FlairName from '../components/FlairName';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
 import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
@@ -25,6 +26,11 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const styles = makeStyles(colors);
   const [profile, setProfile]             = useState<Profile | null>(null);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
+  const [cosmeticPurchases, setCosmeticPurchases] = useState<{
+    id: string; shop_item_id: string; purchased_at: string;
+    gifted_by_user_id: string | null; gift_message: string | null;
+    item: { name: string; description: string; icon: string };
+  }[]>([]);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [matchCount, setMatchCount]       = useState(0);
   const [loading, setLoading]             = useState(true);
@@ -34,7 +40,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
-    const [profileRes, badgesRes, locRes, matchRes] = await Promise.all([
+    const [profileRes, badgesRes, locRes, matchRes, purchasesRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('player_badges')
         .select('*, badge:badges(*), league:leagues(name)')
@@ -48,12 +54,21 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       supabase.from('matches')
         .select('id', { count: 'exact', head: true })
         .or(`player1_id.eq.${userId},player2_id.eq.${userId},partner1_id.eq.${userId},partner2_id.eq.${userId}`),
+      supabase.from('player_shop_purchases')
+        .select('id, shop_item_id, purchased_at, gifted_by_user_id, gift_message, item:shop_items(category, name, description, icon)')
+        .eq('user_id', userId)
+        .eq('is_hidden', false)
+        .order('purchased_at', { ascending: false }),
     ]);
 
     setProfile(profileRes.data as Profile);
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLocationRatings((locRes.data ?? []) as PlayerLocationRating[]);
     setMatchCount(matchRes.count ?? 0);
+    setCosmeticPurchases(
+      ((purchasesRes.data ?? []) as any[])
+        .filter(r => r.item && r.item.category === 'cosmetic_badge')
+    );
     setLoading(false);
 
     // Load mutual chemistry in background
@@ -76,9 +91,51 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
   if (!profile) return <Text style={styles.error}>Player not found.</Text>;
 
-  const profileBadges = badges.filter(b => b.badge.category === 'profile');
   const reliability   = computeReliability(profile.total_matches_played ?? 0, profile.last_match_at ?? null);
-  const leagueBadges  = badges.filter(b => b.badge.category === 'league');
+
+  // Group repeats of the same badge into a single stack so the tile can
+  // render "Badge ×N" instead of N identical tiles. Key on the badge's
+  // display name (always populated via the join) so awards always
+  // collapse regardless of any badge_id quirk.
+  function groupBadges(list: BadgeItem[]) {
+    const groups = new Map<string, BadgeItem[]>();
+    for (const b of list) {
+      const key = `${b.badge.name}::${b.league_id ?? ''}`;
+      const existing = groups.get(key);
+      if (existing) existing.push(b);
+      else groups.set(key, [b]);
+    }
+    return Array.from(groups.values())
+      .map(stack => {
+        const sorted = [...stack].sort((a, b) =>
+          new Date(b.earned_at).getTime() - new Date(a.earned_at).getTime()
+        );
+        return { rep: sorted[0], stack: sorted };
+      })
+      .sort((a, b) =>
+        new Date(b.rep.earned_at).getTime() - new Date(a.rep.earned_at).getTime()
+      );
+  }
+  const cosmeticBadgeItems: BadgeItem[] = cosmeticPurchases.map(p => ({
+    id:         p.id,
+    badge_id:   `cosmetic:${p.shop_item_id}`,
+    is_hidden:  false,
+    earned_at:  p.purchased_at,
+    context:    p.gift_message ?? (p.gifted_by_user_id ? 'A gift' : null),
+    league_id:  null,
+    badge: {
+      name:        p.item.name,
+      description: p.item.description,
+      icon:        p.item.icon,
+      category:    'cosmetic',
+    },
+    league: null,
+  }));
+
+  const profileBadgeGroups  = groupBadges(badges.filter(b => b.badge.category === 'profile'));
+  const leagueBadgeGroups   = groupBadges(badges.filter(b => b.badge.category === 'league'));
+  const cosmeticBadgeGroups = groupBadges(cosmeticBadgeItems);
+  const hasAnyVisibleBadges = badges.length > 0 || cosmeticBadgeItems.length > 0;
 
   const locationGroups: Record<string, {
     singles?: PlayerLocationRating;
@@ -103,7 +160,11 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             </Text>
           </View>
         )}
-        <Text style={styles.fullName}>{profile.full_name}</Text>
+        <FlairName
+          style={styles.fullName}
+          nameColor={profile.name_color}
+          name={profile.full_name}
+        />
         {profile.tagline ? <Text style={styles.tagline}>{profile.tagline}</Text> : null}
         <Text style={styles.username}>@{profile.username}</Text>
         {(profile.selected_tags ?? []).length > 0 && (
@@ -173,21 +234,35 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       )}
 
       {/* Badges */}
-      {profile.badges_public !== false && badges.length > 0 && (
+      {profile.badges_public !== false && hasAnyVisibleBadges && (
         <>
-          {profileBadges.length > 0 && (
+          {profileBadgeGroups.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Profile Badges</Text>
               <View style={styles.badgeGrid}>
-                {profileBadges.map(b => <BadgeDisplay key={b.id} badge={b} />)}
+                {profileBadgeGroups.map(g => (
+                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
+                ))}
               </View>
             </View>
           )}
-          {leagueBadges.length > 0 && (
+          {leagueBadgeGroups.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>League Badges</Text>
               <View style={styles.badgeGrid}>
-                {leagueBadges.map(b => <BadgeDisplay key={b.id} badge={b} />)}
+                {leagueBadgeGroups.map(g => (
+                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
+                ))}
+              </View>
+            </View>
+          )}
+          {cosmeticBadgeGroups.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Cosmetic Badges</Text>
+              <View style={styles.badgeGrid}>
+                {cosmeticBadgeGroups.map(g => (
+                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
+                ))}
               </View>
             </View>
           )}

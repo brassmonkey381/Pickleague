@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { Gender, Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
+import FlairName from '../components/FlairName';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
 import AvatarPickerModal, { PremiumAvatar } from '../components/AvatarPickerModal';
 import TagPickerModal from '../components/TagPickerModal';
@@ -656,20 +657,99 @@ export default function ProfileScreen({ navigation }: Props) {
     setDefaultPaddle(null);
   }
 
-  async function toggleBadgeVisibility(playerBadgeId: string, hidden: boolean) {
-    await supabase.from('player_badges').update({ is_hidden: hidden }).eq('id', playerBadgeId);
-    setBadges(prev => prev.map(b => b.id === playerBadgeId ? { ...b, is_hidden: hidden } : b));
+  async function toggleBadgeVisibility(playerBadgeIds: string[], hidden: boolean) {
+    if (playerBadgeIds.length === 0) return;
+    // IDs can come from either player_badges (earned badges) or
+    // player_shop_purchases (cosmetic badges). Split and route accordingly.
+    const purchaseIdSet = new Set(shopPurchases.map(p => p.id));
+    const earnedIds   = playerBadgeIds.filter(id => !purchaseIdSet.has(id));
+    const cosmeticIds = playerBadgeIds.filter(id =>  purchaseIdSet.has(id));
+
+    if (earnedIds.length > 0) {
+      await supabase.from('player_badges').update({ is_hidden: hidden }).in('id', earnedIds);
+      const idSet = new Set(earnedIds);
+      setBadges(prev => prev.map(b => idSet.has(b.id) ? { ...b, is_hidden: hidden } : b));
+    }
+    if (cosmeticIds.length > 0) {
+      await Promise.all(cosmeticIds.map(id =>
+        supabase.rpc('set_purchase_hidden', { p_purchase_id: id, p_hidden: hidden })
+      ));
+      const idSet = new Set(cosmeticIds);
+      setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+    }
   }
 
   async function setAllBadgesHidden(hidden: boolean) {
     if (!userId) return;
     await supabase.from('player_badges').update({ is_hidden: hidden }).eq('user_id', userId);
     setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
+    const cosmetics = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
+    if (cosmetics.length > 0) {
+      await Promise.all(cosmetics.map(p =>
+        supabase.rpc('set_purchase_hidden', { p_purchase_id: p.id, p_hidden: hidden })
+      ));
+      const idSet = new Set(cosmetics.map(p => p.id));
+      setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+    }
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={GREEN} />;
 
-  const earnedBadgeNames = badges.map(b => b.badge.name);
+  const earnedBadgeNames = Array.from(new Set(badges.map(b => b.badge.name)));
+
+  // Group badges by name (+ league_id for league badges) so duplicates
+  // collapse into a single tile with a ×N count. Keying on the badge's
+  // display name (which is always populated via the join) avoids any
+  // edge cases where badge_id might shift between rows of the same
+  // award type. Newest instance is the representative item used for the
+  // tile's emoji/name.
+  function groupBadges(list: BadgeItem[]) {
+    const groups = new Map<string, BadgeItem[]>();
+    for (const b of list) {
+      const key = `${b.badge.name}::${b.league_id ?? ''}`;
+      const existing = groups.get(key);
+      if (existing) existing.push(b);
+      else groups.set(key, [b]);
+    }
+    return Array.from(groups.values())
+      .map(stack => {
+        const sorted = [...stack].sort((a, b) =>
+          new Date(b.earned_at).getTime() - new Date(a.earned_at).getTime()
+        );
+        return { rep: sorted[0], stack: sorted };
+      })
+      .sort((a, b) =>
+        new Date(b.rep.earned_at).getTime() - new Date(a.rep.earned_at).getTime()
+      );
+  }
+  // Cosmetic badges purchased from the Pickle Shop appear in the same
+  // section. We mint a BadgeItem on the fly per purchase; the toggle in
+  // toggleBadgeVisibility routes by ID to the right table.
+  const cosmeticBadgeItems: BadgeItem[] = shopPurchases
+    .filter(p => p.item.category === 'cosmetic_badge')
+    .map(p => ({
+      id:         p.id,
+      badge_id:   `cosmetic:${p.shop_item_id}`,
+      is_hidden:  p.is_hidden,
+      earned_at:  p.purchased_at,
+      context:    p.gift_message ?? (p.gifted_by_user_id ? 'A gift' : null),
+      league_id:  null,
+      badge: {
+        name:        p.item.name,
+        description: p.item.description,
+        icon:        p.item.icon,
+        category:    'cosmetic',
+      },
+      league: null,
+    }));
+
+  const profileBadgeGroups  = groupBadges(badges.filter(b => b.badge.category === 'profile'));
+  const leagueBadgeGroups   = groupBadges(badges.filter(b => b.badge.category === 'league'));
+  const cosmeticBadgeGroups = groupBadges(cosmeticBadgeItems);
+  const visibleBadgeCount   =
+    badges.filter(b => !b.is_hidden).length +
+    cosmeticBadgeItems.filter(b => !b.is_hidden).length;
+  const totalBadgeCount     = badges.length + cosmeticBadgeItems.length;
   const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
   const cartoonAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
   const displayAvatar = equippedPremium
@@ -702,9 +782,11 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.avatarEditBadgeText}>✏️</Text>
           </View>
         </TouchableOpacity>
-        <Text style={[styles.fullName, profile?.name_color ? { color: profile.name_color } : null]}>
-          {profile?.full_name}
-        </Text>
+        <FlairName
+          style={styles.fullName}
+          nameColor={profile?.name_color}
+          name={profile?.full_name ?? ''}
+        />
         {tagline ? <Text style={styles.taglineDisplay}>{tagline}</Text> : null}
 
         {/* Pickle balance pill — tap to visit Shop */}
@@ -1002,11 +1084,11 @@ export default function ProfileScreen({ navigation }: Props) {
       </View>
 
       {/* ── Badges ──────────────────────────────────────────────── */}
-      {badges.length > 0 && (
+      {totalBadgeCount > 0 && (
         <View style={styles.badgeCard}>
           <View style={styles.badgeHeader}>
             <Text style={styles.badgeSectionTitle}>
-              Badges ({badges.filter(b => !b.is_hidden).length} shown)
+              Badges ({visibleBadgeCount} shown)
             </Text>
             <View style={styles.badgeActions}>
               <TouchableOpacity onPress={() => setAllBadgesHidden(false)}>
@@ -1018,23 +1100,54 @@ export default function ProfileScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
+          <TouchableOpacity onPress={() => navigation.navigate('UnlockProgress')} style={{ marginBottom: 6 }}>
+            <Text style={styles.badgeActionText}>🔓 View Unlock Progress</Text>
+          </TouchableOpacity>
           <Text style={styles.badgeHint}>Tap a badge to see why you earned it.</Text>
-          {badges.filter(b => b.badge.category === 'profile').length > 0 && (
+          {profileBadgeGroups.length > 0 && (
             <>
               <Text style={styles.badgeCatLabel}>Profile</Text>
               <View style={styles.badgeGrid}>
-                {badges.filter(b => b.badge.category === 'profile').map(b => (
-                  <BadgeDisplay key={b.id} badge={b} isOwner onToggleHide={toggleBadgeVisibility} />
+                {profileBadgeGroups.map(g => (
+                  <BadgeDisplay
+                    key={g.rep.id}
+                    badge={g.rep}
+                    stack={g.stack}
+                    isOwner
+                    onToggleHide={toggleBadgeVisibility}
+                  />
                 ))}
               </View>
             </>
           )}
-          {badges.filter(b => b.badge.category === 'league').length > 0 && (
+          {leagueBadgeGroups.length > 0 && (
             <>
               <Text style={styles.badgeCatLabel}>League</Text>
               <View style={styles.badgeGrid}>
-                {badges.filter(b => b.badge.category === 'league').map(b => (
-                  <BadgeDisplay key={b.id} badge={b} isOwner onToggleHide={toggleBadgeVisibility} />
+                {leagueBadgeGroups.map(g => (
+                  <BadgeDisplay
+                    key={g.rep.id}
+                    badge={g.rep}
+                    stack={g.stack}
+                    isOwner
+                    onToggleHide={toggleBadgeVisibility}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+          {cosmeticBadgeGroups.length > 0 && (
+            <>
+              <Text style={styles.badgeCatLabel}>Cosmetic</Text>
+              <View style={styles.badgeGrid}>
+                {cosmeticBadgeGroups.map(g => (
+                  <BadgeDisplay
+                    key={g.rep.id}
+                    badge={g.rep}
+                    stack={g.stack}
+                    isOwner
+                    onToggleHide={toggleBadgeVisibility}
+                  />
                 ))}
               </View>
             </>
@@ -1175,13 +1288,13 @@ export default function ProfileScreen({ navigation }: Props) {
           const earned = earnedBadgeNames.includes(u.badge);
           const prog   = badgeProgress[u.badge];
           return (
-            <View key={u.slots} style={styles.unlockRow}>
+            <View key={u.badge} style={styles.unlockRow}>
               <View style={[styles.unlockAvatarCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
                 <Text style={[styles.unlockAvatarEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
               </View>
               <View style={styles.unlockInfo}>
                 <View style={styles.unlockNameRow}>
-                  <Text style={styles.unlockName}>Tag Slot #{u.slots}</Text>
+                  <Text style={styles.unlockName}>+1 Tag Slot</Text>
                   {earned && <Text style={styles.earnedCheckText}>✓ Unlocked</Text>}
                 </View>
                 <Text style={styles.unlockBadgeName}>{u.badge}</Text>

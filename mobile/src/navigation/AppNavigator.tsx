@@ -27,11 +27,13 @@ import TournamentInfoScreen from '../screens/TournamentInfoScreen';
 import LeagueInfoScreen from '../screens/LeagueInfoScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import InviteScreen from '../screens/InviteScreen';
+import TournamentInviteScreen from '../screens/TournamentInviteScreen';
 import MatchEntryScreen from '../screens/MatchEntryScreen';
 import MatchHistoryScreen from '../screens/MatchHistoryScreen';
 import CalendarAnalyticsScreen from '../screens/CalendarAnalyticsScreen';
 import SeasonStandingsScreen from '../screens/SeasonStandingsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import UnlockProgressScreen from '../screens/UnlockProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AboutScreen from '../screens/AboutScreen';
 import DrillScreen from '../screens/DrillScreen';
@@ -92,6 +94,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params.leagueName })} />
                 <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params.leagueName + ' Members' })} />
                 <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Invite Players' }} />
+                <Stack.Screen name="TournamentInvite" component={TournamentInviteScreen} options={({ route }) => ({ title: 'Invite to ' + route.params.tournamentName })} />
                 <Stack.Screen name="Events" component={EventsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Events' })} />
                 <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ title: 'New Event' }} />
                 <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params.title })} />
@@ -100,6 +103,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
                 <Stack.Screen name="SeasonStandings" component={SeasonStandingsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Season' })} />
                 <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+                <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
                 <Stack.Screen name="Tournaments" component={TournamentsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' })} />
                 <Stack.Screen name="CreateTournament" component={CreateTournamentScreen} options={{ title: 'New Tournament' }} />

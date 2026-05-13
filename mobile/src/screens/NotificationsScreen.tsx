@@ -78,6 +78,16 @@ export default function NotificationsScreen({ navigation }: Props) {
       navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
     } else if (n.entity_type === 'drill') {
       navigation.navigate('DrillRequests');
+    } else if (n.entity_type === 'shop') {
+      navigation.navigate('Shop');
+    } else if (n.entity_type === 'profile') {
+      // entity_id is the recipient's own user_id (self-targeting).
+      navigation.navigate('Profile', { userId: n.entity_id ?? undefined });
+    } else if (n.entity_type === 'plupr_history') {
+      navigation.navigate('CalendarAnalytics', {
+        userId: n.entity_id ?? undefined,
+        title: 'My PLUPR History',
+      });
     }
   }
 

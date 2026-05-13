@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BadgeItem = {
@@ -13,22 +13,42 @@ export type BadgeItem = {
     name: string;
     description: string;
     icon: string;
-    category: 'profile' | 'league';
+    category: 'profile' | 'league' | 'cosmetic';
   };
   league?: { name: string } | null;
 };
 
+function categoryLabel(c: BadgeItem['badge']['category']) {
+  return c === 'league' ? 'League' : c === 'cosmetic' ? 'Cosmetic' : 'Profile';
+}
+
 type Props = {
+  // Single representative badge (newest occurrence). If `stack` is supplied,
+  // the tile shows a ×N pill and the modal lists every occurrence.
   badge: BadgeItem;
+  stack?: BadgeItem[];
   isOwner?: boolean;
-  onToggleHide?: (id: string, hidden: boolean) => void;
+  // When stacked, the toggle applies to every instance of the badge.
+  onToggleHide?: (ids: string[], hidden: boolean) => void;
 };
 
-export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
+export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Props) {
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
   const [showDetail, setShowDetail] = useState(false);
-  const hidden = badge.is_hidden;
+
+  const instances = useMemo(() => {
+    const list = stack && stack.length > 0 ? stack : [badge];
+    // Newest first
+    return [...list].sort((a, b) =>
+      new Date(b.earned_at).getTime() - new Date(a.earned_at).getTime()
+    );
+  }, [stack, badge]);
+
+  const count = instances.length;
+  // A group is "hidden" only when every instance is hidden. Anything shown
+  // counts as visible — tapping toggles all of them at once.
+  const allHidden = instances.every(b => b.is_hidden);
 
   const earnedDate = new Date(badge.earned_at).toLocaleDateString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
@@ -38,16 +58,21 @@ export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
     <>
       {/* Badge tile */}
       <TouchableOpacity
-        style={[styles.card, hidden && styles.cardHidden]}
+        style={[styles.card, allHidden && styles.cardHidden]}
         onPress={() => setShowDetail(true)}
         activeOpacity={0.75}
       >
-        <Text style={[styles.icon, hidden && styles.iconHidden]}>{badge.badge.icon}</Text>
-        <Text style={[styles.name, hidden && styles.nameHidden]} numberOfLines={2}>
+        <Text style={[styles.icon, allHidden && styles.iconHidden]}>{badge.badge.icon}</Text>
+        <Text style={[styles.name, allHidden && styles.nameHidden]} numberOfLines={2}>
           {badge.badge.name}
         </Text>
-        {hidden && isOwner && <Text style={styles.hiddenTag}>Hidden</Text>}
-        {badge.league?.name && (
+        {count > 1 && (
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>×{count}</Text>
+          </View>
+        )}
+        {allHidden && isOwner && <Text style={styles.hiddenTag}>Hidden</Text>}
+        {count === 1 && badge.league?.name && (
           <Text style={styles.leagueTag} numberOfLines={1}>{badge.league.name}</Text>
         )}
       </TouchableOpacity>
@@ -60,56 +85,86 @@ export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
         onRequestClose={() => setShowDetail(false)}
       >
         <Pressable style={styles.overlay} onPress={() => setShowDetail(false)}>
-          {/* Stop propagation so tapping the card doesn't dismiss */}
           <Pressable style={styles.detailCard} onPress={() => {}}>
-            {/* Big icon */}
             <Text style={styles.detailIcon}>{badge.badge.icon}</Text>
 
-            {/* Name + category chip */}
             <View style={styles.detailNameRow}>
               <Text style={styles.detailName}>{badge.badge.name}</Text>
-              <View style={[styles.catChip, badge.badge.category === 'league' ? styles.catChipLeague : styles.catChipProfile]}>
-                <Text style={[styles.catChipText, badge.badge.category === 'league' ? styles.catChipTextLeague : styles.catChipTextProfile]}>
-                  {badge.badge.category === 'league' ? 'League' : 'Profile'}
+              {count > 1 && (
+                <View style={styles.countChip}>
+                  <Text style={styles.countChipText}>×{count}</Text>
+                </View>
+              )}
+              <View style={[
+                styles.catChip,
+                badge.badge.category === 'league'   && styles.catChipLeague,
+                badge.badge.category === 'cosmetic' && styles.catChipCosmetic,
+                badge.badge.category === 'profile'  && styles.catChipProfile,
+              ]}>
+                <Text style={[
+                  styles.catChipText,
+                  badge.badge.category === 'league'   && styles.catChipTextLeague,
+                  badge.badge.category === 'cosmetic' && styles.catChipTextCosmetic,
+                  badge.badge.category === 'profile'  && styles.catChipTextProfile,
+                ]}>
+                  {categoryLabel(badge.badge.category)}
                 </Text>
               </View>
             </View>
 
-            {/* Description */}
             <Text style={styles.detailDesc}>{badge.badge.description}</Text>
 
-            {/* Why earned */}
-            {badge.context && (
-              <View style={styles.contextBox}>
-                <Text style={styles.contextLabel}>Why you earned this</Text>
-                <Text style={styles.contextText}>{badge.context}</Text>
-              </View>
+            {count > 1 ? (
+              <ScrollView style={styles.historyBox} contentContainerStyle={styles.historyInner}>
+                <Text style={styles.historyLabel}>Earned {count} times</Text>
+                {instances.map(inst => {
+                  const d = new Date(inst.earned_at).toLocaleDateString(undefined, {
+                    month: 'short', day: 'numeric', year: 'numeric',
+                  });
+                  return (
+                    <View key={inst.id} style={styles.historyRow}>
+                      <Text style={styles.historyDate}>{d}</Text>
+                      <View style={styles.historyMeta}>
+                        {inst.context && <Text style={styles.historyContext}>{inst.context}</Text>}
+                        {inst.league?.name && (
+                          <Text style={styles.historyLeague}>🏆 {inst.league.name}</Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <>
+                {badge.context && (
+                  <View style={styles.contextBox}>
+                    <Text style={styles.contextLabel}>Why you earned this</Text>
+                    <Text style={styles.contextText}>{badge.context}</Text>
+                  </View>
+                )}
+                {badge.league?.name && (
+                  <Text style={styles.detailLeague}>🏆 {badge.league.name}</Text>
+                )}
+                <Text style={styles.detailDate}>Earned {earnedDate}</Text>
+              </>
             )}
 
-            {/* League */}
-            {badge.league?.name && (
-              <Text style={styles.detailLeague}>🏆 {badge.league.name}</Text>
-            )}
-
-            {/* Earned date */}
-            <Text style={styles.detailDate}>Earned {earnedDate}</Text>
-
-            {/* Owner: hide/show toggle */}
             {isOwner && (
               <TouchableOpacity
-                style={[styles.hideBtn, hidden && styles.showBtn]}
+                style={[styles.hideBtn, allHidden && styles.showBtn]}
                 onPress={() => {
-                  onToggleHide?.(badge.id, !hidden);
+                  onToggleHide?.(instances.map(i => i.id), !allHidden);
                   setShowDetail(false);
                 }}
               >
-                <Text style={[styles.hideBtnText, hidden && styles.showBtnText]}>
-                  {hidden ? '👁  Show on profile' : '🙈  Hide from profile'}
+                <Text style={[styles.hideBtnText, allHidden && styles.showBtnText]}>
+                  {allHidden
+                    ? (count > 1 ? `👁  Show all (${count}) on profile` : '👁  Show on profile')
+                    : (count > 1 ? `🙈  Hide all (${count}) from profile` : '🙈  Hide from profile')}
                 </Text>
               </TouchableOpacity>
             )}
 
-            {/* Dismiss hint */}
             <Text style={styles.dismissHint}>Tap outside to close</Text>
           </Pressable>
         </Pressable>
@@ -120,11 +175,10 @@ export default function BadgeDisplay({ badge, isOwner, onToggleHide }: Props) {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    // Badge tile
     card: {
       width: 84, alignItems: 'center', backgroundColor: c.surface,
       borderRadius: 12, padding: 10, borderWidth: 1.5, borderColor: c.primaryLight,
-      margin: 4,
+      margin: 4, position: 'relative',
     },
     cardHidden: { backgroundColor: c.bg, borderColor: c.border, opacity: 0.55 },
     icon: { fontSize: 30, marginBottom: 5 },
@@ -134,36 +188,36 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     hiddenTag: { fontSize: 9, color: c.textMuted, marginTop: 3, fontStyle: 'italic' },
     leagueTag: { fontSize: 9, color: c.primary, marginTop: 3, textAlign: 'center' },
 
-    // Modal overlay
-    overlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 32,
+    countPill: {
+      position: 'absolute', top: -6, right: -6,
+      backgroundColor: c.primary, borderRadius: 10,
+      paddingHorizontal: 6, paddingVertical: 2, minWidth: 22,
+      alignItems: 'center', borderWidth: 1.5, borderColor: c.surface,
     },
+    countPillText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 
-    // Detail card
+    overlay: {
+      flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'center', alignItems: 'center', padding: 32,
+    },
     detailCard: {
-      backgroundColor: c.surface,
-      borderRadius: 20,
-      padding: 24,
-      width: '100%',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOpacity: 0.25,
-      shadowRadius: 20,
-      elevation: 10,
+      backgroundColor: c.surface, borderRadius: 20, padding: 24, width: '100%',
+      alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.25,
+      shadowRadius: 20, elevation: 10, maxHeight: '90%',
     },
     detailIcon: { fontSize: 56, marginBottom: 12 },
-    detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', justifyContent: 'center' },
     detailName: { fontSize: 20, fontWeight: '800', color: c.text },
+    countChip: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10, backgroundColor: c.primary },
+    countChipText: { fontSize: 13, fontWeight: '800', color: '#fff' },
     catChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-    catChipProfile: { backgroundColor: c.primaryLight },
-    catChipLeague: { backgroundColor: '#e3f2fd' },
+    catChipProfile:  { backgroundColor: c.primaryLight },
+    catChipLeague:   { backgroundColor: '#e3f2fd' },
+    catChipCosmetic: { backgroundColor: '#fce4ec' },
     catChipText: { fontSize: 11, fontWeight: '700' },
-    catChipTextProfile: { color: c.primary },
-    catChipTextLeague: { color: '#1565c0' },
+    catChipTextProfile:  { color: c.primary },
+    catChipTextLeague:   { color: '#1565c0' },
+    catChipTextCosmetic: { color: '#ad1457' },
     detailDesc: {
       fontSize: 14, color: c.textSub, textAlign: 'center',
       lineHeight: 20, marginBottom: 14,
@@ -176,6 +230,16 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     contextText: { fontSize: 14, color: c.text },
     detailLeague: { fontSize: 13, color: c.textMuted, marginBottom: 4 },
     detailDate: { fontSize: 12, color: c.textMuted, marginBottom: 16 },
+
+    historyBox: { width: '100%', maxHeight: 240, marginBottom: 12 },
+    historyInner: { paddingBottom: 4 },
+    historyLabel: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+    historyRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border, gap: 10 },
+    historyDate: { fontSize: 12, color: c.textMuted, width: 90 },
+    historyMeta: { flex: 1 },
+    historyContext: { fontSize: 13, color: c.text },
+    historyLeague: { fontSize: 11, color: c.primary, marginTop: 2 },
+
     hideBtn: {
       borderWidth: 1.5, borderColor: c.border, borderRadius: 20,
       paddingHorizontal: 16, paddingVertical: 8, marginBottom: 12,

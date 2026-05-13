@@ -202,40 +202,19 @@ export default function LeaguesScreen({ navigation }: Props) {
     if (token.length < 8) { setJoinError('Enter a valid invite code.'); return; }
 
     setJoining(true);
-    const { data: invite, error } = await supabase
-      .from('league_invites')
-      .select('*, league:leagues(id, name)')
-      .eq('token', token)
-      .eq('is_active', true)
-      .gt('expires_at', new Date().toISOString())
-      .maybeSingle();
-
-    if (error || !invite) {
-      setJoinError('Invalid or expired invite code. Please check and try again.');
-      setJoining(false);
-      return;
-    }
-    if (invite.max_uses != null && invite.used_count >= invite.max_uses) {
-      setJoinError('This invite code has reached its maximum uses.');
-      setJoining(false);
-      return;
-    }
-
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error: joinErr } = await supabase
-      .from('league_members')
-      .upsert({ league_id: invite.league_id, user_id: user!.id, role: 'member' });
-
-    if (joinErr) { setJoinError(joinErr.message); setJoining(false); return; }
-
-    // Increment usage count
-    await supabase.from('league_invites').update({ used_count: invite.used_count + 1 }).eq('id', invite.id);
-
+    const { data, error } = await supabase.rpc('redeem_invite_code', { p_token: token });
     setJoining(false);
+    if (error) { setJoinError(error.message ?? 'Failed to redeem.'); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) { setJoinError(row?.message ?? 'Invalid invite code.'); return; }
+
     setShowJoinCode(false);
     setInviteCode('');
     loadLeagues();
-    Alert.alert('Joined!', `You've joined "${invite.league?.name}".`);
+    Alert.alert(
+      row.scope_type === 'tournament' ? 'Joined Tournament!' : 'Joined!',
+      row.message ?? `You've joined "${row.scope_name}".`,
+    );
   }
 
   const filtered = useMemo(() => applyFilters(allLeagues, filters), [allLeagues, filters]);
@@ -480,7 +459,7 @@ export default function LeaguesScreen({ navigation }: Props) {
         <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
           <Text style={S.modalTitle}>Join with Invite Code</Text>
           <Text style={S.modalHint}>
-            Enter the invite code shared with you. Codes look like{' '}
+            Enter the invite code shared with you for a league or tournament. Codes look like{' '}
             <Text style={{ fontWeight: '700' }}>3F7A-B2C9-D1E4</Text>.
           </Text>
           <TextInput
@@ -502,7 +481,7 @@ export default function LeaguesScreen({ navigation }: Props) {
             onPress={joinWithCode}
             disabled={joining}
           >
-            <Text style={S.buttonText}>{joining ? 'Joining...' : 'Join League'}</Text>
+            <Text style={S.buttonText}>{joining ? 'Joining...' : 'Redeem Code'}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { setShowJoinCode(false); setInviteCode(''); setJoinError(''); }}>
             <Text style={S.cancelText}>Cancel</Text>

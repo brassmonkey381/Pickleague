@@ -377,6 +377,7 @@ export type RootStackParamList = {
   LeagueInfo: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
   Invite: { leagueId: string; leagueName: string };
+  TournamentInvite: { tournamentId: string; tournamentName: string };
   Events: { leagueId: string; leagueName: string };
   CreateEvent: { leagueId: string };
   EventDetail: { eventId: string; title: string };
@@ -408,6 +409,7 @@ export type RootStackParamList = {
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
   SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
   Profile: { userId?: string };
+  UnlockProgress: undefined;
   Settings: undefined;
   About: undefined;
   Drill: undefined;

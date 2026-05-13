@@ -8,6 +8,7 @@ import { DrillSession, Profile, RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
+import FlairName from '../components/FlairName';
 
 // Module-level flag — fires once per app session (resets on app reload).
 let godmodeGrantClaimedThisSession = false;
@@ -164,9 +165,11 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Greeting — tap your name to open your profile */}
         <Text style={s.welcomeLabel}>Welcome back,</Text>
         <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
-          <Text style={[s.heroName, profile?.name_color ? { color: profile.name_color } : null]}>
-            {profile?.full_name ?? '...'}
-          </Text>
+          <FlairName
+            style={s.heroName}
+            nameColor={profile?.name_color}
+            name={profile?.full_name ?? '...'}
+          />
         </TouchableOpacity>
 
         {/* Pickle balance */}

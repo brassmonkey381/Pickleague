@@ -14,7 +14,6 @@ export type TagDef = {
 };
 
 export type TagSlotUnlock = {
-  slots: number;
   badge: string;
   description: string;
 };
@@ -114,14 +113,14 @@ export const PLAY_TAGS: TagDef[] = [
 export const BASE_TAG_SLOTS = 3;
 
 export const TAG_SLOT_UNLOCKS: TagSlotUnlock[] = [
-  { slots: 4, badge: 'Veteran',   description: 'Be a Pickleague member for 30+ days' },
-  { slots: 5, badge: 'Top Rated', description: 'Reach a PLUPR of 4.0 or higher' },
+  { badge: 'Veteran',   description: 'Be a Pickleague member for 30+ days' },
+  { badge: 'Top Rated', description: 'Reach a PLUPR of 4.0 or higher' },
 ];
 
 export function computeMaxTagSlots(earnedBadgeNames: string[]): number {
   let slots = BASE_TAG_SLOTS;
   for (const u of TAG_SLOT_UNLOCKS) {
-    if (earnedBadgeNames.includes(u.badge)) slots = u.slots;
+    if (earnedBadgeNames.includes(u.badge)) slots += 1;
   }
   return slots;
 }
