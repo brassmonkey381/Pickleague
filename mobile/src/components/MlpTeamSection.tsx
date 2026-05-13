@@ -11,6 +11,7 @@ import UserPickerModal, { PickedUser } from './UserPickerModal';
 import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { isGodmodeUserId } from '../lib/godmode';
 
 type Props = {
   tournamentId: string;
@@ -198,13 +199,19 @@ export default function MlpTeamSection({
   }
 
   async function respondToRequest(reqId: string, accept: boolean) {
+    adminStatus.clear();
     setBusy(true);
     const { error } = await supabase.rpc('mlp_respond_to_join', {
       p_request_id: reqId,
       p_accept:     accept,
     });
     setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) {
+      console.warn('[mlp] mlp_respond_to_join', error);
+      adminStatus.error(error.message ?? 'Could not respond to the request.');
+      return;
+    }
+    adminStatus.success(accept ? 'Request accepted — player added to your team.' : 'Request declined.');
     await load();
     onTeamsChanged?.();
   }
@@ -358,6 +365,69 @@ export default function MlpTeamSection({
     onTeamsChanged?.();
   }
 
+  // ── Godmode helpers (MLP / Fixed Teams setup shortcuts) ─────────────
+  const [inviteDetails, setInviteDetails] = useState<string[]>([]);
+
+  async function godmodeConfirmMyInvites() {
+    adminStatus.clear();
+    setInviteDetails([]);
+    setBusy(true);
+    const { data, error } = await supabase.rpc('godmode_confirm_my_mlp_invites', {
+      p_tournament_id: tournamentId,
+    });
+    setBusy(false);
+    if (error) {
+      console.warn('[mlp] godmode_confirm_my_mlp_invites', error);
+      adminStatus.errorFromRpc(error, 'supabase/migration_godmode_mlp_helpers_v2.sql');
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    setInviteDetails((row?.details ?? []) as string[]);
+    if ((row?.failed ?? 0) > 0 && (row?.accepted ?? 0) === 0) {
+      adminStatus.error(row?.message ?? 'All invites failed.');
+    } else {
+      adminStatus.success(row?.message ?? 'Done.');
+    }
+    await load();
+    onTeamsChanged?.();
+  }
+
+  async function godmodeForceFill() {
+    adminStatus.clear();
+    setBusy(true);
+    const { data, error } = await supabase.rpc('godmode_force_fill_mlp_teams', {
+      p_tournament_id: tournamentId,
+    });
+    setBusy(false);
+    if (error) {
+      console.warn('[mlp] godmode_force_fill_mlp_teams', error);
+      adminStatus.errorFromRpc(error, 'supabase/migration_godmode_mlp_helpers_v2.sql');
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    adminStatus.success(row?.message ?? 'Done.');
+    await load();
+    onTeamsChanged?.();
+  }
+
+  async function godmodeDedupe() {
+    adminStatus.clear();
+    setBusy(true);
+    const { data, error } = await supabase.rpc('godmode_dedupe_mlp_team_members', {
+      p_tournament_id: tournamentId,
+    });
+    setBusy(false);
+    if (error) {
+      console.warn('[mlp] godmode_dedupe_mlp_team_members', error);
+      adminStatus.errorFromRpc(error, 'supabase/migration_godmode_mlp_helpers_v2.sql');
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    adminStatus.success(row?.message ?? 'Done.');
+    await load();
+    onTeamsChanged?.();
+  }
+
   // ── Render ──────────────────────────────────────────────────────────
   if (loading) return <ActivityIndicator size="large" color={c.primary} style={{ marginVertical: 24 }} />;
 
@@ -377,6 +447,7 @@ export default function MlpTeamSection({
       <Text style={S.subtitle}>
         Teams of 4 (2 men + 2 women). Each team-vs-team matchup is 4 doubles matches: men's, women's, and two mixed.
       </Text>
+      <StatusBanner status={adminStatus.value} />
 
       {/* Mode-specific top action */}
       {format === 'mlp' && onApproved && !myTeam && tournamentStatus === 'registration' && (
@@ -706,6 +777,57 @@ export default function MlpTeamSection({
         );
       })()}
 
+      {/* Godmode shortcuts (Brian only) — MLP Fixed Teams setup helpers */}
+      {isGodmodeUserId(currentUserId) && format === 'mlp' && tournamentStatus === 'registration' && (() => {
+        const myPendingInvites = requests.filter(r =>
+          r.direction === 'invite' && r.status === 'pending'
+          && teams.some(t => t.id === r.team_id && t.captain_id === currentUserId)
+        ).length;
+        const leftover = playersWithoutTeam.length;
+        return (
+          <View style={[S.godmodeBox, { marginTop: 14 }]}>
+            <Text style={S.godmodeTitle}>🪄 Godmode shortcuts</Text>
+            <TouchableOpacity
+              style={[S.godmodeBtn, (busy || myPendingInvites === 0) && S.btnDim]}
+              onPress={godmodeConfirmMyInvites}
+              disabled={busy || myPendingInvites === 0}
+            >
+              <Text style={S.godmodeBtnText}>
+                ✓ Confirm my pending invites ({myPendingInvites})
+              </Text>
+            </TouchableOpacity>
+            {inviteDetails.length > 0 && (
+              <View style={S.godmodeDetailsBox}>
+                {inviteDetails.map((d, i) => (
+                  <Text key={i} style={[S.godmodeDetailLine, d.startsWith('✗') && S.godmodeDetailLineFail]}>
+                    {d}
+                  </Text>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity
+              style={[S.godmodeBtn, (busy || leftover < 4) && S.btnDim, { marginTop: 8 }]}
+              onPress={godmodeForceFill}
+              disabled={busy || leftover < 4}
+            >
+              <Text style={S.godmodeBtnText}>
+                🤖 Force-fill remaining teams ({leftover} player{leftover === 1 ? '' : 's'} unassigned)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.godmodeBtn, busy && S.btnDim, { marginTop: 8, backgroundColor: '#dc2626' }]}
+              onPress={godmodeDedupe}
+              disabled={busy}
+            >
+              <Text style={S.godmodeBtnText}>
+                🧹 Dedupe team members (cleanup from v1 bug)
+              </Text>
+            </TouchableOpacity>
+            <StatusBanner status={adminStatus.value} />
+          </View>
+        );
+      })()}
+
       {/* Generate bracket */}
       {isPriv && !bracketAlreadyGenerated && (() => {
         const lockedCount = teams.filter(t => t.status === 'locked').length;
@@ -851,6 +973,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     adminMsgErrorText:   { color: '#8a1414' },
     adminBtnText: { color: c.primary, fontWeight: '700', fontSize: 13 },
     btnDim:       { opacity: 0.5 },
+
+    godmodeBox:      { backgroundColor: '#f3e8ff', borderRadius: 12, padding: 12, borderWidth: 1.5, borderColor: '#a855f7' },
+    godmodeTitle:    { fontSize: 13, fontWeight: '900', color: '#6b21a8', marginBottom: 8 },
+    godmodeBtn:      { backgroundColor: '#7c3aed', borderRadius: 10, paddingVertical: 11, paddingHorizontal: 14, alignItems: 'center' },
+    godmodeBtnText:  { color: '#fff', fontWeight: '800', fontSize: 13 },
+    godmodeDetailsBox:    { marginTop: 8, padding: 10, backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#d8b4fe' },
+    godmodeDetailLine:    { fontSize: 11, color: '#3730a3', marginVertical: 1 },
+    godmodeDetailLineFail:{ color: '#991b1b' },
 
     empty: { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 16 },
 

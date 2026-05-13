@@ -27,6 +27,7 @@ import PicklePotCard from '../components/PicklePotCard';
 import MlpTeamSection from '../components/MlpTeamSection';
 import DoublesPairSection from '../components/DoublesPairSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
+import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
@@ -81,6 +82,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [deleting, setDeleting]                   = useState(false);
   const [simulating, setSimulating]               = useState(false);
   const [deleteError, setDeleteError]             = useState<string | null>(null);
+  const [showPayoutModal, setShowPayoutModal]     = useState(false);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -719,10 +721,36 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             {(tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff') && (
               <MlpPlayoffPreview
                 tournamentId={tournamentId}
+                tournamentName={tournament.name}
+                leagueId={tournament.league_id ?? ''}
                 mlpPlayFormat={tournament.mlp_play_format}
                 poolCount={tournament.mlp_pool_count ?? 2}
                 playoffTeams={tournament.mlp_playoff_teams ?? 4}
+                isAdmin={isPriv}
               />
+            )}
+            {/* Auto-payout: shown when MLP playoff tournament is completed,
+                pool > 0, payout not yet applied, viewer is admin. */}
+            {isPriv
+              && tournament.status === 'completed'
+              && (tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff')
+              && (tournament.prize_pool ?? 0) > 0
+              && !tournament.champion_payout_applied_at && (
+              <TouchableOpacity
+                style={S.payoutBtn}
+                onPress={() => setShowPayoutModal(true)}
+                activeOpacity={0.85}
+              >
+                <Text style={S.payoutBtnText}>🏆 Pay Out Prizes</Text>
+                <Text style={S.payoutBtnSub}>
+                  Splits 🥒 {tournament.prize_pool} among bracket finishers · stamps badges · applies PLUPR bonus
+                </Text>
+              </TouchableOpacity>
+            )}
+            {isPriv && tournament.champion_payout_applied_at && (
+              <View style={S.payoutDoneBanner}>
+                <Text style={S.payoutDoneText}>✓ Prizes paid out on {new Date(tournament.champion_payout_applied_at).toLocaleDateString()}</Text>
+              </View>
             )}
           </View>
         )}
@@ -1454,6 +1482,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onConfirm={confirmDeleteTournament}
         onClose={() => setShowDeleteConfirm(false)}
       />
+
+      <PayoutPreviewModal
+        visible={showPayoutModal}
+        tournamentId={tournamentId}
+        prizePool={tournament?.prize_pool ?? 0}
+        onClose={() => setShowPayoutModal(false)}
+        onPaid={() => { setShowPayoutModal(false); load(); }}
+      />
     </>
   );
 }
@@ -1508,6 +1544,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     confirmBtnDanger:       { backgroundColor: c.danger },
     confirmBtnDangerText:   { color: '#fff', fontWeight: '800', fontSize: 14 },
     dangerBtnSub:     { fontSize: 12, color: c.textMuted, marginTop: 4 },
+
+    payoutBtn:        { marginTop: 12, backgroundColor: c.primary, borderRadius: 12, padding: 14, alignItems: 'center' },
+    payoutBtnText:    { fontSize: 15, fontWeight: '900', color: '#fff' },
+    payoutBtnSub:     { fontSize: 11, color: '#fff', opacity: 0.85, marginTop: 4, textAlign: 'center' },
+    payoutDoneBanner: { marginTop: 12, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#a5d6a7', alignItems: 'center' },
+    payoutDoneText:   { fontSize: 12, color: '#2e7d32', fontWeight: '700' },
 
     editModal:        { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
     editModalTitle:   { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 6 },

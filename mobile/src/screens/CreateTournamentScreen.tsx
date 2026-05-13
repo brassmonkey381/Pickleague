@@ -266,7 +266,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                   ))}
                 </View>
                 <Text style={S.hint}>
-                  {mlpPlayoffTeams === 2 ? 'Finals only (best vs best).' :
+                  {mlpPlayoffTeams === 2 ? 'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).' :
                    mlpPlayoffTeams === 4 ? 'Semifinals + Finals.' :
                    'Quarterfinals + Semifinals + Finals.'}
                 </Text>

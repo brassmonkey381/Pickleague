@@ -240,6 +240,7 @@ export type Tournament = {
   prize_pool: number;
   pickle_ante: number;
   payout_structure: number[];
+  champion_payout_applied_at: string | null;
   created_at: string;
 };
 
