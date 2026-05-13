@@ -8,6 +8,9 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { MlpTeam, MlpTeamJoinRequest, MlpTeamSlot, TournamentRegistration } from '../types';
 import UserPickerModal, { PickedUser } from './UserPickerModal';
+import ConfirmModal from './ConfirmModal';
+import StatusBanner from './StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = {
   tournamentId: string;
@@ -61,7 +64,7 @@ export default function MlpTeamSection({
 
   // Admin action banner (random teams + bracket generation).
   // Inline since Alert.alert can be invisible on web in some focus states.
-  const [adminMsg, setAdminMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const adminStatus = useStatusMessage();
 
   // Per-approved-player gender, fetched once at load. Used to compute the
   // pre-flight checks for random/snake team generation.
@@ -320,7 +323,7 @@ export default function MlpTeamSection({
   }
 
   async function generateRandomTeams(mode: 'random' | 'snake') {
-    setAdminMsg(null);
+    adminStatus.clear();
     setBusy(true);
     const { data, error } = await supabase.rpc('generate_random_mlp_teams', {
       p_tournament_id: tournamentId,
@@ -330,22 +333,16 @@ export default function MlpTeamSection({
     if (error) {
       // eslint-disable-next-line no-console
       console.warn('[mlp] generate_random_mlp_teams', error);
-      const looksMissing = /does not exist|Could not find the function|PGRST202/i.test(error.message ?? '');
-      setAdminMsg({
-        kind: 'error',
-        text: looksMissing
-          ? 'The MLP random-team function isn\'t deployed yet. Run supabase/migration_add_mlp_teams.sql in the SQL Editor.'
-          : (error.message ?? 'Unknown error'),
-      });
+      adminStatus.errorFromRpc(error, 'supabase/migration_add_mlp_teams.sql');
       return;
     }
-    setAdminMsg({ kind: 'success', text: `Generated ${data} team${data === 1 ? '' : 's'}.` });
+    adminStatus.success(`Generated ${data} team${data === 1 ? '' : 's'}.`);
     await load();
     onTeamsChanged?.();
   }
 
   async function generateBracket() {
-    setAdminMsg(null);
+    adminStatus.clear();
     setBusy(true);
     const { data, error } = await supabase.rpc('generate_mlp_bracket', {
       p_tournament_id: tournamentId,
@@ -354,16 +351,10 @@ export default function MlpTeamSection({
     if (error) {
       // eslint-disable-next-line no-console
       console.warn('[mlp] generate_mlp_bracket', error);
-      const looksMissing = /does not exist|Could not find the function|PGRST202/i.test(error.message ?? '');
-      setAdminMsg({
-        kind: 'error',
-        text: looksMissing
-          ? 'The MLP bracket-generation function isn\'t deployed yet. Run supabase/migration_add_mlp_teams.sql in the SQL Editor.'
-          : (error.message ?? 'Unknown error'),
-      });
+      adminStatus.errorFromRpc(error, 'supabase/migration_add_mlp_teams.sql');
       return;
     }
-    setAdminMsg({ kind: 'success', text: `Generated ${data} sub-matches across team-vs-team rounds.` });
+    adminStatus.success(`Generated ${data} sub-matches across team-vs-team rounds.`);
     onTeamsChanged?.();
   }
 
@@ -457,19 +448,7 @@ export default function MlpTeamSection({
                 <Text style={S.adminBtnText}>🐍 Snake-Draft (balanced)</Text>
               </TouchableOpacity>
             </View>
-            {adminMsg && (
-              <View style={[
-                S.adminMsg,
-                adminMsg.kind === 'error' ? S.adminMsgError : S.adminMsgSuccess,
-              ]}>
-                <Text style={[
-                  S.adminMsgText,
-                  adminMsg.kind === 'error' ? S.adminMsgErrorText : S.adminMsgSuccessText,
-                ]}>
-                  {adminMsg.text}
-                </Text>
-              </View>
-            )}
+            <StatusBanner status={adminStatus.value} />
           </View>
         );
       })()}
@@ -755,19 +734,7 @@ export default function MlpTeamSection({
             >
               <Text style={S.generateBtnText}>⚡ Generate Bracket</Text>
             </TouchableOpacity>
-            {adminMsg && (
-              <View style={[
-                S.adminMsg,
-                adminMsg.kind === 'error' ? S.adminMsgError : S.adminMsgSuccess,
-              ]}>
-                <Text style={[
-                  S.adminMsgText,
-                  adminMsg.kind === 'error' ? S.adminMsgErrorText : S.adminMsgSuccessText,
-                ]}>
-                  {adminMsg.text}
-                </Text>
-              </View>
-            )}
+            <StatusBanner status={adminStatus.value} />
           </View>
         );
       })()}
@@ -824,90 +791,33 @@ export default function MlpTeamSection({
         />
       )}
 
-      {/* Invite confirmation dialog */}
-      <Modal
+      <ConfirmModal
         visible={!!pendingInvite}
-        transparent animationType="fade"
-        onRequestClose={() => { setPendingInvite(null); setInviteError(null); }}
-      >
-        <View style={S.modalBackdrop}>
-          <View style={S.modalCard}>
-            <Text style={S.modalTitle}>Send invite?</Text>
-            {pendingInvite && (
-              <Text style={S.modalBody}>
-                Invite <Text style={{ fontWeight: '800', color: c.text }}>{pendingInvite.user.full_name}</Text> to join{' '}
-                <Text style={{ fontWeight: '800', color: c.text }}>{pendingInvite.teamName}</Text>?{'\n\n'}
-                They'll get a notification and can accept or decline.
-              </Text>
-            )}
-            {inviteError && <Text style={S.modalErrorText}>{inviteError}</Text>}
-            <View style={S.modalBtnRow}>
-              <TouchableOpacity
-                style={[S.modalBtn, S.modalBtnSecondary]}
-                onPress={() => { setPendingInvite(null); setInviteError(null); }}
-                disabled={busy}
-              >
-                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[S.modalBtn, S.modalBtnPrimary, busy && S.modalBtnDim]}
-                onPress={confirmInvite}
-                disabled={busy}
-              >
-                {busy
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={S.modalBtnPrimaryText}>Send Invite</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="Send invite?"
+        body={pendingInvite
+          ? `Invite ${pendingInvite.user.full_name} to join ${pendingInvite.teamName}? They'll get a notification and can accept or decline.`
+          : ''}
+        primaryLabel="Send Invite"
+        variant="primary"
+        busy={busy}
+        error={inviteError}
+        onConfirm={confirmInvite}
+        onClose={() => { setPendingInvite(null); setInviteError(null); }}
+      />
 
-      {/* Leave / Disband confirm modal */}
-      <Modal
+      <ConfirmModal
         visible={!!leaveConfirm}
-        transparent
-        animationType="fade"
-        onRequestClose={() => (busy ? null : setLeaveConfirm(null))}
-      >
-        <View style={S.modalBackdrop}>
-          <View style={S.modalCard}>
-            <Text style={S.modalTitle}>
-              {leaveConfirm?.asCaptain ? `Disband "${leaveConfirm?.teamName}"?` : `Leave "${leaveConfirm?.teamName}"?`}
-            </Text>
-            <Text style={S.modalBody}>
-              {leaveConfirm?.asCaptain
-                ? 'You\'re the captain. Disbanding deletes the team and removes every member from it. Pending invites and join requests for this team will also be cancelled. This cannot be undone.'
-                : 'You\'ll be removed from this team. You can request to join another team or create your own after.'}
-            </Text>
-            {leaveError ? (
-              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 8 }}>
-                {leaveError}
-              </Text>
-            ) : null}
-            <View style={S.modalBtnRow}>
-              <TouchableOpacity
-                style={[S.modalBtn, S.modalBtnSecondary]}
-                onPress={() => { setLeaveConfirm(null); setLeaveError(null); }}
-                disabled={busy}
-              >
-                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[S.modalBtn, { backgroundColor: '#c62828' }, busy && S.modalBtnDim]}
-                onPress={confirmLeaveTeam}
-                disabled={busy}
-              >
-                {busy
-                  ? <ActivityIndicator color="#fff" />
-                  : <Text style={S.modalBtnPrimaryText}>
-                      {leaveConfirm?.asCaptain ? 'Disband team' : 'Leave team'}
-                    </Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title={leaveConfirm?.asCaptain ? `Disband "${leaveConfirm?.teamName}"?` : `Leave "${leaveConfirm?.teamName}"?`}
+        body={leaveConfirm?.asCaptain
+          ? "You're the captain. Disbanding deletes the team and removes every member from it. Pending invites and join requests for this team will also be cancelled. This cannot be undone."
+          : "You'll be removed from this team. You can request to join another team or create your own after."}
+        primaryLabel={leaveConfirm?.asCaptain ? 'Disband team' : 'Leave team'}
+        variant="danger"
+        busy={busy}
+        error={leaveError}
+        onConfirm={confirmLeaveTeam}
+        onClose={() => { setLeaveConfirm(null); setLeaveError(null); }}
+      />
     </View>
   );
 }

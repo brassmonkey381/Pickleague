@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { LeagueInvite, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Invite'>;
@@ -37,6 +38,8 @@ export default function InviteScreen({ navigation, route }: Props) {
   const [invite, setInvite] = useState<LeagueInvite | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
+  const [revoking, setRevoking] = useState(false);
 
   useFocusEffect(useCallback(() => { loadInvite(); }, []));
 
@@ -66,18 +69,17 @@ export default function InviteScreen({ navigation, route }: Props) {
     else setInvite(data as LeagueInvite);
   }
 
-  async function revokeInvite() {
+  function revokeInvite() {
     if (!invite) return;
-    Alert.alert('Revoke invite?', 'The current code will stop working.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Revoke', style: 'destructive',
-        onPress: async () => {
-          await supabase.from('league_invites').update({ is_active: false }).eq('id', invite.id);
-          setInvite(null);
-        },
-      },
-    ]);
+    setShowRevokeConfirm(true);
+  }
+  async function confirmRevoke() {
+    if (!invite) return;
+    setRevoking(true);
+    await supabase.from('league_invites').update({ is_active: false }).eq('id', invite.id);
+    setRevoking(false);
+    setShowRevokeConfirm(false);
+    setInvite(null);
   }
 
   async function copyCode() {
@@ -155,6 +157,17 @@ export default function InviteScreen({ navigation, route }: Props) {
           Codes expire after 7 days. You can revoke and regenerate at any time.
         </Text>
       </View>
+
+      <ConfirmModal
+        visible={showRevokeConfirm}
+        title="Revoke invite?"
+        body="The current code will stop working."
+        primaryLabel="Revoke"
+        variant="danger"
+        busy={revoking}
+        onConfirm={confirmRevoke}
+        onClose={() => setShowRevokeConfirm(false)}
+      />
     </ScrollView>
   );
 }

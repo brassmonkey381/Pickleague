@@ -11,6 +11,8 @@ import { DoublesCategory, Profile, RootStackParamList } from '../types';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useTheme } from '../lib/ThemeContext';
 import { isGodmodeUserId } from '../lib/godmode';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -18,7 +20,6 @@ type Props = {
 };
 
 type MatchType = 'singles' | 'doubles';
-type StatusMsg = { text: string; isError: boolean } | null;
 
 // Cross-platform player picker: HTML <select> on web, native Picker on iOS/Android
 function PlayerPickerField({ label, value, onChange, members, exclude, S, colors }: {
@@ -111,7 +112,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [courtHint, setCourtHint]   = useState<string | null>(null);
   const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
-  const [statusMsg, setStatusMsg]   = useState<StatusMsg>(null);
+  const status = useStatusMessage();
 
   useEffect(() => { loadLeagueData(); }, []);
 
@@ -242,15 +243,15 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     setMatchType(type);
     setP1(''); setPartner1(''); setP2(''); setPartner2('');
     setScore1(''); setScore2('');
-    setStatusMsg(null);
+    status.clear();
   }
 
   function setError(text: string) {
-    setStatusMsg({ text, isError: true });
+    status.error(text);
   }
 
   async function submitMatch() {
-    setStatusMsg(null);
+    status.clear();
 
     // Validation
     if (matchType === 'singles') {
@@ -299,7 +300,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         setError(tmErr.message);
         return;
       }
-      setStatusMsg({ text: 'Tournament match recorded. PLUPR updated.', isError: false });
+      status.success('Tournament match recorded. PLUPR updated.');
       setTimeout(() => navigation.goBack(), 1500);
       return;
     }
@@ -361,12 +362,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           can_edit_until: canEditUntil,
         });
       }
-      setStatusMsg({
-        text: isGod
-          ? 'Match recorded and confirmed (godmode). PLUPR updated.'
-          : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.',
-        isError: false,
-      });
+      status.success(isGod
+        ? 'Match recorded and confirmed (godmode). PLUPR updated.'
+        : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.');
       setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
     }
   }
@@ -602,13 +600,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       </View>
 
       {/* Status message */}
-      {statusMsg && (
-        <View style={[S.statusBox, statusMsg.isError ? S.statusError : S.statusSuccess]}>
-          <Text style={[S.statusText, statusMsg.isError ? S.statusTextError : S.statusTextSuccess]}>
-            {statusMsg.isError ? '✕  ' : '✓  '}{statusMsg.text}
-          </Text>
-        </View>
-      )}
+      <StatusBanner status={status.value} />
 
       <TouchableOpacity
         style={[S.button, loading && S.buttonDisabled]}

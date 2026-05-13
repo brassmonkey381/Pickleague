@@ -11,6 +11,7 @@ import { checkGodmode } from '../lib/godmode';
 import { getRegionName } from '../lib/regions';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import AppDateTimePicker from '../components/AppDateTimePicker';
+import ConfirmModal from '../components/ConfirmModal';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -34,6 +35,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);
   const [pastSeasons, setPastSeasons]   = useState<LeagueSeason[]>([]);
   const [godmode, setGodmode]           = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting]         = useState(false);
+  const [deleteError, setDeleteError]   = useState<string | null>(null);
 
   // League edit modal
   const [editVisible, setEditVisible]   = useState(false);
@@ -86,26 +90,41 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     setLoading(false);
   }
 
-  async function deleteLeague() {
+  function deleteLeague() {
     if (!league) return;
-    Alert.alert(
-      `Delete "${league.name}"?`,
-      "This permanently removes the league and all of its members, matches, events, seasons, and tournaments. This cannot be undone.",
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete League',
-          style: 'destructive',
-          onPress: async () => {
-            const { data, error } = await supabase.from('leagues').delete().eq('id', league.id).select();
-            if (error) Alert.alert('Delete failed', error.message);
-            else if (!data || data.length === 0) {
-              Alert.alert('Delete blocked', 'No rows were deleted. The DELETE RLS policy may not be in place — apply supabase/migration_add_godmode_delete.sql.');
-            } else navigation.goBack();
-          },
-        },
-      ],
-    );
+    setDeleteError(null);
+    setShowDeleteConfirm(true);
+  }
+  async function confirmDeleteLeague() {
+    if (!league) return;
+    setDeleting(true);
+    setDeleteError(null);
+    // Prefer the SECURITY DEFINER RPC (bypasses RLS). Fall back to direct delete.
+    const rpc = await supabase.rpc('godmode_delete_league', { p_league_id: league.id });
+    if (rpc.error) {
+      const msg = rpc.error.message ?? '';
+      const looksMissing = /does not exist|Could not find the function|PGRST202/i.test(msg);
+      if (looksMissing) {
+        const fallback = await supabase.from('leagues').delete().eq('id', league.id).select();
+        if (fallback.error) {
+          setDeleteError(fallback.error.message);
+          setDeleting(false);
+          return;
+        }
+        if (!fallback.data || fallback.data.length === 0) {
+          setDeleteError('No rows were deleted. Run supabase/migration_add_godmode_delete_rpc.sql.');
+          setDeleting(false);
+          return;
+        }
+      } else {
+        setDeleteError(msg || 'Delete failed.');
+        setDeleting(false);
+        return;
+      }
+    }
+    setDeleting(false);
+    setShowDeleteConfirm(false);
+    navigation.goBack();
   }
 
   async function saveLeagueChanges() {
@@ -598,6 +617,18 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         minimumDate={new Date()}
         onChange={d => setSeasonStart(d)}
         onClose={() => setShowDatePicker(false)}
+      />
+
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        title={`Delete "${league?.name ?? ''}"?`}
+        body="This permanently removes the league and all of its members, matches, events, seasons, and tournaments. This cannot be undone."
+        primaryLabel="Delete League"
+        variant="danger"
+        busy={deleting}
+        error={deleteError}
+        onConfirm={confirmDeleteLeague}
+        onClose={() => setShowDeleteConfirm(false)}
       />
     </ScrollView>
   );

@@ -10,6 +10,7 @@ import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { LeagueEvent, EventSlot, Profile, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -40,6 +41,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const S = makeStyles(c);
 
   const [event, setEvent] = useState<LeagueEvent | null>(null);
+  const [closeWinner, setCloseWinner] = useState<EventSlot | null>(null);
+  const [closing, setClosing]         = useState(false);
   const [slots, setSlots] = useState<EventSlot[]>([]);
   const [memberCount, setMemberCount] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -115,29 +118,22 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     await load();
   }
 
-  async function closeVoting() {
+  function closeVoting() {
     if (!event) return;
     const winner = [...slots].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))[0];
     if (!winner) return;
-
-    Alert.alert(
-      'Close voting & confirm?',
-      `The winning slot (${winner.vote_count} votes) will be set as the confirmed time. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          style: 'default',
-          onPress: async () => {
-            await supabase
-              .from('league_events')
-              .update({ status: 'scheduled', confirmed_slot_id: winner.id })
-              .eq('id', event.id);
-            await load();
-          },
-        },
-      ]
-    );
+    setCloseWinner(winner);
+  }
+  async function confirmCloseVoting() {
+    if (!event || !closeWinner) return;
+    setClosing(true);
+    await supabase
+      .from('league_events')
+      .update({ status: 'scheduled', confirmed_slot_id: closeWinner.id })
+      .eq('id', event.id);
+    setClosing(false);
+    setCloseWinner(null);
+    await load();
   }
 
   const countdown = useCountdown(event?.vote_ends_at ?? new Date().toISOString());
@@ -274,6 +270,17 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           ))}
         </View>
       )}
+
+      <ConfirmModal
+        visible={!!closeWinner}
+        title="Close voting & confirm?"
+        body={closeWinner ? `The winning slot (${closeWinner.vote_count} votes) will be set as the confirmed time. This cannot be undone.` : ''}
+        primaryLabel="Confirm"
+        variant="primary"
+        busy={closing}
+        onConfirm={confirmCloseVoting}
+        onClose={() => setCloseWinner(null)}
+      />
     </ScrollView>
   );
 }

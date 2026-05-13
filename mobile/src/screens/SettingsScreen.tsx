@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import ConfirmModal from '../components/ConfirmModal';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
@@ -452,89 +453,42 @@ export default function SettingsScreen({ navigation }: Props) {
 
       <View style={{ height: 48 }} />
 
-      {/* ── Sign-out confirm modal ─────────────────────────────── */}
-      <Modal
+      <ConfirmModal
         visible={signOutOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => (signingOut ? null : setSignOutOpen(false))}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Sign out?</Text>
-            <Text style={styles.modalBody}>You'll need to sign back in to use Pickleague.</Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnGhost]}
-                onPress={() => setSignOutOpen(false)}
-                disabled={signingOut}
-              >
-                <Text style={styles.modalBtnGhostText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnPrimary]}
-                onPress={doSignOut}
-                disabled={signingOut}
-              >
-                {signingOut
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.modalBtnPrimaryText}>Sign out</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="Sign out?"
+        body="You'll need to sign back in to use Pickleague."
+        primaryLabel="Sign out"
+        variant="primary"
+        busy={signingOut}
+        onConfirm={doSignOut}
+        onClose={() => setSignOutOpen(false)}
+      />
 
-      {/* ── Delete-account confirm modal ───────────────────────── */}
-      <Modal
+      <ConfirmModal
         visible={deleteOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={closeDeleteAccount}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={[styles.modalTitle, { color: '#c62828' }]}>Delete account</Text>
-            <Text style={styles.modalBody}>
-              This permanently removes your account, profile, ratings, match history, pickles, and
-              everything else tied to it. This cannot be undone.
-            </Text>
-            <Text style={styles.modalBody}>
-              Enter your password to confirm.
-            </Text>
-            <TextInput
-              style={styles.passwordInput}
-              value={deletePassword}
-              onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
-              placeholder="Current password"
-              placeholderTextColor="#aaa"
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="current-password"
-              editable={!deleting}
-            />
-            {deleteError ? <Text style={styles.modalError}>{deleteError}</Text> : null}
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnGhost]}
-                onPress={closeDeleteAccount}
-                disabled={deleting}
-              >
-                <Text style={styles.modalBtnGhostText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.modalBtnDanger, !deletePassword && { opacity: 0.5 }]}
-                onPress={doDeleteAccount}
-                disabled={deleting || !deletePassword}
-              >
-                {deleting
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.modalBtnPrimaryText}>Delete my account</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="Delete account"
+        body="This permanently removes your account, profile, ratings, match history, pickles, and everything else tied to it. This cannot be undone. Enter your password to confirm."
+        primaryLabel="Delete my account"
+        variant="danger"
+        busy={deleting}
+        error={deleteError || null}
+        primaryDisabled={!deletePassword}
+        extraField={
+          <TextInput
+            style={styles.passwordInput}
+            value={deletePassword}
+            onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
+            placeholder="Current password"
+            placeholderTextColor="#aaa"
+            secureTextEntry
+            autoCapitalize="none"
+            autoComplete="current-password"
+            editable={!deleting}
+          />
+        }
+        onConfirm={doDeleteAccount}
+        onClose={closeDeleteAccount}
+      />
     </ScrollView>
   );
 }

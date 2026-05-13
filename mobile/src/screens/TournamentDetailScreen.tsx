@@ -27,6 +27,7 @@ import PicklePotCard from '../components/PicklePotCard';
 import MlpTeamSection from '../components/MlpTeamSection';
 import DoublesPairSection from '../components/DoublesPairSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
+import ConfirmModal from '../components/ConfirmModal';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -1430,83 +1431,29 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         />
       </Modal>
 
-      {/* Lock-in bracket confirm */}
-      <Modal
+      <ConfirmModal
         visible={showLockInConfirm}
-        transparent animationType="fade"
-        onRequestClose={() => (locking ? null : setShowLockInConfirm(false))}
-      >
-        <View style={S.confirmBackdrop}>
-          <View style={S.confirmCard}>
-            <Text style={S.confirmTitle}>Lock in bracket?</Text>
-            <Text style={S.confirmBody}>
-              This finalizes the schedule and notifies all {approved.length} member{approved.length === 1 ? '' : 's'}. You won't be able to regenerate after this.
-            </Text>
-            {lockInError ? (
-              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 10 }}>
-                {lockInError}
-              </Text>
-            ) : null}
-            <View style={S.confirmBtnRow}>
-              <TouchableOpacity
-                style={[S.confirmBtn, S.confirmBtnSecondary]}
-                onPress={() => setShowLockInConfirm(false)}
-                disabled={locking}
-              >
-                <Text style={S.confirmBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[S.confirmBtn, S.confirmBtnDanger, locking && { opacity: 0.7 }]}
-                onPress={doLockIn}
-                disabled={locking}
-              >
-                {locking
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={S.confirmBtnDangerText}>Lock In & Notify</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="Lock in bracket?"
+        body={`This finalizes the schedule and notifies all ${approved.length} member${approved.length === 1 ? '' : 's'}. You won't be able to regenerate after this.`}
+        primaryLabel="Lock In & Notify"
+        variant="danger"
+        busy={locking}
+        error={lockInError}
+        onConfirm={doLockIn}
+        onClose={() => setShowLockInConfirm(false)}
+      />
 
-      {/* Godmode delete confirm */}
-      <Modal
+      <ConfirmModal
         visible={showDeleteConfirm}
-        transparent animationType="fade"
-        onRequestClose={() => (deleting ? null : setShowDeleteConfirm(false))}
-      >
-        <View style={S.confirmBackdrop}>
-          <View style={S.confirmCard}>
-            <Text style={S.confirmTitle}>🗑  Delete "{tournament?.name}"?</Text>
-            <Text style={S.confirmBody}>
-              This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone.
-            </Text>
-            {deleteError ? (
-              <Text style={{ color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 10 }}>
-                {deleteError}
-              </Text>
-            ) : null}
-            <View style={S.confirmBtnRow}>
-              <TouchableOpacity
-                style={[S.confirmBtn, S.confirmBtnSecondary]}
-                onPress={() => setShowDeleteConfirm(false)}
-                disabled={deleting}
-              >
-                <Text style={S.confirmBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[S.confirmBtn, S.confirmBtnDanger]}
-                onPress={confirmDeleteTournament}
-                disabled={deleting}
-              >
-                {deleting
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={S.confirmBtnDangerText}>Delete Tournament</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title={`🗑  Delete "${tournament?.name ?? ''}"?`}
+        body="This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone."
+        primaryLabel="Delete Tournament"
+        variant="danger"
+        busy={deleting}
+        error={deleteError}
+        onConfirm={confirmDeleteTournament}
+        onClose={() => setShowDeleteConfirm(false)}
+      />
     </>
   );
 }

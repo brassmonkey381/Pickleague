@@ -11,6 +11,7 @@ import { DrillRequest, DrillRequestMessage, RootStackParamList } from '../types'
 import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
 
@@ -31,6 +32,10 @@ export default function DrillRequestsScreen({}: Props) {
 
   // Chat modal state
   const [chatRequest, setChatRequest] = useState<DrillRequest | null>(null);
+
+  // Cancel-request confirm
+  const [cancelTarget, setCancelTarget] = useState<DrillRequest | null>(null);
+  const [cancelling, setCancelling]     = useState(false);
 
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
@@ -81,25 +86,16 @@ export default function DrillRequestsScreen({}: Props) {
     respondToRequest(req, 'accept', slot);
   }
 
-  async function cancelRequest(req: DrillRequest) {
-    Alert.alert(
-      'Cancel request?',
-      `Cancel your drill request to ${req.to_profile?.full_name ?? 'this player'}?`,
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Yes, cancel',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase
-              .from('drill_requests')
-              .update({ status: 'cancelled' })
-              .eq('id', req.id);
-            load();
-          },
-        },
-      ]
-    );
+  function cancelRequest(req: DrillRequest) {
+    setCancelTarget(req);
+  }
+  async function confirmCancelRequest() {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    await supabase.from('drill_requests').update({ status: 'cancelled' }).eq('id', cancelTarget.id);
+    setCancelling(false);
+    setCancelTarget(null);
+    load();
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
@@ -263,6 +259,18 @@ export default function DrillRequestsScreen({}: Props) {
         request={chatRequest}
         currentUserId={userId}
         onClose={() => setChatRequest(null)}
+      />
+
+      <ConfirmModal
+        visible={!!cancelTarget}
+        title="Cancel request?"
+        body={`Cancel your drill request to ${cancelTarget?.to_profile?.full_name ?? 'this player'}?`}
+        primaryLabel="Yes, cancel"
+        cancelLabel="No"
+        variant="danger"
+        busy={cancelling}
+        onConfirm={confirmCancelRequest}
+        onClose={() => setCancelTarget(null)}
       />
     </View>
   );

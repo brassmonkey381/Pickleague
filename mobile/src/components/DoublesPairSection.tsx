@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DoublesPair, DoublesPairJoinRequest, TournamentRegistration } from '../types';
 import UserPickerModal, { PickedUser } from './UserPickerModal';
+import ConfirmModal from './ConfirmModal';
 
 type Props = {
   tournamentId: string;
@@ -468,53 +469,33 @@ export default function DoublesPairSection({
         />
       )}
 
-      {/* Invite confirm */}
-      <Modal visible={!!pendingInvite} transparent animationType="fade" onRequestClose={() => { setPendingInvite(null); setInviteError(null); }}>
-        <View style={S.modalBackdrop}>
-          <View style={S.modalCard}>
-            <Text style={S.modalTitle}>Send invite?</Text>
-            {pendingInvite && (
-              <Text style={S.modalBody}>
-                Invite <Text style={{ fontWeight: '800' }}>{pendingInvite.user.full_name}</Text> to pair as <Text style={{ fontWeight: '800' }}>{pendingInvite.pairName}</Text>? They'll get a notification.
-              </Text>
-            )}
-            {inviteError ? <Text style={S.modalError}>{inviteError}</Text> : null}
-            <View style={S.modalBtnRow}>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={() => { setPendingInvite(null); setInviteError(null); }} disabled={busy}>
-                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnPrimary, busy && S.modalBtnDim]} onPress={confirmInvite} disabled={busy}>
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={S.modalBtnPrimaryText}>Send Invite</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ConfirmModal
+        visible={!!pendingInvite}
+        title="Send invite?"
+        body={pendingInvite
+          ? `Invite ${pendingInvite.user.full_name} to pair as ${pendingInvite.pairName}? They'll get a notification.`
+          : ''}
+        primaryLabel="Send Invite"
+        variant="primary"
+        busy={busy}
+        error={inviteError}
+        onConfirm={confirmInvite}
+        onClose={() => { setPendingInvite(null); setInviteError(null); }}
+      />
 
-      {/* Leave / Disband confirm */}
-      <Modal visible={!!leaveConfirm} transparent animationType="fade" onRequestClose={() => (busy ? null : setLeaveConfirm(null))}>
-        <View style={S.modalBackdrop}>
-          <View style={S.modalCard}>
-            <Text style={S.modalTitle}>
-              {leaveConfirm?.asCaptain ? `Disband "${leaveConfirm?.pairName}"?` : `Leave "${leaveConfirm?.pairName}"?`}
-            </Text>
-            <Text style={S.modalBody}>
-              {leaveConfirm?.asCaptain
-                ? 'You\'re the captain. Disbanding deletes the pair and frees your partner. Pending invites/requests will also be cancelled. This cannot be undone.'
-                : 'You\'ll be removed from this pair. You can request to join another pair or create your own after.'}
-            </Text>
-            {leaveError ? <Text style={S.modalError}>{leaveError}</Text> : null}
-            <View style={S.modalBtnRow}>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={() => { setLeaveConfirm(null); setLeaveError(null); }} disabled={busy}>
-                <Text style={S.modalBtnSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[S.modalBtn, { backgroundColor: '#c62828' }, busy && S.modalBtnDim]} onPress={confirmLeavePair} disabled={busy}>
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={S.modalBtnPrimaryText}>{leaveConfirm?.asCaptain ? 'Disband pair' : 'Leave pair'}</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      <ConfirmModal
+        visible={!!leaveConfirm}
+        title={leaveConfirm?.asCaptain ? `Disband "${leaveConfirm?.pairName}"?` : `Leave "${leaveConfirm?.pairName}"?`}
+        body={leaveConfirm?.asCaptain
+          ? "You're the captain. Disbanding deletes the pair and frees your partner. Pending invites/requests will also be cancelled. This cannot be undone."
+          : "You'll be removed from this pair. You can request to join another pair or create your own after."}
+        primaryLabel={leaveConfirm?.asCaptain ? 'Disband pair' : 'Leave pair'}
+        variant="danger"
+        busy={busy}
+        error={leaveError}
+        onConfirm={confirmLeavePair}
+        onClose={() => { setLeaveConfirm(null); setLeaveError(null); }}
+      />
     </View>
   );
 }
