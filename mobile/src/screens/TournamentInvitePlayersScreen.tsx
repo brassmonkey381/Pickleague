@@ -27,6 +27,7 @@ type Candidate = {
   avatar_bg_color: string | null;
   ratingDiff: number;       // |rating - tournament avg|
   invitedNow: boolean;      // local optimistic flag
+  inviteError: string | null;
 };
 
 export default function TournamentInvitePlayersScreen({ navigation, route }: Props) {
@@ -88,6 +89,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
         avatar_bg_color: p.avatar_bg_color,
         ratingDiff: Math.abs(p.rating - avg),
         invitedNow: false,
+        inviteError: null,
       }))
       .sort((a, b) => a.ratingDiff - b.ratingDiff);
 
@@ -97,15 +99,33 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
 
   async function invite(c: Candidate) {
     setBusy(c.id);
+    // Clear any prior error on this row before retrying.
+    setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: null } : p));
+
     const { data, error } = await supabase.rpc('tournament_invite_player', {
       p_tournament_id: tournamentId,
       p_user_id:       c.id,
     });
     setBusy(null);
-    if (error) { Alert.alert('Error', error.message); return; }
+
+    // Surface the failure inline next to the row instead of via Alert —
+    // Alert.alert occasionally collapses silently on web in some focus states.
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[tournament_invite_player]', error);
+      const msg = error.message ?? 'Unknown error';
+      const friendlier = /only.*has.*🥒|ante is/i.test(msg)
+        ? 'They don\'t have enough 🥒 for the entry ante.'
+        : msg;
+      setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: friendlier } : p));
+      return;
+    }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not invite', row?.message ?? 'Unknown error'); return; }
-    setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, invitedNow: true } : p));
+    if (!row?.success) {
+      setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: row?.message ?? 'Could not invite.' } : p));
+      return;
+    }
+    setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, invitedNow: true, inviteError: null } : p));
   }
 
   const filtered = useMemo(() => {
@@ -179,30 +199,35 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
             : (item.rating - tournamentAvg > 0 ? '+' : '') + (item.rating - tournamentAvg).toFixed(2) + ' vs avg';
 
           return (
-            <View style={S.row}>
-              <View style={[S.avatar, { backgroundColor: bg }]}>
-                <Text style={S.avatarEmoji}>{emoji}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
-                <Text style={S.sub} numberOfLines={1}>
-                  @{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR · {ratingDeltaTxt}
-                </Text>
-              </View>
-              {item.invitedNow ? (
-                <View style={[S.btn, S.btnDone]}>
-                  <Text style={S.btnDoneText}>✓ Invited</Text>
+            <View style={S.rowWrap}>
+              <View style={S.row}>
+                <View style={[S.avatar, { backgroundColor: bg }]}>
+                  <Text style={S.avatarEmoji}>{emoji}</Text>
                 </View>
-              ) : (
-                <TouchableOpacity
-                  style={[S.btn, S.btnPrimary, busy === item.id && S.btnDim]}
-                  onPress={() => invite(item)}
-                  disabled={busy === item.id}
-                >
-                  {busy === item.id
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={S.btnPrimaryText}>Invite</Text>}
-                </TouchableOpacity>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
+                  <Text style={S.sub} numberOfLines={1}>
+                    @{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR · {ratingDeltaTxt}
+                  </Text>
+                </View>
+                {item.invitedNow ? (
+                  <View style={[S.btn, S.btnDone]}>
+                    <Text style={S.btnDoneText}>✓ Invited</Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[S.btn, S.btnPrimary, busy === item.id && S.btnDim]}
+                    onPress={() => invite(item)}
+                    disabled={busy === item.id}
+                  >
+                    {busy === item.id
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={S.btnPrimaryText}>Invite</Text>}
+                  </TouchableOpacity>
+                )}
+              </View>
+              {item.inviteError && (
+                <Text style={S.rowError}>⚠ {item.inviteError}</Text>
               )}
             </View>
           );
@@ -240,7 +265,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     hint: { fontSize: 11, color: c.textMuted, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, lineHeight: 15 },
 
-    row:         { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface, gap: 12 },
+    rowWrap:     { borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
+    row:         { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+    rowError:    { backgroundColor: '#ffe5e5', color: '#8a1414', fontSize: 12, fontWeight: '600', paddingHorizontal: 14, paddingBottom: 10, paddingTop: 0 },
     avatar:      { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: 22 },
     name:        { fontSize: 15, fontWeight: '700', color: c.text },

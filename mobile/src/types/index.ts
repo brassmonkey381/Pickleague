@@ -231,6 +231,9 @@ export type Tournament = {
   status: 'registration' | 'active' | 'completed' | 'cancelled';
   start_time: string | null;
   expected_length_hours: number | null;
+  mlp_play_format: 'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff';
+  mlp_pool_count: number;
+  mlp_playoff_teams: number;
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;

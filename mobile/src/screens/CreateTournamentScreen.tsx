@@ -50,6 +50,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
   // Format
   const [format, setFormat]           = useState<TournamentFormat>('round_robin');
+  const [mlpPlayFormat, setMlpPlayFormat] = useState<'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff'>('round_robin');
+  const [mlpPoolCount, setMlpPoolCount] = useState(2);
+  const [mlpPlayoffTeams, setMlpPlayoffTeams] = useState<2 | 4 | 8>(4);
   const [matchType, setMatchType]     = useState<'singles' | 'doubles'>('singles');
   const [seeding, setSeeding]         = useState<'random' | 'elo'>('random');
   const [poolCount, setPoolCount]     = useState(2);
@@ -97,7 +100,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       }
     }
 
-    const { data: t, error: err } = await supabase.from('tournaments').insert({
+    // Only include MLP-specific columns when the tournament is actually MLP.
+    // This way non-MLP creation isn't blocked if the migration_mlp_play_formats.sql
+    // columns aren't deployed in some environment.
+    const isMlp = format === 'mlp' || format === 'mlp_random';
+    const insertPayload: Record<string, any> = {
       league_id:         leagueId ?? null,
       name:              name.trim(),
       description:       description.trim() || null,
@@ -115,7 +122,18 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       location_lng:      location?.lng ?? null,
       pickle_ante:       anteNum,
       payout_structure:  structure,
-    }).select().single();
+    };
+    if (isMlp) {
+      insertPayload.mlp_play_format   = mlpPlayFormat;
+      insertPayload.mlp_pool_count    = mlpPoolCount;
+      insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
+    }
+
+    const { data: t, error: err } = await supabase
+      .from('tournaments')
+      .insert(insertPayload)
+      .select()
+      .single();
 
     setLoading(false);
     if (err) { setError(err.message); return; }
@@ -206,6 +224,56 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             ? 'Determines bracket structure and which players face off in each round. Players are sorted by PLUPR; pools and brackets use snake-draft so the top seed faces the bottom seed and skill levels stay balanced across pools.'
             : 'Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.'}
         </Text>
+
+        {/* ── MLP play format (mlp / mlp_random only) ── */}
+        {(format === 'mlp' || format === 'mlp_random') && (
+          <>
+            <SectionHeader title="MLP Play Format" S={S} />
+            <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
+              <Pill label="Round Robin"            active={mlpPlayFormat === 'round_robin'}         onPress={() => setMlpPlayFormat('round_robin')}         S={S} />
+              <Pill label="Pool Play"              active={mlpPlayFormat === 'pool_play'}           onPress={() => setMlpPlayFormat('pool_play')}           S={S} />
+              <Pill label="RR + Playoff"           active={mlpPlayFormat === 'round_robin_playoff'} onPress={() => setMlpPlayFormat('round_robin_playoff')} S={S} />
+              <Pill label="Pool Play + Playoff"    active={mlpPlayFormat === 'pool_play_playoff'}   onPress={() => setMlpPlayFormat('pool_play_playoff')}   S={S} />
+            </View>
+            <Text style={S.hint}>
+              {mlpPlayFormat === 'round_robin'
+                ? 'Every team plays every team once. Final standings by sub-matches won.'
+                : mlpPlayFormat === 'pool_play'
+                  ? 'Teams split into pools, round-robin within each pool. Final standings by combined pool W-L.'
+                  : mlpPlayFormat === 'round_robin_playoff'
+                    ? 'Round-robin first, then the top teams advance to a single-elim playoff (quarters / semis / finals).'
+                    : 'Pool play first, then the top teams from each pool advance to a single-elim playoff.'}
+            </Text>
+
+            {(mlpPlayFormat === 'pool_play' || mlpPlayFormat === 'pool_play_playoff') && (
+              <>
+                <SectionHeader title="Number of Pools" S={S} />
+                <View style={S.pillRow}>
+                  {[2, 3, 4].map(n => (
+                    <Pill key={n} label={`${n} pools`} active={mlpPoolCount === n} onPress={() => setMlpPoolCount(n)} S={S} />
+                  ))}
+                </View>
+                <Text style={S.hint}>Teams are snake-drafted into pools by seed so each pool is balanced.</Text>
+              </>
+            )}
+
+            {(mlpPlayFormat === 'round_robin_playoff' || mlpPlayFormat === 'pool_play_playoff') && (
+              <>
+                <SectionHeader title="Playoff Size" S={S} />
+                <View style={S.pillRow}>
+                  {[2, 4, 8].map(n => (
+                    <Pill key={n} label={`Top ${n}`} active={mlpPlayoffTeams === n} onPress={() => setMlpPlayoffTeams(n as 2 | 4 | 8)} S={S} />
+                  ))}
+                </View>
+                <Text style={S.hint}>
+                  {mlpPlayoffTeams === 2 ? 'Finals only (best vs best).' :
+                   mlpPlayoffTeams === 4 ? 'Semifinals + Finals.' :
+                   'Quarterfinals + Semifinals + Finals.'}
+                </Text>
+              </>
+            )}
+          </>
+        )}
 
         {/* ── Pool count (pool play only) ── */}
         {format === 'pool_play' && (

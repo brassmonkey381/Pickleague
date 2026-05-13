@@ -26,6 +26,7 @@ import TournamentBracket, { BracketSlot } from '../components/TournamentBracket'
 import PicklePotCard from '../components/PicklePotCard';
 import MlpTeamSection from '../components/MlpTeamSection';
 import DoublesPairSection from '../components/DoublesPairSection';
+import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -77,6 +78,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [godmode, setGodmode] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]                   = useState(false);
+  const [simulating, setSimulating]               = useState(false);
   const [deleteError, setDeleteError]             = useState<string | null>(null);
 
   // Edit-tournament modal (admin only)
@@ -192,6 +194,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Bracket release time ────────────────────────────────────
+  // ── Godmode simulate (Brian only) — fills pending matches randomly ──
+  async function simulateFillMatches() {
+    if (!tournament) return;
+    setSimulating(true);
+    const { data, error } = await supabase.rpc('godmode_simulate_fill_matches', {
+      p_tournament_id: tournament.id,
+    });
+    setSimulating(false);
+    if (error) {
+      Alert.alert('Simulate failed', error.message);
+      return;
+    }
+    Alert.alert('Filled!', `${data} pending match${data === 1 ? '' : 'es'} got random scores. Reloading…`);
+    load();
+  }
+
   // ── Godmode delete (Brian only) ────────────────────────────
   function deleteTournament() {
     if (!tournament) return;
@@ -689,6 +707,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <MlpTeamSection
               tournamentId={tournamentId}
               format={tournament.format}
+              mlpPlayFormat={tournament.mlp_play_format}
               tournamentStatus={tournament.status}
               isPriv={isPriv}
               currentUserId={myUserId}
@@ -696,6 +715,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               bracketAlreadyGenerated={savedMatches.length > 0}
               onTeamsChanged={() => load()}
             />
+            {(tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff') && (
+              <MlpPlayoffPreview
+                tournamentId={tournamentId}
+                mlpPlayFormat={tournament.mlp_play_format}
+                poolCount={tournament.mlp_pool_count ?? 2}
+                playoffTeams={tournament.mlp_playoff_teams ?? 4}
+              />
+            )}
           </View>
         )}
 
@@ -1233,12 +1260,28 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           );
         })()}
 
-        {/* ── Godmode delete (Brian only) ── */}
+        {/* ── Godmode test helpers (Brian only) ── */}
         {godmode && (
-          <TouchableOpacity style={S.dangerBtn} onPress={deleteTournament} activeOpacity={0.85}>
-            <Text style={S.dangerBtnText}>🗑  Delete Tournament (godmode)</Text>
-            <Text style={S.dangerBtnSub}>Removes the tournament and everything cascaded under it.</Text>
-          </TouchableOpacity>
+          <>
+            <TouchableOpacity
+              style={[S.dangerBtn, { backgroundColor: '#6d28d9', borderColor: '#6d28d9' }]}
+              onPress={simulateFillMatches}
+              activeOpacity={0.85}
+              disabled={simulating}
+            >
+              <Text style={[S.dangerBtnText, { color: '#fff' }]}>
+                {simulating ? 'Filling…' : '🎲 Auto-fill pending matches with random scores (godmode)'}
+              </Text>
+              <Text style={[S.dangerBtnSub, { color: '#e9d5ff' }]}>
+                Picks a random winner per match (11–rand 0..9). PLUPR fires per update. Last pool/RR match auto-spawns the playoff.
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={S.dangerBtn} onPress={deleteTournament} activeOpacity={0.85}>
+              <Text style={S.dangerBtnText}>🗑  Delete Tournament (godmode)</Text>
+              <Text style={S.dangerBtnSub}>Removes the tournament and everything cascaded under it.</Text>
+            </TouchableOpacity>
+          </>
         )}
 
       </ScrollView>

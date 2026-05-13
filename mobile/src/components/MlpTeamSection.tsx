@@ -12,6 +12,7 @@ import UserPickerModal, { PickedUser } from './UserPickerModal';
 type Props = {
   tournamentId: string;
   format: 'mlp' | 'mlp_random';
+  mlpPlayFormat?: 'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff';
   tournamentStatus: string;
   isPriv: boolean;
   currentUserId: string | null;
@@ -32,7 +33,7 @@ const SLOT_LABEL: Record<MlpTeamSlot, string> = {
 const SLOT_ORDER: MlpTeamSlot[] = ['male_1', 'male_2', 'female_1', 'female_2'];
 
 export default function MlpTeamSection({
-  tournamentId, format, tournamentStatus, isPriv, currentUserId,
+  tournamentId, format, mlpPlayFormat = 'round_robin', tournamentStatus, isPriv, currentUserId,
   approvedRegistrations, bracketAlreadyGenerated, onTeamsChanged,
 }: Props) {
   const { colors: c } = useTheme();
@@ -57,6 +58,14 @@ export default function MlpTeamSection({
   // Leave/disband flow
   const [leaveConfirm, setLeaveConfirm]   = useState<{ teamId: string; teamName: string; asCaptain: boolean } | null>(null);
   const [leaveError, setLeaveError]       = useState<string | null>(null);
+
+  // Admin action banner (random teams + bracket generation).
+  // Inline since Alert.alert can be invisible on web in some focus states.
+  const [adminMsg, setAdminMsg] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  // Per-approved-player gender, fetched once at load. Used to compute the
+  // pre-flight checks for random/snake team generation.
+  const [approvedGenders, setApprovedGenders] = useState<Record<string, string | null>>({});
 
   useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
 
@@ -92,6 +101,26 @@ export default function MlpTeamSection({
       setProfileMap(map);
     } else {
       setProfileMap({});
+    }
+
+    // ── Genders for every approved tournament player ─────────────────
+    // Used for the random/snake pre-flight check (need at least 2 men + 2
+    // women per generated team).
+    const approvedIds = approvedRegistrations
+      .filter(r => r.status === 'approved')
+      .map(r => r.user_id);
+    if (approvedIds.length > 0) {
+      const { data: gprofs } = await supabase
+        .from('profiles')
+        .select('id, gender')
+        .in('id', approvedIds);
+      const gmap: Record<string, string | null> = {};
+      for (const p of (gprofs ?? []) as { id: string; gender: string | null }[]) {
+        gmap[p.id] = p.gender ?? null;
+      }
+      setApprovedGenders(gmap);
+    } else {
+      setApprovedGenders({});
     }
     setLoading(false);
   }
@@ -291,26 +320,50 @@ export default function MlpTeamSection({
   }
 
   async function generateRandomTeams(mode: 'random' | 'snake') {
+    setAdminMsg(null);
     setBusy(true);
     const { data, error } = await supabase.rpc('generate_random_mlp_teams', {
       p_tournament_id: tournamentId,
       p_mode:          mode,
     });
     setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Teams generated', `${data} team${data === 1 ? '' : 's'} created.`);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[mlp] generate_random_mlp_teams', error);
+      const looksMissing = /does not exist|Could not find the function|PGRST202/i.test(error.message ?? '');
+      setAdminMsg({
+        kind: 'error',
+        text: looksMissing
+          ? 'The MLP random-team function isn\'t deployed yet. Run supabase/migration_add_mlp_teams.sql in the SQL Editor.'
+          : (error.message ?? 'Unknown error'),
+      });
+      return;
+    }
+    setAdminMsg({ kind: 'success', text: `Generated ${data} team${data === 1 ? '' : 's'}.` });
     await load();
     onTeamsChanged?.();
   }
 
   async function generateBracket() {
+    setAdminMsg(null);
     setBusy(true);
     const { data, error } = await supabase.rpc('generate_mlp_bracket', {
       p_tournament_id: tournamentId,
     });
     setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Bracket generated', `${data} sub-matches created across team-vs-team rounds.`);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[mlp] generate_mlp_bracket', error);
+      const looksMissing = /does not exist|Could not find the function|PGRST202/i.test(error.message ?? '');
+      setAdminMsg({
+        kind: 'error',
+        text: looksMissing
+          ? 'The MLP bracket-generation function isn\'t deployed yet. Run supabase/migration_add_mlp_teams.sql in the SQL Editor.'
+          : (error.message ?? 'Unknown error'),
+      });
+      return;
+    }
+    setAdminMsg({ kind: 'success', text: `Generated ${data} sub-matches across team-vs-team rounds.` });
     onTeamsChanged?.();
   }
 
@@ -343,16 +396,83 @@ export default function MlpTeamSection({
         </View>
       )}
 
-      {format === 'mlp_random' && isPriv && tournamentStatus === 'registration' && (
-        <View style={S.adminRow}>
-          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomTeams('random')} disabled={busy}>
-            <Text style={S.adminBtnText}>🎲 Generate Random</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomTeams('snake')} disabled={busy}>
-            <Text style={S.adminBtnText}>🐍 Snake-Draft (balanced)</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {format === 'mlp_random' && isPriv && tournamentStatus === 'registration' && (() => {
+        // Pre-flight: gender counts among approved players. Wildcards (no
+        // gender on profile) fill either side, so we count them toward
+        // both possible team slots.
+        const approved = approvedRegistrations.filter(r => r.status === 'approved');
+        const males = approved.filter(r => {
+          const g = approvedGenders[r.user_id];
+          return g === 'male' || g === 'other';
+        }).length;
+        const females = approved.filter(r => approvedGenders[r.user_id] === 'female').length;
+        const wildcards = approved.filter(r => {
+          const g = approvedGenders[r.user_id];
+          return !g || g === 'prefer-not-to-say';
+        }).length;
+        const total = males + females + wildcards;
+        const teamsPossible = Math.floor(total / 4);
+        const ok = teamsPossible >= 2;
+        // Estimate balance: ideal is teamsPossible*2 per side. Wildcards bridge
+        // the gap. If we can't make 2M+2F per team we say so — but still
+        // proceed (function will create best-effort teams).
+        const shortMale   = Math.max(0, teamsPossible * 2 - males);
+        const shortFemale = Math.max(0, teamsPossible * 2 - females);
+        const balanced = (shortMale + shortFemale) <= wildcards;
+        return (
+          <View>
+            <View style={[S.preFlight, ok ? S.preFlightOk : S.preFlightWarn]}>
+              <Text style={[S.preFlightTitle, ok ? S.preFlightOkText : S.preFlightWarnText]}>
+                {ok ? `✓ ${teamsPossible} teams possible` : `⚠ Not enough players yet`}
+              </Text>
+              <Text style={S.preFlightBody}>
+                {males} ♂ · {females} ♀
+                {wildcards > 0 ? ` · ${wildcards} ⚥ wildcard${wildcards === 1 ? '' : 's'}` : ''}
+                {' '}({total} total)
+              </Text>
+              {!ok && (
+                <Text style={S.preFlightBody}>
+                  Need at least <Text style={{ fontWeight: '800' }}>8 approved players</Text> total to form 2 teams.
+                </Text>
+              )}
+              {ok && !balanced && (
+                <Text style={S.preFlightBody}>
+                  Best-effort balance: not enough wildcards to perfectly fill 2♂ + 2♀ per team. Some teams may be lopsided.
+                </Text>
+              )}
+            </View>
+            <View style={S.adminRow}>
+              <TouchableOpacity
+                style={[S.adminBtn, (busy || !ok) && S.btnDim]}
+                onPress={() => generateRandomTeams('random')}
+                disabled={busy || !ok}
+              >
+                <Text style={S.adminBtnText}>🎲 Generate Random</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[S.adminBtn, (busy || !ok) && S.btnDim]}
+                onPress={() => generateRandomTeams('snake')}
+                disabled={busy || !ok}
+              >
+                <Text style={S.adminBtnText}>🐍 Snake-Draft (balanced)</Text>
+              </TouchableOpacity>
+            </View>
+            {adminMsg && (
+              <View style={[
+                S.adminMsg,
+                adminMsg.kind === 'error' ? S.adminMsgError : S.adminMsgSuccess,
+              ]}>
+                <Text style={[
+                  S.adminMsgText,
+                  adminMsg.kind === 'error' ? S.adminMsgErrorText : S.adminMsgSuccessText,
+                ]}>
+                  {adminMsg.text}
+                </Text>
+              </View>
+            )}
+          </View>
+        );
+      })()}
 
       {/* Teams list */}
       {teams.length === 0 && (
@@ -608,11 +728,52 @@ export default function MlpTeamSection({
       })()}
 
       {/* Generate bracket */}
-      {isPriv && allLocked && !bracketAlreadyGenerated && (
-        <TouchableOpacity style={[S.generateBtn, busy && S.btnDim]} onPress={generateBracket} disabled={busy}>
-          <Text style={S.generateBtnText}>⚡ Generate Bracket</Text>
-        </TouchableOpacity>
-      )}
+      {isPriv && !bracketAlreadyGenerated && (() => {
+        const lockedCount = teams.filter(t => t.status === 'locked').length;
+        const formingCount = teams.filter(t => t.status === 'forming').length;
+        const ok = lockedCount >= 2;
+        return (
+          <View>
+            <View style={[S.preFlight, ok ? S.preFlightOk : S.preFlightWarn, { marginTop: 14 }]}>
+              <Text style={[S.preFlightTitle, ok ? S.preFlightOkText : S.preFlightWarnText]}>
+                {ok ? `✓ ${lockedCount} locked team${lockedCount === 1 ? '' : 's'} — ready for bracket` : '⚠ Not enough locked teams'}
+              </Text>
+              <Text style={S.preFlightBody}>
+                {lockedCount} locked
+                {formingCount > 0 ? ` · ${formingCount} still forming` : ''}
+              </Text>
+              {!ok && (
+                <Text style={S.preFlightBody}>
+                  Need at least <Text style={{ fontWeight: '800' }}>2 locked teams</Text> to generate the bracket. {format === 'mlp_random' ? 'Use Generate Random / Snake-Draft above to fill them.' : 'Captains lock their team once all 4 slots are filled.'}
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[S.generateBtn, (busy || !ok) && S.btnDim]}
+              onPress={generateBracket}
+              disabled={busy || !ok}
+            >
+              <Text style={S.generateBtnText}>⚡ Generate Bracket</Text>
+            </TouchableOpacity>
+            {adminMsg && (
+              <View style={[
+                S.adminMsg,
+                adminMsg.kind === 'error' ? S.adminMsgError : S.adminMsgSuccess,
+              ]}>
+                <Text style={[
+                  S.adminMsgText,
+                  adminMsg.kind === 'error' ? S.adminMsgErrorText : S.adminMsgSuccessText,
+                ]}>
+                  {adminMsg.text}
+                </Text>
+              </View>
+            )}
+          </View>
+        );
+      })()}
+
+      {/* Playoff generates automatically when all pool/RR matches finish —
+          via _maybe_auto_advance_mlp_playoff trigger. No manual button. */}
 
       {/* Create team modal */}
       <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => { setShowCreate(false); setCreateError(null); }}>
@@ -763,6 +924,21 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     adminRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
     adminBtn:     { flex: 1, backgroundColor: c.surface, borderWidth: 1.5, borderColor: c.primary, paddingVertical: 11, borderRadius: 12, alignItems: 'center' },
+
+    preFlight:        { borderRadius: 10, padding: 12, marginBottom: 10, borderLeftWidth: 4 },
+    preFlightOk:      { backgroundColor: c.primaryLight, borderLeftColor: c.primary },
+    preFlightWarn:    { backgroundColor: '#fff3cd', borderLeftColor: '#d4a72c' },
+    preFlightTitle:   { fontSize: 13, fontWeight: '800', marginBottom: 2 },
+    preFlightOkText:  { color: c.primary },
+    preFlightWarnText:{ color: '#8a6d00' },
+    preFlightBody:    { fontSize: 12, color: c.textSub, lineHeight: 17 },
+
+    adminMsg:         { borderRadius: 10, padding: 10, marginTop: 10 },
+    adminMsgSuccess:  { backgroundColor: c.primaryLight },
+    adminMsgError:    { backgroundColor: '#ffe5e5', borderLeftWidth: 4, borderLeftColor: '#c62828' },
+    adminMsgText:     { fontSize: 13, fontWeight: '600' },
+    adminMsgSuccessText: { color: c.primary },
+    adminMsgErrorText:   { color: '#8a1414' },
     adminBtnText: { color: c.primary, fontWeight: '700', fontSize: 13 },
     btnDim:       { opacity: 0.5 },
 

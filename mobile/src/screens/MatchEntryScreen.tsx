@@ -101,6 +101,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [partner2, setPartner2] = useState(prefillTeam2Partner ?? '');
   const [score1, setScore1] = useState('');
   const [score2, setScore2] = useState('');
+  // Per-match gender overrides for players who don't have a gender on their profile.
+  // Keyed by which slot the player is in: 'p1' | 'partner1' | 'p2' | 'partner2'.
+  const [genderOverrides, setGenderOverrides] = useState<Record<'p1'|'partner1'|'p2'|'partner2', 'male'|'female'|null>>({
+    p1: null, partner1: null, p2: null, partner2: null,
+  });
   const [location, setLocation]     = useState<CourtResult | null>(null);
   const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(null);
   const [courtHint, setCourtHint]   = useState<string | null>(null);
@@ -262,6 +267,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     if (s1 === s2) return setError('Scores cannot be tied — pickleball always has a winner.');
     // Tournament matches inherit the tournament's location; only require for league matches.
     if (!isTournamentMatch && !location) return setError('Please enter a match location.');
+    // For doubles, every ungendered player needs a per-match gender declared.
+    if (matchType === 'doubles' && pendingGenderSlots.length > 0) {
+      return setError('Pick a gender for every player without one before recording.');
+    }
 
     const winnerTeam = s1 > s2 ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
@@ -279,6 +288,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           team2_score: s2,
           winner_team: winnerTeam,
           status:      'completed',
+          team1_player1_gender_override: genderOverrides.p1,
+          team1_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
+          team2_player1_gender_override: genderOverrides.p2,
+          team2_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
         })
         .eq('id', tournamentMatchId);
       setLoading(false);
@@ -326,6 +339,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       confirm_deadline:   deadline,
       team1_confirmed_by: isGod ? enteringUid : (isOnTeam1 ? enteringUid : null),
       team2_confirmed_by: isGod ? enteringUid : (isOnTeam2 ? enteringUid : null),
+      player1_gender_override:  genderOverrides.p1,
+      partner1_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
+      player2_gender_override:  genderOverrides.p2,
+      partner2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
     }).select('id').single();
     setLoading(false);
 
@@ -360,17 +377,54 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const p1Name  = members.find((m) => m.id === p1)?.full_name  ?? 'Team 1';
   const p2Name  = members.find((m) => m.id === p2)?.full_name  ?? 'Team 2';
 
-  // Derive doubles category preview (mirrors server logic in classify_doubles_match).
-  // Server is the source of truth — this is purely informational so the recorder
-  // knows which PLUPR bucket the match will hit.
+  // Resolve a player's effective gender, factoring in any per-match override.
+  function effectiveGender(playerId: string, slot: 'p1'|'partner1'|'p2'|'partner2'): string | null {
+    const override = genderOverrides[slot];
+    if (override) return override;
+    const profileG = members.find(m => m.id === playerId)?.gender ?? null;
+    if (profileG === 'prefer-not-to-say') return null;
+    return profileG;
+  }
+
+  // Players who don't have a profile gender → need a per-match declaration.
+  // Returns the list of slots requiring a declaration that hasn't been made yet.
+  function unsetSlots(): Array<{ slot: 'p1'|'partner1'|'p2'|'partner2'; playerId: string; name: string }> {
+    if (matchType !== 'doubles') return [];
+    const out: Array<{ slot: 'p1'|'partner1'|'p2'|'partner2'; playerId: string; name: string }> = [];
+    for (const [slot, pid] of [
+      ['p1', p1] as const, ['partner1', partner1] as const,
+      ['p2', p2] as const, ['partner2', partner2] as const,
+    ]) {
+      if (!pid) continue;
+      const m = members.find(mm => mm.id === pid);
+      const g = m?.gender;
+      if (g == null || g === 'prefer-not-to-say') {
+        if (!genderOverrides[slot]) {
+          out.push({ slot, playerId: pid, name: m?.full_name ?? 'Player' });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Doubles category preview using effective genders (override → profile).
   const doublesCategory: DoublesCategory | null = (() => {
     if (matchType !== 'doubles') return null;
     if (!p1 || !partner1 || !p2 || !partner2) return null;
-    const ids = [p1, partner1, p2, partner2];
-    const genders = ids.map(id => members.find(m => m.id === id)?.gender ?? null);
-    if (genders.some(g => g == null || g === 'prefer-not-to-say')) return 'unspecified';
-    return new Set(genders).size === 1 ? 'gendered' : 'mixed';
+    const genders = [
+      effectiveGender(p1, 'p1'),
+      effectiveGender(partner1, 'partner1'),
+      effectiveGender(p2, 'p2'),
+      effectiveGender(partner2, 'partner2'),
+    ];
+    if (genders.some(g => g == null)) return 'unspecified';
+    const hasMale   = genders.some(g => g === 'male');
+    const hasFemale = genders.some(g => g === 'female');
+    return (hasMale && hasFemale) ? 'mixed' : 'gendered';
   })();
+
+  // List of slots that still need a gender declared (after applying overrides).
+  const pendingGenderSlots = unsetSlots();
 
   return (
     <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
@@ -423,6 +477,38 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         )}
       </View>
 
+      {/* Per-match gender declaration for players without a profile gender */}
+      {matchType === 'doubles' && pendingGenderSlots.length > 0 && (
+        <View style={S.genderDeclareCard}>
+          <Text style={S.genderDeclareTitle}>Declare gender for this match</Text>
+          <Text style={S.genderDeclareBody}>
+            {pendingGenderSlots.length === 1 ? 'This player hasn\'t' : 'These players haven\'t'} set a gender on their profile.
+            Pick a gender for this match so we can classify it as Gendered or Mixed Doubles.
+          </Text>
+          {pendingGenderSlots.map(s => (
+            <View key={s.slot} style={S.genderDeclareRow}>
+              <Text style={S.genderDeclareName} numberOfLines={1}>{s.name}</Text>
+              <View style={S.genderDeclarePills}>
+                {(['male','female'] as const).map(g => {
+                  const active = genderOverrides[s.slot] === g;
+                  return (
+                    <TouchableOpacity
+                      key={g}
+                      style={[S.genderDeclarePill, active && S.genderDeclarePillActive]}
+                      onPress={() => setGenderOverrides(prev => ({ ...prev, [s.slot]: g }))}
+                    >
+                      <Text style={[S.genderDeclarePillText, active && S.genderDeclarePillTextActive]}>
+                        {g === 'male' ? '♂ Male' : '♀ Female'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Doubles category preview */}
       {doublesCategory && (
         <View style={[
@@ -437,9 +523,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                                                  '⚠️ Uncategorized Doubles'}
           </Text>
           <Text style={S.categorySub}>
-            {doublesCategory === 'gendered'    ? 'All four players share the same gender — updates Gendered Doubles PLUPR.' :
+            {doublesCategory === 'gendered'    ? 'All four players are on the same side (or one declared the same as the others) — updates Gendered Doubles PLUPR.' :
              doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles PLUPR.'             :
-                                                 'At least one player hasn\'t set a gender (or chose Prefer not to say). This match will be saved but won\'t affect any PLUPR until everyone sets a gender.'}
+                                                 'Pick a gender above for every player without one to enable this match.'}
           </Text>
         </View>
       )}
@@ -549,6 +635,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     toggleTextActive: { color: '#fff' },
     teamSection: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
     teamLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+
+    genderDeclareCard:       { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5, borderColor: '#d4a72c', backgroundColor: '#fff8e6' },
+    genderDeclareTitle:      { fontSize: 14, fontWeight: '800', color: '#8a6d00', marginBottom: 4 },
+    genderDeclareBody:       { fontSize: 12, color: c.textSub, lineHeight: 17, marginBottom: 8 },
+    genderDeclareRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
+    genderDeclareName:       { flex: 1, fontSize: 13, fontWeight: '700', color: c.text },
+    genderDeclarePills:      { flexDirection: 'row', gap: 6 },
+    genderDeclarePill:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
+    genderDeclarePillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    genderDeclarePillText:   { fontSize: 12, fontWeight: '700', color: c.textSub },
+    genderDeclarePillTextActive: { color: c.primary },
 
     categoryCard:            { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5 },
     categoryCardGendered:    { backgroundColor: c.primaryLight, borderColor: c.primary },
