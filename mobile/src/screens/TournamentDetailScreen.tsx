@@ -213,6 +213,48 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     load();
   }
 
+  // ── Godmode tournament-setup shortcuts (Brian only) ─────────
+  async function godmodeApproveAllInvitees() {
+    if (!tournament) return;
+    const { data, error } = await supabase.rpc('godmode_approve_all_invitees', {
+      p_tournament_id: tournament.id,
+    });
+    if (error) { Alert.alert('Error', error.message); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    Alert.alert('Done', row?.message ?? 'Approved.');
+    load();
+  }
+
+  async function godmodeForceCreateTeams() {
+    if (!tournament) return;
+    // mlp_random → snake-draft RPC; mlp → fixed-team filler; otherwise →
+    // generic doubles auto-pairer.
+    const rpcName =
+      tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
+      tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
+                                           'godmode_auto_pair_doubles_for_tournament';
+    const params: Record<string, unknown> = { p_tournament_id: tournament.id };
+    if (tournament.format === 'mlp_random') params.p_mode = 'snake';
+    const { data, error } = await supabase.rpc(rpcName, params);
+    if (error) { Alert.alert('Error', error.message); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    Alert.alert('Done', row?.message ?? (typeof row === 'string' ? row : 'Teams created.'));
+    load();
+  }
+
+  async function godmodeAutoGenerateAndLock() {
+    try {
+      // generateBracket() alerts on its own validation failures and returns
+      // null; otherwise it returns the matches synchronously so we can pass
+      // them straight into doLockIn() without waiting on a React state flush.
+      const matches = await generateBracket();
+      if (!matches || matches.length === 0) return;
+      await doLockIn(matches);
+    } catch (e: any) {
+      Alert.alert('Auto-lock failed', e?.message ?? String(e));
+    }
+  }
+
   // ── Godmode delete (Brian only) ────────────────────────────
   function deleteTournament() {
     if (!tournament) return;
@@ -321,16 +363,24 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Bracket generation (admin only) ────────────────────────
-  async function generateBracket() {
-    if (!tournament) return;
+  // Returns the generated MatchPairing[] (also written to state) so callers
+  // that need to chain into doLockIn() can pass them directly instead of
+  // waiting for a React state flush.
+  async function generateBracket(): Promise<MatchPairing[] | null> {
+    if (!tournament) return null;
     const approved = registrations.filter(r => r.status === 'approved').map(r => r.user_id);
-    if (approved.length < 2) { Alert.alert('Need at least 2 approved players.'); return; }
+    if (approved.length < 2) { Alert.alert('Need at least 2 approved players.'); return null; }
 
     // Wrap throws from the pure generators so an unexpected violation surfaces
     // as a user-facing alert instead of a silent crash.
     function bailFromError(label: string, e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       Alert.alert(`Couldn't generate ${label}`, msg);
+    }
+
+    function commit(matches: MatchPairing[]): MatchPairing[] {
+      setGeneratedMatches(matches);
+      return matches;
     }
 
     // ── MLP (Fixed Teams / Random Teams) ──
@@ -343,10 +393,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         .from('mlp_teams')
         .select('id, name, male_1_id, male_2_id, female_1_id, female_2_id')
         .eq('tournament_id', tournament.id);
-      if (mlpErr) { Alert.alert('Could not load MLP teams', mlpErr.message); return; }
+      if (mlpErr) { Alert.alert('Could not load MLP teams', mlpErr.message); return null; }
       const teamRows = (mlpRows ?? []) as MlpTeamShape[];
       const teamError = validateMlpTeams(teamRows);
-      if (teamError) { Alert.alert('MLP teams incomplete', teamError.message); return; }
+      if (teamError) { Alert.alert('MLP teams incomplete', teamError.message); return null; }
 
       // Build [string, string][] pairs from the validated teams for the
       // existing schedule generator (it treats each team as a 2-token pair).
@@ -356,9 +406,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       const teams: [string, string][] = teamRows
         .map(t => [t.male_1_id!, t.male_2_id!] as [string, string]);
 
-      try { setGeneratedMatches(generateMLPSchedule(teams)); }
-      catch (e) { bailFromError('MLP bracket', e); }
-      return;
+      try { return commit(generateMLPSchedule(teams)); }
+      catch (e) { bailFromError('MLP bracket', e); return null; }
     }
 
     // ── Doubles tournaments with fixed pairs (round-robin / elim / pool play) ──
@@ -388,34 +437,33 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       }
       if (teams.length < 2) {
         Alert.alert('Not enough teams', 'Need at least 2 doubles pairs to generate a bracket.');
-        return;
+        return null;
       }
       // Validate every team has two distinct partners and no player is on
       // multiple teams.
       const teamErr = validateDoublesTeams(teams);
-      if (teamErr) { Alert.alert('Doubles teams invalid', teamErr.message); return; }
+      if (teamErr) { Alert.alert('Doubles teams invalid', teamErr.message); return null; }
 
       const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
 
       try {
         switch (tournament.format) {
           case 'round_robin':
-            setGeneratedMatches(generateDoublesRoundRobin(seededTeams)); break;
+            return commit(generateDoublesRoundRobin(seededTeams));
           case 'single_elimination':
-            setGeneratedMatches(generateDoublesSingleElim(seededTeams)); break;
+            return commit(generateDoublesSingleElim(seededTeams));
           case 'double_elimination':
-            setGeneratedMatches(generateDoublesDoubleElim(seededTeams)); break;
+            return commit(generateDoublesDoubleElim(seededTeams));
           case 'pool_play': {
             const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
             const poolErr = validatePools(p, tournament.pool_count, m);
-            if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return; }
+            if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return null; }
             setPools(p.map(pool => pool.flat()));
-            setGeneratedMatches(m);
-            break;
+            return commit(m);
           }
         }
       } catch (e) { bailFromError('doubles bracket', e); }
-      return;
+      return null;
     }
 
     // ── Singles + Rotating-partners: existing per-player logic ──
@@ -424,21 +472,23 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     try {
       switch (tournament.format) {
         case 'round_robin':
-          setGeneratedMatches(generateRoundRobin(seeded)); break;
+          return commit(generateRoundRobin(seeded));
         case 'single_elimination':
-          setGeneratedMatches(generateSingleElim(seeded)); break;
+          return commit(generateSingleElim(seeded));
         case 'double_elimination':
-          setGeneratedMatches(generateDoubleElim(seeded)); break;
+          return commit(generateDoubleElim(seeded));
         case 'pool_play': {
           const { pools: p, matches: m } = generatePoolPlay(seeded, tournament.pool_count);
           const poolErr = validatePools(p, tournament.pool_count, m);
-          if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return; }
-          setPools(p); setGeneratedMatches(m); break;
+          if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return null; }
+          setPools(p);
+          return commit(m);
         }
         case 'rotating_partners':
-          setGeneratedMatches(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3)); break;
+          return commit(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3));
       }
     } catch (e) { bailFromError('bracket', e); }
+    return null;
   }
 
   // ── Lock in bracket + notify ────────────────────────────────
@@ -451,8 +501,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setShowLockInConfirm(true);
   }
 
-  async function doLockIn() {
-    if (!generatedMatches || !tournament) return;
+  async function doLockIn(matchesArg?: MatchPairing[]) {
+    // matchesArg lets callers (e.g. the godmode setup shortcut) pass freshly
+    // generated matches directly, bypassing React state-flush timing.
+    const matches = matchesArg ?? generatedMatches;
+    if (!matches || !tournament) return;
     setLocking(true);
 
     try {
@@ -475,7 +528,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         // Collect distinct teams from the generated matches.
         const novelPairs: { p1: string; p2: string }[] = [];
         const seenKey = new Set<string>();
-        for (const m of generatedMatches) {
+        for (const m of matches) {
           for (const team of [m.team1, m.team2]) {
             const [a, b] = team;
             if (!a || !b || a === 'BYE' || b === 'BYE') continue;
@@ -514,7 +567,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       // 2. Save all matches — rotating_partners is always doubles regardless of setting
       const isRotating = tournament.format === 'rotating_partners' || tournament.format === 'mlp';
-      const matchRows = generatedMatches.map((m, i) => ({
+      const matchRows = matches.map((m, i) => ({
         tournament_id: tournament.id,
         round_id:      round.id,
         match_order:   i,
@@ -536,13 +589,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       if (sErr) throw new Error('Could not update status: ' + sErr.message);
 
       // 4. Notify each member individually to avoid RLS batch-check timeouts
-      const memberIds = approved.map(r => r.user_id);
+      const approvedRegs = registrations.filter(r => r.status === 'approved');
+      const memberIds = approvedRegs.map(r => r.user_id);
       let notifsFailed = 0;
       for (const uid of memberIds) {
         const { error: nErr } = await supabase.from('notifications').insert({
           user_id:     uid,
           title:       `🏆 Bracket Set — ${tournament.name}`,
-          body:        `The draw has been finalized! ${generatedMatches.length} matches scheduled. Open the tournament to see your matches.`,
+          body:        `The draw has been finalized! ${matches.length} matches scheduled. Open the tournament to see your matches.`,
           type:        'tournament',
           entity_id:   tournament.id,
           entity_type: 'tournament',
@@ -1338,6 +1392,37 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         {/* ── Godmode test helpers (Brian only) ── */}
         {godmode && (
           <>
+            {tournament.status === 'registration' && (
+              <View style={S.godmodeSetupBlock}>
+                <Text style={S.godmodeSectionTitle}>Tournament setup shortcuts</Text>
+                <TouchableOpacity
+                  style={[S.quickActionBtn, S.godmodeSetupBtn]}
+                  onPress={godmodeApproveAllInvitees}
+                  activeOpacity={0.7}
+                >
+                  <Text style={S.quickActionText}>✅ Force-approve all invitees</Text>
+                </TouchableOpacity>
+                {(tournament.match_type === 'doubles'
+                  || tournament.format === 'mlp'
+                  || tournament.format === 'mlp_random') && (
+                  <TouchableOpacity
+                    style={[S.quickActionBtn, S.godmodeSetupBtn]}
+                    onPress={godmodeForceCreateTeams}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={S.quickActionText}>🤝 Force-create teams</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[S.quickActionBtn, S.godmodeSetupBtn]}
+                  onPress={godmodeAutoGenerateAndLock}
+                  activeOpacity={0.7}
+                >
+                  <Text style={S.quickActionText}>🎯 Auto-generate + lock-in bracket</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <TouchableOpacity
               style={[S.dangerBtn, { backgroundColor: '#6d28d9', borderColor: '#6d28d9' }]}
               onPress={simulateFillMatches}
@@ -1578,6 +1663,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     closedBannerText: { fontSize: 13, color: '#b8860b', fontWeight: '600' },
     dangerBtn:        { margin: 12, marginTop: 16, backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.danger + '88' },
     dangerBtnText:    { fontSize: 15, fontWeight: '800', color: c.danger },
+    godmodeSetupBlock: { marginHorizontal: 12, marginTop: 16, padding: 12, gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: '#6d28d988', backgroundColor: c.surface },
+    godmodeSectionTitle: { fontSize: 13, fontWeight: '800', color: '#6d28d9', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+    godmodeSetupBtn:  { flex: 0, alignSelf: 'stretch' },
 
     confirmBackdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
     confirmCard:            { backgroundColor: c.surface, borderRadius: 16, padding: 22, maxWidth: 460, width: '100%' },
