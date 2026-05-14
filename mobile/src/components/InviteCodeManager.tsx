@@ -1,15 +1,16 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, TextInput,
-  Share, ActivityIndicator, ScrollView,
+  Share, ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
 
 export type InviteScope = 'league' | 'tournament';
 
@@ -51,6 +52,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const status = useStatusMessage();
+  const navigation = useNavigation();
 
   const [invite, setInvite] = useState<InviteCode | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,11 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
   const [maxUsesInput, setMaxUsesInput] = useState<string>('');
   const [subsidyInput, setSubsidyInput] = useState<string>('');
   const [createError, setCreateError]   = useState<string | null>(null);
+
+  // In-app broadcast state
+  const [showBroadcast, setShowBroadcast] = useState(false);
+  const [broadcasting, setBroadcasting]   = useState(false);
+  const [existingMemberIds, setExistingMemberIds] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => { void load(); /* eslint-disable-next-line */ }, [scopeId, scopeType]));
 
@@ -154,6 +161,46 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     setTimeout(() => setCopied(false), 2500);
   }
 
+  async function openBroadcast() {
+    if (!invite) return;
+    // Fetch existing scope members so they don't appear in the picker.
+    const ids: string[] = [];
+    const { data: me } = await supabase.auth.getUser();
+    if (me?.user?.id) ids.push(me.user.id);
+    if (scopeType === 'league') {
+      const { data } = await supabase.from('league_members')
+        .select('user_id').eq('league_id', scopeId);
+      (data ?? []).forEach((r: any) => ids.push(r.user_id));
+    } else {
+      const { data } = await supabase.from('tournament_registrations')
+        .select('user_id').eq('tournament_id', scopeId).eq('status', 'approved');
+      (data ?? []).forEach((r: any) => ids.push(r.user_id));
+    }
+    setExistingMemberIds(ids);
+    setShowBroadcast(true);
+  }
+
+  async function sendBroadcast(users: MultiPickedUser[]) {
+    if (!invite || users.length === 0) return;
+    setBroadcasting(true);
+    const { data, error } = await supabase.rpc('send_invite_code_to_users', {
+      p_code_id:  invite.id,
+      p_user_ids: users.map(u => u.id),
+    });
+    setBroadcasting(false);
+    if (error) {
+      status.error(error.message ?? 'Failed to send.');
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) {
+      status.error(row?.message ?? 'Failed to send.');
+      return;
+    }
+    setShowBroadcast(false);
+    status.success(row.message ?? 'Invites sent.');
+  }
+
   async function share() {
     if (!invite) return;
     const code = formatToken(invite.token);
@@ -209,8 +256,12 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
             )}
           </View>
 
-          <TouchableOpacity style={S.primaryBtn} onPress={share}>
-            <Text style={S.primaryBtnText}>📤  Share via Text / Email</Text>
+          <TouchableOpacity style={S.primaryBtn} onPress={openBroadcast}>
+            <Text style={S.primaryBtnText}>💬  Invite Players In-App</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={S.secondaryBtn} onPress={share}>
+            <Text style={S.secondaryBtnText}>📤  Share via Text / Email</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={S.secondaryBtn} onPress={copyCode}>
@@ -309,6 +360,15 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
         busy={revoking}
         onConfirm={confirmRevoke}
         onClose={() => setShowRevokeConfirm(false)}
+      />
+
+      <MultiUserPickerModal
+        visible={showBroadcast}
+        title={`Invite players to ${scopeName}`}
+        excludeUserIds={existingMemberIds}
+        busy={broadcasting}
+        onConfirm={sendBroadcast}
+        onClose={() => setShowBroadcast(false)}
       />
     </ScrollView>
   );

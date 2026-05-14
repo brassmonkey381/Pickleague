@@ -19,6 +19,8 @@ export type MatchPairing = {
   team1: [string, string?];   // [player1, player2?] (player2 only for doubles)
   team2: [string, string?];
   label?: string;
+  /** Which bracket this match belongs to. Defaults to 'winners' for single-elim. */
+  bracket?: 'winners' | 'losers' | 'grand_final';
 };
 
 // ── Shuffle ───────────────────────────────────────────────────
@@ -41,9 +43,109 @@ export function seedPlayers(
   return [...playerIds].sort((a, b) => (ratings[b] ?? 3.25) - (ratings[a] ?? 3.25));
 }
 
+// ── Validation ────────────────────────────────────────────────
+export type ValidationError = { code: string; message: string };
+
+// Doubles teams: every entry must have two distinct, non-null partners,
+// and no player may appear on more than one team.
+export function validateDoublesTeams(teams: [string, string][]): ValidationError | null {
+  for (const [i, t] of teams.entries()) {
+    if (!t[0] || !t[1]) {
+      return { code: 'INCOMPLETE_DOUBLES_TEAM',
+        message: `Doubles team #${i + 1} is missing a partner. Every team needs 2 players.` };
+    }
+    if (t[0] === t[1]) {
+      return { code: 'DUPLICATE_PARTNER',
+        message: `Doubles team #${i + 1} has the same player listed twice.` };
+    }
+  }
+  const seen = new Set<string>();
+  for (const t of teams) {
+    for (const uid of t) {
+      if (seen.has(uid)) {
+        return { code: 'PLAYER_ON_MULTIPLE_TEAMS',
+          message: `A player is on more than one doubles team. Fix the doubles pairs and try again.` };
+      }
+      seen.add(uid);
+    }
+  }
+  return null;
+}
+
+// MLP teams: every team must have all four slots filled (2M + 2F), no
+// duplicates within a team, no player on more than one team.
+export type MlpTeamShape = {
+  id?:           string;
+  name?:         string | null;
+  male_1_id:     string | null;
+  male_2_id:     string | null;
+  female_1_id:   string | null;
+  female_2_id:   string | null;
+};
+export function validateMlpTeams(teams: MlpTeamShape[]): ValidationError | null {
+  if (teams.length < 2) {
+    return { code: 'NOT_ENOUGH_MLP_TEAMS',
+      message: `Need at least 2 MLP teams to generate a bracket (have ${teams.length}).` };
+  }
+  for (const t of teams) {
+    const slots = [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id];
+    const filled = slots.filter(s => s != null).length;
+    if (filled < 4) {
+      return { code: 'INCOMPLETE_MLP_TEAM',
+        message: `Team "${t.name ?? t.id ?? '(unnamed)'}" only has ${filled}/4 members. MLP teams need 2 men + 2 women.` };
+    }
+    const ids = slots.filter((s): s is string => s != null);
+    if (new Set(ids).size !== ids.length) {
+      return { code: 'DUPLICATE_PLAYER_IN_MLP_TEAM',
+        message: `Team "${t.name ?? t.id ?? '(unnamed)'}" lists the same player in more than one slot.` };
+    }
+  }
+  const seen = new Set<string>();
+  for (const t of teams) {
+    for (const uid of [t.male_1_id, t.male_2_id, t.female_1_id, t.female_2_id]) {
+      if (!uid) continue;
+      if (seen.has(uid)) {
+        return { code: 'PLAYER_ON_MULTIPLE_MLP_TEAMS',
+          message: `A player is on more than one MLP team. Resolve the conflict before locking in.` };
+      }
+      seen.add(uid);
+    }
+  }
+  return null;
+}
+
+// Pool play: pool count must match expected, every pool must have at
+// least 2 entrants, and every pool must have at least one match generated.
+export function validatePools<T>(
+  pools:         T[][],
+  expectedCount: number,
+  matches:       MatchPairing[],
+): ValidationError | null {
+  if (pools.length !== expectedCount) {
+    return { code: 'WRONG_POOL_COUNT',
+      message: `Expected ${expectedCount} pool(s) but ${pools.length} were generated.` };
+  }
+  for (const [i, pool] of pools.entries()) {
+    const letter = String.fromCharCode(65 + i);
+    if (pool.length < 2) {
+      return { code: 'POOL_UNDERFULL',
+        message: `Pool ${letter} only has ${pool.length} entrant(s) — need at least 2 to play matches.` };
+    }
+    const poolMatches = matches.filter(m => m.label?.startsWith(`Pool ${letter}`));
+    if (poolMatches.length === 0) {
+      return { code: 'POOL_HAS_NO_MATCHES',
+        message: `Pool ${letter} was created but no matches were scheduled inside it.` };
+    }
+  }
+  return null;
+}
+
 // ── Round Robin (singles) ─────────────────────────────────────
 // Circle algorithm: N-1 rounds, each player plays every other player once.
 export function generateRoundRobin(playerIds: string[]): MatchPairing[] {
+  if (playerIds.length < 2) {
+    throw new Error(`generateRoundRobin: need at least 2 players (got ${playerIds.length})`);
+  }
   const players = [...playerIds];
   if (players.length % 2 !== 0) players.push('BYE');
   const n = players.length;
@@ -70,6 +172,14 @@ export function assignPools(
   seededPlayers: string[],
   poolCount: number
 ): string[][] {
+  if (poolCount < 1) {
+    throw new Error(`assignPools: poolCount must be >= 1 (got ${poolCount})`);
+  }
+  if (seededPlayers.length < poolCount * 2) {
+    throw new Error(
+      `assignPools: need at least ${poolCount * 2} players to fill ${poolCount} pool(s) with 2 each (got ${seededPlayers.length})`
+    );
+  }
   const pools: string[][] = Array.from({ length: poolCount }, () => []);
   seededPlayers.forEach((p, i) => {
     const snakePos = i % (poolCount * 2);
@@ -99,6 +209,9 @@ export function generatePoolPlay(
 // ── Single elimination bracket ────────────────────────────────
 // Pads to next power of 2 with BYEs; top seed vs bottom seed.
 export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
+  if (seededPlayers.length < 2) {
+    throw new Error(`generateSingleElim: need at least 2 entrants (got ${seededPlayers.length})`);
+  }
   let slots = seededPlayers.length;
   let bracketSize = 1;
   while (bracketSize < slots) bracketSize *= 2;
@@ -120,33 +233,48 @@ export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
 }
 
 // ── Rotating partners ─────────────────────────────────────────
-// Classic 4-player rotation for 2v2:
-// Each round: every group of 4 players rotates partners.
-// Generates `numRounds` rounds of pairings for all players.
+// Whist/round-robin partner schedule for 2v2:
+//   Fix player 0 in place; rotate the rest by 1 each round.
+//   Pair adjacent positions in the rotated array:
+//     (rot[0], rot[1]) vs (rot[2], rot[3]),
+//     (rot[4], rot[5]) vs (rot[6], rot[7]), …
+//   Player count must be a multiple of 4 for clean rotating partners;
+//   if not, we pad with BYE and drop any match containing a BYE
+//   (mirroring generateRoundRobin's approach).
 export function generateRotatingPartners(
   seededPlayers: string[],
   numRounds: number
 ): MatchPairing[] {
-  const n = seededPlayers.length;
-  if (n < 4) return [];
+  if (seededPlayers.length < 4) return [];
+
+  // Pad up to a multiple of 4 with BYE placeholders.
+  const players = [...seededPlayers];
+  while (players.length % 4 !== 0) players.push('BYE');
+  const n = players.length;
 
   const matches: MatchPairing[] = [];
 
   for (let r = 0; r < numRounds; r++) {
-    // Rotate the array: shift by r positions
-    const rotated = [...seededPlayers.slice(r % n), ...seededPlayers.slice(0, r % n)];
     let order = 0;
-    // Pair up in groups of 4
-    for (let i = 0; i + 3 < rotated.length; i += 4) {
-      const [a, b, c, d] = rotated.slice(i, i + 4);
-      // Partners: (a,b) vs (c,d) in round 1, (a,c) vs (b,d) in round 2, etc.
-      const pairingVariant = r % 3;
-      let t1: [string, string], t2: [string, string];
-      if (pairingVariant === 0)      { t1 = [a, b]; t2 = [c, d]; }
-      else if (pairingVariant === 1) { t1 = [a, c]; t2 = [b, d]; }
-      else                           { t1 = [a, d]; t2 = [b, c]; }
-      matches.push({ round: r + 1, matchOrder: order++, team1: t1, team2: t2 });
+    // Pair adjacent positions in groups of 4.
+    for (let i = 0; i < n; i += 4) {
+      const a = players[i];
+      const b = players[i + 1];
+      const c = players[i + 2];
+      const d = players[i + 3];
+      // Skip any match touching a BYE slot.
+      if (a !== 'BYE' && b !== 'BYE' && c !== 'BYE' && d !== 'BYE') {
+        matches.push({
+          round: r + 1,
+          matchOrder: order++,
+          team1: [a, b],
+          team2: [c, d],
+        });
+      }
     }
+    // Rotate: fix index 0, shift the rest by 1 (take the last, insert at index 1).
+    // Matches the circle-rotation used by generateRoundRobin.
+    players.splice(1, 0, players.pop()!);
   }
   return matches;
 }
@@ -154,6 +282,9 @@ export function generateRotatingPartners(
 // ── MLP (Fixed-team round robin) ──────────────────────────────
 // Treats each pair of players as a team. Teams play round-robin.
 export function generateMLPSchedule(teams: [string, string][]): MatchPairing[] {
+  if (teams.length < 2) {
+    throw new Error(`generateMLPSchedule: need at least 2 teams (got ${teams.length})`);
+  }
   const teamIds = teams.map((_, i) => String(i));
   const rrPairings = generateRoundRobin(teamIds);
   return rrPairings.map(m => ({
@@ -202,6 +333,21 @@ export function generateDoublesSingleElim(seededTeams: [string, string][]): Matc
     team1: seededTeams[parseInt(m.team1[0].slice(3))],
     team2: seededTeams[parseInt(m.team2[0].slice(3))],
   }));
+}
+
+// ── Double elimination bracket ────────────────────────────────
+// Round 1 only — the trigger `_advance_double_elim_bracket` handles the rest
+// (winners advancement, losers-bracket creation/advancement, grand finals).
+// Returns the same shape as `generateSingleElim` but tags each pairing with
+// bracket='winners' so the trigger knows where to drop losers.
+export function generateDoubleElim(seededPlayers: string[]): MatchPairing[] {
+  return generateSingleElim(seededPlayers).map(m => ({ ...m, bracket: 'winners' as const }));
+}
+
+/** Double-elim bracket between pairs. Round-1 winners-bracket only — the
+ *  trigger fills in losers bracket + grand finals as results come in. */
+export function generateDoublesDoubleElim(seededTeams: [string, string][]): MatchPairing[] {
+  return generateDoublesSingleElim(seededTeams).map(m => ({ ...m, bracket: 'winners' as const }));
 }
 
 /** Pool play between pairs: snake-draft teams into pools, then round-robin within each pool. */

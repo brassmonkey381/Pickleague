@@ -157,7 +157,7 @@ export type EventSlot = {
 
 export type DoublesCategory = 'gendered' | 'mixed' | 'unspecified';
 
-export type ShopCategory = 'avatar' | 'cosmetic_badge' | 'flair';
+export type ShopCategory = 'avatar' | 'cosmetic_badge' | 'flair' | 'real_world';
 
 export type ShopItem = {
   id: string;
@@ -312,7 +312,8 @@ export type TournamentRegistration = {
   status: 'pending' | 'approved' | 'rejected';
   seed: number | null;
   registered_at: string;
-  invited_by: string | null;  // null = user requested in themselves; uuid = admin invite
+  invited_by: string | null;          // null = user requested in themselves; uuid = admin invite
+  role: 'admin' | 'co-admin' | 'member';  // from migration_add_tournament_roles.sql
   profile?: Profile;
 };
 

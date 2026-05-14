@@ -14,10 +14,10 @@ import {
 } from '../lib/tournamentRole';
 import {
   FORMAT_META, seedPlayers, seedTeams,
-  generateRoundRobin, generatePoolPlay, generateSingleElim,
+  generateRoundRobin, generatePoolPlay, generateSingleElim, generateDoubleElim,
   generateRotatingPartners, generateMLPSchedule,
-  generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesPoolPlay,
-  MatchPairing,
+  generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim, generateDoublesPoolPlay,
+  MatchPairing, validateDoublesTeams, validateMlpTeams, validatePools, MlpTeamShape,
 } from '../lib/tournament';
 import { checkGodmode } from '../lib/godmode';
 import { formatPlupr } from '../lib/plupr';
@@ -321,17 +321,48 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Bracket generation (admin only) ────────────────────────
-  function generateBracket() {
+  async function generateBracket() {
     if (!tournament) return;
     const approved = registrations.filter(r => r.status === 'approved').map(r => r.user_id);
     if (approved.length < 2) { Alert.alert('Need at least 2 approved players.'); return; }
 
+    // Wrap throws from the pure generators so an unexpected violation surfaces
+    // as a user-facing alert instead of a silent crash.
+    function bailFromError(label: string, e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Alert.alert(`Couldn't generate ${label}`, msg);
+    }
+
+    // ── MLP (Fixed Teams / Random Teams) ──
+    // Validate that every mlp_teams row has all four slots filled before
+    // attempting to generate a schedule. mlp_random tournaments still write
+    // to mlp_teams once Generate Random Teams has been clicked, so the same
+    // check applies.
+    if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
+      const { data: mlpRows, error: mlpErr } = await supabase
+        .from('mlp_teams')
+        .select('id, name, male_1_id, male_2_id, female_1_id, female_2_id')
+        .eq('tournament_id', tournament.id);
+      if (mlpErr) { Alert.alert('Could not load MLP teams', mlpErr.message); return; }
+      const teamRows = (mlpRows ?? []) as MlpTeamShape[];
+      const teamError = validateMlpTeams(teamRows);
+      if (teamError) { Alert.alert('MLP teams incomplete', teamError.message); return; }
+
+      // Build [string, string][] pairs from the validated teams for the
+      // existing schedule generator (it treats each team as a 2-token pair).
+      // We pass [male_1, male_2] as the token pair and rely on the live MLP
+      // backend tables (mlp_team_standings, etc.) to track the actual 4-player
+      // roster. The preview here is just round-by-round team matchups.
+      const teams: [string, string][] = teamRows
+        .map(t => [t.male_1_id!, t.male_2_id!] as [string, string]);
+
+      try { setGeneratedMatches(generateMLPSchedule(teams)); }
+      catch (e) { bailFromError('MLP bracket', e); }
+      return;
+    }
+
     // ── Doubles tournaments with fixed pairs (round-robin / elim / pool play) ──
-    // Build teams from doubles_pairs, then auto-pair any unpaired approved
-    // players randomly so the preview reflects what lock-in will look like.
     const usesFixedPairs = tournament.match_type === 'doubles'
-      && tournament.format !== 'mlp'
-      && tournament.format !== 'mlp_random'
       && tournament.format !== 'rotating_partners';
 
     if (usesFixedPairs) {
@@ -348,7 +379,6 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       }
       // Random-pair the leftovers (preview only — does NOT persist to DB).
       const leftovers = approved.filter(uid => !paired.has(uid));
-      // Shuffle by Math.random
       for (let i = leftovers.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
@@ -356,52 +386,59 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       for (let i = 0; i + 1 < leftovers.length; i += 2) {
         teams.push([leftovers[i], leftovers[i + 1]]);
       }
-      // If there's an odd one out, they sit this preview out.
       if (teams.length < 2) {
         Alert.alert('Not enough teams', 'Need at least 2 doubles pairs to generate a bracket.');
         return;
       }
+      // Validate every team has two distinct partners and no player is on
+      // multiple teams.
+      const teamErr = validateDoublesTeams(teams);
+      if (teamErr) { Alert.alert('Doubles teams invalid', teamErr.message); return; }
+
       const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
 
-      switch (tournament.format) {
-        case 'round_robin':
-          setGeneratedMatches(generateDoublesRoundRobin(seededTeams)); break;
-        case 'single_elimination':
-        case 'double_elimination':
-          setGeneratedMatches(generateDoublesSingleElim(seededTeams)); break;
-        case 'pool_play': {
-          const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
-          // pools here are [team, team][] — flatten to player-id rows for the
-          // existing pools state shape.
-          setPools(p.map(pool => pool.flat()));
-          setGeneratedMatches(m);
-          break;
+      try {
+        switch (tournament.format) {
+          case 'round_robin':
+            setGeneratedMatches(generateDoublesRoundRobin(seededTeams)); break;
+          case 'single_elimination':
+            setGeneratedMatches(generateDoublesSingleElim(seededTeams)); break;
+          case 'double_elimination':
+            setGeneratedMatches(generateDoublesDoubleElim(seededTeams)); break;
+          case 'pool_play': {
+            const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
+            const poolErr = validatePools(p, tournament.pool_count, m);
+            if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return; }
+            setPools(p.map(pool => pool.flat()));
+            setGeneratedMatches(m);
+            break;
+          }
         }
-      }
+      } catch (e) { bailFromError('doubles bracket', e); }
       return;
     }
 
-    // ── Singles + MLP + Rotating-partners: existing per-player logic ──
+    // ── Singles + Rotating-partners: existing per-player logic ──
     const seeded = seedPlayers(approved, profileRatings, tournament.seeding);
 
-    switch (tournament.format) {
-      case 'round_robin':
-        setGeneratedMatches(generateRoundRobin(seeded)); break;
-      case 'single_elimination':
-      case 'double_elimination':
-        setGeneratedMatches(generateSingleElim(seeded)); break;
-      case 'pool_play': {
-        const { pools: p, matches: m } = generatePoolPlay(seeded, tournament.pool_count);
-        setPools(p); setGeneratedMatches(m); break;
+    try {
+      switch (tournament.format) {
+        case 'round_robin':
+          setGeneratedMatches(generateRoundRobin(seeded)); break;
+        case 'single_elimination':
+          setGeneratedMatches(generateSingleElim(seeded)); break;
+        case 'double_elimination':
+          setGeneratedMatches(generateDoubleElim(seeded)); break;
+        case 'pool_play': {
+          const { pools: p, matches: m } = generatePoolPlay(seeded, tournament.pool_count);
+          const poolErr = validatePools(p, tournament.pool_count, m);
+          if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return; }
+          setPools(p); setGeneratedMatches(m); break;
+        }
+        case 'rotating_partners':
+          setGeneratedMatches(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3)); break;
       }
-      case 'rotating_partners':
-        setGeneratedMatches(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3)); break;
-      case 'mlp': {
-        const teams: [string, string][] = [];
-        for (let i = 0; i + 1 < seeded.length; i += 2) teams.push([seeded[i], seeded[i+1]]);
-        setGeneratedMatches(generateMLPSchedule(teams)); break;
-      }
-    }
+    } catch (e) { bailFromError('bracket', e); }
   }
 
   // ── Lock in bracket + notify ────────────────────────────────

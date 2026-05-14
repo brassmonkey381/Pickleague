@@ -12,6 +12,7 @@ import { LeagueMember, LeagueJoinRequest, RootStackParamList } from '../types';
 import { availabilityOverlap, totalAvailableSlots, TOTAL_CELLS } from '../lib/availability';
 import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
+import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueMembers'>;
@@ -44,6 +45,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [showSuggest, setShowSuggest]       = useState(false);
   const [suggestions, setSuggestions]       = useState<SuggestedPlayer[]>([]);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
+  const [actionTarget, setActionTarget]     = useState<LeagueMember | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -145,21 +147,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
   function showOptions(member: LeagueMember) {
     if (!canManage(member)) return;
-    const options: string[] = [];
-    if (member.role === 'member')   options.push('Promote to Co-Admin');
-    if (member.role === 'co-admin') options.push('Demote to Member');
-    options.push('Remove from League');
-    options.push('Cancel');
-
-    Alert.alert(
-      member.profile?.full_name ?? 'Member',
-      `Current role: ${roleLabel(member.role as LeagueRole)}`,
-      options.map((o) => ({
-        text: o,
-        style: o === 'Remove from League' ? 'destructive' : o === 'Cancel' ? 'cancel' : 'default',
-        onPress: o !== 'Cancel' ? () => handleAction(member, o) : undefined,
-      }))
-    );
+    setActionTarget(member);
   }
 
   async function handleAction(member: LeagueMember, action: string) {
@@ -171,6 +159,14 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       await supabase.from('league_members').delete().eq('id', member.id);
     }
     load();
+  }
+
+  function actionsFor(member: LeagueMember): ActionSheetAction[] {
+    const list: ActionSheetAction[] = [];
+    if (member.role === 'member')   list.push({ label: 'Promote to Co-Admin', onPress: () => handleAction(member, 'Promote to Co-Admin') });
+    if (member.role === 'co-admin') list.push({ label: 'Demote to Member',    onPress: () => handleAction(member, 'Demote to Member') });
+    list.push({ label: 'Remove from League', style: 'destructive', onPress: () => handleAction(member, 'Remove from League') });
+    return list;
   }
 
   async function denyRequest(request: LeagueJoinRequest) {
@@ -352,6 +348,14 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         )}
       </View>
     </Modal>
+
+    <ActionSheetModal
+      visible={!!actionTarget}
+      title={actionTarget?.profile?.full_name ?? 'Member'}
+      subtitle={actionTarget ? `Current role: ${roleLabel(actionTarget.role as LeagueRole)}` : undefined}
+      actions={actionTarget ? actionsFor(actionTarget) : []}
+      onClose={() => setActionTarget(null)}
+    />
     </>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
   StyleSheet, Switch, Alert,
@@ -23,6 +23,31 @@ const FORMATS: TournamentFormat[] = [
   'pool_play', 'mlp', 'mlp_random', 'rotating_partners',
 ];
 
+// Returns the next Saturday at 9am local time. If it's already Saturday and
+// past 9am, jumps to next week's Saturday so the default is always in the future.
+function nextSaturday9am(): Date {
+  const d = new Date();
+  const dow = d.getDay();      // 0=Sun..6=Sat
+  let daysUntil = (6 - dow + 7) % 7;
+  if (daysUntil === 0 && d.getHours() >= 9) daysUntil = 7;
+  d.setDate(d.getDate() + daysUntil);
+  d.setHours(9, 0, 0, 0);
+  return d;
+}
+
+// Auto-name: "{Prefix} {Format Label}, {Match Type}".
+// Prefix prefers the league name; falls back to the location name; if neither
+// is set, returns just "{Format Label}, {Match Type}".
+function makeAutoName(
+  prefix: string | null,
+  format: TournamentFormat,
+  matchType: 'singles' | 'doubles',
+): string {
+  const fmt  = FORMAT_META[format].label;
+  const type = matchType === 'singles' ? 'Singles' : 'Doubles';
+  return `${prefix ? `${prefix} ` : ''}${fmt}, ${type}`;
+}
+
 function Pill({ label, active, onPress, S }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles> }) {
   return (
     <TouchableOpacity style={[S.pill, active && S.pillActive]} onPress={onPress}>
@@ -41,12 +66,15 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const S = makeStyles(colors);
 
   // Basics
-  const [name, setName]               = useState('');
-  const [description, setDescription] = useState('');
-  const [startTime, setStartTime]     = useState<Date | null>(null);
+  const [name, setName]                   = useState('');
+  const [nameManuallyEdited, setNameEdited] = useState(false);
+  const [leagueName, setLeagueName]       = useState<string | null>(null);
+  const [description, setDescription]     = useState('');
+  const [startTime, setStartTime]         = useState<Date | null>(nextSaturday9am());
+  const [durationHours, setDurationHours] = useState('3');
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [location, setLocation]       = useState<CourtResult | null>(null);
-  const [maxPlayers, setMaxPlayers]   = useState('');
+  const [location, setLocation]           = useState<CourtResult | null>(null);
+  const [maxPlayers, setMaxPlayers]       = useState('');
 
   // Format
   const [format, setFormat]           = useState<TournamentFormat>('round_robin');
@@ -69,6 +97,23 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState(false);
 
+  // Fetch the league name when a leagueId is passed in so we can use it as
+  // the auto-name prefix.
+  useEffect(() => {
+    if (!leagueId) { setLeagueName(null); return; }
+    supabase.from('leagues').select('name').eq('id', leagueId).single()
+      .then(({ data }) => setLeagueName(data?.name ?? null));
+  }, [leagueId]);
+
+  // Auto-name: regenerate whenever league / location / format / match type
+  // changes — until the user manually edits the name field, at which point
+  // we leave it alone so we don't clobber their input.
+  useEffect(() => {
+    if (nameManuallyEdited) return;
+    const prefix = leagueName ?? location?.name ?? null;
+    setName(makeAutoName(prefix, format, matchType));
+  }, [leagueName, location?.name, format, matchType, nameManuallyEdited]);
+
   function parsePayout(): number[] | null {
     const parts = payoutText.split(',').map(s => parseInt(s.trim(), 10));
     if (parts.some(n => !Number.isFinite(n) || n < 0)) return null;
@@ -81,6 +126,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     if (!name.trim()) { setError('Please enter a tournament name.'); return; }
     const anteNum = parseInt(ante, 10);
     if (!Number.isFinite(anteNum) || anteNum < 0) { setError('Ante must be 0 or a positive number.'); return; }
+    const durationNum = parseFloat(durationHours);
+    if (!Number.isFinite(durationNum) || durationNum <= 0) {
+      setError('Expected duration must be a positive number of hours.');
+      return;
+    }
     const structure = parsePayout();
     if (!structure) { setError('Payout structure must be comma-separated percentages summing to 100 (e.g. 60,25,15).'); return; }
 
@@ -117,6 +167,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       registration_mode: inviteOnly ? 'invite_only' : 'request',
       max_players:       maxPlayers ? parseInt(maxPlayers) : null,
       start_time:        startTime?.toISOString() ?? null,
+      expected_duration_hours: durationNum,
       location_name:     location?.name ?? null,
       location_lat:      location?.lat ?? null,
       location_lng:      location?.lng ?? null,
@@ -159,9 +210,6 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Basics ── */}
         <SectionHeader title="Basics" S={S} />
 
-        <Text style={S.label}>Tournament Name *</Text>
-        <TextInput style={S.input} placeholder="e.g. Spring Smash Classic" placeholderTextColor={colors.textMuted} value={name} onChangeText={setName} />
-
         <Text style={S.label}>Description (optional)</Text>
         <TextInput style={[S.input, S.multiline]} placeholder="Rules, prizes, notes…" placeholderTextColor={colors.textMuted} value={description} onChangeText={setDescription} multiline />
 
@@ -178,6 +226,18 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           )}
         </TouchableOpacity>
+        <Text style={S.hint}>Defaults to the upcoming Saturday at 9 AM. Tap to change.</Text>
+
+        <Text style={S.label}>Expected Duration (hours)</Text>
+        <TextInput
+          style={[S.input, S.inputSmall]}
+          placeholder="3"
+          placeholderTextColor={colors.textMuted}
+          keyboardType="decimal-pad"
+          value={durationHours}
+          onChangeText={setDurationHours}
+        />
+        <Text style={S.hint}>Roughly how long the tournament will run. Helps players plan their day.</Text>
 
         <Text style={S.label}>Location</Text>
         <CourtPicker value={location} onSelect={setLocation} active showNoneOption placeholder="Search for tournament venue…" />
@@ -339,6 +399,27 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Text style={S.hint}>
           Comma-separated percentages for top finishers (must sum to 100). Default is 60% / 25% / 15% for 1st / 2nd / 3rd. Locked once registration closes.
         </Text>
+
+        {/* ── Name ── (auto-generated; manually editable) */}
+        <SectionHeader title="Name" S={S} />
+        <Text style={S.label}>Tournament Name *</Text>
+        <TextInput
+          style={S.input}
+          placeholder="Auto-generated from league/location + format + match type"
+          placeholderTextColor={colors.textMuted}
+          value={name}
+          onChangeText={t => { setName(t); setNameEdited(true); }}
+        />
+        <Text style={S.hint}>
+          {nameManuallyEdited
+            ? 'Custom name — auto-updates are paused. Clear the field to resume.'
+            : 'Updates automatically as you change the league/location, format, or match type.'}
+        </Text>
+        {nameManuallyEdited && (
+          <TouchableOpacity onPress={() => { setNameEdited(false); }}>
+            <Text style={[S.hint, { color: colors.primary, marginTop: 4 }]}>↺ Re-enable auto-name</Text>
+          </TouchableOpacity>
+        )}
 
         {/* ── Status / submit ── */}
         {error ? (

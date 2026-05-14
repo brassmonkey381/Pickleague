@@ -10,6 +10,7 @@ import {
 } from '../lib/tournamentRole';
 import { TournamentRegistration, RootStackParamList } from '../types';
 import { formatPlupr } from '../lib/plupr';
+import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentMembers'>;
@@ -24,6 +25,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   const [myRole, setMyRole]     = useState<TournamentRole>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
+  const [actionTarget, setActionTarget] = useState<TournamentRegistration | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -54,20 +56,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
 
   function showOptions(member: TournamentRegistration) {
     if (!canManage(member)) return;
-    const role = member.role as TournamentRole;
-    const opts: string[] = [];
-    if (role === 'member')   opts.push('Promote to Co-Admin');
-    if (role === 'co-admin') opts.push('Demote to Member');
-    opts.push('Remove from Tournament');
-    opts.push('Cancel');
-
-    Alert.alert(member.profile?.full_name ?? 'Member', `Current role: ${tournamentRoleLabel(role)}`,
-      opts.map(o => ({
-        text: o,
-        style: o === 'Remove from Tournament' ? 'destructive' : o === 'Cancel' ? 'cancel' : 'default',
-        onPress: o !== 'Cancel' ? () => handleAction(member, o) : undefined,
-      }))
-    );
+    setActionTarget(member);
   }
 
   async function handleAction(member: TournamentRegistration, action: string) {
@@ -81,9 +70,19 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
     load();
   }
 
+  function actionsFor(member: TournamentRegistration): ActionSheetAction[] {
+    const list: ActionSheetAction[] = [];
+    const role = member.role as TournamentRole;
+    if (role === 'member')   list.push({ label: 'Promote to Co-Admin', onPress: () => handleAction(member, 'Promote to Co-Admin') });
+    if (role === 'co-admin') list.push({ label: 'Demote to Member',    onPress: () => handleAction(member, 'Demote to Member') });
+    list.push({ label: 'Remove from Tournament', style: 'destructive', onPress: () => handleAction(member, 'Remove from Tournament') });
+    return list;
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
 
   return (
+    <>
     <FlatList
       style={{ backgroundColor: colors.bg }}
       data={members}
@@ -129,6 +128,15 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       }}
       ListEmptyComponent={<Text style={S.empty}>No approved members yet.</Text>}
     />
+
+    <ActionSheetModal
+      visible={!!actionTarget}
+      title={actionTarget?.profile?.full_name ?? 'Member'}
+      subtitle={actionTarget ? `Current role: ${tournamentRoleLabel(actionTarget.role as TournamentRole)}` : undefined}
+      actions={actionTarget ? actionsFor(actionTarget) : []}
+      onClose={() => setActionTarget(null)}
+    />
+    </>
   );
 }
 
