@@ -48,13 +48,19 @@ function makeAutoName(
   return `${prefix ? `${prefix} ` : ''}${fmt}, ${type}`;
 }
 
-function Pill({ label, active, onPress, S }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles> }) {
+function Pill({ label, active, onPress, S, disabled }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles>; disabled?: boolean }) {
   return (
-    <TouchableOpacity style={[S.pill, active && S.pillActive]} onPress={onPress}>
+    <TouchableOpacity
+      style={[S.pill, active && S.pillActive, disabled && { opacity: 0.4 }]}
+      onPress={onPress}
+      disabled={disabled}
+    >
       <Text style={[S.pillText, active && S.pillTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
 }
+
+const DOUBLES_ONLY_FORMATS: TournamentFormat[] = ['mlp', 'mlp_random', 'rotating_partners'];
 
 function SectionHeader({ title, S }: { title: string; S: ReturnType<typeof makeStyles> }) {
   return <Text style={S.sectionHeader}>{title}</Text>;
@@ -113,6 +119,14 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     const prefix = leagueName ?? location?.name ?? null;
     setName(makeAutoName(prefix, format, matchType));
   }, [leagueName, location?.name, format, matchType, nameManuallyEdited]);
+
+  const isDoublesOnlyFormat = DOUBLES_ONLY_FORMATS.includes(format);
+
+  // Doubles-only formats (MLP variants, rotating partners) can't generate a
+  // singles bracket, so force-correct the match type if the user switches into one.
+  useEffect(() => {
+    if (isDoublesOnlyFormat && matchType !== 'doubles') setMatchType('doubles');
+  }, [isDoublesOnlyFormat, matchType]);
 
   function parsePayout(): number[] | null {
     const parts = payoutText.split(',').map(s => parseInt(s.trim(), 10));
@@ -269,9 +283,10 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Match type ── */}
         <SectionHeader title="Match Type" S={S} />
         <View style={S.pillRow}>
-          <Pill label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} />
+          <Pill label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
           <Pill label="Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
         </View>
+        {isDoublesOnlyFormat && <Text style={S.hint}>This format is doubles-only.</Text>}
 
         {/* ── Seeding ── */}
         <SectionHeader title="Bracket Seeding" S={S} />
