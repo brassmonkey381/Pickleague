@@ -43,14 +43,14 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
     (async () => {
       setLoading(true);
       status.clear();
-      const { data, error } = await supabase.rpc('preview_mlp_tournament_payout', {
+      const { data, error } = await supabase.rpc('preview_tournament_payout', {
         p_tournament_id: tournamentId,
       });
       if (!alive) return;
       setLoading(false);
       if (error) {
         console.warn('[PayoutPreviewModal] preview error', error);
-        status.errorFromRpc(error, 'supabase/migration_tournament_auto_close_payout.sql');
+        status.errorFromRpc(error, 'supabase/migration_universal_tournament_payout.sql');
         setRows([]);
         return;
       }
@@ -63,13 +63,13 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
   async function confirm() {
     setBusy(true);
     status.clear();
-    const { data, error } = await supabase.rpc('auto_payout_mlp_tournament', {
+    const { data, error } = await supabase.rpc('auto_payout_tournament', {
       p_tournament_id: tournamentId,
     });
     setBusy(false);
     if (error) {
       console.warn('[PayoutPreviewModal] payout error', error);
-      status.errorFromRpc(error, 'supabase/migration_tournament_auto_close_payout.sql');
+      status.errorFromRpc(error, 'supabase/migration_universal_tournament_payout.sql');
       return;
     }
     const row = Array.isArray(data) ? data[0] : data;

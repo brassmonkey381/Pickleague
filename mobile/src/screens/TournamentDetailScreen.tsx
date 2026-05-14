@@ -214,44 +214,88 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   // ── Godmode tournament-setup shortcuts (Brian only) ─────────
-  async function godmodeApproveAllInvitees() {
-    if (!tournament) return;
-    const { data, error } = await supabase.rpc('godmode_approve_all_invitees', {
-      p_tournament_id: tournament.id,
-    });
-    if (error) { Alert.alert('Error', error.message); return; }
+  // Helper: call an RPC and return { ok, message, missing }. `missing` is true
+  // when Postgres reports the function doesn't exist (typical when the
+  // migration hasn't been applied yet) so callers can decide to soft-skip.
+  async function tryRpc(name: string, params: Record<string, unknown>) {
+    console.warn('[godmode rpc]', name, params);
+    const { data, error } = await supabase.rpc(name, params);
+    if (error) {
+      const msg = error.message ?? '';
+      const missing = /function .* does not exist|Could not find the function|404|PGRST202/i.test(msg);
+      console.warn('[godmode rpc error]', name, msg, { missing });
+      return { ok: false, message: msg || 'Unknown error', missing };
+    }
     const row = Array.isArray(data) ? data[0] : data;
-    Alert.alert('Done', row?.message ?? 'Approved.');
-    load();
+    const message = row?.message ?? (typeof row === 'string' ? row : 'OK');
+    console.warn('[godmode rpc ok]', name, message);
+    return { ok: true, message, missing: false };
+  }
+
+  async function godmodeApproveAllInvitees() {
+    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
+    const r = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
+    Alert.alert(r.ok ? 'Approved' : 'Approve failed',
+      r.missing ? 'RPC not deployed — run migration_godmode_approve_all_invitees.sql.' : r.message);
+    if (r.ok) load();
   }
 
   async function godmodeForceCreateTeams() {
-    if (!tournament) return;
-    // mlp_random → snake-draft RPC; mlp → fixed-team filler; otherwise →
-    // generic doubles auto-pairer.
+    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
     const rpcName =
       tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
       tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
                                            'godmode_auto_pair_doubles_for_tournament';
     const params: Record<string, unknown> = { p_tournament_id: tournament.id };
     if (tournament.format === 'mlp_random') params.p_mode = 'snake';
-    const { data, error } = await supabase.rpc(rpcName, params);
-    if (error) { Alert.alert('Error', error.message); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    Alert.alert('Done', row?.message ?? (typeof row === 'string' ? row : 'Teams created.'));
-    load();
+    const r = await tryRpc(rpcName, params);
+    Alert.alert(r.ok ? 'Teams created' : 'Team-create failed',
+      r.missing ? `RPC ${rpcName} not deployed — run the corresponding migration.` : r.message);
+    if (r.ok) load();
   }
 
+  // Full-pipeline auto-setup: approve all → create teams (if applicable) →
+  // generate bracket → lock in. Each step soft-skips if the underlying RPC
+  // isn't deployed so partially-deployed environments still make progress.
   async function godmodeAutoGenerateAndLock() {
+    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
+    const steps: string[] = [];
     try {
-      // generateBracket() alerts on its own validation failures and returns
-      // null; otherwise it returns the matches synchronously so we can pass
-      // them straight into doLockIn() without waiting on a React state flush.
+      // 1. Approve everyone.
+      const approve = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
+      steps.push(approve.ok ? `✓ ${approve.message}` : `⚠ Approve skipped (${approve.missing ? 'RPC missing' : approve.message})`);
+
+      // 2. Create teams when relevant.
+      const needsTeams = tournament.match_type === 'doubles'
+        || tournament.format === 'mlp' || tournament.format === 'mlp_random';
+      if (needsTeams) {
+        const rpcName =
+          tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
+          tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
+                                               'godmode_auto_pair_doubles_for_tournament';
+        const params: Record<string, unknown> = { p_tournament_id: tournament.id };
+        if (tournament.format === 'mlp_random') params.p_mode = 'snake';
+        const teams = await tryRpc(rpcName, params);
+        steps.push(teams.ok ? `✓ ${teams.message}` : `⚠ Teams skipped (${teams.missing ? 'RPC missing' : teams.message})`);
+      }
+
+      // 3. Reload so generateBracket sees the newly approved/paired rows.
+      await load();
+
+      // 4. Generate matches + lock in.
       const matches = await generateBracket();
-      if (!matches || matches.length === 0) return;
+      if (!matches || matches.length === 0) {
+        steps.push('⚠ Bracket not generated (see prior alert)');
+        Alert.alert('Auto-setup partial', steps.join('\n'));
+        return;
+      }
+      steps.push(`✓ Generated ${matches.length} matches`);
       await doLockIn(matches);
+      steps.push('✓ Locked in');
+      Alert.alert('Auto-setup complete', steps.join('\n'));
     } catch (e: any) {
-      Alert.alert('Auto-lock failed', e?.message ?? String(e));
+      steps.push(`✗ ${e?.message ?? String(e)}`);
+      Alert.alert('Auto-setup failed', steps.join('\n'));
     }
   }
 
@@ -504,7 +548,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   async function doLockIn(matchesArg?: MatchPairing[]) {
     // matchesArg lets callers (e.g. the godmode setup shortcut) pass freshly
     // generated matches directly, bypassing React state-flush timing.
-    const matches = matchesArg ?? generatedMatches;
+    // Defensive: ignore non-array values — e.g., a TouchableOpacity
+    // GestureResponderEvent if a button passes onConfirm={doLockIn} directly.
+    const passed = Array.isArray(matchesArg) ? matchesArg : undefined;
+    const matches = passed ?? generatedMatches;
     if (!matches || !tournament) return;
     setLocking(true);
 
@@ -829,11 +876,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 isAdmin={isPriv}
               />
             )}
-            {/* Auto-payout: shown when MLP playoff tournament is completed,
-                pool > 0, payout not yet applied, viewer is admin. */}
+            {/* Auto-payout: any completed tournament with a pool that hasn't been
+                paid out yet. Server-side preview/auto RPCs delegate by format. */}
             {isPriv
               && tournament.status === 'completed'
-              && (tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff')
               && (tournament.prize_pool ?? 0) > 0
               && !tournament.champion_payout_applied_at && (
               <TouchableOpacity
@@ -1598,7 +1644,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         variant="danger"
         busy={locking}
         error={lockInError}
-        onConfirm={doLockIn}
+        onConfirm={() => doLockIn()}
         onClose={() => setShowLockInConfirm(false)}
       />
 

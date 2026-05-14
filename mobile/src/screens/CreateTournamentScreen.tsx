@@ -103,12 +103,58 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState(false);
 
-  // Fetch the league name when a leagueId is passed in so we can use it as
-  // the auto-name prefix.
+  // Fetch the league name + home court when a leagueId is passed in, so we
+  // can both use the name as the auto-name prefix AND pre-fill the location
+  // with the league's home court. When there's no leagueId, fall back to the
+  // user's most recently-created tournament location.
   useEffect(() => {
-    if (!leagueId) { setLeagueName(null); return; }
-    supabase.from('leagues').select('name').eq('id', leagueId).single()
-      .then(({ data }) => setLeagueName(data?.name ?? null));
+    let cancelled = false;
+    if (leagueId) {
+      supabase
+        .from('leagues')
+        .select('name, home_court, home_court_lat, home_court_lng')
+        .eq('id', leagueId)
+        .single()
+        .then(({ data }) => {
+          if (cancelled) return;
+          setLeagueName(data?.name ?? null);
+          // Only pre-fill if the user hasn't picked something already.
+          if (data?.home_court) {
+            setLocation(prev => prev ?? ({
+              name:    data.home_court as string,
+              address: '',
+              lat:     data.home_court_lat  ?? 0,
+              lng:     data.home_court_lng  ?? 0,
+              placeId: `league-${leagueId}-${data.home_court}`,
+            }));
+          }
+        });
+    } else {
+      setLeagueName(null);
+      // No league context — pre-fill from the user's most recent tournament.
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (cancelled || !user) return;
+        supabase
+          .from('tournaments')
+          .select('location_name, location_lat, location_lng')
+          .eq('created_by', user.id)
+          .not('location_name', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+          .then(({ data: t }) => {
+            if (cancelled || !t?.location_name) return;
+            setLocation(prev => prev ?? ({
+              name:    t.location_name as string,
+              address: '',
+              lat:     t.location_lat ?? 0,
+              lng:     t.location_lng ?? 0,
+              placeId: `prev-${t.location_name}`,
+            }));
+          });
+      });
+    }
+    return () => { cancelled = true; };
   }, [leagueId]);
 
   // Auto-name: regenerate whenever league / location / format / match type
