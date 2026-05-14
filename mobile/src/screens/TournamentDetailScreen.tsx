@@ -83,6 +83,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [simulating, setSimulating]               = useState(false);
   const [deleteError, setDeleteError]             = useState<string | null>(null);
   const [showPayoutModal, setShowPayoutModal]     = useState(false);
+  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const [completing, setCompleting]               = useState(false);
+  const [completeError, setCompleteError]         = useState<string | null>(null);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -283,6 +286,21 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       await load();
 
       // 4. Generate matches + lock in.
+      //    MLP formats need the server-side generate_mlp_bracket RPC because
+      //    each round expands into 4 sub-matches (Men's / Women's / Mixed 1 /
+      //    Mixed 2) that the local generateBracket() pure helpers don't
+      //    produce. Non-MLP formats go through the standard generate-then-lock
+      //    flow.
+      if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
+        const mlpBracket = await tryRpc('generate_mlp_bracket', { p_tournament_id: tournament.id });
+        steps.push(mlpBracket.ok
+          ? `✓ Generated MLP bracket (${mlpBracket.message})`
+          : `✗ MLP bracket failed (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
+        Alert.alert(mlpBracket.ok ? 'Auto-setup complete' : 'Auto-setup partial', steps.join('\n'));
+        if (mlpBracket.ok) load();
+        return;
+      }
+
       const matches = await generateBracket();
       if (!matches || matches.length === 0) {
         steps.push('⚠ Bracket not generated (see prior alert)');
@@ -353,6 +371,28 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       setDeleteError(e?.message ?? String(e));
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // ── Complete tournament (admin) ────────────────────────────
+  async function confirmCompleteTournament() {
+    if (!tournament) return;
+    setCompleting(true);
+    setCompleteError(null);
+    try {
+      const { error } = await supabase.rpc('admin_complete_tournament', {
+        p_tournament_id: tournament.id,
+      });
+      if (error) {
+        setCompleteError(error.message ?? 'Complete failed.');
+        return;
+      }
+      setShowCompleteConfirm(false);
+      load();
+    } catch (e: any) {
+      setCompleteError(e?.message ?? String(e));
+    } finally {
+      setCompleting(false);
     }
   }
 
@@ -899,6 +939,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </View>
             )}
           </View>
+        )}
+
+        {/* ── Admin: complete tournament ── */}
+        {isPriv && tournament.status === 'active' && (
+          <TouchableOpacity
+            style={S.payoutBtn}
+            onPress={() => setShowCompleteConfirm(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={S.payoutBtnText}>🏁 Complete Tournament</Text>
+            <Text style={S.payoutBtnSub}>
+              Flips status to completed · stops further match recording · unlocks payout
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* ── Member: bracket release countdown ── */}
@@ -1646,6 +1700,18 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         error={lockInError}
         onConfirm={() => doLockIn()}
         onClose={() => setShowLockInConfirm(false)}
+      />
+
+      <ConfirmModal
+        visible={showCompleteConfirm}
+        title="Complete tournament?"
+        body="This flips the tournament status to completed. Players can no longer record matches. Payout becomes available."
+        primaryLabel="Complete"
+        variant="danger"
+        busy={completing}
+        error={completeError}
+        onConfirm={() => confirmCompleteTournament()}
+        onClose={() => setShowCompleteConfirm(false)}
       />
 
       <ConfirmModal
