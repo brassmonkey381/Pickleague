@@ -13,11 +13,10 @@ import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { AVATARS } from '../data/profileCustomization';
 import PicklePotCard from '../components/PicklePotCard';
 import { useTheme } from '../lib/ThemeContext';
-import { formatPlupr } from '../lib/plupr';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-// Local ISO date "YYYY-MM-DD" for a period N relative to a season's start.
+// Local ISO date "YYYY-MM-DD" for a period N's snapshot/end date.
 function computePeriodDate(s: { start_date: string; lock_frequency_weeks: number }, periodNumber: number): string {
   const d = new Date(s.start_date + 'T00:00:00');
   d.setDate(d.getDate() + periodNumber * s.lock_frequency_weeks * 7);
@@ -25,11 +24,32 @@ function computePeriodDate(s: { start_date: string; lock_frequency_weeks: number
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Compute W-L standings for league members against a match list, optionally
-// windowed by [startIso, endIso] on played_at. Sorts PLUPR desc → (W-L) desc → W desc.
+// Local ISO date "YYYY-MM-DD" for the first day of period N.
+//   Period 1 starts on the season's start_date.
+//   Period N (>1) starts the day after period N-1's snapshot/end date.
+function periodStartDate(s: { start_date: string; lock_frequency_weeks: number }, periodNumber: number): string {
+  if (periodNumber <= 1) return s.start_date;
+  const prevEnd = computePeriodDate(s, periodNumber - 1);
+  const d = new Date(prevEnd + 'T00:00:00');
+  d.setDate(d.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Compute season-scoped standings for league members against an in-league
+// match list, optionally windowed by [startIso, endIso] on played_at.
+//
+// "Season PLUPR" is computed from the season's baseline plus the sum of
+// each player's per-match team deltas (player1_rating_after - _before for
+// team1 / player2_after - player2_before for team2). Partners on the same
+// team share the nominal player's delta. This ignores the player's global
+// PLUPR entirely — exactly the contract the user asked for.
+//
+// Sort: season PLUPR desc → (W-L) desc → W desc.
 function computeStandings(
   members: any[],
   matches: any[],
+  baseline: number,
   startIso?: string,
   endIso?: string,
 ): LiveRow[] {
@@ -53,10 +73,21 @@ function computeStandings(
       (x.player2_id  === uid && x.winner_team === 'team1') ||
       (x.partner2_id === uid && x.winner_team === 'team1')
     ).length;
+    let seasonDelta = 0;
+    for (const x of inRange) {
+      const onTeam1 = x.player1_id === uid || x.partner1_id === uid;
+      const onTeam2 = x.player2_id === uid || x.partner2_id === uid;
+      if (onTeam1 && x.player1_rating_before != null && x.player1_rating_after != null) {
+        seasonDelta += x.player1_rating_after - x.player1_rating_before;
+      } else if (onTeam2 && x.player2_rating_before != null && x.player2_rating_after != null) {
+        seasonDelta += x.player2_rating_after - x.player2_rating_before;
+      }
+    }
+    const seasonPlupr = baseline + seasonDelta;
     return {
       user_id: uid,
       full_name: m.profile?.full_name ?? 'Unknown',
-      rating: m.profile?.rating ?? 3.25,
+      rating: seasonPlupr,
       avatar_id: m.profile?.avatar_id ?? 1,
       avatar_url: m.profile?.avatar_url ?? null,
       wins, losses,
@@ -69,12 +100,28 @@ function computeStandings(
   );
 }
 
+// PLUPR rank bonuses for end-of-period soft reset. Mirrors the SQL trigger.
+function bonusForRank(rank: number): number {
+  switch (rank) {
+    case 1: return 0.20;
+    case 2: return 0.15;
+    case 3: return 0.10;
+    case 4: return 0.05;
+    case 5: return 0.02;
+    default: return 0;
+  }
+}
+
 // Median-rank final standings derived from period snapshots (locked or computed).
+// elo_bonus and new_elo are derived from the season baseline + the bonus
+// associated with each player's final_rank, matching the SQL complete_season
+// reset logic.
 function computeMedianFinals(
   periods: SnapshotPeriod[],
   members: any[],
   leagueId: string,
   seasonId: string,
+  baseline: number,
 ): SeasonFinalStanding[] {
   // Collect each member's ranks across all periods.
   const ranks: Record<string, number[]> = {};
@@ -97,17 +144,21 @@ function computeMedianFinals(
     .map(([user_id, rs]) => ({ user_id, median_rank: median(rs) }))
     .sort((a, b) => a.median_rank - b.median_rank);
 
-  return ranked.map((r, i) => ({
-    id: `computed-final-${r.user_id}`,
-    season_id: seasonId,
-    league_id: leagueId,
-    user_id: r.user_id,
-    final_rank: i + 1,
-    median_rank: r.median_rank,
-    elo_bonus: 0,
-    new_elo: 3.25,
-    profile: memberProfileById.get(r.user_id) ?? undefined,
-  }));
+  return ranked.map((r, i) => {
+    const finalRank = i + 1;
+    const bonus = bonusForRank(finalRank);
+    return {
+      id: `computed-final-${r.user_id}`,
+      season_id: seasonId,
+      league_id: leagueId,
+      user_id: r.user_id,
+      final_rank: finalRank,
+      median_rank: r.median_rank,
+      elo_bonus: bonus,
+      new_elo: baseline + bonus,
+      profile: memberProfileById.get(r.user_id) ?? undefined,
+    };
+  });
 }
 
 type Props = {
@@ -137,14 +188,15 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const S = makeStyles(colors);
 
   const [season, setSeason]           = useState<LeagueSeason | null>(null);
-  const [live, setLive]               = useState<LiveRow[]>([]);
+  const [potMembers, setPotMembers]   = useState<{ id: string; full_name: string }[]>([]);
   const [periods, setPeriods]         = useState<SnapshotPeriod[]>([]);
   const [finals, setFinals]           = useState<SeasonFinalStanding[]>([]);
   const [myRole, setMyRole]           = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
   const [locking, setLocking]         = useState(false);
   const [completing, setCompleting]   = useState(false);
-  const [activeTab, setActiveTab]     = useState<'live' | number | 'final'>('live');
+  // null until first load completes — load() seeds it to the live period (or Final if completed).
+  const [activeTab, setActiveTab]     = useState<number | 'final' | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -163,10 +215,13 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       supabase.from('league_members')
         .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url, total_matches_played)')
         .eq('league_id', leagueId),
-      // Pull every league match (date + winner). We'll re-filter client-side
-      // per-period and for the live tab.
+      // Pull every in-league match (date + winner + per-team PLUPR deltas).
+      // We re-filter client-side per-period and for the live tab. The
+      // rating_before/after columns drive the per-player season PLUPR.
       supabase.from('matches')
-        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at')
+        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at,'
+              + ' player1_rating_before, player1_rating_after,'
+              + ' player2_rating_before, player2_rating_after')
         .eq('league_id', leagueId),
     ]);
 
@@ -177,9 +232,16 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     const members = (membersRes.data ?? []) as any[];
     const allMatches = (matchesRes.data ?? []) as any[];
 
-    // Live = matches from season start through now
-    const todayIso = new Date().toISOString();
-    setLive(computeStandings(members, allMatches, s?.start_date, todayIso));
+    // Baseline PLUPR — soft-reset target everyone snaps to at period end.
+    const baseline = Number((s as any)?.baseline_plupr ?? 3.5);
+
+    // Pot members list (id + name) is all the PicklePotCard needs.
+    setPotMembers(members.map(m => ({
+      id: m.user_id,
+      full_name: m.profile?.full_name ?? 'Unknown',
+    })));
+
+    const todayIsoDate = new Date().toISOString().slice(0, 10);
 
     // Group locked snapshots by period
     const lockedByPeriod = new Map<number, SeasonSnapshot[]>();
@@ -188,8 +250,11 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       lockedByPeriod.get(row.period_number)!.push(row);
     }
 
-    // Build ALL period tabs (locked use snapshot rows; unlocked are computed
-    // on-the-fly from match data filtered by snapshot date).
+    // Build ALL period tabs. Locked periods use stored snapshot rows. Unlocked
+    // periods are computed on-the-fly, windowed to that period's date range:
+    // start = period start (day after previous period's snapshot date),
+    // end   = min(period's snapshot date, today). This means the live period's
+    // W/L reflects only matches played within the current period so far.
     const allPeriods: SnapshotPeriod[] = [];
     if (s) {
       for (let p = 1; p <= s.total_periods; p++) {
@@ -198,7 +263,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         if (locked) {
           allPeriods.push({ periodNumber: p, date: snapshotDate, rows: locked, locked: true });
         } else {
-          const computedLive = computeStandings(members, allMatches, s.start_date, snapshotDate + 'T23:59:59');
+          const pStart        = periodStartDate(s, p);
+          const effectiveEnd  = snapshotDate < todayIsoDate ? snapshotDate : todayIsoDate;
+          const computedLive  = computeStandings(members, allMatches, baseline, pStart, effectiveEnd + 'T23:59:59');
           // Re-shape into SeasonSnapshot rows so the existing renderer just works.
           const synthRows: SeasonSnapshot[] = computedLive.map((r, i) => ({
             id: `computed-${p}-${r.user_id}`,
@@ -225,10 +292,24 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     if (storedFinals.length > 0) {
       setFinals(storedFinals);
     } else if (allPeriods.length > 0) {
-      setFinals(computeMedianFinals(allPeriods, members, leagueId, seasonId));
+      setFinals(computeMedianFinals(allPeriods, members, leagueId, seasonId, baseline));
     } else {
       setFinals([]);
     }
+
+    // Seed activeTab on first load only — preserve user's selection on re-load.
+    setActiveTab(prev => {
+      if (prev !== null) return prev;
+      if (s?.status === 'completed') return 'final';
+      // First non-locked period whose snapshot date hasn't passed = the live period.
+      for (let p = 1; p <= (s?.total_periods ?? 0); p++) {
+        if (lockedByPeriod.has(p)) continue;
+        const periodEnd = computePeriodDate(s, p);
+        if (todayIsoDate > periodEnd) continue;
+        return p;
+      }
+      return s?.total_periods ?? 1;
+    });
 
     setLoading(false);
   }
@@ -239,14 +320,6 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     const lockedOnly = periods.filter(p => p.locked);
     if (lockedOnly.length === 0) return 1;
     return Math.max(...lockedOnly.map(p => p.periodNumber)) + 1;
-  }
-
-  function nextLockDate(): string {
-    if (!season) return '';
-    const start = new Date(season.start_date);
-    const n = nextPeriodNumber();
-    start.setDate(start.getDate() + n * season.lock_frequency_weeks * 7);
-    return start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
   function canLock(): boolean {
@@ -341,10 +414,23 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const lockedCount    = periods.filter(p => p.locked).length;
   const totalPeriods   = season.total_periods;
   const nextPeriod     = nextPeriodNumber();
-  const allPeriodsLocked = lockedCount >= totalPeriods;
   // Finals are "real" only when every period is locked AND the DB has rows.
   // Otherwise it's a historical preview computed from match data.
   const finalsAreComputed = !(lockedCount >= totalPeriods && season.status === 'completed');
+
+  // The live period is the first non-locked period whose end date hasn't passed.
+  // Used for tab highlighting and the "Live" header label.
+  const todayDateOnly = new Date().toISOString().slice(0, 10);
+  const livePeriodNumber: number | null = (() => {
+    if (season.status === 'completed') return null;
+    for (let p = 1; p <= totalPeriods; p++) {
+      if (periods.find(x => x.periodNumber === p)?.locked) continue;
+      const periodEnd = computePeriodDate(season, p);
+      if (todayDateOnly > periodEnd) continue;
+      return p;
+    }
+    return null;
+  })();
 
   const statusColor = season.status === 'completed' ? colors.textMuted
                     : season.status === 'active'    ? colors.primary
@@ -400,7 +486,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         structure={season.payout_structure ?? [60, 25, 15]}
         isAdmin={isPrivileged(myRole as any)}
         canDistribute={finals.length > 0}
-        members={live.map(r => ({ id: r.user_id, full_name: r.full_name }))}
+        members={potMembers}
         onChange={() => load()}
       />
 
@@ -439,26 +525,46 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/* ── Baseline reset banner ──────────────────────────────── */}
+      {season && (
+        <View style={S.baselineBanner}>
+          <Text style={S.baselineBannerText}>
+            🎯 Baseline PLUPR{' '}
+            <Text style={S.baselineBannerValue}>
+              {Number((season as any).baseline_plupr ?? 3.5).toFixed(2)}
+            </Text>
+            {'  '}— everyone soft-resets to this at the end of each period (top-5 finishers keep a small bonus).
+            {'\n'}Standings PLUPR is computed from this season's in-league matches only.
+          </Text>
+        </View>
+      )}
+
       {/* ── Tab strip ──────────────────────────────────────────── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={S.tabScroll}>
         <View style={S.tabs}>
-          <TouchableOpacity
-            style={[S.tab, activeTab === 'live' && S.tabActive]}
-            onPress={() => setActiveTab('live')}
-          >
-            <Text style={[S.tabText, activeTab === 'live' && S.tabTextActive]}>Live</Text>
-          </TouchableOpacity>
-          {periods.map(p => (
-            <TouchableOpacity
-              key={p.periodNumber}
-              style={[S.tab, activeTab === p.periodNumber && S.tabActive]}
-              onPress={() => setActiveTab(p.periodNumber)}
-            >
-              <Text style={[S.tabText, activeTab === p.periodNumber && S.tabTextActive]}>
-                P{p.periodNumber}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {periods.map(p => {
+            const isLive     = p.periodNumber === livePeriodNumber;
+            const isSelected = activeTab === p.periodNumber;
+            return (
+              <TouchableOpacity
+                key={p.periodNumber}
+                style={[
+                  S.tab,
+                  isLive && S.tabLive,
+                  isSelected && S.tabActive,
+                ]}
+                onPress={() => setActiveTab(p.periodNumber)}
+              >
+                <Text style={[
+                  S.tabText,
+                  isLive && !isSelected && S.tabTextLive,
+                  isSelected && S.tabTextActive,
+                ]}>
+                  P{p.periodNumber}{isLive ? ' • Live' : ''}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           {(finals.length > 0 || season.status === 'completed') && (
             <TouchableOpacity
               style={[S.tab, activeTab === 'final' && S.tabActive, S.tabFinal]}
@@ -470,147 +576,118 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         </View>
       </ScrollView>
 
-      {/* ── Live standings ─────────────────────────────────────── */}
-      {activeTab === 'live' && (
-        <>
-        <View style={S.tableCard}>
-          <Text style={S.tableTitle}>Live Standings</Text>
-          <Text style={S.tableSubtitle}>Based on matches played since season start</Text>
-          <View style={S.tableHeader}>
-            <Text style={[S.th, S.thRank]}>#</Text>
-            <Text style={[S.th, S.thName]}>Player</Text>
-            <Text style={S.th}>W</Text>
-            <Text style={S.th}>L</Text>
-            <Text style={S.th}>PLUPR</Text>
-          </View>
-          {live.length === 0 && (
-            <Text style={S.empty}>No matches recorded yet this season.</Text>
-          )}
-          {live.map((row, i) => (
-            <TouchableOpacity
-              key={row.user_id}
-              style={[S.tableRow, i % 2 === 0 && S.tableRowAlt]}
-              onPress={() => navigation.navigate('PlayerProfile', { userId: row.user_id, userName: row.full_name })}
-            >
-              <Text style={[S.td, S.tdRank]}>
-                {MEDALS[i] ?? `${i + 1}`}
-              </Text>
-              <View style={S.tdNameCell}>
-                <AvatarCell avatarId={row.avatar_id} avatarUrl={row.avatar_url} />
-                <Text style={S.tdName} numberOfLines={1}>{row.full_name}</Text>
-              </View>
-              <Text style={[S.td, S.tdWin]}>{row.wins}</Text>
-              <Text style={[S.td, S.tdLoss]}>{row.losses}</Text>
-              <Text style={S.td}>{formatPlupr(row.rating, row.total_matches_played)}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* How a period locks in */}
-        <View style={S.infoCard}>
-          <Text style={S.infoTitle}>📌 How periods lock in</Text>
-          <Text style={S.infoBody}>
-            Every {season.lock_frequency_weeks} week{season.lock_frequency_weeks > 1 ? 's' : ''} an admin snapshots the live standings as a locked period. Your rank in each period is what counts toward final standings — your day-to-day PLUPR can't undo a great period finish.
-          </Text>
-        </View>
-
-        {/* Median final-standings calc */}
-        <View style={S.infoCard}>
-          <Text style={S.infoTitle}>📊 How final standings are calculated</Text>
-          <Text style={S.infoBody}>
-            At season end, we take each player's <Text style={S.infoBold}>median rank across all {totalPeriods} periods</Text> and sort by it. Median (vs average) means one bad week won't tank your finish — consistency wins.
-          </Text>
-        </View>
-
-        {/* PLUPR reset legend */}
-        <View style={S.infoCard}>
-          <Text style={S.infoTitle}>♻️ End-of-period PLUPR reset</Text>
-          <Text style={S.infoBody}>
-            Every time a period locks in, everyone's overall, singles, gendered-doubles, and mixed-doubles PLUPR soft-resets — but the top 5 of that period keep a head start going into the next one:
-          </Text>
-          <View style={S.bonusList}>
-            {[
-              { rank: '🥇 1st', bonus: 0.400 },
-              { rank: '🥈 2nd', bonus: 0.275 },
-              { rank: '🥉 3rd', bonus: 0.175 },
-              { rank: '4th',   bonus: 0.100 },
-              { rank: '5th',   bonus: 0.050 },
-            ].map(b => (
-              <Text key={b.rank} style={S.bonusLine}>
-                {b.rank}  →  3.250 + {b.bonus.toFixed(3)} = <Text style={S.infoBold}>{(3.25 + b.bonus).toFixed(3)} PLUPR</Text>
-              </Text>
-            ))}
-            <Text style={S.bonusNote}>Everyone else snaps back to <Text style={S.infoBold}>3.250</Text>. Finishing each period strong is its own incentive — your boost stacks on a clean slate.</Text>
-          </View>
-          <Text style={[S.infoBody, { marginTop: 10 }]}>
-            At season end, your <Text style={S.infoBold}>median rank across all periods</Text> determines one final reset (same bonus ladder) — that's the PLUPR you carry into next season.
-          </Text>
-        </View>
-
-        {/* Badge previews */}
-        <View style={S.infoCard}>
-          <Text style={S.infoTitle}>🏅 Badges up for grabs</Text>
-          <Text style={S.infoBody}>
-            Finish well to earn unique league badges that show on your profile:
-          </Text>
-          {[
-            { icon: '🥇', name: 'Period Champion',  desc: `Finish #1 in any of the ${totalPeriods} locked periods` },
-            { icon: '👑', name: 'Season Crown',     desc: 'Finish #1 in the final season standings' },
-            { icon: '🥈', name: 'Season Silver',    desc: 'Finish #2 in the final season standings' },
-            { icon: '🥉', name: 'Season Bronze',    desc: 'Finish #3 in the final season standings' },
-            { icon: '🌟', name: 'Period Sweeper',   desc: 'Take #1 in every locked period of the season' },
-          ].map(b => (
-            <View key={b.name} style={S.badgePrevRow}>
-              <Text style={S.badgePrevIcon}>{b.icon}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={S.badgePrevName}>{b.name}</Text>
-                <Text style={S.badgePrevDesc}>{b.desc}</Text>
-              </View>
-            </View>
-          ))}
-        </View>
-        </>
-      )}
-
       {/* ── Period snapshot ────────────────────────────────────── */}
       {typeof activeTab === 'number' && (() => {
         const period = periods.find(p => p.periodNumber === activeTab);
         if (!period) return null;
+        const baseline = Number((season as any)?.baseline_plupr ?? 3.5);
+        const pStart   = periodStartDate(season, period.periodNumber);
+        // A period is "future" only if its START hasn't happened yet.
+        const isFuture = !period.locked && pStart > todayDateOnly;
+        const isLive   = !period.locked && !isFuture && period.periodNumber === livePeriodNumber;
+
+        // Future periods haven't started yet — no PLUPRs to display.
+        if (isFuture) {
+          return (
+            <View style={S.tableCard}>
+              <Text style={S.tableTitle}>
+                Period {period.periodNumber} — Upcoming
+              </Text>
+              <Text style={S.tableSubtitle}>
+                Starts {fmtDate(pStart)} · locks in {fmtDate(period.date)}. Standings TBD.
+              </Text>
+              <View style={[S.bonusLegend, { marginTop: 0 }]}>
+                <Text style={S.bonusLegendTitle}>
+                  Rank Bonuses Applied (baseline {baseline.toFixed(2)} PLUPR)
+                </Text>
+                {[
+                  { rank: '🥇 #1', bonus: 0.20 },
+                  { rank: '🥈 #2', bonus: 0.15 },
+                  { rank: '🥉 #3', bonus: 0.10 },
+                  { rank: '4th',   bonus: 0.05 },
+                  { rank: '5th',   bonus: 0.02 },
+                ].map(b => (
+                  <Text key={b.rank} style={S.bonusLine}>
+                    {b.rank} → {baseline.toFixed(2)} + {b.bonus.toFixed(2)} = {(baseline + b.bonus).toFixed(2)} PLUPR
+                  </Text>
+                ))}
+                <Text style={S.bonusNote}>
+                  All others reset to {baseline.toFixed(2)} PLUPR · ranks TBD
+                </Text>
+              </View>
+            </View>
+          );
+        }
+
+        const headerSuffix = period.locked
+          ? '— Locked In'
+          : isLive
+            ? '— Live'
+            : '— Historical Preview';
+        const subtitle = period.locked
+          ? `Locked ${fmtDate(period.date)}`
+          : isLive
+            ? `In progress · ${fmtDate(pStart)} → ${fmtDate(period.date)} · W/L from matches played so far`
+            : `Computed from matches played ${fmtDate(pStart)} → ${fmtDate(period.date)} — not yet locked in`;
+
         return (
           <View style={S.tableCard}>
             <Text style={S.tableTitle}>
-              Period {period.periodNumber} {period.locked ? '— Locked In' : '— Historical Preview'}
+              Period {period.periodNumber} {headerSuffix}
             </Text>
-            <Text style={S.tableSubtitle}>
-              {period.locked
-                ? `Locked ${fmtDate(period.date)}`
-                : `Computed from matches played through ${fmtDate(period.date)} — not yet locked in`}
-            </Text>
+            <Text style={S.tableSubtitle}>{subtitle}</Text>
             <View style={S.tableHeader}>
               <Text style={[S.th, S.thRank]}>#</Text>
               <Text style={[S.th, S.thName]}>Player</Text>
               <Text style={S.th}>W</Text>
               <Text style={S.th}>L</Text>
               <Text style={S.th}>PLUPR</Text>
+              <Text style={S.th}>NEW</Text>
             </View>
-            {period.rows.map((row, i) => (
-              <TouchableOpacity
-                key={row.user_id}
-                style={[S.tableRow, i % 2 === 0 && S.tableRowAlt]}
-                onPress={() => navigation.navigate('PlayerProfile', { userId: row.user_id, userName: row.profile?.full_name ?? '' })}
-              >
-                <Text style={[S.td, S.tdRank]}>
-                  {MEDALS[row.rank_at_snapshot - 1] ?? `${row.rank_at_snapshot}`}
+            {period.rows.map((row, i) => {
+              const bonus = bonusForRank(row.rank_at_snapshot);
+              const newPlupr = baseline + bonus;
+              return (
+                <TouchableOpacity
+                  key={row.user_id}
+                  style={[S.tableRow, i % 2 === 0 && S.tableRowAlt]}
+                  onPress={() => navigation.navigate('PlayerProfile', { userId: row.user_id, userName: row.profile?.full_name ?? '' })}
+                >
+                  <Text style={[S.td, S.tdRank]}>
+                    {MEDALS[row.rank_at_snapshot - 1] ?? `${row.rank_at_snapshot}`}
+                  </Text>
+                  <View style={S.tdNameCell}>
+                    <AvatarCell avatarId={row.profile?.avatar_id ?? 1} avatarUrl={row.profile?.avatar_url ?? null} />
+                    <Text style={S.tdName} numberOfLines={1}>{row.profile?.full_name ?? '?'}</Text>
+                  </View>
+                  <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
+                  <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
+                  <Text style={S.td}>{Number(row.elo_at_snapshot ?? baseline).toFixed(2)}</Text>
+                  <Text style={[S.td, S.tdNewElo]}>{newPlupr.toFixed(2)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+
+            {/* Rank Bonuses legend — same shape as the final-standings tab. */}
+            <View style={S.bonusLegend}>
+              <Text style={S.bonusLegendTitle}>
+                Rank Bonuses Applied (baseline {baseline.toFixed(2)} PLUPR)
+              </Text>
+              {[
+                { rank: '🥇 #1', bonus: 0.20 },
+                { rank: '🥈 #2', bonus: 0.15 },
+                { rank: '🥉 #3', bonus: 0.10 },
+                { rank: '4th',   bonus: 0.05 },
+                { rank: '5th',   bonus: 0.02 },
+              ].map(b => (
+                <Text key={b.rank} style={S.bonusLine}>
+                  {b.rank} → {baseline.toFixed(2)} + {b.bonus.toFixed(2)} = {(baseline + b.bonus).toFixed(2)} PLUPR
                 </Text>
-                <View style={S.tdNameCell}>
-                  <AvatarCell avatarId={row.profile?.avatar_id ?? 1} avatarUrl={row.profile?.avatar_url ?? null} />
-                  <Text style={S.tdName} numberOfLines={1}>{row.profile?.full_name ?? '?'}</Text>
-                </View>
-                <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
-                <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
-                <Text style={S.td}>{Number(row.elo_at_snapshot ?? 3.25).toFixed(2)}</Text>
-              </TouchableOpacity>
-            ))}
+              ))}
+              <Text style={S.bonusNote}>
+                All others reset to {baseline.toFixed(2)} PLUPR
+              </Text>
+            </View>
           </View>
         );
       })()}
@@ -652,28 +729,40 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </View>
                   <Text style={S.td}>{row.median_rank.toFixed(1)}</Text>
                   <Text style={[S.td, row.elo_bonus > 0 && S.tdBonus]}>
-                    {row.elo_bonus > 0 ? `+${Number(row.elo_bonus).toFixed(3)}` : '—'}
+                    {row.elo_bonus > 0 ? `+${Number(row.elo_bonus).toFixed(2)}` : '—'}
                   </Text>
-                  <Text style={[S.td, S.tdNewElo]}>{Number(row.new_elo ?? 3.25).toFixed(3)}</Text>
+                  <Text style={[S.td, S.tdNewElo]}>
+                    {Number(row.new_elo ?? Number((season as any)?.baseline_plupr ?? 3.5)).toFixed(2)}
+                  </Text>
                 </TouchableOpacity>
               ))}
 
-              {/* PLUPR reset legend */}
-              <View style={S.bonusLegend}>
-                <Text style={S.bonusLegendTitle}>Rank Bonuses Applied</Text>
-                {[
-                  { rank: '🥇 #1', bonus: 0.400 },
-                  { rank: '🥈 #2', bonus: 0.275 },
-                  { rank: '🥉 #3', bonus: 0.175 },
-                  { rank: '4th',   bonus: 0.100 },
-                  { rank: '5th',   bonus: 0.050 },
-                ].map(b => (
-                  <Text key={b.rank} style={S.bonusLine}>
-                    {b.rank} → 3.250 + {b.bonus.toFixed(3)} = {(3.25 + b.bonus).toFixed(3)} PLUPR
-                  </Text>
-                ))}
-                <Text style={S.bonusNote}>All others reset to 3.250 PLUPR</Text>
-              </View>
+              {/* PLUPR reset legend — anchored to this season's baseline. */}
+              {(() => {
+                const baseline = Number((season as any)?.baseline_plupr ?? 3.5);
+                const bonuses = [
+                  { rank: '🥇 #1', bonus: 0.20 },
+                  { rank: '🥈 #2', bonus: 0.15 },
+                  { rank: '🥉 #3', bonus: 0.10 },
+                  { rank: '4th',   bonus: 0.05 },
+                  { rank: '5th',   bonus: 0.02 },
+                ];
+                return (
+                  <View style={S.bonusLegend}>
+                    <Text style={S.bonusLegendTitle}>
+                      Rank Bonuses Applied (baseline {baseline.toFixed(2)} PLUPR)
+                    </Text>
+                    {bonuses.map(b => (
+                      <Text key={b.rank} style={S.bonusLine}>
+                        {b.rank} → {baseline.toFixed(2)} + {b.bonus.toFixed(2)} = {(baseline + b.bonus).toFixed(2)} PLUPR
+                      </Text>
+                    ))}
+                    <Text style={S.bonusNote}>
+                      All others reset to {baseline.toFixed(2)} PLUPR
+                    </Text>
+                  </View>
+                );
+              })()}
             </>
           )}
         </View>
@@ -717,11 +806,16 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     // Tab strip
     tabScroll:      { marginBottom: 12 },
     tabs:           { flexDirection: 'row', gap: 6 },
+    baselineBanner: { backgroundColor: c.primaryLight, borderColor: c.primary, borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 10 },
+    baselineBannerText: { fontSize: 12, color: c.textSub, lineHeight: 17 },
+    baselineBannerValue:{ fontWeight: '800', color: c.primary, fontSize: 13 },
     tab:            { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: c.surface, borderWidth: 1.5, borderColor: c.border },
     tabActive:      { backgroundColor: c.primary, borderColor: c.primary },
+    tabLive:        { borderColor: '#e65100', borderWidth: 2, backgroundColor: '#fff3e0' },
     tabFinal:       { borderColor: '#ffd700' },
     tabText:        { fontSize: 13, fontWeight: '600', color: c.textSub },
     tabTextActive:  { color: '#fff' },
+    tabTextLive:    { color: '#e65100', fontWeight: '800' },
 
     // Table
     tableCard:      { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },

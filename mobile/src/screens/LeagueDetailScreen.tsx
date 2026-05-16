@@ -86,7 +86,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [customWeeks, setCustomWeeks]         = useState('');
   const [lockWeeks, setLockWeeks]             = useState(2);
   const [customLock, setCustomLock]           = useState('');
+  const [baselinePlupr, setBaselinePlupr]     = useState('3.5');
   const [creatingSeasonFlag, setCreatingSeasonFlag] = useState(false);
+
+  // Edit-baseline modal for the active season
+  const [showBaselineEdit, setShowBaselineEdit] = useState(false);
+  const [editBaselineInput, setEditBaselineInput] = useState('');
+  const [savingBaseline, setSavingBaseline]     = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -347,6 +353,20 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   // ── Season creation ───────────────────────────────────────────
 
+  // Pull a PLUPR-style number out of the league name as the default baseline.
+  // Matches "4.5" / "3.0" first, then a bare 2-6 integer; falls back to 3.5.
+  function defaultBaselineFromLeague(name: string | undefined | null): string {
+    if (!name) return '3.5';
+    const decimal = name.match(/[2-6]\.[0-9]/);
+    if (decimal) {
+      const v = parseFloat(decimal[0]);
+      if (v >= 2 && v <= 6.5) return v.toFixed(1);
+    }
+    const whole = name.match(/\b([2-6])\b/);
+    if (whole) return `${whole[1]}.0`;
+    return '3.5';
+  }
+
   function openSeasonModal() {
     // Auto-suggest a season name based on how many exist
     supabase.from('league_seasons').select('id', { count: 'exact', head: true }).eq('league_id', leagueId)
@@ -356,7 +376,30 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     setLockWeeks(2);
     setCustomWeeks('');
     setCustomLock('');
+    setBaselinePlupr(defaultBaselineFromLeague(league?.name));
     setSeasonModal(true);
+  }
+
+  function openBaselineEdit() {
+    if (!activeSeason) return;
+    setEditBaselineInput(((activeSeason as any).baseline_plupr ?? 3.5).toString());
+    setShowBaselineEdit(true);
+  }
+
+  async function saveBaseline() {
+    if (!activeSeason) return;
+    const v = parseFloat(editBaselineInput);
+    if (!Number.isFinite(v) || v < 2 || v > 6.5) {
+      Alert.alert('', 'Baseline PLUPR must be between 2.0 and 6.5.');
+      return;
+    }
+    setSavingBaseline(true);
+    const { error } = await supabase.from('league_seasons')
+      .update({ baseline_plupr: v }).eq('id', activeSeason.id);
+    setSavingBaseline(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    setShowBaselineEdit(false);
+    load();
   }
 
   const effectiveWeeks = totalWeeks === 0 ? parseInt(customWeeks || '0', 10) : totalWeeks;
@@ -379,6 +422,10 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     if (!effectiveWeeks || effectiveWeeks < 1) return Alert.alert('', 'Please set a valid duration.');
     if (!effectiveLock || effectiveLock < 1)  return Alert.alert('', 'Please set a valid lock frequency.');
     if (effectiveLock > effectiveWeeks)        return Alert.alert('', 'Lock frequency cannot exceed season length.');
+    const baselineN = parseFloat(baselinePlupr);
+    if (!Number.isFinite(baselineN) || baselineN < 2 || baselineN > 6.5) {
+      return Alert.alert('', 'Baseline PLUPR must be between 2.0 and 6.5.');
+    }
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -396,6 +443,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       end_date:             endStr,
       total_weeks:          effectiveWeeks,
       lock_frequency_weeks: effectiveLock,
+      baseline_plupr:       baselineN,
       status:               new Date() >= seasonStart ? 'active' : 'upcoming',
       created_by:           user.id,
     });
@@ -527,6 +575,14 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             {new Date(activeSeason.start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             {' → '}
             {new Date(activeSeason.end_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          </Text>
+          <Text style={S.seasonCardMeta}>
+            Baseline PLUPR: {(activeSeason as any).baseline_plupr?.toFixed?.(2) ?? '3.50'}
+            {privileged && (
+              <Text onPress={openBaselineEdit} style={{ color: colors.primary, fontWeight: '700' }}>
+                {'  '}Edit ✎
+              </Text>
+            )}
           </Text>
           <TouchableOpacity
             style={S.seasonViewBtn}
@@ -835,6 +891,21 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             />
           )}
 
+          {/* Baseline PLUPR */}
+          <Text style={S.fieldLabel}>Baseline PLUPR</Text>
+          <Text style={S.fieldHint}>
+            Soft-reset target at end of each period. Top-5 finishers keep small bonuses on top
+            of this baseline; everyone else snaps clean to it.
+          </Text>
+          <TextInput
+            style={S.input}
+            value={baselinePlupr}
+            onChangeText={setBaselinePlupr}
+            keyboardType="decimal-pad"
+            placeholder="e.g. 4.5"
+            placeholderTextColor={colors.textMuted}
+          />
+
           {/* Lock-in schedule preview */}
           {lockDates.length > 0 && (
             <View style={S.previewBox}>
@@ -885,6 +956,31 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         error={deleteError}
         onConfirm={confirmDeleteLeague}
         onClose={() => setShowDeleteConfirm(false)}
+      />
+
+      <ConfirmModal
+        visible={showBaselineEdit}
+        title="Edit Baseline PLUPR"
+        body={
+          <View>
+            <Text style={{ color: colors.textSub, marginBottom: 8 }}>
+              Soft-reset target at end of each period. Top-5 finishers keep a small bonus on top
+              of this baseline; everyone else snaps clean to it. Allowed: 2.00–6.50.
+            </Text>
+            <TextInput
+              style={S.input}
+              value={editBaselineInput}
+              onChangeText={setEditBaselineInput}
+              keyboardType="decimal-pad"
+              placeholder="e.g. 4.5"
+              placeholderTextColor={colors.textMuted}
+            />
+          </View>
+        }
+        primaryLabel="Save"
+        busy={savingBaseline}
+        onConfirm={() => saveBaseline()}
+        onClose={() => setShowBaselineEdit(false)}
       />
     </ScrollView>
   );

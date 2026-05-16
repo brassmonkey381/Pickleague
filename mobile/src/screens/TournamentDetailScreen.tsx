@@ -95,6 +95,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [editMaxPlayers, setEditMaxPlayers]   = useState('');
   const [editStartTime, setEditStartTime]     = useState<Date | null>(null);
   const [editLengthHours, setEditLengthHours] = useState('');
+  const [editAnte, setEditAnte]               = useState('');
+  const [editPayout, setEditPayout]           = useState('');
+  const [editPrizePool, setEditPrizePool]     = useState('');
+  const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
 
@@ -405,6 +409,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setEditMaxPlayers(tournament.max_players != null ? String(tournament.max_players) : '');
     setEditStartTime(tournament.start_time ? new Date(tournament.start_time) : null);
     setEditLengthHours(tournament.expected_length_hours != null ? String(tournament.expected_length_hours) : '');
+    setEditAnte(tournament.pickle_ante != null ? String(tournament.pickle_ante) : '0');
+    setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
+    setEditPrizePool(tournament.prize_pool != null ? String(tournament.prize_pool) : '');
+    setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
     setShowEditModal(true);
   }
 
@@ -424,15 +432,46 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       }
     }
 
+    // Ante (entry fee in pickles, ≥ 0)
+    const anteN = editAnte.trim() ? parseInt(editAnte.trim(), 10) : 0;
+    if (!Number.isFinite(anteN) || anteN < 0) {
+      Alert.alert('', 'Entry ante must be 0 or a positive integer.'); return;
+    }
+
+    // Payout structure (comma-separated %, sum to 100)
+    const payoutParts = editPayout.split(',').map(s => parseInt(s.trim(), 10));
+    if (payoutParts.some(n => !Number.isFinite(n) || n < 0)) {
+      Alert.alert('', 'Payout structure must be comma-separated non-negative integers.'); return;
+    }
+    if (payoutParts.reduce((a, b) => a + b, 0) !== 100) {
+      Alert.alert('', 'Payout structure must sum to 100 (e.g. 60,25,15).'); return;
+    }
+
+    // Prize pool override — leave null to let the existing accounting drive it
+    let prizePoolN: number | null = null;
+    if (editPrizePool.trim()) {
+      prizePoolN = parseInt(editPrizePool.trim(), 10);
+      if (!Number.isFinite(prizePoolN) || prizePoolN < 0) {
+        Alert.alert('', 'Prize pool must be 0 or a positive integer.'); return;
+      }
+    }
+
     setSavingEdit(true);
-    const { error } = await supabase.from('tournaments').update({
+    const updatePayload: Record<string, any> = {
       name,
       description:           editDesc.trim() || null,
       location_name:         editLocation.trim() || null,
       max_players:           maxPlayersN,
       start_time:            editStartTime ? editStartTime.toISOString() : null,
       expected_length_hours: lengthN,
-    }).eq('id', tournament.id);
+      pickle_ante:           anteN,
+      payout_structure:      payoutParts,
+      seeding:               editSeeding,
+    };
+    // Only override the pool when the admin explicitly typed a value.
+    if (prizePoolN != null) updatePayload.prize_pool = prizePoolN;
+
+    const { error } = await supabase.from('tournaments').update(updatePayload).eq('id', tournament.id);
     setSavingEdit(false);
 
     if (error) { Alert.alert('Error', error.message); return; }
@@ -1665,6 +1704,54 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             keyboardType="number-pad"
             maxLength={4}
           />
+
+          <Text style={S.editFieldLabel}>Entry ante (🥒)</Text>
+          <TextInput
+            style={S.editInput}
+            value={editAnte}
+            onChangeText={setEditAnte}
+            placeholder="0"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            maxLength={7}
+          />
+
+          <Text style={S.editFieldLabel}>Payout structure (% per place, sum 100)</Text>
+          <TextInput
+            style={S.editInput}
+            value={editPayout}
+            onChangeText={setEditPayout}
+            placeholder="60,25,15"
+            placeholderTextColor={c.textMuted}
+            maxLength={40}
+          />
+
+          <Text style={S.editFieldLabel}>Prize pool override (🥒)</Text>
+          <TextInput
+            style={S.editInput}
+            value={editPrizePool}
+            onChangeText={setEditPrizePool}
+            placeholder="Leave blank to keep current pool"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            maxLength={9}
+          />
+
+          <Text style={S.editFieldLabel}>Seeding mode</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity
+              style={[S.editInput, { flex: 1, alignItems: 'center', backgroundColor: editSeeding === 'random' ? c.primaryLight : c.surface }]}
+              onPress={() => setEditSeeding('random')}
+            >
+              <Text style={{ color: editSeeding === 'random' ? c.primary : c.textSub, fontWeight: '700' }}>🎲 Random</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.editInput, { flex: 1, alignItems: 'center', backgroundColor: editSeeding === 'elo' ? c.primaryLight : c.surface }]}
+              onPress={() => setEditSeeding('elo')}
+            >
+              <Text style={{ color: editSeeding === 'elo' ? c.primary : c.textSub, fontWeight: '700' }}>📊 PLUPR-based</Text>
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
             style={[S.editSaveBtn, savingEdit && S.editSaveBtnDisabled]}
