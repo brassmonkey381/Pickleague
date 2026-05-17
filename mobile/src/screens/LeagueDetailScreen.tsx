@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   ScrollView, Text, TouchableOpacity, StyleSheet,
-  View, ActivityIndicator, Modal, Alert, TextInput,
+  View, ActivityIndicator, Modal, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -12,6 +12,8 @@ import { getRegionName } from '../lib/regions';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -93,6 +95,11 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [showBaselineEdit, setShowBaselineEdit] = useState(false);
   const [editBaselineInput, setEditBaselineInput] = useState('');
   const [savingBaseline, setSavingBaseline]     = useState(false);
+  const [baselineError, setBaselineError]       = useState<string | null>(null);
+
+  // In-modal status banners (replaces Alert.alert on web)
+  const editStatus   = useStatusMessage();
+  const seasonStatus = useStatusMessage();
 
   useFocusEffect(
     React.useCallback(() => {
@@ -304,8 +311,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   async function saveLeagueChanges() {
     if (!league) return;
+    editStatus.clear();
     const trimmedName = pendingName.trim();
-    if (!trimmedName) { Alert.alert('', 'League name is required.'); return; }
+    if (!trimmedName) { editStatus.error('League name is required.'); return; }
 
     setSaving(true);
     const newCourtName = pendingCourt?.name ?? null;
@@ -319,7 +327,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       home_court_lat: pendingCourt?.lat ?? null,
       home_court_lng: pendingCourt?.lng ?? null,
     }).eq('id', leagueId);
-    if (error) { Alert.alert('Error', error.message); setSaving(false); return; }
+    if (error) { editStatus.error(error.message); setSaving(false); return; }
 
     // Re-derive is_home_court on existing matches only if home court changed
     if (homeCourtChanged) {
@@ -348,6 +356,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         ? { name: league.home_court, address: '', lat: league.home_court_lat ?? 0, lng: league.home_court_lng ?? 0, placeId: '' }
         : null
     );
+    editStatus.clear();
     setEditVisible(true);
   }
 
@@ -377,27 +386,30 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     setCustomWeeks('');
     setCustomLock('');
     setBaselinePlupr(defaultBaselineFromLeague(league?.name));
+    seasonStatus.clear();
     setSeasonModal(true);
   }
 
   function openBaselineEdit() {
     if (!activeSeason) return;
     setEditBaselineInput(((activeSeason as any).baseline_plupr ?? 3.5).toString());
+    setBaselineError(null);
     setShowBaselineEdit(true);
   }
 
   async function saveBaseline() {
     if (!activeSeason) return;
+    setBaselineError(null);
     const v = parseFloat(editBaselineInput);
     if (!Number.isFinite(v) || v < 2 || v > 6.5) {
-      Alert.alert('', 'Baseline PLUPR must be between 2.0 and 6.5.');
+      setBaselineError('Baseline PLUPR must be between 2.0 and 6.5.');
       return;
     }
     setSavingBaseline(true);
     const { error } = await supabase.from('league_seasons')
       .update({ baseline_plupr: v }).eq('id', activeSeason.id);
     setSavingBaseline(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { setBaselineError(error.message); return; }
     setShowBaselineEdit(false);
     load();
   }
@@ -418,13 +430,15 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   }
 
   async function createSeason() {
-    if (!seasonName.trim()) return Alert.alert('', 'Please enter a season name.');
-    if (!effectiveWeeks || effectiveWeeks < 1) return Alert.alert('', 'Please set a valid duration.');
-    if (!effectiveLock || effectiveLock < 1)  return Alert.alert('', 'Please set a valid lock frequency.');
-    if (effectiveLock > effectiveWeeks)        return Alert.alert('', 'Lock frequency cannot exceed season length.');
+    seasonStatus.clear();
+    if (!seasonName.trim()) { seasonStatus.error('Please enter a season name.'); return; }
+    if (!effectiveWeeks || effectiveWeeks < 1) { seasonStatus.error('Please set a valid duration.'); return; }
+    if (!effectiveLock || effectiveLock < 1)   { seasonStatus.error('Please set a valid lock frequency.'); return; }
+    if (effectiveLock > effectiveWeeks)        { seasonStatus.error('Lock frequency cannot exceed season length.'); return; }
     const baselineN = parseFloat(baselinePlupr);
     if (!Number.isFinite(baselineN) || baselineN < 2 || baselineN > 6.5) {
-      return Alert.alert('', 'Baseline PLUPR must be between 2.0 and 6.5.');
+      seasonStatus.error('Baseline PLUPR must be between 2.0 and 6.5.');
+      return;
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -448,7 +462,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       created_by:           user.id,
     });
     setCreatingSeasonFlag(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { seasonStatus.error(error.message); return; }
     setSeasonModal(false);
     load();
   }
@@ -745,6 +759,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
           <Text style={S.modalTitle}>Edit League</Text>
 
+          <StatusBanner status={editStatus.value} />
+
           <Text style={S.fieldLabel}>Name</Text>
           <TextInput
             style={S.input}
@@ -809,6 +825,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       <Modal visible={seasonModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSeasonModal(false)}>
         <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
           <Text style={S.modalTitle}>🏆 Start a New Season</Text>
+
+          <StatusBanner status={seasonStatus.value} />
 
           {/* Season name */}
           <Text style={S.fieldLabel}>Season Name</Text>
@@ -979,6 +997,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         }
         primaryLabel="Save"
         busy={savingBaseline}
+        error={baselineError}
         onConfirm={() => saveBaseline()}
         onClose={() => setShowBaselineEdit(false)}
       />
