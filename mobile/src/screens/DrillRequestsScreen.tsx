@@ -345,77 +345,85 @@ function DrillChatModal({
     (currentUserId === request.from_user_id ? request.to_profile : request.from_profile)?.full_name
     ?? 'Drill partner';
 
+  const sheet = (
+    <View style={S.sheet}>
+      <View style={S.header}>
+        <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Text style={S.close}>✕</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        ref={listRef}
+        style={S.messageList}
+        contentContainerStyle={{ padding: 12 }}
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+      >
+        {loadingMsgs ? (
+          <ActivityIndicator size="small" color={colors.primary} />
+        ) : messages.length === 0 ? (
+          <Text style={S.empty}>
+            No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept.
+          </Text>
+        ) : (
+          messages.map(m => {
+            const mine = m.sender_id === currentUserId;
+            return (
+              <View key={m.id} style={[S.bubbleRow, mine && S.bubbleRowMine]}>
+                <View style={[S.bubble, mine ? S.bubbleMine : S.bubbleTheirs]}>
+                  <Text style={[S.bubbleText, mine && S.bubbleTextMine]}>{m.body}</Text>
+                  <Text style={[S.bubbleTime, mine && S.bubbleTimeMine]}>
+                    {new Date(m.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                  </Text>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
+
+      {sendError && (
+        <View style={S.sendErrorRow}>
+          <Text style={S.sendErrorText}>{sendError}</Text>
+        </View>
+      )}
+      <View style={S.composer}>
+        <TextInput
+          style={S.input}
+          value={draft}
+          onChangeText={(t) => { setDraft(t); if (sendError) setSendError(null); }}
+          placeholder="Type a message…"
+          placeholderTextColor={colors.textMuted}
+          multiline
+          maxLength={500}
+          editable={!sending}
+        />
+        <TouchableOpacity
+          style={[S.sendBtn, (!draft.trim() || sending) && S.sendBtnDim]}
+          onPress={sendMessage}
+          disabled={!draft.trim() || sending}
+        >
+          {sending
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={S.sendBtnText}>Send</Text>}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={S.backdrop}
-      >
-        <View style={S.sheet}>
-          <View style={S.header}>
-            <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={S.close}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView
-            ref={listRef}
-            style={S.messageList}
-            contentContainerStyle={{ padding: 12 }}
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
-          >
-            {loadingMsgs ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : messages.length === 0 ? (
-              <Text style={S.empty}>
-                No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept.
-              </Text>
-            ) : (
-              messages.map(m => {
-                const mine = m.sender_id === currentUserId;
-                return (
-                  <View key={m.id} style={[S.bubbleRow, mine && S.bubbleRowMine]}>
-                    <View style={[S.bubble, mine ? S.bubbleMine : S.bubbleTheirs]}>
-                      <Text style={[S.bubbleText, mine && S.bubbleTextMine]}>{m.body}</Text>
-                      <Text style={[S.bubbleTime, mine && S.bubbleTimeMine]}>
-                        {new Date(m.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
-
-          {sendError && (
-            <View style={S.sendErrorRow}>
-              <Text style={S.sendErrorText}>{sendError}</Text>
-            </View>
-          )}
-          <View style={S.composer}>
-            <TextInput
-              style={S.input}
-              value={draft}
-              onChangeText={(t) => { setDraft(t); if (sendError) setSendError(null); }}
-              placeholder="Type a message…"
-              placeholderTextColor={colors.textMuted}
-              multiline
-              maxLength={500}
-              editable={!sending}
-            />
-            <TouchableOpacity
-              style={[S.sendBtn, (!draft.trim() || sending) && S.sendBtnDim]}
-              onPress={sendMessage}
-              disabled={!draft.trim() || sending}
-            >
-              {sending
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={S.sendBtnText}>Send</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
+      {Platform.OS === 'web' ? (
+        <View style={S.backdrop}>{sheet}</View>
+      ) : (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={S.backdrop}
+        >
+          {sheet}
+        </KeyboardAvoidingView>
+      )}
     </Modal>
   );
 }

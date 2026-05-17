@@ -32,8 +32,8 @@ export default function LoginScreen({ navigation }: Props) {
     // On success, AppNavigator detects the new session and switches to Home automatically
   }
 
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={S.root}>
+  const content = (
+    <>
       <View style={S.hero}>
         <Text style={S.title}>Pickleague</Text>
         <Text style={S.subtitle}>Pickleball League Manager</Text>
@@ -68,6 +68,16 @@ export default function LoginScreen({ navigation }: Props) {
           <Text style={S.link}>Don't have an account? Sign up</Text>
         </TouchableOpacity>
       </View>
+    </>
+  );
+
+  if (Platform.OS === 'web') {
+    return <View style={S.root}>{content}</View>;
+  }
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={S.root}>
+      {content}
     </KeyboardAvoidingView>
   );
 }
