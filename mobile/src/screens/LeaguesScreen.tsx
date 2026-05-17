@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  TextInput, Modal, Switch, ScrollView, Alert,
+  TextInput, Modal, Switch, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -11,6 +11,9 @@ import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'> };
 
@@ -85,7 +88,10 @@ export default function LeaguesScreen({ navigation }: Props) {
   // Per-account create limit
   const [godmode, setGodmode]                       = useState(false);
   const [activeAdminLeagueCount, setActiveAdminLeagueCount] = useState(0);
+  const [showLimitModal, setShowLimitModal] = useState(false);
   const atLeagueLimit = !godmode && activeAdminLeagueCount >= 1;
+
+  const status = useStatusMessage();
 
   useEffect(() => { loadLeagues(); }, []);
 
@@ -185,14 +191,15 @@ export default function LeaguesScreen({ navigation }: Props) {
   }
 
   async function requestCode(leagueId: string, leagueName: string) {
+    status.clear();
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
       .from('league_join_requests')
       .upsert({ league_id: leagueId, user_id: user!.id, status: 'pending' });
-    if (error) Alert.alert('Error', error.message);
+    if (error) status.error(error.message);
     else {
       loadLeagues(); // refreshes hasRequested flag
-      Alert.alert('Request Sent', `The admins of "${leagueName}" have been notified. They'll share an invite code with you.`);
+      status.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
     }
   }
 
@@ -211,10 +218,8 @@ export default function LeaguesScreen({ navigation }: Props) {
     setShowJoinCode(false);
     setInviteCode('');
     loadLeagues();
-    Alert.alert(
-      row.scope_type === 'tournament' ? 'Joined Tournament!' : 'Joined!',
-      row.message ?? `You've joined "${row.scope_name}".`,
-    );
+    const heading = row.scope_type === 'tournament' ? 'Joined tournament!' : 'Joined!';
+    status.success(`${heading} ${row.message ?? `You've joined "${row.scope_name}".`}`);
   }
 
   const filtered = useMemo(() => applyFilters(allLeagues, filters), [allLeagues, filters]);
@@ -423,6 +428,9 @@ export default function LeaguesScreen({ navigation }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={renderLeagueCard}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        ListHeaderComponent={
+          status.value ? <StatusBanner status={status.value} style={{ marginBottom: 8 }} /> : null
+        }
         ListEmptyComponent={
           <Text style={S.empty}>
             {loading ? 'Loading...' : allLeagues.length === 0 ? 'No leagues yet. Create one!' : 'No leagues match your filters.'}
@@ -438,10 +446,7 @@ export default function LeaguesScreen({ navigation }: Props) {
           style={[S.fab, atLeagueLimit && S.fabDisabled]}
           onPress={() => {
             if (atLeagueLimit) {
-              Alert.alert(
-                'Active league limit reached',
-                "You're already running an active league. You can only be admin of one active league at a time. Close it first (or have an admin transfer ownership) before starting another.",
-              );
+              setShowLimitModal(true);
               return;
             }
             setShowCreate(true);
@@ -564,6 +569,16 @@ export default function LeaguesScreen({ navigation }: Props) {
           </TouchableOpacity>
         </ScrollView>
       </Modal>
+
+      <ConfirmModal
+        visible={showLimitModal}
+        title="Active league limit reached"
+        body="You're already running an active league. You can only be admin of one active league at a time. Close it first (or have an admin transfer ownership) before starting another."
+        primaryLabel="OK"
+        cancelLabel="Close"
+        onConfirm={() => setShowLimitModal(false)}
+        onClose={() => setShowLimitModal(false)}
+      />
     </View>
   );
 }

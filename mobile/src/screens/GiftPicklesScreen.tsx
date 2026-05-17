@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,8 @@ import { RootStackParamList } from '../types';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import { isGodmodeUserId } from '../lib/godmode';
 import { AVATARS } from '../data/profileCustomization';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'GiftPickles'> };
 
@@ -26,6 +28,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   const [showPicker, setShowPicker] = useState(false);
   const [sending, setSending] = useState(false);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -45,6 +48,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
 
   async function send() {
     if (!valid || !recipient) return;
+    status.clear();
     setSending(true);
     const { data, error } = await supabase.rpc('godmode_gift_pickles', {
       p_recipient: recipient.id,
@@ -52,13 +56,12 @@ export default function GiftPicklesScreen({ navigation }: Props) {
       p_reason:    reason.trim() || '',
     });
     setSending(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { status.error(error.message); return; }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not send', row?.message ?? 'Unknown error'); return; }
+    if (!row?.success) { status.error(row?.message ?? 'Could not send.'); return; }
     setMyBalance(row.new_caller_balance ?? myBalance - n);
-    Alert.alert(
-      'Sent!',
-      `${n.toLocaleString()} 🥒 sent to ${recipient.full_name}.\nTheir new balance: ${row.new_recipient_balance?.toLocaleString() ?? '—'} 🥒`,
+    status.success(
+      `${n.toLocaleString()} 🥒 sent to ${recipient.full_name}. Their new balance: ${row.new_recipient_balance?.toLocaleString() ?? '—'} 🥒`,
     );
     setRecipient(null);
     setAmount('');
@@ -133,6 +136,8 @@ export default function GiftPicklesScreen({ navigation }: Props) {
         value={reason}
         onChangeText={setReason}
       />
+
+      <StatusBanner status={status.value} />
 
       <TouchableOpacity
         style={[S.sendBtn, !valid && S.sendBtnDisabled]}

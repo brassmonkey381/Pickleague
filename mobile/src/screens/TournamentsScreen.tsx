@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,7 @@ import { isAvailableAt, TOTAL_CELLS } from '../lib/availability';
 import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Tournaments'>;
@@ -39,6 +40,7 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const [searchQuery, setSearchQuery]     = React.useState('');
   const [godmode, setGodmode]                             = React.useState(false);
   const [activeOwnedTournamentCount, setActiveOwnedTournamentCount] = React.useState(0);
+  const [showLimitModal, setShowLimitModal] = React.useState(false);
   const atTournamentLimit = !godmode && activeOwnedTournamentCount >= 1;
 
   useFocusEffect(useCallback(() => { load(); }, []));
@@ -265,10 +267,7 @@ export default function TournamentsScreen({ navigation, route }: Props) {
         style={[S.fab, atTournamentLimit && S.fabDisabled]}
         onPress={() => {
           if (atTournamentLimit) {
-            Alert.alert(
-              'Active tournament limit reached',
-              "You're already running an active tournament. Wait for it to end (or cancel it) before starting another.",
-            );
+            setShowLimitModal(true);
             return;
           }
           navigation.navigate('CreateTournament', { leagueId });
@@ -279,6 +278,16 @@ export default function TournamentsScreen({ navigation, route }: Props) {
           {atTournamentLimit ? '+ New Tournament (limit reached)' : '+ New Tournament'}
         </Text>
       </TouchableOpacity>
+
+      <ConfirmModal
+        visible={showLimitModal}
+        title="Active tournament limit reached"
+        body="You're already running an active tournament. Wait for it to end (or cancel it) before starting another."
+        primaryLabel="OK"
+        cancelLabel="Close"
+        onConfirm={() => setShowLimitModal(false)}
+        onClose={() => setShowLimitModal(false)}
+      />
     </View>
   );
 }
