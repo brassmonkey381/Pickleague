@@ -1,12 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, Alert,
-  ActivityIndicator, ScrollView, Image, Dimensions,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  ActivityIndicator, ScrollView, Image, useWindowDimensions,
 } from 'react-native';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
-
-// container padding 24×2 + card padding 16×2 = 80; 3 gaps × 6 = 18
-const LOC_PILL_W = Math.floor((Dimensions.get('window').width - 80 - 18) / 4);
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -17,6 +14,8 @@ import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerMo
 import AvatarPickerModal, { PremiumAvatar } from '../components/AvatarPickerModal';
 import TagPickerModal from '../components/TagPickerModal';
 import AvailabilityGrid from '../components/AvailabilityGrid';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
 import { TOTAL_CELLS } from '../lib/availability';
 import { computeReliability } from '../lib/reliability';
@@ -292,8 +291,14 @@ type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profil
 
 export default function ProfileScreen({ navigation }: Props) {
   const { colors } = useTheme();
-  const styles = makeStyles(colors);
+  // container padding 24×2 + card padding 16×2 = 80; 3 gaps × 6 = 18.
+  // useWindowDimensions() recomputes on window resize so the layout stays
+  // aligned on web when the user resizes their browser. Native unaffected.
+  const { width: windowWidth } = useWindowDimensions();
+  const locPillW = Math.floor((windowWidth - 80 - 18) / 4);
+  const styles = useMemo(() => makeStyles(colors, locPillW), [colors, locPillW]);
   const GREEN = colors.primary;
+  const status = useStatusMessage();
   const [profile, setProfile]             = useState<Profile | null>(null);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
@@ -408,7 +413,7 @@ export default function ProfileScreen({ navigation }: Props) {
       .from('profiles')
       .update({ avatar_emoji: emoji, avatar_bg_color: bgColor })
       .eq('id', userId);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { status.error(error.message); return; }
     setEquippedPremium(emoji && bgColor ? { slug: 'equipped', name: 'Premium', emoji, bgColor } : null);
     setProfile(p => p ? { ...p, avatar_emoji: emoji, avatar_bg_color: bgColor } : p);
   }
@@ -419,7 +424,7 @@ export default function ProfileScreen({ navigation }: Props) {
       .from('profiles')
       .update({ name_color: value })
       .eq('id', userId);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { status.error(error.message); return; }
     setProfile(p => p ? { ...p, name_color: value } : p);
   }
 
@@ -428,7 +433,7 @@ export default function ProfileScreen({ navigation }: Props) {
       p_purchase_id: purchaseId,
       p_hidden:      !currentlyHidden,
     });
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { status.error(error.message); return; }
     setShopPurchases(prev => prev.map(p =>
       p.id === purchaseId ? { ...p, is_hidden: !currentlyHidden } : p,
     ));
@@ -567,7 +572,7 @@ export default function ProfileScreen({ navigation }: Props) {
       .single();
 
     if (!error && data) {
-      Alert.alert('Saved!');
+      status.success('Saved!');
       setSaving(false);
       return;
     }
@@ -587,18 +592,17 @@ export default function ProfileScreen({ navigation }: Props) {
         .eq('id', userId);
 
       if (fallbackErr) {
-        Alert.alert('Error', fallbackErr.message);
+        status.error(fallbackErr.message);
       } else {
-        Alert.alert(
-          'Partially saved',
-          'Username and photo saved.\n\nRun these two migrations in your Supabase SQL Editor to unlock all features:\n• migration_add_profile_customization.sql\n• migration_add_availability.sql',
+        status.error(
+          'Partially saved. Username and photo saved. Run migration_add_profile_customization.sql and migration_add_availability.sql in your Supabase SQL Editor to unlock all features.',
         );
       }
     } else if (!data && !error) {
       // Update ran but matched 0 rows — session / RLS mismatch
-      Alert.alert('Not saved', 'Your session may have expired. Please log out and back in.');
+      status.error('Not saved. Your session may have expired. Please log out and back in.');
     } else {
-      Alert.alert('Error', error?.message ?? 'Unknown error');
+      status.error(error?.message ?? 'Unknown error');
     }
 
     setSaving(false);
@@ -647,7 +651,7 @@ export default function ProfileScreen({ navigation }: Props) {
       thickness_mm: sel.thicknessMm,
       is_default:   true,
     }, { onConflict: 'user_id,brand_id,model_name' }).select('id').single();
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { status.error(error.message); return; }
     setDefaultPaddle({ ...sel, paddleId: data.id });
   }
 
@@ -767,6 +771,8 @@ export default function ProfileScreen({ navigation }: Props) {
   return (
     <>
     <ScrollView contentContainerStyle={styles.container} scrollEnabled={!gridScrollLocked}>
+
+      <StatusBanner status={status.value} />
 
       {/* ── Avatar / photo ─────────────────────────────────────── */}
       <View style={styles.avatarSection}>
@@ -1391,7 +1397,7 @@ export default function ProfileScreen({ navigation }: Props) {
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: ReturnType<typeof useTheme>['colors'], locPillW: number) {
   const GREEN = c.primary;
   return StyleSheet.create({
   container:  { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
@@ -1479,7 +1485,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   invActionTextDim:  { color: c.textMuted },
   invUnequipBtn:     { paddingVertical: 8, paddingHorizontal: 4, marginTop: 2 },
   invUnequipText:    { fontSize: 12, color: c.textMuted, fontWeight: '600' },
-  locPill:        { width: LOC_PILL_W, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
+  locPill:        { width: locPillW, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
   locPillDoubles: { backgroundColor: '#e3f2fd' },
   locPillMixed:   { backgroundColor: '#f3e5f5' },
   locPillCourt:   { fontSize: 9, color: c.textMuted, width: '100%', textAlign: 'center', marginBottom: 2 },
