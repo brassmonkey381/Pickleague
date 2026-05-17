@@ -1,5 +1,5 @@
-import React, { ReactNode } from 'react';
-import { Modal, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { ReactNode, useEffect } from 'react';
+import { Modal, View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, Platform, Pressable } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 /**
@@ -47,6 +47,52 @@ export default function ConfirmModal({
   const S = makeStyles(c);
   const isDanger = variant === 'danger';
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!busy && e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, busy, onClose]);
+
+  const isWeb = Platform.OS === 'web';
+
+  const card = (
+    <View style={S.card}>
+      <Text style={[S.title, isDanger && { color: c.danger }]}>{title}</Text>
+      {body != null && (
+        typeof body === 'string'
+          ? <Text style={S.body}>{body}</Text>
+          : body
+      )}
+      {extraField}
+      {error ? <Text style={S.error}>{error}</Text> : null}
+      <View style={S.btnRow}>
+        <TouchableOpacity
+          style={[S.btn, S.btnSecondary]}
+          onPress={onClose}
+          disabled={busy}
+        >
+          <Text style={S.btnSecondaryText}>{cancelLabel}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            S.btn,
+            isDanger ? S.btnDanger : S.btnPrimary,
+            (busy || primaryDisabled) && S.btnDim,
+          ]}
+          onPress={onConfirm}
+          disabled={busy || primaryDisabled}
+        >
+          {busy
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={S.btnPrimaryText}>{primaryLabel}</Text>}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
   return (
     <Modal
       visible={visible}
@@ -54,40 +100,19 @@ export default function ConfirmModal({
       animationType="fade"
       onRequestClose={() => (busy ? null : onClose())}
     >
-      <View style={S.backdrop}>
-        <View style={S.card}>
-          <Text style={[S.title, isDanger && { color: c.danger }]}>{title}</Text>
-          {body != null && (
-            typeof body === 'string'
-              ? <Text style={S.body}>{body}</Text>
-              : body
-          )}
-          {extraField}
-          {error ? <Text style={S.error}>{error}</Text> : null}
-          <View style={S.btnRow}>
-            <TouchableOpacity
-              style={[S.btn, S.btnSecondary]}
-              onPress={onClose}
-              disabled={busy}
-            >
-              <Text style={S.btnSecondaryText}>{cancelLabel}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                S.btn,
-                isDanger ? S.btnDanger : S.btnPrimary,
-                (busy || primaryDisabled) && S.btnDim,
-              ]}
-              onPress={onConfirm}
-              disabled={busy || primaryDisabled}
-            >
-              {busy
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={S.btnPrimaryText}>{primaryLabel}</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
+      {isWeb ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e: any) => {
+            if (busy) return;
+            if (e.target === e.currentTarget) onClose();
+          }}
+        >
+          {card}
+        </Pressable>
+      ) : (
+        <View style={S.backdrop}>{card}</View>
+      )}
     </Modal>
   );
 }
