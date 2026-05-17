@@ -14,6 +14,63 @@ type Props = {
   route: RouteProp<RootStackParamList, 'ScheduleMatch'>;
 };
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const toDateInputString = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const toTimeInputString = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+type ThemeColors = ReturnType<typeof useTheme>['colors'];
+
+function WebPlayerSelect({
+  value, onChange, members, colors,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  members: Profile[];
+  colors: ThemeColors;
+}) {
+  return React.createElement(
+    'select',
+    {
+      value,
+      onChange: (e: any) => onChange(e.target.value),
+      style: {
+        fontSize: 15,
+        padding: '11px 12px',
+        width: '100%',
+        border: `1px solid ${colors.border}`,
+        borderRadius: 8,
+        backgroundColor: colors.surface,
+        color: value ? colors.text : colors.textMuted,
+        outline: 'none',
+        cursor: 'pointer',
+        boxSizing: 'border-box',
+      },
+    },
+    [
+      React.createElement('option', { key: '', value: '' }, 'Select player...'),
+      ...members.map((m) =>
+        React.createElement('option', { key: m.id, value: m.id }, m.full_name)
+      ),
+    ]
+  );
+}
+
+function webInputStyle(colors: ThemeColors) {
+  return {
+    fontSize: 15,
+    padding: '13px 14px',
+    width: '100%',
+    border: `1px solid ${colors.border}`,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    outline: 'none',
+    cursor: 'pointer',
+    boxSizing: 'border-box',
+  };
+}
+
 export default function ScheduleMatchScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -82,35 +139,85 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   const formattedDate = scheduledAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   const formattedTime = scheduledAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
+  const isWeb = Platform.OS === 'web';
+
+  const dateInput = isWeb
+    ? React.createElement('input', {
+        type: 'date',
+        value: toDateInputString(scheduledAt),
+        min: toDateInputString(new Date()),
+        onChange: (e: any) => {
+          const v: string = e.target.value;
+          if (!v) return;
+          const [y, mo, d] = v.split('-').map((n) => parseInt(n, 10));
+          const merged = new Date(scheduledAt);
+          merged.setFullYear(y, (mo || 1) - 1, d || 1);
+          setScheduledAt(merged);
+        },
+        style: webInputStyle(c),
+      })
+    : null;
+
+  const timeInput = isWeb
+    ? React.createElement('input', {
+        type: 'time',
+        value: toTimeInputString(scheduledAt),
+        onChange: (e: any) => {
+          const v: string = e.target.value;
+          if (!v) return;
+          const [h, mi] = v.split(':').map((n) => parseInt(n, 10));
+          const merged = new Date(scheduledAt);
+          merged.setHours(h || 0, mi || 0, 0, 0);
+          setScheduledAt(merged);
+        },
+        style: webInputStyle(c),
+      })
+    : null;
+
   return (
     <ScrollView contentContainerStyle={S.container}>
       <Text style={S.label}>Player 1</Text>
-      <View style={S.pickerWrapper}>
-        <Picker selectedValue={player1Id} onValueChange={setPlayer1Id}>
-          <Picker.Item label="Select player..." value="" />
-          {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
-        </Picker>
-      </View>
+      {isWeb ? (
+        <WebPlayerSelect value={player1Id} onChange={setPlayer1Id} members={members} colors={c} />
+      ) : (
+        <View style={S.pickerWrapper}>
+          <Picker selectedValue={player1Id} onValueChange={setPlayer1Id}>
+            <Picker.Item label="Select player..." value="" />
+            {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
+          </Picker>
+        </View>
+      )}
 
       <Text style={S.label}>Player 2</Text>
-      <View style={S.pickerWrapper}>
-        <Picker selectedValue={player2Id} onValueChange={setPlayer2Id}>
-          <Picker.Item label="Select player..." value="" />
-          {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
-        </Picker>
-      </View>
+      {isWeb ? (
+        <WebPlayerSelect value={player2Id} onChange={setPlayer2Id} members={members} colors={c} />
+      ) : (
+        <View style={S.pickerWrapper}>
+          <Picker selectedValue={player2Id} onValueChange={setPlayer2Id}>
+            <Picker.Item label="Select player..." value="" />
+            {members.map((m) => <Picker.Item key={m.id} label={m.full_name} value={m.id} />)}
+          </Picker>
+        </View>
+      )}
 
       <Text style={S.label}>Date & Time</Text>
-      <View style={S.dateRow}>
-        <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
-          <Text style={S.dateBtnText}>{formattedDate}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={S.timeBtn} onPress={() => setShowTimePicker(true)}>
-          <Text style={S.dateBtnText}>{formattedTime}</Text>
-        </TouchableOpacity>
-      </View>
+      {isWeb ? (
+        <View style={S.dateRow}>
+          <View style={{ flex: 2 }}>{dateInput}</View>
+          <View style={{ flex: 1 }}>{timeInput}</View>
+        </View>
+      ) : (
+        <View style={S.dateRow}>
+          <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
+            <Text style={S.dateBtnText}>{formattedDate}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={S.timeBtn} onPress={() => setShowTimePicker(true)}>
+            <Text style={S.dateBtnText}>{formattedTime}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {(showDatePicker || Platform.OS === 'ios') && showDatePicker && (
+      {!isWeb && (showDatePicker || Platform.OS === 'ios') && showDatePicker && (
         <DateTimePicker
           value={scheduledAt}
           mode="date"
@@ -118,7 +225,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
           onChange={onDateChange}
         />
       )}
-      {(showTimePicker || Platform.OS === 'ios') && showTimePicker && (
+      {!isWeb && (showTimePicker || Platform.OS === 'ios') && showTimePicker && (
         <DateTimePicker
           value={scheduledAt}
           mode="time"
@@ -133,7 +240,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: ThemeColors) {
   return StyleSheet.create({
     container:     { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
     label:         { fontSize: 14, fontWeight: '700', color: c.text, marginBottom: 6, marginTop: 16 },
