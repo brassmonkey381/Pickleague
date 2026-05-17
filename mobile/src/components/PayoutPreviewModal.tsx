@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, Modal, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet,
+  Pressable, Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -81,6 +82,13 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
     onPaid();
   }
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (!busy && e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, busy, onClose]);
+
   const totalDistributed = rows.reduce(
     (sum, r) => sum + (r.share_per_user || 0) * (r.uids?.length ?? 0),
     0,
@@ -88,7 +96,13 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={S.backdrop}>
+      <Pressable
+        style={S.backdrop}
+        onPress={Platform.OS === 'web' ? (e: any) => {
+          if (busy) return;
+          if (e.target === e.currentTarget) onClose();
+        } : undefined}
+      >
         <View style={S.card}>
           <Text style={S.title}>🏆 Pay Out Prizes</Text>
           <Text style={S.sub}>
@@ -156,7 +170,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -164,11 +178,11 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-    card:        { backgroundColor: c.surface, borderRadius: 16, padding: 18, maxWidth: 520, width: '100%', alignSelf: 'center', maxHeight: '90%' },
+    card:        { backgroundColor: c.surface, borderRadius: 16, padding: 18, maxWidth: 520, width: '100%', alignSelf: 'center', maxHeight: '90%', flexDirection: 'column' },
     title:       { fontSize: 19, fontWeight: '900', color: c.text, marginBottom: 4 },
     sub:         { fontSize: 12, color: c.textSub, lineHeight: 17, marginBottom: 4 },
 
-    list:        { marginTop: 10, maxHeight: 400 },
+    list:        { marginTop: 10, flex: 1 },
     placeCard:   { backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: c.border },
     placeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
     placeBadge:  { fontSize: 15, fontWeight: '900', color: c.text },
