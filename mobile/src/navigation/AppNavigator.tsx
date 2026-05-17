@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Session } from '@supabase/supabase-js';
@@ -48,6 +48,25 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const MIN_MS = Platform.OS === 'web' ? 2200 : 1600;
 
+// On web, constrain the app to a centered 720px column so screens don't
+// stretch edge-to-edge on desktop. On native, this is a pass-through.
+function WebMaxWidth({
+  children,
+  background,
+}: {
+  children: React.ReactNode;
+  background: string;
+}) {
+  if (Platform.OS !== 'web') return <>{children}</>;
+  return (
+    <View style={{ flex: 1, backgroundColor: background, alignItems: 'center' }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: 720 }}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
   const [session, setSession]     = useState<Session | null>(null);
@@ -85,8 +104,9 @@ export default function AppNavigator() {
   return (
     <>
       {!loading && (
-        <NavigationContainer theme={navTheme}>
-          <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
+        <WebMaxWidth background={colors.bg}>
+          <NavigationContainer theme={navTheme}>
+            <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
@@ -129,8 +149,9 @@ export default function AppNavigator() {
                 <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
               </>
             )}
-          </Stack.Navigator>
-        </NavigationContainer>
+            </Stack.Navigator>
+          </NavigationContainer>
+        </WebMaxWidth>
       )}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
