@@ -3,8 +3,8 @@ import {
   View, Text, TouchableOpacity, StyleSheet, TextInput,
   Share, ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { setClipboard } from '../lib/clipboard';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from './ConfirmModal';
@@ -156,9 +156,13 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
   async function copyCode() {
     if (!invite) return;
-    await Clipboard.setStringAsync(formatToken(invite.token));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    try {
+      await setClipboard(formatToken(invite.token));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      status.error(err instanceof Error ? err.message : 'Failed to copy code.');
+    }
   }
 
   async function openBroadcast() {
