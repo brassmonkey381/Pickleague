@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Platform, Pressable,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -31,6 +31,7 @@ export default function MultiUserPickerModal({
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const isWeb = Platform.OS === 'web';
 
   const [users, setUsers]       = useState<MultiPickedUser[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -52,6 +53,14 @@ export default function MultiUserPickerModal({
         setLoading(false);
       });
   }, [visible]);
+
+  // Escape key on web
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
@@ -81,84 +90,105 @@ export default function MultiUserPickerModal({
   const count = selectedIds.size;
   const label = ctaLabel ?? (count === 0 ? 'Pick at least one' : `Send ${count} Invite${count === 1 ? '' : 's'}`);
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={S.root}>
-        <View style={S.header}>
-          <Text style={S.title}>{title}</Text>
-          <TouchableOpacity onPress={onClose} disabled={busy}>
-            <Text style={S.close}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={S.searchRow}>
-          <TextInput
-            style={S.searchInput}
-            placeholder="Search by name or @username…"
-            placeholderTextColor={c.textMuted}
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
-              <Text style={S.clearBtnText}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {loading ? (
-          <ActivityIndicator size="large" color={c.primary} style={{ marginTop: 60 }} />
-        ) : (
-          <FlatList
-            data={filtered}
-            keyExtractor={u => u.id}
-            ListEmptyComponent={<Text style={S.empty}>No matches.</Text>}
-            renderItem={({ item }) => {
-              const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
-              const emoji   = item.avatar_emoji ?? cartoon.emoji;
-              const bg      = item.avatar_bg_color ?? cartoon.bgColor;
-              const checked = selectedIds.has(item.id);
-              return (
-                <TouchableOpacity style={S.row} onPress={() => toggle(item.id)} activeOpacity={0.7}>
-                  <View style={[S.avatar, { backgroundColor: bg }]}>
-                    <Text style={S.avatarEmoji}>{emoji}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={S.name}>{item.full_name}</Text>
-                    <Text style={S.username}>@{item.username}</Text>
-                  </View>
-                  <View style={[S.checkbox, checked && S.checkboxChecked]}>
-                    {checked && <Text style={S.checkmark}>✓</Text>}
-                  </View>
-                </TouchableOpacity>
-              );
-            }}
-            contentContainerStyle={{ paddingBottom: 100 }}
-          />
-        )}
-
-        <View style={S.footer}>
-          <TouchableOpacity
-            style={[S.submitBtn, (count === 0 || busy) && S.submitBtnDim]}
-            disabled={count === 0 || busy}
-            onPress={submit}
-          >
-            {busy
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={S.submitText}>{label}</Text>}
-          </TouchableOpacity>
-        </View>
+  const cardContent = (
+    <>
+      <View style={S.header}>
+        <Text style={S.title}>{title}</Text>
+        <TouchableOpacity onPress={onClose} disabled={busy}>
+          <Text style={S.close}>Cancel</Text>
+        </TouchableOpacity>
       </View>
+
+      <View style={S.searchRow}>
+        <TextInput
+          style={S.searchInput}
+          placeholder="Search by name or @username…"
+          placeholderTextColor={c.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
+            <Text style={S.clearBtnText}>✕</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {loading ? (
+        <ActivityIndicator size="large" color={c.primary} style={{ marginTop: 60 }} />
+      ) : (
+        <FlatList
+          style={S.list}
+          data={filtered}
+          keyExtractor={u => u.id}
+          ListEmptyComponent={<Text style={S.empty}>No matches.</Text>}
+          renderItem={({ item }) => {
+            const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
+            const emoji   = item.avatar_emoji ?? cartoon.emoji;
+            const bg      = item.avatar_bg_color ?? cartoon.bgColor;
+            const checked = selectedIds.has(item.id);
+            return (
+              <TouchableOpacity style={S.row} onPress={() => toggle(item.id)} activeOpacity={0.7}>
+                <View style={[S.avatar, { backgroundColor: bg }]}>
+                  <Text style={S.avatarEmoji}>{emoji}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.name}>{item.full_name}</Text>
+                  <Text style={S.username}>@{item.username}</Text>
+                </View>
+                <View style={[S.checkbox, checked && S.checkboxChecked]}>
+                  {checked && <Text style={S.checkmark}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+        />
+      )}
+
+      <View style={S.footer}>
+        <TouchableOpacity
+          style={[S.submitBtn, (count === 0 || busy) && S.submitBtnDim]}
+          disabled={count === 0 || busy}
+          onPress={submit}
+        >
+          {busy
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={S.submitText}>{label}</Text>}
+        </TouchableOpacity>
+      </View>
+    </>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle={isWeb ? undefined : 'pageSheet'}
+      transparent={isWeb}
+      onRequestClose={onClose}
+    >
+      {isWeb ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <View style={S.card}>{cardContent}</View>
+        </Pressable>
+      ) : (
+        <View style={S.root}>{cardContent}</View>
+      )}
     </Modal>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    root:        { flex: 1, backgroundColor: c.bg },
+    root:        { flex: 1, backgroundColor: c.bg, flexDirection: 'column' },
+    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 16 },
+    card:        { width: '100%', maxWidth: 480, maxHeight: '85%', backgroundColor: c.bg, borderRadius: 16, overflow: 'hidden', flexDirection: 'column' },
     header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
     title:       { fontSize: 17, fontWeight: '800', color: c.text, flex: 1 },
     close:       { fontSize: 14, color: c.primary, fontWeight: '700' },
@@ -168,6 +198,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     clearBtn:    { paddingHorizontal: 12, paddingVertical: 8 },
     clearBtnText:{ fontSize: 16, color: c.textMuted, fontWeight: '700' },
 
+    list:        { flex: 1 },
     row:         { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface, gap: 12 },
     avatar:      { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: 20 },
@@ -178,7 +209,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     checkmark:   { color: '#fff', fontWeight: '800', fontSize: 16 },
     empty:       { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 14 },
 
-    footer:      { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
+    footer:      { padding: 16, backgroundColor: c.surface, borderTopWidth: 1, borderTopColor: c.border },
     submitBtn:   { backgroundColor: c.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
     submitBtnDim:{ backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     submitText:  { color: '#fff', fontSize: 15, fontWeight: '800' },
