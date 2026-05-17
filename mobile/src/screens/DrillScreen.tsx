@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch,
-  ActivityIndicator, Alert, TextInput,
+  ActivityIndicator, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -9,6 +9,8 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, RootStackParamList } from '../types';
 import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 
@@ -36,6 +38,8 @@ export default function DrillScreen({ navigation }: Props) {
   const [sessions, setSessions]               = useState<SessionWithPartner[]>([]);
   const [sessionFilter, setSessionFilter]     = useState<'upcoming' | 'past'>('upcoming');
   const [scheduledMatches, setScheduledMatches] = useState<{ date: string; slot: number; length_minutes: number }[]>([]);
+
+  const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -132,7 +136,7 @@ export default function DrillScreen({ navigation }: Props) {
       .eq('id', userId);
     if (error) {
       setSaveStatus('error');
-      Alert.alert('Save failed', error.message);
+      status.error(`Save failed: ${error.message}`);
     } else {
       setSaveStatus('saved');
       saveTimer.current = setTimeout(() => setSaveStatus('idle'), 1200);
@@ -209,6 +213,8 @@ export default function DrillScreen({ navigation }: Props) {
         <Text style={S.heroTitle}>Drill Partners</Text>
         <Text style={S.heroSub}>Find someone to grind cross-court dinks with at 7am.</Text>
       </View>
+
+      <StatusBanner status={status.value} style={{ marginHorizontal: 16 }} />
 
       {/* Opt-in toggle */}
       <View style={S.optInCard}>

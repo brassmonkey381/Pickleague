@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Switch, Alert, Modal,
+  View, Text, ScrollView, StyleSheet, Switch,
   TextInput, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,6 +8,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
@@ -59,6 +61,8 @@ export default function SettingsScreen({ navigation }: Props) {
   const [deleteError, setDeleteError]   = useState('');
   const [deleting, setDeleting]         = useState(false);
 
+  const status = useStatusMessage();
+
   useEffect(() => {
     loadPrefs();
     loadProfile();
@@ -102,10 +106,10 @@ export default function SettingsScreen({ navigation }: Props) {
       .eq('id', userId);
     setSavingName(false);
     if (error) {
-      Alert.alert('Error', error.message);
+      status.error(error.message);
     } else {
       setSavedName(displayName.trim());
-      Alert.alert('Saved', 'Display name updated.');
+      status.success('Display name updated.');
     }
   }
 
@@ -113,10 +117,10 @@ export default function SettingsScreen({ navigation }: Props) {
     if (!email || resetSent) return;
     const { error } = await supabase.auth.resetPasswordForEmail(email);
     if (error) {
-      Alert.alert('Error', error.message);
+      status.error(error.message);
     } else {
       setResetSent(true);
-      Alert.alert('Email sent', `Check ${email} for a password reset link.`);
+      status.success(`Email sent — check ${email} for a password reset link.`);
     }
   }
 
@@ -269,6 +273,8 @@ export default function SettingsScreen({ navigation }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+
+      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
 
       {/* ── Account ──────────────────────────── */}
       <SectionHeader title="Account" />

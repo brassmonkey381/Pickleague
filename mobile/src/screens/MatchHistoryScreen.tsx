@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -7,6 +7,8 @@ import { REGIONS, inRegion } from '../lib/regions';
 import { Match, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type HomeAwayFilter     = 'all' | 'home' | 'away';
 type TypeFilter         = 'all' | 'singles' | 'doubles';
@@ -131,6 +133,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [indoorOutdoor, setIndoorOutdoor] = useState<IndoorOutdoorFilter>('all');
   const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>(initialDoublesCategory ?? 'all');
 
+  const status = useStatusMessage();
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setCurrentUserId(user?.id ?? null);
@@ -174,9 +178,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   async function confirmMatch(matchId: string) {
     const { error } = await supabase.rpc('confirm_match', { p_match_id: matchId });
     if (error) {
-      Alert.alert('Confirm failed', error.message);
+      status.error(`Confirm failed: ${error.message}`);
       return;
     }
+    status.success('Match confirmed.');
     loadMatches();
   }
 
@@ -444,6 +449,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
   return (
     <View style={S.container}>
+      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
       {/* Filter bar */}
       <View style={S.filterBar}>
         <Text style={S.countText}>{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</Text>
