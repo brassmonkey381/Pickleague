@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, TextInput,
-  Share, ActivityIndicator, ScrollView, Alert,
+  ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { shareInvite } from '../lib/share';
 import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -209,12 +210,16 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
       : '';
     const target = scopeType === 'league' ? 'league' : 'tournament';
     const where = scopeType === 'league' ? 'Leagues → "Join with Code"' : 'Tournaments → "Join with Code"';
-    await Share.share({
+    const result = await shareInvite({
+      title: `Join ${scopeName} on Pickleague`,
       message:
         `You're invited to join the ${target} "${scopeName}" on Pickleague! 🏓\n\n` +
         `Use invite code: ${code}${subsidyLine}\n\n` +
         `Open the app → ${where} and enter this code.`,
     });
+    if (result.copied) {
+      status.success('Invite copied to clipboard');
+    }
   }
 
   if (loading) return <ActivityIndicator style={{ marginVertical: 30 }} size="large" color={c.primary} />;
