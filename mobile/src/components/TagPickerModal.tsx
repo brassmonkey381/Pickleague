@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
+  Platform, Pressable,
 } from 'react-native';
 import { PLAY_TAGS, TagDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 
 const FUNNY_COLOR = '#e65100';
+const IS_WEB = Platform.OS === 'web';
 
 type Props = {
   visible: boolean;
@@ -23,6 +25,13 @@ export default function TagPickerModal({
   const S = makeStyles(colors);
   const [selected, setSelected]         = useState<string[]>(selectedTags);
   const [lockedHint, setLockedHint]     = useState<TagDef | null>(null);
+
+  useEffect(() => {
+    if (!IS_WEB || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
 
   const isUnlocked = (t: TagDef) =>
     !t.unlock || earnedBadgeNames.includes(t.unlock.badge);
@@ -78,58 +87,77 @@ export default function TagPickerModal({
     );
   }
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={S.root}>
-        <View style={S.header}>
-          <TouchableOpacity onPress={onClose} style={S.headerBtn}>
-            <Text style={S.headerBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <View style={S.headerCenter}>
-            <Text style={S.headerTitle}>Play Style Tags</Text>
-            <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
-          </View>
-          <TouchableOpacity onPress={() => onSave(selected)} style={S.headerBtn}>
-            <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
-          </TouchableOpacity>
+  const content = (
+    <View style={S.root}>
+      <View style={S.header}>
+        <TouchableOpacity onPress={onClose} style={S.headerBtn}>
+          <Text style={S.headerBtnText}>Cancel</Text>
+        </TouchableOpacity>
+        <View style={S.headerCenter}>
+          <Text style={S.headerTitle}>Play Style Tags</Text>
+          <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
+        </View>
+        <TouchableOpacity onPress={() => onSave(selected)} style={S.headerBtn}>
+          <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
+        <View style={S.meterRow}>
+          {Array.from({ length: maxSlots }).map((_, i) => (
+            <View key={i} style={[S.meterDot, i < selected.length && S.meterDotFilled]} />
+          ))}
+          <Text style={S.meterHint}>
+            {selected.length === maxSlots ? 'All slots filled — tap a tag to deselect' : `Tap tags to select (${maxSlots - selected.length} left)`}
+          </Text>
         </View>
 
-        <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
-          <View style={S.meterRow}>
-            {Array.from({ length: maxSlots }).map((_, i) => (
-              <View key={i} style={[S.meterDot, i < selected.length && S.meterDotFilled]} />
-            ))}
-            <Text style={S.meterHint}>
-              {selected.length === maxSlots ? 'All slots filled — tap a tag to deselect' : `Tap tags to select (${maxSlots - selected.length} left)`}
-            </Text>
-          </View>
+        <Section title="Serious" tags={freeTags}  accentColor={colors.primary} />
+        <Section title="Funny"   tags={funnyTags}  accentColor={FUNNY_COLOR} />
+        <Section title="🔒 Earn by Badge" tags={unlockableTags} accentColor="#7b5ea7" />
 
-          <Section title="Serious" tags={freeTags}  accentColor={colors.primary} />
-          <Section title="Funny"   tags={funnyTags}  accentColor={FUNNY_COLOR} />
-          <Section title="🔒 Earn by Badge" tags={unlockableTags} accentColor="#7b5ea7" />
-
-          {lockedHint && (
-            <View style={S.hintCard}>
-              <View style={S.hintRow}>
-                <View style={S.hintBody}>
-                  <Text style={S.hintTitle}>🔒 "{lockedHint.label}" is locked</Text>
-                  <Text style={S.hintText}>
-                    Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
-                    {lockedHint.unlock!.description}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setLockedHint(null)}>
-                  <Text style={S.hintClose}>✕</Text>
-                </TouchableOpacity>
+        {lockedHint && (
+          <View style={S.hintCard}>
+            <View style={S.hintRow}>
+              <View style={S.hintBody}>
+                <Text style={S.hintTitle}>🔒 "{lockedHint.label}" is locked</Text>
+                <Text style={S.hintText}>
+                  Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
+                  {lockedHint.unlock!.description}
+                </Text>
               </View>
+              <TouchableOpacity onPress={() => setLockedHint(null)}>
+                <Text style={S.hintClose}>✕</Text>
+              </TouchableOpacity>
             </View>
-          )}
+          </View>
+        )}
 
-          <Text style={S.footnote}>
-            Unlock more tags and tag slots by earning badges.
-          </Text>
-        </ScrollView>
-      </View>
+        <Text style={S.footnote}>
+          Unlock more tags and tag slots by earning badges.
+        </Text>
+      </ScrollView>
+    </View>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType={IS_WEB ? 'fade' : 'slide'}
+      presentationStyle={IS_WEB ? undefined : 'pageSheet'}
+      transparent={IS_WEB}
+      onRequestClose={onClose}
+    >
+      {IS_WEB ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <View style={S.card}>{content}</View>
+        </Pressable>
+      ) : (
+        content
+      )}
     </Modal>
   );
 }
@@ -137,6 +165,25 @@ export default function TagPickerModal({
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     root:       { flex: 1, backgroundColor: c.surface },
+    backdrop:   {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    card:       {
+      width: '100%',
+      maxWidth: 520,
+      maxHeight: '85%',
+      backgroundColor: c.surface,
+      borderRadius: 12,
+      overflow: 'hidden',
+      shadowColor: '#000',
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+    },
     header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
     headerTitle:{ fontSize: 17, fontWeight: '700', color: c.text },
     headerCenter:{ alignItems: 'center', flex: 1 },
