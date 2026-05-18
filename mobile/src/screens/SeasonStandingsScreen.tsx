@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -13,6 +13,9 @@ import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { AVATARS } from '../data/profileCustomization';
 import PicklePotCard from '../components/PicklePotCard';
 import { useTheme } from '../lib/ThemeContext';
+import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -198,6 +201,11 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // null until first load completes — load() seeds it to the live period (or Final if completed).
   const [activeTab, setActiveTab]     = useState<number | 'final' | null>(null);
 
+  const [lockConfirmOpen, setLockConfirmOpen]         = useState(false);
+  const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
+
+  const status = useStatusMessage();
+
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
@@ -339,49 +347,35 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     return periods.some(p => p.locked);
   }
 
-  async function lockPeriod() {
+  async function doLockPeriod() {
     if (!season) return;
     const n = nextPeriodNumber();
-    Alert.alert(
-      `Lock Period ${n}`,
-      `This will snapshot current standings as Period ${n} and lock them in permanently.\n\nContinue?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Lock In', style: 'default',
-          onPress: async () => {
-            setLocking(true);
-            const today = new Date().toISOString().split('T')[0];
-            const { error } = await supabase.rpc('lock_season_period', {
-              p_season_id: seasonId, p_period_number: n, p_snapshot_date: today,
-            });
-            setLocking(false);
-            if (error) Alert.alert('Error', error.message);
-            else { Alert.alert('Period locked!', `Period ${n} standings are locked in.`); load(); }
-          },
-        },
-      ]
-    );
+    setLocking(true);
+    const today = new Date().toISOString().split('T')[0];
+    const { error } = await supabase.rpc('lock_season_period', {
+      p_season_id: seasonId, p_period_number: n, p_snapshot_date: today,
+    });
+    setLocking(false);
+    setLockConfirmOpen(false);
+    if (error) {
+      status.error(error.message);
+    } else {
+      status.success(`Period ${n} standings are locked in.`);
+      load();
+    }
   }
 
-  async function completeSeason() {
-    Alert.alert(
-      'Complete Season & Reset PLUPR',
-      'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global PLUPR to 3.25 + rank bonus\n• Mark the season as completed\n\n⚠️ This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Complete Season', style: 'destructive',
-          onPress: async () => {
-            setCompleting(true);
-            const { error } = await supabase.rpc('complete_season', { p_season_id: seasonId });
-            setCompleting(false);
-            if (error) Alert.alert('Error', error.message);
-            else { Alert.alert('Season complete!', 'Final standings locked and PLUPR reset applied.'); load(); }
-          },
-        },
-      ]
-    );
+  async function doCompleteSeason() {
+    setCompleting(true);
+    const { error } = await supabase.rpc('complete_season', { p_season_id: seasonId });
+    setCompleting(false);
+    setCompleteConfirmOpen(false);
+    if (error) {
+      status.error(error.message);
+    } else {
+      status.success('Season complete! Final standings locked and PLUPR reset applied.');
+      load();
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────
@@ -438,6 +432,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
   return (
     <ScrollView contentContainerStyle={S.container}>
+
+      <StatusBanner status={status.value} style={{ marginTop: 0 }} />
 
       {/* ── Season header ──────────────────────────────────────── */}
       <View style={S.headerCard}>
@@ -496,7 +492,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           {canLock() && (
             <TouchableOpacity
               style={[S.adminBtn, S.adminBtnGreen]}
-              onPress={lockPeriod}
+              onPress={() => setLockConfirmOpen(true)}
               disabled={locking}
             >
               <Text style={S.adminBtnTextLight}>
@@ -514,7 +510,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           {canComplete() && (
             <TouchableOpacity
               style={[S.adminBtn, S.adminBtnRed]}
-              onPress={completeSeason}
+              onPress={() => setCompleteConfirmOpen(true)}
               disabled={completing}
             >
               <Text style={S.adminBtnTextLight}>
@@ -767,6 +763,28 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           )}
         </View>
       )}
+
+      <ConfirmModal
+        visible={lockConfirmOpen}
+        title={`Lock Period ${nextPeriod}`}
+        body={`This will snapshot current standings as Period ${nextPeriod} and lock them in permanently.\n\nContinue?`}
+        primaryLabel="Lock In"
+        variant="primary"
+        busy={locking}
+        onConfirm={doLockPeriod}
+        onClose={() => setLockConfirmOpen(false)}
+      />
+
+      <ConfirmModal
+        visible={completeConfirmOpen}
+        title="Complete Season & Reset PLUPR"
+        body={'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global PLUPR to 3.25 + rank bonus\n• Mark the season as completed\n\n⚠️ This cannot be undone.'}
+        primaryLabel="Complete Season"
+        variant="danger"
+        busy={completing}
+        onConfirm={doCompleteSeason}
+        onClose={() => setCompleteConfirmOpen(false)}
+      />
 
     </ScrollView>
   );

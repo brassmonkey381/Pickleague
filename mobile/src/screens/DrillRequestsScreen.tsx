@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Alert,
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,6 +12,8 @@ import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillT
 import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
 
@@ -36,6 +38,8 @@ export default function DrillRequestsScreen({}: Props) {
   // Cancel-request confirm
   const [cancelTarget, setCancelTarget] = useState<DrillRequest | null>(null);
   const [cancelling, setCancelling]     = useState(false);
+
+  const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
@@ -70,7 +74,7 @@ export default function DrillRequestsScreen({}: Props) {
       .update(updates)
       .eq('id', req.id);
     if (error) {
-      Alert.alert('Failed', error.message);
+      status.error(error.message);
       return;
     }
     load();
@@ -80,7 +84,7 @@ export default function DrillRequestsScreen({}: Props) {
     const idx = selectedSlotIdx[req.id];
     const slot = idx != null ? req.proposed_slots[idx] : null;
     if (!slot) {
-      Alert.alert('Pick a time', 'Tap one of the proposed times before accepting.');
+      status.error('Tap one of the proposed times before accepting.');
       return;
     }
     respondToRequest(req, 'accept', slot);
@@ -102,6 +106,7 @@ export default function DrillRequestsScreen({}: Props) {
 
   return (
     <View style={S.container}>
+      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
       <View style={S.tabs}>
         {(['incoming', 'outgoing'] as Tab[]).map(t => (
           <TouchableOpacity
@@ -291,11 +296,13 @@ function DrillChatModal({
   const [draft, setDraft]       = useState('');
   const [sending, setSending]   = useState(false);
   const [loadingMsgs, setLoadingMsgs] = useState(true);
+  const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
     if (!visible || !request) return;
     let cancelled = false;
+    setSendError(null);
     (async () => {
       setLoadingMsgs(true);
       const { data } = await supabase
@@ -317,6 +324,7 @@ function DrillChatModal({
     const body = draft.trim();
     if (!body) return;
     setSending(true);
+    setSendError(null);
     const { data, error } = await supabase
       .from('drill_request_messages')
       .insert({ request_id: request.id, sender_id: currentUserId, body })
@@ -324,7 +332,7 @@ function DrillChatModal({
       .single();
     setSending(false);
     if (error) {
-      Alert.alert('Send failed', error.message);
+      setSendError(`Send failed: ${error.message}`);
       return;
     }
     setMessages(prev => [...prev, data as DrillRequestMessage]);
@@ -380,11 +388,16 @@ function DrillChatModal({
             )}
           </ScrollView>
 
+          {sendError && (
+            <View style={S.sendErrorRow}>
+              <Text style={S.sendErrorText}>{sendError}</Text>
+            </View>
+          )}
           <View style={S.composer}>
             <TextInput
               style={S.input}
               value={draft}
-              onChangeText={setDraft}
+              onChangeText={(t) => { setDraft(t); if (sendError) setSendError(null); }}
               placeholder="Type a message…"
               placeholderTextColor={colors.textMuted}
               multiline
@@ -430,6 +443,8 @@ function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
     sendBtn:     { backgroundColor: c.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
     sendBtnDim:  { opacity: 0.5 },
     sendBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+    sendErrorRow:{ paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.surface },
+    sendErrorText:{ color: '#c62828', fontSize: 12, fontWeight: '600' },
   });
 }
 
