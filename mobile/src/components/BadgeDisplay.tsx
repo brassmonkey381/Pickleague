@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView, Platform } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BadgeItem = {
@@ -54,6 +54,15 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
     month: 'short', day: 'numeric', year: 'numeric',
   });
 
+  const closeDetail = useCallback(() => setShowDetail(false), []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showDetail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDetail(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showDetail, closeDetail]);
+
   return (
     <>
       {/* Badge tile */}
@@ -82,10 +91,13 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
         visible={showDetail}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowDetail(false)}
+        onRequestClose={closeDetail}
       >
-        <Pressable style={styles.overlay} onPress={() => setShowDetail(false)}>
-          <Pressable style={styles.detailCard} onPress={() => {}}>
+        <Pressable
+          style={styles.overlay}
+          onPress={(e) => { if (e.target === e.currentTarget) closeDetail(); }}
+        >
+          <View style={styles.detailCard}>
             <Text style={styles.detailIcon}>{badge.badge.icon}</Text>
 
             <View style={styles.detailNameRow}>
@@ -166,7 +178,7 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
             )}
 
             <Text style={styles.dismissHint}>Tap outside to close</Text>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </>
