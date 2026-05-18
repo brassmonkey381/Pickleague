@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Alert, Modal, TextInput,
+  ActivityIndicator, Modal, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -10,6 +10,8 @@ import { useTheme } from '../lib/ThemeContext';
 import { ShopCategory, ShopItem, ShopPurchase, RootStackParamList } from '../types';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import ShippingAddressForm, { ShippingAddress, EMPTY_ADDRESS, isAddressValid } from '../components/ShippingAddressForm';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -39,15 +41,19 @@ export default function ShopScreen({ navigation }: Props) {
   // Buy flow
   const [confirmingItem, setConfirmingItem]     = useState<ShopItem | null>(null);
   const [shipAddr, setShipAddr]                 = useState<ShippingAddress>(EMPTY_ADDRESS);
+  const [buyError, setBuyError]                 = useState<string | null>(null);
 
   // Gift flow
   const [giftItem, setGiftItem]                 = useState<ShopItem | null>(null);
   const [giftRecipient, setGiftRecipient]       = useState<PickedUser | null>(null);
   const [giftMessage, setGiftMessage]           = useState('');
   const [giftAddr, setGiftAddr]                 = useState<ShippingAddress>(EMPTY_ADDRESS);
+  const [giftError, setGiftError]               = useState<string | null>(null);
   const [showUserPicker, setShowUserPicker]     = useState(false);
   const [sendingGift, setSendingGift]           = useState(false);
   const [myUserId, setMyUserId]                 = useState<string | null>(null);
+
+  const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -80,9 +86,11 @@ export default function ShopScreen({ navigation }: Props) {
   function startGift(item: ShopItem) {
     const { cost } = effectiveCost(item);
     if (pickles < cost) {
-      Alert.alert('Not enough pickles', `You have ${pickles} 🥒 — gifting ${item.name} costs ${cost} 🥒.`);
+      status.error(`Not enough pickles — you have ${pickles} 🥒, gifting ${item.name} costs ${cost} 🥒.`);
       return;
     }
+    status.clear();
+    setGiftError(null);
     setGiftItem(item);
     setGiftRecipient(null);
     setGiftMessage('');
@@ -95,10 +103,10 @@ export default function ShopScreen({ navigation }: Props) {
     const isRedemption = giftItem.category === 'real_world';
 
     if (isRedemption && !isAddressValid(giftAddr)) {
-      Alert.alert('Shipping address required',
-        'Please fill in the recipient\'s shipping address before sending the gift.');
+      setGiftError("Please fill in the recipient's shipping address before sending the gift.");
       return;
     }
+    setGiftError(null);
 
     setSendingGift(true);
     const { data, error } = isRedemption
@@ -114,20 +122,20 @@ export default function ShopScreen({ navigation }: Props) {
           p_message:   giftMessage.trim() || null,
         });
     setSendingGift(false);
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { setGiftError(error.message); return; }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not gift', row?.message ?? 'Unknown error'); return; }
+    if (!row?.success) { setGiftError(row?.message ?? 'Could not gift — unknown error.'); return; }
     setPickles(row.new_balance);
-    Alert.alert(
-      'Gift sent!',
+    status.success(
       isRedemption
-        ? `${giftItem.name} will ship to ${giftRecipient.full_name}.`
-        : `${giftItem.name} is now in ${giftRecipient.full_name}'s inventory.`,
+        ? `Gift sent! ${giftItem.name} will ship to ${giftRecipient.full_name}.`
+        : `Gift sent! ${giftItem.name} is now in ${giftRecipient.full_name}'s inventory.`,
     );
     setGiftItem(null);
     setGiftRecipient(null);
     setGiftMessage('');
     setGiftAddr(EMPTY_ADDRESS);
+    setGiftError(null);
   }
 
   function startBuy(item: ShopItem) {
@@ -136,9 +144,11 @@ export default function ShopScreen({ navigation }: Props) {
     if (item.category !== 'real_world' && owned.has(item.id)) return;
     const { cost } = effectiveCost(item);
     if (pickles < cost) {
-      Alert.alert('Not enough pickles', `You have ${pickles} 🥒 — ${item.name} costs ${cost} 🥒.`);
+      status.error(`Not enough pickles — you have ${pickles} 🥒, ${item.name} costs ${cost} 🥒.`);
       return;
     }
+    status.clear();
+    setBuyError(null);
     // Reset the shipping address every time the confirm modal opens.
     setShipAddr(EMPTY_ADDRESS);
     setConfirmingItem(item);
@@ -165,10 +175,10 @@ export default function ShopScreen({ navigation }: Props) {
     const isRedemption = item.category === 'real_world';
 
     if (isRedemption && !isAddressValid(shipAddr)) {
-      Alert.alert('Shipping address required',
-        'Please fill in your shipping address before redeeming.');
+      setBuyError('Please fill in your shipping address before redeeming.');
       return;
     }
+    setBuyError(null);
 
     setBuying({ id: item.id, equip });
     const { data, error } = isRedemption
@@ -177,12 +187,12 @@ export default function ShopScreen({ navigation }: Props) {
           p_shipping_address: shipAddr,
         })
       : await supabase.rpc('purchase_shop_item', { p_item_id: item.id });
-    if (error) { setBuying(null); Alert.alert('Error', error.message); return; }
+    if (error) { setBuying(null); setBuyError(error.message); return; }
 
     const row = Array.isArray(data) ? data[0] : data;
     if (!row?.success) {
       setBuying(null);
-      Alert.alert('Could not purchase', row?.message ?? 'Unknown error');
+      setBuyError(row?.message ?? 'Could not purchase — unknown error.');
       return;
     }
     setPickles(row.new_balance);
@@ -195,13 +205,11 @@ export default function ShopScreen({ navigation }: Props) {
     setBuying(null);
     setConfirmingItem(null);
     setShipAddr(EMPTY_ADDRESS);
-    Alert.alert(
-      isRedemption     ? 'Redemption queued!'
-        : equip        ? 'Purchased & equipped!'
-        :                'Purchased!',
-      isRedemption ? `${item.name} will ship to the address you entered.`
-        : equip    ? `${item.name} is now equipped on your profile.`
-        :            `${item.name} is in your inventory. Equip / hide it from your Profile.`,
+    setBuyError(null);
+    status.success(
+      isRedemption ? `Redemption queued! ${item.name} will ship to the address you entered.`
+        : equip    ? `Purchased & equipped! ${item.name} is now equipped on your profile.`
+        :            `Purchased! ${item.name} is in your inventory. Equip / hide it from your Profile.`,
     );
   }
 
@@ -237,6 +245,7 @@ export default function ShopScreen({ navigation }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={S.scroll}>
+        <StatusBanner status={status.value} />
         <Text style={S.tabBlurb}>{tabMeta.blurb}</Text>
 
         {tabItems.length === 0 ? (
@@ -316,7 +325,7 @@ export default function ShopScreen({ navigation }: Props) {
       <Modal
         visible={!!confirmingItem}
         transparent animationType="fade"
-        onRequestClose={() => setConfirmingItem(null)}
+        onRequestClose={() => { setConfirmingItem(null); setBuyError(null); }}
       >
         <View style={S.modalBackdrop}>
           <View style={S.modalCard}>
@@ -369,10 +378,12 @@ export default function ShopScreen({ navigation }: Props) {
                   </>
                 )}
 
+                {buyError ? <Text style={S.inlineError}>{buyError}</Text> : null}
+
                 <View style={S.modalBtnRow}>
                   <TouchableOpacity
                     style={[S.modalBtn, S.modalBtnSecondary]}
-                    onPress={() => setConfirmingItem(null)}
+                    onPress={() => { setConfirmingItem(null); setBuyError(null); }}
                     disabled={!!buying}
                   >
                     <Text style={S.modalBtnSecondaryText}>Cancel</Text>
@@ -425,7 +436,7 @@ export default function ShopScreen({ navigation }: Props) {
       <Modal
         visible={!!giftItem && !!giftRecipient && !showUserPicker}
         transparent animationType="fade"
-        onRequestClose={() => { setGiftItem(null); setGiftRecipient(null); }}
+        onRequestClose={() => { setGiftItem(null); setGiftRecipient(null); setGiftError(null); }}
       >
         <View style={S.modalBackdrop}>
           <View style={S.modalCard}>
@@ -473,10 +484,12 @@ export default function ShopScreen({ navigation }: Props) {
 
                 <Text style={S.giftBalance}>Your balance after: 🥒 {pickles - giftCost}</Text>
 
+                {giftError ? <Text style={S.inlineError}>{giftError}</Text> : null}
+
                 <View style={S.modalBtnRow}>
                   <TouchableOpacity
                     style={[S.modalBtn, S.modalBtnSecondary]}
-                    onPress={() => { setGiftItem(null); setGiftRecipient(null); setGiftMessage(''); setGiftAddr(EMPTY_ADDRESS); }}
+                    onPress={() => { setGiftItem(null); setGiftRecipient(null); setGiftMessage(''); setGiftAddr(EMPTY_ADDRESS); setGiftError(null); }}
                     disabled={sendingGift}
                   >
                     <Text style={S.modalBtnSecondaryText}>Cancel</Text>
@@ -595,5 +608,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     confirmCostRow:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
     confirmCostLabel:  { fontSize: 13, color: c.textSub, fontWeight: '600' },
     confirmCostValue:  { fontSize: 14, color: c.primary, fontWeight: '800' },
+    inlineError:       { color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 10 },
   });
 }
