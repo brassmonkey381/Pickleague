@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, TextInput,
   FlatList, StyleSheet, Pressable, ActivityIndicator,
+  Platform, useWindowDimensions,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+
+const IS_WEB = Platform.OS === 'web';
 
 export type PaddleSelection = {
   brandId: string;
@@ -34,7 +37,10 @@ type Props = {
 
 export default function PaddlePickerModal({ visible, onSelect, onClose, initial }: Props) {
   const { colors: c } = useTheme();
-  const styles = makeStyles(c);
+  const { height: winHeight } = useWindowDimensions();
+  const listMaxHeight = Math.min(440, winHeight * 0.5);
+  const suggestMaxHeight = Math.min(260, winHeight * 0.32);
+  const styles = makeStyles(c, listMaxHeight, suggestMaxHeight);
 
   const [brands, setBrands]           = useState<Brand[]>([]);
   const [dbModels, setDbModels]       = useState<DBModel[]>([]);
@@ -60,6 +66,13 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
       }
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!IS_WEB || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
 
   async function loadBrands() {
     setLoading(true);
@@ -130,8 +143,11 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={() => {}}>
+      <Pressable
+        style={styles.overlay}
+        onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      >
+        <View style={styles.sheet}>
 
           {/* Header */}
           <View style={styles.header}>
@@ -283,16 +299,40 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
             </View>
           )}
 
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(
+  c: ReturnType<typeof useTheme>['colors'],
+  listMaxHeight: number,
+  suggestMaxHeight: number,
+) {
   return StyleSheet.create({
-    overlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    sheet:     { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '88%', paddingBottom: 32 },
+    overlay:   {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: IS_WEB ? 'center' : 'flex-end',
+      alignItems: IS_WEB ? 'center' : 'stretch',
+      ...(IS_WEB ? { padding: 16 } : null),
+    },
+    sheet:     {
+      backgroundColor: c.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      ...(IS_WEB
+        ? {
+            borderBottomLeftRadius: 20,
+            borderBottomRightRadius: 20,
+            maxWidth: 560,
+            width: '100%',
+            maxHeight: '90%',
+          }
+        : { maxHeight: '88%' }),
+      paddingBottom: 32,
+    },
     header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
     back:      { fontSize: 15, color: c.primary, fontWeight: '600', width: 60 },
     title:     { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, textAlign: 'center' },
@@ -303,7 +343,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     stepDotDone:   { backgroundColor: c.primary + '88' },
 
     searchInput:  { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: c.text, backgroundColor: c.surface },
-    list:         { maxHeight: 440 },
+    list:         { maxHeight: listMaxHeight },
     brandRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.bg },
     brandName:    { flex: 1, fontSize: 16, fontWeight: '600', color: c.text },
     chevron:      { fontSize: 20, color: c.textMuted },
@@ -311,7 +351,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modelContainer: { flex: 1, padding: 16 },
     modelInput:     { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 10, color: c.text, backgroundColor: c.surface },
     suggestLabel:   { fontSize: 12, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-    suggestList:    { maxHeight: 260, marginBottom: 12 },
+    suggestList:    { maxHeight: suggestMaxHeight, marginBottom: 12 },
     suggestRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: c.bg },
     suggestName:    { fontSize: 14, fontWeight: '600', color: c.text },
     suggestMeta:    { fontSize: 11, color: c.textMuted, marginTop: 1 },
