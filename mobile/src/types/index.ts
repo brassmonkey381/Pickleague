@@ -364,7 +364,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   Home: undefined;
-  Leagues: undefined;
+  Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };
@@ -419,4 +419,5 @@ export type RootStackParamList = {
   Shop: undefined;
   ScoringAlgo: undefined;
   GiftPickles: undefined;
+  Godmode: undefined;
 };

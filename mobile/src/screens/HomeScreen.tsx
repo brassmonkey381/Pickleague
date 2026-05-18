@@ -9,6 +9,13 @@ import { isGodmodeUserId } from '../lib/godmode';
 import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
+import StreakModal from '../components/StreakModal';
+import {
+  claimDailyLoginStreak,
+  hasStreakBeenShown,
+  markStreakShown,
+  StreakResult,
+} from '../lib/loginStreak';
 
 // Module-level flag — fires once per app session (resets on app reload).
 let godmodeGrantClaimedThisSession = false;
@@ -32,6 +39,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [welcomeBalance, setWelcomeBalance] = useState(0);
   const [godmodeOpen, setGodmodeOpen] = useState(false);
   const [godmodeBalance, setGodmodeBalance] = useState(0);
+  const [streakOpen, setStreakOpen] = useState(false);
+  const [streakResult, setStreakResult] = useState<StreakResult | null>(null);
 
   // Drill sessions today (player1 or player2 = me). Used for the morning-of banner.
   const [drillsToday, setDrillsToday] = useState<(DrillSession & { partner_name: string })[]>([]);
@@ -46,6 +55,8 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => { claimWelcomePicklesOnce(); }, []);
   // Godmode users: grant 50k 🥒 once per app session.
   useEffect(() => { claimGodmodeGrantOncePerSession(); }, []);
+  // Daily login streak: pop once per app session per user. Idempotent RPC.
+  useEffect(() => { showStreakOncePerSession(); }, []);
 
   // Web: close info modals on Escape key.
   useEffect(() => {
@@ -137,6 +148,18 @@ export default function HomeScreen({ navigation }: Props) {
       setGodmodeOpen(true);
       loadProfile();
     }
+  }
+
+  async function showStreakOncePerSession() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    if (hasStreakBeenShown(user.id)) return;
+    markStreakShown(user.id);
+    const result = await claimDailyLoginStreak();
+    if (!result) return;
+    setStreakResult(result);
+    setStreakOpen(true);
+    if (result.claimed_today) loadProfile();
   }
 
   const s = makeStyles(colors);
@@ -354,6 +377,13 @@ export default function HomeScreen({ navigation }: Props) {
           </View>
         </Pressable>
       </Modal>
+
+      {/* ── Daily login streak ─────────────────────────── */}
+      <StreakModal
+        visible={streakOpen}
+        result={streakResult}
+        onClose={() => setStreakOpen(false)}
+      />
     </ScrollView>
   );
 }

@@ -3,7 +3,6 @@ import {
   View, Text, ScrollView, StyleSheet, Switch,
   TextInput, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -13,31 +12,14 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
-
-const PREFS_KEY = 'pickleague_prefs';
-
-type MatchType    = 'singles' | 'doubles';
-type ScoreLimit   = 11 | 15 | 21;
-
-type Prefs = {
-  notifyMatchResults:       boolean;
-  notifyEventReminders:     boolean;
-  notifyLeagueUpdates:      boolean;
-  notifyTournamentUpdates:  boolean;
-  notifyChallenges:         boolean;
-  defaultMatchType:         MatchType;
-  defaultScoreLimit:        ScoreLimit;
-};
-
-const DEFAULT_PREFS: Prefs = {
-  notifyMatchResults:       true,
-  notifyEventReminders:     true,
-  notifyLeagueUpdates:      true,
-  notifyTournamentUpdates:  true,
-  notifyChallenges:         true,
-  defaultMatchType:         'singles',
-  defaultScoreLimit:        11,
-};
+import {
+  DEFAULT_PREFS,
+  loadUserPreferences,
+  saveUserPreferences,
+  type Prefs,
+  type MatchType,
+  type ScoreLimit,
+} from '../lib/userPreferences';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'> };
 
@@ -69,15 +51,14 @@ export default function SettingsScreen({ navigation }: Props) {
   }, []);
 
   async function loadPrefs() {
-    try {
-      const raw = await AsyncStorage.getItem(PREFS_KEY);
-      if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
-    } catch {}
+    const loaded = await loadUserPreferences();
+    setPrefs(loaded);
   }
 
   async function savePrefs(next: Prefs) {
     setPrefs(next);
-    try { await AsyncStorage.setItem(PREFS_KEY, JSON.stringify(next)); } catch {}
+    const { error } = await saveUserPreferences(next);
+    if (error) status.error(`Couldn't save preferences: ${error}`);
   }
 
   async function loadProfile() {
@@ -420,6 +401,12 @@ export default function SettingsScreen({ navigation }: Props) {
         <>
           <SectionHeader title="🛠️ Godmode" />
           <View style={styles.card}>
+            <ActionRow
+              label="Godmode Console"
+              desc="Admin utilities (create test accounts, etc.)"
+              onPress={() => navigation.navigate('Godmode')}
+            />
+            <Divider />
             <ActionRow
               label="Gift Pickles"
               desc="Send pickles to any user"

@@ -8,6 +8,7 @@ import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
 import { useTheme } from '../lib/ThemeContext';
 import ToastProvider from '../lib/ToastProvider';
+import { resetStreakShown } from '../lib/loginStreak';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -43,6 +44,7 @@ import DrillRequestsScreen from '../screens/DrillRequestsScreen';
 import ShopScreen from '../screens/ShopScreen';
 import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
+import GodmodeScreen from '../screens/GodmodeScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -109,6 +111,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       Drill: 'drill',
       DrillSearch: 'drill/search',
       DrillRequests: 'drill/requests',
+      Godmode: 'godmode',
     },
   },
 };
@@ -141,8 +144,9 @@ export default function AppNavigator() {
       setSession(session);
       setLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
+      if (event === 'SIGNED_OUT') resetStreakShown();
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -187,6 +191,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '🥒 Pickle Shop' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
+                <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
               </>
             ) : (

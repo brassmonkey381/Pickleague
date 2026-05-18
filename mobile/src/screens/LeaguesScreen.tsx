@@ -4,6 +4,7 @@ import {
   TextInput, Modal, Switch, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { REGIONS, getRegionName, inRegion } from '../lib/regions';
@@ -15,7 +16,10 @@ import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'> };
+type Props = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
+  route: RouteProp<RootStackParamList, 'Leagues'>;
+};
 
 type Filters = {
   openOnly: boolean;
@@ -61,7 +65,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function LeaguesScreen({ navigation }: Props) {
+export default function LeaguesScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
@@ -94,6 +98,17 @@ export default function LeaguesScreen({ navigation }: Props) {
   const status = useStatusMessage();
 
   useEffect(() => { loadLeagues(); }, []);
+
+  // Notification tap (or deep-link) can pre-populate an invite code and pop the
+  // Join modal automatically. Consume the param so navigating back here later
+  // doesn't keep re-opening the modal.
+  useEffect(() => {
+    const code = route.params?.prefillInviteCode;
+    if (!code) return;
+    setInviteCode(code);
+    setShowJoinCode(true);
+    navigation.setParams({ prefillInviteCode: undefined } as any);
+  }, [route.params?.prefillInviteCode]);
 
   async function loadLeagues() {
     setLoading(true);

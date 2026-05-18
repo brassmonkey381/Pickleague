@@ -37,6 +37,13 @@ const TYPE_ICON: Record<string, string> = {
   tournament: '🏆', league: '🎾', match: '🏓', drill: '🏓', info: '📣',
 };
 
+// Invite-broadcast bodies have the form "...use invite code TOKEN to join.".
+// Server format lives in supabase/migration_invite_code_broadcast.sql.
+function extractInviteCode(body: string): string | null {
+  const m = body.match(/invite code ([A-Z0-9-]+)/i);
+  return m ? m[1] : null;
+}
+
 export default function NotificationsScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -74,8 +81,16 @@ export default function NotificationsScreen({ navigation }: Props) {
     markRead(n.id);
     if (n.entity_type === 'tournament' && n.entity_id) {
       navigation.navigate('TournamentDetail', { tournamentId: n.entity_id, tournamentName: n.title.replace('🏆 ', '') });
-    } else if (n.entity_type === 'league' && n.entity_id) {
-      navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
+    } else if (n.entity_type === 'league') {
+      // League invites land in Leagues with the code prefilled — recipient isn't
+      // a member yet, so LeagueDetail would fail. Other league notifications
+      // (no embedded code) fall through to LeagueDetail.
+      const code = extractInviteCode(n.body);
+      if (code) {
+        navigation.navigate('Leagues', { prefillInviteCode: code });
+      } else if (n.entity_id) {
+        navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
+      }
     } else if (n.entity_type === 'drill') {
       navigation.navigate('DrillRequests');
     } else if (n.entity_type === 'shop') {
