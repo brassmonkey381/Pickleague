@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  Image, ActivityIndicator, Alert,
+  Image, ActivityIndicator, Platform, Pressable, useWindowDimensions,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
+import ConfirmModal from './ConfirmModal';
 
 const COLS = 5;
+const WEB_CARD_MAX = 560;
 
 export type PremiumAvatar = {
   slug: string;
@@ -34,20 +36,61 @@ export default function AvatarPickerModal({
   purchasedAvatars, onSave, onClose,
 }: Props) {
   const { colors } = useTheme();
-  const S = makeStyles(colors);
+  const { width: winW } = useWindowDimensions();
+  const isWeb = Platform.OS === 'web';
+
+  // Card has horizontal padding=16 each side (32 total); native uses full width.
+  const cardWidth = isWeb ? Math.min(winW, WEB_CARD_MAX) : winW;
+  const cellSize = Math.max(56, Math.floor((cardWidth - 32) / COLS) - 6);
+
+  const S = makeStyles(colors, cellSize);
   const [selectedId, setSelectedId]                 = useState(currentAvatarId);
   const [photoUrl, setPhotoUrl]                     = useState(currentPhotoUrl);
   const [selectedPremium, setSelectedPremium]       = useState<PremiumAvatar | null>(currentPremium);
   const [lockedHint, setLockedHint]                 = useState<AvatarDef | null>(null);
   const [uploading, setUploading]                   = useState(false);
+  const [errorModal, setErrorModal]                 = useState<{ title: string; body: string } | null>(null);
+
+  const fileInputRef = useRef<any>(null);
 
   const isUnlocked = (av: AvatarDef) =>
     !av.unlock || earnedBadgeNames.includes(av.unlock.badge);
 
-  async function pickPhoto() {
+  useEffect(() => {
+    if (!isWeb || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose, isWeb]);
+
+  async function uploadBlob(blob: Blob, rawExt: string) {
+    setUploading(true);
+    try {
+      const ext = (rawExt || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const fileName = `${userId}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
+      if (uploadErr) throw uploadErr;
+      const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`);
+    } catch (e: any) {
+      setErrorModal({
+        title: 'Upload failed',
+        body: e?.message ?? 'Check that the "avatars" storage bucket exists in Supabase.',
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pickPhotoNative() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission needed', 'Allow photo library access to upload a profile photo.');
+      setErrorModal({
+        title: 'Permission needed',
+        body: 'Allow photo library access to upload a profile photo.',
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -58,24 +101,29 @@ export default function AvatarPickerModal({
     });
     if (result.canceled) return;
 
-    setUploading(true);
     try {
       const uri = result.assets[0].uri;
       const ext = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-      const fileName = `${userId}/avatar.${ext}`;
       const response = await fetch(uri);
       const blob = await response.blob();
-      const { error: uploadErr } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
-      if (uploadErr) throw uploadErr;
-      const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-      setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`);
+      await uploadBlob(blob, ext);
     } catch (e: any) {
-      Alert.alert('Upload failed', e.message ?? 'Check that the "avatars" storage bucket exists in Supabase.');
-    } finally {
-      setUploading(false);
+      setErrorModal({ title: 'Upload failed', body: e?.message ?? 'Could not read image.' });
     }
+  }
+
+  function pickPhoto() {
+    if (isWeb) fileInputRef.current?.click?.();
+    else pickPhotoNative();
+  }
+
+  async function onWebFileChange(e: any) {
+    const file: File | undefined = e?.target?.files?.[0];
+    // Reset so picking the same file twice still fires onChange.
+    try { e.target.value = ''; } catch {}
+    if (!file) return;
+    const ext = file.name.split('.').pop() || file.type.split('/')[1] || 'jpg';
+    await uploadBlob(file, ext);
   }
 
   function removePhoto() {
@@ -104,133 +152,175 @@ export default function AvatarPickerModal({
   const previewBg      = selectedPremium ? selectedPremium.bgColor : cartoonPreview.bgColor;
   const previewName    = photoUrl ? 'Your Photo' : selectedPremium ? selectedPremium.name : cartoonPreview.name;
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={S.root}>
-        <View style={S.header}>
-          <TouchableOpacity onPress={onClose} style={S.headerBtn}>
-            <Text style={S.headerBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={S.headerTitle}>Choose Avatar</Text>
-          <TouchableOpacity onPress={() => onSave(selectedId, photoUrl, photoUrl ? null : selectedPremium)} style={S.headerBtn}>
-            <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
-          </TouchableOpacity>
-        </View>
+  // React.createElement (vs JSX <input>) avoids DOM types leaking into .tsx.
+  const hiddenFileInput = isWeb
+    ? React.createElement('input', {
+        ref: fileInputRef,
+        type: 'file',
+        accept: 'image/*',
+        onChange: onWebFileChange,
+        style: { display: 'none' },
+      })
+    : null;
 
-        <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
-          <View style={S.previewSection}>
-            {photoUrl ? (
-              <Image source={{ uri: photoUrl }} style={S.previewPhoto} />
-            ) : (
-              <View style={[S.previewCircle, { backgroundColor: previewBg }]}>
-                <Text style={S.previewEmoji}>{previewEmoji}</Text>
-              </View>
-            )}
-            <Text style={S.previewName}>{previewName}</Text>
-          </View>
+  const body = (
+    <>
+      <View style={S.header}>
+        <TouchableOpacity onPress={onClose} style={S.headerBtn}>
+          <Text style={S.headerBtnText}>Cancel</Text>
+        </TouchableOpacity>
+        <Text style={S.headerTitle}>Choose Avatar</Text>
+        <TouchableOpacity onPress={() => onSave(selectedId, photoUrl, photoUrl ? null : selectedPremium)} style={S.headerBtn}>
+          <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
+        </TouchableOpacity>
+      </View>
 
-          <View style={S.photoRow}>
-            <TouchableOpacity style={S.photoBtn} onPress={pickPhoto} disabled={uploading}>
-              {uploading ? (
-                <ActivityIndicator size="small" color={colors.primary} />
-              ) : (
-                <Text style={S.photoBtnText}>📷  Upload a Photo</Text>
-              )}
-            </TouchableOpacity>
-            {photoUrl && (
-              <TouchableOpacity style={S.removePhotoBtn} onPress={removePhoto}>
-                <Text style={S.removePhotoBtnText}>Remove</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {purchasedAvatars.length > 0 && (
-            <>
-              <Text style={S.sectionLabel}>🥒 Premium (from Shop)</Text>
-              <View style={S.grid}>
-                {purchasedAvatars.map(p => {
-                  const selected = selectedPremium?.slug === p.slug && !photoUrl;
-                  return (
-                    <TouchableOpacity
-                      key={p.slug}
-                      style={[S.cell, selected && S.cellSelected]}
-                      onPress={() => handlePremiumPress(p)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[S.cellCircle, { backgroundColor: p.bgColor }]}>
-                        <Text style={S.cellEmoji}>{p.emoji}</Text>
-                      </View>
-                      <Text style={S.cellName} numberOfLines={1}>{p.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </>
-          )}
-
-          <Text style={S.orLabel}>— or pick a cartoon avatar —</Text>
-
-          <View style={S.grid}>
-            {AVATARS.map(av => {
-              const unlocked = isUnlocked(av);
-              const selected = av.id === selectedId && !photoUrl && !selectedPremium;
-              return (
-                <TouchableOpacity
-                  key={av.id}
-                  style={[
-                    S.cell,
-                    selected && S.cellSelected,
-                    !unlocked && S.cellLocked,
-                  ]}
-                  onPress={() => handleAvatarPress(av)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[S.cellCircle, { backgroundColor: unlocked ? av.bgColor : colors.border }]}>
-                    <Text style={[S.cellEmoji, !unlocked && S.cellEmojiLocked]}>
-                      {av.emoji}
-                    </Text>
-                    {!unlocked && <Text style={S.lockOverlay}>🔒</Text>}
-                  </View>
-                  <Text style={[S.cellName, !unlocked && S.cellNameLocked]} numberOfLines={1}>
-                    {av.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {lockedHint && (
-            <View style={S.hintCard}>
-              <View style={S.hintRow}>
-                <Text style={S.hintEmoji}>{lockedHint.emoji}</Text>
-                <View style={S.hintBody}>
-                  <Text style={S.hintTitle}>🔒 {lockedHint.name} is locked</Text>
-                  <Text style={S.hintText}>
-                    Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
-                    {lockedHint.unlock!.description}
-                  </Text>
-                </View>
-                <TouchableOpacity onPress={() => setLockedHint(null)}>
-                  <Text style={S.hintClose}>✕</Text>
-                </TouchableOpacity>
-              </View>
+      <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
+        <View style={S.previewSection}>
+          {photoUrl ? (
+            <Image source={{ uri: photoUrl }} style={S.previewPhoto} />
+          ) : (
+            <View style={[S.previewCircle, { backgroundColor: previewBg }]}>
+              <Text style={S.previewEmoji}>{previewEmoji}</Text>
             </View>
           )}
+          <Text style={S.previewName}>{previewName}</Text>
+        </View>
 
-          <Text style={S.footnote}>
-            Unlocked avatars appear when you earn the required badge.
-          </Text>
-        </ScrollView>
-      </View>
+        <View style={S.photoRow}>
+          <TouchableOpacity style={S.photoBtn} onPress={pickPhoto} disabled={uploading}>
+            {uploading ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Text style={S.photoBtnText}>📷  Upload a Photo</Text>
+            )}
+          </TouchableOpacity>
+          {photoUrl && (
+            <TouchableOpacity style={S.removePhotoBtn} onPress={removePhoto}>
+              <Text style={S.removePhotoBtnText}>Remove</Text>
+            </TouchableOpacity>
+          )}
+          {hiddenFileInput}
+        </View>
+
+        {purchasedAvatars.length > 0 && (
+          <>
+            <Text style={S.sectionLabel}>🥒 Premium (from Shop)</Text>
+            <View style={S.grid}>
+              {purchasedAvatars.map(p => {
+                const selected = selectedPremium?.slug === p.slug && !photoUrl;
+                return (
+                  <TouchableOpacity
+                    key={p.slug}
+                    style={[S.cell, selected && S.cellSelected]}
+                    onPress={() => handlePremiumPress(p)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[S.cellCircle, { backgroundColor: p.bgColor }]}>
+                      <Text style={S.cellEmoji}>{p.emoji}</Text>
+                    </View>
+                    <Text style={S.cellName} numberOfLines={1}>{p.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        <Text style={S.orLabel}>— or pick a cartoon avatar —</Text>
+
+        <View style={S.grid}>
+          {AVATARS.map(av => {
+            const unlocked = isUnlocked(av);
+            const selected = av.id === selectedId && !photoUrl && !selectedPremium;
+            return (
+              <TouchableOpacity
+                key={av.id}
+                style={[
+                  S.cell,
+                  selected && S.cellSelected,
+                  !unlocked && S.cellLocked,
+                ]}
+                onPress={() => handleAvatarPress(av)}
+                activeOpacity={0.7}
+              >
+                <View style={[S.cellCircle, { backgroundColor: unlocked ? av.bgColor : colors.border }]}>
+                  <Text style={[S.cellEmoji, !unlocked && S.cellEmojiLocked]}>
+                    {av.emoji}
+                  </Text>
+                  {!unlocked && <Text style={S.lockOverlay}>🔒</Text>}
+                </View>
+                <Text style={[S.cellName, !unlocked && S.cellNameLocked]} numberOfLines={1}>
+                  {av.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {lockedHint && (
+          <View style={S.hintCard}>
+            <View style={S.hintRow}>
+              <Text style={S.hintEmoji}>{lockedHint.emoji}</Text>
+              <View style={S.hintBody}>
+                <Text style={S.hintTitle}>🔒 {lockedHint.name} is locked</Text>
+                <Text style={S.hintText}>
+                  Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
+                  {lockedHint.unlock!.description}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setLockedHint(null)}>
+                <Text style={S.hintClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        <Text style={S.footnote}>
+          Unlocked avatars appear when you earn the required badge.
+        </Text>
+      </ScrollView>
+    </>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType={isWeb ? 'fade' : 'slide'}
+      transparent={isWeb}
+      presentationStyle={isWeb ? undefined : 'pageSheet'}
+      onRequestClose={onClose}
+    >
+      {isWeb ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e: any) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <View style={S.card}>{body}</View>
+        </Pressable>
+      ) : (
+        <View style={S.root}>{body}</View>
+      )}
+
+      <ConfirmModal
+        visible={!!errorModal}
+        title={errorModal?.title ?? ''}
+        body={errorModal?.body}
+        primaryLabel="OK"
+        cancelLabel="Dismiss"
+        onConfirm={() => setErrorModal(null)}
+        onClose={() => setErrorModal(null)}
+      />
     </Modal>
   );
 }
 
-const CELL_SIZE = Math.floor(320 / COLS) - 4;
-
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number) {
   return StyleSheet.create({
     root:         { flex: 1, backgroundColor: c.surface },
+    backdrop:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    card:         { width: '100%', maxWidth: WEB_CARD_MAX, maxHeight: '90%', backgroundColor: c.surface, borderRadius: 14, overflow: 'hidden' },
+
     header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
     headerTitle:  { fontSize: 17, fontWeight: '700', color: c.text },
     headerBtn:    { minWidth: 60, alignItems: 'center' },
