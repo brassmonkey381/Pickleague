@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
 import { useTheme } from '../lib/ThemeContext';
+import ToastProvider from '../lib/ToastProvider';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -83,7 +84,7 @@ export default function AppNavigator() {
   }, []);
 
   return (
-    <>
+    <ToastProvider>
       {!loading && (
         <NavigationContainer theme={navTheme}>
           <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
@@ -135,6 +136,6 @@ export default function AppNavigator() {
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
-    </>
+    </ToastProvider>
   );
 }
