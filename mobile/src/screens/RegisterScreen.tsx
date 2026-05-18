@@ -72,8 +72,8 @@ export default function RegisterScreen({ navigation }: Props) {
     }
   }
 
-  return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+  const body = (
+    <>
       <View style={S.hero}>
         <Text style={S.heroTitle}>Create Account</Text>
         <Text style={S.heroSub}>Join your pickleball league today</Text>
@@ -152,6 +152,16 @@ export default function RegisterScreen({ navigation }: Props) {
           <Text style={S.link}>Already have an account? Sign in</Text>
         </TouchableOpacity>
       </ScrollView>
+    </>
+  );
+
+  if (Platform.OS === 'web') {
+    return <View style={{ flex: 1 }}>{body}</View>;
+  }
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+      {body}
     </KeyboardAvoidingView>
   );
 }
