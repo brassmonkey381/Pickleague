@@ -1,5 +1,5 @@
-import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
+import React, { useEffect } from 'react';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 // Replacement for Alert.alert with 3+ buttons, which silently collapses to
@@ -27,6 +27,13 @@ export default function ActionSheetModal({
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
+
   return (
     <Modal
       visible={visible}
@@ -34,8 +41,8 @@ export default function ActionSheetModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={S.backdrop} onPress={onClose}>
-        <Pressable style={S.card} onPress={() => {}}>
+      <Pressable style={S.backdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+        <View style={S.card}>
           {title && <Text style={S.title}>{title}</Text>}
           {subtitle && <Text style={S.subtitle}>{subtitle}</Text>}
           <View style={S.actions}>
@@ -55,7 +62,7 @@ export default function ActionSheetModal({
           <TouchableOpacity style={S.cancelBtn} onPress={onClose}>
             <Text style={S.cancelText}>{cancelLabel}</Text>
           </TouchableOpacity>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );
