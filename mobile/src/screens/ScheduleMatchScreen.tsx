@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, ScrollView, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
@@ -8,6 +8,8 @@ import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ScheduleMatch'>;
@@ -83,6 +85,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [loading, setLoading] = useState(false);
+  const status = useStatusMessage();
 
   useEffect(() => { loadMembers(); }, []);
 
@@ -115,12 +118,13 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   }
 
   async function scheduleMatch() {
+    status.clear();
     if (!player1Id || !player2Id) {
-      Alert.alert('Error', 'Please select both players.');
+      status.error('Please select both players.');
       return;
     }
     if (player1Id === player2Id) {
-      Alert.alert('Error', 'Players must be different.');
+      status.error('Players must be different.');
       return;
     }
     setLoading(true);
@@ -132,8 +136,12 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
       scheduled_at: scheduledAt.toISOString(),
     });
     setLoading(false);
-    if (error) Alert.alert('Error', error.message);
-    else { Alert.alert('Scheduled!', 'Match has been added to the calendar.'); navigation.goBack(); }
+    if (error) {
+      status.error(error.message);
+    } else {
+      status.success('Match has been added to the calendar.');
+      setTimeout(() => navigation.goBack(), 1200);
+    }
   }
 
   const formattedDate = scheduledAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
@@ -232,6 +240,8 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
           onChange={onTimeChange}
         />
       )}
+
+      <StatusBanner status={status.value} />
 
       <TouchableOpacity style={S.button} onPress={scheduleMatch} disabled={loading}>
         <Text style={S.buttonText}>{loading ? 'Scheduling...' : 'Schedule Match'}</Text>
