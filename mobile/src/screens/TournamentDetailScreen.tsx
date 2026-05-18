@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
-  StyleSheet, Alert, ActivityIndicator, FlatList, TextInput,
+  StyleSheet, ActivityIndicator, FlatList, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -29,6 +29,8 @@ import DoublesPairSection from '../components/DoublesPairSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
 import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 
@@ -50,6 +52,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const { tournamentId } = route.params;
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+
+  // Page-level banner for info/error feedback (replaces Alert.alert, which
+  // collapses multi-button alerts and uses window.confirm on web). Modal
+  // scope keeps its own error so the user sees it without scrolling.
+  const status = useStatusMessage();
+  const [editError, setEditError] = useState<string | null>(null);
 
   const [tournament, setTournament]       = useState<Tournament | null>(null);
   const [registrations, setRegistrations] = useState<TournamentRegistration[]>([]);
@@ -177,8 +185,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const { error } = await supabase.from('tournament_registrations').insert({
       tournament_id: tournamentId, user_id: myUserId,
     });
-    if (error) Alert.alert('Error', error.message);
-    else load();
+    if (error) status.error(error.message);
+    else { status.success('Request to join submitted.'); load(); }
   }
 
   async function approveReg(regId: string) {
@@ -197,9 +205,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       p_accept: accept,
     });
     if (error) {
-      Alert.alert(accept ? 'Accept failed' : 'Decline failed', error.message);
+      status.error(`${accept ? 'Accept' : 'Decline'} failed: ${error.message}`);
       return;
     }
+    status.success(accept ? 'Invite accepted.' : 'Invite declined.');
     load();
   }
 
@@ -213,10 +222,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     });
     setSimulating(false);
     if (error) {
-      Alert.alert('Simulate failed', error.message);
+      status.error(`Simulate failed: ${error.message}`);
       return;
     }
-    Alert.alert('Filled!', `${data} pending match${data === 1 ? '' : 'es'} got random scores. Reloading…`);
+    status.success(`Filled! ${data} pending match${data === 1 ? '' : 'es'} got random scores. Reloading…`);
     load();
   }
 
@@ -240,15 +249,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   async function godmodeApproveAllInvitees() {
-    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
+    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
     const r = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
-    Alert.alert(r.ok ? 'Approved' : 'Approve failed',
-      r.missing ? 'RPC not deployed — run migration_godmode_approve_all_invitees.sql.' : r.message);
-    if (r.ok) load();
+    const text = r.missing ? 'RPC not deployed — run migration_godmode_approve_all_invitees.sql.' : r.message;
+    if (r.ok) { status.success(`Approved — ${text}`); load(); }
+    else      { status.error(`Approve failed — ${text}`); }
   }
 
   async function godmodeForceCreateTeams() {
-    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
+    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
     const rpcName =
       tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
       tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
@@ -256,16 +265,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const params: Record<string, unknown> = { p_tournament_id: tournament.id };
     if (tournament.format === 'mlp_random') params.p_mode = 'snake';
     const r = await tryRpc(rpcName, params);
-    Alert.alert(r.ok ? 'Teams created' : 'Team-create failed',
-      r.missing ? `RPC ${rpcName} not deployed — run the corresponding migration.` : r.message);
-    if (r.ok) load();
+    const text = r.missing ? `RPC ${rpcName} not deployed — run the corresponding migration.` : r.message;
+    if (r.ok) { status.success(`Teams created — ${text}`); load(); }
+    else      { status.error(`Team-create failed — ${text}`); }
   }
 
   // Full-pipeline auto-setup: approve all → create teams (if applicable) →
   // generate bracket → lock in. Each step soft-skips if the underlying RPC
   // isn't deployed so partially-deployed environments still make progress.
   async function godmodeAutoGenerateAndLock() {
-    if (!tournament) { Alert.alert('Godmode', 'Tournament not loaded.'); return; }
+    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
     const steps: string[] = [];
     try {
       // 1. Approve everyone.
@@ -300,24 +309,25 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         steps.push(mlpBracket.ok
           ? `✓ Generated MLP bracket (${mlpBracket.message})`
           : `✗ MLP bracket failed (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
-        Alert.alert(mlpBracket.ok ? 'Auto-setup complete' : 'Auto-setup partial', steps.join('\n'));
-        if (mlpBracket.ok) load();
+        const summary = steps.join('\n');
+        if (mlpBracket.ok) { status.success(`Auto-setup complete\n${summary}`); load(); }
+        else               { status.error(`Auto-setup partial\n${summary}`); }
         return;
       }
 
       const matches = await generateBracket();
       if (!matches || matches.length === 0) {
         steps.push('⚠ Bracket not generated (see prior alert)');
-        Alert.alert('Auto-setup partial', steps.join('\n'));
+        status.error(`Auto-setup partial\n${steps.join('\n')}`);
         return;
       }
       steps.push(`✓ Generated ${matches.length} matches`);
       await doLockIn(matches);
       steps.push('✓ Locked in');
-      Alert.alert('Auto-setup complete', steps.join('\n'));
+      status.success(`Auto-setup complete\n${steps.join('\n')}`);
     } catch (e: any) {
       steps.push(`✗ ${e?.message ?? String(e)}`);
-      Alert.alert('Auto-setup failed', steps.join('\n'));
+      status.error(`Auto-setup failed\n${steps.join('\n')}`);
     }
   }
 
@@ -413,38 +423,40 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
     setEditPrizePool(tournament.prize_pool != null ? String(tournament.prize_pool) : '');
     setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
+    setEditError(null);
     setShowEditModal(true);
   }
 
   async function saveTournamentEdits() {
     if (!tournament) return;
+    setEditError(null);
     const name = editName.trim();
-    if (!name) { Alert.alert('', 'Tournament name is required.'); return; }
+    if (!name) { setEditError('Tournament name is required.'); return; }
     const maxPlayersN = editMaxPlayers.trim() ? parseInt(editMaxPlayers.trim(), 10) : null;
     if (editMaxPlayers.trim() && (Number.isNaN(maxPlayersN!) || maxPlayersN! < 2)) {
-      Alert.alert('', 'Max players must be a number ≥ 2.'); return;
+      setEditError('Max players must be a number ≥ 2.'); return;
     }
     let lengthN: number | null = null;
     if (editLengthHours.trim()) {
       lengthN = parseFloat(editLengthHours.trim());
       if (Number.isNaN(lengthN) || lengthN < 0.5 || lengthN > 168) {
-        Alert.alert('', 'Expected length must be between 0.5 and 168 hours.'); return;
+        setEditError('Expected length must be between 0.5 and 168 hours.'); return;
       }
     }
 
     // Ante (entry fee in pickles, ≥ 0)
     const anteN = editAnte.trim() ? parseInt(editAnte.trim(), 10) : 0;
     if (!Number.isFinite(anteN) || anteN < 0) {
-      Alert.alert('', 'Entry ante must be 0 or a positive integer.'); return;
+      setEditError('Entry ante must be 0 or a positive integer.'); return;
     }
 
     // Payout structure (comma-separated %, sum to 100)
     const payoutParts = editPayout.split(',').map(s => parseInt(s.trim(), 10));
     if (payoutParts.some(n => !Number.isFinite(n) || n < 0)) {
-      Alert.alert('', 'Payout structure must be comma-separated non-negative integers.'); return;
+      setEditError('Payout structure must be comma-separated non-negative integers.'); return;
     }
     if (payoutParts.reduce((a, b) => a + b, 0) !== 100) {
-      Alert.alert('', 'Payout structure must sum to 100 (e.g. 60,25,15).'); return;
+      setEditError('Payout structure must sum to 100 (e.g. 60,25,15).'); return;
     }
 
     // Prize pool override — leave null to let the existing accounting drive it
@@ -452,7 +464,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     if (editPrizePool.trim()) {
       prizePoolN = parseInt(editPrizePool.trim(), 10);
       if (!Number.isFinite(prizePoolN) || prizePoolN < 0) {
-        Alert.alert('', 'Prize pool must be 0 or a positive integer.'); return;
+        setEditError('Prize pool must be 0 or a positive integer.'); return;
       }
     }
 
@@ -474,8 +486,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const { error } = await supabase.from('tournaments').update(updatePayload).eq('id', tournament.id);
     setSavingEdit(false);
 
-    if (error) { Alert.alert('Error', error.message); return; }
+    if (error) { setEditError(error.message); return; }
     setShowEditModal(false);
+    setEditError(null);
     load();
   }
 
@@ -491,14 +504,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // waiting for a React state flush.
   async function generateBracket(): Promise<MatchPairing[] | null> {
     if (!tournament) return null;
+    status.clear();
     const approved = registrations.filter(r => r.status === 'approved').map(r => r.user_id);
-    if (approved.length < 2) { Alert.alert('Need at least 2 approved players.'); return null; }
+    if (approved.length < 2) { status.error('Need at least 2 approved players.'); return null; }
 
     // Wrap throws from the pure generators so an unexpected violation surfaces
-    // as a user-facing alert instead of a silent crash.
+    // as a user-facing banner instead of a silent crash.
     function bailFromError(label: string, e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert(`Couldn't generate ${label}`, msg);
+      status.error(`Couldn't generate ${label}: ${msg}`);
     }
 
     function commit(matches: MatchPairing[]): MatchPairing[] {
@@ -516,10 +530,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         .from('mlp_teams')
         .select('id, name, male_1_id, male_2_id, female_1_id, female_2_id')
         .eq('tournament_id', tournament.id);
-      if (mlpErr) { Alert.alert('Could not load MLP teams', mlpErr.message); return null; }
+      if (mlpErr) { status.error(`Could not load MLP teams: ${mlpErr.message}`); return null; }
       const teamRows = (mlpRows ?? []) as MlpTeamShape[];
       const teamError = validateMlpTeams(teamRows);
-      if (teamError) { Alert.alert('MLP teams incomplete', teamError.message); return null; }
+      if (teamError) { status.error(`MLP teams incomplete: ${teamError.message}`); return null; }
 
       // Build [string, string][] pairs from the validated teams for the
       // existing schedule generator (it treats each team as a 2-token pair).
@@ -559,13 +573,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         teams.push([leftovers[i], leftovers[i + 1]]);
       }
       if (teams.length < 2) {
-        Alert.alert('Not enough teams', 'Need at least 2 doubles pairs to generate a bracket.');
+        status.error('Not enough teams — need at least 2 doubles pairs to generate a bracket.');
         return null;
       }
       // Validate every team has two distinct partners and no player is on
       // multiple teams.
       const teamErr = validateDoublesTeams(teams);
-      if (teamErr) { Alert.alert('Doubles teams invalid', teamErr.message); return null; }
+      if (teamErr) { status.error(`Doubles teams invalid: ${teamErr.message}`); return null; }
 
       const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
 
@@ -580,7 +594,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           case 'pool_play': {
             const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
             const poolErr = validatePools(p, tournament.pool_count, m);
-            if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return null; }
+            if (poolErr) { status.error(`Pool setup invalid: ${poolErr.message}`); return null; }
             setPools(p.map(pool => pool.flat()));
             return commit(m);
           }
@@ -603,7 +617,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         case 'pool_play': {
           const { pools: p, matches: m } = generatePoolPlay(seeded, tournament.pool_count);
           const poolErr = validatePools(p, tournament.pool_count, m);
-          if (poolErr) { Alert.alert('Pool setup invalid', poolErr.message); return null; }
+          if (poolErr) { status.error(`Pool setup invalid: ${poolErr.message}`); return null; }
           setPools(p);
           return commit(m);
         }
@@ -736,9 +750,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       load();
 
       const notified = memberIds.length - notifsFailed;
-      Alert.alert(
-        '✓ Bracket locked!',
-        `Schedule saved — ${notified}/${memberIds.length} members notified.` +
+      status.success(
+        `✓ Bracket locked! Schedule saved — ${notified}/${memberIds.length} members notified.` +
           (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '')
       );
     } catch (err: any) {
@@ -754,8 +767,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const { error } = await supabase.from('tournament_partner_requests').upsert({
       tournament_id: tournamentId, requester_id: myUserId!, requested_id: targetId, status: 'pending',
     });
-    if (error) Alert.alert('Error', error.message);
-    else { Alert.alert('Request sent!', 'They\'ll be notified to accept or decline.'); load(); }
+    if (error) status.error(error.message);
+    else { status.success("Request sent! They'll be notified to accept or decline."); load(); }
   }
 
   async function respondToPartnerRequest(reqId: string, accept: boolean) {
@@ -852,6 +865,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
         </View>
+
+        <StatusBanner status={status.value} style={{ marginHorizontal: 12 }} />
 
         {/* ── Quick action row ── */}
         <View style={S.quickActionsRow}>
@@ -1753,6 +1768,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </View>
 
+          {editError && (
+            <Text style={S.editErrorText}>{editError}</Text>
+          )}
+
           <TouchableOpacity
             style={[S.editSaveBtn, savingEdit && S.editSaveBtnDisabled]}
             onPress={saveTournamentEdits}
@@ -1896,6 +1915,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     editSaveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 16 },
     editCancelBtn:    { padding: 14, alignItems: 'center' },
     editCancelBtnText:{ fontSize: 15, color: c.textMuted },
+    editErrorText:    { marginTop: 20, color: '#c62828', fontSize: 14, fontWeight: '600' },
 
     registerBtn: { margin: 12, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
     registerBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
