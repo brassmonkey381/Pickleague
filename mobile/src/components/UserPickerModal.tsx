@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator,
+  StyleSheet, ActivityIndicator, Platform, Pressable,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -24,6 +24,8 @@ type Props = {
   onClose: () => void;
 };
 
+const IS_WEB = Platform.OS === 'web';
+
 export default function UserPickerModal({ visible, title, excludeUserIds, onPick, onClose }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -45,6 +47,13 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
       });
   }, [visible]);
 
+  useEffect(() => {
+    if (!IS_WEB || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
+
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
   const filtered = useMemo(() => {
@@ -56,62 +65,81 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
     });
   }, [users, query, exclude]);
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={S.root}>
-        <View style={S.header}>
-          <Text style={S.title}>{title}</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={S.close}>Cancel</Text>
+  const content = (
+    <>
+      <View style={S.header}>
+        <Text style={S.title}>{title}</Text>
+        <TouchableOpacity onPress={onClose}>
+          <Text style={S.close}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={S.searchRow}>
+        <TextInput
+          style={S.searchInput}
+          placeholder="Search by name or @username…"
+          placeholderTextColor={c.textMuted}
+          value={query}
+          onChangeText={setQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {query.length > 0 && (
+          <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
+            <Text style={S.clearBtnText}>✕</Text>
           </TouchableOpacity>
-        </View>
-
-        <View style={S.searchRow}>
-          <TextInput
-            style={S.searchInput}
-            placeholder="Search by name or @username…"
-            placeholderTextColor={c.textMuted}
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-            autoCorrect={false}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
-              <Text style={S.clearBtnText}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {loading ? (
-          <ActivityIndicator size="large" color={c.primary} style={{ marginTop: 60 }} />
-        ) : (
-          <FlatList
-            data={filtered}
-            keyExtractor={u => u.id}
-            ListEmptyComponent={<Text style={S.empty}>No matches.</Text>}
-            renderItem={({ item }) => {
-              const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
-              const emoji   = item.avatar_emoji ?? cartoon.emoji;
-              const bg      = item.avatar_bg_color ?? cartoon.bgColor;
-              return (
-                <TouchableOpacity style={S.row} onPress={() => onPick(item)} activeOpacity={0.7}>
-                  <View style={[S.avatar, { backgroundColor: bg }]}>
-                    <Text style={S.avatarEmoji}>{emoji}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={S.name}>{item.full_name}</Text>
-                    <Text style={S.username}>@{item.username}</Text>
-                  </View>
-                  <Text style={S.chevron}>›</Text>
-                </TouchableOpacity>
-              );
-            }}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          />
         )}
       </View>
+
+      {loading ? (
+        <ActivityIndicator size="large" color={c.primary} style={{ marginTop: 60 }} />
+      ) : (
+        <FlatList
+          data={filtered}
+          keyExtractor={u => u.id}
+          ListEmptyComponent={<Text style={S.empty}>No matches.</Text>}
+          renderItem={({ item }) => {
+            const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
+            const emoji   = item.avatar_emoji ?? cartoon.emoji;
+            const bg      = item.avatar_bg_color ?? cartoon.bgColor;
+            return (
+              <TouchableOpacity style={S.row} onPress={() => onPick(item)} activeOpacity={0.7}>
+                <View style={[S.avatar, { backgroundColor: bg }]}>
+                  <Text style={S.avatarEmoji}>{emoji}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.name}>{item.full_name}</Text>
+                  <Text style={S.username}>@{item.username}</Text>
+                </View>
+                <Text style={S.chevron}>›</Text>
+              </TouchableOpacity>
+            );
+          }}
+          contentContainerStyle={{ paddingBottom: 40 }}
+        />
+      )}
+    </>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType={IS_WEB ? 'fade' : 'slide'}
+      presentationStyle={IS_WEB ? undefined : 'pageSheet'}
+      transparent={IS_WEB}
+      onRequestClose={onClose}
+    >
+      {IS_WEB ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <View style={S.card}>{content}</View>
+        </Pressable>
+      ) : (
+        <View style={S.root}>{content}</View>
+      )}
     </Modal>
   );
 }
@@ -119,6 +147,23 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     root:        { flex: 1, backgroundColor: c.bg },
+    backdrop:    {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 16,
+    },
+    card:        {
+      width: '100%',
+      maxWidth: 480,
+      maxHeight: '85%',
+      backgroundColor: c.bg,
+      borderRadius: 14,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: c.border,
+    },
     header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
     title:       { fontSize: 17, fontWeight: '800', color: c.text, flex: 1 },
     close:       { fontSize: 14, color: c.primary, fontWeight: '700' },
