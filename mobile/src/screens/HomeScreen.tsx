@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal, Pressable } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -46,6 +46,19 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => { claimWelcomePicklesOnce(); }, []);
   // Godmode users: grant 50k 🥒 once per app session.
   useEffect(() => { claimGodmodeGrantOncePerSession(); }, []);
+
+  // Web: close info modals on Escape key.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (!welcomeOpen && !godmodeOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (welcomeOpen) setWelcomeOpen(false);
+      else if (godmodeOpen) setGodmodeOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [welcomeOpen, godmodeOpen]);
 
   async function loadProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -276,7 +289,10 @@ export default function HomeScreen({ navigation }: Props) {
 
       {/* ── Welcome pickles modal ────────────────────────── */}
       <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={() => setWelcomeOpen(false)}>
-        <View style={s.welcomeBackdrop}>
+        <Pressable
+          style={s.welcomeBackdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) setWelcomeOpen(false); }}
+        >
           <View style={s.welcomeCard}>
             <Text style={s.welcomeEmoji}>🥒</Text>
             <Text style={s.welcomeTitle}>Welcome to Pickleague!</Text>
@@ -302,12 +318,15 @@ export default function HomeScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </Pressable>
       </Modal>
 
       {/* ── Godmode 50k grant modal ──────────────────────── */}
       <Modal visible={godmodeOpen} transparent animationType="fade" onRequestClose={() => setGodmodeOpen(false)}>
-        <View style={s.welcomeBackdrop}>
+        <Pressable
+          style={s.welcomeBackdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) setGodmodeOpen(false); }}
+        >
           <View style={s.welcomeCard}>
             <Text style={s.welcomeEmoji}>🛠️</Text>
             <Text style={s.welcomeTitle}>Godmode session unlocked</Text>
@@ -333,7 +352,7 @@ export default function HomeScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </Pressable>
       </Modal>
     </ScrollView>
   );
