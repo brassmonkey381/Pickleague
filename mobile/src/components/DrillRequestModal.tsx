@@ -1,12 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator,
+  Platform, Pressable,
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 import {
   DrillSlot, dateLabel, dateSubLabel, slotLabel,
 } from '../lib/drillTime';
+
+const IS_WEB = Platform.OS === 'web';
 
 type Props = {
   visible: boolean;
@@ -78,15 +81,22 @@ export default function DrillRequestModal({
     }
   }
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
     setPicked(new Set());
     setMessage('');
     onClose();
-  }
+  }, [onClose]);
 
-  return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
-      <View style={S.root}>
+  // Escape key closes modal on web
+  useEffect(() => {
+    if (!IS_WEB || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, handleClose]);
+
+  const content = (
+    <View style={S.root}>
         <View style={S.header}>
           <TouchableOpacity onPress={handleClose} style={S.headerBtn}>
             <Text style={S.headerCancel}>Cancel</Text>
@@ -171,12 +181,32 @@ export default function DrillRequestModal({
           )}
         </ScrollView>
       </View>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      animationType={IS_WEB ? 'fade' : 'slide'}
+      transparent={IS_WEB}
+      presentationStyle={IS_WEB ? undefined : 'pageSheet'}
+      onRequestClose={handleClose}
+    >
+      {IS_WEB ? (
+        <Pressable
+          style={S.backdrop}
+          onPress={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+        >
+          <View style={S.card}>{content}</View>
+        </Pressable>
+      ) : content}
     </Modal>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+    card:        { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: c.bg, borderRadius: 14, overflow: 'hidden' },
     root:        { flex: 1, backgroundColor: c.bg },
     header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
     headerBtn:   { minWidth: 60, alignItems: 'center' },
