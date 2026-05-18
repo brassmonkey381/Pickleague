@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
@@ -68,6 +68,51 @@ function WebMaxWidth({
   );
 }
 
+const linking: LinkingOptions<RootStackParamList> = {
+  prefixes: ['https://pickleague.club', 'pickleague://'],
+  config: {
+    screens: {
+      Login: 'login',
+      Register: 'register',
+      Home: '',
+      Leagues: 'leagues',
+      LeagueDetail: 'leagues/:leagueId',
+      LeagueMembers: 'leagues/:leagueId/members',
+      LeagueInfo: 'leagues/:leagueId/info',
+      Invite: 'leagues/:leagueId/invite',
+      Events: 'leagues/:leagueId/events',
+      CreateEvent: 'leagues/:leagueId/events/new',
+      EventDetail: 'events/:eventId',
+      Tournaments: 'tournaments',
+      TournamentDetail: 'tournaments/:tournamentId',
+      TournamentMembers: 'tournaments/:tournamentId/members',
+      TournamentInfo: 'tournaments/:tournamentId/info',
+      TournamentInvite: 'tournaments/:tournamentId/invite',
+      TournamentInvitePlayers: 'tournaments/:tournamentId/invite-players',
+      TournamentMatchHistory: 'tournaments/:tournamentId/matches',
+      CreateTournament: 'tournaments/new',
+      MatchEntry: 'match-entry',
+      MatchHistory: 'matches',
+      CalendarAnalytics: 'analytics/calendar',
+      SeasonStandings: 'seasons/:seasonId/standings',
+      Profile: {
+        path: 'profile/:userId?',
+      },
+      PlayerProfile: 'players/:userId',
+      Notifications: 'notifications',
+      Settings: 'settings',
+      About: 'about',
+      Shop: 'shop',
+      GiftPickles: 'gift-pickles',
+      ScoringAlgo: 'scoring-algo',
+      UnlockProgress: 'unlock-progress',
+      Drill: 'drill',
+      DrillSearch: 'drill/search',
+      DrillRequests: 'drill/requests',
+    },
+  },
+};
+
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
   const [session, setSession]     = useState<Session | null>(null);
@@ -106,7 +151,7 @@ export default function AppNavigator() {
     <ToastProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
-          <NavigationContainer theme={navTheme}>
+          <NavigationContainer theme={navTheme} linking={linking} fallback={<View />}>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>
