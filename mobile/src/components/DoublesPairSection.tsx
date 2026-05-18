@@ -1,7 +1,7 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, Modal, TextInput,
+  Alert, Modal, TextInput, Pressable, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -49,6 +49,19 @@ export default function DoublesPairSection({
   const [leaveError, setLeaveError]     = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
+
+  const closeCreateModal = useCallback(() => {
+    setShowCreate(false);
+    setNewPairName('');
+    setCreateError(null);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showCreate) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreateModal(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showCreate, closeCreateModal]);
 
   async function load() {
     setLoading(true);
@@ -424,8 +437,8 @@ export default function DoublesPairSection({
       )}
 
       {/* Create modal */}
-      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={() => { setShowCreate(false); setCreateError(null); }}>
-        <View style={S.modalBackdrop}>
+      <Modal visible={showCreate} transparent animationType="fade" onRequestClose={closeCreateModal}>
+        <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) closeCreateModal(); }}>
           <View style={S.modalCard}>
             <Text style={S.modalTitle}>Create your pair</Text>
             <Text style={S.modalBody}>
@@ -442,7 +455,7 @@ export default function DoublesPairSection({
             />
             {createError ? <Text style={S.modalError}>{createError}</Text> : null}
             <View style={S.modalBtnRow}>
-              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={() => { setShowCreate(false); setNewPairName(''); setCreateError(null); }}>
+              <TouchableOpacity style={[S.modalBtn, S.modalBtnSecondary]} onPress={closeCreateModal}>
                 <Text style={S.modalBtnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[S.modalBtn, S.modalBtnPrimary, (busy || !newPairName.trim()) && S.modalBtnDim]} onPress={createPair} disabled={busy || !newPairName.trim()}>
@@ -450,7 +463,7 @@ export default function DoublesPairSection({
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </Pressable>
       </Modal>
 
       {/* Invite picker */}
