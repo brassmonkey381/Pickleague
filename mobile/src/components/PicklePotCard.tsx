@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, TextInput, ScrollView,
-  StyleSheet, Alert, ActivityIndicator,
+  StyleSheet, Alert, ActivityIndicator, Pressable, Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -139,6 +139,13 @@ function ContributeModal({
   const bonus = Number.isFinite(n) && n > 0 ? Math.floor(n * 0.25) : 0;
   const added = (Number.isFinite(n) && n > 0 ? n : 0) + bonus;
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
+
   async function submit() {
     if (!valid) return;
     setBusy(true);
@@ -158,7 +165,7 @@ function ContributeModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={S.modalBackdrop}>
+      <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <View style={S.modalCard}>
           <Text style={S.modalTitle}>Contribute to {scopeLabel} Pot</Text>
           <Text style={S.modalBody}>
@@ -204,7 +211,7 @@ function ContributeModal({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -230,6 +237,13 @@ function AwardModal({
   const n = parseInt(amount, 10);
   const valid = !!recipientId && Number.isFinite(n) && n > 0 && n <= pool;
 
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
+
   async function submit() {
     if (!valid) return;
     setBusy(true);
@@ -251,7 +265,7 @@ function AwardModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={S.modalBackdrop}>
+      <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <View style={[S.modalCard, { maxHeight: '85%' }]}>
           <Text style={S.modalTitle}>Award from {scopeLabel} Pot</Text>
           <Text style={S.modalSub}>Pool balance: 🥒 {pool}</Text>
@@ -297,7 +311,7 @@ function AwardModal({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -320,6 +334,13 @@ function DistributeModal({
   const [busy, setBusy]   = useState(false);
 
   const ladder = ['1st 🥇', '2nd 🥈', '3rd 🥉', '4th', '5th'];
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !visible) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, onClose]);
 
   async function submit() {
     setBusy(true);
@@ -348,7 +369,7 @@ function DistributeModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={S.modalBackdrop}>
+      <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <View style={[S.modalCard, { maxHeight: '90%' }]}>
           <Text style={S.modalTitle}>Distribute {scopeLabel} Pot</Text>
           <Text style={S.modalSub}>Pool: 🥒 {pool} · structure {structure.join(' / ')}%</Text>
@@ -419,7 +440,7 @@ function DistributeModal({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }
