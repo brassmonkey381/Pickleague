@@ -375,7 +375,18 @@ export type Wager = {
   status: 'open' | 'won' | 'lost' | 'cancelled';
   placed_at: string;
   settled_at: string | null;
-  notes: string | null;
+  notes?: string | null;
+  // Enrichment fields populated by `get_my_wagers_with_details` RPC.
+  // Absent when the row was fetched via a raw select.
+  predicted_user_name?: string | null;
+  predicted_rank?: number | null;
+  scope_name?: string | null;
+  actual_rank?: number | null;
+  actual_winner_team?: 'team1' | 'team2' | null;
+  actual_team1_score?: number | null;
+  actual_team2_score?: number | null;
+  team_label_a?: string | null;
+  team_label_b?: string | null;
 };
 
 export type RootStackParamList = {

@@ -68,6 +68,119 @@ function formatWhen(iso: string | null): string {
   });
 }
 
+function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  const mod10 = n % 10;
+  if (mod10 === 1) return `${n}st`;
+  if (mod10 === 2) return `${n}nd`;
+  if (mod10 === 3) return `${n}rd`;
+  return `${n}th`;
+}
+
+// Build a human "you bet X" line plus an optional "actually Y" line so the
+// MyWagers row tells the full story: predicted player / scope / rank for
+// rank wagers, predicted team / score for match wagers, and the actual
+// outcome once the wager has settled.
+function buildWagerNarrative(w: Wager): { prediction: string; outcome: string | null } {
+  const settled = w.status === 'won' || w.status === 'lost';
+  const predRank = w.predicted_rank ?? (w.predicate?.rank as number | undefined);
+  const predName = w.predicted_user_name ?? (w.predicate?.user_id ? String(w.predicate.user_id).slice(0, 6) : '');
+  const scope    = w.scope_name ?? '';
+
+  switch (w.subject_type) {
+    case 'tournament_rank': {
+      const rankLabel = predRank ? ordinal(predRank) : '?';
+      const prediction = scope
+        ? `🏆 ${predName} to finish ${rankLabel} in ${scope}`
+        : `🏆 ${predName} to finish ${rankLabel}`;
+      if (!settled) return { prediction, outcome: null };
+      const actual = w.actual_rank;
+      let outcome: string;
+      if (actual != null && actual === predRank) {
+        outcome = `✓ ${predName} finished ${ordinal(actual)}`;
+      } else if (actual != null) {
+        outcome = `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`;
+      } else if (w.status === 'won') {
+        outcome = `✓ ${predName} hit ${rankLabel}`;
+      } else {
+        outcome = `✗ ${predName} missed ${rankLabel}`;
+      }
+      return { prediction, outcome };
+    }
+    case 'period_rank': {
+      const rankLabel = predRank ? ordinal(predRank) : '?';
+      const period    = w.predicate?.period_number;
+      const periodLbl = period ? ` (Period ${period})` : '';
+      const prediction = scope
+        ? `🏅 ${predName} to finish ${rankLabel} in ${scope}${periodLbl}`
+        : `🏅 ${predName} to finish ${rankLabel}${periodLbl}`;
+      if (!settled) return { prediction, outcome: null };
+      const actual = w.actual_rank;
+      const outcome = actual != null
+        ? (actual === predRank
+            ? `✓ ${predName} finished ${ordinal(actual)}`
+            : `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`)
+        : (w.status === 'won' ? `✓ ${predName} hit ${rankLabel}` : `✗ ${predName} missed ${rankLabel}`);
+      return { prediction, outcome };
+    }
+    case 'season_rank': {
+      const rankLabel = predRank ? ordinal(predRank) : '?';
+      const prediction = scope
+        ? `🏅 ${predName} to finish ${rankLabel} of ${scope}`
+        : `🏅 ${predName} to finish ${rankLabel}`;
+      if (!settled) return { prediction, outcome: null };
+      const actual = w.actual_rank;
+      const outcome = actual != null
+        ? (actual === predRank
+            ? `✓ ${predName} finished ${ordinal(actual)}`
+            : `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`)
+        : (w.status === 'won' ? `✓ Won` : `✗ Didn't hit`);
+      return { prediction, outcome };
+    }
+    case 'match':
+    case 'tournament_match': {
+      const pickedTeam: 'team1' | 'team2' = w.predicate?.winner_team === 'team2' ? 'team2' : 'team1';
+      const teamA = w.team_label_a ?? 'Team 1';
+      const teamB = w.team_label_b ?? 'Team 2';
+      const pickedLabel = pickedTeam === 'team1' ? teamA : teamB;
+      const prediction = scope
+        ? `🥒 ${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA} · ${scope}`
+        : `🥒 ${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA}`;
+      if (!settled) return { prediction, outcome: null };
+      const winnerTeam = w.actual_winner_team;
+      const s1 = w.actual_team1_score;
+      const s2 = w.actual_team2_score;
+      const scoreSuffix = s1 != null && s2 != null ? ` (${s1}-${s2})` : '';
+      const outcome = winnerTeam
+        ? (winnerTeam === pickedTeam
+            ? `✓ ${pickedLabel} won${scoreSuffix}`
+            : `✗ ${winnerTeam === 'team1' ? teamA : teamB} won${scoreSuffix}`)
+        : (w.status === 'won' ? '✓ Hit' : '✗ Miss');
+      return { prediction, outcome };
+    }
+    case 'match_score':
+    case 'tournament_match_score': {
+      const teamA = w.team_label_a ?? 'Team 1';
+      const teamB = w.team_label_b ?? 'Team 2';
+      const ps1 = w.predicate?.team1_score;
+      const ps2 = w.predicate?.team2_score;
+      const prediction = scope
+        ? `🎯 Exact: ${teamA} ${ps1}-${ps2} ${teamB} · ${scope}`
+        : `🎯 Exact: ${teamA} ${ps1}-${ps2} ${teamB}`;
+      if (!settled) return { prediction, outcome: null };
+      const s1 = w.actual_team1_score;
+      const s2 = w.actual_team2_score;
+      const outcome = s1 != null && s2 != null
+        ? `Final: ${teamA} ${s1}-${s2} ${teamB}${w.status === 'won' ? ' — exact!' : ''}`
+        : (w.status === 'won' ? '✓ Exact hit' : '✗ Score missed');
+      return { prediction, outcome };
+    }
+    default:
+      return { prediction: genericSubjectLabel(w.subject_type, w.predicate || {}), outcome: null };
+  }
+}
+
 // Compute the current period number (1-based) within an active season,
 // given today's date. Clamps to [1, total_periods].
 function currentPeriodFor(s: { start_date: string; lock_frequency_weeks: number; total_periods: number }): number {
@@ -113,12 +226,21 @@ export default function MyWagersScreen({ navigation }: Props) {
   // ────────────────────────────────────────────────────────────────────────
   async function loadWagers() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('wagers')
-      .select('*')
-      .order('placed_at', { ascending: false });
-    if (error) status.error(error.message);
-    setWagers((data ?? []) as Wager[]);
+    // The RPC joins the predicate's user/scope back to profiles + tournaments
+    // + season snapshots so each row can be rendered with names + actual
+    // outcomes (e.g. "Alice finished 4th — you predicted 3rd"). Falls back to
+    // a raw select if the RPC isn't deployed (the row shape is a superset).
+    const { data, error } = await supabase.rpc('get_my_wagers_with_details');
+    if (error) {
+      const { data: rawData, error: rawErr } = await supabase
+        .from('wagers')
+        .select('*')
+        .order('placed_at', { ascending: false });
+      if (rawErr) status.error(rawErr.message);
+      setWagers((rawData ?? []) as Wager[]);
+    } else {
+      setWagers((data ?? []) as Wager[]);
+    }
     setLoading(false);
   }
 
@@ -242,14 +364,19 @@ export default function MyWagersScreen({ navigation }: Props) {
   // Renderers
   // ────────────────────────────────────────────────────────────────────────
   function renderWagerItem({ item }: { item: Wager }) {
-    const label = genericSubjectLabel(item.subject_type, item.predicate || {});
+    const { prediction, outcome } = buildWagerNarrative(item);
     const settledLabel = item.settled_at ? timeAgo(item.settled_at) : '';
     const placedLabel  = timeAgo(item.placed_at);
 
     return (
       <View style={S.row}>
         <View style={{ flex: 1 }}>
-          <Text style={S.rowSubject} numberOfLines={2}>{label}</Text>
+          <Text style={S.rowSubject} numberOfLines={3}>{prediction}</Text>
+          {outcome && (
+            <Text style={[S.outcomeLine, item.status === 'won' && S.outcomeWon, item.status === 'lost' && S.outcomeLost]}>
+              {outcome}
+            </Text>
+          )}
           <View style={S.metaRow}>
             <Text style={S.metaText}>Stake: <Text style={S.metaValue}>{item.stake} 🥒</Text></Text>
             <Text style={S.metaText}>Odds: <Text style={S.metaValue}>{Number(item.odds).toFixed(2)}×</Text></Text>
@@ -483,6 +610,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
                    backgroundColor: c.surface, borderRadius: 12, padding: 14,
                    borderWidth: 1, borderColor: c.border },
     rowSubject:  { fontSize: 14, fontWeight: '700', color: c.text, lineHeight: 19 },
+    outcomeLine: { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
+    outcomeWon:  { color: c.primary, fontWeight: '700' },
+    outcomeLost: { color: c.danger, fontWeight: '700' },
     metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
     metaText:    { fontSize: 12, color: c.textSub },
     metaValue:   { color: c.text, fontWeight: '700' },
