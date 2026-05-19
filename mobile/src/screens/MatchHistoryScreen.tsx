@@ -37,6 +37,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     pendingHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     pendingBadgeText:  { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.5 },
     pendingDeadline:   { fontSize: 12, fontWeight: '700', color: '#8a6d00' },
+    upcomingCard:      { borderLeftColor: c.primary, backgroundColor: c.primaryLight },
+    upcomingBadgeText: { fontSize: 12, fontWeight: '800', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
+    upcomingMenuText:  { fontSize: 18, fontWeight: '900', color: c.primary, lineHeight: 18 },
+    upcomingMatchup:   { fontSize: 14, fontWeight: '700', color: c.text },
+    upcomingVs:        { fontSize: 13, fontWeight: '600', color: c.textSub, marginVertical: 4 },
+    upcomingWhen:      { fontSize: 12, fontWeight: '700', color: c.primary, marginTop: 8 },
+    sectionTitle:      { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 4, marginBottom: 8 },
     pendingMatchup:    { fontSize: 14, fontWeight: '700', color: c.text },
     pendingScore:      { fontSize: 22, fontWeight: '900', color: c.text, marginVertical: 4 },
     pendingTeamRow:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 },
@@ -259,6 +266,52 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return after - before;
   }
 
+  function teamNames(item: Match): { team1: string; team2: string } {
+    const isDoubles = item.match_type === 'doubles';
+    const team1 = isDoubles && item.partner1?.full_name
+      ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
+      : (item.player1?.full_name ?? 'Unknown');
+    const team2 = isDoubles && item.partner2?.full_name
+      ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
+      : (item.player2?.full_name ?? 'Unknown');
+    return { team1, team2 };
+  }
+
+  function renderUpcoming(item: Match) {
+    const { team1: team1Name, team2: team2Name } = teamNames(item);
+
+    let whenLabel = 'Time TBD';
+    if (item.scheduled_at) {
+      const when = new Date(item.scheduled_at);
+      const dateStr = when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      const timeStr = when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      whenLabel = `Scheduled for ${dateStr} at ${timeStr}`;
+    }
+
+    return (
+      <View key={item.id} style={[S.card, S.upcomingCard]}>
+        <View style={S.pendingHeader}>
+          <Text style={S.upcomingBadgeText}>🗓️ Upcoming</Text>
+          <TouchableOpacity
+            style={S.pendingMenuBtn}
+            accessibilityLabel="Wager options"
+            onPress={() => openWagerSheet({
+              matchId: item.id,
+              team1Label: team1Name,
+              team2Label: team2Name,
+            })}
+          >
+            <Text style={S.upcomingMenuText}>⋯</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={S.upcomingMatchup} numberOfLines={1}>{team1Name}</Text>
+        <Text style={S.upcomingVs}>vs</Text>
+        <Text style={S.upcomingMatchup} numberOfLines={1}>{team2Name}</Text>
+        <Text style={S.upcomingWhen}>{whenLabel}</Text>
+      </View>
+    );
+  }
+
   function renderMatch({ item }: { item: Match }) {
     // Determine perspective: userId param wins, then fall back to logged-in user IF they're in this match
     const inMatch = (uid: string) =>
@@ -470,16 +523,16 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     );
   }
 
-  const filtered = useMemo(() => {
+  const { filtered, upcoming } = useMemo(() => {
     const cutoff = recency ? Date.now() - recency * 86400000 : null;
     const searchLower = playerSearch.trim().toLowerCase();
 
-    return matches.filter((m) => {
+    const pred = (m: Match, opts: { skipDateFilters?: boolean } = {}) => {
       if (matchType !== 'all' && m.match_type !== matchType) return false;
       if (homeAway === 'home' && !m.is_home_court) return false;
       if (homeAway === 'away' && m.is_home_court) return false;
       if (region !== null && !inRegion(m.location_lat, m.location_lng, region)) return false;
-      if (cutoff && new Date(m.played_at).getTime() < cutoff) return false;
+      if (!opts.skipDateFilters && cutoff && new Date(m.played_at).getTime() < cutoff) return false;
       if (indoorOutdoor === 'outdoor' && m.is_outdoor !== true) return false;
       if (indoorOutdoor === 'indoor'  && m.is_outdoor !== false) return false;
       if (indoorOutdoor === 'unknown' && m.is_outdoor !== null) return false;
@@ -507,7 +560,22 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       }
 
       return true;
-    });
+    };
+
+    // Scheduled (future) matches go above the existing list. We skip the
+    // recency filter because that pill is about how recently a match was
+    // played — irrelevant to something that hasn't happened yet.
+    const upcomingList = matches
+      .filter((m) => m.status === 'scheduled' && pred(m, { skipDateFilters: true }))
+      .sort((a, b) => {
+        const ta = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
+        const tb = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
+        return ta - tb;
+      });
+
+    const rest = matches.filter((m) => m.status !== 'scheduled' && pred(m));
+
+    return { filtered: rest, upcoming: upcomingList };
   }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch, indoorOutdoor, doublesCategory]);
 
   const activeFilterCount =
@@ -652,19 +720,36 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
         contentContainerStyle={{ padding: 16 }}
-        ListEmptyComponent={<Text style={S.empty}>No matches recorded yet.</Text>}
+        ListEmptyComponent={
+          upcoming.length === 0
+            ? <Text style={S.empty}>No matches recorded yet.</Text>
+            : null
+        }
         ListHeaderComponent={
-          matches.length > 0 ? (
-            <TouchableOpacity
-              style={S.calendarBtn}
-              onPress={() => navigation.navigate('CalendarAnalytics', {
-                userId,
-                leagueId,
-                title: route.params.title + ' Calendar',
-              })}
-            >
-              <Text style={S.calendarBtnText}>📅  View Calendar Analytics</Text>
-            </TouchableOpacity>
+          (matches.length > 0 || upcoming.length > 0) ? (
+            <View>
+              {upcoming.length > 0 && (
+                <View>
+                  <Text style={S.sectionTitle}>🗓️ Upcoming ({upcoming.length})</Text>
+                  {upcoming.map(renderUpcoming)}
+                </View>
+              )}
+              {matches.length > 0 && (
+                <TouchableOpacity
+                  style={S.calendarBtn}
+                  onPress={() => navigation.navigate('CalendarAnalytics', {
+                    userId,
+                    leagueId,
+                    title: route.params.title + ' Calendar',
+                  })}
+                >
+                  <Text style={S.calendarBtnText}>📅  View Calendar Analytics</Text>
+                </TouchableOpacity>
+              )}
+              {upcoming.length > 0 && filtered.length > 0 && (
+                <Text style={S.sectionTitle}>Match History</Text>
+              )}
+            </View>
           ) : null
         }
       />
