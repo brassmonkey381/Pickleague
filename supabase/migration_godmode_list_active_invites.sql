@@ -1,10 +1,12 @@
 -- Godmode helper: list all active invite_codes joined with scope name and the
--- caller's membership status. Server-gated to the godmode allowlist so we don't
--- have to rely on client checks.
+-- caller's membership status. Server-gated to the godmode allowlist.
 --
--- The base invite_codes table is already readable by everyone (policy "Invite
--- codes lookup" using (true)) so this RPC is mostly for convenience: it joins
--- the scope's display name and computes whether the caller already belongs.
+-- Scope filtering:
+--   * INNER JOIN on leagues / tournaments drops invite_codes that point to
+--     deleted scopes (no more "unknown scope" rows in the UI).
+--   * Tournament invites are hidden when the tournament is completed or
+--     cancelled — old codes for finished events become invisible.
+--   * League invites require leagues.is_active = true.
 
 create or replace function public.godmode_list_active_invites()
 returns table (
@@ -26,38 +28,53 @@ declare
   uid uuid := auth.uid();
 begin
   if uid is null then raise exception 'Not authenticated'; end if;
-  -- Mirrors the client-side GODMODE_USER_IDS allowlist.
   if uid not in ('252a36e1-5d89-4ad2-8a3e-b786579f019a') then
     raise exception 'Forbidden — godmode only';
   end if;
 
   return query
+  -- League invites: existing, active league.
   select
-    ic.id as code_id,
-    ic.scope_type,
-    ic.scope_id,
-    case ic.scope_type
-      when 'league'     then (select name from leagues     where id = ic.scope_id)
-      when 'tournament' then (select name from tournaments where id = ic.scope_id)
-    end as scope_name,
-    ic.token,
-    ic.expires_at,
-    ic.used_count,
-    ic.max_uses,
-    case ic.scope_type
-      when 'league' then exists (
-        select 1 from league_members where league_id = ic.scope_id and user_id = uid
-      )
-      when 'tournament' then exists (
-        select 1 from tournament_registrations
-         where tournament_id = ic.scope_id and user_id = uid and status = 'approved'
-      )
-      else false
-    end as already_member
+    ic.id            as code_id,
+    'league'         as scope_type,
+    ic.scope_id      as scope_id,
+    l.name           as scope_name,
+    ic.token         as token,
+    ic.expires_at    as expires_at,
+    ic.used_count    as used_count,
+    ic.max_uses      as max_uses,
+    exists (select 1 from league_members where league_id = ic.scope_id and user_id = uid) as already_member
   from invite_codes ic
-  where ic.is_active = true
-    and ic.expires_at > now()
-  order by ic.expires_at asc;
+  join leagues l on l.id = ic.scope_id
+  where ic.scope_type = 'league'
+    and ic.is_active   = true
+    and ic.expires_at  > now()
+    and l.is_active    = true
+
+  union all
+
+  -- Tournament invites: must reference a tournament that's still joinable.
+  select
+    ic.id            as code_id,
+    'tournament'     as scope_type,
+    ic.scope_id      as scope_id,
+    t.name           as scope_name,
+    ic.token         as token,
+    ic.expires_at    as expires_at,
+    ic.used_count    as used_count,
+    ic.max_uses      as max_uses,
+    exists (
+      select 1 from tournament_registrations
+       where tournament_id = ic.scope_id and user_id = uid and status = 'approved'
+    ) as already_member
+  from invite_codes ic
+  join tournaments t on t.id = ic.scope_id
+  where ic.scope_type   = 'tournament'
+    and ic.is_active    = true
+    and ic.expires_at   > now()
+    and t.status not in ('completed','cancelled')
+
+  order by expires_at asc;
 end;
 $$;
 
