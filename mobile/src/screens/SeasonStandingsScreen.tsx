@@ -16,6 +16,9 @@ import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import ActionSheetModal from '../components/ActionSheetModal';
+import WagerProposeModal from '../components/WagerProposeModal';
+import { WagerSubject } from '../lib/wager';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -203,6 +206,24 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
   const [lockConfirmOpen, setLockConfirmOpen]         = useState(false);
   const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false);
+
+  // Long-press → ActionSheet → optional WagerProposeModal. `periodNumber`
+  // is null when the row comes from the Final-standings tab (season_rank).
+  type RowContext = {
+    userId: string;
+    fullName: string;
+    rank: number;
+    periodNumber: number | null;
+  };
+  const [rowSheetOpen, setRowSheetOpen]       = useState(false);
+  const [rowContext, setRowContext]           = useState<RowContext | null>(null);
+  const [wagerModalOpen, setWagerModalOpen]   = useState(false);
+  const [wagerSubject, setWagerSubject]       = useState<WagerSubject | null>(null);
+
+  function openRowSheet(ctx: RowContext) {
+    setRowContext(ctx);
+    setRowSheetOpen(true);
+  }
 
   const status = useStatusMessage();
 
@@ -648,6 +669,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   key={row.user_id}
                   style={[S.tableRow, i % 2 === 0 && S.tableRowAlt]}
                   onPress={() => navigation.navigate('PlayerProfile', { userId: row.user_id, userName: row.profile?.full_name ?? '' })}
+                  onLongPress={() => openRowSheet({
+                    userId: row.user_id,
+                    fullName: row.profile?.full_name ?? 'Unknown',
+                    rank: row.rank_at_snapshot,
+                    periodNumber: period.periodNumber,
+                  })}
                 >
                   <Text style={[S.td, S.tdRank]}>
                     {MEDALS[row.rank_at_snapshot - 1] ?? `${row.rank_at_snapshot}`}
@@ -715,6 +742,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   key={row.user_id}
                   style={[S.tableRow, i % 2 === 0 && S.tableRowAlt]}
                   onPress={() => navigation.navigate('PlayerProfile', { userId: row.user_id, userName: row.profile?.full_name ?? '' })}
+                  onLongPress={() => openRowSheet({
+                    userId: row.user_id,
+                    fullName: row.profile?.full_name ?? 'Unknown',
+                    rank: row.final_rank,
+                    periodNumber: null,
+                  })}
                 >
                   <Text style={[S.td, S.tdRank]}>
                     {MEDALS[row.final_rank - 1] ?? `${row.final_rank}`}
@@ -785,6 +818,59 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         onConfirm={doCompleteSeason}
         onClose={() => setCompleteConfirmOpen(false)}
       />
+
+      <ActionSheetModal
+        visible={rowSheetOpen && rowContext !== null}
+        title={rowContext?.fullName}
+        subtitle={
+          rowContext
+            ? rowContext.periodNumber === null
+              ? `Final rank #${rowContext.rank}`
+              : `Period ${rowContext.periodNumber} · rank #${rowContext.rank}`
+            : undefined
+        }
+        actions={rowContext ? [
+          {
+            label: 'View profile',
+            onPress: () => navigation.navigate('PlayerProfile', {
+              userId: rowContext.userId,
+              userName: rowContext.fullName,
+            }),
+          },
+          {
+            label: `🎲 Wager: ${rowContext.fullName} finishes #${rowContext.rank}`,
+            onPress: () => {
+              const subject: WagerSubject = rowContext.periodNumber === null
+                ? {
+                    type: 'season_rank',
+                    seasonId,
+                    userId: rowContext.userId,
+                    userName: rowContext.fullName,
+                    rank: rowContext.rank,
+                  }
+                : {
+                    type: 'period_rank',
+                    seasonId,
+                    periodNumber: rowContext.periodNumber,
+                    userId: rowContext.userId,
+                    userName: rowContext.fullName,
+                    rank: rowContext.rank,
+                  };
+              setWagerSubject(subject);
+              setWagerModalOpen(true);
+            },
+          },
+        ] : []}
+        onClose={() => setRowSheetOpen(false)}
+      />
+
+      {wagerSubject !== null && (
+        <WagerProposeModal
+          visible={wagerModalOpen}
+          subject={wagerSubject}
+          onClose={() => setWagerModalOpen(false)}
+        />
+      )}
 
     </ScrollView>
   );
