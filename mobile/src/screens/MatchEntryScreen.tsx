@@ -95,21 +95,29 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const S = makeStyles(colors);
 
   const [members, setMembers] = useState<Profile[]>([]);
-  const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'singles');
+  const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'doubles');
   const [p1, setP1] = useState(prefillTeam1Player ?? '');
   const [partner1, setPartner1] = useState(prefillTeam1Partner ?? '');
   const [p2, setP2] = useState(prefillTeam2Player ?? '');
   const [partner2, setPartner2] = useState(prefillTeam2Partner ?? '');
-  const [score1, setScore1] = useState('');
-  const [score2, setScore2] = useState('');
+  // Best-of-N support: each entry is one game's score pair.
+  type GameScore = { t1: string; t2: string };
+  const [games, setGames] = useState<GameScore[]>([{ t1: '', t2: '' }]);
+  const updateGame = (i: number, field: 't1' | 't2', value: string) =>
+    setGames(prev => prev.map((g, idx) => idx === i ? { ...g, [field]: value } : g));
+  const addGame    = () => setGames(prev => [...prev, { t1: '', t2: '' }]);
+  const removeGame = (i: number) => setGames(prev => prev.filter((_, idx) => idx !== i));
   // Per-match gender overrides for players who don't have a gender on their profile.
   // Keyed by which slot the player is in: 'p1' | 'partner1' | 'p2' | 'partner2'.
   const [genderOverrides, setGenderOverrides] = useState<Record<'p1'|'partner1'|'p2'|'partner2', 'male'|'female'|null>>({
     p1: null, partner1: null, p2: null, partner2: null,
   });
   const [location, setLocation]     = useState<CourtResult | null>(null);
-  const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(null);
+  // Default outdoor — overridden by learnCourtDefault when we have a signal.
+  const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(true);
   const [courtHint, setCourtHint]   = useState<string | null>(null);
+  // When a location only has one type of court, lock the toggle to that type.
+  const [courtTypeLocked, setCourtTypeLocked] = useState<'outdoor' | 'indoor' | null>(null);
   const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
   const status = useStatusMessage();
@@ -175,8 +183,12 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   // Determine indoor/outdoor default for a location.
   // Primary source: court_locations table (authoritative, keyword-seeded + user-confirmed).
   // Fallback: aggregate of past match flags at this location.
+  // Always pre-seeds with outdoor as the default unless a stronger signal flips it.
   async function learnCourtDefault(locationName: string) {
     setCourtHint(null);
+    setCourtTypeLocked(null);
+    setIsOutdoor(true); // baseline default; refined below if we have a signal
+
     if (!locationName) return;
 
     // ── Primary: court_locations ───────────────────────────────
@@ -187,26 +199,34 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       .maybeSingle();
 
     if (court) {
-      const hasBoth = court.has_indoor && court.has_outdoor;
-      const source  = court.verified        ? '✓ verified'
-                    : court.auto_classified  ? 'auto-detected'
-                    : 'learned from past matches';
+      const source = court.verified       ? '✓ verified'
+                   : court.auto_classified ? 'auto-detected'
+                   :                          'learned from past matches';
+      const onlyOutdoor = court.has_outdoor && !court.has_indoor;
+      const onlyIndoor  = court.has_indoor && !court.has_outdoor;
+      const hasBoth     = court.has_outdoor && court.has_indoor;
 
-      if (hasBoth) {
-        setCourtHint(`🏠 / ☀️ Has both indoor and outdoor courts · ${source}`);
-        // Don't pre-select if mixed — let user choose
-      } else if (court.default_outdoor === true) {
+      if (onlyOutdoor) {
         setIsOutdoor(true);
-        setCourtHint(`☀️ Outdoor · ${source}`);
-      } else if (court.default_outdoor === false) {
-        setIsOutdoor(false);
-        setCourtHint(`🏠 Indoor · ${source}`);
-      } else {
-        // Row exists but no default yet — fall through to match history
-        setCourtHint(null);
+        setCourtTypeLocked('outdoor');
+        setCourtHint(`☀️ Outdoor only · ${source}`);
+        return;
       }
-
-      if (court.default_outdoor !== null || hasBoth) return;
+      if (onlyIndoor) {
+        setIsOutdoor(false);
+        setCourtTypeLocked('indoor');
+        setCourtHint(`🏠 Indoor only · ${source}`);
+        return;
+      }
+      if (hasBoth) {
+        // Has both — prefer the location's stored default, else fall back to outdoor.
+        if (court.default_outdoor === false) setIsOutdoor(false);
+        else                                  setIsOutdoor(true);
+        setCourtHint(`🏠 / ☀️ Has both indoor and outdoor courts · ${source}`);
+        return;
+      }
+      // Row exists but unclassified (has_indoor=false, has_outdoor=false). Fall
+      // through to match history; isOutdoor stays at the outdoor default.
     }
 
     // ── Fallback: aggregate of existing match flags ────────────
@@ -217,7 +237,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       .not('is_outdoor', 'is', null)
       .limit(100);
 
-    if (!history || history.length < 3) return;
+    if (!history || history.length < 3) return; // keep outdoor default
 
     const outdoorCount = history.filter((m: any) => m.is_outdoor === true).length;
     const pct          = outdoorCount / history.length;
@@ -235,14 +255,19 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
   // Re-learn when location changes
   useEffect(() => {
-    if (location?.name) learnCourtDefault(location.name);
-    else { setIsOutdoor(null); setCourtHint(null); }
+    if (location?.name) {
+      learnCourtDefault(location.name);
+    } else {
+      setIsOutdoor(true); // default outdoor when no location selected
+      setCourtHint(null);
+      setCourtTypeLocked(null);
+    }
   }, [location?.name]);
 
   function resetOnTypeChange(type: MatchType) {
     setMatchType(type);
     setP1(''); setPartner1(''); setP2(''); setPartner2('');
-    setScore1(''); setScore2('');
+    setGames([{ t1: '', t2: '' }]);
     status.clear();
   }
 
@@ -262,10 +287,26 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       if (new Set([p1, partner1, p2, partner2]).size !== 4) return setError('All four players must be different.');
     }
 
-    const s1 = parseInt(score1), s2 = parseInt(score2);
-    if (isNaN(s1) || isNaN(s2) || score1 === '' || score2 === '') return setError('Please enter scores for both teams.');
-    if (s1 < 0 || s2 < 0) return setError('Scores cannot be negative.');
-    if (s1 === s2) return setError('Scores cannot be tied — pickleball always has a winner.');
+    // Parse and validate every game; build the per-game array and roll-up totals.
+    const parsedGames: { t1: number; t2: number }[] = [];
+    for (let i = 0; i < games.length; i++) {
+      const g = games[i];
+      const t1 = parseInt(g.t1), t2 = parseInt(g.t2);
+      if (isNaN(t1) || isNaN(t2) || g.t1 === '' || g.t2 === '') {
+        return setError(`Please enter scores for game ${i + 1}.`);
+      }
+      if (t1 < 0 || t2 < 0) return setError(`Game ${i + 1}: scores cannot be negative.`);
+      if (t1 === t2) return setError(`Game ${i + 1}: scores cannot be tied — pickleball always has a winner.`);
+      parsedGames.push({ t1, t2 });
+    }
+    const t1GamesWon = parsedGames.filter(g => g.t1 > g.t2).length;
+    const t2GamesWon = parsedGames.length - t1GamesWon;
+    if (t1GamesWon === t2GamesWon) return setError('No overall winner — split the series. Add another game or fix the scores.');
+    // For single-game matches keep the exact score; for multi-game matches store
+    // the sum of points across games (PLUPR delta math is based on point totals).
+    const s1 = parsedGames.length === 1 ? parsedGames[0].t1 : parsedGames.reduce((a, g) => a + g.t1, 0);
+    const s2 = parsedGames.length === 1 ? parsedGames[0].t2 : parsedGames.reduce((a, g) => a + g.t2, 0);
+    const gameScoresPayload = parsedGames.length > 1 ? parsedGames : null;
     // Tournament matches inherit the tournament's location; only require for league matches.
     if (!isTournamentMatch && !location) return setError('Please enter a match location.');
     // For doubles, every ungendered player needs a per-match gender declared.
@@ -273,7 +314,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       return setError('Pick a gender for every player without one before recording.');
     }
 
-    const winnerTeam = s1 > s2 ? 'team1' : 'team2';
+    const winnerTeam = t1GamesWon > t2GamesWon ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
 
     setLoading(true);
@@ -287,6 +328,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         .update({
           team1_score: s1,
           team2_score: s2,
+          game_scores: gameScoresPayload,
           winner_team: winnerTeam,
           status:      'completed',
           team1_player1_gender_override: genderOverrides.p1,
@@ -328,6 +370,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       partner2_id:  matchType === 'doubles' ? partner2 : null,
       player1_score: s1,
       player2_score: s2,
+      game_scores:   gameScoresPayload,
       winner_id:      winnerId,
       winner_team:    winnerTeam,
       location_name:  location?.name ?? null,
@@ -528,34 +571,49 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Score entry */}
-      <View style={S.scoreCard}>
-        <View style={S.scoreCol}>
-          <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>
-          <TextInput
-            style={S.scoreInput}
-            keyboardType="number-pad"
-            value={score1}
-            onChangeText={setScore1}
-            placeholder="0"
-            placeholderTextColor={colors.border}
-            maxLength={2}
-          />
+      {/* Score entry — supports best-of-N (add a game per row). */}
+      {games.map((g, i) => (
+        <View key={i} style={S.scoreCard}>
+          {games.length > 1 && (
+            <View style={S.gameLabelRow}>
+              <Text style={S.gameLabel}>Game {i + 1}</Text>
+              <TouchableOpacity onPress={() => removeGame(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Text style={S.gameRemove}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          <View style={S.scoreRow}>
+            <View style={S.scoreCol}>
+              {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>}
+              <TextInput
+                style={S.scoreInput}
+                keyboardType="number-pad"
+                value={g.t1}
+                onChangeText={(v) => updateGame(i, 't1', v)}
+                placeholder="0"
+                placeholderTextColor={colors.border}
+                maxLength={2}
+              />
+            </View>
+            <Text style={S.vs}>vs</Text>
+            <View style={S.scoreCol}>
+              {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>}
+              <TextInput
+                style={S.scoreInput}
+                keyboardType="number-pad"
+                value={g.t2}
+                onChangeText={(v) => updateGame(i, 't2', v)}
+                placeholder="0"
+                placeholderTextColor={colors.border}
+                maxLength={2}
+              />
+            </View>
+          </View>
         </View>
-        <Text style={S.vs}>vs</Text>
-        <View style={S.scoreCol}>
-          <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>
-          <TextInput
-            style={S.scoreInput}
-            keyboardType="number-pad"
-            value={score2}
-            onChangeText={setScore2}
-            placeholder="0"
-            placeholderTextColor={colors.border}
-            maxLength={2}
-          />
-        </View>
-      </View>
+      ))}
+      <TouchableOpacity style={S.addGameBtn} onPress={addGame}>
+        <Text style={S.addGameBtnText}>+ Add another game</Text>
+      </TouchableOpacity>
 
       {/* Location */}
       <View style={S.locationSection}>
@@ -578,24 +636,31 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           <Text style={S.courtHint}>📍 {courtHint}</Text>
         )}
         <View style={S.courtTypeRow}>
-          {([false, true] as const).map(outdoor => (
-            <TouchableOpacity
-              key={String(outdoor)}
-              style={[
-                S.courtTypeBtn,
-                isOutdoor === outdoor && S.courtTypeBtnActive,
-              ]}
-              onPress={() => setIsOutdoor(prev => prev === outdoor ? null : outdoor)}
-            >
-              <Text style={S.courtTypeIcon}>{outdoor ? '☀️' : '🏠'}</Text>
-              <Text style={[
-                S.courtTypeText,
-                isOutdoor === outdoor && S.courtTypeTextActive,
-              ]}>
-                {outdoor ? 'Outdoor' : 'Indoor'}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {([false, true] as const).map(outdoor => {
+            const buttonType: 'outdoor' | 'indoor' = outdoor ? 'outdoor' : 'indoor';
+            const isDisabled = courtTypeLocked !== null && courtTypeLocked !== buttonType;
+            return (
+              <TouchableOpacity
+                key={String(outdoor)}
+                style={[
+                  S.courtTypeBtn,
+                  isOutdoor === outdoor && S.courtTypeBtnActive,
+                  isDisabled && S.courtTypeBtnDisabled,
+                ]}
+                onPress={() => isDisabled ? null : setIsOutdoor(prev => prev === outdoor ? null : outdoor)}
+                disabled={isDisabled}
+              >
+                <Text style={[S.courtTypeIcon, isDisabled && S.courtTypeTextDisabled]}>{outdoor ? '☀️' : '🏠'}</Text>
+                <Text style={[
+                  S.courtTypeText,
+                  isOutdoor === outdoor && S.courtTypeTextActive,
+                  isDisabled && S.courtTypeTextDisabled,
+                ]}>
+                  {outdoor ? 'Outdoor' : 'Indoor'}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
@@ -647,11 +712,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     categorySub:             { fontSize: 12, color: c.textSub, lineHeight: 16 },
     label: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 5, marginTop: 10 },
     pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 8, overflow: 'hidden', backgroundColor: c.surface },
-    scoreCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginVertical: 8, gap: 12, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    scoreCard: { flexDirection: 'column', backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginVertical: 8, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     scoreCol: { flex: 1, alignItems: 'center' },
     scoreName: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 8, textAlign: 'center' },
     scoreInput: { borderWidth: 2, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 28, textAlign: 'center', fontWeight: '800', color: c.text, width: 72, backgroundColor: c.surface },
     vs: { fontSize: 16, fontWeight: '700', color: c.border },
+    gameLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    gameLabel: { fontSize: 12, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6 },
+    gameRemove: { fontSize: 16, color: c.textMuted, fontWeight: '700', paddingHorizontal: 4 },
+    addGameBtn: { alignSelf: 'center', marginTop: 4, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
+    addGameBtnText: { fontSize: 13, fontWeight: '700', color: c.primary },
     statusBox: { borderRadius: 8, padding: 14, marginTop: 8, marginBottom: 4 },
     statusError: { backgroundColor: '#ffebee' },
     statusSuccess: { backgroundColor: c.primaryLight },
@@ -667,9 +738,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     courtTypeRow: { flexDirection: 'row', gap: 10 },
     courtTypeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
     courtTypeBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    courtTypeBtnDisabled: { opacity: 0.4, backgroundColor: c.bg },
     courtTypeIcon: { fontSize: 18 },
     courtTypeText: { fontSize: 14, fontWeight: '600', color: c.textMuted },
     courtTypeTextActive: { color: c.primary },
+    courtTypeTextDisabled: { color: c.textMuted },
     button: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
     buttonDisabled: { backgroundColor: c.primary + '80' },
     buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
