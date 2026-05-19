@@ -23,6 +23,8 @@ type CreatedAccount = {
   full_name: string;
 };
 
+type PendingInvitee = { user_id: string; user_name: string };
+
 type ActiveInvite = {
   code_id: string;
   scope_type: 'league' | 'tournament';
@@ -33,6 +35,7 @@ type ActiveInvite = {
   used_count: number;
   max_uses: number | null;
   already_member: boolean;
+  pending_invitees: PendingInvitee[];
 };
 
 function daysUntil(iso: string): string {
@@ -64,6 +67,8 @@ export default function GodmodeScreen({ navigation }: Props) {
   const [loadingInvites, setLoadingInvites] = useState(false);
   const [acceptingCodeId, setAcceptingCodeId] = useState<string | null>(null);
   const [acceptingAll, setAcceptingAll] = useState(false);
+  const [acceptingInviteeKey, setAcceptingInviteeKey] = useState<string | null>(null);
+  const [bulkAcceptingCodeId, setBulkAcceptingCodeId] = useState<string | null>(null);
   const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => {
@@ -119,6 +124,48 @@ export default function GodmodeScreen({ navigation }: Props) {
       status.success(`Force-accepted ${joined} invite${joined === 1 ? '' : 's'}`);
     } else {
       status.error(`Joined ${joined}, ${failed} failed`);
+    }
+    loadInvites();
+  }
+
+  async function forceAcceptInvitee(invite: ActiveInvite, invitee: PendingInvitee): Promise<{ ok: boolean; message: string }> {
+    const { data, error } = await supabase.rpc('godmode_force_accept_invitee', {
+      p_code_id: invite.code_id,
+      p_user_id: invitee.user_id,
+    });
+    if (error) return { ok: false, message: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) return { ok: false, message: row?.message ?? 'Force-accept failed' };
+    return { ok: true, message: row.message ?? 'Accepted' };
+  }
+
+  async function forceAcceptOneInvitee(invite: ActiveInvite, invitee: PendingInvitee) {
+    const key = `${invite.code_id}:${invitee.user_id}`;
+    setAcceptingInviteeKey(key);
+    const r = await forceAcceptInvitee(invite, invitee);
+    setAcceptingInviteeKey(null);
+    if (r.ok) {
+      status.success(`${invitee.user_name} → ${invite.scope_name ?? invite.scope_type}`);
+      loadInvites();
+    } else {
+      status.error(`${invitee.user_name}: ${r.message}`);
+    }
+  }
+
+  async function forceAcceptAllInvitees(invite: ActiveInvite) {
+    if (invite.pending_invitees.length === 0) return;
+    setBulkAcceptingCodeId(invite.code_id);
+    let ok = 0;
+    let fail = 0;
+    for (const inv of invite.pending_invitees) {
+      const r = await forceAcceptInvitee(invite, inv);
+      if (r.ok) ok++; else fail++;
+    }
+    setBulkAcceptingCodeId(null);
+    if (fail === 0) {
+      status.success(`Force-accepted ${ok} invitee${ok === 1 ? '' : 's'} into ${invite.scope_name ?? invite.scope_type}`);
+    } else {
+      status.error(`Accepted ${ok}, ${fail} failed`);
     }
     loadInvites();
   }
@@ -281,7 +328,7 @@ export default function GodmodeScreen({ navigation }: Props) {
                   </Text>
                 </View>
                 {inv.already_member ? (
-                  <Text style={S.alreadyJoined}>✓ Already a member</Text>
+                  <Text style={S.alreadyJoined}>✓ You're a member</Text>
                 ) : (
                   <TouchableOpacity
                     style={[S.acceptBtn, acceptingCodeId === inv.code_id && S.primaryBtnDim]}
@@ -290,8 +337,47 @@ export default function GodmodeScreen({ navigation }: Props) {
                   >
                     {acceptingCodeId === inv.code_id
                       ? <ActivityIndicator color={c.primary} size="small" />
-                      : <Text style={S.acceptBtnText}>Force accept</Text>}
+                      : <Text style={S.acceptBtnText}>Join me</Text>}
                   </TouchableOpacity>
+                )}
+
+                {inv.pending_invitees.length > 0 && (
+                  <View style={S.inviteeBlock}>
+                    <View style={S.inviteeHeader}>
+                      <Text style={S.inviteeHeaderText}>
+                        {inv.pending_invitees.length} pending invitee{inv.pending_invitees.length === 1 ? '' : 's'}
+                      </Text>
+                      {inv.pending_invitees.length > 1 && (
+                        <TouchableOpacity
+                          style={[S.acceptBtn, bulkAcceptingCodeId === inv.code_id && S.primaryBtnDim]}
+                          onPress={() => forceAcceptAllInvitees(inv)}
+                          disabled={bulkAcceptingCodeId === inv.code_id}
+                        >
+                          {bulkAcceptingCodeId === inv.code_id
+                            ? <ActivityIndicator color={c.primary} size="small" />
+                            : <Text style={S.acceptBtnText}>Accept all</Text>}
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {inv.pending_invitees.map(invitee => {
+                      const key = `${inv.code_id}:${invitee.user_id}`;
+                      const busy = acceptingInviteeKey === key || bulkAcceptingCodeId === inv.code_id;
+                      return (
+                        <View key={invitee.user_id} style={S.inviteeRow}>
+                          <Text style={S.inviteeName} numberOfLines={1}>{invitee.user_name}</Text>
+                          <TouchableOpacity
+                            style={[S.inviteeAcceptBtn, busy && S.primaryBtnDim]}
+                            onPress={() => forceAcceptOneInvitee(inv, invitee)}
+                            disabled={busy}
+                          >
+                            {acceptingInviteeKey === key
+                              ? <ActivityIndicator color={c.primary} size="small" />
+                              : <Text style={S.acceptBtnText}>Force accept</Text>}
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
                 )}
               </View>
             ))}
@@ -367,5 +453,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     alreadyJoined:        { fontSize: 13, fontWeight: '700', color: c.primary, marginTop: 4 },
     acceptBtn:            { alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
     acceptBtnText:        { color: c.primary, fontSize: 13, fontWeight: '700' },
+
+    inviteeBlock:         { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
+    inviteeHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    inviteeHeaderText:    { fontSize: 12, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6 },
+    inviteeRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, gap: 8 },
+    inviteeName:          { flex: 1, fontSize: 14, color: c.text },
+    inviteeAcceptBtn:     { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
   });
 }
