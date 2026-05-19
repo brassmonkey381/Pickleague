@@ -9,6 +9,11 @@ import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import ActionSheetModal from '../components/ActionSheetModal';
+import ConfirmModal from '../components/ConfirmModal';
+// Resolves once Unit 1 (wager foundation) merges to master.
+import WagerProposeModal from '../components/WagerProposeModal';
+import type { WagerSubject } from '../lib/wager';
 
 type HomeAwayFilter     = 'all' | 'home' | 'away';
 type TypeFilter         = 'all' | 'singles' | 'doubles';
@@ -111,8 +116,25 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
     calendarBtn: { backgroundColor: c.primaryLight, borderRadius: 10, padding: 14, marginBottom: 12, alignItems: 'center' },
     calendarBtnText: { color: c.primary, fontWeight: '700', fontSize: 15 },
+    pendingMenuBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+    pendingMenuText: { fontSize: 18, fontWeight: '900', color: '#8a6d00', lineHeight: 18 },
+    pendingHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    scoreInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 8, marginBottom: 4 },
+    scoreInput: {
+      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8,
+      paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, fontWeight: '700',
+      backgroundColor: c.surface, color: c.text, textAlign: 'center',
+    },
+    scoreInputDash: { fontSize: 18, fontWeight: '800', color: c.textMuted },
+    scoreInputLabel: { fontSize: 11, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8 },
   });
 }
+
+type WagerRowCtx = {
+  matchId: string;
+  team1Label: string;
+  team2Label: string;
+};
 
 export default function MatchHistoryScreen({ navigation, route }: Props) {
   const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly } = route.params;
@@ -134,6 +156,46 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>(initialDoublesCategory ?? 'all');
 
   const status = useStatusMessage();
+
+  // wagerCtx is the row the user opened the menu for; team labels are frozen
+  // there so the UI stays stable if `matches` reloads mid-flow.
+  const [wagerCtx, setWagerCtx] = useState<WagerRowCtx | null>(null);
+  const [wagerSheetOpen, setWagerSheetOpen] = useState(false);
+  const [scoreInput, setScoreInput] = useState<{ t1: string; t2: string } | null>(null);
+  const [wagerSubject, setWagerSubject] = useState<WagerSubject | null>(null);
+
+  function openWagerSheet(ctx: WagerRowCtx) {
+    setWagerCtx(ctx);
+    setWagerSheetOpen(true);
+  }
+
+  function startWinnerWager(pickedTeam: 'team1' | 'team2') {
+    if (!wagerCtx) return;
+    setWagerSubject({
+      type: 'match',
+      matchId: wagerCtx.matchId,
+      teamLabels: { team1: wagerCtx.team1Label, team2: wagerCtx.team2Label },
+      pickedTeam,
+    });
+  }
+
+  function confirmScoreWager() {
+    if (!wagerCtx || !scoreInput) return;
+    const t1 = parseInt(scoreInput.t1, 10);
+    const t2 = parseInt(scoreInput.t2, 10);
+    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
+      status.error('Enter valid scores for both teams.');
+      return;
+    }
+    setWagerSubject({
+      type: 'match_score',
+      matchId: wagerCtx.matchId,
+      team1Score: t1,
+      team2Score: t2,
+      teamLabels: { team1: wagerCtx.team1Label, team2: wagerCtx.team2Label },
+    });
+    setScoreInput(null);
+  }
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -238,7 +300,20 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         <View style={[S.card, S.pendingCard]}>
           <View style={S.pendingHeader}>
             <Text style={S.pendingBadgeText}>⏳ Pending confirmation</Text>
-            {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
+            <View style={S.pendingHeaderRight}>
+              {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
+              <TouchableOpacity
+                style={S.pendingMenuBtn}
+                accessibilityLabel="Wager options"
+                onPress={() => openWagerSheet({
+                  matchId: item.id,
+                  team1Label: team1Name,
+                  team2Label: team2Name,
+                })}
+              >
+                <Text style={S.pendingMenuText}>⋯</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <Text style={S.pendingMatchup} numberOfLines={1}>{team1Name}</Text>
           <Text style={S.pendingScore}>{item.player1_score} – {item.player2_score}</Text>
@@ -592,6 +667,60 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           ) : null
         }
+      />
+
+      <ActionSheetModal
+        visible={wagerSheetOpen}
+        title="Place a wager"
+        subtitle={wagerCtx ? `${wagerCtx.team1Label} vs ${wagerCtx.team2Label}` : undefined}
+        onClose={() => setWagerSheetOpen(false)}
+        actions={wagerCtx ? [
+          { label: `🎲 Wager: ${wagerCtx.team1Label} wins`, onPress: () => startWinnerWager('team1') },
+          { label: `🎲 Wager: ${wagerCtx.team2Label} wins`, onPress: () => startWinnerWager('team2') },
+          { label: '🎲 Wager: exact score',                 onPress: () => setScoreInput({ t1: '', t2: '' }) },
+        ] : []}
+      />
+
+      <ConfirmModal
+        visible={scoreInput != null}
+        title="Wager: exact score"
+        body={wagerCtx ? `${wagerCtx.team1Label} vs ${wagerCtx.team2Label}` : undefined}
+        primaryLabel="Continue"
+        primaryDisabled={!scoreInput || scoreInput.t1.trim() === '' || scoreInput.t2.trim() === ''}
+        extraField={scoreInput ? (
+          <View>
+            <Text style={S.scoreInputLabel}>Predicted final score</Text>
+            <View style={S.scoreInputRow}>
+              <TextInput
+                style={S.scoreInput}
+                value={scoreInput.t1}
+                onChangeText={(v) => setScoreInput({ ...scoreInput, t1: v.replace(/[^0-9]/g, '') })}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="0"
+                placeholderTextColor={colors.textMuted}
+              />
+              <Text style={S.scoreInputDash}>–</Text>
+              <TextInput
+                style={S.scoreInput}
+                value={scoreInput.t2}
+                onChangeText={(v) => setScoreInput({ ...scoreInput, t2: v.replace(/[^0-9]/g, '') })}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="0"
+                placeholderTextColor={colors.textMuted}
+              />
+            </View>
+          </View>
+        ) : undefined}
+        onConfirm={confirmScoreWager}
+        onClose={() => setScoreInput(null)}
+      />
+
+      <WagerProposeModal
+        visible={wagerSubject != null}
+        subject={wagerSubject}
+        onClose={() => setWagerSubject(null)}
       />
     </View>
   );
