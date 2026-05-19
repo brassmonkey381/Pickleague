@@ -736,15 +736,24 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       // 1. Create round record(s). Pool play needs ONE round per pool so the
       // downstream renderer can group matches by pool (otherwise every match
       // collapses into "Pool A" because pool identity is lost).
+      //
+      // Derive the pool count from the matches themselves rather than the
+      // `pools` React state — the godmode auto-generate-and-lock path calls
+      // doLockIn back-to-back with generateBracket, before setPools has had
+      // a chance to flush, so reading `pools` would give us stale/empty data
+      // and we'd fall through to the single-round branch.
       const isPoolPlay = tournament.format === 'pool_play';
       const roundType  = isPoolPlay ? 'pool' : 'winners';
+      const poolCountFromMatches = isPoolPlay
+        ? matches.reduce((max, m) => Math.max(max, (m.poolIndex ?? -1)), -1) + 1
+        : 0;
 
       // poolIndex (0-based) → round.id. For non-pool-play, all matches share one round.
       const roundIdByPool = new Map<number, string>();
       let defaultRoundId: string | null = null;
 
-      if (isPoolPlay && pools && pools.length > 0) {
-        for (let pi = 0; pi < pools.length; pi++) {
+      if (isPoolPlay && poolCountFromMatches > 0) {
+        for (let pi = 0; pi < poolCountFromMatches; pi++) {
           const letter = String.fromCharCode(65 + pi);
           const { data: poolRound, error: prErr } = await supabase
             .from('tournament_rounds')
