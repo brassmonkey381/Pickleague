@@ -292,6 +292,12 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="We'll email you a link to set a new password"
           onPress={sendPasswordReset}
         />
+        <Divider />
+        <ActionRow
+          label="🎲 My Wagers"
+          desc="View open, won, and lost pickle wagers"
+          onPress={() => navigation.navigate('MyWagers')}
+        />
       </View>
 
       {/* ── Notifications ────────────────────── */}
