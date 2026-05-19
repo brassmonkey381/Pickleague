@@ -29,16 +29,22 @@ begin
   end if;
   if p_user_id is null then raise exception 'p_user_id required'; end if;
 
+  -- Qualify with `profiles.` so the RETURNS TABLE columns don't shadow the
+  -- table columns on the right-hand side of the COALESCEs.
   update profiles
-     set rating               = coalesce(p_overall, rating),
-         singles_rating       = coalesce(p_singles, singles_rating),
-         doubles_rating       = coalesce(p_doubles, doubles_rating),
-         mixed_doubles_rating = coalesce(p_mixed,   mixed_doubles_rating)
+     set rating               = coalesce(p_overall, profiles.rating),
+         singles_rating       = coalesce(p_singles, profiles.singles_rating),
+         doubles_rating       = coalesce(p_doubles, profiles.doubles_rating),
+         mixed_doubles_rating = coalesce(p_mixed,   profiles.mixed_doubles_rating)
    where id = p_user_id;
 
   return query
-    select id, rating, singles_rating, doubles_rating, mixed_doubles_rating
-      from profiles where id = p_user_id;
+    select profiles.id,
+           profiles.rating,
+           profiles.singles_rating,
+           profiles.doubles_rating,
+           profiles.mixed_doubles_rating
+      from profiles where profiles.id = p_user_id;
 end;
 $$;
 
