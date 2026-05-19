@@ -188,6 +188,25 @@ type SnapshotPeriod = {
   locked: boolean;
 };
 
+// Minimal shape the "Wager Market" panel needs from a row — a player + their
+// current PLUPR. Used for both period rows (elo_at_snapshot) and final rows
+// (new_elo). Sort key is `plupr` desc.
+type MarketRow = {
+  user_id: string;
+  full_name: string;
+  avatar_id: number;
+  avatar_url: string | null;
+  plupr: number;
+};
+
+const MARKET_RANKS = [1, 2, 3] as const;
+const MARKET_RANK_LABELS: Record<(typeof MARKET_RANKS)[number], string> = {
+  1: '🥇 1st',
+  2: '🥈 2nd',
+  3: '🥉 3rd',
+};
+const MARKET_TOP_N = 12;
+
 export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const { seasonId, leagueId, leagueName } = route.params;
   const { colors } = useTheme();
@@ -219,6 +238,11 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const [rowContext, setRowContext]           = useState<RowContext | null>(null);
   const [wagerModalOpen, setWagerModalOpen]   = useState(false);
   const [wagerSubject, setWagerSubject]       = useState<WagerSubject | null>(null);
+
+  // "🎲 Wager Market" panel — collapsed by default, with an optional
+  // "Show all" toggle when the league has more than MARKET_TOP_N members.
+  const [marketExpanded, setMarketExpanded] = useState(false);
+  const [marketShowAll, setMarketShowAll]   = useState(false);
 
   function openRowSheet(ctx: RowContext) {
     setRowContext(ctx);
@@ -421,6 +445,108 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     );
   }
 
+  // `periodNumber === null` ⇒ season_rank subject; otherwise period_rank.
+  function buildRankSubject(args: {
+    userId: string; userName: string; rank: number; periodNumber: number | null;
+  }): WagerSubject {
+    return args.periodNumber === null
+      ? {
+          type: 'season_rank',
+          seasonId,
+          userId: args.userId,
+          userName: args.userName,
+          rank: args.rank,
+        }
+      : {
+          type: 'period_rank',
+          seasonId,
+          periodNumber: args.periodNumber,
+          userId: args.userId,
+          userName: args.userName,
+          rank: args.rank,
+        };
+  }
+
+  function openWagerForSubject(subject: WagerSubject) {
+    setWagerSubject(subject);
+    setWagerModalOpen(true);
+  }
+
+  // Shared renderer for the "🎲 Wager Market" panel.
+  // - `periodNumber === null` builds season_rank subjects, else period_rank.
+  // - Rows are pre-sorted by PLUPR desc, capped to MARKET_TOP_N unless
+  //   the user has tapped "Show all".
+  function renderWagerMarket(rows: MarketRow[], periodNumber: number | null) {
+    if (rows.length === 0) return null;
+    const scopeLabel = periodNumber === null
+      ? 'Final season standings'
+      : `Period ${periodNumber} standings`;
+    // Defer sort + slice until the panel is actually expanded.
+    const sorted   = marketExpanded ? [...rows].sort((a, b) => b.plupr - a.plupr) : [];
+    const overflow = sorted.length > MARKET_TOP_N;
+    const visible  = marketShowAll || !overflow ? sorted : sorted.slice(0, MARKET_TOP_N);
+    return (
+      <View style={S.marketCard}>
+        <TouchableOpacity
+          style={S.marketHeader}
+          onPress={() => setMarketExpanded(v => !v)}
+          activeOpacity={0.7}
+        >
+          <View style={S.marketHeaderText}>
+            <Text style={S.marketTitle}>🎲 Wager Market</Text>
+            <Text style={S.marketSubtitle}>
+              {scopeLabel} · tap any cell to wager on a rank
+            </Text>
+          </View>
+          <Text style={S.marketChevron}>{marketExpanded ? '▾' : '▸'}</Text>
+        </TouchableOpacity>
+
+        {marketExpanded && (
+          <View style={S.marketBody}>
+            <View style={S.marketTableHeader}>
+              <Text style={[S.marketTh, S.marketThName]}>Player</Text>
+              {MARKET_RANKS.map(r => (
+                <Text key={r} style={S.marketTh}>{MARKET_RANK_LABELS[r]}</Text>
+              ))}
+            </View>
+            {visible.map((row, i) => (
+              <View key={row.user_id} style={[S.marketRow, i % 2 === 0 && S.marketRowAlt]}>
+                <View style={S.marketNameCell}>
+                  <AvatarCell avatarId={row.avatar_id} avatarUrl={row.avatar_url} />
+                  <Text style={S.marketName} numberOfLines={1}>{row.full_name}</Text>
+                </View>
+                {MARKET_RANKS.map(rank => (
+                  <TouchableOpacity
+                    key={rank}
+                    style={S.marketCell}
+                    onPress={() => openWagerForSubject(buildRankSubject({
+                      userId: row.user_id,
+                      userName: row.full_name,
+                      rank,
+                      periodNumber,
+                    }))}
+                  >
+                    <Text style={S.marketCellText}>🎲</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ))}
+            {overflow && (
+              <TouchableOpacity
+                style={S.marketShowAll}
+                onPress={() => setMarketShowAll(v => !v)}
+              >
+                <Text style={S.marketShowAllText}>
+                  {marketShowAll ? 'Show top 12' : `Show all ${sorted.length}`}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  }
+
   // ── Render sections ───────────────────────────────────────────
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
@@ -603,6 +729,17 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         const isFuture = !period.locked && pStart > todayDateOnly;
         const isLive   = !period.locked && !isFuture && period.periodNumber === livePeriodNumber;
 
+        // Period market rows — PLUPR drives the sort.
+        const marketRows: MarketRow[] = !isFuture
+          ? period.rows.map(r => ({
+              user_id: r.user_id,
+              full_name: r.profile?.full_name ?? 'Unknown',
+              avatar_id: r.profile?.avatar_id ?? 1,
+              avatar_url: r.profile?.avatar_url ?? null,
+              plupr: Number(r.elo_at_snapshot ?? baseline),
+            }))
+          : [];
+
         // Future periods haven't started yet — no PLUPRs to display.
         if (isFuture) {
           return (
@@ -648,6 +785,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             : `Computed from matches played ${fmtDate(pStart)} → ${fmtDate(period.date)} — not yet locked in`;
 
         return (
+          <>
           <View style={S.tableCard}>
             <Text style={S.tableTitle}>
               Period {period.periodNumber} {headerSuffix}
@@ -712,11 +850,14 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               </Text>
             </View>
           </View>
+          {renderWagerMarket(marketRows, period.periodNumber)}
+          </>
         );
       })()}
 
       {/* ── Final standings ────────────────────────────────────── */}
       {activeTab === 'final' && (
+        <>
         <View style={S.tableCard}>
           <Text style={S.tableTitle}>
             🏆 {finalsAreComputed ? 'Final Standings — Historical Preview' : 'Final Season Standings'}
@@ -795,6 +936,17 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             </>
           )}
         </View>
+        {renderWagerMarket(
+          finals.map(r => ({
+            user_id: r.user_id,
+            full_name: r.profile?.full_name ?? 'Unknown',
+            avatar_id: r.profile?.avatar_id ?? 1,
+            avatar_url: r.profile?.avatar_url ?? null,
+            plupr: Number(r.new_elo ?? Number((season as any)?.baseline_plupr ?? 3.5)),
+          })),
+          null,
+        )}
+        </>
       )}
 
       <ConfirmModal
@@ -839,26 +991,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
           },
           {
             label: `🎲 Wager: ${rowContext.fullName} finishes #${rowContext.rank}`,
-            onPress: () => {
-              const subject: WagerSubject = rowContext.periodNumber === null
-                ? {
-                    type: 'season_rank',
-                    seasonId,
-                    userId: rowContext.userId,
-                    userName: rowContext.fullName,
-                    rank: rowContext.rank,
-                  }
-                : {
-                    type: 'period_rank',
-                    seasonId,
-                    periodNumber: rowContext.periodNumber,
-                    userId: rowContext.userId,
-                    userName: rowContext.fullName,
-                    rank: rowContext.rank,
-                  };
-              setWagerSubject(subject);
-              setWagerModalOpen(true);
-            },
+            onPress: () => openWagerForSubject(buildRankSubject({
+              userId: rowContext.userId,
+              userName: rowContext.fullName,
+              rank: rowContext.rank,
+              periodNumber: rowContext.periodNumber,
+            })),
           },
         ] : []}
         onClose={() => setRowSheetOpen(false)}
@@ -949,6 +1087,26 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     bonusLegendTitle:{ fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
     bonusLine:      { fontSize: 13, color: c.textSub, marginBottom: 2 },
     bonusNote:      { fontSize: 12, color: c.textMuted, marginTop: 4 },
+
+    // "🎲 Wager Market" panel
+    marketCard:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    marketHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    marketHeaderText:  { flex: 1 },
+    marketTitle:       { fontSize: 15, fontWeight: '800', color: c.text },
+    marketSubtitle:    { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    marketChevron:     { fontSize: 16, color: c.textSub, marginLeft: 10, fontWeight: '700' },
+    marketBody:        { marginTop: 10 },
+    marketTableHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1.5, borderBottomColor: c.border },
+    marketTh:          { flex: 1, fontSize: 11, fontWeight: '700', color: c.textMuted, textAlign: 'center' },
+    marketThName:      { flex: 2.4, textAlign: 'left' },
+    marketRow:         { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.bg },
+    marketRowAlt:      { backgroundColor: c.surfaceAlt },
+    marketNameCell:    { flex: 2.4, flexDirection: 'row', alignItems: 'center', gap: 8 },
+    marketName:        { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
+    marketCell:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, marginHorizontal: 2, borderRadius: 8, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.border },
+    marketCellText:    { fontSize: 16 },
+    marketShowAll:     { marginTop: 10, alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    marketShowAllText: { fontSize: 12, fontWeight: '700', color: c.textSub },
 
     // Live-tab info cards
     infoCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
