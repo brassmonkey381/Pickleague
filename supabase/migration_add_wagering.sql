@@ -364,9 +364,11 @@ begin
     return;
   end if;
 
-  -- Server-side odds (don't trust client).
-  select probability, odds into v_prob, v_odds
-    from public.calculate_wager_odds(p_subject_type, p_subject_id, p_predicate);
+  -- Server-side odds (don't trust client). Alias the function call so its
+  -- `odds` column doesn't collide with this function's OUT param of the
+  -- same name (RETURNS TABLE columns are in scope inside the body).
+  select co.probability, co.odds into v_prob, v_odds
+    from public.calculate_wager_odds(p_subject_type, p_subject_id, p_predicate) as co;
 
   if v_odds is null or v_odds < 1 then
     v_odds := 1.0;
