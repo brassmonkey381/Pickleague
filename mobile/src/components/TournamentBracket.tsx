@@ -13,13 +13,16 @@
  */
 
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BracketSlot = {
   label: string;            // "1st Pool A", "Winner Semi 1", etc.
   team?: string;            // player1 & player2 display name (or null = TBD)
   highlight?: boolean;      // this user is in this slot
+  // Optional tournament_matches.id for the match this slot represents (e.g.,
+  // semi-final 1, final). Pre-bracket seed slots leave this undefined.
+  tournamentMatchId?: string;
 };
 
 type Props = {
@@ -30,6 +33,10 @@ type Props = {
   semi1: BracketSlot;   // winner advances to final
   semi2: BracketSlot;
   final: BracketSlot;
+  // Optional handler: when provided, slots that carry a tournamentMatchId
+  // become long-pressable for actions like proposing a wager. The parent
+  // is responsible for opening the appropriate UI.
+  onPressMatch?: (tournamentMatchId: string) => void;
 };
 
 // Fixed dimensions for bracket layout
@@ -52,16 +59,19 @@ const FINAL_MID  = (SEMI1_MID + SEMI2_MID) / 2; // 136
 
 const FINAL_COLOR = '#b8860b';
 
-function SlotCard({ slot, isFinal }: { slot: BracketSlot; isFinal?: boolean }) {
+function SlotCard({
+  slot, isFinal, onPressMatch,
+}: { slot: BracketSlot; isFinal?: boolean; onPressMatch?: (id: string) => void }) {
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
   const hasteam = !!slot.team;
-  return (
-    <View style={[
-      styles.card,
-      isFinal && styles.cardFinal,
-      slot.highlight && styles.cardHighlight,
-    ]}>
+  const cardStyle = [
+    styles.card,
+    isFinal && styles.cardFinal,
+    slot.highlight && styles.cardHighlight,
+  ];
+  const inner = (
+    <>
       <Text style={[styles.cardLabel, isFinal && styles.cardLabelFinal]}>{slot.label}</Text>
       <Text style={[
         styles.cardTeam,
@@ -71,11 +81,27 @@ function SlotCard({ slot, isFinal }: { slot: BracketSlot; isFinal?: boolean }) {
       ]} numberOfLines={1}>
         {slot.team ?? 'TBD'}
       </Text>
-    </View>
+    </>
   );
+
+  // Pre-bracket seed slots have no tournamentMatchId — they stay inert.
+  if (onPressMatch && slot.tournamentMatchId) {
+    const id = slot.tournamentMatchId;
+    return (
+      <Pressable
+        style={({ pressed }) => [...cardStyle, pressed && styles.cardPressed]}
+        onLongPress={() => onPressMatch(id)}
+        onPress={() => onPressMatch(id)}
+      >
+        {inner}
+      </Pressable>
+    );
+  }
+
+  return <View style={cardStyle}>{inner}</View>;
 }
 
-export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi1, semi2, final }: Props) {
+export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi1, semi2, final, onPressMatch }: Props) {
   const { colors: c } = useTheme();
   const styles = makeStyles(c);
 
@@ -117,10 +143,10 @@ export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi
 
         {/* ── Semi-final cards ───────────────────────────────────── */}
         <View style={[styles.abs, { left: CW + CONN, top: SEMI1_MID - CH / 2 }]}>
-          <SlotCard slot={semi1} />
+          <SlotCard slot={semi1} onPressMatch={onPressMatch} />
         </View>
         <View style={[styles.abs, { left: CW + CONN, top: SEMI2_MID - CH / 2 }]}>
-          <SlotCard slot={semi2} />
+          <SlotCard slot={semi2} onPressMatch={onPressMatch} />
         </View>
 
         {/* Semi labels */}
@@ -147,7 +173,7 @@ export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi
           <Text style={[styles.roundLabel, styles.finalLabel]}>🏆 GRAND FINAL</Text>
         </View>
         <View style={[styles.abs, { left: CW + CONN + CW + CONN, top: FINAL_MID - CH / 2 }]}>
-          <SlotCard slot={final} isFinal />
+          <SlotCard slot={final} isFinal onPressMatch={onPressMatch} />
         </View>
 
       </View>
@@ -186,6 +212,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     cardHighlight: {
       borderColor: c.primary,
       backgroundColor: c.primaryLight,
+    },
+    cardPressed: {
+      opacity: 0.7,
     },
     cardLabel: { fontSize: 9, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
     cardLabelFinal: { color: FINAL_COLOR },
