@@ -12,6 +12,7 @@ import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { setClipboard } from '../lib/clipboard';
+import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Godmode'> };
 
@@ -69,6 +70,16 @@ export default function GodmodeScreen({ navigation }: Props) {
   const [acceptingAll, setAcceptingAll] = useState(false);
   const [acceptingInviteeKey, setAcceptingInviteeKey] = useState<string | null>(null);
   const [bulkAcceptingCodeId, setBulkAcceptingCodeId] = useState<string | null>(null);
+
+  const [pluprPickerOpen, setPluprPickerOpen] = useState(false);
+  const [pluprTarget, setPluprTarget] = useState<PickedUser | null>(null);
+  const [pluprOverall, setPluprOverall] = useState('');
+  const [pluprSingles, setPluprSingles] = useState('');
+  const [pluprDoubles, setPluprDoubles] = useState('');
+  const [pluprMixed,   setPluprMixed]   = useState('');
+  const [pluprLoading, setPluprLoading] = useState(false);
+  const [pluprSaving,  setPluprSaving]  = useState(false);
+
   const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => {
@@ -150,6 +161,50 @@ export default function GodmodeScreen({ navigation }: Props) {
     } else {
       status.error(`${invitee.user_name}: ${r.message}`);
     }
+  }
+
+  async function pickPluprTarget(u: PickedUser) {
+    setPluprPickerOpen(false);
+    setPluprTarget(u);
+    setPluprLoading(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('rating, singles_rating, doubles_rating, mixed_doubles_rating')
+      .eq('id', u.id)
+      .single();
+    setPluprLoading(false);
+    setPluprOverall(data?.rating != null         ? String(data.rating)              : '');
+    setPluprSingles(data?.singles_rating != null ? String(data.singles_rating)      : '');
+    setPluprDoubles(data?.doubles_rating != null ? String(data.doubles_rating)      : '');
+    setPluprMixed(  data?.mixed_doubles_rating != null ? String(data.mixed_doubles_rating) : '');
+  }
+
+  async function savePlupr() {
+    if (!pluprTarget) return;
+    const parse = (s: string): number | null => {
+      const t = s.trim();
+      if (!t) return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    setPluprSaving(true);
+    const { data, error } = await supabase.rpc('godmode_set_plupr', {
+      p_user_id: pluprTarget.id,
+      p_overall: parse(pluprOverall),
+      p_singles: parse(pluprSingles),
+      p_doubles: parse(pluprDoubles),
+      p_mixed:   parse(pluprMixed),
+    });
+    setPluprSaving(false);
+    if (error) { status.error(error.message); return; }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row) {
+      setPluprOverall(row.rating != null              ? String(row.rating)              : '');
+      setPluprSingles(row.singles_rating != null      ? String(row.singles_rating)      : '');
+      setPluprDoubles(row.doubles_rating != null      ? String(row.doubles_rating)      : '');
+      setPluprMixed(  row.mixed_doubles_rating != null ? String(row.mixed_doubles_rating): '');
+    }
+    status.success(`Saved PLUPR for ${pluprTarget.full_name}`);
   }
 
   async function forceAcceptAllInvitees(invite: ActiveInvite) {
@@ -385,13 +440,94 @@ export default function GodmodeScreen({ navigation }: Props) {
         )}
       </View>
 
+      <Text style={S.sectionHeader}>Player PLUPR</Text>
+      <View style={S.card}>
+        <Text style={S.tbdText}>
+          Manually set any player's PLUPR values. Match history is left
+          untouched — values here will be re-affected on the next match insert.
+        </Text>
+        <TouchableOpacity style={[S.acceptBtn, { marginTop: 12 }]} onPress={() => setPluprPickerOpen(true)}>
+          <Text style={S.acceptBtnText}>{pluprTarget ? `Picked: ${pluprTarget.full_name} — change` : 'Pick a player'}</Text>
+        </TouchableOpacity>
+
+        {pluprTarget && (
+          pluprLoading ? (
+            <ActivityIndicator color={c.primary} style={{ marginTop: 12 }} />
+          ) : (
+            <>
+              <View style={S.pluprRow}>
+                <Text style={S.pluprLabel}>Overall</Text>
+                <TextInput
+                  style={S.pluprInput}
+                  keyboardType="decimal-pad"
+                  value={pluprOverall}
+                  onChangeText={setPluprOverall}
+                  placeholder="—"
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+              <View style={S.pluprRow}>
+                <Text style={S.pluprLabel}>Singles</Text>
+                <TextInput
+                  style={S.pluprInput}
+                  keyboardType="decimal-pad"
+                  value={pluprSingles}
+                  onChangeText={setPluprSingles}
+                  placeholder="—"
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+              <View style={S.pluprRow}>
+                <Text style={S.pluprLabel}>Doubles</Text>
+                <TextInput
+                  style={S.pluprInput}
+                  keyboardType="decimal-pad"
+                  value={pluprDoubles}
+                  onChangeText={setPluprDoubles}
+                  placeholder="—"
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+              <View style={S.pluprRow}>
+                <Text style={S.pluprLabel}>Mixed</Text>
+                <TextInput
+                  style={S.pluprInput}
+                  keyboardType="decimal-pad"
+                  value={pluprMixed}
+                  onChangeText={setPluprMixed}
+                  placeholder="—"
+                  placeholderTextColor={c.textMuted}
+                />
+              </View>
+              <Text style={S.previewNote}>Leave a field blank to keep its current value.</Text>
+              <TouchableOpacity
+                style={[S.primaryBtn, pluprSaving && S.primaryBtnDim]}
+                onPress={savePlupr}
+                disabled={pluprSaving}
+              >
+                {pluprSaving
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={S.primaryBtnText}>Save PLUPR</Text>}
+              </TouchableOpacity>
+            </>
+          )
+        )}
+      </View>
+
       <Text style={S.sectionHeader}>Coming soon</Text>
       <View style={[S.card, S.tbdCard]}>
         <Text style={S.tbdText}>
           More admin utilities can land here. Suggestions: bulk-create accounts,
-          impersonate user, reset PLUPR, force-close a tournament, dump DB stats.
+          impersonate user, force-close a tournament, dump DB stats.
         </Text>
       </View>
+
+      <UserPickerModal
+        visible={pluprPickerOpen}
+        title="Pick a player"
+        onPick={pickPluprTarget}
+        onClose={() => setPluprPickerOpen(false)}
+      />
 
       <View style={{ height: 48 }} />
     </ScrollView>
@@ -460,5 +596,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     inviteeRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, gap: 8 },
     inviteeName:          { flex: 1, fontSize: 14, color: c.text },
     inviteeAcceptBtn:     { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
+
+    pluprRow:             { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12 },
+    pluprLabel:           { width: 80, fontSize: 13, fontWeight: '700', color: c.textSub },
+    pluprInput:           { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: c.text, backgroundColor: c.bg },
   });
 }
