@@ -198,6 +198,7 @@ export type Match = {
   team2_confirmed_by: string | null;
   confirm_deadline: string | null;
   played_at: string;
+  scheduled_at: string | null;
   player1_rating_before: number | null;
   player2_rating_before: number | null;
   player1_rating_after: number | null;
