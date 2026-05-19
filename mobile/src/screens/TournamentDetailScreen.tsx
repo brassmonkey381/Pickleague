@@ -711,31 +711,64 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         }
       }
 
-      // 1. Create a round record
-      const roundType = tournament.format === 'pool_play' ? 'pool' : 'winners';
-      const { data: round, error: rErr } = await supabase
-        .from('tournament_rounds')
-        .insert({
-          tournament_id: tournament.id,
-          round_number: 1,
-          label: FORMAT_META[tournament.format].label + ' Schedule',
-          round_type: roundType,
-        })
-        .select().single();
-      if (rErr) throw new Error('Could not create round: ' + rErr.message);
+      // 1. Create round record(s). Pool play needs ONE round per pool so the
+      // downstream renderer can group matches by pool (otherwise every match
+      // collapses into "Pool A" because pool identity is lost).
+      const isPoolPlay = tournament.format === 'pool_play';
+      const roundType  = isPoolPlay ? 'pool' : 'winners';
+
+      // poolIndex (0-based) → round.id. For non-pool-play, all matches share one round.
+      const roundIdByPool = new Map<number, string>();
+      let defaultRoundId: string | null = null;
+
+      if (isPoolPlay && pools && pools.length > 0) {
+        for (let pi = 0; pi < pools.length; pi++) {
+          const letter = String.fromCharCode(65 + pi);
+          const { data: poolRound, error: prErr } = await supabase
+            .from('tournament_rounds')
+            .insert({
+              tournament_id: tournament.id,
+              round_number: pi + 1,
+              label:        `Pool ${letter}`,
+              round_type:   'pool',
+            })
+            .select().single();
+          if (prErr) throw new Error(`Could not create Pool ${letter} round: ${prErr.message}`);
+          roundIdByPool.set(pi, poolRound.id);
+        }
+      } else {
+        const { data: round, error: rErr } = await supabase
+          .from('tournament_rounds')
+          .insert({
+            tournament_id: tournament.id,
+            round_number: 1,
+            label:        FORMAT_META[tournament.format].label + ' Schedule',
+            round_type:   roundType,
+          })
+          .select().single();
+        if (rErr) throw new Error('Could not create round: ' + rErr.message);
+        defaultRoundId = round.id;
+      }
 
       // 2. Save all matches — rotating_partners is always doubles regardless of setting
       const isRotating = tournament.format === 'rotating_partners' || tournament.format === 'mlp';
-      const matchRows = matches.map((m, i) => ({
-        tournament_id: tournament.id,
-        round_id:      round.id,
-        match_order:   i,
-        match_type:    isRotating ? 'doubles' : tournament.match_type,
-        team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
-        team1_player2: m.team1[1] && m.team1[1] !== 'BYE' ? m.team1[1] : null,
-        team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
-        team2_player2: m.team2[1] && m.team2[1] !== 'BYE' ? m.team2[1] : null,
-      }));
+      const matchRows = matches.map((m, i) => {
+        // Pool-play matches carry poolIndex (set in generatePoolPlay); fall back
+        // to pool 0 if absent so we never write a null round_id.
+        const roundId = isPoolPlay
+          ? (roundIdByPool.get(m.poolIndex ?? 0) ?? roundIdByPool.get(0)!)
+          : defaultRoundId!;
+        return {
+          tournament_id: tournament.id,
+          round_id:      roundId,
+          match_order:   i,
+          match_type:    isRotating ? 'doubles' : tournament.match_type,
+          team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
+          team1_player2: m.team1[1] && m.team1[1] !== 'BYE' ? m.team1[1] : null,
+          team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
+          team2_player2: m.team2[1] && m.team2[1] !== 'BYE' ? m.team2[1] : null,
+        };
+      });
 
       // Insert in batches of 20 to avoid request size issues
       for (let i = 0; i < matchRows.length; i += 20) {

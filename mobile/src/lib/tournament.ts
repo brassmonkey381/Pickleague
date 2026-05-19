@@ -21,6 +21,8 @@ export type MatchPairing = {
   label?: string;
   /** Which bracket this match belongs to. Defaults to 'winners' for single-elim. */
   bracket?: 'winners' | 'losers' | 'grand_final';
+  /** Zero-based pool index for pool_play matches (A=0, B=1, ...). Undefined otherwise. */
+  poolIndex?: number;
 };
 
 // ── Shuffle ───────────────────────────────────────────────────
@@ -200,6 +202,7 @@ export function generatePoolPlay(
     const poolMatches = generateRoundRobin(pool).map(m => ({
       ...m,
       label: `Pool ${String.fromCharCode(65 + pi)} · Round ${m.round}`,
+      poolIndex: pi,
     }));
     matches.push(...poolMatches);
   });
