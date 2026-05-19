@@ -23,6 +23,26 @@ type CreatedAccount = {
   full_name: string;
 };
 
+type ActiveInvite = {
+  code_id: string;
+  scope_type: 'league' | 'tournament';
+  scope_id: string;
+  scope_name: string | null;
+  token: string;
+  expires_at: string;
+  used_count: number;
+  max_uses: number | null;
+  already_member: boolean;
+};
+
+function daysUntil(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  const days = Math.ceil(ms / 86400000);
+  if (days <= 0) return 'expired';
+  if (days === 1) return '1 day';
+  return `${days} days`;
+}
+
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
 function splitName(fullName: string): { first: string; last: string } {
@@ -40,14 +60,68 @@ export default function GodmodeScreen({ navigation }: Props) {
   const [fullName, setFullName] = useState('');
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedAccount[]>([]);
+  const [invites, setInvites] = useState<ActiveInvite[] | null>(null);
+  const [loadingInvites, setLoadingInvites] = useState(false);
+  const [acceptingCodeId, setAcceptingCodeId] = useState<string | null>(null);
+  const [acceptingAll, setAcceptingAll] = useState(false);
   const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => {
     (async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      setAuthorized(isGodmodeUserId(user?.id));
+      const ok = isGodmodeUserId(user?.id);
+      setAuthorized(ok);
+      if (ok) loadInvites();
     })();
   }, []));
+
+  async function loadInvites() {
+    setLoadingInvites(true);
+    const { data, error } = await supabase.rpc('godmode_list_active_invites');
+    setLoadingInvites(false);
+    if (error) { status.error(`Couldn't load invites: ${error.message}`); return; }
+    setInvites((data ?? []) as ActiveInvite[]);
+  }
+
+  async function acceptInvite(invite: ActiveInvite): Promise<{ ok: boolean; message: string }> {
+    const { data, error } = await supabase.rpc('redeem_invite_code', { p_token: invite.token });
+    if (error) return { ok: false, message: error.message };
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.success) return { ok: false, message: row?.message ?? 'Redeem failed' };
+    return { ok: true, message: row.message ?? 'Joined' };
+  }
+
+  async function forceAccept(invite: ActiveInvite) {
+    setAcceptingCodeId(invite.code_id);
+    const result = await acceptInvite(invite);
+    setAcceptingCodeId(null);
+    if (result.ok) {
+      status.success(`Joined ${invite.scope_name ?? invite.scope_type}`);
+      loadInvites();
+    } else {
+      status.error(result.message);
+    }
+  }
+
+  async function acceptAllEligible() {
+    if (!invites) return;
+    const eligible = invites.filter(i => !i.already_member);
+    if (eligible.length === 0) return;
+    setAcceptingAll(true);
+    let joined = 0;
+    let failed = 0;
+    for (const inv of eligible) {
+      const r = await acceptInvite(inv);
+      if (r.ok) joined++; else failed++;
+    }
+    setAcceptingAll(false);
+    if (failed === 0) {
+      status.success(`Force-accepted ${joined} invite${joined === 1 ? '' : 's'}`);
+    } else {
+      status.error(`Joined ${joined}, ${failed} failed`);
+    }
+    loadInvites();
+  }
 
   const { first, last } = splitName(fullName);
   const previewEmail = first && last ? `${slug(first)}.${slug(last)}@pickleague.test` : '';
@@ -158,6 +232,73 @@ export default function GodmodeScreen({ navigation }: Props) {
         </>
       )}
 
+      <View style={S.inviteHeaderRow}>
+        <Text style={S.sectionHeader}>Active invites</Text>
+        <TouchableOpacity onPress={loadInvites} disabled={loadingInvites}>
+          <Text style={S.refreshLink}>{loadingInvites ? 'Refreshing…' : 'Refresh'}</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={S.card}>
+        {invites === null || loadingInvites ? (
+          <ActivityIndicator color={c.primary} />
+        ) : invites.length === 0 ? (
+          <Text style={S.tbdText}>No active invite codes in the system.</Text>
+        ) : (
+          <>
+            {(() => {
+              const eligible = invites.filter(i => !i.already_member);
+              return (
+                <TouchableOpacity
+                  style={[S.primaryBtn, (eligible.length === 0 || acceptingAll) && S.primaryBtnDim, { marginBottom: 12, marginTop: 0 }]}
+                  onPress={acceptAllEligible}
+                  disabled={eligible.length === 0 || acceptingAll}
+                >
+                  {acceptingAll
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={S.primaryBtnText}>
+                        Force-accept all eligible{eligible.length > 0 ? ` (${eligible.length})` : ''}
+                      </Text>}
+                </TouchableOpacity>
+              );
+            })()}
+            {invites.map((inv, i) => (
+              <View key={inv.code_id} style={[S.inviteRow, i === invites.length - 1 && S.inviteRowLast]}>
+                <View style={S.inviteHeaderInline}>
+                  <View style={[S.scopeBadge, inv.scope_type === 'tournament' ? S.scopeBadgeTournament : S.scopeBadgeLeague]}>
+                    <Text style={S.scopeBadgeText}>
+                      {inv.scope_type === 'tournament' ? '🏆 tournament' : '🎾 league'}
+                    </Text>
+                  </View>
+                  <Text style={S.inviteScopeName} numberOfLines={1}>
+                    {inv.scope_name ?? '(unknown scope)'}
+                  </Text>
+                </View>
+                <View style={S.inviteMetaRow}>
+                  <Text style={S.inviteToken}>{inv.token}</Text>
+                  <Text style={S.inviteMeta}>
+                    {daysUntil(inv.expires_at)}
+                    {inv.max_uses != null ? ` · ${inv.used_count}/${inv.max_uses} used` : ` · ${inv.used_count} used`}
+                  </Text>
+                </View>
+                {inv.already_member ? (
+                  <Text style={S.alreadyJoined}>✓ Already a member</Text>
+                ) : (
+                  <TouchableOpacity
+                    style={[S.acceptBtn, acceptingCodeId === inv.code_id && S.primaryBtnDim]}
+                    onPress={() => forceAccept(inv)}
+                    disabled={acceptingCodeId === inv.code_id}
+                  >
+                    {acceptingCodeId === inv.code_id
+                      ? <ActivityIndicator color={c.primary} size="small" />
+                      : <Text style={S.acceptBtnText}>Force accept</Text>}
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+          </>
+        )}
+      </View>
+
       <Text style={S.sectionHeader}>Coming soon</Text>
       <View style={[S.card, S.tbdCard]}>
         <Text style={S.tbdText}>
@@ -209,5 +350,22 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     gated:            { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: c.bg },
     gatedTitle:       { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 8 },
     gatedBody:        { color: c.textMuted, fontSize: 14 },
+
+    inviteHeaderRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8, marginBottom: 8 },
+    refreshLink:          { color: c.primary, fontSize: 13, fontWeight: '700' },
+    inviteRow:            { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border, gap: 4 },
+    inviteRowLast:        { borderBottomWidth: 0 },
+    inviteHeaderInline:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    scopeBadge:           { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+    scopeBadgeLeague:     { backgroundColor: c.primaryLight },
+    scopeBadgeTournament: { backgroundColor: '#fff1d6' },
+    scopeBadgeText:       { fontSize: 11, fontWeight: '700', color: c.text },
+    inviteScopeName:      { flex: 1, fontSize: 15, fontWeight: '700', color: c.text },
+    inviteMetaRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+    inviteToken:          { fontSize: 13, fontFamily: 'monospace', color: c.textSub, fontWeight: '700' },
+    inviteMeta:           { fontSize: 12, color: c.textMuted },
+    alreadyJoined:        { fontSize: 13, fontWeight: '700', color: c.primary, marginTop: 4 },
+    acceptBtn:            { alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
+    acceptBtnText:        { color: c.primary, fontSize: 13, fontWeight: '700' },
   });
 }
