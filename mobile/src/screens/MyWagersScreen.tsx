@@ -1,12 +1,13 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
+  ScrollView, RefreshControl,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { RootStackParamList, Wager } from '../types';
+import { RootStackParamList, Wager, LeagueSeason } from '../types';
 import { cancelWager, genericSubjectLabel, WagerStatus } from '../lib/wager';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
@@ -14,12 +15,38 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'MyWagers'> };
 
-const TABS: { key: WagerStatus; label: string }[] = [
+const STATUS_TABS: { key: WagerStatus; label: string }[] = [
   { key: 'open',      label: 'Open' },
   { key: 'won',       label: 'Won' },
   { key: 'lost',      label: 'Lost' },
   { key: 'cancelled', label: 'Cancelled' },
 ];
+
+type TopTab = 'mine' | 'markets';
+const TOP_TABS: { key: TopTab; label: string }[] = [
+  { key: 'mine',    label: 'My Wagers' },
+  { key: 'markets', label: 'Markets' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────
+// Markets types
+// ─────────────────────────────────────────────────────────────────────────
+type TournamentMarket = { id: string; name: string; status: string };
+
+type SeasonMarket = {
+  seasonId: string;
+  leagueId: string;
+  leagueName: string;
+  periodNumber: number;
+};
+
+type UpcomingMatchMarket = {
+  id: string;
+  leagueId: string;
+  whenIso: string | null;
+  team1Label: string;
+  team2Label: string;
+};
 
 function timeAgo(iso: string | null): string {
   if (!iso) return '';
@@ -32,20 +59,59 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function MyWagersScreen({ navigation: _ }: Props) {
+function formatWhen(iso: string | null): string {
+  if (!iso) return 'TBD';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// Compute the current period number (1-based) within an active season,
+// given today's date. Clamps to [1, total_periods].
+function currentPeriodFor(s: { start_date: string; lock_frequency_weeks: number; total_periods: number }): number {
+  const start = new Date(s.start_date + 'T00:00:00');
+  const today = new Date();
+  const msPerPeriod = s.lock_frequency_weeks * 7 * 24 * 60 * 60 * 1000;
+  if (today.getTime() < start.getTime()) return 1;
+  const elapsed = today.getTime() - start.getTime();
+  const p = Math.floor(elapsed / msPerPeriod) + 1;
+  if (p < 1) return 1;
+  if (p > s.total_periods) return s.total_periods;
+  return p;
+}
+
+export default function MyWagersScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const S = useMemo(() => makeStyles(c), [c]);
   const status = useStatusMessage();
 
+  const [topTab, setTopTab] = useState<TopTab>('mine');
+
+  // ── My Wagers state (existing) ─────────────────────────────────────────
   const [wagers, setWagers]   = useState<Wager[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab]         = useState<WagerStatus>('open');
   const [cancelTarget, setCancelTarget] = useState<Wager | null>(null);
   const [cancelling, setCancelling] = useState(false);
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  // ── Markets state ──────────────────────────────────────────────────────
+  const [marketsLoading, setMarketsLoading]       = useState(false);
+  const [marketsRefreshing, setMarketsRefreshing] = useState(false);
+  const [tournaments, setTournaments]             = useState<TournamentMarket[]>([]);
+  const [seasonMarkets, setSeasonMarkets]         = useState<SeasonMarket[]>([]);
+  const [upcomingMatches, setUpcomingMatches]     = useState<UpcomingMatchMarket[]>([]);
 
-  async function load() {
+  useFocusEffect(useCallback(() => {
+    loadWagers();
+    loadMarkets();
+  }, []));
+
+  // ────────────────────────────────────────────────────────────────────────
+  // My Wagers loaders + handlers
+  // ────────────────────────────────────────────────────────────────────────
+  async function loadWagers() {
     setLoading(true);
     const { data, error } = await supabase
       .from('wagers')
@@ -75,10 +141,107 @@ export default function MyWagersScreen({ navigation: _ }: Props) {
       return;
     }
     status.success(r.message || 'Wager cancelled.');
-    load();
+    loadWagers();
   }
 
-  function renderItem({ item }: { item: Wager }) {
+  // ────────────────────────────────────────────────────────────────────────
+  // Markets loader
+  // ────────────────────────────────────────────────────────────────────────
+  async function loadMarkets(mode: 'initial' | 'refresh' = 'initial') {
+    const setBusy = mode === 'refresh' ? setMarketsRefreshing : setMarketsLoading;
+    setBusy(true);
+    try {
+      await fetchMarkets();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fetchMarkets() {
+    const { data: { user } } = await supabase.auth.getUser();
+    const uid = user?.id ?? null;
+
+    const nowIso = new Date().toISOString();
+
+    const myLeaguesPromise = uid
+      ? supabase
+          .from('league_members')
+          .select('league_id, league:leagues(id, name)')
+          .eq('user_id', uid)
+      : null;
+
+    const [tournamentsRes, myLeaguesRes, upcomingRes] = await Promise.all([
+      supabase
+        .from('tournaments')
+        .select('id, name, status')
+        .in('status', ['registration', 'active'])
+        .order('start_time', { ascending: true, nullsFirst: false }),
+      myLeaguesPromise,
+      supabase
+        .from('matches')
+        .select(
+          'id, league_id, scheduled_at, played_at, status,'
+          + ' player1:profiles!matches_player1_id_fkey(full_name),'
+          + ' partner1:profiles!matches_partner1_id_fkey(full_name),'
+          + ' player2:profiles!matches_player2_id_fkey(full_name),'
+          + ' partner2:profiles!matches_partner2_id_fkey(full_name)'
+        )
+        .eq('status', 'scheduled')
+        .gt('scheduled_at', nowIso)
+        .order('scheduled_at', { ascending: true })
+        .limit(50),
+    ]);
+
+    if (tournamentsRes.error) status.error(tournamentsRes.error.message);
+    setTournaments((tournamentsRes.data ?? []) as TournamentMarket[]);
+
+    // Live league periods: for each league the user belongs to, find the
+    // active season and compute the current period.
+    const leagueRows = ((myLeaguesRes?.data ?? []) as any[]);
+    const leagueIds = leagueRows.map(r => r.league_id).filter(Boolean);
+    const leagueNameById = new Map<string, string>();
+    for (const r of leagueRows) {
+      const league = (r.league as any) ?? null;
+      if (league?.id) leagueNameById.set(league.id, league.name);
+    }
+    let seasons: LeagueSeason[] = [];
+    if (leagueIds.length > 0) {
+      const { data: seasonsData, error: seasonsErr } = await supabase
+        .from('league_seasons')
+        .select('*')
+        .in('league_id', leagueIds)
+        .eq('status', 'active');
+      if (seasonsErr) status.error(seasonsErr.message);
+      seasons = (seasonsData ?? []) as LeagueSeason[];
+    }
+    setSeasonMarkets(seasons.map(s => ({
+      seasonId: s.id,
+      leagueId: s.league_id,
+      leagueName: leagueNameById.get(s.league_id) ?? 'League',
+      periodNumber: currentPeriodFor(s),
+    })));
+
+    if (upcomingRes.error) status.error(upcomingRes.error.message);
+    const matchRows = (upcomingRes.data ?? []) as any[];
+    setUpcomingMatches(matchRows.map(m => {
+      const p1 = m.player1?.full_name ?? 'Player 1';
+      const p2 = m.player2?.full_name ?? 'Player 2';
+      const t1 = m.partner1?.full_name ? `${p1} / ${m.partner1.full_name}` : p1;
+      const t2 = m.partner2?.full_name ? `${p2} / ${m.partner2.full_name}` : p2;
+      return {
+        id: m.id,
+        leagueId: m.league_id,
+        whenIso: m.scheduled_at ?? m.played_at ?? null,
+        team1Label: t1,
+        team2Label: t2,
+      };
+    }));
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Renderers
+  // ────────────────────────────────────────────────────────────────────────
+  function renderWagerItem({ item }: { item: Wager }) {
     const label = genericSubjectLabel(item.subject_type, item.predicate || {});
     const settledLabel = item.settled_at ? timeAgo(item.settled_at) : '';
     const placedLabel  = timeAgo(item.placed_at);
@@ -107,45 +270,175 @@ export default function MyWagersScreen({ navigation: _ }: Props) {
     );
   }
 
+  function renderTournamentCard(t: TournamentMarket) {
+    return (
+      <TouchableOpacity
+        key={t.id}
+        style={S.row}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={S.rowSubject} numberOfLines={2}>{t.name}</Text>
+          <Text style={S.marketTag}>
+            {t.status === 'registration' ? 'Registration open' : 'Active'}
+          </Text>
+          <Text style={S.marketLink}>Open wager market →</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  function renderSeasonCard(m: SeasonMarket) {
+    return (
+      <TouchableOpacity
+        key={m.seasonId}
+        style={S.row}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('SeasonStandings', {
+          seasonId: m.seasonId, leagueId: m.leagueId, leagueName: m.leagueName,
+        })}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={S.rowSubject} numberOfLines={2}>
+            Period {m.periodNumber} · {m.leagueName}
+          </Text>
+          <Text style={S.marketTag}>Live league season</Text>
+          <Text style={S.marketLink}>Wager on period leaders →</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  function renderMatchCard(m: UpcomingMatchMarket) {
+    return (
+      <TouchableOpacity
+        key={m.id}
+        style={S.row}
+        activeOpacity={0.7}
+        onPress={() => navigation.navigate('MatchHistory', {
+          leagueId: m.leagueId, title: 'Upcoming Match',
+        })}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={S.rowSubject} numberOfLines={2}>
+            {m.team1Label} vs {m.team2Label}
+          </Text>
+          <Text style={S.marketTag}>Scheduled for {formatWhen(m.whenIso)}</Text>
+          <Text style={S.marketLink}>Open in match history →</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  function renderEmpty(text: string) {
+    return <Text style={S.sectionEmpty}>{text}</Text>;
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Layout
+  // ────────────────────────────────────────────────────────────────────────
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
       <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
 
-      <View style={S.tabs}>
-        {TABS.map(t => (
+      <View style={S.topTabs}>
+        {TOP_TABS.map(t => (
           <TouchableOpacity
             key={t.key}
-            style={[S.tab, tab === t.key && S.tabActive]}
-            onPress={() => setTab(t.key)}
+            style={[S.topTab, topTab === t.key && S.topTabActive]}
+            onPress={() => setTopTab(t.key)}
             activeOpacity={0.7}
           >
-            <Text style={[S.tabText, tab === t.key && S.tabTextActive]}>
-              {t.label} {counts[t.key] > 0 ? `(${counts[t.key]})` : ''}
+            <Text style={[S.topTabText, topTab === t.key && S.topTabTextActive]}>
+              {t.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {loading ? (
-        <View style={S.center}><ActivityIndicator color={c.primary} /></View>
-      ) : visible.length === 0 ? (
-        <View style={S.center}>
-          <Text style={S.emptyEmoji}>🎲</Text>
-          <Text style={S.emptyTitle}>No {tab} wagers</Text>
-          <Text style={S.emptyBody}>
-            {tab === 'open'
-              ? 'Place a wager from a match or tournament to see it here.'
-              : `You don't have any ${tab} wagers yet.`}
-          </Text>
-        </View>
+      {topTab === 'mine' ? (
+        <>
+          <View style={S.tabs}>
+            {STATUS_TABS.map(t => (
+              <TouchableOpacity
+                key={t.key}
+                style={[S.tab, tab === t.key && S.tabActive]}
+                onPress={() => setTab(t.key)}
+                activeOpacity={0.7}
+              >
+                <Text style={[S.tabText, tab === t.key && S.tabTextActive]}>
+                  {t.label} {counts[t.key] > 0 ? `(${counts[t.key]})` : ''}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {loading ? (
+            <View style={S.center}><ActivityIndicator color={c.primary} /></View>
+          ) : visible.length === 0 ? (
+            <View style={S.center}>
+              <Text style={S.emptyEmoji}>🎲</Text>
+              <Text style={S.emptyTitle}>No {tab} wagers</Text>
+              <Text style={S.emptyBody}>
+                {tab === 'open'
+                  ? 'Place a wager from a match or tournament to see it here.'
+                  : `You don't have any ${tab} wagers yet.`}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={visible}
+              keyExtractor={(w) => w.id}
+              renderItem={renderWagerItem}
+              contentContainerStyle={{ padding: 16 }}
+              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            />
+          )}
+        </>
       ) : (
-        <FlatList
-          data={visible}
-          keyExtractor={(w) => w.id}
-          renderItem={renderItem}
-          contentContainerStyle={{ padding: 16 }}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-        />
+        marketsLoading && !marketsRefreshing ? (
+          <View style={S.center}><ActivityIndicator color={c.primary} /></View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            refreshControl={
+              <RefreshControl
+                refreshing={marketsRefreshing}
+                onRefresh={() => loadMarkets('refresh')}
+                tintColor={c.primary}
+                colors={[c.primary]}
+              />
+            }
+          >
+            <Text style={S.sectionHeader}>Active Tournaments</Text>
+            {tournaments.length === 0
+              ? renderEmpty('No active tournaments. Tournaments unlock wagers on the champion.')
+              : (
+                <View style={S.sectionList}>
+                  {tournaments.map(renderTournamentCard)}
+                </View>
+              )}
+
+            <Text style={S.sectionHeader}>Live League Periods</Text>
+            {seasonMarkets.length === 0
+              ? renderEmpty('No live league seasons yet. Start a season to wager on period leaders.')
+              : (
+                <View style={S.sectionList}>
+                  {seasonMarkets.map(renderSeasonCard)}
+                </View>
+              )}
+
+            <Text style={S.sectionHeader}>Upcoming Matches</Text>
+            {upcomingMatches.length === 0
+              ? renderEmpty('No upcoming matches yet — schedule one to bet on it.')
+              : (
+                <View style={S.sectionList}>
+                  {upcomingMatches.map(renderMatchCard)}
+                </View>
+              )}
+          </ScrollView>
+        )
       )}
 
       <ConfirmModal
@@ -169,6 +462,12 @@ const STATUS_LABEL: Record<WagerStatus, string> = {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    topTabs:      { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 12 },
+    topTab:       { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+    topTabActive: { backgroundColor: c.primary, borderColor: c.primary },
+    topTabText:   { fontSize: 14, fontWeight: '800', color: c.textSub },
+    topTabTextActive: { color: '#fff' },
+
     tabs:        { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 12 },
     tab:         { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     tabActive:   { backgroundColor: c.primary, borderColor: c.primary },
@@ -191,5 +490,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     cancelBtn:    { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     cancelBtnText:{ color: c.danger, fontWeight: '700', fontSize: 12 },
+
+    sectionHeader: { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 8 },
+    sectionList:   { gap: 10, marginBottom: 18 },
+    sectionEmpty:  { fontSize: 13, color: c.textMuted, fontStyle: 'italic', marginBottom: 18, lineHeight: 19 },
+    marketTag:     { fontSize: 12, color: c.textSub, marginTop: 4 },
+    marketLink:    { fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 6 },
   });
 }
