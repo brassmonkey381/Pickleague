@@ -637,8 +637,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               <Text style={[S.th, S.thName]}>Player</Text>
               <Text style={S.th}>W</Text>
               <Text style={S.th}>L</Text>
+              <Text style={S.th}>STARTING PLUPR</Text>
               <Text style={S.th}>PLUPR</Text>
-              <Text style={S.th}>NEW</Text>
             </View>
             {period.rows.map((row, i) => {
               const bonus = bonusForRank(row.rank_at_snapshot);
@@ -658,8 +658,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </View>
                   <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
                   <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
-                  <Text style={S.td}>{Number(row.elo_at_snapshot ?? baseline).toFixed(2)}</Text>
                   <Text style={[S.td, S.tdNewElo]}>{newPlupr.toFixed(2)}</Text>
+                  <Text style={S.td}>{Number(row.elo_at_snapshot ?? baseline).toFixed(2)}</Text>
                 </TouchableOpacity>
               );
             })}
