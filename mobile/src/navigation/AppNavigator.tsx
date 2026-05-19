@@ -46,6 +46,7 @@ import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
+import MyWagersScreen from '../screens/MyWagersScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -112,6 +113,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       DrillSearch: 'drill/search',
       DrillRequests: 'drill/requests',
       Godmode: 'godmode',
+      MyWagers: 'wagers',
     },
   },
 };
@@ -193,6 +195,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
+                <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
               </>
             ) : (
               <>

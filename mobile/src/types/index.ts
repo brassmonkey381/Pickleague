@@ -360,6 +360,23 @@ export type SeasonFinalStanding = {
   profile?: { full_name: string; avatar_id?: number; avatar_url?: string | null };
 };
 
+export type Wager = {
+  id: string;
+  user_id: string;
+  subject_type:
+    | 'match' | 'tournament_match' | 'tournament_rank'
+    | 'period_rank' | 'season_rank' | 'match_score' | 'tournament_match_score';
+  subject_id: string;
+  predicate: Record<string, any>;
+  stake: number;
+  odds: number;
+  potential_payout: number;
+  status: 'open' | 'won' | 'lost' | 'cancelled';
+  placed_at: string;
+  settled_at: string | null;
+  notes: string | null;
+};
+
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
@@ -420,4 +437,5 @@ export type RootStackParamList = {
   ScoringAlgo: undefined;
   GiftPickles: undefined;
   Godmode: undefined;
+  MyWagers: undefined;
 };

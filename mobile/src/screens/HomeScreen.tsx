@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { icon: '🏓', label: 'Drill',       screen: 'Drill',       params: undefined },
   { icon: '🛒', label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '😎', label: 'Profile',     screen: 'Profile',     params: {} },
+  { icon: '🎲', label: 'Wagers',      screen: 'MyWagers',    params: undefined },
   { icon: '🥒', label: 'About',       screen: 'About',       params: undefined },
 ] as const;
 
