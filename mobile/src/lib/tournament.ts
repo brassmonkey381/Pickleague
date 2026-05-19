@@ -371,6 +371,7 @@ export function generateDoublesPoolPlay(
     const poolMatches = generateDoublesRoundRobin(pool).map(m => ({
       ...m,
       label: `Pool ${String.fromCharCode(65 + pi)} · Round ${m.round}`,
+      poolIndex: pi,
     }));
     matches.push(...poolMatches);
   });
