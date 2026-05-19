@@ -30,6 +30,9 @@ import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
 import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
+import ActionSheetModal from '../components/ActionSheetModal';
+import WagerProposeModal from '../components/WagerProposeModal';
+import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
@@ -94,6 +97,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [completing, setCompleting]               = useState(false);
   const [completeError, setCompleteError]         = useState<string | null>(null);
+
+  // Wagering — match outcome / exact-score / champion. wagerMatchPick must
+  // outlive the action sheet so the exact-score sub-flow can still read it.
+  const [wagerSubject, setWagerSubject] = useState<WagerSubject | null>(null);
+  const [wagerOpen, setWagerOpen]       = useState(false);
+  const [wagerMatchPick, setWagerMatchPick] = useState<{
+    tournamentMatchId: string;
+    team1Label: string;
+    team2Label: string;
+  } | null>(null);
+  const [actionSheetOpen, setActionSheetOpen] = useState(false);
+  const [exactScoreOpen, setExactScoreOpen] = useState(false);
+  const [exactScoreT1, setExactScoreT1]     = useState('');
+  const [exactScoreT2, setExactScoreT2]     = useState('');
+  const [exactScoreError, setExactScoreError] = useState<string | null>(null);
+  const [championPickerOpen, setChampionPickerOpen] = useState(false);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -788,6 +807,60 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     return profileNames[id] ?? '…';
   }
 
+  // ── Wagering helpers ────────────────────────────────────────
+  function openMatchWager(
+    pickedTeam: 'team1' | 'team2',
+    pick: { tournamentMatchId: string; team1Label: string; team2Label: string },
+  ) {
+    setWagerSubject({
+      type: 'tournament_match',
+      tournamentMatchId: pick.tournamentMatchId,
+      teamLabels: { team1: pick.team1Label, team2: pick.team2Label },
+      pickedTeam,
+    });
+    setWagerOpen(true);
+  }
+
+  function submitExactScore() {
+    setExactScoreError(null);
+    const t1 = parseInt(exactScoreT1.trim(), 10);
+    const t2 = parseInt(exactScoreT2.trim(), 10);
+    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
+      setExactScoreError('Both scores must be non-negative integers.');
+      return;
+    }
+    const pick = wagerMatchPick;
+    if (!pick) { setExactScoreError('Lost track of which match — try again.'); return; }
+    setWagerSubject({
+      type: 'tournament_match_score',
+      tournamentMatchId: pick.tournamentMatchId,
+      teamLabels: { team1: pick.team1Label, team2: pick.team2Label },
+      team1Score: t1,
+      team2Score: t2,
+    });
+    setExactScoreOpen(false);
+    setExactScoreT1('');
+    setExactScoreT2('');
+    setWagerOpen(true);
+  }
+
+  function openMatchActionSheet(m: {
+    id: string;
+    team1_player1: string | null; team1_player2: string | null;
+    team2_player1: string | null; team2_player2: string | null;
+  }) {
+    const team1Label = ([m.team1_player1, m.team1_player2].filter(Boolean) as string[]).map(playerName).join(' & ') || 'Team 1';
+    const team2Label = ([m.team2_player1, m.team2_player2].filter(Boolean) as string[]).map(playerName).join(' & ') || 'Team 2';
+    setWagerMatchPick({ tournamentMatchId: m.id, team1Label, team2Label });
+    setActionSheetOpen(true);
+  }
+
+  function openMatchActionSheetById(matchId: string) {
+    const m = savedMatches.find((sm: any) => sm.id === matchId);
+    if (!m) return;
+    openMatchActionSheet(m);
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
   if (!tournament) return <Text style={S.empty}>Tournament not found.</Text>;
 
@@ -864,6 +937,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           )}
           {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
+
+          {/* Champion wager — only useful while the tournament is still in play. */}
+          {tournament.status !== 'completed' && tournament.status !== 'cancelled' && approved.length > 0 && (
+            <Pressable
+              style={({ pressed }) => [S.championWagerBtn, pressed && S.championWagerBtnPressed]}
+              onPress={() => setChampionPickerOpen(true)}
+            >
+              <Text style={S.championWagerText}>🎲 Wager on champion</Text>
+            </Pressable>
+          )}
         </View>
 
         <StatusBanner status={status.value} style={{ marginHorizontal: 12 }} />
@@ -1355,6 +1438,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     : 'Semi-Final 1',
                   team: semi1Winner?.name,
                   highlight: semi1Winner?.isMe,
+                  tournamentMatchId: semi1Match?.id,
                 }}
                 semi2={{
                   label: semi2Match?.status === 'completed'
@@ -1362,6 +1446,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     : 'Semi-Final 2',
                   team: semi2Winner?.name,
                   highlight: semi2Winner?.isMe,
+                  tournamentMatchId: semi2Match?.id,
                 }}
                 final={{
                   label: finalMatch?.status === 'completed'
@@ -1369,7 +1454,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     : 'Grand Final',
                   team: finalWinner?.name,
                   highlight: finalWinner?.isMe,
+                  tournamentMatchId: finalMatch?.id,
                 }}
+                onPressMatch={openMatchActionSheetById}
               />
             </View>
           );
@@ -1451,12 +1538,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                         prefillTeam2Player: m.team2_player1 ?? undefined,
                         prefillTeam2Partner:m.team2_player2 ?? undefined,
                       });
-                      const Row: any = tappable ? TouchableOpacity : View;
+                      const wagerable = !completed && !!m.team1_player1 && !!m.team2_player1;
+                      const Row: any = tappable || wagerable ? TouchableOpacity : View;
+                      const rowProps: Record<string, any> = {};
+                      if (tappable) { rowProps.onPress = handlePress; rowProps.activeOpacity = 0.6; }
+                      if (wagerable) { rowProps.onLongPress = () => openMatchActionSheet(m); }
                       return (
                         <Row
                           key={m.id}
                           style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
-                          {...(tappable ? { onPress: handlePress, activeOpacity: 0.6 } : {})}
+                          {...rowProps}
                         >
                           <Text style={S.matchNum}>{i + 1}</Text>
                           <Text style={[
@@ -1839,6 +1930,153 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onClose={() => setShowPayoutModal(false)}
         onPaid={() => { setShowPayoutModal(false); load(); }}
       />
+
+      {/* ── Wager action sheet ── */}
+      <ActionSheetModal
+        visible={actionSheetOpen}
+        title="Propose wager"
+        subtitle={
+          wagerMatchPick
+            ? `${wagerMatchPick.team1Label}  vs  ${wagerMatchPick.team2Label}`
+            : undefined
+        }
+        onClose={() => setActionSheetOpen(false)}
+        actions={
+          wagerMatchPick
+            ? [
+                {
+                  label: `${wagerMatchPick.team1Label} wins`,
+                  onPress: () => openMatchWager('team1', wagerMatchPick),
+                },
+                {
+                  label: `${wagerMatchPick.team2Label} wins`,
+                  onPress: () => openMatchWager('team2', wagerMatchPick),
+                },
+                {
+                  label: 'Exact final score',
+                  onPress: () => setExactScoreOpen(true),
+                },
+              ]
+            : []
+        }
+      />
+
+      {/* ── Exact-score input modal ── */}
+      <ConfirmModal
+        visible={exactScoreOpen}
+        title="Predict exact score"
+        body={
+          wagerMatchPick
+            ? `${wagerMatchPick.team1Label}  vs  ${wagerMatchPick.team2Label}`
+            : undefined
+        }
+        primaryLabel="Continue"
+        busy={false}
+        error={exactScoreError}
+        primaryDisabled={!exactScoreT1.trim() || !exactScoreT2.trim()}
+        onConfirm={submitExactScore}
+        onClose={() => {
+          setExactScoreOpen(false);
+          setExactScoreT1('');
+          setExactScoreT2('');
+          setExactScoreError(null);
+          setWagerMatchPick(null);
+        }}
+        extraField={
+          <View style={S.scoreRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={S.scoreLabel}>{wagerMatchPick?.team1Label ?? 'Team 1'} score</Text>
+              <TextInput
+                style={S.scoreInput}
+                value={exactScoreT1}
+                onChangeText={setExactScoreT1}
+                placeholder="0"
+                placeholderTextColor={c.textMuted}
+                keyboardType="number-pad"
+                maxLength={3}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={S.scoreLabel}>{wagerMatchPick?.team2Label ?? 'Team 2'} score</Text>
+              <TextInput
+                style={S.scoreInput}
+                value={exactScoreT2}
+                onChangeText={setExactScoreT2}
+                placeholder="0"
+                placeholderTextColor={c.textMuted}
+                keyboardType="number-pad"
+                maxLength={3}
+              />
+            </View>
+          </View>
+        }
+      />
+
+      {/* ── Champion picker (approved tournament members) ── */}
+      <Modal
+        visible={championPickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setChampionPickerOpen(false)}
+      >
+        <Pressable style={S.modalOverlay} onPress={() => setChampionPickerOpen(false)}>
+          <Pressable style={S.modalSheet} onPress={() => {}}>
+            <Text style={S.modalTitle}>Wager on champion</Text>
+            <Text style={S.modalSubtitle}>
+              Pick the player you think wins the tournament.
+            </Text>
+            <FlatList
+              data={approved}
+              keyExtractor={r => r.id}
+              scrollEnabled={approved.length > 6}
+              style={{ maxHeight: 320 }}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={S.partnerOption}
+                  onPress={() => {
+                    const uname = item.profile?.full_name ?? 'Unknown';
+                    setWagerSubject({
+                      type: 'tournament_rank',
+                      tournamentId,
+                      tournamentName: tournament?.name ?? '',
+                      userId: item.user_id,
+                      userName: uname,
+                      rank: 1,
+                    });
+                    setChampionPickerOpen(false);
+                    setWagerOpen(true);
+                  }}
+                >
+                  <View style={S.partnerOptionAvatar}>
+                    <Text style={S.partnerOptionInitial}>
+                      {(item.profile?.full_name ?? '?')[0].toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={S.partnerOptionName}>{item.profile?.full_name ?? '—'}</Text>
+                  <Text style={S.partnerOptionRating}>
+                    {formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={S.modalEmpty}>No approved players yet.</Text>}
+            />
+            <TouchableOpacity style={S.modalClose} onPress={() => setChampionPickerOpen(false)}>
+              <Text style={S.modalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── Wager propose modal (Unit 1) ── */}
+      <WagerProposeModal
+        visible={wagerOpen}
+        subject={wagerSubject}
+        onClose={() => {
+          setWagerOpen(false);
+          setWagerSubject(null);
+          setWagerMatchPick(null);
+        }}
+      />
     </>
   );
 }
@@ -2036,5 +2274,28 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalEmpty: { textAlign: 'center', color: c.textMuted, paddingVertical: 20, fontSize: 15 },
     modalClose: { marginTop: 16, padding: 14, alignItems: 'center' },
     modalCloseText: { fontSize: 15, color: c.textMuted },
+
+    // Champion wager button (header card)
+    championWagerBtn: {
+      marginTop: 10,
+      alignSelf: 'flex-start',
+      backgroundColor: c.primaryLight,
+      borderColor: c.primary,
+      borderWidth: 1,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    championWagerBtnPressed: { opacity: 0.7 },
+    championWagerText: { fontSize: 13, fontWeight: '800', color: c.primary },
+
+    // Exact-score modal inputs
+    scoreRow:   { flexDirection: 'row', gap: 12, marginTop: 4, marginBottom: 10 },
+    scoreLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, marginBottom: 4 },
+    scoreInput: {
+      borderWidth: 1, borderColor: c.border, borderRadius: 8,
+      paddingHorizontal: 10, paddingVertical: 8, fontSize: 16, color: c.text,
+      backgroundColor: c.surface,
+    },
   });
 }
