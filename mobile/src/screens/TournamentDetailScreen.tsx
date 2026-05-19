@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
   StyleSheet, ActivityIndicator, FlatList, TextInput,
@@ -50,6 +50,14 @@ type PartnerRequest = {
   requesterProfile?: Profile;
   requestedProfile?: Profile;
 };
+
+// Wager Market table — top 3 finishing ranks, ordered as displayed.
+const WAGER_MARKET_RANKS: ReadonlyArray<{ rank: number; emoji: string }> = [
+  { rank: 1, emoji: '🥇' },
+  { rank: 2, emoji: '🥈' },
+  { rank: 3, emoji: '🥉' },
+];
+const WAGER_MARKET_TOP_N = 12;
 
 export default function TournamentDetailScreen({ navigation, route }: Props) {
   const { tournamentId } = route.params;
@@ -112,7 +120,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [exactScoreT1, setExactScoreT1]     = useState('');
   const [exactScoreT2, setExactScoreT2]     = useState('');
   const [exactScoreError, setExactScoreError] = useState<string | null>(null);
-  const [championPickerOpen, setChampionPickerOpen] = useState(false);
+  const [wagerMarketOpen, setWagerMarketOpen]       = useState(false);
+  const [wagerMarketShowAll, setWagerMarketShowAll] = useState(false);
 
   // Edit-tournament modal (admin only)
   const [showEditModal, setShowEditModal]     = useState(false);
@@ -128,6 +137,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
+
+  // Approved registrations sorted by PLUPR desc — used by the Wager Market panel.
+  // "Not Rated" / null rating sinks to the bottom so unrated players don't outrank real ones.
+  const wagerMarketSorted = useMemo(() => {
+    const approvedRegs = registrations.filter(r => r.status === 'approved');
+    return approvedRegs.slice().sort((a, b) => {
+      const ap = a.profile as any;
+      const bp = b.profile as any;
+      const aVal = ap?.total_matches_played === 0 || ap?.rating == null ? -Infinity : Number(ap.rating);
+      const bVal = bp?.total_matches_played === 0 || bp?.rating == null ? -Infinity : Number(bp.rating);
+      return bVal - aVal;
+    });
+  }, [registrations]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -899,6 +921,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   const fmt        = FORMAT_META[tournament.format];
   const approved   = registrations.filter(r => r.status === 'approved');
+  const tournamentLive = tournament.status !== 'completed' && tournament.status !== 'cancelled';
   const pending    = registrations.filter(r => r.status === 'pending');
   // Pending registrations split: admin-invited (waiting on invitee) vs self-submitted requests.
   const pendingInvited  = pending.filter(r => r.invited_by != null);
@@ -971,14 +994,80 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
 
-          {/* Champion wager — only useful while the tournament is still in play. */}
-          {tournament.status !== 'completed' && tournament.status !== 'cancelled' && approved.length > 0 && (
-            <Pressable
-              style={({ pressed }) => [S.championWagerBtn, pressed && S.championWagerBtnPressed]}
-              onPress={() => setChampionPickerOpen(true)}
-            >
-              <Text style={S.championWagerText}>🎲 Wager on champion</Text>
-            </Pressable>
+          {/* Wager Market — visible only while the tournament is still in play. */}
+          {tournamentLive && approved.length > 0 && (
+            <>
+              <Pressable
+                style={({ pressed }) => [S.championWagerBtn, pressed && S.championWagerBtnPressed]}
+                onPress={() => setWagerMarketOpen(o => !o)}
+              >
+                <Text style={S.championWagerText}>
+                  {wagerMarketOpen ? '🎲 Wager Market ▾' : '🎲 Wager Market ▸'}
+                </Text>
+              </Pressable>
+
+              {wagerMarketOpen && (() => {
+                const overLimit = wagerMarketSorted.length > WAGER_MARKET_TOP_N;
+                const shown = overLimit && !wagerMarketShowAll
+                  ? wagerMarketSorted.slice(0, WAGER_MARKET_TOP_N)
+                  : wagerMarketSorted;
+                return (
+                  <View style={S.wagerMarketPanel}>
+                    <View style={S.wagerMarketHeader}>
+                      <Text style={[S.wagerMarketCellLabel, { flex: 1, textAlign: 'left' }]}>Player</Text>
+                      {WAGER_MARKET_RANKS.map(rc => (
+                        <Text key={rc.rank} style={S.wagerMarketCellLabel}>{rc.emoji}</Text>
+                      ))}
+                    </View>
+                    {shown.map(item => {
+                      const uname = item.profile?.full_name ?? '—';
+                      const initial = (item.profile?.full_name ?? '?')[0].toUpperCase();
+                      return (
+                        <View key={item.id} style={S.wagerMarketRow}>
+                          <View style={S.wagerMarketPlayerCell}>
+                            <View style={S.wagerMarketAvatar}>
+                              <Text style={S.wagerMarketAvatarText}>{initial}</Text>
+                            </View>
+                            <Text style={S.wagerMarketName} numberOfLines={1}>{uname}</Text>
+                          </View>
+                          {WAGER_MARKET_RANKS.map(rc => (
+                            <Pressable
+                              key={rc.rank}
+                              style={({ pressed }) => [S.wagerMarketBetBtn, pressed && S.wagerMarketBetBtnPressed]}
+                              onPress={() => {
+                                setWagerSubject({
+                                  type: 'tournament_rank',
+                                  tournamentId,
+                                  tournamentName: tournament.name,
+                                  userId: item.user_id,
+                                  userName: uname,
+                                  rank: rc.rank,
+                                });
+                                setWagerOpen(true);
+                              }}
+                            >
+                              <Text style={S.wagerMarketBetText}>{rc.emoji} Bet</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      );
+                    })}
+                    {overLimit && (
+                      <Pressable
+                        style={S.wagerMarketToggle}
+                        onPress={() => setWagerMarketShowAll(v => !v)}
+                      >
+                        <Text style={S.wagerMarketToggleText}>
+                          {wagerMarketShowAll
+                            ? `Show top ${WAGER_MARKET_TOP_N}`
+                            : `Show all (${wagerMarketSorted.length})`}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              })()}
+            </>
           )}
         </View>
 
@@ -2045,61 +2134,6 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         }
       />
 
-      {/* ── Champion picker (approved tournament members) ── */}
-      <Modal
-        visible={championPickerOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setChampionPickerOpen(false)}
-      >
-        <Pressable style={S.modalOverlay} onPress={() => setChampionPickerOpen(false)}>
-          <Pressable style={S.modalSheet} onPress={() => {}}>
-            <Text style={S.modalTitle}>Wager on champion</Text>
-            <Text style={S.modalSubtitle}>
-              Pick the player you think wins the tournament.
-            </Text>
-            <FlatList
-              data={approved}
-              keyExtractor={r => r.id}
-              scrollEnabled={approved.length > 6}
-              style={{ maxHeight: 320 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={S.partnerOption}
-                  onPress={() => {
-                    const uname = item.profile?.full_name ?? 'Unknown';
-                    setWagerSubject({
-                      type: 'tournament_rank',
-                      tournamentId,
-                      tournamentName: tournament?.name ?? '',
-                      userId: item.user_id,
-                      userName: uname,
-                      rank: 1,
-                    });
-                    setChampionPickerOpen(false);
-                    setWagerOpen(true);
-                  }}
-                >
-                  <View style={S.partnerOptionAvatar}>
-                    <Text style={S.partnerOptionInitial}>
-                      {(item.profile?.full_name ?? '?')[0].toUpperCase()}
-                    </Text>
-                  </View>
-                  <Text style={S.partnerOptionName}>{item.profile?.full_name ?? '—'}</Text>
-                  <Text style={S.partnerOptionRating}>
-                    {formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR
-                  </Text>
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={<Text style={S.modalEmpty}>No approved players yet.</Text>}
-            />
-            <TouchableOpacity style={S.modalClose} onPress={() => setChampionPickerOpen(false)}>
-              <Text style={S.modalCloseText}>Close</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
       {/* ── Wager propose modal (Unit 1) ── */}
       <WagerProposeModal
         visible={wagerOpen}
@@ -2321,6 +2355,74 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     },
     championWagerBtnPressed: { opacity: 0.7 },
     championWagerText: { fontSize: 13, fontWeight: '800', color: c.primary },
+
+    // Wager Market panel (collapsible table: players × ranks 1/2/3)
+    wagerMarketPanel: {
+      marginTop: 10,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 10,
+      backgroundColor: c.surfaceAlt,
+      padding: 8,
+    },
+    wagerMarketHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 4,
+      paddingBottom: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+      marginBottom: 4,
+    },
+    wagerMarketCellLabel: {
+      width: 64,
+      fontSize: 11,
+      fontWeight: '800',
+      color: c.textMuted,
+      textTransform: 'uppercase',
+      letterSpacing: 0.6,
+      textAlign: 'center',
+    },
+    wagerMarketRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 6,
+      paddingHorizontal: 4,
+      gap: 4,
+      borderBottomWidth: 1,
+      borderBottomColor: c.bg,
+    },
+    wagerMarketPlayerCell: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      minWidth: 0,
+    },
+    wagerMarketAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: c.primaryLight,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    wagerMarketAvatarText: { fontSize: 13, fontWeight: '800', color: c.primary },
+    wagerMarketName: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
+    wagerMarketBetBtn: {
+      width: 64,
+      paddingVertical: 6,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: c.primary,
+      backgroundColor: c.primaryLight,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    wagerMarketBetBtnPressed: { opacity: 0.7 },
+    wagerMarketBetText: { fontSize: 11, fontWeight: '800', color: c.primary },
+    wagerMarketToggle: { paddingVertical: 10, alignItems: 'center' },
+    wagerMarketToggleText: { fontSize: 12, fontWeight: '700', color: c.primary },
 
     // Exact-score modal inputs
     scoreRow:   { flexDirection: 'row', gap: 12, marginTop: 4, marginBottom: 10 },
