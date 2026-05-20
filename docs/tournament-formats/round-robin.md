@@ -22,6 +22,18 @@ each round. Players are drawn randomly into pools and bracket slots.
 ```
 — [`mobile/src/screens/CreateTournamentScreen.tsx:343-347`](../../mobile/src/screens/CreateTournamentScreen.tsx#L343-L347)
 
+Playoff Format hint text (shown when creating a `round_robin` or `pool_play` tournament — picker lives in the "Playoff Format" section of `CreateTournamentScreen.tsx`, just after the Pool Count section):
+
+```
+None:   No playoff — final standings come straight from group play.
+Top 2:  Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).
+Top 4:  Semifinals + Finals.
+Top 8:  Quarterfinals + Semifinals + Finals.
+```
+— [`mobile/src/screens/CreateTournamentScreen.tsx`](../../mobile/src/screens/CreateTournamentScreen.tsx) (Playoff Format section)
+
+The picker is backed by the `tournaments.playoff_format` column (NOT NULL, default `'none'`, CHECK in `('none','top_2','top_4','top_8')`), added in [`supabase/migration_add_playoff_format.sql`](../../supabase/migration_add_playoff_format.sql). Only the four single-elim variants are currently in the check constraint; the Double Elim variants discussed below (RR-5, RR-7) are **proposed only** and not yet a valid column value.
+
 The doc below elaborates on these short app descriptions with round-by-round math, schedule formulas, and edge cases. RR-1..RR-7 all use Single RR (each pair plays once); RR-8 swaps in Double RR (each pair plays twice).
 
 ---
@@ -56,6 +68,8 @@ Cross-references:
 ---
 
 ## RR-1: Single RR, no playoff
+
+App mapping: `playoff_format = 'none'` in the Playoff Format picker (the default).
 
 The simplest format. Everyone plays everyone once; final standings come straight from RR record. No bracket overhead, no win-and-in pressure — pure aggregate performance.
 
@@ -111,6 +125,8 @@ See [Schedule Formulas](./schedule-formulas.md) for the full parallelism cross-t
 
 ## RR-2: Single RR + Top 2 Final
 
+App mapping: `playoff_format = 'top_2'` in the Playoff Format picker. Note that the shipped `top_2` hint bundles the Final with the 3rd-place match, so RR-2 as a Final-only variant is conceptual — the picker always produces the RR-3 shape.
+
 After the RR concludes, the top 2 finishers play a one-match Final. Everyone else freezes at their RR-derived rank.
 
 ### Worked example (N = 8)
@@ -159,6 +175,8 @@ For N = 8: `M_total = 29`, `R_total = 8` rounds.
 ---
 
 ## RR-3: Single RR + Top 2 Final + 3rd Place Match
+
+App mapping: `playoff_format = 'top_2'` in the Playoff Format picker. The shipped Top 2 hint text — "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)" — describes exactly this permutation.
 
 Adds a single bronze-medal match between RR seeds #3 and #4, ideally played in parallel with the Final.
 
@@ -210,6 +228,8 @@ For N = 8 with 2+ courts: `M_total = 30`, `R_total = 8`.
 
 ## RR-4: Single RR + Top 4 Single Elim
 
+App mapping: `playoff_format = 'top_4'` in the Playoff Format picker (hint: "Semifinals + Finals.").
+
 Top 4 RR seeds enter a 4-player single-elimination bracket. Standard pairing: **1v4** and **2v3** in semifinals, winners meet in the Final. Most events also schedule a 3rd-place match between the semifinal losers (kept as part of the Top 4 SE convention).
 
 ### Worked example (N = 12)
@@ -260,6 +280,8 @@ For N = 12: `M_total = 70`, `R_total = 13`.
 ---
 
 ## RR-5: Single RR + Top 4 Double Elim (NEW losers-bracket playoff)
+
+App mapping: **proposed only — not yet in the column enum.** The `tournaments.playoff_format` CHECK constraint currently allows only `('none','top_2','top_4','top_8')`; a `top_4_de` value would need to be added (plus a matching picker pill in `CreateTournamentScreen.tsx`) before this permutation can be created in-app.
 
 Same Top 4 cut as RR-4, but the playoff is a double-elimination bracket: a loss drops you to the losers' bracket; you are out only after a second loss. See [Losers-Bracket Playoff Mechanics](./losers-bracket-playoff.md) for the full bracket-management rules (true-final / "if-necessary" match handling, seeding into the losers' side, etc.).
 
@@ -326,6 +348,8 @@ For N = 12: total matches = **72 or 73**; total rounds = **15 or 16**.
 
 ## RR-6: Single RR + Top 8 Single Elim
 
+App mapping: `playoff_format = 'top_8'` in the Playoff Format picker (hint: "Quarterfinals + Semifinals + Finals.").
+
 Same as RR-4 with a wider cut. Top 8 RR seeds enter an 8-team single-elim bracket: 1v8, 4v5, 2v7, 3v6 in QFs (standard re-seeded pairing), then SFs, then Final. A 3rd-place match between the two semi-final losers is included by convention.
 
 ### Worked example (N = 16)
@@ -383,6 +407,8 @@ For N = 16: `M_total = 128`, `R_total = 18`.
 ---
 
 ## RR-7: Single RR + Top 8 Double Elim (NEW)
+
+App mapping: **proposed only — not yet in the column enum.** Like RR-5, this needs a new `top_8_de` value added to the `tournaments.playoff_format` CHECK constraint (and a matching picker pill) before it can be created in-app.
 
 Top 8 RR seeds enter an 8-team double-elim bracket. See [Losers-Bracket Playoff Mechanics](./losers-bracket-playoff.md) for bracket plumbing.
 
