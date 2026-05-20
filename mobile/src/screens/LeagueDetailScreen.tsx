@@ -256,17 +256,33 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     for (const ev of ((votingRes.data ?? []) as any[])) {
       if (!ev.vote_ends_at) continue;
       const ms = new Date(ev.vote_ends_at).getTime();
-      if (ms < Date.now()) continue;
-      eItems.push({
-        key:   `v-${ev.id}`,
-        kind:  'event',
-        icon:  '🗳️',
-        title: ev.title,
-        whenLabel: `Voting ends ${fmt(ms)}`,
-        whenMs: ms,
-        badge: 'Voting',
-        onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
-      });
+      if (ms >= Date.now()) {
+        // Voting is still open — show with the live deadline.
+        eItems.push({
+          key:   `v-${ev.id}`,
+          kind:  'event',
+          icon:  '🗳️',
+          title: ev.title,
+          whenLabel: `Voting ends ${fmt(ms)}`,
+          whenMs: ms,
+          badge: 'Voting',
+          onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
+        });
+      } else {
+        // Voting closed but the event hasn't been finalized into 'scheduled'
+        // yet — surface it so admins can act on it.
+        eItems.push({
+          key:   `vc-${ev.id}`,
+          kind:  'event',
+          icon:  '⏰',
+          title: ev.title,
+          whenLabel: `Voting closed ${fmt(ms)} — needs finalization`,
+          // Sort vote-closed items right at "now" so they sit above future events.
+          whenMs: Date.now(),
+          badge: 'Vote closed',
+          onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
+        });
+      }
     }
     eItems.sort((a, b) => a.whenMs - b.whenMs);
 

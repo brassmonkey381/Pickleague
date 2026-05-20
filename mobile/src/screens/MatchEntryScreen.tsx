@@ -86,6 +86,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     tournamentId,
     tournamentMatchId,
     tournamentName,
+    eventId,
     prefillMatchType,
     prefillTeam1Player, prefillTeam1Partner,
     prefillTeam2Player, prefillTeam2Partner,
@@ -363,6 +364,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
     const { data, error } = await supabase.from('matches').insert({
       league_id:    leagueId,
+      event_id:     eventId ?? null,
       match_type:   matchType,
       player1_id:   p1,
       partner1_id:  matchType === 'doubles' ? partner1 : null,

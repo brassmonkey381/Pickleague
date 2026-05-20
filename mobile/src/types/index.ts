@@ -427,6 +427,9 @@ export type RootStackParamList = {
     tournamentId?: string;
     tournamentMatchId?: string;
     tournamentName?: string;
+    // When set, the resulting league match is tied to a league_events row
+    // (matches.event_id). Surfaces on EventDetail's matches list.
+    eventId?: string;
     // Pre-fill the player + match-type fields when arriving from a schedule.
     prefillMatchType?: 'singles' | 'doubles';
     prefillTeam1Player?: string;

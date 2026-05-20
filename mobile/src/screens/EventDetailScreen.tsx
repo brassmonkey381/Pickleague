@@ -50,6 +50,20 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [confirmedAttendees, setConfirmedAttendees] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState<string | null>(null); // slot id being toggled
+  type EventMatchRow = {
+    id: string;
+    match_type: 'singles' | 'doubles';
+    player1_score: number | null;
+    player2_score: number | null;
+    winner_team: 'team1' | 'team2' | null;
+    status: string;
+    played_at: string | null;
+    p1?: { full_name: string | null } | null;
+    p2?: { full_name: string | null } | null;
+    pn1?: { full_name: string | null } | null;
+    pn2?: { full_name: string | null } | null;
+  };
+  const [eventMatches, setEventMatches] = useState<EventMatchRow[]>([]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -93,6 +107,20 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         .eq('slot_id', ev.confirmed_slot_id);
       setConfirmedAttendees((winnerVotes ?? []).map((v: any) => v.profile).filter(Boolean));
     }
+
+    // Matches recorded against this event.
+    const { data: mRows } = await supabase
+      .from('matches')
+      .select(
+        'id, match_type, player1_score, player2_score, winner_team, status, played_at,'
+        + ' p1:profiles!matches_player1_id_fkey(full_name),'
+        + ' p2:profiles!matches_player2_id_fkey(full_name),'
+        + ' pn1:profiles!matches_partner1_id_fkey(full_name),'
+        + ' pn2:profiles!matches_partner2_id_fkey(full_name)'
+      )
+      .eq('event_id', eventId)
+      .order('played_at', { ascending: false });
+    setEventMatches((mRows ?? []) as unknown as EventMatchRow[]);
 
     setLoading(false);
   }
@@ -191,6 +219,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             {new Date(confirmedSlot.ends_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
           </Text>
           <Text style={S.confirmedAttendeeCount}>{confirmedAttendees.length} player{confirmedAttendees.length !== 1 ? 's' : ''} confirmed</Text>
+          <TouchableOpacity
+            style={S.recordBtn}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('MatchEntry', { leagueId: event.league_id, eventId })}
+          >
+            <Text style={S.recordBtnText}>📝 Record a match for this event</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Matches recorded for this event */}
+      {eventMatches.length > 0 && (
+        <View style={S.matchesSection}>
+          <Text style={S.matchesSectionTitle}>Matches recorded ({eventMatches.length})</Text>
+          {eventMatches.map(m => {
+            const teamA = [m.p1?.full_name, m.pn1?.full_name].filter(Boolean).join(' & ') || '?';
+            const teamB = [m.p2?.full_name, m.pn2?.full_name].filter(Boolean).join(' & ') || '?';
+            const scoreLabel = m.player1_score != null && m.player2_score != null
+              ? `${m.player1_score}–${m.player2_score}`
+              : '—';
+            const winSuffix = m.winner_team === 'team1' ? ' ✓ Team A' : m.winner_team === 'team2' ? ' ✓ Team B' : '';
+            return (
+              <View key={m.id} style={S.matchRow}>
+                <Text style={S.matchRowTeams} numberOfLines={2}>{teamA} vs {teamB}</Text>
+                <Text style={S.matchRowMeta}>
+                  {scoreLabel}{winSuffix} · {m.status === 'completed' ? 'final' : m.status}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
 
@@ -303,6 +361,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     confirmedDate: { fontSize: 20, fontWeight: '800', color: '#fff' },
     confirmedTime: { fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
     confirmedAttendeeCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 6 },
+
+    recordBtn:      { marginTop: 12, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
+    recordBtnText:  { color: '#fff', fontSize: 14, fontWeight: '700' },
+
+    matchesSection:       { marginHorizontal: 12, marginTop: 4, marginBottom: 12, padding: 14, borderRadius: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+    matchesSectionTitle:  { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
+    matchRow:             { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
+    matchRowTeams:        { fontSize: 14, fontWeight: '700', color: c.text },
+    matchRowMeta:         { fontSize: 12, color: c.textSub, marginTop: 2 },
     voteInstruction: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginVertical: 8, paddingHorizontal: 16 },
     slotCard: { backgroundColor: c.surface, marginHorizontal: 12, marginBottom: 10, borderRadius: 14, padding: 14, borderWidth: 2, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
     slotCardVoted: { borderColor: c.primary, backgroundColor: c.primaryLight },
