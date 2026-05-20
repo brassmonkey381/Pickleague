@@ -1020,6 +1020,31 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 PLUPR seeded' : '🎲 Random'}</Text>
             {tournament.format === 'pool_play' && <Text style={S.chip}>{tournament.pool_count} pools</Text>}
             {tournament.partner_rotation && <Text style={S.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
+            {(() => {
+              const f = tournament.format;
+              // Single-/double-elim: the bracket IS the playoff — no separate chip.
+              if (f === 'single_elimination' || f === 'double_elimination') return null;
+              // Rotating partners: no playoff concept today.
+              if (f === 'rotating_partners') return <Text style={S.chip}>🚫 No playoff</Text>;
+              // MLP: playoff lives in mlp_play_format + mlp_playoff_teams.
+              if (f === 'mlp' || f === 'mlp_random') {
+                const mpf = tournament.mlp_play_format;
+                if (mpf === 'round_robin_playoff' || mpf === 'pool_play_playoff') {
+                  return <Text style={S.chip}>🏆 Playoff: Top {tournament.mlp_playoff_teams}</Text>;
+                }
+                return <Text style={S.chip}>🚫 No playoff</Text>;
+              }
+              // round_robin / pool_play — use the unified playoff_format column.
+              const pf = tournament.playoff_format ?? 'none';
+              const tp = tournament.playoff_third_place ?? false;
+              if (pf === 'none')          return <Text style={S.chip}>🚫 No playoff</Text>;
+              if (pf === 'top_2')         return <Text style={S.chip}>🏆 Playoff: Top 2 + 3PM</Text>;
+              if (pf === 'top_4')         return <Text style={S.chip}>🏆 Playoff: Top 4{tp ? ' + 3PM' : ''}</Text>;
+              if (pf === 'top_8')         return <Text style={S.chip}>🏆 Playoff: Top 8{tp ? ' + 3PM' : ''}</Text>;
+              if (pf === 'top_1_per_pool') return <Text style={S.chip}>🏆 Playoff: Top 1 / pool</Text>;
+              if (pf === 'top_2_per_pool') return <Text style={S.chip}>🏆 Playoff: Top 2 / pool</Text>;
+              return null;
+            })()}
             <Text style={S.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
           </View>
 
