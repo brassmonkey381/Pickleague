@@ -379,28 +379,6 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           })}
         </View>
 
-        {/* ── Format ── (MLP restricts to round_robin / pool_play; single/double elim + rotating_partners are non-MLP only) */}
-        <SectionHeader title="Format" S={S} />
-        <View style={S.formatGrid}>
-          {FORMATS
-            .filter(f => matchType !== 'mlp' || f === 'round_robin' || f === 'pool_play')
-            .map(f => {
-              const meta = FORMAT_META[f];
-              const active = format === f;
-              return (
-                <TouchableOpacity
-                  key={f}
-                  style={[S.formatCard, active && S.formatCardActive]}
-                  onPress={() => setFormat(f)}
-                >
-                  <Text style={S.formatIcon}>{meta.icon}</Text>
-                  <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
-                  <Text style={S.formatDesc}>{meta.description}</Text>
-                </TouchableOpacity>
-              );
-            })}
-        </View>
-
         {/* ── Seeding ── */}
         <SectionHeader title="Bracket Seeding" S={S} />
         <View style={S.pillRow}>
