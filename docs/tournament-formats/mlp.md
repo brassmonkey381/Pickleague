@@ -60,6 +60,8 @@ Only **Top 2** declares a Third Place Match in the current app. **Top 4**
 is semis-into-final only; **Top 8** is QFs-SFs-Final only. There is no
 3PM in MLP-4 / MLP-5 / MLP-9 / MLP-10 today.
 
+MLP tournaments use the dedicated `mlp_playoff_teams` column (2/4/8 — see the existing MLP Playoff Size picker). A separate `playoff_format` column was added in PR #49 (`supabase/migration_add_playoff_format.sql`) for non-MLP `round_robin`/`pool_play` tournaments and does NOT apply to MLP. The two columns are mutually exclusive.
+
 ## MLP Vocabulary (read this first)
 
 - **Team meeting** — one team-vs-team encounter. Always produces
