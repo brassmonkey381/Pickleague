@@ -1,5 +1,31 @@
 # Round Robin Deep-Dive (RR-1 .. RR-8)
 
+## App descriptions (source of truth)
+
+The canonical user-facing copy shown in the Pickleague app is:
+
+```
+Round Robin — Every player faces every other player.
+```
+— [`mobile/src/lib/tournament.ts:383`](../../mobile/src/lib/tournament.ts#L383) (`FORMAT_META.round_robin.description`)
+
+Bracket Seeding hint text (shown when creating a tournament):
+
+```
+PLUPR-based: Determines bracket structure and which players face off in
+each round. Players are sorted by PLUPR; pools and brackets use
+snake-draft so the top seed faces the bottom seed and skill levels stay
+balanced across pools.
+
+Random draw: Determines bracket structure and which players face off in
+each round. Players are drawn randomly into pools and bracket slots.
+```
+— [`mobile/src/screens/CreateTournamentScreen.tsx:343-347`](../../mobile/src/screens/CreateTournamentScreen.tsx#L343-L347)
+
+The doc below elaborates on these short app descriptions with round-by-round math, schedule formulas, and edge cases. RR-1..RR-7 all use Single RR (each pair plays once); RR-8 swaps in Double RR (each pair plays twice).
+
+---
+
 This appendix covers every permutation built on a **Larger Format = `round_robin`** spine.
 It expands codes **RR-1 through RR-8** from [`../tournament-formats.md`](../tournament-formats.md).
 
