@@ -14,22 +14,33 @@ See also: [Round Robin](./round-robin.md), [Pool Play](./pool-play.md), [MLP](./
 
 ## App descriptions (source of truth)
 
-The DE playoff variants (`top_4_de`, `top_8_de`, `top_N_per_pool_de`) are **new formats proposed by this doc** — there is **no app-side hint text for them today**. The closest existing precedent in the app is the standalone Double Elim format:
+The Playoff Format picker now exists in `CreateTournamentScreen.tsx` (shipped in PR #49) but only exposes the SE variants (`none` / `top_2` / `top_4` / `top_8`). The DE variants this doc proposes (`top_4_de`, `top_8_de`, `top_N_per_pool_de`) are still **NOT** in the `tournaments.playoff_format` column enum.
+
+### Current (shipped) hint text
+
+The picker is shown when the larger format is `round_robin` or `pool_play` and quotes these hints verbatim:
+
+- **None**: "No playoff — final standings come straight from group play."
+- **Top 2**: "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)."
+- **Top 4**: "Semifinals + Finals."
+- **Top 8**: "Quarterfinals + Semifinals + Finals."
+
+These are all single-elimination (SE) variants. The closest existing DE precedent in the app is the standalone Double Elim larger format:
 
 > **`FORMAT_META.double_elimination`** (`mobile/src/lib/tournament.ts:385`):
 > "Two losses to be eliminated."
 
-The new DE playoff variants share that exact "two losses to be eliminated" semantic — they just apply it to the **top-N seeded entrants after group play**, instead of to the entire entrant list from match 1.
+The DE playoff variants proposed below share that exact "two losses to be eliminated" semantic — they just apply it to the **top-N seeded entrants after group play**, instead of to the entire entrant list from match 1.
 
 ### Proposed hint text (for future UI implementation)
 
-When these variants are wired into `CreateTournamentScreen.tsx`, the hint copy should match the style of the existing MLP Playoff Size hints (`CreateTournamentScreen.tsx:389-393`). Suggested strings:
+When the DE variants are wired into the picker, the hint copy should match the style of the existing SE entries above. Suggested strings:
 
 - **"Top 4 Double Elim"**: "Top 4 seeds enter a winners + losers bracket. Lose once and you drop to the losers bracket; lose twice and you're eliminated. Includes a Grand Final with optional bracket reset."
 - **"Top 8 Double Elim"**: "Top 8 seeds enter a winners + losers bracket. Same drop-in rules as Top 4 DE; longer bracket."
 - **"Top N per Pool Double Elim"**: "Top N from each pool cross over into a winners + losers bracket. Lose once → losers bracket; lose twice → eliminated."
 
-These are **proposed**, not current. They are written to be drop-in copy when the UI is built.
+These remain the recommended additions when the underlying SQL is wired up and the enum is extended.
 
 ---
 
@@ -307,6 +318,8 @@ What the new playoff variants change is **only how the WB round-1 matches are lo
 - `top_N_per_pool_de`: same, but with crossover seeding and either byes or a play-in round (see above).
 
 Then let the trigger run. The trigger inspects `format='double_elimination'` (line 155) — the cleanest way to wire this in is to have the format column read `double_elimination` for the playoff phase too (or extend the trigger's `if v_format` check to include the new format strings). Either way, the bracket-walking logic is unchanged.
+
+> **Enum note**: when the DE variants (`top_4_de`, `top_8_de`, `top_N_per_pool_de`) are added, the `check (playoff_format in (...))` constraint in [`supabase/migration_add_playoff_format.sql`](../../supabase/migration_add_playoff_format.sql) needs extending to cover them too — today it only allows `'none' | 'top_2' | 'top_4' | 'top_8'`.
 
 ---
 
