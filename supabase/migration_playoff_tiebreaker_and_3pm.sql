@@ -153,19 +153,20 @@ begin
     having count(*) = 2
   ),
   -- For each 2-entrant tie, fetch the two entrants ordered by current rn.
+  -- Postgres has no min(uuid) aggregate, so we self-join on rn_within
+  -- instead of pivoting with min(case when …).
+  ranked_pairs as (
+    select p.*,
+           row_number() over (partition by p.wins order by p.rn) as rn_within
+      from pre p
+  ),
   ties_2 as (
     select w.wins,
-           min(case when sub.rn_within = 1 then sub.lo end) as lo1,
-           min(case when sub.rn_within = 1 then sub.hi end) as hi1,
-           min(case when sub.rn_within = 2 then sub.lo end) as lo2,
-           min(case when sub.rn_within = 2 then sub.hi end) as hi2
+           e1.lo as lo1, e1.hi as hi1,
+           e2.lo as lo2, e2.hi as hi2
       from wins_pairs w
-      join (
-        select p.*,
-               row_number() over (partition by p.wins order by p.rn) as rn_within
-          from pre p
-      ) sub on sub.wins = w.wins
-     group by w.wins
+      join ranked_pairs e1 on e1.wins = w.wins and e1.rn_within = 1
+      join ranked_pairs e2 on e2.wins = w.wins and e2.rn_within = 2
   ),
   -- Compute head-to-head wins between the two entrants in each 2-entrant tie.
   h2h as (
