@@ -66,6 +66,25 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// Short month + day for the season chip ("Apr 15 – Jul 22"). Year omitted
+// unless the start year differs from the end year (then both years shown).
+function fmtShort(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+function fmtShortYear(iso: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatSeasonRange(startIso: string | null, endIso: string | null): string {
+  if (!startIso && !endIso) return 'TBD';
+  if (startIso && !endIso) return `Starts ${fmtShort(startIso)}`;
+  if (!startIso && endIso) return `Ends ${fmtShort(endIso)}`;
+  const startY = new Date(startIso! + 'T00:00:00').getFullYear();
+  const endY   = new Date(endIso!   + 'T00:00:00').getFullYear();
+  return startY === endY
+    ? `${fmtShort(startIso!)} – ${fmtShort(endIso!)}`
+    : `${fmtShortYear(startIso!)} – ${fmtShortYear(endIso!)}`;
+}
+
 export default function LeaguesScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -140,7 +159,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         ? supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids)
         : Promise.resolve({ data: [] }),
       supabase.from('league_seasons')
-        .select('league_id, status, baseline_plupr, start_date')
+        .select('league_id, status, baseline_plupr, start_date, end_date')
         .in('league_id', ids)
         .in('status', ['active', 'upcoming']),
       supabase.from('tournaments')
@@ -153,7 +172,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const matchRows      = matchRes.data ?? [];
     const myMembers      = (myMemberRes as any).data ?? [];
     const myRequests     = (myRequestRes as any).data ?? [];
-    const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string }[];
+    const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
     const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string }[];
 
     const leagues: LeagueWithStats[] = leagueRows.map((l) => {
@@ -163,12 +182,23 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       const hasRequested = myRequests.some((r: any) => r.league_id === l.id);
       const distinctDays = new Set(lMatches.map((m) => (m.played_at as string).slice(0, 10))).size;
 
-      const myActiveSeasons = seasonRows.filter(s => s.league_id === l.id);
-      const myActiveSeasonsOnly = myActiveSeasons.filter(s => s.status === 'active');
+      const leagueSeasons = seasonRows.filter(s => s.league_id === l.id);
+      const myActiveSeasonsOnly = leagueSeasons.filter(s => s.status === 'active');
       // Use the most-recently-started active season's baseline for display.
       const currentSeason = myActiveSeasonsOnly
         .slice()
         .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))[0];
+
+      // Featured season for the chip: prefer active (latest start), else
+      // upcoming (earliest start). Falls back to null → "TBD" in render.
+      const upcoming = leagueSeasons
+        .filter(s => s.status === 'upcoming')
+        .slice()
+        .sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))[0];
+      const featuredSeason = currentSeason ?? upcoming ?? null;
+      const featuredStatus: 'active' | 'upcoming' | null = featuredSeason
+        ? (featuredSeason.status === 'active' ? 'active' : 'upcoming')
+        : null;
       const activeTournamentCount = tournamentRows.filter(t => t.league_id === l.id).length;
 
       return {
@@ -182,6 +212,9 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         activeSeasonCount: myActiveSeasonsOnly.length,
         activeTournamentCount,
         currentBaselinePlupr: currentSeason?.baseline_plupr != null ? Number(currentSeason.baseline_plupr) : null,
+        featuredSeasonStatus: featuredStatus,
+        featuredSeasonStart: featuredSeason?.start_date ?? null,
+        featuredSeasonEnd:   featuredSeason?.end_date ?? null,
       };
     });
 
@@ -267,6 +300,25 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     setFilters((prev) => ({ ...prev, [key]: val }));
   }
 
+  // Color the season chip by its status: green for active (running now),
+  // amber for upcoming (planned but not yet started), gray for TBD (no
+  // season scheduled).
+  function seasonChipStyle(status: 'active' | 'upcoming' | null) {
+    if (status === 'active')   return { backgroundColor: c.primaryLight, borderColor: c.primary };
+    if (status === 'upcoming') return { backgroundColor: '#fff1d6',     borderColor: '#b8860b' };
+    return { backgroundColor: c.surfaceAlt, borderColor: c.border };
+  }
+  function seasonChipLabelStyle(status: 'active' | 'upcoming' | null) {
+    if (status === 'active')   return { color: c.primary };
+    if (status === 'upcoming') return { color: '#8a5b00' };
+    return { color: c.textMuted };
+  }
+  function seasonChipValueStyle(status: 'active' | 'upcoming' | null) {
+    if (status === 'active')   return { color: c.text };
+    if (status === 'upcoming') return { color: '#5c3d00' };
+    return { color: c.textSub };
+  }
+
   function renderLeagueCard({ item }: { item: LeagueWithStats }) {
     return (
       <TouchableOpacity
@@ -323,29 +375,29 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        {/* Activity row: baseline PLUPR + active seasons + active tournaments */}
-        {(item.currentBaselinePlupr != null || item.activeSeasonCount > 0 || item.activeTournamentCount > 0) && (
-          <View style={S.activityRow}>
-            {item.currentBaselinePlupr != null && (
-              <View style={S.activityChip}>
-                <Text style={S.activityChipLabel}>Baseline PLUPR</Text>
-                <Text style={S.activityChipValue}>{item.currentBaselinePlupr.toFixed(2)}</Text>
-              </View>
-            )}
-            {item.activeSeasonCount > 0 && (
-              <View style={S.activityChip}>
-                <Text style={S.activityChipLabel}>Active seasons</Text>
-                <Text style={S.activityChipValue}>{item.activeSeasonCount}</Text>
-              </View>
-            )}
-            {item.activeTournamentCount > 0 && (
-              <View style={S.activityChip}>
-                <Text style={S.activityChipLabel}>Active tournaments</Text>
-                <Text style={S.activityChipValue}>{item.activeTournamentCount}</Text>
-              </View>
-            )}
+        {/* Activity row: baseline PLUPR + featured season window + active tournaments */}
+        <View style={S.activityRow}>
+          {item.currentBaselinePlupr != null && (
+            <View style={S.activityChip}>
+              <Text style={S.activityChipLabel}>Baseline PLUPR</Text>
+              <Text style={S.activityChipValue}>{item.currentBaselinePlupr.toFixed(2)}</Text>
+            </View>
+          )}
+          <View style={[S.activityChip, seasonChipStyle(item.featuredSeasonStatus)]}>
+            <Text style={[S.activityChipLabel, seasonChipLabelStyle(item.featuredSeasonStatus)]}>
+              {item.featuredSeasonStatus === 'upcoming' ? 'Upcoming season' : 'Season'}
+            </Text>
+            <Text style={[S.activityChipValue, seasonChipValueStyle(item.featuredSeasonStatus)]}>
+              {formatSeasonRange(item.featuredSeasonStart, item.featuredSeasonEnd)}
+            </Text>
           </View>
-        )}
+          {item.activeTournamentCount > 0 && (
+            <View style={S.activityChip}>
+              <Text style={S.activityChipLabel}>Active tournaments</Text>
+              <Text style={S.activityChipValue}>{item.activeTournamentCount}</Text>
+            </View>
+          )}
+        </View>
 
         {/* Footer: created date + role/join status */}
         <View style={S.cardFooter}>

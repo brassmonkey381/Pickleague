@@ -105,6 +105,10 @@ export type LeagueWithStats = League & {
   activeTournamentCount: number;
   // Baseline PLUPR of the most-recent active season (null when no active season).
   currentBaselinePlupr: number | null;
+  // Featured season: active if any (latest), else next upcoming, else null.
+  featuredSeasonStatus: 'active' | 'upcoming' | null;
+  featuredSeasonStart: string | null;
+  featuredSeasonEnd: string | null;
 };
 
 export type LeagueJoinRequest = {
