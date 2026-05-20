@@ -244,6 +244,9 @@ export type Tournament = {
   mlp_play_format: 'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff';
   mlp_pool_count: number;
   mlp_playoff_teams: number;
+  // For non-MLP formats (round_robin, pool_play): which playoff bracket runs after group play.
+  // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final + 3PM.
+  playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8';
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
