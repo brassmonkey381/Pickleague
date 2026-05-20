@@ -46,10 +46,22 @@ export default function HomeScreen({ navigation }: Props) {
   // Drill sessions today (player1 or player2 = me). Used for the morning-of banner.
   const [drillsToday, setDrillsToday] = useState<(DrillSession & { partner_name: string })[]>([]);
 
+  // Tournaments — registered (active) + open-registration the user could join.
+  type TournamentRow = {
+    id: string; name: string;
+    start_time: string | null;
+    status: 'registration' | 'active' | 'completed' | 'cancelled' | string;
+    league_id: string | null;
+    my_status?: 'approved' | 'pending' | null;
+  };
+  const [myTournaments,   setMyTournaments]   = useState<TournamentRow[]>([]);
+  const [openTournaments, setOpenTournaments] = useState<TournamentRow[]>([]);
+
   useFocusEffect(useCallback(() => {
     loadProfile();
     loadUnread();
     loadDrillsToday();
+    loadTournaments();
   }, []));
 
   // Claim welcome pickles once per account, on first home visit after signup.
@@ -110,6 +122,43 @@ export default function HomeScreen({ navigation }: Props) {
         partner_name: r.player1_id === user.id ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
       }));
     setDrillsToday(visible);
+  }
+
+  async function loadTournaments() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setMyTournaments([]); setOpenTournaments([]); return; }
+
+    // Tournaments I'm registered for (still active or in registration).
+    const regsRes = await supabase
+      .from('tournament_registrations')
+      .select('status, tournament:tournaments(id, name, start_time, status, league_id)')
+      .eq('user_id', user.id)
+      .in('status', ['approved', 'pending']);
+
+    const mine: TournamentRow[] = [];
+    for (const r of ((regsRes.data ?? []) as any[])) {
+      const t = r.tournament as TournamentRow | null;
+      if (!t || t.status === 'completed' || t.status === 'cancelled') continue;
+      mine.push({ ...t, my_status: r.status });
+    }
+    mine.sort((a, b) => {
+      const ams = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+      const bms = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+      return ams - bms;
+    });
+
+    // Open-registration tournaments I haven't joined yet.
+    const myIds = new Set(mine.map(t => t.id));
+    const openRes = await supabase
+      .from('tournaments')
+      .select('id, name, start_time, status, league_id')
+      .eq('status', 'registration')
+      .order('start_time', { ascending: true, nullsFirst: false })
+      .limit(25);
+    const open = ((openRes.data ?? []) as TournamentRow[]).filter(t => !myIds.has(t.id));
+
+    setMyTournaments(mine);
+    setOpenTournaments(open);
   }
 
   async function dismissDrillReminder(session: DrillSession) {
@@ -216,6 +265,60 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={s.pickleLabel}>pickles · tap to shop</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Your tournaments (registered + open registration) ── */}
+      {(myTournaments.length > 0 || openTournaments.length > 0) && (
+        <View style={s.tournamentSection}>
+          <View style={s.tournamentSectionHeader}>
+            <Text style={s.tournamentSectionTitle}>🎾 Your tournaments</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Tournaments', {})}>
+              <Text style={s.tournamentViewAll}>View all →</Text>
+            </TouchableOpacity>
+          </View>
+          {myTournaments.slice(0, 3).map(t => (
+            <TouchableOpacity
+              key={`mine-${t.id}`}
+              style={s.tournamentRow}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={s.tournamentRowName} numberOfLines={1}>{t.name}</Text>
+                <Text style={s.tournamentRowMeta}>
+                  {t.start_time
+                    ? new Date(t.start_time).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
+                    : 'Date TBD'}
+                  {' · '}
+                  {t.my_status === 'pending' ? '📨 Invited' : t.status === 'registration' ? '✓ Registered' : '✓ Active'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+          {openTournaments.length > 0 && (
+            <>
+              <Text style={s.tournamentSubheading}>Open registration</Text>
+              {openTournaments.slice(0, 4).map(t => (
+                <TouchableOpacity
+                  key={`open-${t.id}`}
+                  style={s.tournamentRow}
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.tournamentRowName} numberOfLines={1}>{t.name}</Text>
+                    <Text style={s.tournamentRowMeta}>
+                      {t.start_time
+                        ? new Date(t.start_time).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
+                        : 'Date TBD'}
+                      {' · '}Tap to register
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </>
+          )}
+        </View>
+      )}
 
       {/* ── Today's drill session reminders ───────────────── */}
       {drillsToday.map(s2 => (
@@ -472,6 +575,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     welcomeBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
 
     grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, marginTop: 8 },
+
+    tournamentSection:       { marginHorizontal: 16, marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
+    tournamentSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    tournamentSectionTitle:  { fontSize: 15, fontWeight: '800', color: c.text },
+    tournamentViewAll:       { fontSize: 13, fontWeight: '700', color: c.primary },
+    tournamentSubheading:    { fontSize: 11, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 10, marginBottom: 4 },
+    tournamentRow:           { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
+    tournamentRowName:       { fontSize: 14, fontWeight: '700', color: c.text },
+    tournamentRowMeta:       { fontSize: 12, color: c.textSub, marginTop: 2 },
     card:     {
       width: '47%',
       backgroundColor: c.surface,
