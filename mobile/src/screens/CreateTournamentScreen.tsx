@@ -91,6 +91,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [seeding, setSeeding]         = useState<'random' | 'elo'>('random');
   const [poolCount, setPoolCount]     = useState(2);
   const [partnerRotation, setPartnerRotation] = useState<'every_match' | 'every_round'>('every_match');
+  const [playoffFormat, setPlayoffFormat] = useState<'none' | 'top_2' | 'top_4' | 'top_8'>('none');
 
   // Registration
   const [inviteOnly, setInviteOnly]   = useState(false);
@@ -238,6 +239,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       insertPayload.mlp_play_format   = mlpPlayFormat;
       insertPayload.mlp_pool_count    = mlpPoolCount;
       insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
+    } else if (format === 'round_robin' || format === 'pool_play') {
+      insertPayload.playoff_format = playoffFormat;
     }
 
     const { data: t, error: err } = await supabase
@@ -406,6 +409,28 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               ))}
             </View>
             <Text style={S.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on.</Text>
+          </>
+        )}
+
+        {/* ── Playoff format (round_robin and pool_play only — MLP has its own) ── */}
+        {(format === 'round_robin' || format === 'pool_play') && (
+          <>
+            <SectionHeader title="Playoff Format" S={S} />
+            <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
+              <Pill label="None"   active={playoffFormat === 'none'}  onPress={() => setPlayoffFormat('none')}  S={S} />
+              <Pill label="Top 2"  active={playoffFormat === 'top_2'} onPress={() => setPlayoffFormat('top_2')} S={S} />
+              <Pill label="Top 4"  active={playoffFormat === 'top_4'} onPress={() => setPlayoffFormat('top_4')} S={S} />
+              <Pill label="Top 8"  active={playoffFormat === 'top_8'} onPress={() => setPlayoffFormat('top_8')} S={S} />
+            </View>
+            <Text style={S.hint}>
+              {playoffFormat === 'none'
+                ? 'No playoff — final standings come straight from group play.'
+                : playoffFormat === 'top_2'
+                  ? 'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).'
+                  : playoffFormat === 'top_4'
+                    ? 'Semifinals + Finals.'
+                    : 'Quarterfinals + Semifinals + Finals.'}
+            </Text>
           </>
         )}
 
