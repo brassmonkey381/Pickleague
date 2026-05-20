@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
-  StyleSheet, ActivityIndicator, FlatList, TextInput,
+  StyleSheet, ActivityIndicator, FlatList, TextInput, Alert,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -80,6 +80,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Fixed doubles pairs (non-MLP doubles formats). Loaded alongside regs.
   const [doublesPairs, setDoublesPairs]   = useState<{ partner_1_id: string | null; partner_2_id: string | null }[]>([]);
   const [locking, setLocking]             = useState(false);
+  const [generatingPlayoff, setGeneratingPlayoff] = useState(false);
   const [showLockInConfirm, setShowLockInConfirm] = useState(false);
   const [lockInError, setLockInError]     = useState<string | null>(null);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
@@ -1678,6 +1679,63 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                     </View>
                   );
                 })}
+              </View>
+            );
+          })()}
+
+        {/* ── Generate Playoff (admin, non-MLP with playoff configured) ── */}
+        {isPriv
+          && tournament.status === 'active'
+          && (tournament.format === 'round_robin' || tournament.format === 'pool_play')
+          && (tournament.playoff_format ?? 'none') !== 'none'
+          && savedRounds.filter((r: any) => ['quarterfinals','semifinals','finals','third_place_match'].includes(r.round_type)).length === 0
+          && savedMatches.length > 0
+          && (() => {
+            const groupPlayPending = savedMatches.filter((m: any) => {
+              const r = savedRounds.find((r: any) => r.id === m.round?.id);
+              if (!r) return false;
+              return !['quarterfinals','semifinals','finals','third_place_match','consolation','losers'].includes(r.round_type)
+                && m.status !== 'completed';
+            }).length;
+            const ready = groupPlayPending === 0;
+            const sizeLabel =
+              tournament.playoff_format === 'top_2' ? 'Top 2 (Final + 3rd Place)' :
+              tournament.playoff_format === 'top_4' ? 'Top 4 (Semis + Final)' :
+              tournament.playoff_format === 'top_8' ? 'Top 8 (Quarters + Semis + Final)' :
+              tournament.playoff_format;
+
+            async function onGenerate() {
+              if (!ready || generatingPlayoff) return;
+              setGeneratingPlayoff(true);
+              const { error } = await supabase.rpc('generate_playoff_bracket', {
+                p_tournament_id: tournamentId,
+              });
+              setGeneratingPlayoff(false);
+              if (error) {
+                Alert.alert('Playoff generation failed', error.message);
+                return;
+              }
+              await load();
+            }
+
+            return (
+              <View style={S.section}>
+                <Text style={S.sectionTitle}>Playoff Bracket</Text>
+                <Text style={S.standingsSubtitle}>
+                  Configured: {sizeLabel}.
+                  {ready
+                    ? ' All group-play matches complete — ready to generate.'
+                    : ` Waiting on ${groupPlayPending} group-play match${groupPlayPending === 1 ? '' : 'es'} to complete.`}
+                </Text>
+                <TouchableOpacity
+                  style={[S.lockBtn, !ready && S.lockBtnDisabled, generatingPlayoff && S.lockBtnDisabled]}
+                  onPress={onGenerate}
+                  disabled={!ready || generatingPlayoff}
+                >
+                  <Text style={S.lockBtnText}>
+                    {generatingPlayoff ? 'Generating…' : '🏆 Generate Playoff Bracket'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             );
           })()}
