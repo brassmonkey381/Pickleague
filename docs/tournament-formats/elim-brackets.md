@@ -9,14 +9,40 @@ tournament (no round-robin / pool play layer in front):
 | SE-1 | `single_elimination` | — | Exists |
 | SE-2 | `single_elimination` | 3rd Place Match toggle | **NEW** (non-MLP) |
 | SE-3 | `single_elimination` | Consolation bracket | **NEW** |
-| DE-1 | `double_elimination` | bracket reset OFF | Exists (toggle NEW) |
-| DE-2 | `double_elimination` | bracket reset ON | Exists; UI toggle NEW |
+| DE-2 | `double_elimination` | bracket reset ON (default) | Exists; UI toggle NEW |
+| DE-1 | `double_elimination` | bracket reset OFF (variant) | Exists (toggle NEW) |
 
 For playoff brackets that *follow* group play (Top-N-after-RR /
 Top-N-after-pool-play), see
 [Losers-Bracket Playoff Mechanics](./losers-bracket-playoff.md).
 For 1-vs-N pairing rules, BYE assignment, and tiebreaker fallbacks, see
 [Seeding & Tiebreakers](./seeding-and-tiebreakers.md).
+
+---
+
+## App descriptions (source of truth)
+
+Pickleague surfaces these formats to users with the following short
+descriptions (from `mobile/src/lib/tournament.ts:382-390`, `FORMAT_META`):
+
+- **Single Elim** — "One loss and you're out." (`FORMAT_META.single_elimination`,
+  `mobile/src/lib/tournament.ts:384`)
+- **Double Elim** — "Two losses to be eliminated." (`FORMAT_META.double_elimination`,
+  `mobile/src/lib/tournament.ts:385`)
+
+These strings are the canonical user-facing contract. Everything below
+should be consistent with them; where a variant complicates the
+contract (notably DE-1), it's flagged explicitly.
+
+> **Note on DE-1 vs. the app text.** "Two losses to be eliminated"
+> implies the bracket-reset semantic: a player isn't out until they've
+> lost twice, *including in the Grand Final*. DE-2 (bracket reset ON)
+> upholds that contract — if the LB finalist wins GF1, GF2 is played so
+> the WB finalist can't be eliminated on a single loss. DE-1 (reset
+> OFF) breaks that contract: the WB finalist can be eliminated on one
+> loss in GF1. As such, DE-2 is treated as the **default** in this doc
+> and DE-1 is presented as a **variant** for venues that explicitly
+> opt out (it would need its own UI toggle).
 
 ---
 
@@ -30,8 +56,8 @@ Let `N` = number of entrants, `B` = next power of 2 at or above `N`
 | SE-1 | `N - 1` | One match eliminates one entrant; one survivor. |
 | SE-2 | `N - 1 + 1 = N` | +1 for the 3PM between losing semifinalists. |
 | SE-3 | `N - 1 + (C - 1)` where `C` = round-1 losers | Consolation is its own SE bracket; if `C` isn't a power of 2 it gets its own BYEs. |
-| DE-1 | `2(N - 1)` | Each entrant must be beaten twice to be eliminated; one less because the champ only needs `N-1` wins. |
-| DE-2 | `2(N - 1)` or `2N - 1` | +1 iff the LB finalist wins GF1 and forces GF2 ("bracket reset"). |
+| DE-2 (default) | `2(N - 1)` or `2N - 1` | +1 iff the LB finalist wins GF1 and forces GF2 ("bracket reset"). Upholds the app's "two losses to be eliminated" contract. |
+| DE-1 (variant) | `2(N - 1)` | No bracket reset. The WB finalist can be eliminated on a single loss in GF1 — does *not* match the app text; venue-specific opt-out only. |
 
 BYEs themselves don't add matches — a top seed paired with a BYE simply
 auto-advances. `_advance_double_elim_bracket` does **not** insert BYE rows;
@@ -225,23 +251,17 @@ Total: `4 (R16) + 7 (rest of main) + 3 (consolation) = 14`.
 
 ---
 
-## DE-1 — Double Elimination, Bracket Reset OFF
+## DE-2 — Double Elimination, Bracket Reset ON (default)
 
 A full double-elim bracket: winners (WB) + losers (LB) + grand final.
-Every entrant must lose **twice** to be eliminated — except the WB
-finalist, who only needs to lose once in the Grand Final to be
-eliminated in this variant.
+This is the **default** double-elim configuration in Pickleague — it
+upholds the app's `FORMAT_META.double_elimination` promise that takes
+"two losses to be eliminated." If the LB finalist wins GF1, both
+finalists have exactly one loss, so GF2 (the "bracket reset") is played
+to honor that contract.
 
-In DE-1, the Grand Final is a single match. The WB finalist enters
-0-loss; the LB finalist enters 1-loss. If the LB finalist wins GF1, they
-are champion and the WB finalist gets 2nd outright, even though the WB
-finalist has only lost once. This is the simpler, faster interpretation
-and is conventional for casual / time-boxed events.
-
-`_advance_double_elim_bracket` already handles GF1; "bracket reset OFF"
-just means *we never create GF2 even if the LB side wins GF1*. The
-infrastructure for this is the same trigger — only the GF1-winner branch
-changes (see DE-2 below for the reset path).
+The migration trigger already implements DE-2 as its default behavior;
+DE-1 (no reset) is the toggled-off variant, covered below.
 
 ### LB round structure (from migration_double_elim_advancement.sql)
 
@@ -280,16 +300,16 @@ Winners Bracket
                                               LB finalist (1 survivor)
 
                   WB finalist ──┐
-                                ├──── Grand Final ───→ Champion
-                  LB finalist ──┘     (1 match in DE-1, no reset)
+                                ├──── GF1 ──→ (see GF outcomes below)
+                  LB finalist ──┘
 ```
 
 Round-by-round match counts for 8 entrants:
 - WB: 4 + 2 + 1 = 7
 - LB: 2 (R1) + 2 (R2) + 1 (R3) + 1 (R4) = 6
-- GF: 1
-- **Total: 14 = 2·(8 - 1).** (`2(N - 1)` already accounts for the single
-  Grand Final; the formula assumes no reset.)
+- GF: 1 if WB finalist wins GF1; 2 if LB finalist wins and forces the reset
+- **Total: 14 (no reset) or 15 (reset triggered)** — i.e., `2(N - 1)` or
+  `2N - 1` for N=8.
 
 ### Worked example — 12 entrants (BYEs)
 
@@ -301,65 +321,9 @@ matches. The trigger's documented limitation: odd LB loser counts are
 (non-power-of-2 entrants with asymmetric BYE placement). For power-of-2
 sizes the LB pairs cleanly throughout.
 
-### Edge cases
+### Grand Final outcomes (reset path)
 
-- **Mid-bracket withdrawal.** A WB withdrawal forfeits the WB match
-  *and* gives the would-be loser (now the walkover winner) the
-  advancement; no automatic LB drop is inserted for the withdrawer.
-- **Withdrawal in LB.** Walkover. The remaining player advances; on the
-  final LB round they become the LB finalist.
-- **Odd loser counts in LB.** Per the trigger comments
-  (lines 296–303 of `migration_double_elim_advancement.sql`): "odd byes
-  in LB are dropped — a documented limitation; brackets sized to powers
-  of 2 don't hit this."
-- **GF1 is the only Grand Final.** With reset OFF, even if the LB
-  finalist wins GF1, no GF2 is created. (UI-side this is the toggle to
-  expose; the trigger as written *always* creates GF2 on team2 win — to
-  realize DE-1 we'd gate that branch on a new
-  `tournaments.de_bracket_reset` column.)
-
-### Schedule implications
-
-- Roughly `2× SE` matches → roughly 2× the total court-hours.
-- Walltime is **not** 2× SE — LB rounds interleave between WB rounds
-  (drop-ins are gated on the corresponding WB round finishing). A
-  well-courted 8-entrant DE runs in roughly the same walltime as a
-  16-entrant SE.
-- Pairs in LB drop-in rounds need WB losers to be ready, so a slow WB
-  round bottlenecks the LB.
-
----
-
-## DE-2 — Double Elimination, Bracket Reset ON
-
-The "true" double-elim. Same bracket as DE-1, except GF1 is *not*
-necessarily the championship. If the LB finalist wins GF1, both
-finalists now have exactly one loss, so GF2 (the "reset") is played to
-restore the "lose twice = eliminated" property. Whoever wins GF2 is
-champion.
-
-The migration trigger already implements this:
-
-```
--- migration_double_elim_advancement.sql, lines 184–207
-if v_round_number = 1 then
-  if new.winner_team = 'team2' then
-    -- Bracket reset: create GF2 with same pair…
-    v_gf_round_id := public._de_get_or_create_round(
-      new.tournament_id, 2, 'grand_final', 'Grand Final (Reset)');
-    …insert GF2 match…
-  else
-    -- WB finalist won → tournament complete.
-    update public.tournaments set status = 'completed' …
-```
-
-So DE-2 is the default behavior of the existing trigger; DE-1 is the
-*toggled-off* variant that needs the new
-`tournaments.de_bracket_reset boolean` column to suppress GF2.
-
-### Worked example — 8 entrants
-
-Identical to DE-1 until GF1. Two outcomes:
+GF1 has two possible outcomes:
 
 ```
 GF1 result          → next step
@@ -370,11 +334,7 @@ LB finalist wins    → GF2 forced ("Grand Final (Reset)")
                        Loser of GF2 = 2nd (now at 2 losses)
 ```
 
-Total matches:
-- **GF1 = WB finalist wins:** `2(N - 1) = 14` (for N=8) — identical to DE-1.
-- **GF1 = LB finalist wins → GF2 played:** `2N - 1 = 15` (for N=8).
-
-### ASCII diagram (GF section only — WB/LB identical to DE-1)
+### ASCII diagram (GF section only)
 
 ```
                           WB finalist  LB finalist
@@ -393,8 +353,32 @@ Total matches:
                                    (winner)        (loser, now 2L)
 ```
 
+The migration trigger already implements DE-2 as default:
+
+```
+-- migration_double_elim_advancement.sql, lines 184–207
+if v_round_number = 1 then
+  if new.winner_team = 'team2' then
+    -- Bracket reset: create GF2 with same pair…
+    v_gf_round_id := public._de_get_or_create_round(
+      new.tournament_id, 2, 'grand_final', 'Grand Final (Reset)');
+    …insert GF2 match…
+  else
+    -- WB finalist won → tournament complete.
+    update public.tournaments set status = 'completed' …
+```
+
 ### Edge cases
 
+- **Mid-bracket withdrawal.** A WB withdrawal forfeits the WB match
+  *and* gives the would-be loser (now the walkover winner) the
+  advancement; no automatic LB drop is inserted for the withdrawer.
+- **Withdrawal in LB.** Walkover. The remaining player advances; on the
+  final LB round they become the LB finalist.
+- **Odd loser counts in LB.** Per the trigger comments
+  (lines 296–303 of `migration_double_elim_advancement.sql`): "odd byes
+  in LB are dropped — a documented limitation; brackets sized to powers
+  of 2 don't hit this."
 - **GF1 winner = team1 (WB finalist).** Tournament ends; trigger sets
   `tournaments.status = 'completed'`.
 - **GF1 winner = team2 (LB finalist).** Trigger creates round
@@ -403,20 +387,67 @@ Total matches:
   WB finalist (now at 1 loss) and `team2` stays the LB finalist (also at
   1 loss).
 - **Withdrawal in GF1 or GF2.** Walkover. If the WB finalist withdraws
-  before GF1, the LB finalist becomes champion (and DE-2 still creates
-  no GF2 because there's no opponent).
-- **DE-2 toggle off mid-tournament** (i.e., admin flips
-  `de_bracket_reset` after GF1 was decided by team2). Out of scope — UI
-  should lock the toggle once round 1 of WB starts.
+  before GF1, the LB finalist becomes champion (and no GF2 is created
+  because there's no opponent).
+- **`de_bracket_reset` toggle off mid-tournament** (i.e., admin flips
+  to DE-1 after GF1 was decided by team2). Out of scope — UI should
+  lock the toggle once round 1 of WB starts.
 
 ### Schedule implications
 
-- Adds 0 matches in the most common case (WB finalist wins GF1) over
-  DE-1; adds exactly 1 match (GF2) when the LB side forces a reset.
-- The "reset" is the single highest-leverage match — for wagering
-  surfaces it's the most important match to keep open until GF1
-  completes.
-- Walltime ≈ DE-1; the GF2 (if any) is one extra match on top.
+- Roughly `2× SE` matches → roughly 2× the total court-hours.
+- Walltime is **not** 2× SE — LB rounds interleave between WB rounds
+  (drop-ins are gated on the corresponding WB round finishing). A
+  well-courted 8-entrant DE runs in roughly the same walltime as a
+  16-entrant SE.
+- Pairs in LB drop-in rounds need WB losers to be ready, so a slow WB
+  round bottlenecks the LB.
+- The "reset" GF2 (if any) is the single highest-leverage match — for
+  wagering surfaces it's the most important match to keep open until
+  GF1 completes. Adds 0 matches in the most common case (WB finalist
+  wins GF1); adds exactly 1 match when the LB side forces a reset.
+
+---
+
+## DE-1 — Double Elimination, Bracket Reset OFF (variant)
+
+> **Variant — does not match the app's user-facing text.** DE-1 drops
+> the bracket reset: the Grand Final is a single match, and if the LB
+> finalist wins GF1 they are champion outright — even though the WB
+> finalist has only lost *once*. That violates the
+> `FORMAT_META.double_elimination` promise of "two losses to be
+> eliminated." Use DE-1 only at venues that explicitly prefer the
+> simpler / faster interpretation and accept the asymmetry; it would
+> ship behind an explicit UI toggle (e.g.,
+> `tournaments.de_bracket_reset = false`) with the trade-off surfaced
+> to organizers.
+
+WB and LB structure, match counts, and edge cases are identical to
+DE-2 up through GF1. The only difference is the GF1 → GF2 branch:
+
+```
+                          WB finalist  LB finalist
+                              │             │
+                              └──── GF1 ────┘
+                                     │
+                       ┌─────────────┴─────────────┐
+                       ▼                           ▼
+          WB finalist wins                LB finalist wins
+                       │                           │
+                       ▼                           ▼
+                  Champion                     Champion
+                                      (WB finalist eliminated
+                                       on 1 loss — variant only)
+```
+
+- **Total matches:** always `2(N - 1)` (= 14 for N=8). No GF2 is ever
+  created.
+- **Trigger change required.** The existing trigger *always* creates
+  GF2 on a team2 win in GF1; realizing DE-1 means gating that branch
+  on a new `tournaments.de_bracket_reset` column.
+- **Schedule.** Saves at most one match (GF2) relative to DE-2, and
+  removes the highest-leverage match from the broadcast — generally
+  not worth the asymmetry except in time-boxed events.
 
 ---
 
