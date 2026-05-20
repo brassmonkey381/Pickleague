@@ -30,6 +30,19 @@ const FORMATS: TournamentFormat[] = [
 type UiMatchType = 'singles' | 'doubles' | 'mlp';
 type TeamCreation = 'fixed' | 'random';
 
+type PlayoffFormat =
+  | 'none' | 'top_2' | 'top_4' | 'top_8'
+  | 'top_1_per_pool' | 'top_2_per_pool';
+
+const PLAYOFF_FORMAT_HINTS: Record<PlayoffFormat, string> = {
+  none:            'No playoff — final standings come straight from group play.',
+  top_2:           'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).',
+  top_4:           'Semifinals + Finals.',
+  top_8:           'Quarterfinals + Semifinals + Finals.',
+  top_1_per_pool:  'Pool winners advance to a single-elim bracket. Crossover seeding (A1 vs B-last, etc.).',
+  top_2_per_pool:  'Top 2 from each pool advance to a single-elim bracket. Crossover seeding (A1 vs B2, B1 vs A2, etc.).',
+};
+
 // Returns the next Saturday at 9am local time. If it's already Saturday and
 // past 9am, jumps to next week's Saturday so the default is always in the future.
 function nextSaturday9am(): Date {
@@ -103,7 +116,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [seeding, setSeeding]         = useState<'random' | 'elo'>('random');
   const [poolCount, setPoolCount]     = useState(2);
   const [partnerRotation, setPartnerRotation] = useState<'every_match' | 'every_round'>('every_match');
-  const [playoffFormat, setPlayoffFormat] = useState<'none' | 'top_2' | 'top_4' | 'top_8'>('none');
+  const [playoffFormat, setPlayoffFormat] = useState<PlayoffFormat>('none');
   // Whether Top 4 / Top 8 brackets get a Third Place Match between losing semifinalists.
   // (Top 2 always pairs standings #3 vs #4 — that's not toggleable.)
   const [playoffThirdPlace, setPlayoffThirdPlace] = useState(false);
@@ -194,6 +207,17 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (isDoublesOnlyFormat && matchType === 'singles') setMatchType('doubles');
   }, [isDoublesOnlyFormat, matchType]);
+
+  // top_N_per_pool is only meaningful for non-MLP pool_play. Reset if either
+  // condition no longer holds so we don't ship an invalid combination.
+  useEffect(() => {
+    if (
+      (playoffFormat === 'top_1_per_pool' || playoffFormat === 'top_2_per_pool') &&
+      (format !== 'pool_play' || matchType === 'mlp')
+    ) {
+      setPlayoffFormat('none');
+    }
+  }, [format, matchType, playoffFormat]);
 
 
   function parsePayout(): number[] | null {
@@ -424,16 +448,15 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               <Pill label="Top 2"  active={playoffFormat === 'top_2'} onPress={() => setPlayoffFormat('top_2')} S={S} />
               <Pill label="Top 4"  active={playoffFormat === 'top_4'} onPress={() => setPlayoffFormat('top_4')} S={S} />
               <Pill label="Top 8"  active={playoffFormat === 'top_8'} onPress={() => setPlayoffFormat('top_8')} S={S} />
+              {/* Top N per Pool: pool_play only (non-MLP); crossover seeding. */}
+              {format === 'pool_play' && matchType !== 'mlp' && (
+                <>
+                  <Pill label="Top 1 per Pool" active={playoffFormat === 'top_1_per_pool'} onPress={() => setPlayoffFormat('top_1_per_pool')} S={S} />
+                  <Pill label="Top 2 per Pool" active={playoffFormat === 'top_2_per_pool'} onPress={() => setPlayoffFormat('top_2_per_pool')} S={S} />
+                </>
+              )}
             </View>
-            <Text style={S.hint}>
-              {playoffFormat === 'none'
-                ? 'No playoff — final standings come straight from group play.'
-                : playoffFormat === 'top_2'
-                  ? 'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).'
-                  : playoffFormat === 'top_4'
-                    ? 'Semifinals + Finals.'
-                    : 'Quarterfinals + Semifinals + Finals.'}
-            </Text>
+            <Text style={S.hint}>{PLAYOFF_FORMAT_HINTS[playoffFormat]}</Text>
             {(playoffFormat === 'top_4' || playoffFormat === 'top_8') && (
               <View style={S.toggleRow}>
                 <View style={{ flex: 1 }}>

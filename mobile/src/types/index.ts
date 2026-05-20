@@ -246,7 +246,9 @@ export type Tournament = {
   mlp_playoff_teams: number;
   // For non-MLP formats (round_robin, pool_play): which playoff bracket runs after group play.
   // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final + 3PM.
-  playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8';
+  // 'top_1_per_pool' / 'top_2_per_pool' (pool_play only) take N from each pool
+  // with crossover seeding; bracket size = pool_count * N.
+  playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8' | 'top_1_per_pool' | 'top_2_per_pool';
   // When true AND playoff_format ∈ (top_4, top_8), the advancement trigger
   // creates a third place match between the losing semifinalists once both
   // semifinals complete. (Top 2 always has a 3PM between standings #3/#4.)
