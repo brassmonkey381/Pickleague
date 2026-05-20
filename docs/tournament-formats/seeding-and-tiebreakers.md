@@ -10,6 +10,45 @@ every Larger Format that can feed a playoff bracket.
 
 ---
 
+## App descriptions (source of truth)
+
+These are the hint texts Pickleague shows users on the Create Tournament
+screen. Treat them as the canonical short descriptions; the prose below
+expands on them.
+
+**Bracket Seeding — PLUPR-based** (`mobile/src/screens/CreateTournamentScreen.tsx:343-345`):
+
+> "Determines bracket structure and which players face off in each round.
+> Players are sorted by PLUPR; pools and brackets use snake-draft so the
+> top seed faces the bottom seed and skill levels stay balanced across
+> pools."
+
+**Bracket Seeding — Random** (`mobile/src/screens/CreateTournamentScreen.tsx:343-347`):
+
+> "Determines bracket structure and which players face off in each round.
+> Players are drawn randomly into pools and bracket slots."
+
+**MLP Number of Pools hint** (`mobile/src/screens/CreateTournamentScreen.tsx:377`):
+
+> "Teams are snake-drafted into pools by seed so each pool is balanced."
+
+**Pool Play Number of Pools hint** (`mobile/src/screens/CreateTournamentScreen.tsx:408`):
+
+> "Players are distributed evenly. Snake-draft keeps pools balanced by
+> PLUPR when seeding is on."
+
+Two terms to use consistently throughout this doc:
+
+- **Snake-draft** — the app's name for the seeding algorithm that places
+  entrants into pools (and into bracket slots) by alternating direction
+  across rounds so each pool / bracket half gets a balanced mix of high
+  and low seeds.
+- **Top seed faces the bottom seed** — the canonical round-1 pairing in
+  any bracket of size N: seed 1 vs seed N, seed 2 vs seed N−1, etc. (See
+  §2.)
+
+---
+
 ## 1. Seeding by Larger Format
 
 The Larger Format determines what "standings" mean and therefore how seed
@@ -30,6 +69,9 @@ numbers get assigned for any downstream playoff bracket.
 - Seed `k` = the kth row of the final standings.
 
 ### Pool Play
+- At registration, entrants are distributed into pools by **snake-draft**
+  on PLUPR (when PLUPR-based seeding is selected) so each pool is
+  balanced. With Random seeding, entrants are drawn randomly into pools.
 - Each pool runs its own RR; per-pool standings use the §4 tiebreaker
   sequence.
 - Inter-pool seeding is done by **crossover** rules (§3), not by
@@ -39,6 +81,8 @@ numbers get assigned for any downstream playoff bracket.
   they can meet before the final.)
 
 ### MLP / MLP Random
+- When pool play is used, teams are **snake-drafted into pools by seed**
+  so each pool is balanced (app hint, `CreateTournamentScreen.tsx:377`).
 - Standings come from `mlp_team_standings(p_tournament_id)`, which orders
   by **sub-match wins desc, sub-match losses asc, then registration seed**
   as a final tiebreaker.
@@ -72,9 +116,10 @@ numbers get assigned for any downstream playoff bracket.
 ## 2. Bracket Pairing Rules
 
 Once entrants have seeds 1..N, the bracket positions are deterministic. The
-canonical rule: **seed `k` plays seed `N - k + 1` in round 1**, with
-sub-brackets balanced so the top two seeds meet at the latest possible
-round.
+canonical rule (matching the app's wording, "the top seed faces the bottom
+seed"): **seed `k` plays seed `N - k + 1` in round 1** — so 1 vs N, 2 vs
+N−1, and so on — with sub-brackets balanced so the top two seeds meet at
+the latest possible round.
 
 ### Single Elimination
 
