@@ -55,9 +55,42 @@ The pool-count picker offers exactly `{2, 3, 4, 6}` for non-MLP
 `pool_play` (CreateTournamentScreen.tsx:404), which matches the
 `P ∈ {2, 3, 4, 6}` range used throughout this doc.
 
+### Playoff Format picker (shipped)
+
+The Playoff Format axis is now a real, persisted column —
+`tournaments.playoff_format` (added in
+[`supabase/migration_add_playoff_format.sql`](../../supabase/migration_add_playoff_format.sql)).
+The column is `NOT NULL` with default `'none'` and a `CHECK` constraint
+restricting values to `('none', 'top_2', 'top_4', 'top_8')`. A picker in
+`CreateTournamentScreen.tsx` exposes these four options whenever the
+selected format is `round_robin` or `pool_play`.
+
+The hint text shown beneath each option (canonical strings):
+
+```text
+None: No playoff — final standings come straight from group play.
+```
+
+```text
+Top 2: Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).
+```
+
+```text
+Top 4: Semifinals + Finals.
+```
+
+```text
+Top 8: Quarterfinals + Semifinals + Finals.
+```
+
+The PP-* mappings below use these enum values where applicable. DE
+variants (`top_4_de`, `top_8_de`, `top_N_per_pool_de`) and consolation
+overlays are **not** in the column enum yet — they remain proposed
+and are flagged inline below.
+
 > **Note on PP-1.** The format card promises "Balanced pools, **then
-> bracket**." PP-1 below documents the `playoff_format = none` case for
-> completeness (e.g., league nights or pool-only events). When users
+> bracket**." PP-1 below documents the `playoff_format = 'none'` case
+> for completeness (e.g., league nights or pool-only events). When users
 > pick Pool Play from the format card they should expect a bracket by
 > default; PP-1 is the explicit opt-out, not the headline behaviour.
 
@@ -119,7 +152,11 @@ the exact drop-in cadence; numbers above are the totals only.
 
 ## PP-1 — Pool Play, No Playoff
 
-`pool_play` + P pools + `playoff_format = none`.
+`pool_play` + P pools + `playoff_format = 'none'` (shipped — column
+default).
+
+App hint: *"No playoff — final standings come straight from group
+play."*
 
 This is the opt-out from the default "balanced pools, then bracket"
 behaviour described in the format card. Use it when the event is
@@ -184,7 +221,13 @@ on 4 courts you'd run 2 sequential half-rounds per logical round.
 
 ## PP-2 — Pool Play + Top 2 Final (P = 2 only)
 
-`pool_play` + 2 pools + `playoff_format = top_2_final`.
+`pool_play` + 2 pools + `playoff_format = 'top_2'` (shipped — column
+enum value).
+
+App hint: *"Grand Final (#1 vs #2) plus a Third Place Match (#3 vs
+#4)."* Note that the shipped `top_2` overlay also schedules a Third
+Place Match (A2 vs B2), so the variant previously labelled
+`top_2_final_3pm` is the default behaviour now.
 
 Only meaningful at P = 2 (one winner per pool meets in the Final). With
 P > 2 you can't compress 3+ pool winners into a 2-entrant final without
@@ -231,7 +274,11 @@ after both pools close. Total elapsed rounds: `rounds_per_pool + 1`.
 
 ## PP-3 — Pool Play + Top 4 Single Elim
 
-`pool_play` + P pools + `playoff_format = top_4_se`.
+`pool_play` + P pools + `playoff_format = 'top_4'` (shipped — column
+enum value).
+
+App hint: *"Semifinals + Finals."* That is exactly the shape below —
+4 entrants → 2 Semis → Final.
 
 Seeds 4 entrants into Semis → Final. Two natural sub-cases:
 
@@ -293,9 +340,12 @@ courts you can run both Semis simultaneously, but the Final is solo.
 
 ---
 
-## PP-4 — Pool Play + Top 4 Double Elim **(NEW)**
+## PP-4 — Pool Play + Top 4 Double Elim **(PROPOSED)**
 
-`pool_play` + P pools + `playoff_format = top_4_de`.
+`pool_play` + P pools + proposed `playoff_format = top_4_de`. **Not in
+the shipped `tournaments.playoff_format` enum yet** — the column
+currently accepts only `'none' | 'top_2' | 'top_4' | 'top_8'`. The DE
+overlay would require extending the `CHECK` constraint.
 
 Same seeding as PP-3, but the 4 entrants enter a double-elim playoff
 bracket. See
@@ -350,7 +400,11 @@ share a block with one WB round to compress the day.
 
 ## PP-5 — Pool Play + Top 8 Single Elim
 
-`pool_play` + P pools + `playoff_format = top_8_se`.
+`pool_play` + P pools + `playoff_format = 'top_8'` (shipped — column
+enum value).
+
+App hint: *"Quarterfinals + Semifinals + Finals."* That is exactly the
+shape below — 8 entrants → 4 QFs → 2 SFs → Final.
 
 Seeds 8 entrants into Quarters → Semis → Final. Natural fits:
 
@@ -417,9 +471,12 @@ playoff round.
 
 ---
 
-## PP-6 — Pool Play + Top 8 Double Elim **(NEW)**
+## PP-6 — Pool Play + Top 8 Double Elim **(PROPOSED)**
 
-`pool_play` + P pools + `playoff_format = top_8_de`.
+`pool_play` + P pools + proposed `playoff_format = top_8_de`. **Not in
+the shipped `tournaments.playoff_format` enum yet** — the column
+currently accepts only `'none' | 'top_2' | 'top_4' | 'top_8'`. The DE
+overlay would require extending the `CHECK` constraint.
 
 Same seeding as PP-5, double-elim playoff. See
 [Losers-Bracket Playoff Mechanics](./losers-bracket-playoff.md).
@@ -469,13 +526,26 @@ blocks. With 4 courts the playoff day fits in ~5 elapsed blocks of
 
 ---
 
-## PP-7 — Pool Play + Top N per Pool Single Elim **(NEW name)**
+## PP-7 — Pool Play + Top N per Pool Single Elim **(PROPOSED)**
 
-`pool_play` + P pools + `playoff_format = top_N_per_pool_se` + `playoff_n = N`.
+`pool_play` + P pools + proposed `playoff_format = top_N_per_pool_se` +
+`playoff_n = N`. **Not in the shipped `tournaments.playoff_format`
+enum yet** — the column currently accepts only
+`'none' | 'top_2' | 'top_4' | 'top_8'` and has no `playoff_n` companion
+column. Adding this overlay requires extending the `CHECK` constraint
+and introducing a `playoff_n` field.
 
-**This is the user's motivating example.** With P = 3 pools and N = 2,
-the playoff has `P * N = 6` entrants — a non-power-of-2 bracket that
-needs byes or a play-in round.
+**This is the user's motivating example: "Pool Play + 3 pools + Top
+2".** Note that with the shipped picker this exact configuration is
+selectable today as `format = 'pool_play'`, `pool_count = 3`,
+`playoff_format = 'top_2'` — i.e., it produces a 2-entrant Grand
+Final (the two best pool winners) plus a Third Place Match, *not* a
+6-entrant bracket of all `P * N` qualifiers. The 6-entrant
+"top-2-per-pool" shape described below is the richer PP-7 overlay that
+is still proposed.
+
+With P = 3 pools and N = 2, the playoff has `P * N = 6` entrants — a
+non-power-of-2 bracket that needs byes or a play-in round.
 
 ### Worked example: 12 entrants, P = 3, N = 2  ← motivating case
 
@@ -586,9 +656,12 @@ Court needs: round 1 = 2 matches, round 2 = 2, round 3 = 1.
 
 ---
 
-## PP-8 — Pool Play + Top N per Pool Double Elim **(NEW)**
+## PP-8 — Pool Play + Top N per Pool Double Elim **(PROPOSED)**
 
-`pool_play` + P pools + `playoff_format = top_N_per_pool_de` + `playoff_n = N`.
+`pool_play` + P pools + proposed `playoff_format = top_N_per_pool_de` +
+`playoff_n = N`. **Not in the shipped `tournaments.playoff_format`
+enum yet** — same caveat as PP-7 (needs `CHECK` constraint extension
+and a `playoff_n` column), plus the DE overlay.
 
 Same seeding as PP-7, double-elim playoff. See
 [Losers-Bracket Playoff Mechanics](./losers-bracket-playoff.md).
@@ -639,9 +712,14 @@ days.
 
 ---
 
-## PP-9 — Pool Play + Top N + Consolation Bracket **(NEW)**
+## PP-9 — Pool Play + Top N + Consolation Bracket **(PROPOSED)**
 
-`pool_play` + P pools + `playoff_format = top_N_consolation` + `playoff_n = N`.
+`pool_play` + P pools + proposed `playoff_format = top_N_consolation` +
+`playoff_n = N`. **Not in the shipped `tournaments.playoff_format`
+enum yet** — the column currently accepts only
+`'none' | 'top_2' | 'top_4' | 'top_8'`. Adding consolation requires
+extending the `CHECK` constraint, introducing `playoff_n`, and a flag
+or separate value for the consolation overlay.
 
 A lighter-weight alternative to PP-8: top N from each pool enter the
 **main** SE bracket, and **first-round losers of the main bracket**
