@@ -160,13 +160,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   // Refresh MLP standings whenever the tournament loads or new matches land —
   // the RPC reads completed sub-match counts, so it updates as games finish.
-  // Skipped for non-MLP formats and for MLP variants that have a playoff
-  // stage (those have their own bracket UI; standings still derivable but not
-  // shown in this section).
+  // Fetched for any MLP variant with a group stage (round_robin, pool_play,
+  // round_robin_playoff, pool_play_playoff). For the *_playoff variants the
+  // render block hides itself once a playoff round exists in savedRounds.
   React.useEffect(() => {
     const isMlp = tournament?.format === 'mlp' || tournament?.format === 'mlp_random';
-    const noPlayoff = tournament?.mlp_play_format === 'round_robin' || tournament?.mlp_play_format === 'pool_play';
-    if (!isMlp || !noPlayoff) { setMlpStandings(null); return; }
+    const hasGroupStage =
+      tournament?.mlp_play_format === 'round_robin' ||
+      tournament?.mlp_play_format === 'pool_play' ||
+      tournament?.mlp_play_format === 'round_robin_playoff' ||
+      tournament?.mlp_play_format === 'pool_play_playoff';
+    if (!isMlp || !hasGroupStage) { setMlpStandings(null); return; }
     if (tournament?.status !== 'active' && tournament?.status !== 'completed') return;
     let cancelled = false;
     (async () => {
@@ -1706,8 +1710,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             );
           })()}
 
-        {/* ── MLP Live Standings (mlp / mlp_random without a playoff stage) ── */}
+        {/* ── MLP Live Standings (group stage of any MLP variant) ──
+            For *_playoff variants this hides once a playoff round exists in
+            savedRounds; the bracket UI then takes over. */}
         {mlpStandings && mlpStandings.length > 0 && (() => {
+          const hasPlayoffVariant =
+            tournament.mlp_play_format === 'round_robin_playoff' ||
+            tournament.mlp_play_format === 'pool_play_playoff';
+          const playoffStarted = savedRounds.some((r: any) =>
+            ['quarterfinals','semifinals','finals','third_place_match'].includes(r.round_type)
+          );
+          if (hasPlayoffVariant && playoffStarted) return null;
           const isFinal = tournament.status === 'completed';
           const title = isFinal ? 'Final Standings' : 'Live Standings';
           const sorted = [...mlpStandings].sort((a, b) => {
@@ -1715,12 +1728,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             if (a.sub_matches_lost !== b.sub_matches_lost) return a.sub_matches_lost - b.sub_matches_lost;
             return (a.seed ?? 999) - (b.seed ?? 999);
           });
+          const playoffTeams = tournament.mlp_playoff_teams ?? 4;
           return (
             <View style={S.section}>
               <Text style={S.sectionTitle}>{title}</Text>
               <Text style={S.standingsSubtitle}>
-                Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).
-                {!isFinal && ' Updates as matches are recorded.'}
+                {hasPlayoffVariant
+                  ? `Group stage standings by sub-matches won. The top ${playoffTeams} teams will advance to the playoff once group play is complete.`
+                  : `Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).${!isFinal ? ' Updates as matches are recorded.' : ''}`}
               </Text>
               <View style={S.standingsHeader}>
                 <Text style={[S.standingsCellRank, S.standingsHeaderText]}>#</Text>
