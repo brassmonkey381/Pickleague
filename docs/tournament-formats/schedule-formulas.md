@@ -46,6 +46,15 @@ export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string
 > "Semifinals + Finals." (Top 4)
 > "Quarterfinals + Semifinals + Finals." (Top 8)
 
+**Playoff Format hint** (`mobile/src/screens/CreateTournamentScreen.tsx` — "Playoff format (round_robin and pool_play only — MLP has its own)" block):
+
+> "No playoff — final standings come straight from group play." (None)
+> "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)." (Top 2)
+> "Semifinals + Finals." (Top 4)
+> "Quarterfinals + Semifinals + Finals." (Top 8)
+
+This picker is backed by the `tournaments.playoff_format` column (NOT NULL, default `'none'`, CHECK in `('none','top_2','top_4','top_8')`) — see migration `supabase/migration_add_playoff_format.sql`. The DE-variant playoff atoms (`top_4_de`, `top_8_de`) and consolation brackets are **not** in the column enum yet — still proposed.
+
 **Pool count hint** (`mobile/src/screens/CreateTournamentScreen.tsx:408`):
 
 > "Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on."
@@ -58,17 +67,26 @@ export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string
 
 | Permutation code | Larger Format text (FORMAT_META) | Additional/Playoff hint text |
 |---|---|---|
-| RR-1..RR-7 | "Every player faces every other player." | (no app hint — additional/playoff axes don't exist in app yet for RR) |
-| RR-8 | "Every player faces every other player." | "Double round-robin" — proposed (no app hint yet) |
-| PP-1..PP-9 | "Balanced pools, then bracket." | Pool count hint: "Players are distributed evenly..." (`CreateTournamentScreen.tsx:408`) |
-| SE-1..SE-3 | "One loss and you're out." | (none — 3PM/consolation proposed) |
-| DE-1..DE-2 | "Two losses to be eliminated." | (none — reset toggle proposed) |
+| RR-1 | "Every player faces every other player." | Playoff Format = "None": "No playoff — final standings come straight from group play." (`CreateTournamentScreen.tsx` Playoff Format block) |
+| RR-2 | "Every player faces every other player." | Doubles variant — inherits RR's Playoff Format picker = "None" (`CreateTournamentScreen.tsx` Playoff Format block) |
+| RR-3 | "Every player faces every other player." | Double round-robin is **proposed only** — the picker doesn't expose a double-RR toggle |
+| RR-4 | "Every player faces every other player." | Playoff Format = "Top 4": "Semifinals + Finals." (`CreateTournamentScreen.tsx` Playoff Format block) |
+| RR-5 | "Every player faces every other player." | Playoff Format = "Top 8": "Quarterfinals + Semifinals + Finals." (`CreateTournamentScreen.tsx` Playoff Format block) |
+| RR-6, RR-7 | "Every player faces every other player." | DE top-cut variants are **proposed only** — `top_4_de` / `top_8_de` are not in the `playoff_format` column enum yet |
+| RR-8 | "Every player faces every other player." | Playoff Format = "Top 2": "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)." (`CreateTournamentScreen.tsx` Playoff Format block) |
+| PP-1, PP-4, PP-6 | "Balanced pools, then bracket." | Pool count hint (`CreateTournamentScreen.tsx:408`) + Playoff Format = "None": "No playoff — final standings come straight from group play." |
+| PP-2 | "Balanced pools, then bracket." | Pool count hint + Playoff Format = "Top 4": "Semifinals + Finals." |
+| PP-5, PP-7, PP-9 | "Balanced pools, then bracket." | Pool count hint + Playoff Format = "Top 8": "Quarterfinals + Semifinals + Finals." |
+| PP-3, PP-8 | "Balanced pools, then bracket." | DE top-cut variants are **proposed only** — `top_4_de` / `top_8_de` are not in the `playoff_format` column enum yet |
+| SE-1 | "One loss and you're out." | (none — pure SE) |
+| SE-2, SE-3 | "One loss and you're out." | 3rd-place match and consolation bracket are **proposed only** (no picker yet) |
+| DE-1, DE-2 | "Two losses to be eliminated." | (none — GF-reset toggle proposed) |
 | RP-1..RP-2 | "Partners rotate each round." | Partner Rotation hint (`CreateTournamentScreen.tsx:420`) |
-| RP-3..RP-4 | "Partners rotate each round." | (none — proposed playoff) |
+| RP-3..RP-4 | "Partners rotate each round." | (none — proposed playoff; `playoff_format` column is only wired up for `round_robin` and `pool_play` today) |
 | MLP-1..MLP-2 | "Teams of 4 (2M + 2W). Captains form rosters and lock in." | MLP Play Format hints (`CreateTournamentScreen.tsx:359-367`) |
-| MLP-3..MLP-12 | "Teams of 4 (2M + 2W). Captains form rosters and lock in." | MLP Play Format + Playoff Size hints (`CreateTournamentScreen.tsx:359-393`) |
+| MLP-3..MLP-12 | "Teams of 4 (2M + 2W). Captains form rosters and lock in." | MLP Play Format + Playoff Size hints (`CreateTournamentScreen.tsx:359-393`) — MLP uses its own `mlp_playoff_teams` column, distinct from `playoff_format` |
 
-Anywhere the table below references playoff atoms, consolation brackets, GF reset toggles, or partner-rotation variants beyond the binary every-match/every-round switch, those are **deep-dive extensions**, not options the user can pick today.
+The `playoff_format` column (added in migration `supabase/migration_add_playoff_format.sql`) now backs the playoff axis for `round_robin` and `pool_play` larger formats, with enum values `none`, `top_2`, `top_4`, `top_8` — covering RR-1/2/4/5/8 and PP-1/2/4/5/6/7/9. Anywhere the table below references DE playoff atoms, consolation brackets, GF reset toggles, or partner-rotation playoffs, those are **deep-dive extensions**, not options the user can pick today.
 
 ---
 
