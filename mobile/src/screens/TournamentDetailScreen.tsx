@@ -160,13 +160,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   // Refresh MLP standings whenever the tournament loads or new matches land —
   // the RPC reads completed sub-match counts, so it updates as games finish.
-  // Skipped for non-MLP formats and for MLP variants that have a playoff
-  // stage (those have their own bracket UI; standings still derivable but not
-  // shown in this section).
+  // Fetched for any MLP variant with a group stage (round_robin, pool_play,
+  // round_robin_playoff, pool_play_playoff). For the *_playoff variants the
+  // render block hides itself once a playoff round exists in savedRounds.
   React.useEffect(() => {
     const isMlp = tournament?.format === 'mlp' || tournament?.format === 'mlp_random';
-    const noPlayoff = tournament?.mlp_play_format === 'round_robin' || tournament?.mlp_play_format === 'pool_play';
-    if (!isMlp || !noPlayoff) { setMlpStandings(null); return; }
+    const hasGroupStage =
+      tournament?.mlp_play_format === 'round_robin' ||
+      tournament?.mlp_play_format === 'pool_play' ||
+      tournament?.mlp_play_format === 'round_robin_playoff' ||
+      tournament?.mlp_play_format === 'pool_play_playoff';
+    if (!isMlp || !hasGroupStage) { setMlpStandings(null); return; }
     if (tournament?.status !== 'active' && tournament?.status !== 'completed') return;
     let cancelled = false;
     (async () => {
@@ -620,38 +624,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       const approvedSet = new Set(approved);
       const teams: [string, string][] = [];
       const paired = new Set<string>();
-      // For team_creation='random' tournaments, ignore any pre-existing
-      // doubles_pairs and snake-draft-pair every approved player by PLUPR
-      // (strongest with weakest). For team_creation='fixed' (or null/legacy),
-      // honor user-formed pairs and random-shuffle only the leftovers.
-      const randomMode = tournament.team_creation === 'random';
-      if (!randomMode) {
-        for (const p of doublesPairs) {
-          if (p.partner_1_id && p.partner_2_id
-              && approvedSet.has(p.partner_1_id) && approvedSet.has(p.partner_2_id)) {
-            teams.push([p.partner_1_id, p.partner_2_id]);
-            paired.add(p.partner_1_id);
-            paired.add(p.partner_2_id);
-          }
+      for (const p of doublesPairs) {
+        if (p.partner_1_id && p.partner_2_id
+            && approvedSet.has(p.partner_1_id) && approvedSet.has(p.partner_2_id)) {
+          teams.push([p.partner_1_id, p.partner_2_id]);
+          paired.add(p.partner_1_id);
+          paired.add(p.partner_2_id);
         }
       }
+      // Random-pair the leftovers (preview only — does NOT persist to DB).
       const leftovers = approved.filter(uid => !paired.has(uid));
-      if (randomMode) {
-        // Snake-draft / balanced pairing by PLUPR: strongest + weakest, etc.
-        leftovers.sort((a, b) => (profileRatings[b] ?? 3.25) - (profileRatings[a] ?? 3.25));
-        const half = Math.floor(leftovers.length / 2);
-        for (let i = 0; i < half; i++) {
-          teams.push([leftovers[i], leftovers[leftovers.length - 1 - i]]);
-        }
-      } else {
-        // Random-pair the leftovers (preview only — does NOT persist to DB).
-        for (let i = leftovers.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
-        }
-        for (let i = 0; i + 1 < leftovers.length; i += 2) {
-          teams.push([leftovers[i], leftovers[i + 1]]);
-        }
+      for (let i = leftovers.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
+      }
+      for (let i = 0; i + 1 < leftovers.length; i += 2) {
+        teams.push([leftovers[i], leftovers[i + 1]]);
       }
       if (teams.length < 2) {
         status.error('Not enough teams — need at least 2 doubles pairs to generate a bracket.');
@@ -1334,37 +1322,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {/* ── Doubles partner pair (non-MLP doubles formats) ──
-             Hidden when team_creation='random' — pairs are auto-generated at
-             bracket-gen by snake-draft, so the pair-forming UI would just
-             surface choices the system will override. */}
-        {requiresPartner(tournament.format, tournament.match_type)
-          && tournament.team_creation !== 'random'
-          && (
-            <View style={S.section}>
-              <DoublesPairSection
-                tournamentId={tournamentId}
-                tournamentStatus={tournament.status}
-                isPriv={isPriv}
-                currentUserId={myUserId}
-                approvedRegistrations={registrations.filter(r => r.status === 'approved')}
-                onPairsChanged={() => load()}
-              />
-            </View>
-          )}
-        {requiresPartner(tournament.format, tournament.match_type)
-          && tournament.team_creation === 'random'
-          && tournament.status === 'registration'
-          && (
-            <View style={S.section}>
-              <Text style={S.sectionTitle}>Doubles Pairs</Text>
-              <Text style={S.standingsSubtitle}>
-                This tournament uses random partner pairing. Approved players will be
-                snake-draft-paired by PLUPR at bracket lock-in (strongest with weakest)
-                so each pair is balanced. No manual pairing required.
-              </Text>
-            </View>
-          )}
+        {/* ── Doubles partner pair (non-MLP doubles formats) ── */}
+        {requiresPartner(tournament.format, tournament.match_type) && (
+          <View style={S.section}>
+            <DoublesPairSection
+              tournamentId={tournamentId}
+              tournamentStatus={tournament.status}
+              isPriv={isPriv}
+              currentUserId={myUserId}
+              approvedRegistrations={registrations.filter(r => r.status === 'approved')}
+              onPairsChanged={() => load()}
+            />
+          </View>
+        )}
 
         {/* ── Players (approved + outstanding invites) ── */}
         <View style={S.section}>
@@ -1740,8 +1710,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             );
           })()}
 
-        {/* ── MLP Live Standings (mlp / mlp_random without a playoff stage) ── */}
+        {/* ── MLP Live Standings (group stage of any MLP variant) ──
+            For *_playoff variants this hides once a playoff round exists in
+            savedRounds; the bracket UI then takes over. */}
         {mlpStandings && mlpStandings.length > 0 && (() => {
+          const hasPlayoffVariant =
+            tournament.mlp_play_format === 'round_robin_playoff' ||
+            tournament.mlp_play_format === 'pool_play_playoff';
+          const playoffStarted = savedRounds.some((r: any) =>
+            ['quarterfinals','semifinals','finals','third_place_match'].includes(r.round_type)
+          );
+          if (hasPlayoffVariant && playoffStarted) return null;
           const isFinal = tournament.status === 'completed';
           const title = isFinal ? 'Final Standings' : 'Live Standings';
           const sorted = [...mlpStandings].sort((a, b) => {
@@ -1749,12 +1728,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             if (a.sub_matches_lost !== b.sub_matches_lost) return a.sub_matches_lost - b.sub_matches_lost;
             return (a.seed ?? 999) - (b.seed ?? 999);
           });
+          const playoffTeams = tournament.mlp_playoff_teams ?? 4;
           return (
             <View style={S.section}>
               <Text style={S.sectionTitle}>{title}</Text>
               <Text style={S.standingsSubtitle}>
-                Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).
-                {!isFinal && ' Updates as matches are recorded.'}
+                {hasPlayoffVariant
+                  ? `Group stage standings by sub-matches won. The top ${playoffTeams} teams will advance to the playoff once group play is complete.`
+                  : `Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).${!isFinal ? ' Updates as matches are recorded.' : ''}`}
               </Text>
               <View style={S.standingsHeader}>
                 <Text style={[S.standingsCellRank, S.standingsHeaderText]}>#</Text>
