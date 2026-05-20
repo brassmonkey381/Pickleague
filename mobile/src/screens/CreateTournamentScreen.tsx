@@ -18,10 +18,17 @@ type Props = {
   route: RouteProp<RootStackParamList, 'CreateTournament'>;
 };
 
+// MLP is no longer a "Format" — it's selected via Match Type. The Format
+// selector below presents only the 5 structural formats; when the user picks
+// Match Type = MLP, the Format selector hides and the MLP-specific Team
+// Creation + Play Format pickers take over.
 const FORMATS: TournamentFormat[] = [
   'round_robin', 'single_elimination', 'double_elimination',
-  'pool_play', 'mlp', 'mlp_random', 'rotating_partners',
+  'pool_play', 'rotating_partners',
 ];
+
+type UiMatchType = 'singles' | 'doubles' | 'mlp';
+type TeamCreation = 'fixed' | 'random';
 
 // Returns the next Saturday at 9am local time. If it's already Saturday and
 // past 9am, jumps to next week's Saturday so the default is always in the future.
@@ -41,11 +48,15 @@ function nextSaturday9am(): Date {
 function makeAutoName(
   prefix: string | null,
   format: TournamentFormat,
-  matchType: 'singles' | 'doubles',
+  matchType: UiMatchType,
 ): string {
   const fmt  = FORMAT_META[format].label;
-  const type = matchType === 'singles' ? 'Singles' : 'Doubles';
-  return `${prefix ? `${prefix} ` : ''}${fmt}, ${type}`;
+  // For MLP, the format label already includes "Fixed Teams" / "Random Teams",
+  // so don't append a redundant "Doubles" suffix.
+  const typeSuffix = matchType === 'singles' ? ', Singles'
+                   : matchType === 'doubles' ? ', Doubles'
+                   : '';
+  return `${prefix ? `${prefix} ` : ''}${fmt}${typeSuffix}`;
 }
 
 function Pill({ label, active, onPress, S, disabled }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles>; disabled?: boolean }) {
@@ -60,7 +71,9 @@ function Pill({ label, active, onPress, S, disabled }: { label: string; active: 
   );
 }
 
-const DOUBLES_ONLY_FORMATS: TournamentFormat[] = ['mlp', 'mlp_random', 'rotating_partners'];
+// rotating_partners is the only Format-selector value that is doubles-only;
+// MLP is handled via matchType='mlp' and DOES NOT appear in FORMATS now.
+const DOUBLES_ONLY_FORMATS: TournamentFormat[] = ['rotating_partners'];
 
 function SectionHeader({ title, S }: { title: string; S: ReturnType<typeof makeStyles> }) {
   return <Text style={S.sectionHeader}>{title}</Text>;
@@ -87,7 +100,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [mlpPlayFormat, setMlpPlayFormat] = useState<'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff'>('round_robin');
   const [mlpPoolCount, setMlpPoolCount] = useState(2);
   const [mlpPlayoffTeams, setMlpPlayoffTeams] = useState<2 | 4 | 8>(4);
-  const [matchType, setMatchType]     = useState<'singles' | 'doubles'>('singles');
+  // Default to doubles — the most common match type. MLP is the 3rd option.
+  const [matchType, setMatchType]     = useState<UiMatchType>('doubles');
+  const [teamCreation, setTeamCreation] = useState<TeamCreation>('fixed');
   const [seeding, setSeeding]         = useState<'random' | 'elo'>('random');
   const [poolCount, setPoolCount]     = useState(2);
   const [partnerRotation, setPartnerRotation] = useState<'every_match' | 'every_round'>('every_match');
@@ -164,16 +179,30 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   useEffect(() => {
     if (nameManuallyEdited) return;
     const prefix = leagueName ?? location?.name ?? null;
-    setName(makeAutoName(prefix, format, matchType));
-  }, [leagueName, location?.name, format, matchType, nameManuallyEdited]);
+    // For MLP, the "effective" format label is mlp / mlp_random (Fixed / Random
+    // teams) so the auto-name reads naturally. Non-MLP uses the selected format.
+    const effectiveFormat: TournamentFormat = matchType === 'mlp'
+      ? (teamCreation === 'random' ? 'mlp_random' : 'mlp')
+      : format;
+    setName(makeAutoName(prefix, effectiveFormat, matchType));
+  }, [leagueName, location?.name, format, matchType, teamCreation, nameManuallyEdited]);
 
   const isDoublesOnlyFormat = DOUBLES_ONLY_FORMATS.includes(format);
 
-  // Doubles-only formats (MLP variants, rotating partners) can't generate a
-  // singles bracket, so force-correct the match type if the user switches into one.
+  // rotating_partners can't generate a singles bracket — force matchType to
+  // doubles. (MLP is its own matchType value, handled separately.)
   useEffect(() => {
-    if (isDoublesOnlyFormat && matchType !== 'doubles') setMatchType('doubles');
+    if (isDoublesOnlyFormat && matchType === 'singles') setMatchType('doubles');
   }, [isDoublesOnlyFormat, matchType]);
+
+  // If the user picks MLP while a non-MLP format like rotating_partners /
+  // single_elim is selected, reset to round_robin so the underlying state
+  // is sensible (MLP is built on round_robin / pool_play structures).
+  useEffect(() => {
+    if (matchType === 'mlp' && format !== 'round_robin' && format !== 'pool_play') {
+      setFormat('round_robin');
+    }
+  }, [matchType, format]);
 
   function parsePayout(): number[] | null {
     const parts = payoutText.split(',').map(s => parseInt(s.trim(), 10));
@@ -211,20 +240,25 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       }
     }
 
-    // Only include MLP-specific columns when the tournament is actually MLP.
-    // This way non-MLP creation isn't blocked if the migration_mlp_play_formats.sql
-    // columns aren't deployed in some environment.
-    const isMlp = format === 'mlp' || format === 'mlp_random';
+    // UI → DB translation. MLP is selected via matchType='mlp' in the UI, but
+    // the DB still stores 'mlp' / 'mlp_random' as the `format` value and
+    // 'doubles' as the underlying match_type. Only include MLP-specific
+    // columns when the tournament is actually MLP.
+    const isMlp = matchType === 'mlp';
+    const dbFormat: TournamentFormat = isMlp
+      ? (teamCreation === 'random' ? 'mlp_random' : 'mlp')
+      : format;
+    const dbMatchType: 'singles' | 'doubles' = isMlp ? 'doubles' : matchType;
     const insertPayload: Record<string, any> = {
       league_id:         leagueId ?? null,
       name:              name.trim(),
       description:       description.trim() || null,
       created_by:        user!.id,
-      format,
-      match_type:        matchType,
+      format:            dbFormat,
+      match_type:        dbMatchType,
       seeding,
-      pool_count:        format === 'pool_play' ? poolCount : 1,
-      partner_rotation:  format === 'rotating_partners' ? partnerRotation : null,
+      pool_count:        dbFormat === 'pool_play' ? poolCount : 1,
+      partner_rotation:  dbFormat === 'rotating_partners' ? partnerRotation : null,
       registration_mode: inviteOnly ? 'invite_only' : 'request',
       max_players:       maxPlayers ? parseInt(maxPlayers) : null,
       start_time:        startTime?.toISOString() ?? null,
@@ -308,34 +342,57 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Text style={S.label}>Max Players</Text>
         <TextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
 
-        {/* ── Format ── */}
-        <SectionHeader title="Format" S={S} />
-
-        <View style={S.formatGrid}>
-          {FORMATS.map(f => {
-            const meta = FORMAT_META[f];
-            const active = format === f;
-            return (
-              <TouchableOpacity
-                key={f}
-                style={[S.formatCard, active && S.formatCardActive]}
-                onPress={() => setFormat(f)}
-              >
-                <Text style={S.formatIcon}>{meta.icon}</Text>
-                <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
-                <Text style={S.formatDesc}>{meta.description}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {/* ── Format ── (hidden when MLP — Match Type → MLP swaps in MLP-specific pickers) */}
+        {matchType !== 'mlp' && (
+          <>
+            <SectionHeader title="Format" S={S} />
+            <View style={S.formatGrid}>
+              {FORMATS.map(f => {
+                const meta = FORMAT_META[f];
+                const active = format === f;
+                return (
+                  <TouchableOpacity
+                    key={f}
+                    style={[S.formatCard, active && S.formatCardActive]}
+                    onPress={() => setFormat(f)}
+                  >
+                    <Text style={S.formatIcon}>{meta.icon}</Text>
+                    <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
+                    <Text style={S.formatDesc}>{meta.description}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
 
         {/* ── Match type ── */}
         <SectionHeader title="Match Type" S={S} />
-        <View style={S.pillRow}>
+        <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
           <Pill label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
           <Pill label="Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
+          <Pill label="MLP"     active={matchType === 'mlp'}     onPress={() => setMatchType('mlp')}     S={S} />
         </View>
-        {isDoublesOnlyFormat && <Text style={S.hint}>This format is doubles-only.</Text>}
+        {isDoublesOnlyFormat && matchType !== 'mlp' && <Text style={S.hint}>This format is doubles-only.</Text>}
+        {matchType === 'mlp' && (
+          <Text style={S.hint}>Teams of 4 (2 men + 2 women). Each team meeting plays 4 sub-matches (men's, women's, 2× mixed).</Text>
+        )}
+
+        {/* ── Team Creation Type (MLP only) ── */}
+        {matchType === 'mlp' && (
+          <>
+            <SectionHeader title="Team Creation Type" S={S} />
+            <View style={S.pillRow}>
+              <Pill label="Fixed Teams"  active={teamCreation === 'fixed'}  onPress={() => setTeamCreation('fixed')}  S={S} />
+              <Pill label="Random Teams" active={teamCreation === 'random'} onPress={() => setTeamCreation('random')} S={S} />
+            </View>
+            <Text style={S.hint}>
+              {teamCreation === 'fixed'
+                ? 'Captains form rosters and lock them in before bracket generation.'
+                : 'Teams are auto-generated from approved players (snake-draft by PLUPR) with wacky names.'}
+            </Text>
+          </>
+        )}
 
         {/* ── Seeding ── */}
         <SectionHeader title="Bracket Seeding" S={S} />
@@ -349,8 +406,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             : 'Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.'}
         </Text>
 
-        {/* ── MLP play format (mlp / mlp_random only) ── */}
-        {(format === 'mlp' || format === 'mlp_random') && (
+        {/* ── MLP play format (MLP match type only) ── */}
+        {matchType === 'mlp' && (
           <>
             <SectionHeader title="MLP Play Format" S={S} />
             <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
