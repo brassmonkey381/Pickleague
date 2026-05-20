@@ -275,6 +275,7 @@ export type MlpTeam = {
   male_2_id: string | null;
   female_1_id: string | null;
   female_2_id: string | null;
+  dreambreaker_player_id: string | null;
   status: 'forming' | 'locked';
   seed: number | null;
   is_random_generated: boolean;

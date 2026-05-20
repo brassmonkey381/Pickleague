@@ -264,6 +264,18 @@ export default function MlpTeamSection({
     onTeamsChanged?.();
   }
 
+  async function setDreambreaker(teamId: string, userId: string | null) {
+    setBusy(true);
+    const { error } = await supabase.rpc('mlp_set_dreambreaker', {
+      p_team_id: teamId,
+      p_user_id: userId,
+    });
+    setBusy(false);
+    if (error) { Alert.alert('Error', error.message); return; }
+    await load();
+    onTeamsChanged?.();
+  }
+
   async function lockTeam(teamId: string) {
     setBusy(true);
     const { error } = await supabase.rpc('mlp_lock_team', { p_team_id: teamId });
@@ -590,6 +602,35 @@ export default function MlpTeamSection({
                 );
               })}
             </View>
+
+            {/* Schema-only for now: a follow-up wires the actual 5th sub-match
+                generation. Setting it here just persists the captain's pick. */}
+            {((isCaptain && isMyTeam) || isPriv) && (
+              <View style={S.dreambreakerRow}>
+                <Text style={S.dreambreakerLabel}>Dreambreaker:</Text>
+                <View style={S.dreambreakerPills}>
+                  {SLOT_ORDER.map(slot => {
+                    const pid = t[`${slot}_id` as const] as string | null;
+                    const selected = !!pid && t.dreambreaker_player_id === pid;
+                    const disabled = !pid || busy;
+                    const member = pid ? profileMap[pid] : null;
+                    const label = member?.full_name ?? SLOT_LABEL[slot];
+                    return (
+                      <TouchableOpacity
+                        key={slot}
+                        style={[S.dreambreakerPill, selected && S.dreambreakerPillSelected, disabled && S.btnDim]}
+                        onPress={() => setDreambreaker(t.id, selected ? null : pid)}
+                        disabled={disabled}
+                      >
+                        <Text style={[S.dreambreakerPillText, selected && S.dreambreakerPillTextSelected]} numberOfLines={1}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             {/* Captain controls */}
             {format === 'mlp' && isMyTeam && isCaptain && t.status === 'forming' && (
@@ -1015,6 +1056,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotName:  { flex: 1, fontSize: 14, color: c.text },
     slotEmpty: { color: c.textMuted, fontStyle: 'italic' },
     removeIcon:{ fontSize: 16, color: c.danger, fontWeight: '700', paddingHorizontal: 6 },
+
+    dreambreakerRow:    { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
+    dreambreakerLabel:  { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
+    dreambreakerPills:  { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    dreambreakerPill:   { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    dreambreakerPillSelected:    { backgroundColor: c.primary, borderColor: c.primary },
+    dreambreakerPillText:        { fontSize: 12, fontWeight: '700', color: c.textSub, maxWidth: 140 },
+    dreambreakerPillTextSelected:{ color: '#fff' },
 
     captainPanel:    { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
     captainBtn:      { backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: c.border },
