@@ -213,19 +213,21 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         .eq('status', 'voting'),
     ]);
 
-    // Tournaments
+    // Tournaments — include those with a NULL start_time (registration but
+    // date not yet picked) as "Date TBD" so they're visible to admins.
+    // Dated tournaments still sort first by start_time; TBD ones drop to the
+    // bottom via Number.MAX_SAFE_INTEGER.
     const tItems: ComingUpItem[] = [];
     for (const t of ((tRes.data ?? []) as any[])) {
-      if (!t.start_time) continue;
-      const ms = new Date(t.start_time).getTime();
-      if (ms < Date.now()) continue;
+      const ms = t.start_time ? new Date(t.start_time).getTime() : null;
+      if (ms != null && ms < Date.now()) continue;
       tItems.push({
         key:   `t-${t.id}`,
         kind:  'tournament',
         icon:  '🎾',
         title: t.name,
-        whenLabel: fmt(ms),
-        whenMs: ms,
+        whenLabel: ms != null ? fmt(ms) : 'Date TBD',
+        whenMs:    ms ?? Number.MAX_SAFE_INTEGER,
         onPress: () => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }),
       });
     }
