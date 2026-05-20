@@ -10,6 +10,37 @@
 
 ---
 
+## App descriptions (source of truth)
+
+These are the user-facing strings Pickleague shows in the app. The deep dive
+below must stay consistent with them.
+
+- **Format description** (`mobile/src/lib/tournament.ts:389`,
+  `FORMAT_META.rotating_partners`):
+
+  > "Partners rotate each round."
+
+- **Partner Rotation section hint**
+  (`mobile/src/screens/CreateTournamentScreen.tsx:420`):
+
+  > "Partners rotate so every player pairs with different teammates over the
+  > course of the tournament."
+
+- **Partner Rotation pill labels**
+  (`mobile/src/screens/CreateTournamentScreen.tsx:417-418`):
+  - **"Every match"** — `partner_rotation = 'every_match'` (RP-1).
+  - **"Every round"** — `partner_rotation = 'every_round'` (RP-2).
+
+- **App inconsistency to flag (not fix from this doc):** the
+  `FORMAT_META.rotating_partners` description says "Partners rotate each
+  round," but the Partner Rotation control actually exposes **two**
+  rotation cadences (Every match and Every round). The FORMAT_META string
+  should probably read something like "Partners rotate each match or
+  round." This doc treats both cadences as first-class (RP-1 = every
+  match, RP-2 = every round).
+
+---
+
 ## The Rotation Algorithm
 
 The current generator is `generateRotatingPartners(seededPlayers, numRounds)`
@@ -98,10 +129,12 @@ shift guarantees.
 
 **Tuple:** `(rotating_partners, partner_rotation = 'every_match', playoff = none)`.
 
-Every entry in the schedule above is a separate match where partners change
-**from one match to the next**. In other words, each schedule row (court 1,
-court 2 …) is itself a "round" of one match. There is no playoff: final
-standings come straight from individual W/L (or game-differential).
+This is the **"Every match"** pill in the Partner Rotation control on the
+Create Tournament screen (`CreateTournamentScreen.tsx:417`). Every entry in
+the schedule above is a separate match where partners change **from one
+match to the next**. In other words, each schedule row (court 1, court 2 …)
+is itself a "round" of one match. There is no playoff: final standings come
+straight from individual W/L (or game-differential).
 
 ### Schedule shape
 
@@ -142,10 +175,12 @@ rules.
 
 **Tuple:** `(rotating_partners, partner_rotation = 'every_round', playoff = none)`.
 
-Same generator output, but the **interpretation differs**: all matches with
-the same `round` value are played back-to-back as one "round," with partners
-held fixed for the full round. Only when the round flips does the pin-and-shift
-rotation happen.
+This is the **"Every round"** pill in the Partner Rotation control on the
+Create Tournament screen (`CreateTournamentScreen.tsx:418`). Same generator
+output as RP-1, but the **interpretation differs**: all matches with the
+same `round` value are played back-to-back as one "round," with partners
+held fixed for the full round. Only when the round flips does the
+pin-and-shift rotation happen.
 
 ### Schedule shape (8 players, every-round)
 
