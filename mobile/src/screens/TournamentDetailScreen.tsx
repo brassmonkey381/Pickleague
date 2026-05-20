@@ -1836,19 +1836,26 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
         {/* ── Saved schedule (tournament is active or completed) ── */}
         {(tournament.status === 'active' || tournament.status === 'completed') && savedMatches.length > 0 && (() => {
-          const myCount = savedMatches.filter(m =>
+          // Hide cancelled dreambreakers — the meeting was decided 3-1 or 4-0
+          // so the 5th sub-match never gets played. Pending dreambreakers
+          // still render (with a 🏆 badge below) since the players need to
+          // settle the 2-2 tie.
+          const visibleMatches = savedMatches.filter(
+            m => !(m.is_dreambreaker && m.status === 'cancelled'),
+          );
+          const myCount = visibleMatches.filter(m =>
             myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId)
           ).length;
           const displayed = myMatchesOnly
-            ? savedMatches.filter(m => myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId))
-            : savedMatches;
+            ? visibleMatches.filter(m => myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId))
+            : visibleMatches;
 
           return (
             <View style={S.section}>
               {/* Filter toggle */}
               <View style={S.scheduleHeader}>
                 <Text style={S.sectionTitle}>
-                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${savedMatches.length}`})
+                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${visibleMatches.length}`})
                 </Text>
                 <TouchableOpacity
                   style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
@@ -1895,6 +1902,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                       const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
                       const completed = m.status === 'completed' && m.winner_team != null;
                       const team1Won = m.winner_team === 'team1';
+                      // Pending dreambreaker = 5th singles sub-match the meeting
+                      // is tied 2-2 and needs to play out.
+                      const isPendingDreambreaker = m.is_dreambreaker && m.status === 'pending';
                       // Tappable when not yet recorded. Completed rows are inert —
                       // they're history at that point. The League_id we pass is the
                       // tournament's league_id (may be null for standalone tournaments).
@@ -1916,34 +1926,40 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                       if (tappable) { rowProps.onPress = handlePress; rowProps.activeOpacity = 0.6; }
                       if (wagerable) { rowProps.onLongPress = () => openMatchActionSheet(m); }
                       return (
-                        <Row
-                          key={m.id}
-                          style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
-                          {...rowProps}
-                        >
-                          <Text style={S.matchNum}>{i + 1}</Text>
-                          <Text style={[
-                            S.matchup,
-                            completed && team1Won && S.matchupWinner,
-                            completed && !team1Won && S.matchupLoser,
-                            isMyMatch && S.matchupHighlight,
-                          ]} numberOfLines={1}>{t1}</Text>
-                          {completed ? (
-                            <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
-                          ) : (
-                            <Text style={S.vs}>vs</Text>
+                        <React.Fragment key={m.id}>
+                          {isPendingDreambreaker && (
+                            <Text style={S.dreambreakerBadge}>
+                              🏆 Dreambreaker (singles tiebreaker)
+                            </Text>
                           )}
-                          <Text style={[
-                            S.matchup,
-                            completed && !team1Won && S.matchupWinner,
-                            completed && team1Won && S.matchupLoser,
-                            isMyMatch && S.matchupHighlight,
-                          ]} numberOfLines={1}>{t2}</Text>
-                          {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
-                          {tappable && !isMyMatch && (
-                            <Text style={S.recordChevron}>›</Text>
-                          )}
-                        </Row>
+                          <Row
+                            style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
+                            {...rowProps}
+                          >
+                            <Text style={S.matchNum}>{i + 1}</Text>
+                            <Text style={[
+                              S.matchup,
+                              completed && team1Won && S.matchupWinner,
+                              completed && !team1Won && S.matchupLoser,
+                              isMyMatch && S.matchupHighlight,
+                            ]} numberOfLines={1}>{t1}</Text>
+                            {completed ? (
+                              <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
+                            ) : (
+                              <Text style={S.vs}>vs</Text>
+                            )}
+                            <Text style={[
+                              S.matchup,
+                              completed && !team1Won && S.matchupWinner,
+                              completed && team1Won && S.matchupLoser,
+                              isMyMatch && S.matchupHighlight,
+                            ]} numberOfLines={1}>{t2}</Text>
+                            {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
+                            {tappable && !isMyMatch && (
+                              <Text style={S.recordChevron}>›</Text>
+                            )}
+                          </Row>
+                        </React.Fragment>
                       );
                     })}
                   </View>
@@ -2559,6 +2575,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     matchupLoser:  { color: c.textMuted },
     matchScore: { fontSize: 13, fontWeight: '800', color: c.textSub, paddingHorizontal: 4 },
     scheduleRoundLabel: { fontSize: 12, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 4 },
+    dreambreakerBadge: { fontSize: 11, fontWeight: '800', color: '#b8860b', backgroundColor: '#fff8e1', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6, marginBottom: 2, letterSpacing: 0.3 },
     myMatchTag: { fontSize: 9, color: c.primary, fontWeight: '800', backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
     recordChevron: { fontSize: 18, color: c.textMuted, fontWeight: '700', marginLeft: 4 },
 
