@@ -8,6 +8,7 @@ import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { REGIONS, getRegionName, inRegion } from '../lib/regions';
+import { displayCourtName } from '../lib/courtNickname';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
@@ -291,7 +292,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         {item.home_court ? (
           <View style={S.homeCourtRow}>
             <Text style={S.homeCourtPin}>📍</Text>
-            <Text style={S.homeCourtText} numberOfLines={1}>{item.home_court}</Text>
+            <Text style={S.homeCourtText} numberOfLines={1}>{displayCourtName(item.home_court)}</Text>
             {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null) && (
               <View style={S.regionChip}>
                 <Text style={S.regionChipText}>

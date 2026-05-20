@@ -9,6 +9,7 @@ import SplashScreen from '../components/SplashScreen';
 import { useTheme } from '../lib/ThemeContext';
 import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
+import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -150,6 +151,9 @@ export default function AppNavigator() {
       setSession(session);
       if (event === 'SIGNED_OUT') resetStreakShown();
     });
+    // Warm the court-nickname cache so display helpers across screens have
+    // data on first render.
+    ensureCourtNicknamesLoaded();
     return () => subscription.unsubscribe();
   }, []);
 

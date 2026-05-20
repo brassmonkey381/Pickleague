@@ -8,6 +8,7 @@ import { Match, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import StatusBanner from '../components/StatusBanner';
+import { displayCourtName } from '../lib/courtNickname';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import ActionSheetModal from '../components/ActionSheetModal';
 import ConfirmModal from '../components/ConfirmModal';
@@ -408,7 +409,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       : (item.player2?.full_name ?? 'Unknown');
 
     const locationLine = item.location_name
-      ? <Text style={S.locationText}>📍 {item.location_name}</Text>
+      ? <Text style={S.locationText}>📍 {displayCourtName(item.location_name)}</Text>
       : null;
 
     const indoorOutdoorBadge = (
