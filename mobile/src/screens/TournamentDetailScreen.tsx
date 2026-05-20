@@ -85,6 +85,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [lockInError, setLockInError]     = useState<string | null>(null);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
   const [savedRounds, setSavedRounds]     = useState<any[]>([]);
+  const [mlpStandings, setMlpStandings]   = useState<Array<{
+    team_id: string; team_name: string; seed: number | null;
+    pool_letter: string | null; sub_matches_won: number; sub_matches_lost: number;
+  }> | null>(null);
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
   const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
   const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
@@ -153,6 +157,25 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }, [registrations]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  // Refresh MLP standings whenever the tournament loads or new matches land —
+  // the RPC reads completed sub-match counts, so it updates as games finish.
+  // Skipped for non-MLP formats and for MLP variants that have a playoff
+  // stage (those have their own bracket UI; standings still derivable but not
+  // shown in this section).
+  React.useEffect(() => {
+    const isMlp = tournament?.format === 'mlp' || tournament?.format === 'mlp_random';
+    const noPlayoff = tournament?.mlp_play_format === 'round_robin' || tournament?.mlp_play_format === 'pool_play';
+    if (!isMlp || !noPlayoff) { setMlpStandings(null); return; }
+    if (tournament?.status !== 'active' && tournament?.status !== 'completed') return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.rpc('mlp_team_standings', { p_tournament_id: tournamentId });
+      if (cancelled) return;
+      setMlpStandings((data ?? []) as any);
+    })();
+    return () => { cancelled = true; };
+  }, [tournamentId, tournament?.format, tournament?.mlp_play_format, tournament?.status, savedMatches.length]);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1682,6 +1705,41 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </View>
             );
           })()}
+
+        {/* ── MLP Live Standings (mlp / mlp_random without a playoff stage) ── */}
+        {mlpStandings && mlpStandings.length > 0 && (() => {
+          const isFinal = tournament.status === 'completed';
+          const title = isFinal ? 'Final Standings' : 'Live Standings';
+          const sorted = [...mlpStandings].sort((a, b) => {
+            if (a.sub_matches_won !== b.sub_matches_won) return b.sub_matches_won - a.sub_matches_won;
+            if (a.sub_matches_lost !== b.sub_matches_lost) return a.sub_matches_lost - b.sub_matches_lost;
+            return (a.seed ?? 999) - (b.seed ?? 999);
+          });
+          return (
+            <View style={S.section}>
+              <Text style={S.sectionTitle}>{title}</Text>
+              <Text style={S.standingsSubtitle}>
+                Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).
+                {!isFinal && ' Updates as matches are recorded.'}
+              </Text>
+              <View style={S.standingsHeader}>
+                <Text style={[S.standingsCellRank, S.standingsHeaderText]}>#</Text>
+                <Text style={[S.standingsCellName, S.standingsHeaderText]}>Team</Text>
+                <Text style={[S.standingsCellWL,   S.standingsHeaderText]}>Sub W-L</Text>
+              </View>
+              {sorted.map((t, i) => (
+                <View key={t.team_id} style={S.standingsRow}>
+                  <Text style={S.standingsCellRank}>{i + 1}</Text>
+                  <Text style={S.standingsCellName} numberOfLines={1}>
+                    {t.team_name}
+                    {t.pool_letter ? ` · Pool ${t.pool_letter}` : ''}
+                  </Text>
+                  <Text style={S.standingsCellWL}>{t.sub_matches_won}-{t.sub_matches_lost}</Text>
+                </View>
+              ))}
+            </View>
+          );
+        })()}
 
         {/* ── Generate Playoff (admin, non-MLP with playoff configured) ── */}
         {isPriv
