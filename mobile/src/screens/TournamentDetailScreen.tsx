@@ -1593,6 +1593,95 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           );
         })()}
 
+        {/* ── Live Standings (no-playoff tournaments) ── */}
+        {(tournament.status === 'active' || tournament.status === 'completed')
+          && (tournament.format === 'round_robin' || tournament.format === 'pool_play')
+          && (tournament.playoff_format ?? 'none') === 'none'
+          && savedMatches.length > 0
+          && (() => {
+            type Stat = {
+              key: string; name: string; isMe: boolean;
+              wins: number; losses: number; pf: number; pa: number;
+            };
+            const teamKey = (p1: string, p2: string | null) =>
+              p2 ? [p1, p2].sort().join('|') : p1;
+            const teamName = (p1: string | null, p2: string | null): string => {
+              if (!p1) return '?';
+              const n1 = profileNames[p1] ?? '?';
+              const n2 = p2 ? (profileNames[p2] ?? '?') : null;
+              return n2 ? `${n1} & ${n2}` : n1;
+            };
+
+            const stats = new Map<string, Stat>();
+            const ensure = (p1: string | null, p2: string | null): Stat | null => {
+              if (!p1) return null;
+              const key = teamKey(p1, p2);
+              if (!stats.has(key)) {
+                stats.set(key, {
+                  key, name: teamName(p1, p2),
+                  isMe: p1 === myUserId || (!!p2 && p2 === myUserId),
+                  wins: 0, losses: 0, pf: 0, pa: 0,
+                });
+              }
+              return stats.get(key)!;
+            };
+
+            for (const m of savedMatches) {
+              const t1 = ensure(m.team1_player1, m.team1_player2);
+              const t2 = ensure(m.team2_player1, m.team2_player2);
+              if (!t1 || !t2) continue;
+              if (m.status === 'completed' && m.winner_team) {
+                t1.pf += m.team1_score ?? 0; t1.pa += m.team2_score ?? 0;
+                t2.pf += m.team2_score ?? 0; t2.pa += m.team1_score ?? 0;
+                if (m.winner_team === 'team1') { t1.wins++; t2.losses++; }
+                else                            { t2.wins++; t1.losses++; }
+              }
+            }
+
+            const standings = Array.from(stats.values()).sort((a, b) => {
+              if (a.wins !== b.wins) return b.wins - a.wins;
+              return (b.pf - b.pa) - (a.pf - a.pa);
+            });
+
+            if (standings.length === 0) return null;
+
+            const isFinal = tournament.status === 'completed';
+            const title = isFinal ? 'Final Standings' : 'Live Standings';
+
+            return (
+              <View style={S.section}>
+                <Text style={S.sectionTitle}>{title}</Text>
+                <Text style={S.standingsSubtitle}>
+                  Sorted by wins, then point differential.
+                  {!isFinal && ' Updates as matches are recorded.'}
+                </Text>
+                <View style={S.standingsHeader}>
+                  <Text style={[S.standingsCellRank,  S.standingsHeaderText]}>#</Text>
+                  <Text style={[S.standingsCellName,  S.standingsHeaderText]}>{tournament.match_type === 'doubles' ? 'Team' : 'Player'}</Text>
+                  <Text style={[S.standingsCellWL,    S.standingsHeaderText]}>W-L</Text>
+                  <Text style={[S.standingsCellPF,    S.standingsHeaderText]}>PF-PA</Text>
+                  <Text style={[S.standingsCellDiff,  S.standingsHeaderText]}>±</Text>
+                </View>
+                {standings.map((t, i) => {
+                  const diff = t.pf - t.pa;
+                  return (
+                    <View key={t.key} style={[S.standingsRow, t.isMe && S.standingsRowMe]}>
+                      <Text style={S.standingsCellRank}>{i + 1}</Text>
+                      <Text style={[S.standingsCellName, t.isMe && S.standingsCellMe]} numberOfLines={1}>
+                        {t.name}{t.isMe ? ' (YOU)' : ''}
+                      </Text>
+                      <Text style={S.standingsCellWL}>{t.wins}-{t.losses}</Text>
+                      <Text style={S.standingsCellPF}>{t.pf}-{t.pa}</Text>
+                      <Text style={[S.standingsCellDiff, diff > 0 && S.standingsDiffPos, diff < 0 && S.standingsDiffNeg]}>
+                        {diff > 0 ? `+${diff}` : diff}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })()}
+
         {/* ── Saved schedule (tournament is active or completed) ── */}
         {(tournament.status === 'active' || tournament.status === 'completed') && savedMatches.length > 0 && (() => {
           const myCount = savedMatches.filter(m =>
@@ -2244,6 +2333,20 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     section: { backgroundColor: c.surface, margin: 12, marginTop: 0, marginBottom: 8, borderRadius: 14, padding: 14, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
     sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     sectionTitle: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
+
+    standingsSubtitle: { fontSize: 12, color: c.textMuted, marginTop: 4, marginBottom: 10 },
+    standingsHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border },
+    standingsHeaderText: { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase' },
+    standingsRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
+    standingsRowMe: { backgroundColor: c.surfaceAlt },
+    standingsCellRank: { width: 28, fontSize: 13, fontWeight: '600', color: c.textMuted },
+    standingsCellName: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text, paddingRight: 8 },
+    standingsCellMe: { color: c.primary },
+    standingsCellWL: { width: 56, fontSize: 14, fontWeight: '600', color: c.text, textAlign: 'right' },
+    standingsCellPF: { width: 76, fontSize: 13, color: c.textMuted, textAlign: 'right' },
+    standingsCellDiff: { width: 44, fontSize: 13, fontWeight: '600', color: c.text, textAlign: 'right' },
+    standingsDiffPos: { color: '#16a34a' },
+    standingsDiffNeg: { color: '#dc2626' },
     manageLinkText: { fontSize: 12, color: c.primary, fontWeight: '600' },
     emptySection: { fontSize: 15, color: c.textMuted, textAlign: 'center', paddingVertical: 8 },
 
