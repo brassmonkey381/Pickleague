@@ -247,6 +247,9 @@ export type Tournament = {
   // For non-MLP formats (round_robin, pool_play): which playoff bracket runs after group play.
   // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final + 3PM.
   playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8';
+  // 'fixed' = user-defined pairs/rosters; 'random' = auto-paired/auto-generated.
+  // Applies to Doubles and MLP; Singles ignores it.
+  team_creation: 'fixed' | 'random';
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
