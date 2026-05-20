@@ -202,9 +202,12 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         .in('status', ['registration', 'active'])
         .order('start_time', { ascending: true, nullsFirst: false })
         .limit(5),
-      // Scheduled events with a confirmed future slot.
+      // Scheduled events with a confirmed future slot. We fetch the slot
+      // separately rather than via embedded select because the FK on
+      // confirmed_slot_id wasn't always present in older schemas — the join
+      // would silently return null and drop the row.
       supabase.from('league_events')
-        .select('id, title, status, confirmed_slot_id, event_slots:event_slots!league_events_confirmed_slot_id_fkey(starts_at)')
+        .select('id, title, status, confirmed_slot_id')
         .eq('league_id', leagueId)
         .eq('status', 'scheduled'),
       // Events currently being voted on.
@@ -237,10 +240,25 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     // Events: scheduled (with future slot) + voting (with vote_ends_at in future)
     const eItems: ComingUpItem[] = [];
 
-    for (const ev of ((scheduledRes.data ?? []) as any[])) {
-      const slot = Array.isArray(ev.event_slots) ? ev.event_slots[0] : ev.event_slots;
-      if (!slot?.starts_at) continue;
-      const ms = new Date(slot.starts_at).getTime();
+    // Resolve confirmed slot starts_at via a second targeted fetch — robust
+    // whether or not PostgREST has an FK relationship for the embedded form.
+    const scheduledRows = (scheduledRes.data ?? []) as any[];
+    const slotIds = scheduledRows.map(ev => ev.confirmed_slot_id).filter(Boolean) as string[];
+    const slotStarts = new Map<string, string>();
+    if (slotIds.length > 0) {
+      const { data: slotRows } = await supabase
+        .from('event_slots')
+        .select('id, starts_at')
+        .in('id', slotIds);
+      for (const s of ((slotRows ?? []) as { id: string; starts_at: string }[])) {
+        slotStarts.set(s.id, s.starts_at);
+      }
+    }
+
+    for (const ev of scheduledRows) {
+      const startsAt = ev.confirmed_slot_id ? slotStarts.get(ev.confirmed_slot_id) : null;
+      if (!startsAt) continue;
+      const ms = new Date(startsAt).getTime();
       if (ms < Date.now()) continue;
       eItems.push({
         key:   `e-${ev.id}`,
