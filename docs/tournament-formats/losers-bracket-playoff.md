@@ -12,6 +12,27 @@ See also: [Round Robin](./round-robin.md), [Pool Play](./pool-play.md), [MLP](./
 
 ---
 
+## App descriptions (source of truth)
+
+The DE playoff variants (`top_4_de`, `top_8_de`, `top_N_per_pool_de`) are **new formats proposed by this doc** — there is **no app-side hint text for them today**. The closest existing precedent in the app is the standalone Double Elim format:
+
+> **`FORMAT_META.double_elimination`** (`mobile/src/lib/tournament.ts:385`):
+> "Two losses to be eliminated."
+
+The new DE playoff variants share that exact "two losses to be eliminated" semantic — they just apply it to the **top-N seeded entrants after group play**, instead of to the entire entrant list from match 1.
+
+### Proposed hint text (for future UI implementation)
+
+When these variants are wired into `CreateTournamentScreen.tsx`, the hint copy should match the style of the existing MLP Playoff Size hints (`CreateTournamentScreen.tsx:389-393`). Suggested strings:
+
+- **"Top 4 Double Elim"**: "Top 4 seeds enter a winners + losers bracket. Lose once and you drop to the losers bracket; lose twice and you're eliminated. Includes a Grand Final with optional bracket reset."
+- **"Top 8 Double Elim"**: "Top 8 seeds enter a winners + losers bracket. Same drop-in rules as Top 4 DE; longer bracket."
+- **"Top N per Pool Double Elim"**: "Top N from each pool cross over into a winners + losers bracket. Lose once → losers bracket; lose twice → eliminated."
+
+These are **proposed**, not current. They are written to be drop-in copy when the UI is built.
+
+---
+
 ## Concept
 
 In a **single-elimination (SE) playoff**, a single bad match — a fluky game, a bad call, a tweaked ankle — ends a top-seeded team's run. The #1 seed and the #8 seed are equally one loss away from the door.
