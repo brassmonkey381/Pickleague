@@ -16,6 +16,50 @@ format, standings calculation, and playoff bracket is identical. The rest
 of this document treats them as one and does not repeat the distinction
 per permutation.
 
+## App descriptions (source of truth)
+
+The Pickleague mobile app shows the canonical user-facing copy when
+admins create a tournament. This doc must stay aligned with these
+strings. If anything below contradicts the app text, the app wins.
+
+### Format labels (`mobile/src/lib/tournament.ts:387-388`)
+
+```
+mlp:        'Teams of 4 (2M + 2W). Captains form rosters and lock in.'
+mlp_random: 'Teams of 4 auto-generated from approved players (random or snake-draft) with wacky names.'
+```
+
+### MLP Play Format hints (`mobile/src/screens/CreateTournamentScreen.tsx:359-367`)
+
+```
+round_robin:          'Every team plays every team once. Final standings by sub-matches won.'
+pool_play:            'Teams split into pools, round-robin within each pool. Final standings by combined pool W-L.'
+round_robin_playoff:  'Round-robin first, then the top teams advance to a single-elim playoff (quarters / semis / finals).'
+pool_play_playoff:    'Pool play first, then the top teams from each pool advance to a single-elim playoff.'
+```
+
+### Number of Pools — MLP only (`mobile/src/screens/CreateTournamentScreen.tsx:369-378`)
+
+```
+Pool count options: 2, 3, or 4
+Hint: 'Teams are snake-drafted into pools by seed so each pool is balanced.'
+```
+
+Note: non-MLP `pool_play` exposes `{2, 3, 4, 6}`, but MLP pool play is
+capped at **4**. Worked examples below use `P ∈ {2, 4}`.
+
+### Playoff Size hints (`mobile/src/screens/CreateTournamentScreen.tsx:389-393`)
+
+```
+Top 2: 'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).'
+Top 4: 'Semifinals + Finals.'
+Top 8: 'Quarterfinals + Semifinals + Finals.'
+```
+
+Only **Top 2** declares a Third Place Match in the current app. **Top 4**
+is semis-into-final only; **Top 8** is QFs-SFs-Final only. There is no
+3PM in MLP-4 / MLP-5 / MLP-9 / MLP-10 today.
+
 ## MLP Vocabulary (read this first)
 
 - **Team meeting** — one team-vs-team encounter. Always produces
@@ -109,7 +153,9 @@ identical W-L records resolve.
 
 ## MLP-2 — Pool Play + No Playoff
 
-`mlp_play_format = 'pool_play'`, `mlp_pool_count = P` (2..8). No playoff.
+`mlp_play_format = 'pool_play'`, `mlp_pool_count = P` (2, 3, or 4 in the
+current app — see ["App descriptions"](#app-descriptions-source-of-truth)).
+No playoff.
 
 Teams are snake-drafted into P pools by `seed` (`created_at` order on
 locked teams). Within each pool, every team plays every other team in
@@ -398,7 +444,8 @@ per pool, 2 advance overall). `generate_mlp_playoff` computes
   highest seed by pool-rank ordering). This is a **footgun** —
   documenting it here. If admins really want top 2 with 3 pools, they
   should use MLP-9 (Top 4) or extend the SQL.
-- **P ≥ 4 + Top 2:** same footgun — only 2 of P pool winners advance.
+- **P = 4 + Top 2:** same footgun — only 2 of 4 pool winners advance.
+  (`P = 4` is the current cap for MLP pool play.)
 
 ---
 
