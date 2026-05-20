@@ -97,9 +97,6 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
   // Format
   const [format, setFormat]           = useState<TournamentFormat>('round_robin');
-  const [mlpPlayFormat, setMlpPlayFormat] = useState<'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff'>('round_robin');
-  const [mlpPoolCount, setMlpPoolCount] = useState(2);
-  const [mlpPlayoffTeams, setMlpPlayoffTeams] = useState<2 | 4 | 8>(4);
   // Default to doubles — the most common match type. MLP is the 3rd option.
   const [matchType, setMatchType]     = useState<UiMatchType>('doubles');
   const [teamCreation, setTeamCreation] = useState<TeamCreation>('fixed');
@@ -270,8 +267,22 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       payout_structure:  structure,
     };
     if (isMlp) {
+      // Derive the legacy MLP-specific columns from the unified Format +
+      // Playoff Format pickers. mlp_play_format encodes the combination:
+      //   format=round_robin + playoff=none   → round_robin
+      //   format=round_robin + playoff=top_X  → round_robin_playoff (with mlp_playoff_teams=X)
+      //   format=pool_play   + playoff=none   → pool_play
+      //   format=pool_play   + playoff=top_X  → pool_play_playoff
+      const hasPlayoff = playoffFormat !== 'none';
+      const mlpPlayFormat =
+        format === 'pool_play'
+          ? (hasPlayoff ? 'pool_play_playoff' : 'pool_play')
+          : (hasPlayoff ? 'round_robin_playoff' : 'round_robin');
+      const mlpPlayoffTeams =
+        playoffFormat === 'top_2' ? 2 :
+        playoffFormat === 'top_8' ? 8 : 4;
       insertPayload.mlp_play_format   = mlpPlayFormat;
-      insertPayload.mlp_pool_count    = mlpPoolCount;
+      insertPayload.mlp_pool_count    = format === 'pool_play' ? poolCount : 2;
       insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
     } else if (format === 'round_robin' || format === 'pool_play') {
       insertPayload.playoff_format = playoffFormat;
@@ -342,36 +353,12 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Text style={S.label}>Max Players</Text>
         <TextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
 
-        {/* ── Format ── (hidden when MLP — Match Type → MLP swaps in MLP-specific pickers) */}
-        {matchType !== 'mlp' && (
-          <>
-            <SectionHeader title="Format" S={S} />
-            <View style={S.formatGrid}>
-              {FORMATS.map(f => {
-                const meta = FORMAT_META[f];
-                const active = format === f;
-                return (
-                  <TouchableOpacity
-                    key={f}
-                    style={[S.formatCard, active && S.formatCardActive]}
-                    onPress={() => setFormat(f)}
-                  >
-                    <Text style={S.formatIcon}>{meta.icon}</Text>
-                    <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
-                    <Text style={S.formatDesc}>{meta.description}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </>
-        )}
-
-        {/* ── Match type ── */}
-        <SectionHeader title="Match Type" S={S} />
+        {/* ── Team Type ── (moved above Format; defaults to Doubles) */}
+        <SectionHeader title="Team Type" S={S} />
         <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
-          <Pill label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
-          <Pill label="Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
-          <Pill label="MLP"     active={matchType === 'mlp'}     onPress={() => setMatchType('mlp')}     S={S} />
+          <Pill label="① Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
+          <Pill label="② Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
+          <Pill label="④ MLP"     active={matchType === 'mlp'}     onPress={() => setMatchType('mlp')}     S={S} />
         </View>
         {isDoublesOnlyFormat && matchType !== 'mlp' && <Text style={S.hint}>This format is doubles-only.</Text>}
         {matchType === 'mlp' && (
@@ -394,6 +381,28 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           </>
         )}
 
+        {/* ── Format ── (MLP restricts to round_robin / pool_play; single/double elim + rotating_partners are non-MLP only) */}
+        <SectionHeader title="Format" S={S} />
+        <View style={S.formatGrid}>
+          {FORMATS
+            .filter(f => matchType !== 'mlp' || f === 'round_robin' || f === 'pool_play')
+            .map(f => {
+              const meta = FORMAT_META[f];
+              const active = format === f;
+              return (
+                <TouchableOpacity
+                  key={f}
+                  style={[S.formatCard, active && S.formatCardActive]}
+                  onPress={() => setFormat(f)}
+                >
+                  <Text style={S.formatIcon}>{meta.icon}</Text>
+                  <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
+                  <Text style={S.formatDesc}>{meta.description}</Text>
+                </TouchableOpacity>
+              );
+            })}
+        </View>
+
         {/* ── Seeding ── */}
         <SectionHeader title="Bracket Seeding" S={S} />
         <View style={S.pillRow}>
@@ -406,70 +415,25 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             : 'Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.'}
         </Text>
 
-        {/* ── MLP play format (MLP match type only) ── */}
-        {matchType === 'mlp' && (
-          <>
-            <SectionHeader title="MLP Play Format" S={S} />
-            <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
-              <Pill label="Round Robin"            active={mlpPlayFormat === 'round_robin'}         onPress={() => setMlpPlayFormat('round_robin')}         S={S} />
-              <Pill label="Pool Play"              active={mlpPlayFormat === 'pool_play'}           onPress={() => setMlpPlayFormat('pool_play')}           S={S} />
-              <Pill label="RR + Playoff"           active={mlpPlayFormat === 'round_robin_playoff'} onPress={() => setMlpPlayFormat('round_robin_playoff')} S={S} />
-              <Pill label="Pool Play + Playoff"    active={mlpPlayFormat === 'pool_play_playoff'}   onPress={() => setMlpPlayFormat('pool_play_playoff')}   S={S} />
-            </View>
-            <Text style={S.hint}>
-              {mlpPlayFormat === 'round_robin'
-                ? 'Every team plays every team once. Final standings by sub-matches won.'
-                : mlpPlayFormat === 'pool_play'
-                  ? 'Teams split into pools, round-robin within each pool. Final standings by combined pool W-L.'
-                  : mlpPlayFormat === 'round_robin_playoff'
-                    ? 'Round-robin first, then the top teams advance to a single-elim playoff (quarters / semis / finals).'
-                    : 'Pool play first, then the top teams from each pool advance to a single-elim playoff.'}
-            </Text>
-
-            {(mlpPlayFormat === 'pool_play' || mlpPlayFormat === 'pool_play_playoff') && (
-              <>
-                <SectionHeader title="Number of Pools" S={S} />
-                <View style={S.pillRow}>
-                  {[2, 3, 4].map(n => (
-                    <Pill key={n} label={`${n} pools`} active={mlpPoolCount === n} onPress={() => setMlpPoolCount(n)} S={S} />
-                  ))}
-                </View>
-                <Text style={S.hint}>Teams are snake-drafted into pools by seed so each pool is balanced.</Text>
-              </>
-            )}
-
-            {(mlpPlayFormat === 'round_robin_playoff' || mlpPlayFormat === 'pool_play_playoff') && (
-              <>
-                <SectionHeader title="Playoff Size" S={S} />
-                <View style={S.pillRow}>
-                  {[2, 4, 8].map(n => (
-                    <Pill key={n} label={`Top ${n}`} active={mlpPlayoffTeams === n} onPress={() => setMlpPlayoffTeams(n as 2 | 4 | 8)} S={S} />
-                  ))}
-                </View>
-                <Text style={S.hint}>
-                  {mlpPlayoffTeams === 2 ? 'Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4).' :
-                   mlpPlayoffTeams === 4 ? 'Semifinals + Finals.' :
-                   'Quarterfinals + Semifinals + Finals.'}
-                </Text>
-              </>
-            )}
-          </>
-        )}
-
         {/* ── Pool count (pool play only) ── */}
         {format === 'pool_play' && (
           <>
             <SectionHeader title="Number of Pools" S={S} />
             <View style={S.pillRow}>
-              {[2, 3, 4, 6].map(n => (
+              {/* MLP caps at 4 pools (each pool needs enough teams to play); non-MLP allows up to 6. */}
+              {(matchType === 'mlp' ? [2, 3, 4] : [2, 3, 4, 6]).map(n => (
                 <Pill key={n} label={`${n} pools`} active={poolCount === n} onPress={() => setPoolCount(n)} S={S} />
               ))}
             </View>
-            <Text style={S.hint}>Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on.</Text>
+            <Text style={S.hint}>
+              {matchType === 'mlp'
+                ? 'Teams are snake-drafted into pools by seed so each pool is balanced.'
+                : 'Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on.'}
+            </Text>
           </>
         )}
 
-        {/* ── Playoff format (round_robin and pool_play only — MLP has its own) ── */}
+        {/* ── Playoff format (round_robin and pool_play — applies to singles, doubles, and MLP) ── */}
         {(format === 'round_robin' || format === 'pool_play') && (
           <>
             <SectionHeader title="Playoff Format" S={S} />
