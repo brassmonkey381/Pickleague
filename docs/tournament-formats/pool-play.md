@@ -16,6 +16,53 @@ Cross-references:
 
 ---
 
+## App descriptions (source of truth)
+
+These are the canonical user-facing strings the app currently shows for
+Pool Play. The deep dive below must stay consistent with them.
+
+Format card description (`FORMAT_META.pool_play`):
+
+```text
+Balanced pools, then bracket.
+```
+
+— `mobile/src/lib/tournament.ts:386`
+
+Pool-count hint shown beneath the "Number of Pools" picker when
+`format === 'pool_play'`:
+
+```text
+Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on.
+```
+
+— `mobile/src/screens/CreateTournamentScreen.tsx:408`
+
+Bracket Seeding hint (applies to both pools and the downstream bracket;
+PLUPR-based vs random draw):
+
+```text
+Determines bracket structure and which players face off in each round. Players are sorted by PLUPR; pools and brackets use snake-draft so the top seed faces the bottom seed and skill levels stay balanced across pools.
+```
+
+```text
+Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.
+```
+
+— `mobile/src/screens/CreateTournamentScreen.tsx:343-347`
+
+The pool-count picker offers exactly `{2, 3, 4, 6}` for non-MLP
+`pool_play` (CreateTournamentScreen.tsx:404), which matches the
+`P ∈ {2, 3, 4, 6}` range used throughout this doc.
+
+> **Note on PP-1.** The format card promises "Balanced pools, **then
+> bracket**." PP-1 below documents the `playoff_format = none` case for
+> completeness (e.g., league nights or pool-only events). When users
+> pick Pool Play from the format card they should expect a bracket by
+> default; PP-1 is the explicit opt-out, not the headline behaviour.
+
+---
+
 ## Notation & Core Formulas
 
 Let:
@@ -74,6 +121,9 @@ the exact drop-in cadence; numbers above are the totals only.
 
 `pool_play` + P pools + `playoff_format = none`.
 
+This is the opt-out from the default "balanced pools, then bracket"
+behaviour described in the format card. Use it when the event is
+pool-only (league nights, social play, seeding round for a later event).
 Standings come straight from within-pool order. Cross-pool ranking (e.g.,
 "who is the overall #1?") is undefined unless tiebreakers compare pool
 winners — see [Seeding & Tiebreakers](./seeding-and-tiebreakers.md).
