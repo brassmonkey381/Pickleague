@@ -10,6 +10,32 @@ NEW wager subject ideas in §3, which are left as future enhancements.
 
 ---
 
+## App descriptions (source of truth)
+
+The canonical user-facing copy these worked examples should align with,
+quoted verbatim from the app:
+
+- **`FORMAT_META.mlp`** — `mobile/src/lib/tournament.ts:387`:
+  > "Teams of 4 (2M + 2W). Captains form rosters and lock in."
+- **MLP Play Format `round_robin`** — `mobile/src/screens/CreateTournamentScreen.tsx:361`:
+  > "Every team plays every team once. Final standings by sub-matches won."
+- **MLP Play Format `round_robin_playoff`** — `mobile/src/screens/CreateTournamentScreen.tsx:365`:
+  > "Round-robin first, then the top teams advance to a single-elim playoff (quarters / semis / finals)."
+- **MLP Playoff Size Top 2** — `mobile/src/screens/CreateTournamentScreen.tsx:390`:
+  > "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)."
+- **MLP Playoff Size Top 4** — `mobile/src/screens/CreateTournamentScreen.tsx:391`:
+  > "Semifinals + Finals."
+- **MLP Playoff Size Top 8** — `mobile/src/screens/CreateTournamentScreen.tsx:392`:
+  > "Quarterfinals + Semifinals + Finals."
+
+Worked examples below use this terminology — "Quarterfinals",
+"Semifinals", "Finals", "Grand Final", "Third Place Match" — for MLP
+playoff brackets, even when the larger format is a proposed DE playoff
+variant (DE-specific rounds like "Losers Final" / "Grand Final 2"
+remain DE-only).
+
+---
+
 ## 1. Existing Wager Subject Inventory
 
 From `mobile/src/lib/wager.ts` (verbatim):
@@ -73,7 +99,7 @@ larger format.
 | Single Elim (SE-1..3) | each bracket match (incl. 3PM, consolation) | champion (and lower ranks once supported) | each match's exact score | Consolation bracket matches are still `tournament_match` rows. |
 | Double Elim (DE-1..2) | each WB / LB / GF match (and GF2 on reset) | champion | each match's exact score | Bracket reset (DE-2) introduces GF2 as a separate `tournament_match` row. |
 | Rotating Partners (RP-1..4) | each rotating match + each playoff match | individual standings (rank is per player, not per pair) | each match's exact score | Playoff pairs (RP-3/RP-4) form *new* `tournament_match` rows once seeds lock. |
-| MLP / MLP Random (MLP-1..12) | each team meeting's 4 sub-matches + each playoff sub-match | team standings — but the existing subject is *player*-keyed (see §5) | each sub-match's exact score | MLP playoff DE variants (MLP-6/7/11/12) are new permutations, not new subjects. |
+| MLP / MLP Random (MLP-1..12) | each team meeting's 4 sub-matches + each playoff sub-match | team standings derived from sub-matches won (per the in-app MLP RR hint: *"Final standings by sub-matches won"*) — but the existing subject is *player*-keyed (see §5) | each sub-match's exact score | MLP playoff DE variants (MLP-6/7/11/12) are new permutations, not new subjects. |
 
 ### Cross-cutting observations
 
@@ -218,9 +244,10 @@ tiebreak) advance to semis.
   - As specific RR matchups become matchable, opens individual
     `tournament_match` wagers on A's matches.
 - **After the RR stage locks in seeds,** the SE bracket materializes:
-  WSF1 = S1 vs S4, WSF2 = S2 vs S3.
-  - Bettor opens a `tournament_match` wager on the WSF1 row.
-  - Bettor opens a `tournament_match_score` wager *"WSF1 ends 11-9"*.
+  Semifinal 1 = S1 vs S4, Semifinal 2 = S2 vs S3.
+  - Bettor opens a `tournament_match` wager on the Semifinal 1 row.
+  - Bettor opens a `tournament_match_score` wager *"Semifinal 1 ends
+    11-9"*.
 - **After both semis,** the Final row exists — open another
   `tournament_match` wager on it.
 - **Settlement:** match wagers settle as each
@@ -250,14 +277,25 @@ consideration if pool-level betting becomes a frequent ask.
 
 ### 4.3. MLP-6 — MLP + Round-Robin + Top 4 Double-Elim Playoff (NEW)
 
-Six MLP teams play a single round robin (each team meeting is 4
-sub-matches: men's, women's, 2× mixed). Top 4 teams seed into a 4-team
-DE playoff.
+Six MLP teams (per the app: *"Teams of 4 (2M + 2W). Captains form
+rosters and lock in."*) play a single round robin — *"Every team
+plays every team once. Final standings by sub-matches won."* — where
+each team meeting is 4 sub-matches: men's, women's, 2× mixed. Top 4
+teams seed into a 4-team DE playoff.
+
+> Note: the app's shipped MLP "Top 4" playoff is single-elim
+> (*"Semifinals + Finals."*) — MLP-6 is the proposed DE variant that
+> reuses the same Top-4 seeding but resolves via WB/LB/GF instead of a
+> straight SE bracket.
 
 - **During RR,** bettor places `tournament_match` wagers on individual
-  sub-matches as scheduled.
+  sub-matches as scheduled. Team standings (which determine playoff
+  seeding) are derived from sub-matches won — so a `tournament_rank`
+  wager during RR is effectively a bet on team-level performance, even
+  though the subject is player-keyed (see §5.3).
 - **After RR seeds lock,** the DE playoff bracket materializes:
-  WSF1, WSF2, LB Round 1, WB Final, LB Final, Grand Final.
+  Semifinal 1 (WB), Semifinal 2 (WB), Losers Round 1, Winners Final,
+  Losers Final, Grand Final (and Grand Final 2 if bracket reset is on).
 - **Comeback bet:** *"Team Smashville comes back through the losers
   bracket to win the championship"* — **not expressible today**. See
   §3.3 — would need `tournament_lb_comeback` (and team-level subjects,
@@ -265,8 +303,8 @@ DE playoff.
 - **Practical workaround until §3.3 ships:** the bettor places a
   `tournament_rank` wager on a Smashville player to finish 1st (MLP
   champions all share rank=1), and a `tournament_match` wager on
-  whichever LB match they need Smashville to win — but this is two
-  separate bets, not a single compound predicate.
+  whichever Losers Round / Losers Final match they need Smashville to
+  win — but this is two separate bets, not a single compound predicate.
 
 ---
 
@@ -278,8 +316,8 @@ When proposing a `tournament_match` wager, the modal must show the
 bracket round so the bettor knows *which* match they're betting on:
 
 - Pool-play: "Pool A — Round 2"
-- Single-elim playoff: "Quarterfinal 3", "Semifinal 1", "Final",
-  "3rd-Place Match"
+- Single-elim playoff (matching the app's "quarters / semis / finals"
+  copy): "Quarterfinal 3", "Semifinal 1", "Final", "Third Place Match"
 - Double-elim playoff: "Winners Round 1", "Losers Round 2", "Winners
   Final", "Losers Final", "Grand Final 1", "Grand Final 2 (Bracket
   Reset)"
