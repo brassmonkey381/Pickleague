@@ -67,18 +67,30 @@ function computeStandings(
   });
   return members.map(m => {
     const uid = m.user_id;
-    const wins = inRange.filter(x =>
-      (x.player1_id  === uid && x.winner_team === 'team1') ||
-      (x.partner1_id === uid && x.winner_team === 'team1') ||
-      (x.player2_id  === uid && x.winner_team === 'team2') ||
-      (x.partner2_id === uid && x.winner_team === 'team2')
-    ).length;
-    const losses = inRange.filter(x =>
-      (x.player1_id  === uid && x.winner_team === 'team2') ||
-      (x.partner1_id === uid && x.winner_team === 'team2') ||
-      (x.player2_id  === uid && x.winner_team === 'team1') ||
-      (x.partner2_id === uid && x.winner_team === 'team1')
-    ).length;
+    // Each game in a multi-game match counts independently. A best-of-3
+    // ending 2-1 produces 2 W + 1 L for the winning side. Single-game
+    // matches (game_scores null) keep the old 1 W or 1 L behavior.
+    let wins = 0;
+    let losses = 0;
+    for (const x of inRange) {
+      const onTeam1 = x.player1_id === uid || x.partner1_id === uid;
+      const onTeam2 = x.player2_id === uid || x.partner2_id === uid;
+      if (!onTeam1 && !onTeam2) continue;
+      const games = Array.isArray(x.game_scores) && x.game_scores.length > 0
+        ? x.game_scores
+        : null;
+      if (games) {
+        for (const g of games as { t1: number; t2: number }[]) {
+          if (onTeam1) { if (g.t1 > g.t2) wins++; else if (g.t2 > g.t1) losses++; }
+          else         { if (g.t2 > g.t1) wins++; else if (g.t1 > g.t2) losses++; }
+        }
+      } else {
+        if (onTeam1 && x.winner_team === 'team1') wins++;
+        else if (onTeam1 && x.winner_team === 'team2') losses++;
+        else if (onTeam2 && x.winner_team === 'team2') wins++;
+        else if (onTeam2 && x.winner_team === 'team1') losses++;
+      }
+    }
     let seasonDelta = 0;
     for (const x of inRange) {
       const onTeam1 = x.player1_id === uid || x.partner1_id === uid;
@@ -272,7 +284,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       // We re-filter client-side per-period and for the live tab. The
       // rating_before/after columns drive the per-player season PLUPR.
       supabase.from('matches')
-        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at,'
+        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
               + ' player1_rating_before, player1_rating_after,'
               + ' player2_rating_before, player2_rating_after')
         .eq('league_id', leagueId),
