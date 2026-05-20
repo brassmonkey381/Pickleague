@@ -104,6 +104,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [poolCount, setPoolCount]     = useState(2);
   const [partnerRotation, setPartnerRotation] = useState<'every_match' | 'every_round'>('every_match');
   const [playoffFormat, setPlayoffFormat] = useState<'none' | 'top_2' | 'top_4' | 'top_8'>('none');
+  // Whether Top 4 / Top 8 brackets get a Third Place Match between losing semifinalists.
+  // (Top 2 always pairs standings #3 vs #4 — that's not toggleable.)
+  const [playoffThirdPlace, setPlayoffThirdPlace] = useState(false);
 
   // Registration
   const [inviteOnly, setInviteOnly]   = useState(false);
@@ -280,6 +283,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
     } else if (format === 'round_robin' || format === 'pool_play') {
       insertPayload.playoff_format = playoffFormat;
+      // 3PM toggle only meaningful for top_4 / top_8; safe to send false otherwise.
+      insertPayload.playoff_third_place =
+        (playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
     }
 
     const { data: t, error: err } = await supabase
@@ -428,6 +434,24 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                     ? 'Semifinals + Finals.'
                     : 'Quarterfinals + Semifinals + Finals.'}
             </Text>
+            {(playoffFormat === 'top_4' || playoffFormat === 'top_8') && (
+              <View style={S.toggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.label}>Third Place Match</Text>
+                  <Text style={S.hint}>
+                    {playoffThirdPlace
+                      ? 'Losing semifinalists play for 3rd place after both Semifinals complete.'
+                      : 'No 3rd place match — losing semifinalists tie for 3rd.'}
+                  </Text>
+                </View>
+                <Switch
+                  value={playoffThirdPlace}
+                  onValueChange={setPlayoffThirdPlace}
+                  trackColor={{ true: colors.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+            )}
           </>
         )}
 
