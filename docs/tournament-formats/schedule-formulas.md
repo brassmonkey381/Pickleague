@@ -13,6 +13,65 @@ See the [tournament-formats index](../tournament-formats.md) for the canonical p
 
 ---
 
+## Source of truth: app descriptions
+
+The app currently exposes a single Larger Format choice plus a small handful of secondary settings (pool count, partner rotation, MLP play format, MLP playoff size). The deep-dive permutations below extend that surface with proposed additional/playoff axes that are not yet user-visible. This section pins each permutation code to the exact app text it inherits, so this doc stays anchored to what users actually see.
+
+### Quoted app text
+
+**FORMAT_META** (`mobile/src/lib/tournament.ts:382-390`):
+
+```ts
+export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string; description: string }> = {
+  round_robin:         { label: 'Round Robin',       icon: '🔄', description: 'Every player faces every other player.' },
+  single_elimination:  { label: 'Single Elim',       icon: '🏆', description: 'One loss and you\'re out.' },
+  double_elimination:  { label: 'Double Elim',       icon: '🔁', description: 'Two losses to be eliminated.' },
+  pool_play:           { label: 'Pool Play',          icon: '🏊', description: 'Balanced pools, then bracket.' },
+  mlp:                 { label: 'MLP / Fixed Teams',  icon: '🤝', description: 'Teams of 4 (2M + 2W). Captains form rosters and lock in.' },
+  mlp_random:          { label: 'MLP / Random Teams', icon: '🎲', description: 'Teams of 4 auto-generated from approved players (random or snake-draft) with wacky names.' },
+  rotating_partners:   { label: 'Rotating Partners',  icon: '🔀', description: 'Partners rotate each round.' },
+};
+```
+
+**MLP Play Format hint** (`mobile/src/screens/CreateTournamentScreen.tsx:359-367`):
+
+> "Every team plays every team once. Final standings by sub-matches won." (round_robin)
+> "Teams split into pools, round-robin within each pool. Final standings by combined pool W-L." (pool_play)
+> "Round-robin first, then the top teams advance to a single-elim playoff (quarters / semis / finals)." (round_robin_playoff)
+> "Pool play first, then the top teams from each pool advance to a single-elim playoff." (pool_play_playoff)
+
+**MLP Playoff Size hint** (`mobile/src/screens/CreateTournamentScreen.tsx:389-393`):
+
+> "Grand Final (#1 vs #2) plus a Third Place Match (#3 vs #4)." (Top 2)
+> "Semifinals + Finals." (Top 4)
+> "Quarterfinals + Semifinals + Finals." (Top 8)
+
+**Pool count hint** (`mobile/src/screens/CreateTournamentScreen.tsx:408`):
+
+> "Players are distributed evenly. Snake-draft keeps pools balanced by PLUPR when seeding is on."
+
+**Partner Rotation hint** (`mobile/src/screens/CreateTournamentScreen.tsx:420`):
+
+> "Partners rotate so every player pairs with different teammates over the course of the tournament."
+
+### Permutation → app-text mapping
+
+| Permutation code | Larger Format text (FORMAT_META) | Additional/Playoff hint text |
+|---|---|---|
+| RR-1..RR-7 | "Every player faces every other player." | (no app hint — additional/playoff axes don't exist in app yet for RR) |
+| RR-8 | "Every player faces every other player." | "Double round-robin" — proposed (no app hint yet) |
+| PP-1..PP-9 | "Balanced pools, then bracket." | Pool count hint: "Players are distributed evenly..." (`CreateTournamentScreen.tsx:408`) |
+| SE-1..SE-3 | "One loss and you're out." | (none — 3PM/consolation proposed) |
+| DE-1..DE-2 | "Two losses to be eliminated." | (none — reset toggle proposed) |
+| RP-1..RP-2 | "Partners rotate each round." | Partner Rotation hint (`CreateTournamentScreen.tsx:420`) |
+| RP-3..RP-4 | "Partners rotate each round." | (none — proposed playoff) |
+| MLP-1..MLP-2 | "Teams of 4 (2M + 2W). Captains form rosters and lock in." | MLP Play Format hints (`CreateTournamentScreen.tsx:359-367`) |
+| MLP-3..MLP-12 | "Teams of 4 (2M + 2W). Captains form rosters and lock in." | MLP Play Format + Playoff Size hints (`CreateTournamentScreen.tsx:359-393`) |
+
+Anywhere the table below references playoff atoms, consolation brackets, GF reset toggles, or partner-rotation variants beyond the binary every-match/every-round switch, those are **deep-dive extensions**, not options the user can pick today.
+
+---
+
 ## 1. Atomic Formulas
 
 The building blocks. Every permutation below is a composition of one or more of these atoms.
