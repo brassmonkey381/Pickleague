@@ -36,6 +36,7 @@ import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { buildStandingsComparator, type TiebreakerMatch } from '../lib/tournamentTiebreakers';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
@@ -1426,7 +1427,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             wins: number; losses: number; pf: number; pa: number;
           };
 
-          function teamKey(p1: string, p2: string | null) { return p1 + '|' + (p2 ?? ''); }
+          // Sorted-pair key so head-to-head lookups agree regardless of which
+          // side of a match the team appears on.
+          function teamKey(p1: string, p2: string | null) {
+            return p2 ? [p1, p2].sort().join('|') : p1;
+          }
           function teamDisplayName(p1: string | null, p2: string | null): string {
             if (!p1) return '?';
             const n1 = profileNames[p1] ?? '?';
@@ -1461,10 +1466,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               }
             }
 
-            return Array.from(stats.values()).sort((a, b) => {
-              if (a.wins !== b.wins) return b.wins - a.wins;
-              return (b.pf - b.pa) - (a.pf - a.pa);
-            });
+            const entries = Array.from(stats.values());
+            // Pool-scoped tiebreakers: only consider completed matches in this pool.
+            const poolMatches: TiebreakerMatch[] = savedMatches
+              .filter((m: any) => m.round?.id === round.id)
+              .map((m: any) => ({
+                team1_player1: m.team1_player1,
+                team1_player2: m.team1_player2,
+                team2_player1: m.team2_player1,
+                team2_player2: m.team2_player2,
+                winner_team: m.winner_team,
+                status: m.status,
+              }));
+            return entries.sort(buildStandingsComparator(entries, poolMatches));
           }
 
           // Compute standings for the first 2 pools (bracket assumes A & B)
@@ -1639,10 +1653,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               }
             }
 
-            const standings = Array.from(stats.values()).sort((a, b) => {
-              if (a.wins !== b.wins) return b.wins - a.wins;
-              return (b.pf - b.pa) - (a.pf - a.pa);
-            });
+            // Apply the canonical tiebreak chain: wins → H2H (2-way ties only) → point_diff → seed.
+            const entries = Array.from(stats.values());
+            const tbMatches: TiebreakerMatch[] = savedMatches.map((m: any) => ({
+              team1_player1: m.team1_player1,
+              team1_player2: m.team1_player2,
+              team2_player1: m.team2_player1,
+              team2_player2: m.team2_player2,
+              winner_team: m.winner_team,
+              status: m.status,
+            }));
+            const standings = entries.sort(buildStandingsComparator(entries, tbMatches));
 
             if (standings.length === 0) return null;
 
@@ -1653,7 +1674,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               <View style={S.section}>
                 <Text style={S.sectionTitle}>{title}</Text>
                 <Text style={S.standingsSubtitle}>
-                  Sorted by wins, then point differential.
+                  Sorted by wins, then head-to-head (2-way ties), then point differential.
                   {!isFinal && ' Updates as matches are recorded.'}
                 </Text>
                 <View style={S.standingsHeader}>

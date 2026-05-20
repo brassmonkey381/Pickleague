@@ -247,6 +247,10 @@ export type Tournament = {
   // For non-MLP formats (round_robin, pool_play): which playoff bracket runs after group play.
   // MLP keeps mlp_playoff_teams for its own playoff. 'top_2' = Final + 3PM.
   playoff_format: 'none' | 'top_2' | 'top_4' | 'top_8';
+  // When true AND playoff_format ∈ (top_4, top_8), the advancement trigger
+  // creates a third place match between the losing semifinalists once both
+  // semifinals complete. (Top 2 always has a 3PM between standings #3/#4.)
+  playoff_third_place: boolean;
   // 'fixed' = user-defined pairs/rosters; 'random' = auto-paired/auto-generated.
   // Applies to Doubles and MLP; Singles ignores it.
   team_creation: 'fixed' | 'random';
