@@ -13,6 +13,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { setClipboard } from '../lib/clipboard';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
+import { verifyTournament, CheckResult } from '../lib/bracketVerification';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Godmode'> };
 
@@ -79,6 +80,24 @@ export default function GodmodeScreen({ navigation }: Props) {
   const [pluprMixed,   setPluprMixed]   = useState('');
   const [pluprLoading, setPluprLoading] = useState(false);
   const [pluprSaving,  setPluprSaving]  = useState(false);
+
+  const [verifyId, setVerifyId] = useState('');
+  const [verifyRunning, setVerifyRunning] = useState(false);
+  const [verifyResults, setVerifyResults] = useState<CheckResult[] | null>(null);
+
+  async function runVerify() {
+    const id = verifyId.trim();
+    if (!id) return;
+    setVerifyRunning(true);
+    try {
+      const results = await verifyTournament(id);
+      setVerifyResults(results);
+    } catch (err) {
+      setVerifyResults([{ ok: false, label: 'Verification crashed', detail: err instanceof Error ? err.message : String(err) }]);
+    } finally {
+      setVerifyRunning(false);
+    }
+  }
 
   const status = useStatusMessage();
 
@@ -511,6 +530,48 @@ export default function GodmodeScreen({ navigation }: Props) {
               </TouchableOpacity>
             </>
           )
+        )}
+      </View>
+
+      <Text style={S.sectionHeader}>Verify bracket structure</Text>
+      <View style={S.card}>
+        <Text style={S.tbdText}>
+          Read-only check: loads a tournament's rounds and matches, then compares
+          against the expected formulas for its format (RR, SE, Pool Play). Does
+          not modify any data.
+        </Text>
+        <TextInput
+          style={[S.input, { marginTop: 8 }]}
+          placeholder="Tournament ID (uuid)"
+          placeholderTextColor={c.textMuted}
+          value={verifyId}
+          onChangeText={setVerifyId}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={[S.primaryBtn, (!verifyId.trim() || verifyRunning) && S.primaryBtnDim]}
+          onPress={runVerify}
+          disabled={!verifyId.trim() || verifyRunning}
+        >
+          {verifyRunning
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={S.primaryBtnText}>Verify</Text>}
+        </TouchableOpacity>
+
+        {verifyResults && verifyResults.length > 0 && (
+          <View style={{ marginTop: 12 }}>
+            {verifyResults.map((r, i) => {
+              const icon = r.ok === 'info' ? 'ℹ️' : r.ok ? '✅' : '❌';
+              const color = r.ok === 'info' ? c.textMuted : r.ok ? '#16a34a' : '#dc2626';
+              return (
+                <View key={i} style={{ paddingVertical: 6 }}>
+                  <Text style={{ color, fontWeight: '600' }}>{icon} {r.label}</Text>
+                  {r.detail && <Text style={{ color: c.textMuted, marginTop: 2, fontSize: 13 }}>{r.detail}</Text>}
+                </View>
+              );
+            })}
+          </View>
         )}
       </View>
 
