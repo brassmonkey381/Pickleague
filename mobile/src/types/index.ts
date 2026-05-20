@@ -100,6 +100,11 @@ export type LeagueWithStats = League & {
   distinctPlayDays: number;
   myRole: 'admin' | 'co-admin' | 'member' | null; // null = not a member
   hasRequested: boolean;
+  // Counts shown on the LeaguesScreen list card to convey activity at a glance.
+  activeSeasonCount: number;
+  activeTournamentCount: number;
+  // Baseline PLUPR of the most-recent active season (null when no active season).
+  currentBaselinePlupr: number | null;
 };
 
 export type LeagueJoinRequest = {

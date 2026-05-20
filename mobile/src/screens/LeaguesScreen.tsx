@@ -129,7 +129,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const uid = user?.id ?? null;
 
     // All parallel fetches
-    const [memberRes, matchRes, myMemberRes, myRequestRes] = await Promise.all([
+    const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes] = await Promise.all([
       supabase.from('league_members').select('league_id').in('league_id', ids),
       supabase.from('matches').select('league_id, played_at').in('league_id', ids),
       uid
@@ -138,12 +138,22 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       uid
         ? supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids)
         : Promise.resolve({ data: [] }),
+      supabase.from('league_seasons')
+        .select('league_id, status, baseline_plupr, start_date')
+        .in('league_id', ids)
+        .in('status', ['active', 'upcoming']),
+      supabase.from('tournaments')
+        .select('league_id, status')
+        .in('league_id', ids)
+        .in('status', ['registration', 'active']),
     ]);
 
-    const memberRows   = memberRes.data ?? [];
-    const matchRows    = matchRes.data ?? [];
-    const myMembers    = (myMemberRes as any).data ?? [];
-    const myRequests   = (myRequestRes as any).data ?? [];
+    const memberRows     = memberRes.data ?? [];
+    const matchRows      = matchRes.data ?? [];
+    const myMembers      = (myMemberRes as any).data ?? [];
+    const myRequests     = (myRequestRes as any).data ?? [];
+    const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string }[];
+    const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string }[];
 
     const leagues: LeagueWithStats[] = leagueRows.map((l) => {
       const members    = memberRows.filter((m) => m.league_id === l.id);
@@ -151,6 +161,15 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       const myMembership = myMembers.find((m: any) => m.league_id === l.id);
       const hasRequested = myRequests.some((r: any) => r.league_id === l.id);
       const distinctDays = new Set(lMatches.map((m) => (m.played_at as string).slice(0, 10))).size;
+
+      const myActiveSeasons = seasonRows.filter(s => s.league_id === l.id);
+      const myActiveSeasonsOnly = myActiveSeasons.filter(s => s.status === 'active');
+      // Use the most-recently-started active season's baseline for display.
+      const currentSeason = myActiveSeasonsOnly
+        .slice()
+        .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))[0];
+      const activeTournamentCount = tournamentRows.filter(t => t.league_id === l.id).length;
+
       return {
         ...l,
         is_open: l.is_open ?? true,
@@ -159,6 +178,9 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         distinctPlayDays: distinctDays,
         myRole: myMembership?.role ?? null,
         hasRequested,
+        activeSeasonCount: myActiveSeasonsOnly.length,
+        activeTournamentCount,
+        currentBaselinePlupr: currentSeason?.baseline_plupr != null ? Number(currentSeason.baseline_plupr) : null,
       };
     });
 
@@ -299,6 +321,30 @@ export default function LeaguesScreen({ navigation, route }: Props) {
             <Text style={S.statLabel}>Play Days</Text>
           </View>
         </View>
+
+        {/* Activity row: baseline PLUPR + active seasons + active tournaments */}
+        {(item.currentBaselinePlupr != null || item.activeSeasonCount > 0 || item.activeTournamentCount > 0) && (
+          <View style={S.activityRow}>
+            {item.currentBaselinePlupr != null && (
+              <View style={S.activityChip}>
+                <Text style={S.activityChipLabel}>Baseline PLUPR</Text>
+                <Text style={S.activityChipValue}>{item.currentBaselinePlupr.toFixed(2)}</Text>
+              </View>
+            )}
+            {item.activeSeasonCount > 0 && (
+              <View style={S.activityChip}>
+                <Text style={S.activityChipLabel}>Active seasons</Text>
+                <Text style={S.activityChipValue}>{item.activeSeasonCount}</Text>
+              </View>
+            )}
+            {item.activeTournamentCount > 0 && (
+              <View style={S.activityChip}>
+                <Text style={S.activityChipLabel}>Active tournaments</Text>
+                <Text style={S.activityChipValue}>{item.activeTournamentCount}</Text>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Footer: created date + role/join status */}
         <View style={S.cardFooter}>
@@ -638,6 +684,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     statValue: { fontSize: 20, fontWeight: '800', color: c.text },
     statLabel: { fontSize: 11, color: c.textMuted, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 },
     statDivider: { width: 1, backgroundColor: c.border, marginVertical: 2 },
+    activityRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+    activityChip:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.primary, alignItems: 'flex-start' },
+    activityChipLabel:  { fontSize: 10, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.4 },
+    activityChipValue:  { fontSize: 14, fontWeight: '800', color: c.text, marginTop: 1 },
 
     // Card footer
     cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
