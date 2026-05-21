@@ -1930,6 +1930,28 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                       // Pending dreambreaker = 5th singles sub-match the meeting
                       // is tied 2-2 and needs to play out.
                       const isPendingDreambreaker = m.is_dreambreaker && m.status === 'pending';
+                      const isBye = m.match_type === 'bye';
+                      // BYE rows render as a single seed advancing to the next round —
+                      // no scoring, no tap-to-record. Short-circuit before the standard
+                      // row render below.
+                      if (isBye) {
+                        return (
+                          <View
+                            key={m.id}
+                            style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
+                          >
+                            <Text style={S.matchNum}>{i + 1}</Text>
+                            <Text style={[
+                              S.matchup,
+                              S.matchupWinner,
+                              isMyMatch && S.matchupHighlight,
+                            ]} numberOfLines={1}>{t1}</Text>
+                            <Text style={S.vs}>—</Text>
+                            <Text style={[S.matchup]} numberOfLines={1}>bye to next round</Text>
+                            {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
+                          </View>
+                        );
+                      }
                       // Tappable when not yet recorded. Completed rows are inert —
                       // they're history at that point. The League_id we pass is the
                       // tournament's league_id (may be null for standalone tournaments).
