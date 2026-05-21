@@ -15,6 +15,7 @@ import ContactPickerModal from '../components/ContactPickerModal';
 import { sendSmsInvite } from '../lib/sms';
 import { shareInvite } from '../lib/share';
 import { DeviceContact } from '../lib/contacts';
+import BookmarkButton from '../components/BookmarkButton';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -276,6 +277,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Header */}
       <View style={S.header}>
+        <View style={{ position: 'absolute', top: 8, right: 12 }}>
+          <BookmarkButton targetType="event" targetId={eventId} />
+        </View>
         {event.description ? <Text style={S.desc}>{event.description}</Text> : null}
         <View style={S.statusRow}>
           {votingIsOpen ? (

@@ -546,4 +546,5 @@ export type RootStackParamList = {
     scopeId?: string;
     scopeName?: string;
   };
+  Bookmarks: undefined;
 };

@@ -56,6 +56,7 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
+import BookmarksScreen from '../screens/BookmarksScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -124,6 +125,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       DrillRequests: 'drill/requests',
       Godmode: 'godmode',
       MyWagers: 'wagers',
+      Bookmarks: 'bookmarks',
     },
   },
 };
@@ -253,6 +255,7 @@ export default function AppNavigator() {
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Bookmarks' }} />
               </>
             ) : (
               <>

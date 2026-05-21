@@ -14,6 +14,7 @@ import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
 import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
+import BookmarkButton from '../components/BookmarkButton';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PlayerProfile'>;
@@ -151,6 +152,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     <ScrollView contentContainerStyle={styles.container}>
       {/* Header */}
       <View style={styles.header}>
+        <View style={{ position: 'absolute', top: 12, right: 16 }}>
+          <BookmarkButton targetType="profile" targetId={userId} />
+        </View>
         {profile.avatar_url ? (
           <Image source={{ uri: profile.avatar_url }} style={styles.avatarPhoto} />
         ) : (

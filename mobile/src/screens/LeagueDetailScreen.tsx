@@ -14,6 +14,7 @@ import AppDateTimePicker from '../components/AppDateTimePicker';
 import ConfirmModal from '../components/ConfirmModal';
 import { displayCourtName } from '../lib/courtNickname';
 import StatusBanner from '../components/StatusBanner';
+import BookmarkButton from '../components/BookmarkButton';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -648,12 +649,15 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         <Text style={league?.description ? S.descText : S.descPlaceholder}>
           {league?.description ?? (privileged ? 'No description yet — tap "Edit League" to add one.' : 'No description.')}
         </Text>
-        <TouchableOpacity
-          style={S.howItWorksLink}
-          onPress={() => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
-        >
-          <Text style={S.howItWorksText}>ℹ️ How this league works →</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity
+            style={S.howItWorksLink}
+            onPress={() => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
+          >
+            <Text style={S.howItWorksText}>ℹ️ How this league works →</Text>
+          </TouchableOpacity>
+          <BookmarkButton targetType="league" targetId={leagueId} />
+        </View>
       </View>
 
       {/* ── Role badge ─────────────────────────────────────────── */}
