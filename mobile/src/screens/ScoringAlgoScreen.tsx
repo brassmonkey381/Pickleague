@@ -72,9 +72,9 @@ gap 2.0 → +9.6   (blowout)`}</Mono>
         </P>
 
         <Sub S={S}>4 · K factor (decays with experience)</Sub>
-        <Mono S={S}>{`matches < 5  → K = 0.20
-matches < 15 → K = 0.12
-else         → K = 0.06`}</Mono>
+        <Mono S={S}>{`matches < 5  → K = 0.35
+matches < 15 → K = 0.22
+else         → K = 0.15`}</Mono>
         <P S={S}>
           Newer players move faster (their early ratings are noisy);
           established players move slowly (their ratings are confident).
