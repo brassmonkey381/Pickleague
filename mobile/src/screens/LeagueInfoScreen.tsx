@@ -75,9 +75,10 @@ export default function LeagueInfoScreen({ route }: Props) {
           <Text style={S.bold}> average</Text> PLUPR of each pair, then apply the same delta to both teammates.
         </Para>
         <Para S={S}>
-          The expected score for each side is{' '}
-          <Text style={S.mono}>1 / (1 + 10^((opp − you) / 2.0))</Text>. Each match's actual delta is multiplied by a
-          score-margin factor (close games count less than blowouts) and a K factor that decays with match count.
+          PLUPR uses a <Text style={S.bold}>margin-of-victory</Text> model: from the two ratings we predict the
+          point differential — <Text style={S.mono}>10 × tanh((you − opp) / 1.0)</Text> — and the delta is{' '}
+          <Text style={S.mono}>K × (actual_diff − expected_diff) / 10</Text>. K decays with match count
+          (0.20 → 0.12 → 0.06). A close loss to a much stronger opponent can still nudge your rating up.
         </Para>
         <Para S={S}>
           A match's <Text style={S.bold}>before</Text> and <Text style={S.bold}>after</Text> PLUPR are saved on the
