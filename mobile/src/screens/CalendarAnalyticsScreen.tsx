@@ -149,7 +149,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
                   record.ratingDelta > 0 ? S.eloUp : S.eloDown,
                   isSelected && S.dayTextSelected,
                 ]}>
-                  {record.ratingDelta > 0 ? '+' : ''}{record.ratingDelta}
+                  {record.ratingDelta > 0 ? '+' : ''}{record.ratingDelta.toFixed(2)}
                 </Text>
               )}
             </Pressable>
@@ -192,7 +192,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
                   S.summaryNum,
                   selectedDayRecord.ratingDelta >= 0 ? S.eloUp : S.eloDown,
                 ]}>
-                  {selectedDayRecord.ratingDelta >= 0 ? '+' : ''}{selectedDayRecord.ratingDelta.toFixed(3)}
+                  {selectedDayRecord.ratingDelta >= 0 ? '+' : ''}{selectedDayRecord.ratingDelta.toFixed(2)}
                 </Text>
                 <Text style={S.summaryLabel}>PLUPR</Text>
               </View>

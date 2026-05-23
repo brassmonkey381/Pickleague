@@ -36,38 +36,52 @@ export default function ScoringAlgoScreen() {
         <P S={S}>
           For every completed match we compute a <B S={S}>delta</B> for each
           team, applied symmetrically (winner gains, loser loses by the same
-          amount). The delta combines four factors:
+          amount). PLUPR uses a <B S={S}>margin-of-victory</B> model: the
+          algorithm predicts the final point differential from the two teams'
+          ratings, then rewards or penalizes you based on whether you beat
+          that prediction.
         </P>
 
-        <Sub S={S}>1 · Expected score</Sub>
-        <Mono S={S}>{`expected = 1 / (1 + 10^((opp − you) / 2.0))`}</Mono>
+        <Sub S={S}>1 · Predicted point differential</Sub>
+        <Mono S={S}>{`expected_diff = 10 × tanh((you − opp) / 1.0)`}</Mono>
         <P S={S}>
-          A standard logistic curve. Beating a higher-rated opponent yields
-          a bigger delta than beating an equal one; losing to a much higher
-          opponent costs less. The divisor <B S={S}>2.0</B> sets the rating
-          gap at which a 10× expected-score swing happens.
+          A smooth curve that asymptotes at <B S={S}>±10</B> (the largest
+          margin in a game to 11). Equal ratings predict a toss-up; a
+          1.0-PLUPR gap predicts roughly an 11-3 win; a 2.0-PLUPR gap predicts
+          a near-shutout.
+        </P>
+        <Mono S={S}>{`gap 0.0 →  0.0   (toss-up)
+gap 0.5 → +4.6   (~ 11-6)
+gap 1.0 → +7.6   (~ 11-3)
+gap 2.0 → +9.6   (blowout)`}</Mono>
+
+        <Sub S={S}>2 · Actual point differential</Sub>
+        <Mono S={S}>{`actual_diff = yourScore − oppScore`}</Mono>
+        <P S={S}>
+          A signed value: <B S={S}>+11</B> for a shutout win, <B S={S}>−11</B>{' '}
+          for being shut out. An 11-9 loss is <B S={S}>−2</B>.
         </P>
 
-        <Sub S={S}>2 · K factor (decays with experience)</Sub>
-        <Mono S={S}>{`matches < 5  → K = 0.20
-matches < 15 → K = 0.12
-else         → K = 0.06`}</Mono>
+        <Sub S={S}>3 · Surprise</Sub>
+        <Mono S={S}>{`surprise = (actual_diff − expected_diff) / 10`}</Mono>
+        <P S={S}>
+          How much you beat (or missed) expectations, normalized to a
+          ~<B S={S}>−2 to +2</B> range. Critically, a close loss against a
+          much stronger opponent can still produce a <B S={S}>positive</B>{' '}
+          surprise — you exceeded the prediction even though you didn't win.
+        </P>
+
+        <Sub S={S}>4 · K factor (decays with experience)</Sub>
+        <Mono S={S}>{`matches < 5  → K = 0.35
+matches < 15 → K = 0.22
+else         → K = 0.15`}</Mono>
         <P S={S}>
           Newer players move faster (their early ratings are noisy);
           established players move slowly (their ratings are confident).
         </P>
 
-        <Sub S={S}>3 · Score-margin factor</Sub>
-        <Mono S={S}>{`margin = 0.6 + (winScore − lossScore) / winScore × 0.4`}</Mono>
-        <P S={S}>
-          Range <B S={S}>0.6</B> (closest possible game) to <B S={S}>1.0</B>{' '}
-          (shutout). An 11-0 win moves the rating more than an 11-9 win, even
-          though both are technically wins.
-        </P>
-
-        <Sub S={S}>4 · The delta</Sub>
-        <Mono S={S}>{`actual = won ? 1.0 : 0.0
-delta  = K × margin × (actual − expected)`}</Mono>
+        <Sub S={S}>5 · The delta</Sub>
+        <Mono S={S}>{`delta = K × surprise`}</Mono>
         <P S={S}>
           Rounded to 3 decimal places. Ratings are clamped at <B S={S}>2.000</B>{' '}
           floor.
@@ -139,7 +153,7 @@ delta  = K × margin × (actual − expected)`}</Mono>
         </P>
       </Section>
 
-      <Text style={S.footnote}>PLUPR v1 · Last updated 2026-05-10</Text>
+      <Text style={S.footnote}>PLUPR v1.1 · Last updated 2026-05-23</Text>
     </ScrollView>
   );
 }
