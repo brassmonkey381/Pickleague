@@ -1,16 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
+import FlairName from '../components/FlairName';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'UnlockProgress'> };
 
 type Progress = { text: string; pct: number; showBar: boolean };
+
+// Minimal shape we need from a shop_items row tied to an unlock badge. Each
+// row represents a name-style reward attached to a badge — when the user
+// earns the badge, the trigger auto-grants the item, and the equipped style
+// becomes available on their profile.
+type NameStyleReward = {
+  id: string;
+  slug: string;
+  name: string;
+  category: 'list_name_style' | 'hero_name_style';
+  unlock_badge_id: string;
+};
 
 function ProgressRow({ prog, c }: { prog: Progress; c: any }) {
   if (!prog.showBar) {
@@ -29,12 +42,21 @@ function ProgressRow({ prog, c }: { prog: Progress; c: any }) {
   );
 }
 
-export default function UnlockProgressScreen(_props: Props) {
+// TODO: smoke-test in browser — verify the per-badge name-style reward row
+// renders with the muted preview when locked and "✓ Unlocked" when earned,
+// and that tapping it routes to the Shop.
+export default function UnlockProgressScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const [loading, setLoading] = useState(true);
   const [earnedBadgeNames, setEarnedBadgeNames] = useState<string[]>([]);
   const [badgeProgress, setBadgeProgress] = useState<Record<string, Progress>>({});
+  // Map from badge name → the name-style shop item that unlocks with it.
+  // We index by badge name to match the existing rendering pattern in this
+  // file (avatars/tags/slots are also keyed by badge name).
+  const [nameStyleRewards, setNameStyleRewards] = useState<Record<string, NameStyleReward>>({});
+  // Preview name on the reward chip — same source of truth as ShopScreen.
+  const [myFullName, setMyFullName] = useState<string>('You');
 
   useEffect(() => { load(); }, []);
 
@@ -42,9 +64,20 @@ export default function UnlockProgressScreen(_props: Props) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
-    const [profileRes, badgesRes] = await Promise.all([
+    const [profileRes, badgesRes, rewardsRes, allBadgesRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
       supabase.from('player_badges').select('badge:badges(name)').eq('user_id', user.id),
+      // All unlock-gated name-style items. We resolve badge id→name from a
+      // separate fetch (next call) rather than embedding via PostgREST,
+      // because the FK's auto-generated constraint name isn't guaranteed
+      // across environments and embedding can fail silently.
+      supabase
+        .from('shop_items')
+        .select('id, slug, name, category, unlock_badge_id')
+        .not('unlock_badge_id', 'is', null)
+        .eq('is_active', true)
+        .in('category', ['list_name_style', 'hero_name_style']),
+      supabase.from('badges').select('id, name'),
     ]);
 
     const names = ((badgesRes.data ?? []) as any[])
@@ -52,8 +85,28 @@ export default function UnlockProgressScreen(_props: Props) {
       .filter(Boolean) as string[];
     setEarnedBadgeNames(Array.from(new Set(names)));
 
+    const badgeIdToName = new Map<string, string>(
+      ((allBadgesRes.data ?? []) as { id: string; name: string }[]).map(b => [b.id, b.name]),
+    );
+    const rewardMap: Record<string, NameStyleReward> = {};
+    for (const row of ((rewardsRes.data ?? []) as any[])) {
+      const badgeName = row.unlock_badge_id ? badgeIdToName.get(row.unlock_badge_id) : undefined;
+      if (!badgeName) continue; // Orphaned FK — skip rather than show a broken row.
+      if (row.category !== 'list_name_style' && row.category !== 'hero_name_style') continue;
+      rewardMap[badgeName] = {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        category: row.category,
+        unlock_badge_id: row.unlock_badge_id,
+      };
+    }
+    setNameStyleRewards(rewardMap);
+
     const prof = profileRes.data;
     if (prof) {
+      setMyFullName(prof.full_name ?? 'You');
+
       const { data: matches } = await supabase
         .from('matches')
         .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
@@ -73,6 +126,7 @@ export default function UnlockProgressScreen(_props: Props) {
       const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
       const memberDays = Math.floor((Date.now() - new Date(prof.created_at).getTime()) / 86_400_000);
       const elo = prof.rating ?? 3.25;
+      const totalMatches = mx.length;
 
       const entry = (current: number, target: number, label: (c: number, t: number) => string): Progress => ({
         text: label(current, target),
@@ -82,6 +136,9 @@ export default function UnlockProgressScreen(_props: Props) {
       const league = (): Progress => ({ text: 'Progress tracked per-league', pct: 0, showBar: false });
 
       setBadgeProgress({
+        // First Rally has a single match threshold — surface progress so the
+        // reward chip on ShopScreen can mirror it.
+        'First Rally':        entry(totalMatches,  1,   (c, t) => `${c} / ${t} matches played`),
         'Hot Streak':         entry(streak,        5,   (c, t) => `${c} / ${t} wins in a row`),
         'Top Rated':          entry(elo,           4.0, (c, t) => `${c.toFixed(2)} / ${t.toFixed(2)} PLUPR`),
         'Veteran':            entry(memberDays,    30,  (c, t) => `${c} / ${t} days as member`),
@@ -100,6 +157,43 @@ export default function UnlockProgressScreen(_props: Props) {
     setLoading(false);
   }
 
+  // Renders the per-badge name-style reward row when the badge has a
+  // corresponding entry in shop_items.unlock_badge_id. Tapping opens the
+  // Shop where the locked row is visible (or the inventory if owned).
+  function renderNameStyleReward(badgeName: string) {
+    const reward = nameStyleRewards[badgeName];
+    if (!reward) return null;
+    const earned = earnedBadgeNames.includes(badgeName);
+    return (
+      <TouchableOpacity
+        onPress={() => navigation.navigate('Shop')}
+        activeOpacity={0.75}
+        style={styles.rewardRow}
+      >
+        <View style={styles.rewardPreviewBox}>
+          <FlairName
+            name={myFullName}
+            styleId={reward.slug}
+            // Locked rewards preview in 'list' mode so animated styles
+            // degrade to their base color — keeps the row calm even for
+            // hero-tier styles like the Champion / Top Rated effects.
+            mode="list"
+            style={[styles.rewardPreviewText, !earned && styles.rewardPreviewTextMuted]}
+            numberOfLines={1}
+          />
+        </View>
+        <View style={styles.rewardTextCol}>
+          <Text style={styles.rewardLabel} numberOfLines={1}>
+            {earned ? '✓ Unlocked' : 'Reward'} · {reward.name}
+          </Text>
+          <Text style={styles.rewardSubLabel} numberOfLines={1}>
+            Name style · {reward.category === 'hero_name_style' ? 'Hero' : 'List'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
 
   const lockedAvatars = AVATARS.filter(a => !!a.unlock);
@@ -107,6 +201,12 @@ export default function UnlockProgressScreen(_props: Props) {
   const earnedAvatars = lockedAvatars.filter(a => earnedBadgeNames.includes(a.unlock!.badge)).length;
   const earnedTags    = lockedTags.filter(t => earnedBadgeNames.includes(t.unlock!.badge)).length;
   const earnedSlots   = TAG_SLOT_UNLOCKS.filter(u => earnedBadgeNames.includes(u.badge)).length;
+  // Name-style rewards section — list every badge that has a name-style
+  // reward, even those that don't gate an avatar/tag/slot (e.g. First Rally,
+  // Tournament Champion). This way every progression-unlock style surfaces
+  // in the progress UI.
+  const nameStyleBadgeNames = Object.keys(nameStyleRewards);
+  const earnedNameStyles = nameStyleBadgeNames.filter(n => earnedBadgeNames.includes(n)).length;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -128,6 +228,12 @@ export default function UnlockProgressScreen(_props: Props) {
           <Text style={styles.summaryValue}>{earnedSlots}/{TAG_SLOT_UNLOCKS.length}</Text>
           <Text style={styles.summaryLabel}>Tag Slots</Text>
         </View>
+        {nameStyleBadgeNames.length > 0 && (
+          <View style={styles.summaryPill}>
+            <Text style={styles.summaryValue}>{earnedNameStyles}/{nameStyleBadgeNames.length}</Text>
+            <Text style={styles.summaryLabel}>Name Styles</Text>
+          </View>
+        )}
       </View>
 
       <Text style={styles.catLabel}>Special Avatars</Text>
@@ -150,6 +256,7 @@ export default function UnlockProgressScreen(_props: Props) {
               {!earned && prog
                 ? <ProgressRow prog={prog} c={colors} />
                 : <Text style={styles.req}>{av.unlock!.description}</Text>}
+              {renderNameStyleReward(av.unlock!.badge)}
             </View>
           </View>
         );
@@ -175,6 +282,7 @@ export default function UnlockProgressScreen(_props: Props) {
               {!earned && prog
                 ? <ProgressRow prog={prog} c={colors} />
                 : <Text style={styles.req}>{u.description}</Text>}
+              {renderNameStyleReward(u.badge)}
             </View>
           </View>
         );
@@ -200,10 +308,54 @@ export default function UnlockProgressScreen(_props: Props) {
               {!earned && prog
                 ? <ProgressRow prog={prog} c={colors} />
                 : <Text style={styles.req}>{t.unlock!.description}</Text>}
+              {renderNameStyleReward(t.unlock!.badge)}
             </View>
           </View>
         );
       })}
+
+      {/* Name-style rewards section — covers badges that don't gate an
+          avatar/tag/slot but DO gate a name style (First Rally, Tournament
+          Champion, etc.) so every progression-unlock style is discoverable. */}
+      {(() => {
+        const coveredBadges = new Set<string>([
+          ...lockedAvatars.map(a => a.unlock!.badge),
+          ...TAG_SLOT_UNLOCKS.map(u => u.badge),
+          ...lockedTags.map(t => t.unlock!.badge),
+        ]);
+        const uncovered = nameStyleBadgeNames.filter(n => !coveredBadges.has(n));
+        if (uncovered.length === 0) return null;
+        return (
+          <>
+            <Text style={styles.catLabel}>Exclusive Name Styles</Text>
+            {uncovered.map(badgeName => {
+              const reward = nameStyleRewards[badgeName];
+              const earned = earnedBadgeNames.includes(badgeName);
+              const prog   = badgeProgress[badgeName];
+              return (
+                <View key={reward.slug} style={styles.row}>
+                  <View style={[styles.iconCircle, { backgroundColor: earned ? '#fff7ed' : '#eeeeee' }]}>
+                    <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>🎨</Text>
+                  </View>
+                  <View style={styles.info}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.name}>{reward.name}</Text>
+                      {earned
+                        ? <Text style={styles.earned}>✓ Earned</Text>
+                        : <Text style={styles.locked}>Locked</Text>}
+                    </View>
+                    <Text style={styles.badgeName}>{badgeName}</Text>
+                    {!earned && prog
+                      ? <ProgressRow prog={prog} c={colors} />
+                      : <Text style={styles.req}>Earn the {badgeName} badge to unlock.</Text>}
+                    {renderNameStyleReward(badgeName)}
+                  </View>
+                </View>
+              );
+            })}
+          </>
+        );
+      })()}
     </ScrollView>
   );
 }
@@ -213,8 +365,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     container:    { padding: 20, backgroundColor: c.bg, flexGrow: 1 },
     title:        { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 4 },
     subtitle:     { fontSize: 13, color: c.textMuted, marginBottom: 16 },
-    summaryRow:   { flexDirection: 'row', gap: 8, marginBottom: 16 },
-    summaryPill:  { flex: 1, backgroundColor: c.surface, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
+    summaryRow:   { flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
+    summaryPill:  { flex: 1, minWidth: 70, backgroundColor: c.surface, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
     summaryValue: { fontSize: 18, fontWeight: '800', color: c.text },
     summaryLabel: { fontSize: 11, color: c.textMuted, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.6 },
     catLabel:     { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 8, marginBottom: 8 },
@@ -228,5 +380,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     locked:       { fontSize: 11, color: c.textMuted, fontWeight: '600' },
     badgeName:    { fontSize: 11, color: c.primary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 },
     req:          { fontSize: 12, color: c.textMuted },
+    rewardRow:    {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      marginTop: 6, paddingVertical: 6, paddingHorizontal: 8,
+      backgroundColor: c.surfaceAlt, borderRadius: 8,
+      borderWidth: 1, borderColor: c.border,
+    },
+    rewardPreviewBox:     { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 6, backgroundColor: c.bg, minWidth: 60, maxWidth: 110, alignItems: 'center' },
+    rewardPreviewText:    { fontSize: 12, fontWeight: '700' },
+    rewardPreviewTextMuted:{ opacity: 0.55 },
+    rewardTextCol:        { flex: 1 },
+    rewardLabel:          { fontSize: 11, fontWeight: '700', color: c.text },
+    rewardSubLabel:       { fontSize: 10, color: c.textMuted, marginTop: 1 },
   });
 }
