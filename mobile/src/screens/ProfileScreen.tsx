@@ -441,14 +441,14 @@ export default function ProfileScreen({ navigation }: Props) {
     setProfile(p => p ? { ...p, list_name_style_id: slug } : p);
   }
 
-  async function applyHeroNameStyle(slug: string | null) {
+  async function applyProfileNameStyle(slug: string | null) {
     if (!userId) return;
     const { error } = await supabase
       .from('profiles')
-      .update({ hero_name_style_id: slug })
+      .update({ profile_name_style_id: slug })
       .eq('id', userId);
     if (error) { status.error(error.message); return; }
-    setProfile(p => p ? { ...p, hero_name_style_id: slug } : p);
+    setProfile(p => p ? { ...p, profile_name_style_id: slug } : p);
   }
 
   async function togglePurchaseHidden(purchaseId: string, currentlyHidden: boolean) {
@@ -811,11 +811,11 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.avatarEditBadgeText}>✏️</Text>
           </View>
         </TouchableOpacity>
-        {/* TODO: smoke-test in browser — hero name renders with hero_name_style_id */}
+        {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
         <FlairName
           style={styles.fullName}
           nameColor={profile?.name_color}
-          styleId={profile?.hero_name_style_id}
+          styleId={profile?.profile_name_style_id}
           mode="hero"
           name={profile?.full_name ?? ''}
         />
@@ -901,7 +901,7 @@ export default function ProfileScreen({ navigation }: Props) {
         const avatars    = shopPurchases.filter(p => p.item.category === 'avatar');
         const flairs     = shopPurchases.filter(p => p.item.category === 'flair');
         const listStyles = shopPurchases.filter(p => p.item.category === 'list_name_style');
-        const heroStyles = shopPurchases.filter(p => p.item.category === 'hero_name_style');
+        const profileStyles = shopPurchases.filter(p => p.item.category === 'profile_name_style');
         const badges     = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
         return (
           <View style={styles.locationCard}>
@@ -1003,13 +1003,13 @@ export default function ProfileScreen({ navigation }: Props) {
               </View>
             )}
 
-            {/* Hero Name Styles */}
-            {heroStyles.length > 0 && (
+            {/* Profile Name Styles */}
+            {profileStyles.length > 0 && (
               <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>Hero Name Styles</Text>
-                {heroStyles.map(p => {
+                <Text style={styles.invSectionTitle}>Profile Name Styles</Text>
+                {profileStyles.map(p => {
                   const slug     = p.item.slug;
-                  const equipped = profile?.hero_name_style_id === slug;
+                  const equipped = profile?.profile_name_style_id === slug;
                   return (
                     <InvRow
                       key={p.id}
@@ -1022,14 +1022,14 @@ export default function ProfileScreen({ navigation }: Props) {
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
                       actionLabel={equipped ? '✓ Equipped' : 'Equip'}
                       actionDisabled={equipped}
-                      onAction={() => applyHeroNameStyle(slug)}
+                      onAction={() => applyProfileNameStyle(slug)}
                       styles={styles}
                     />
                   );
                 })}
-                {profile?.hero_name_style_id && (
-                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyHeroNameStyle(null)}>
-                    <Text style={styles.invUnequipText}>↺ Revert to default hero name style</Text>
+                {profile?.profile_name_style_id && (
+                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyProfileNameStyle(null)}>
+                    <Text style={styles.invUnequipText}>↺ Revert to default profile name style</Text>
                   </TouchableOpacity>
                 )}
               </View>

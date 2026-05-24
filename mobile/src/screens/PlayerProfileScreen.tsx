@@ -164,7 +164,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <FlairName
           style={styles.fullName}
           nameColor={profile.name_color}
-          styleId={profile.hero_name_style_id}
+          styleId={profile.profile_name_style_id}
           mode="hero"
           name={profile.full_name}
         />

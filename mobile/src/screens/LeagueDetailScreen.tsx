@@ -29,7 +29,7 @@ type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () =
 type ChampionWinner = {
   name:        string;
   nameColor:   string | null;
-  heroStyleId: string | null;
+  profileStyleId: string | null;
 };
 
 type LatestChampion = {
@@ -177,7 +177,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     const [profilesRes, standingsRes] = await Promise.all([
       supabase
         .from('profiles')
-        .select('id, full_name, name_color, hero_name_style_id')
+        .select('id, full_name, name_color, profile_name_style_id')
         .in('id', winnerUids),
       winningTeamId
         ? supabase.rpc('mlp_team_standings', { p_tournament_id: t.id })
@@ -189,11 +189,11 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       profileMap[p.id] = {
         name:        p.full_name ?? '—',
         nameColor:   p.name_color ?? null,
-        heroStyleId: p.hero_name_style_id ?? null,
+        profileStyleId: p.profile_name_style_id ?? null,
       };
     }
     const winners: ChampionWinner[] = winnerUids.map((u: string) =>
-      profileMap[u] ?? { name: '—', nameColor: null, heroStyleId: null }
+      profileMap[u] ?? { name: '—', nameColor: null, profileStyleId: null }
     );
 
     let record: string | null = null;
@@ -701,7 +701,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
                     <FlairName
                       name={w.name}
                       nameColor={w.nameColor}
-                      styleId={w.heroStyleId}
+                      styleId={w.profileStyleId}
                       mode="hero"
                       style={S.championRoster}
                     />
