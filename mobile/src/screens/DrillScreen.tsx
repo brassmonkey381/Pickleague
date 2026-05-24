@@ -13,7 +13,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
-import { PaddleIcon } from '../components/PickleIcons';
+import { DumbbellIcon } from '../components/PickleIcons';
 
 type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string };
 
@@ -210,7 +210,7 @@ export default function DrillScreen({ navigation }: Props) {
     >
       {/* Hero */}
       <View style={S.hero}>
-        <View style={S.heroEmoji}><PaddleIcon size={56} /></View>
+        <View style={S.heroEmoji}><DumbbellIcon size={56} /></View>
         <Text style={S.heroTitle}>Drill Partners</Text>
         <Text style={S.heroSub}>Find someone to grind cross-court dinks with at 7am.</Text>
       </View>

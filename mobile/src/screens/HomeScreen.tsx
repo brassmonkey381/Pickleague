@@ -10,7 +10,7 @@ import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
-import { PaddleIcon, BallIcon } from '../components/PickleIcons';
+import { DumbbellIcon, SoloPlayerIcon, BallIcon } from '../components/PickleIcons';
 import {
   claimDailyLoginStreak,
   hasStreakBeenShown,
@@ -27,7 +27,7 @@ type NavItem = { icon: React.ReactNode; label: string; screen: any; params: any 
 const NAV_ITEMS: NavItem[] = [
   { icon: '🏆',                    label: 'Leagues',     screen: 'Leagues',     params: undefined },
   { icon: <BallIcon size={32} />,  label: 'Tournaments', screen: 'Tournaments', params: {} },
-  { icon: <PaddleIcon size={32} />, label: 'Drill',      screen: 'Drill',       params: undefined },
+  { icon: <DumbbellIcon size={32} />, label: 'Drill',    screen: 'Drill',       params: undefined },
   { icon: '🛒',                    label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '😎',                    label: 'Profile',     screen: 'Profile',     params: {} },
   { icon: '🎲',                    label: 'Wagers',      screen: 'MyWagers',    params: undefined },
@@ -333,7 +333,7 @@ export default function HomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('DrillRequests')}
           activeOpacity={0.85}
         >
-          <View style={s.drillBannerEmoji}><PaddleIcon size={32} color="#ffffff" handleColor="#1a1a1a" /></View>
+          <View style={s.drillBannerEmoji}><DumbbellIcon size={28} color="#ffffff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={s.drillBannerTitle}>Drill with {s2.partner_name} today!</Text>
             <Text style={s.drillBannerSub}>{slotRangeLabel(s2.session_slot, s2.length_minutes ?? 60)} · tap for details</Text>
@@ -368,7 +368,7 @@ export default function HomeScreen({ navigation }: Props) {
             initialMatchType: 'singles',
           })}
         >
-          <View style={s.statIconWrap}><PaddleIcon size={22} /></View>
+          <View style={s.statIconWrap}><SoloPlayerIcon size={22} /></View>
           <Text style={s.statValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Singles</Text>
         </TouchableOpacity>

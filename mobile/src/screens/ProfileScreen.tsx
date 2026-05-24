@@ -25,7 +25,7 @@ import {
   ChemistryResult, DoublesMatch,
 } from '../lib/chemistry';
 import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
-import { PaddleIcon, BallIcon } from '../components/PickleIcons';
+import { BallIcon } from '../components/PickleIcons';
 
 // Shared progress row used inside the Unlockable Rewards card
 function UnlockProgressRow({
@@ -1036,10 +1036,7 @@ export default function ProfileScreen({ navigation }: Props) {
       {/* ── Default Paddle ───────────────────────────────────────── */}
       <View style={styles.paddleCard}>
         <View style={styles.paddleHeader}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <PaddleIcon size={20} />
-            <Text style={styles.paddleTitle}>Default Paddle</Text>
-          </View>
+          <Text style={styles.paddleTitle}>🎽 Default Paddle</Text>
           {defaultPaddle && (
             <TouchableOpacity onPress={removePaddle}>
               <Text style={styles.paddleRemove}>Remove</Text>

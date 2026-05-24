@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
-import { PaddleIcon, BallIcon } from '../components/PickleIcons';
+import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
 
@@ -37,8 +37,8 @@ function timeAgo(iso: string): string {
 const TYPE_ICON: Record<string, React.ReactNode> = {
   tournament: '🏆',
   league:     <BallIcon size={22} />,
-  match:      <PaddleIcon size={22} />,
-  drill:      <PaddleIcon size={22} />,
+  match:      '🏅',
+  drill:      <DumbbellIcon size={22} />,
   info:       '📣',
 };
 

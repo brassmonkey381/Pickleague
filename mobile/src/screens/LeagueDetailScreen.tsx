@@ -17,7 +17,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { PaddleIcon, BallIcon } from '../components/PickleIcons';
+import { BallIcon } from '../components/PickleIcons';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
@@ -515,7 +515,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   const options: Option[] = [
     {
-      icon: <PaddleIcon size={26} />, label: 'Record Match',
+      icon: '📝', label: 'Record Match',
       sub: 'Enter a singles or doubles result',
       onPress: () => navigation.navigate('MatchEntry', { leagueId }),
     },
