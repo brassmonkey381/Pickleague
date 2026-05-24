@@ -44,6 +44,14 @@ export default function ShopScreen({ navigation }: Props) {
   const [myFullName, setMyFullName] = useState<string>('You');
   // badge id → badge name, for rendering "Earn X to unlock" labels.
   const [badgeNames, setBadgeNames] = useState<Map<string, string>>(new Map());
+  // badge id → set of badge ids the viewer has already earned. Used to mark
+  // unlock-gated rows as ✓ Unlocked even on the (rare) chance the trigger
+  // didn't run (e.g. seed added after the user earned the badge).
+  const [earnedBadgeIds, setEarnedBadgeIds] = useState<Set<string>>(new Set());
+  // badge name → { current, target, label } for the small progress indicator
+  // rendered under each locked name-style preview. Mirrors the computation
+  // in UnlockProgressScreen so the two screens agree.
+  const [badgeProgress, setBadgeProgress] = useState<Record<string, { current: number; target: number; label: string }>>({});
 
   // Buy flow
   const [confirmingItem, setConfirmingItem]     = useState<ShopItem | null>(null);
@@ -69,12 +77,13 @@ export default function ShopScreen({ navigation }: Props) {
     if (!user) { setLoading(false); return; }
     setMyUserId(user.id);
 
-    const [profileRes, itemsRes, ownedRes, discountsRes, badgesRes] = await Promise.all([
-      supabase.from('profiles').select('pickles, full_name').eq('id', user.id).single(),
+    const [profileRes, itemsRes, ownedRes, discountsRes, badgesRes, playerBadgesRes] = await Promise.all([
+      supabase.from('profiles').select('pickles, full_name, created_at, rating').eq('id', user.id).single(),
       supabase.from('shop_items').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('player_shop_purchases').select('shop_item_id').eq('user_id', user.id),
       supabase.rpc('current_real_world_discounts'),
       supabase.from('badges').select('id, name'),
+      supabase.from('player_badges').select('badge_id').eq('user_id', user.id),
     ]);
 
     setPickles(profileRes.data?.pickles ?? 0);
@@ -85,7 +94,54 @@ export default function ShopScreen({ navigation }: Props) {
       .map(d => [d.slug, d.discount_pct])));
     setBadgeNames(new Map(((badgesRes.data ?? []) as { id: string; name: string }[])
       .map(b => [b.id, b.name])));
+    setEarnedBadgeIds(new Set(((playerBadgesRes.data ?? []) as { badge_id: string }[])
+      .map(p => p.badge_id)));
+
+    // Only compute match-derived progress when we actually have an
+    // unlock-gated style on the wire — keeps the Shop snappy when the
+    // viewer is browsing non-style tabs.
+    const hasUnlockGated = ((itemsRes.data ?? []) as ShopItem[]).some(i => !!i.unlock_badge_id);
+    if (hasUnlockGated && profileRes.data) {
+      const prof = profileRes.data;
+      const { data: matches } = await supabase
+        .from('matches')
+        .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
+        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`)
+        .order('played_at', { ascending: false })
+        .limit(200);
+      const mx = matches ?? [];
+      const didWin = (m: any) => {
+        const t1 = m.player1_id === user.id || m.partner1_id === user.id;
+        return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
+      };
+      let streak = 0;
+      for (const m of mx) { if (didWin(m)) streak++; else break; }
+      const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
+      const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
+      const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
+      const memberDays = Math.floor((Date.now() - new Date(prof.created_at).getTime()) / 86_400_000);
+      const elo = prof.rating ?? 3.25;
+
+      const entry = (current: number, target: number, label: string) =>
+        ({ current, target, label });
+      setBadgeProgress({
+        'First Rally':        entry(mx.length,     1,   'matches played'),
+        'Hot Streak':         entry(streak,        5,   'wins in a row'),
+        'Top Rated':          entry(elo,           4.0, 'PLUPR'),
+        'Veteran':            entry(memberDays,    30,  'days as member'),
+        'Court Hopper':       entry(courts,        5,   'courts played'),
+        'Doubles Dynamo':     entry(doublesPlayed, 20,  'doubles matches'),
+        'Singles Specialist': entry(singlesPlayed, 25,  'singles matches'),
+      });
+    }
     setLoading(false);
+  }
+
+  // Pretty number for progress: integers stay integers; PLUPR shows 2 decimals.
+  // Falls back to integer to avoid noisy "1.00 / 5.00" labels for wins.
+  function formatProgressNum(n: number, label: string): string {
+    if (label === 'PLUPR') return n.toFixed(2);
+    return Math.floor(n).toString();
   }
 
   function effectiveCost(item: ShopItem): { cost: number; discount: number } {
@@ -269,6 +325,9 @@ export default function ShopScreen({ navigation }: Props) {
           <Text style={S.empty}>No items in this category yet.</Text>
         ) : (
           <View style={S.grid}>
+            {/* TODO: smoke-test in browser — verify the locked name-style row
+                renders with a desaturated preview + "X / Y unit" progress
+                indicator, and flips to "✓ Unlocked" once the badge is earned. */}
             {tabItems.map(item => {
               const isRedemption = item.category === 'real_world';
               const isNameStyle  = item.category === 'list_name_style' || item.category === 'hero_name_style';
@@ -282,6 +341,18 @@ export default function ShopScreen({ navigation }: Props) {
               const unlockBadgeName = isUnlockGated
                 ? badgeNames.get(item.unlock_badge_id!) ?? 'a badge'
                 : null;
+              // Edge case: viewer earned the gating badge but the row isn't
+                // owned (e.g. trigger wasn't in place when the badge was
+                // awarded). We surface this as "✓ Earned · pending grant" so
+                // the UI doesn't claim "Locked" when it isn't, and skip the
+                // "Claim" RPC for simplicity (see PR description).
+              const badgeEarnedButNotOwned = isUnlockGated && !isOwned
+                && !!item.unlock_badge_id && earnedBadgeIds.has(item.unlock_badge_id);
+              // Locked name styles get a desaturated preview + small progress
+              // chip. Once owned (or badge already earned), the preview is at
+              // full opacity so the player sees the unlocked style clearly.
+              const previewMuted = isUnlockGated && !isOwned && !badgeEarnedButNotOwned;
+              const prog = isUnlockGated && unlockBadgeName ? badgeProgress[unlockBadgeName] : undefined;
 
               return (
                 <View key={item.id} style={S.card}>
@@ -290,19 +361,36 @@ export default function ShopScreen({ navigation }: Props) {
                       <Text style={S.discountRibbonText}>−{discount}%</Text>
                     </View>
                   )}
-                  <View style={[S.iconBox, { backgroundColor: item.payload?.bgColor ?? c.surfaceAlt }]}>
-                    <Text style={S.iconEmoji}>{item.icon}</Text>
+                  <View style={[
+                    S.iconBox,
+                    { backgroundColor: item.payload?.bgColor ?? c.surfaceAlt },
+                    previewMuted && S.iconBoxMuted,
+                  ]}>
+                    <Text style={[S.iconEmoji, previewMuted && S.iconEmojiMuted]}>{item.icon}</Text>
                   </View>
                   <Text style={S.cardName} numberOfLines={1}>{item.name}</Text>
                   {isNameStyle && (
-                    <View style={S.namePreviewBox}>
+                    <View style={[S.namePreviewBox, previewMuted && S.namePreviewBoxMuted]}>
                       <FlairName
                         name={myFullName}
                         styleId={item.slug}
                         mode={item.category === 'list_name_style' ? 'list' : 'hero'}
-                        style={S.namePreviewText}
+                        style={[S.namePreviewText, previewMuted && S.namePreviewTextMuted]}
                         numberOfLines={1}
                       />
+                    </View>
+                  )}
+                  {isUnlockGated && prog && !isOwned && (
+                    <View style={S.unlockProgressBox}>
+                      <View style={S.unlockProgressBarTrack}>
+                        <View style={[
+                          S.unlockProgressBarFill,
+                          { width: `${Math.min(100, Math.max(2, (prog.current / prog.target) * 100))}%` },
+                        ]} />
+                      </View>
+                      <Text style={S.unlockProgressText} numberOfLines={1}>
+                        {formatProgressNum(prog.current, prog.label)} / {formatProgressNum(prog.target, prog.label)} {prog.label}
+                      </Text>
                     </View>
                   )}
                   <Text style={S.cardDesc} numberOfLines={3}>{item.description}</Text>
@@ -323,9 +411,23 @@ export default function ShopScreen({ navigation }: Props) {
                   )}
                   {isUnlockGated ? (
                     <View style={S.actionRow}>
-                      <View style={[S.buyBtn, isOwned ? S.buyBtnOwned : S.buyBtnDisabled, { flex: 1 }]}>
-                        <Text style={[S.buyBtnText, !isOwned && S.buyBtnTextDim]} numberOfLines={2}>
-                          {isOwned ? '✓ Unlocked' : `🔒 Earn ${unlockBadgeName}`}
+                      <View style={[
+                        S.buyBtn,
+                        (isOwned || badgeEarnedButNotOwned) ? S.buyBtnOwned : S.buyBtnDisabled,
+                        { flex: 1 },
+                      ]}>
+                        <Text
+                          style={[
+                            S.buyBtnText,
+                            !(isOwned || badgeEarnedButNotOwned) && S.buyBtnTextDim,
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {isOwned
+                            ? '✓ Unlocked'
+                            : badgeEarnedButNotOwned
+                              ? '✓ Earned · pending grant'
+                              : `🔒 Earn ${unlockBadgeName}`}
                         </Text>
                       </View>
                     </View>
@@ -601,7 +703,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     cardName:  { fontSize: 14, fontWeight: '800', color: c.text, textAlign: 'center', marginBottom: 4 },
     cardDesc:  { fontSize: 11, color: c.textMuted, textAlign: 'center', minHeight: 44, lineHeight: 15 },
     namePreviewBox:  { backgroundColor: c.surfaceAlt, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 8, marginBottom: 6, alignItems: 'center' },
+    namePreviewBoxMuted: { opacity: 0.55 },
     namePreviewText: { fontSize: 14, fontWeight: '700' },
+    namePreviewTextMuted: { opacity: 0.7 },
+    iconBoxMuted:    { opacity: 0.55 },
+    iconEmojiMuted:  { opacity: 0.7 },
+    unlockProgressBox: { marginBottom: 6, paddingHorizontal: 4 },
+    unlockProgressBarTrack: { height: 4, borderRadius: 2, backgroundColor: c.border, overflow: 'hidden' },
+    unlockProgressBarFill:  { height: 4, backgroundColor: c.primary, borderRadius: 2 },
+    unlockProgressText:     { fontSize: 10, fontWeight: '700', color: c.textSub, marginTop: 3, textAlign: 'center' },
 
     costRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginTop: 10 },
     costPill:   { backgroundColor: c.surfaceAlt, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignSelf: 'flex-start' },
