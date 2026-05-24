@@ -12,9 +12,11 @@ import { displayCourtName } from '../lib/courtNickname';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import ActionSheetModal from '../components/ActionSheetModal';
 import ConfirmModal from '../components/ConfirmModal';
+import FlairName from '../components/FlairName';
 // Resolves once Unit 1 (wager foundation) merges to master.
 import WagerProposeModal from '../components/WagerProposeModal';
 import type { WagerSubject } from '../lib/wager';
+import type { Profile } from '../types';
 
 type HomeAwayFilter     = 'all' | 'home' | 'away';
 type TypeFilter         = 'all' | 'singles' | 'doubles';
@@ -144,6 +146,45 @@ type WagerRowCtx = {
   team2Label: string;
 };
 
+// Renders a 1-or-2-player team with each player's FlairName styling (list mode).
+// Falls back to plain "Unknown" when a profile is missing. Designed to be
+// embedded inside a parent <Text>, which carries the text style + numberOfLines.
+// TODO: smoke-test in browser — list mode FlairName wire-up
+function TeamFlair({
+  player,
+  partner,
+  textStyle,
+}: {
+  player?: Partial<Profile> | null;
+  partner?: Partial<Profile> | null;
+  textStyle?: any;
+}) {
+  if (!player) return <Text style={textStyle}>Unknown</Text>;
+  const playerEl = (
+    <FlairName
+      name={player.full_name ?? '?'}
+      nameColor={player.name_color}
+      styleId={player.list_name_style_id ?? null}
+      mode="list"
+      style={textStyle}
+    />
+  );
+  if (!partner?.full_name) return playerEl;
+  return (
+    <Text style={textStyle}>
+      {playerEl}
+      {' & '}
+      <FlairName
+        name={partner.full_name}
+        nameColor={partner.name_color}
+        styleId={partner.list_name_style_id ?? null}
+        mode="list"
+        style={textStyle}
+      />
+    </Text>
+  );
+}
+
 export default function MatchHistoryScreen({ navigation, route }: Props) {
   const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly } = route.params;
   const { colors } = useTheme();
@@ -217,10 +258,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       .from('matches')
       .select(`
         *,
-        player1:profiles!matches_player1_id_fkey(id, full_name),
-        partner1:profiles!matches_partner1_id_fkey(id, full_name),
-        player2:profiles!matches_player2_id_fkey(id, full_name),
-        partner2:profiles!matches_partner2_id_fkey(id, full_name)
+        player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id),
+        partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id),
+        player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id),
+        partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id)
       `)
       .order('played_at', { ascending: false });
 
@@ -280,6 +321,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
   function renderUpcoming(item: Match) {
     const { team1: team1Name, team2: team2Name } = teamNames(item);
+    const isDoubles = item.match_type === 'doubles';
 
     let whenLabel = 'Time TBD';
     if (item.scheduled_at) {
@@ -305,9 +347,13 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             <Text style={S.upcomingMenuText}>⋯</Text>
           </TouchableOpacity>
         </View>
-        <Text style={S.upcomingMatchup} numberOfLines={1}>{team1Name}</Text>
+        <Text style={S.upcomingMatchup} numberOfLines={1}>
+          <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={S.upcomingMatchup} />
+        </Text>
         <Text style={S.upcomingVs}>vs</Text>
-        <Text style={S.upcomingMatchup} numberOfLines={1}>{team2Name}</Text>
+        <Text style={S.upcomingMatchup} numberOfLines={1}>
+          <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={S.upcomingMatchup} />
+        </Text>
         <Text style={S.upcomingWhen}>{whenLabel}</Text>
       </View>
     );
@@ -369,9 +415,14 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-          <Text style={S.pendingMatchup} numberOfLines={1}>{team1Name}</Text>
+          <Text style={S.pendingMatchup} numberOfLines={1}>
+            <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={S.pendingMatchup} />
+          </Text>
           <Text style={S.pendingScore}>{item.player1_score} – {item.player2_score}</Text>
-          <Text style={S.pendingMatchup} numberOfLines={1}>vs {team2Name}</Text>
+          <Text style={S.pendingMatchup} numberOfLines={1}>
+            {'vs '}
+            <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={S.pendingMatchup} />
+          </Text>
           <View style={S.pendingTeamRow}>
             <Text style={[S.pendingTeamStatus, team1Done ? S.pendingTeamDone : S.pendingTeamWaiting]}>
               {team1Done ? '✓ Team 1 confirmed' : '… Team 1 waiting'}
@@ -399,14 +450,6 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const dateStr  = playedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     const timeStr  = playedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     const isDoubles = item.match_type === 'doubles';
-
-    // Build display names for each side
-    const team1Name = isDoubles && item.partner1?.full_name
-      ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
-      : (item.player1?.full_name ?? 'Unknown');
-    const team2Name = isDoubles && item.partner2?.full_name
-      ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
-      : (item.player2?.full_name ?? 'Unknown');
 
     const locationLine = item.location_name
       ? <Text style={S.locationText}>📍 {displayCourtName(item.location_name)}</Text>
@@ -458,10 +501,11 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[S.matchup, team1Won && S.matchupWinner]} numberOfLines={1}>
-                {team1Name}
+                <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={[S.matchup, team1Won && S.matchupWinner]} />
               </Text>
               <Text style={[S.matchup, !team1Won && S.matchupWinner]} numberOfLines={1}>
-                vs {team2Name}
+                {'vs '}
+                <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={[S.matchup, !team1Won && S.matchupWinner]} />
               </Text>
             </View>
             <View style={{ alignItems: 'flex-end', gap: 2 }}>
@@ -487,11 +531,23 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const delta    = ratingChange(item, viewAs);
 
     // Build opponent line — for doubles show both opponents
-    const oppTeamName = onTeam1 ? team2Name : team1Name;
+    const oppPlayer  = onTeam1 ? item.player2  : item.player1;
+    const oppPartner = onTeam1 ? item.partner2 : item.partner1;
     // Build partner line — for doubles show your partner
     const myPartner = onTeam1 ? item.partner1 : item.partner2;
     const partnerLine = isDoubles && myPartner?.full_name
-      ? <Text style={S.partnerText}>🤝 {myPartner.full_name}</Text>
+      ? (
+        <Text style={S.partnerText}>
+          {'🤝 '}
+          <FlairName
+            name={myPartner.full_name}
+            nameColor={myPartner.name_color}
+            styleId={myPartner.list_name_style_id ?? null}
+            mode="list"
+            style={S.partnerText}
+          />
+        </Text>
+      )
       : null;
 
     return (
@@ -502,7 +558,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           </Text>
           <View style={S.cardInfo}>
             <Text style={S.opponent} numberOfLines={1}>
-              vs {oppTeamName}
+              {'vs '}
+              <TeamFlair player={oppPlayer} partner={isDoubles ? oppPartner : null} textStyle={S.opponent} />
             </Text>
             {partnerLine}
             <Text style={S.dateText}>{dateStr} at {timeStr}</Text>

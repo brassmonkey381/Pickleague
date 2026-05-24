@@ -44,8 +44,8 @@ export type DrillRequest = {
   length_minutes: number;
   created_at: string;
   responded_at: string | null;
-  from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
-  to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number };
+  from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number; name_color?: string | null; list_name_style_id?: string | null };
+  to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number; name_color?: string | null; list_name_style_id?: string | null };
 };
 
 export type DrillRequestMessage = {

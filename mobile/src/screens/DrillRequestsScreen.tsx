@@ -13,6 +13,7 @@ import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
+import FlairName from '../components/FlairName';
 import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
@@ -49,8 +50,8 @@ export default function DrillRequestsScreen({}: Props) {
     setUserId(user.id);
 
     const fkField = tab === 'incoming'
-      ? 'from_profile:profiles!drill_requests_from_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played)'
-      : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played)';
+      ? 'from_profile:profiles!drill_requests_from_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played, name_color, list_name_style_id)'
+      : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played, name_color, list_name_style_id)';
 
     const { data } = await supabase
       .from('drill_requests')
@@ -151,7 +152,14 @@ export default function DrillRequestsScreen({}: Props) {
                   <Text style={S.avatarEmoji}>{avatar.emoji}</Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={S.name}>{otherProfile?.full_name ?? 'Unknown'}</Text>
+                  {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                  <FlairName
+                    name={otherProfile?.full_name ?? 'Unknown'}
+                    nameColor={otherProfile?.name_color}
+                    styleId={otherProfile?.list_name_style_id ?? null}
+                    mode="list"
+                    style={S.name}
+                  />
                   <Text style={S.sub}>
                     {formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR · {timeAgo(item.created_at)}
                   </Text>
