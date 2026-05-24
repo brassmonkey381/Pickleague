@@ -14,7 +14,7 @@ type Props = {
   name: string;
   /** Legacy single-color flair (profiles.name_color). Used when `styleId` is not provided. */
   nameColor?: string | null;
-  /** New name-style slug (profiles.list_name_style_id / hero_name_style_id). Takes precedence over `nameColor`. */
+  /** New name-style slug (profiles.list_name_style_id / profile_name_style_id). Takes precedence over `nameColor`. */
   styleId?: string | null;
   /**
    * 'hero' (default) allows animated recipes; 'list' degrades animations to

@@ -18,7 +18,7 @@ export type Profile = {
   name_color: string | null;
   // Equipped name-style slugs (FK to shop_items.slug). null = use default rendering.
   list_name_style_id: string | null;
-  hero_name_style_id: string | null;
+  profile_name_style_id: string | null;
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
   rating: number;
@@ -175,7 +175,7 @@ export type ShopCategory =
   | 'flair'
   | 'real_world'
   | 'list_name_style'
-  | 'hero_name_style';
+  | 'profile_name_style';
 
 export type ShopItem = {
   id: string;

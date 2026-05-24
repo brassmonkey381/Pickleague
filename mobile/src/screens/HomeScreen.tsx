@@ -253,11 +253,11 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Greeting — tap your name to open your profile */}
         <Text style={s.welcomeLabel}>Welcome back,</Text>
         <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
-          {/* TODO: smoke-test in browser — hero name renders with hero_name_style_id */}
+          {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
           <FlairName
             style={s.heroName}
             nameColor={profile?.name_color}
-            styleId={profile?.hero_name_style_id}
+            styleId={profile?.profile_name_style_id}
             mode="hero"
             name={profile?.full_name ?? '...'}
           />

@@ -16,13 +16,15 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
+// "profile_name_style" tab also surfaces legacy `flair` items (which set
+// name_color), so users see all profile name styles in one place even
+// though they're stored as two categories under the hood.
 const TABS: { value: ShopCategory; label: string; emoji: string; blurb: string }[] = [
-  { value: 'avatar',          label: 'Avatars',     emoji: '🎭', blurb: 'Premium avatars to swap in on your profile.' },
-  { value: 'cosmetic_badge',  label: 'Badges',      emoji: '🏵️', blurb: 'Decorative badges that show on your profile.' },
-  { value: 'flair',           label: 'Flair',       emoji: '✨', blurb: 'Profile customization — start with name colors.' },
-  { value: 'list_name_style', label: 'List Names',  emoji: '📝', blurb: 'Name styles that show in member lists, brackets, registrations, and match history.' },
-  { value: 'hero_name_style', label: 'Hero Names',  emoji: '🌟', blurb: 'Animated and premium name styles for your profile header and other hero contexts.' },
-  { value: 'real_world',      label: 'Redemptions', emoji: '🎁', blurb: 'Trade pickles for real-world gear. 4 items rotate at 20/15/10/5% off every day at midnight UTC. An admin will reach out after you redeem to arrange delivery.' },
+  { value: 'avatar',             label: 'Avatars',        emoji: '🎭', blurb: 'Premium avatars to swap in on your profile.' },
+  { value: 'cosmetic_badge',     label: 'Badges',         emoji: '🏵️', blurb: 'Decorative badges that show on your profile.' },
+  { value: 'profile_name_style', label: 'Profile Styles', emoji: '✨', blurb: 'Name styles for your profile header — colors, glows, and animations.' },
+  { value: 'list_name_style',    label: 'List Styles',    emoji: '📝', blurb: 'Name styles that show in member lists, brackets, registrations, and match history.' },
+  { value: 'real_world',         label: 'Redemptions',    emoji: '🎁', blurb: 'Trade pickles for real-world gear. 4 items rotate at 20/15/10/5% off every day at midnight UTC. An admin will reach out after you redeem to arrange delivery.' },
 ];
 
 function formatUsd(cents: number | undefined): string {
@@ -233,8 +235,8 @@ export default function ShopScreen({ navigation }: Props) {
       // purchase_shop_item already auto-equips; this is for the "Buy & Equip"
       // explicit path so the optimistic update stays consistent.
       update.list_name_style_id = item.slug;
-    } else if (item.category === 'hero_name_style') {
-      update.hero_name_style_id = item.slug;
+    } else if (item.category === 'profile_name_style') {
+      update.profile_name_style_id = item.slug;
     }
     // cosmetic_badge: visible by default — nothing to write.
     if (Object.keys(update).length > 0) {
@@ -288,7 +290,14 @@ export default function ShopScreen({ navigation }: Props) {
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: c.bg }} size="large" color={c.primary} />;
 
-  const tabItems = items.filter(i => i.category === tab);
+  // The "Profile Styles" tab surfaces both the new profile_name_style items
+  // and the legacy `flair` items (color presets) so users see all profile
+  // name styles in one place.
+  const tabItems = items.filter(i =>
+    tab === 'profile_name_style'
+      ? (i.category === 'profile_name_style' || i.category === 'flair')
+      : i.category === tab
+  );
   const tabMeta  = TABS.find(t => t.value === tab)!;
 
   return (
@@ -330,7 +339,7 @@ export default function ShopScreen({ navigation }: Props) {
                 indicator, and flips to "✓ Unlocked" once the badge is earned. */}
             {tabItems.map(item => {
               const isRedemption = item.category === 'real_world';
-              const isNameStyle  = item.category === 'list_name_style' || item.category === 'hero_name_style';
+              const isNameStyle  = item.category === 'list_name_style' || item.category === 'profile_name_style';
               const isUnlockGated = !!item.unlock_badge_id;
               const { cost: effCost, discount } = effectiveCost(item);
               // Redemptions are stackable, so owned/duplicate guards don't apply.

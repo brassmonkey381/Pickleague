@@ -21,7 +21,7 @@ type NameStyleReward = {
   id: string;
   slug: string;
   name: string;
-  category: 'list_name_style' | 'hero_name_style';
+  category: 'list_name_style' | 'profile_name_style';
   unlock_badge_id: string;
 };
 
@@ -76,7 +76,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
         .select('id, slug, name, category, unlock_badge_id')
         .not('unlock_badge_id', 'is', null)
         .eq('is_active', true)
-        .in('category', ['list_name_style', 'hero_name_style']),
+        .in('category', ['list_name_style', 'profile_name_style']),
       supabase.from('badges').select('id, name'),
     ]);
 
@@ -92,7 +92,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
     for (const row of ((rewardsRes.data ?? []) as any[])) {
       const badgeName = row.unlock_badge_id ? badgeIdToName.get(row.unlock_badge_id) : undefined;
       if (!badgeName) continue; // Orphaned FK — skip rather than show a broken row.
-      if (row.category !== 'list_name_style' && row.category !== 'hero_name_style') continue;
+      if (row.category !== 'list_name_style' && row.category !== 'profile_name_style') continue;
       rewardMap[badgeName] = {
         id: row.id,
         slug: row.slug,
@@ -187,7 +187,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
             {earned ? '✓ Unlocked' : 'Reward'} · {reward.name}
           </Text>
           <Text style={styles.rewardSubLabel} numberOfLines={1}>
-            Name style · {reward.category === 'hero_name_style' ? 'Hero' : 'List'}
+            Name style · {reward.category === 'profile_name_style' ? 'Profile' : 'List'}
           </Text>
         </View>
       </TouchableOpacity>
