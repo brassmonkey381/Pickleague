@@ -18,6 +18,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { BallIcon } from '../components/PickleIcons';
+import FlairName from '../components/FlairName';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
@@ -25,11 +26,17 @@ type Props = {
 };
 type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () => void; adminOnly?: boolean };
 
+type ChampionWinner = {
+  name:        string;
+  nameColor:   string | null;
+  heroStyleId: string | null;
+};
+
 type LatestChampion = {
   tournamentId:   string;
   tournamentName: string;
   teamName:       string;
-  winners:        string[];      // full names
+  winners:        ChampionWinner[];
   record:         string | null; // "12-4" or null when no record data
 };
 
@@ -47,11 +54,13 @@ type ComingUpItem = {
 const WEEK_PRESETS    = [3, 6, 12] as const;
 const LOCK_PRESETS    = [1, 2, 4]  as const;
 
-function formatRoster(names: string[]): string {
-  if (names.length === 0) return 'the champions';
-  if (names.length === 1) return names[0];
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+// Build the separator that appears AFTER the winner at index `i` in a roster
+// of length `n`. Mirrors the old comma-and-"and" formatting.
+function rosterSeparator(i: number, n: number): string {
+  if (i === n - 1) return '';            // last: no trailing separator
+  if (n === 2) return ' and ';           // "Alice and Bob"
+  if (i === n - 2) return ', and ';      // Oxford comma before final name
+  return ', ';
 }
 
 export default function LeagueDetailScreen({ navigation, route }: Props) {
@@ -166,15 +175,26 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     const winningTeamId = (badges[0] as any).team_id ?? null;
 
     const [profilesRes, standingsRes] = await Promise.all([
-      supabase.from('profiles').select('id, full_name').in('id', winnerUids),
+      supabase
+        .from('profiles')
+        .select('id, full_name, name_color, hero_name_style_id')
+        .in('id', winnerUids),
       winningTeamId
         ? supabase.rpc('mlp_team_standings', { p_tournament_id: t.id })
         : Promise.resolve({ data: null } as any),
     ]);
 
-    const nameMap: Record<string, string> = {};
-    for (const p of (profilesRes.data ?? []) as any[]) nameMap[p.id] = p.full_name ?? '—';
-    const winners = winnerUids.map((u: string) => nameMap[u] ?? '—');
+    const profileMap: Record<string, ChampionWinner> = {};
+    for (const p of (profilesRes.data ?? []) as any[]) {
+      profileMap[p.id] = {
+        name:        p.full_name ?? '—',
+        nameColor:   p.name_color ?? null,
+        heroStyleId: p.hero_name_style_id ?? null,
+      };
+    }
+    const winners: ChampionWinner[] = winnerUids.map((u: string) =>
+      profileMap[u] ?? { name: '—', nameColor: null, heroStyleId: null }
+    );
 
     let record: string | null = null;
     if (winningTeamId && standingsRes?.data) {
@@ -672,8 +692,22 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           {latestChampion.record && (
             <Text style={S.championRecord}>Final record: {latestChampion.record}</Text>
           )}
+          {/* TODO: smoke-test in browser — champion winner names render with hero styles */}
           <Text style={S.championRoster}>
-            🎉 Congrats to {formatRoster(latestChampion.winners)}!
+            🎉 Congrats to {latestChampion.winners.length === 0
+              ? 'the champions'
+              : latestChampion.winners.map((w, i) => (
+                  <Text key={i}>
+                    <FlairName
+                      name={w.name}
+                      nameColor={w.nameColor}
+                      styleId={w.heroStyleId}
+                      mode="hero"
+                      style={S.championRoster}
+                    />
+                    {rosterSeparator(i, latestChampion.winners.length)}
+                  </Text>
+                ))}!
           </Text>
           <Text style={S.championLink}>View tournament →</Text>
         </TouchableOpacity>

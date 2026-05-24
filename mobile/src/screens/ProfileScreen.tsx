@@ -811,9 +811,12 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.avatarEditBadgeText}>✏️</Text>
           </View>
         </TouchableOpacity>
+        {/* TODO: smoke-test in browser — hero name renders with hero_name_style_id */}
         <FlairName
           style={styles.fullName}
           nameColor={profile?.name_color}
+          styleId={profile?.hero_name_style_id}
+          mode="hero"
           name={profile?.full_name ?? ''}
         />
         {tagline ? <Text style={styles.taglineDisplay}>{tagline}</Text> : null}
