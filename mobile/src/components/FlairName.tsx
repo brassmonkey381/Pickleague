@@ -2,6 +2,13 @@ import React from 'react';
 import { Text, TextStyle, StyleProp } from 'react-native';
 import { getFlairEffect } from '../lib/nameFlair';
 import { getNameStyle, degradeForList, NameStyle } from '../lib/nameStyles';
+import {
+  PulseName,
+  RainbowName,
+  SparkleName,
+  TypewriterName,
+  HolographicName,
+} from './NameStyleAnimations';
 
 type Props = {
   name: string;
@@ -53,7 +60,10 @@ function styleToTextStyle(recipe: NameStyle): { textStyle: TextStyle; prefix?: s
       };
 
     case 'animated':
-      // TODO: Wave B animations — for now render as the base solid color.
+      // Static fallback: only used if we end up here in list mode (which
+      // shouldn't happen — degradeForList() converts animated → solid before
+      // this function is called). Hero-mode rendering dispatches to the
+      // animated sub-components below, never reaching this branch.
       return { textStyle: { color: recipe.base } };
   }
 }
@@ -70,6 +80,53 @@ export default function FlairName({
   const recipe = getNameStyle(styleId);
   if (recipe) {
     const effective = mode === 'list' ? degradeForList(recipe) : recipe;
+
+    // Hero mode + animated recipe → dispatch to dedicated sub-component.
+    // (List mode never reaches here because degradeForList() converts
+    // animated → solid above.)
+    if (effective.kind === 'animated') {
+      switch (effective.effect) {
+        case 'pulse':
+          return (
+            <PulseName
+              name={name}
+              color={effective.base}
+              style={style}
+              numberOfLines={numberOfLines}
+            />
+          );
+        case 'rainbow':
+          return <RainbowName name={name} style={style} numberOfLines={numberOfLines} />;
+        case 'sparkle':
+          return (
+            <SparkleName
+              name={name}
+              color={effective.base}
+              style={style}
+              numberOfLines={numberOfLines}
+            />
+          );
+        case 'typewriter':
+          return (
+            <TypewriterName
+              name={name}
+              color={effective.base}
+              style={style}
+              numberOfLines={numberOfLines}
+            />
+          );
+        case 'holographic':
+          return (
+            <HolographicName
+              name={name}
+              baseColor={effective.base}
+              style={style}
+              numberOfLines={numberOfLines}
+            />
+          );
+      }
+    }
+
     const { textStyle } = styleToTextStyle(effective);
     return (
       <Text style={[style, textStyle]} numberOfLines={numberOfLines}>
