@@ -213,7 +213,7 @@ begin
     insert into public.notifications (user_id, title, body, type, entity_id, entity_type, is_read)
     values (
       v_recipient,
-      '🏓 Match needs your team to confirm',
+      '🥒 Match needs your team to confirm',
       format('%s entered a match in %s. Open match history to confirm within an hour.',
              coalesce(v_entering, 'A player'), coalesce(v_league, 'a league')),
       'match', new.id, 'match', false

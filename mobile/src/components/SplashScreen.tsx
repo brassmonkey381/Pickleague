@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, Easing } from 'react-native';
+import { BallIcon } from './PickleIcons';
 
 type Props = { onDone: () => void; minMs: number };
 
@@ -68,9 +69,9 @@ export default function SplashScreen({ onDone, minMs }: Props) {
 
   return (
     <Animated.View style={[styles.container, { opacity: screenOpacity }]}>
-      <Animated.Text style={[styles.ball, { transform: [{ translateY: bounce }] }]}>
-        🎾
-      </Animated.Text>
+      <Animated.View style={[styles.ball, { transform: [{ translateY: bounce }] }]}>
+        <BallIcon size={72} />
+      </Animated.View>
       <Animated.Text
         style={[styles.title, { opacity: titleOpacity, transform: [{ scale: titleScale }] }]}
       >
@@ -91,7 +92,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 999,
   },
-  ball:    { fontSize: 72, marginBottom: 24 },
+  ball:    { marginBottom: 24 },
   title:   { fontSize: 36, fontWeight: '900', color: '#ffffff', letterSpacing: 6, textTransform: 'uppercase' },
   tagline: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 12, letterSpacing: 1 },
 });

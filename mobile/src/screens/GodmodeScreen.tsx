@@ -14,6 +14,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { setClipboard } from '../lib/clipboard';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import { verifyTournament, CheckResult } from '../lib/bracketVerification';
+import { BallIcon } from '../components/PickleIcons';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Godmode'> };
 
@@ -386,9 +387,12 @@ export default function GodmodeScreen({ navigation }: Props) {
               <View key={inv.code_id} style={[S.inviteRow, i === invites.length - 1 && S.inviteRowLast]}>
                 <View style={S.inviteHeaderInline}>
                   <View style={[S.scopeBadge, inv.scope_type === 'tournament' ? S.scopeBadgeTournament : S.scopeBadgeLeague]}>
-                    <Text style={S.scopeBadgeText}>
-                      {inv.scope_type === 'tournament' ? '🏆 tournament' : '🎾 league'}
-                    </Text>
+                    {inv.scope_type === 'tournament'
+                      ? <Text style={S.scopeBadgeText}>🏆 tournament</Text>
+                      : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <BallIcon size={14} />
+                          <Text style={S.scopeBadgeText}>league</Text>
+                        </View>}
                   </View>
                   <Text style={S.inviteScopeName} numberOfLines={1}>
                     {inv.scope_name ?? '(unknown scope)'}

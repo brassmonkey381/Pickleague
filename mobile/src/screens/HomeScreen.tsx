@@ -10,6 +10,7 @@ import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
+import { DumbbellIcon, SoloPlayerIcon, BallIcon } from '../components/PickleIcons';
 import {
   claimDailyLoginStreak,
   hasStreakBeenShown,
@@ -22,15 +23,16 @@ let godmodeGrantClaimedThisSession = false;
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
-const NAV_ITEMS = [
-  { icon: '🏆', label: 'Leagues',     screen: 'Leagues',     params: undefined },
-  { icon: '🎾', label: 'Tournaments', screen: 'Tournaments', params: {} },
-  { icon: '🏓', label: 'Drill',       screen: 'Drill',       params: undefined },
-  { icon: '🛒', label: 'Pickle Shop', screen: 'Shop',        params: undefined },
-  { icon: '😎', label: 'Profile',     screen: 'Profile',     params: {} },
-  { icon: '🎲', label: 'Wagers',      screen: 'MyWagers',    params: undefined },
-  { icon: '🥒', label: 'About',       screen: 'About',       params: undefined },
-] as const;
+type NavItem = { icon: React.ReactNode; label: string; screen: any; params: any };
+const NAV_ITEMS: NavItem[] = [
+  { icon: '🏆',                    label: 'Leagues',     screen: 'Leagues',     params: undefined },
+  { icon: <BallIcon size={32} />,  label: 'Tournaments', screen: 'Tournaments', params: {} },
+  { icon: <DumbbellIcon size={32} />, label: 'Drill',    screen: 'Drill',       params: undefined },
+  { icon: '🛒',                    label: 'Pickle Shop', screen: 'Shop',        params: undefined },
+  { icon: '😎',                    label: 'Profile',     screen: 'Profile',     params: {} },
+  { icon: '🎲',                    label: 'Wagers',      screen: 'MyWagers',    params: undefined },
+  { icon: '🥒',                    label: 'About',       screen: 'About',       params: undefined },
+];
 
 export default function HomeScreen({ navigation }: Props) {
   const { colors } = useTheme();
@@ -220,8 +222,8 @@ export default function HomeScreen({ navigation }: Props) {
       {/* ── Hero header ─────────────────────────────── */}
       <View style={s.hero}>
         {/* Decorative balls */}
-        <Text style={s.decoBallTL}>🎾</Text>
-        <Text style={s.decoBallBR}>🎾</Text>
+        <View style={s.decoBallTL}><BallIcon size={80} /></View>
+        <View style={s.decoBallBR}><BallIcon size={100} /></View>
 
         {/* Settings (top-left) */}
         <TouchableOpacity style={s.settingsBtn} onPress={() => navigation.navigate('Settings')}>
@@ -270,7 +272,10 @@ export default function HomeScreen({ navigation }: Props) {
       {(myTournaments.length > 0 || openTournaments.length > 0) && (
         <View style={s.tournamentSection}>
           <View style={s.tournamentSectionHeader}>
-            <Text style={s.tournamentSectionTitle}>🎾 Your tournaments</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <BallIcon size={18} />
+              <Text style={s.tournamentSectionTitle}>Your tournaments</Text>
+            </View>
             <TouchableOpacity onPress={() => navigation.navigate('Tournaments', {})}>
               <Text style={s.tournamentViewAll}>View all →</Text>
             </TouchableOpacity>
@@ -328,7 +333,7 @@ export default function HomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('DrillRequests')}
           activeOpacity={0.85}
         >
-          <Text style={s.drillBannerEmoji}>🏓</Text>
+          <View style={s.drillBannerEmoji}><DumbbellIcon size={28} color="#ffffff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={s.drillBannerTitle}>Drill with {s2.partner_name} today!</Text>
             <Text style={s.drillBannerSub}>{slotRangeLabel(s2.session_slot, s2.length_minutes ?? 60)} · tap for details</Text>
@@ -363,7 +368,7 @@ export default function HomeScreen({ navigation }: Props) {
             initialMatchType: 'singles',
           })}
         >
-          <Text style={s.statEmoji}>🏓</Text>
+          <View style={s.statIconWrap}><SoloPlayerIcon size={22} /></View>
           <Text style={s.statValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Singles</Text>
         </TouchableOpacity>
@@ -408,7 +413,9 @@ export default function HomeScreen({ navigation }: Props) {
             activeOpacity={0.75}
             onPress={() => (navigation.navigate as any)(screen, params)}
           >
-            <Text style={s.cardIcon}>{icon}</Text>
+            {typeof icon === 'string'
+              ? <Text style={s.cardIcon}>{icon}</Text>
+              : <View style={{ marginBottom: 4, alignItems: 'center', justifyContent: 'center' }}>{icon}</View>}
             <Text style={s.cardLabel}>{label}</Text>
           </TouchableOpacity>
         ))}
@@ -501,8 +508,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       paddingHorizontal: 24,
       overflow: 'hidden',
     },
-    decoBallTL: { position: 'absolute', top: -10, left: -8, fontSize: 80, opacity: 0.08 },
-    decoBallBR: { position: 'absolute', bottom: -16, right: -8, fontSize: 100, opacity: 0.08 },
+    decoBallTL: { position: 'absolute', top: -10, left: -8, opacity: 0.12 },
+    decoBallBR: { position: 'absolute', bottom: -16, right: -8, opacity: 0.12 },
     bellBtn:  { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 48, right: 16, padding: 8, zIndex: 10 },
     bellIcon: { fontSize: 22 },
     settingsBtn:  { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 48, right: 54, padding: 8, zIndex: 10 },
@@ -532,6 +539,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     },
     statItem:  { flex: 1, alignItems: 'center', gap: 3 },
     statEmoji: { fontSize: 20 },
+    statIconWrap: { height: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 0 },
     statValue: { fontSize: 20, fontWeight: '800', color: c.text },
     statLabel: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
     statDivider: { width: 1, backgroundColor: c.border, marginVertical: 4 },
@@ -555,7 +563,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       paddingHorizontal: 14, paddingVertical: 12,
       marginHorizontal: 14, marginTop: 12, borderRadius: 10,
     },
-    drillBannerEmoji: { fontSize: 22 },
+    drillBannerEmoji: { width: 34, height: 34, justifyContent: 'center', alignItems: 'center' },
     drillBannerTitle: { fontSize: 14, fontWeight: '800', color: c.text },
     drillBannerSub:   { fontSize: 12, color: c.textSub, marginTop: 1 },
     drillBannerClose: { fontSize: 18, fontWeight: '700', color: c.textMuted, paddingHorizontal: 6 },

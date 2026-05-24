@@ -217,7 +217,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     const result = await shareInvite({
       title: `Join ${scopeName} on Pickleague`,
       message:
-        `You're invited to join the ${target} "${scopeName}" on Pickleague! 🏓\n\n` +
+        `You're invited to join the ${target} "${scopeName}" on Pickleague! 🥒\n\n` +
         `Use invite code: ${code}${subsidyLine}\n\n` +
         `Open the app → ${where} and enter this code.`,
     });

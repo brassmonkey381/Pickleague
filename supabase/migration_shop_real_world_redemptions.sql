@@ -193,7 +193,7 @@ insert into public.shop_items (slug, category, name, description, icon, cost, pa
      '🟢', 22990,  '{"usdCents":2299, "purchaseUrl":"https://www.onixpickleball.com"}', 11),
   ('redeem-selkirk-luxx-control',   'real_world', 'Selkirk Sport LUXX Control',
      'Top-tier control paddle. Pro-level feel with elongated sweet spot.',
-     '🏓', 199990, '{"usdCents":19999,"purchaseUrl":"https://www.selkirk.com"}',        12),
+     '🥒', 199990, '{"usdCents":19999,"purchaseUrl":"https://www.selkirk.com"}',        12),
   ('redeem-franklin-indoor-12pack', 'real_world', 'Franklin Indoor (12-pack)',
      'A dozen indoor pickleballs. Quieter, lighter, ideal for gym play.',
      '🟠', 29990,  '{"usdCents":2999, "purchaseUrl":"https://www.franklinsports.com"}', 13),

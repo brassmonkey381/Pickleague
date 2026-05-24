@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
 
@@ -33,8 +34,12 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-const TYPE_ICON: Record<string, string> = {
-  tournament: '🏆', league: '🎾', match: '🏓', drill: '🏓', info: '📣',
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  tournament: '🏆',
+  league:     <BallIcon size={22} />,
+  match:      '🏅',
+  drill:      <DumbbellIcon size={22} />,
+  info:       '📣',
 };
 
 // Invite-broadcast bodies have the form "...use invite code TOKEN to join.".
@@ -128,7 +133,9 @@ export default function NotificationsScreen({ navigation }: Props) {
             onLongPress={() => deleteNotification(item.id)}
           >
             <View style={S.iconCol}>
-              <Text style={S.typeIcon}>{TYPE_ICON[item.type] ?? '📣'}</Text>
+              {typeof TYPE_ICON[item.type] === 'string' || TYPE_ICON[item.type] == null
+                ? <Text style={S.typeIcon}>{(TYPE_ICON[item.type] as string) ?? '📣'}</Text>
+                : <View style={{ alignItems: 'center', justifyContent: 'center' }}>{TYPE_ICON[item.type]}</View>}
               {!item.is_read && <View style={S.unreadDot} />}
             </View>
             <View style={S.content}>
