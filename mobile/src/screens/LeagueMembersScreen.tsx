@@ -13,6 +13,7 @@ import { availabilityOverlap, totalAvailableSlots, TOTAL_CELLS } from '../lib/av
 import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetModal';
+import FlairName from '../components/FlairName';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueMembers'>;
@@ -29,6 +30,8 @@ type SuggestedPlayer = {
   availability: boolean[];
   avatar_id: number;
   avatar_url: string | null;
+  name_color: string | null;
+  list_name_style_id: string | null;
   eloDiff: number;
   overlapHours: number;
 };
@@ -60,13 +63,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     const [membersRes, requestsRes] = await Promise.all([
       supabase
         .from('league_members')
-        .select('*, profile:profiles(id, full_name, rating, total_matches_played)')
+        .select('*, profile:profiles(id, full_name, rating, total_matches_played, name_color, list_name_style_id)')
         .eq('league_id', leagueId)
         .order('role'),
       isPrivileged(role)
         ? supabase
             .from('league_join_requests')
-            .select('*, profile:profiles(id, full_name)')
+            .select('*, profile:profiles(id, full_name, name_color, list_name_style_id)')
             .eq('league_id', leagueId)
             .eq('status', 'pending')
             .order('created_at')
@@ -100,7 +103,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
     const { data: candidates } = await supabase
       .from('profiles')
-      .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url')
+      .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')
       .not('id', 'in', `(${memberIds.join(',')})`)
       .gte('rating', avgElo - 1.75)
       .lte('rating', avgElo + 1.75)
@@ -120,6 +123,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         availability: av,
         avatar_id: p.avatar_id ?? 1,
         avatar_url: p.avatar_url,
+        name_color: p.name_color ?? null,
+        list_name_style_id: p.list_name_style_id ?? null,
         eloDiff: Math.abs(p.rating - avgElo),
         overlapHours: +(overlapSlots * 0.5).toFixed(1),
       };
@@ -201,8 +206,16 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                       {(req.profile?.full_name ?? '?')[0].toUpperCase()}
                     </Text>
                   </View>
+                  {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
                   <Text style={S.requestName} numberOfLines={1}>
-                    {req.profile?.full_name ?? 'Unknown'} wants to join
+                    <FlairName
+                      name={req.profile?.full_name ?? 'Unknown'}
+                      nameColor={req.profile?.name_color}
+                      styleId={req.profile?.list_name_style_id ?? null}
+                      mode="list"
+                      style={S.requestName}
+                    />
+                    {' wants to join'}
                   </Text>
                   <View style={S.requestActions}>
                     <TouchableOpacity
@@ -251,7 +264,14 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
               </Text>
             </View>
             <View style={S.info}>
-              <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
+              {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+              <FlairName
+                name={item.profile?.full_name ?? 'Unknown'}
+                nameColor={item.profile?.name_color}
+                styleId={item.profile?.list_name_style_id ?? null}
+                mode="list"
+                style={S.name}
+              />
               <Text style={S.rating}>{formatPlupr(item.profile?.rating, item.profile?.total_matches_played)} PLUPR</Text>
             </View>
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
@@ -319,7 +339,15 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                     <Text style={S.suggestAvatarEmoji}>{avatar.emoji}</Text>
                   </View>
                   <View style={S.suggestInfo}>
-                    <Text style={S.suggestName} numberOfLines={1}>{p.full_name}</Text>
+                    {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                    <FlairName
+                      name={p.full_name}
+                      nameColor={p.name_color}
+                      styleId={p.list_name_style_id}
+                      mode="list"
+                      style={S.suggestName}
+                      numberOfLines={1}
+                    />
                     <Text style={S.suggestSub}>@{p.username}</Text>
                     <View style={S.suggestPills}>
                       <View style={S.eloPill}>

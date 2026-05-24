@@ -16,6 +16,9 @@ export type Profile = {
   pickles: number;
   welcome_pickles_granted: boolean;
   name_color: string | null;
+  // Equipped name-style slugs (FK to shop_items.slug). null = use default rendering.
+  list_name_style_id: string | null;
+  hero_name_style_id: string | null;
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
   rating: number;
@@ -166,7 +169,13 @@ export type EventSlot = {
 
 export type DoublesCategory = 'gendered' | 'mixed' | 'unspecified';
 
-export type ShopCategory = 'avatar' | 'cosmetic_badge' | 'flair' | 'real_world';
+export type ShopCategory =
+  | 'avatar'
+  | 'cosmetic_badge'
+  | 'flair'
+  | 'real_world'
+  | 'list_name_style'
+  | 'hero_name_style';
 
 export type ShopItem = {
   id: string;
@@ -179,6 +188,9 @@ export type ShopItem = {
   payload: Record<string, any>;
   is_active: boolean;
   sort_order: number;
+  // When set, item is unlocked by earning the badge (not purchasable).
+  // The DB trigger _grant_unlock_items_on_badge auto-grants on badge insert.
+  unlock_badge_id?: string | null;
 };
 
 export type ShopPurchase = {

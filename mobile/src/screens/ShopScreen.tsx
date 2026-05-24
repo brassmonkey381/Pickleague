@@ -11,15 +11,18 @@ import { ShopCategory, ShopItem, ShopPurchase, RootStackParamList } from '../typ
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import ShippingAddressForm, { ShippingAddress, EMPTY_ADDRESS, isAddressValid } from '../components/ShippingAddressForm';
 import StatusBanner from '../components/StatusBanner';
+import FlairName from '../components/FlairName';
 import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
 const TABS: { value: ShopCategory; label: string; emoji: string; blurb: string }[] = [
-  { value: 'avatar',         label: 'Avatars',     emoji: '🎭', blurb: 'Premium avatars to swap in on your profile.' },
-  { value: 'cosmetic_badge', label: 'Badges',      emoji: '🏵️', blurb: 'Decorative badges that show on your profile.' },
-  { value: 'flair',          label: 'Flair',       emoji: '✨', blurb: 'Profile customization — start with name colors.' },
-  { value: 'real_world',     label: 'Redemptions', emoji: '🎁', blurb: 'Trade pickles for real-world gear. 4 items rotate at 20/15/10/5% off every day at midnight UTC. An admin will reach out after you redeem to arrange delivery.' },
+  { value: 'avatar',          label: 'Avatars',     emoji: '🎭', blurb: 'Premium avatars to swap in on your profile.' },
+  { value: 'cosmetic_badge',  label: 'Badges',      emoji: '🏵️', blurb: 'Decorative badges that show on your profile.' },
+  { value: 'flair',           label: 'Flair',       emoji: '✨', blurb: 'Profile customization — start with name colors.' },
+  { value: 'list_name_style', label: 'List Names',  emoji: '📝', blurb: 'Name styles that show in member lists, brackets, registrations, and match history.' },
+  { value: 'hero_name_style', label: 'Hero Names',  emoji: '🌟', blurb: 'Animated and premium name styles for your profile header and other hero contexts.' },
+  { value: 'real_world',      label: 'Redemptions', emoji: '🎁', blurb: 'Trade pickles for real-world gear. 4 items rotate at 20/15/10/5% off every day at midnight UTC. An admin will reach out after you redeem to arrange delivery.' },
 ];
 
 function formatUsd(cents: number | undefined): string {
@@ -37,6 +40,10 @@ export default function ShopScreen({ navigation }: Props) {
   const [tab, setTab]         = useState<ShopCategory>('avatar');
   const [loading, setLoading] = useState(true);
   const [buying, setBuying]   = useState<{ id: string; equip: boolean } | null>(null);
+  // Used for live name previews on the List/Hero Name tabs.
+  const [myFullName, setMyFullName] = useState<string>('You');
+  // badge id → badge name, for rendering "Earn X to unlock" labels.
+  const [badgeNames, setBadgeNames] = useState<Map<string, string>>(new Map());
 
   // Buy flow
   const [confirmingItem, setConfirmingItem]     = useState<ShopItem | null>(null);
@@ -62,18 +69,22 @@ export default function ShopScreen({ navigation }: Props) {
     if (!user) { setLoading(false); return; }
     setMyUserId(user.id);
 
-    const [profileRes, itemsRes, ownedRes, discountsRes] = await Promise.all([
-      supabase.from('profiles').select('pickles').eq('id', user.id).single(),
+    const [profileRes, itemsRes, ownedRes, discountsRes, badgesRes] = await Promise.all([
+      supabase.from('profiles').select('pickles, full_name').eq('id', user.id).single(),
       supabase.from('shop_items').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('player_shop_purchases').select('shop_item_id').eq('user_id', user.id),
       supabase.rpc('current_real_world_discounts'),
+      supabase.from('badges').select('id, name'),
     ]);
 
     setPickles(profileRes.data?.pickles ?? 0);
+    setMyFullName(profileRes.data?.full_name ?? 'You');
     setItems((itemsRes.data ?? []) as ShopItem[]);
     setOwned(new Set(((ownedRes.data ?? []) as ShopPurchase[]).map(p => p.shop_item_id)));
     setDiscounts(new Map(((discountsRes.data ?? []) as { slug: string; discount_pct: number }[])
       .map(d => [d.slug, d.discount_pct])));
+    setBadgeNames(new Map(((badgesRes.data ?? []) as { id: string; name: string }[])
+      .map(b => [b.id, b.name])));
     setLoading(false);
   }
 
@@ -162,6 +173,12 @@ export default function ShopScreen({ navigation }: Props) {
       update.avatar_bg_color = item.payload?.bgColor  ?? null;
     } else if (item.category === 'flair' && item.payload?.kind === 'name_color') {
       update.name_color = item.payload?.value ?? null;
+    } else if (item.category === 'list_name_style') {
+      // purchase_shop_item already auto-equips; this is for the "Buy & Equip"
+      // explicit path so the optimistic update stays consistent.
+      update.list_name_style_id = item.slug;
+    } else if (item.category === 'hero_name_style') {
+      update.hero_name_style_id = item.slug;
     }
     // cosmetic_badge: visible by default — nothing to write.
     if (Object.keys(update).length > 0) {
@@ -254,12 +271,17 @@ export default function ShopScreen({ navigation }: Props) {
           <View style={S.grid}>
             {tabItems.map(item => {
               const isRedemption = item.category === 'real_world';
+              const isNameStyle  = item.category === 'list_name_style' || item.category === 'hero_name_style';
+              const isUnlockGated = !!item.unlock_badge_id;
               const { cost: effCost, discount } = effectiveCost(item);
               // Redemptions are stackable, so owned/duplicate guards don't apply.
               const isOwned     = !isRedemption && owned.has(item.id);
               const canAfford   = pickles >= effCost;
               const isBuying    = buying?.id === item.id;
               const usdCents    = item.payload?.usdCents as number | undefined;
+              const unlockBadgeName = isUnlockGated
+                ? badgeNames.get(item.unlock_badge_id!) ?? 'a badge'
+                : null;
 
               return (
                 <View key={item.id} style={S.card}>
@@ -272,48 +294,71 @@ export default function ShopScreen({ navigation }: Props) {
                     <Text style={S.iconEmoji}>{item.icon}</Text>
                   </View>
                   <Text style={S.cardName} numberOfLines={1}>{item.name}</Text>
+                  {isNameStyle && (
+                    <View style={S.namePreviewBox}>
+                      <FlairName
+                        name={myFullName}
+                        styleId={item.slug}
+                        mode={item.category === 'list_name_style' ? 'list' : 'hero'}
+                        style={S.namePreviewText}
+                        numberOfLines={1}
+                      />
+                    </View>
+                  )}
                   <Text style={S.cardDesc} numberOfLines={3}>{item.description}</Text>
                   {isRedemption && usdCents != null && (
                     <Text style={S.usdLine}>Worth {formatUsd(usdCents)} online</Text>
                   )}
-                  <View style={S.costRow}>
-                    <View style={S.costPill}>
-                      {discount > 0
-                        ? <Text style={S.costText}>
-                            <Text style={S.costStrike}>🥒 {item.cost}</Text>{'  '}
-                            <Text style={S.costDiscounted}>🥒 {effCost}</Text>
-                          </Text>
-                        : <Text style={S.costText}>🥒 {effCost}</Text>}
+                  {!isUnlockGated && (
+                    <View style={S.costRow}>
+                      <View style={S.costPill}>
+                        {discount > 0
+                          ? <Text style={S.costText}>
+                              <Text style={S.costStrike}>🥒 {item.cost}</Text>{'  '}
+                              <Text style={S.costDiscounted}>🥒 {effCost}</Text>
+                            </Text>
+                          : <Text style={S.costText}>🥒 {effCost}</Text>}
+                      </View>
                     </View>
-                  </View>
-                  <View style={S.actionRow}>
-                    <TouchableOpacity
-                      style={[
-                        S.buyBtn,
-                        isOwned   && S.buyBtnOwned,
-                        !canAfford && !isOwned && S.buyBtnDisabled,
-                      ]}
-                      onPress={() => startBuy(item)}
-                      disabled={isOwned || isBuying || !canAfford}
-                    >
-                      <Text style={[
-                        S.buyBtnText,
-                        (isOwned || !canAfford) && S.buyBtnTextDim,
-                      ]}>
-                        {isOwned ? '✓ Owned'
-                          : isBuying ? '…'
-                          : !canAfford ? 'Need 🥒'
-                          : isRedemption ? 'Redeem' : 'Buy'}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[S.giftBtn, !canAfford && S.giftBtnDisabled]}
-                      onPress={() => startGift(item)}
-                      disabled={!canAfford || isBuying}
-                    >
-                      <Text style={[S.giftBtnText, !canAfford && S.giftBtnTextDim]}>🎁 Gift</Text>
-                    </TouchableOpacity>
-                  </View>
+                  )}
+                  {isUnlockGated ? (
+                    <View style={S.actionRow}>
+                      <View style={[S.buyBtn, isOwned ? S.buyBtnOwned : S.buyBtnDisabled, { flex: 1 }]}>
+                        <Text style={[S.buyBtnText, !isOwned && S.buyBtnTextDim]} numberOfLines={2}>
+                          {isOwned ? '✓ Unlocked' : `🔒 Earn ${unlockBadgeName}`}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={S.actionRow}>
+                      <TouchableOpacity
+                        style={[
+                          S.buyBtn,
+                          isOwned   && S.buyBtnOwned,
+                          !canAfford && !isOwned && S.buyBtnDisabled,
+                        ]}
+                        onPress={() => startBuy(item)}
+                        disabled={isOwned || isBuying || !canAfford}
+                      >
+                        <Text style={[
+                          S.buyBtnText,
+                          (isOwned || !canAfford) && S.buyBtnTextDim,
+                        ]}>
+                          {isOwned ? '✓ Owned'
+                            : isBuying ? '…'
+                            : !canAfford ? 'Need 🥒'
+                            : isRedemption ? 'Redeem' : 'Buy'}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[S.giftBtn, !canAfford && S.giftBtnDisabled]}
+                        onPress={() => startGift(item)}
+                        disabled={!canAfford || isBuying}
+                      >
+                        <Text style={[S.giftBtnText, !canAfford && S.giftBtnTextDim]}>🎁 Gift</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -555,6 +600,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     iconEmoji: { fontSize: 32 },
     cardName:  { fontSize: 14, fontWeight: '800', color: c.text, textAlign: 'center', marginBottom: 4 },
     cardDesc:  { fontSize: 11, color: c.textMuted, textAlign: 'center', minHeight: 44, lineHeight: 15 },
+    namePreviewBox:  { backgroundColor: c.surfaceAlt, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 8, marginBottom: 6, alignItems: 'center' },
+    namePreviewText: { fontSize: 14, fontWeight: '700' },
 
     costRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', marginTop: 10 },
     costPill:   { backgroundColor: c.surfaceAlt, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignSelf: 'flex-start' },
