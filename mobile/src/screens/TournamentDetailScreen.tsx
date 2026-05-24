@@ -29,6 +29,7 @@ import DoublesPairSection from '../components/DoublesPairSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
 import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
+import FlairName from '../components/FlairName';
 import StatusBanner from '../components/StatusBanner';
 import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
@@ -190,7 +191,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const [tRes, regRes, role, godmodeResult] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
       supabase.from('tournament_registrations')
-        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played)')
+        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played, name_color, list_name_style_id)')
         .eq('tournament_id', tournamentId)
         .order('role'),
       getTournamentRole(tournamentId),
@@ -1381,9 +1382,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             return (
               <View key={r.id} style={S.playerRow}>
                 <Text style={S.playerSeed}>#{i + 1}</Text>
-                <Text style={[S.playerName, isInvitePending && { color: c.textMuted, fontStyle: 'italic' }]}>
-                  {r.profile?.full_name ?? '—'}
-                </Text>
+                {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                <FlairName
+                  name={r.profile?.full_name ?? '—'}
+                  nameColor={(r.profile as any)?.name_color}
+                  styleId={(r.profile as any)?.list_name_style_id ?? null}
+                  mode="list"
+                  style={[S.playerName, isInvitePending && { color: c.textMuted, fontStyle: 'italic' }]}
+                />
                 <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}</Text>
                 {isInvitePending ? (
                   <View style={[S.rolePill, { backgroundColor: '#fff3cd', borderColor: '#d4a72c' }]}>
@@ -1406,7 +1412,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.sectionTitle}>Pending Requests ({pendingRequests.length})</Text>
             {pendingRequests.map(r => (
               <View key={r.id} style={S.pendingRow}>
-                <Text style={S.playerName} numberOfLines={1}>{r.profile?.full_name ?? '—'}</Text>
+                {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                <FlairName
+                  name={r.profile?.full_name ?? '—'}
+                  nameColor={(r.profile as any)?.name_color}
+                  styleId={(r.profile as any)?.list_name_style_id ?? null}
+                  mode="list"
+                  style={S.playerName}
+                  numberOfLines={1}
+                />
                 <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
                 <View style={S.pendingActions}>
                   <TouchableOpacity style={S.approveBtn} onPress={() => approveReg(r.id)}>

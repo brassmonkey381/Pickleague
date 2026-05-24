@@ -429,6 +429,28 @@ export default function ProfileScreen({ navigation }: Props) {
     setProfile(p => p ? { ...p, name_color: value } : p);
   }
 
+  // Equip / unequip name styles (list or hero). Slug is the shop_items.slug
+  // (which doubles as the FK in profiles.{list,hero}_name_style_id).
+  async function applyListNameStyle(slug: string | null) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ list_name_style_id: slug })
+      .eq('id', userId);
+    if (error) { status.error(error.message); return; }
+    setProfile(p => p ? { ...p, list_name_style_id: slug } : p);
+  }
+
+  async function applyHeroNameStyle(slug: string | null) {
+    if (!userId) return;
+    const { error } = await supabase
+      .from('profiles')
+      .update({ hero_name_style_id: slug })
+      .eq('id', userId);
+    if (error) { status.error(error.message); return; }
+    setProfile(p => p ? { ...p, hero_name_style_id: slug } : p);
+  }
+
   async function togglePurchaseHidden(purchaseId: string, currentlyHidden: boolean) {
     const { error } = await supabase.rpc('set_purchase_hidden', {
       p_purchase_id: purchaseId,
@@ -873,9 +895,11 @@ export default function ProfileScreen({ navigation }: Props) {
 
       {/* ── Pickle Shop Inventory ─────────────────────────────── */}
       {shopPurchases.length > 0 && (() => {
-        const avatars  = shopPurchases.filter(p => p.item.category === 'avatar');
-        const flairs   = shopPurchases.filter(p => p.item.category === 'flair');
-        const badges   = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
+        const avatars    = shopPurchases.filter(p => p.item.category === 'avatar');
+        const flairs     = shopPurchases.filter(p => p.item.category === 'flair');
+        const listStyles = shopPurchases.filter(p => p.item.category === 'list_name_style');
+        const heroStyles = shopPurchases.filter(p => p.item.category === 'hero_name_style');
+        const badges     = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
         return (
           <View style={styles.locationCard}>
             <Text style={styles.cardTitle}>🥒 Pickle Shop Inventory</Text>
@@ -939,6 +963,70 @@ export default function ProfileScreen({ navigation }: Props) {
                 {profile?.name_color && (
                   <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyFlair(null)}>
                     <Text style={styles.invUnequipText}>↺ Revert to default name color</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {/* List Name Styles */}
+            {listStyles.length > 0 && (
+              <View style={styles.invSection}>
+                <Text style={styles.invSectionTitle}>List Name Styles</Text>
+                {listStyles.map(p => {
+                  const slug     = p.item.slug;
+                  const equipped = profile?.list_name_style_id === slug;
+                  return (
+                    <InvRow
+                      key={p.id}
+                      icon={p.item.icon}
+                      bgColor={p.item.payload?.bgColor ?? '#eef2ff'}
+                      name={p.item.name}
+                      gift={p.gifted_by_user_id}
+                      message={p.gift_message}
+                      isHidden={p.is_hidden}
+                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
+                      actionDisabled={equipped}
+                      onAction={() => applyListNameStyle(slug)}
+                      styles={styles}
+                    />
+                  );
+                })}
+                {profile?.list_name_style_id && (
+                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyListNameStyle(null)}>
+                    <Text style={styles.invUnequipText}>↺ Revert to default list name style</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+
+            {/* Hero Name Styles */}
+            {heroStyles.length > 0 && (
+              <View style={styles.invSection}>
+                <Text style={styles.invSectionTitle}>Hero Name Styles</Text>
+                {heroStyles.map(p => {
+                  const slug     = p.item.slug;
+                  const equipped = profile?.hero_name_style_id === slug;
+                  return (
+                    <InvRow
+                      key={p.id}
+                      icon={p.item.icon}
+                      bgColor={p.item.payload?.bgColor ?? '#fdf4ff'}
+                      name={p.item.name}
+                      gift={p.gifted_by_user_id}
+                      message={p.gift_message}
+                      isHidden={p.is_hidden}
+                      onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
+                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
+                      actionDisabled={equipped}
+                      onAction={() => applyHeroNameStyle(slug)}
+                      styles={styles}
+                    />
+                  );
+                })}
+                {profile?.hero_name_style_id && (
+                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyHeroNameStyle(null)}>
+                    <Text style={styles.invUnequipText}>↺ Revert to default hero name style</Text>
                   </TouchableOpacity>
                 )}
               </View>
