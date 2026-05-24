@@ -228,7 +228,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       tItems.push({
         key:   `t-${t.id}`,
         kind:  'tournament',
-        icon:  '🎾',
+        icon:  '🥎',
         title: t.name,
         whenLabel: ms != null ? fmt(ms) : 'Date TBD',
         whenMs:    ms ?? Number.MAX_SAFE_INTEGER,
@@ -514,7 +514,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   const options: Option[] = [
     {
-      icon: '🏓', label: 'Record Match',
+      icon: '🥒', label: 'Record Match',
       sub: 'Enter a singles or doubles result',
       onPress: () => navigation.navigate('MatchEntry', { leagueId }),
     },
@@ -539,7 +539,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
     },
     {
-      icon: '🎾', label: 'Tournaments',
+      icon: '🥎', label: 'Tournaments',
       sub: 'Create and manage tournaments',
       onPress: () => navigation.navigate('Tournaments', { leagueId, leagueName }),
     },
@@ -681,7 +681,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       {/* ── Upcoming tournaments ───────────────────────────────── */}
       {comingUpLoaded && (
         <View style={S.comingUpCard}>
-          <Text style={S.comingUpHeader}>🎾 Upcoming Tournaments</Text>
+          <Text style={S.comingUpHeader}>🥎 Upcoming Tournaments</Text>
           {upcomingTournaments.length === 0 ? (
             <Text style={S.comingUpEmpty}>No upcoming tournaments.</Text>
           ) : (

@@ -1017,7 +1017,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   )}
                 </View>
                 <View style={styles.chemMatchCount}>
-                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}🎾</Text>
+                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}🥎</Text>
                 </View>
                 <View style={[styles.chemBadge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
                   <Text style={[styles.chemBadgeText, { color }]}>{deltaStr}</Text>
@@ -1034,7 +1034,7 @@ export default function ProfileScreen({ navigation }: Props) {
       {/* ── Default Paddle ───────────────────────────────────────── */}
       <View style={styles.paddleCard}>
         <View style={styles.paddleHeader}>
-          <Text style={styles.paddleTitle}>🏓 Default Paddle</Text>
+          <Text style={styles.paddleTitle}>🥒 Default Paddle</Text>
           {defaultPaddle && (
             <TouchableOpacity onPress={removePaddle}>
               <Text style={styles.paddleRemove}>Remove</Text>

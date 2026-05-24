@@ -161,7 +161,7 @@ export default function LeagueInfoScreen({ route }: Props) {
               const meta = (FORMAT_META as any)[fmt];
               return (
                 <Text key={fmt} style={S.formatLine}>
-                  {meta?.icon ?? '🎾'}  {meta?.label ?? fmt} — {count}
+                  {meta?.icon ?? '🥎'}  {meta?.label ?? fmt} — {count}
                 </Text>
               );
             })}

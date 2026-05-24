@@ -34,7 +34,7 @@ function timeAgo(iso: string): string {
 }
 
 const TYPE_ICON: Record<string, string> = {
-  tournament: '🏆', league: '🎾', match: '🏓', drill: '🏓', info: '📣',
+  tournament: '🏆', league: '🥎', match: '🥒', drill: '🥒', info: '📣',
 };
 
 // Invite-broadcast bodies have the form "...use invite code TOKEN to join.".

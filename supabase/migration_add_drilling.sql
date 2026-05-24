@@ -67,7 +67,7 @@ begin
   insert into public.notifications (user_id, title, body, type, entity_id, entity_type, is_read)
   values (
     new.to_user_id,
-    '🏓 ' || coalesce(v_sender_name, 'Someone') || ' wants to drill',
+    '🥒 ' || coalesce(v_sender_name, 'Someone') || ' wants to drill',
     case
       when new.message is not null and length(trim(new.message)) > 0
         then 'Proposed ' || v_slot_count || ' time slot' || (case when v_slot_count = 1 then '' else 's' end) || ' · "' || left(new.message, 80) || '"'

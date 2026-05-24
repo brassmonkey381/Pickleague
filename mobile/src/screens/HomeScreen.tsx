@@ -24,8 +24,8 @@ type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>
 
 const NAV_ITEMS = [
   { icon: '🏆', label: 'Leagues',     screen: 'Leagues',     params: undefined },
-  { icon: '🎾', label: 'Tournaments', screen: 'Tournaments', params: {} },
-  { icon: '🏓', label: 'Drill',       screen: 'Drill',       params: undefined },
+  { icon: '🥎', label: 'Tournaments', screen: 'Tournaments', params: {} },
+  { icon: '🥒', label: 'Drill',       screen: 'Drill',       params: undefined },
   { icon: '🛒', label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '😎', label: 'Profile',     screen: 'Profile',     params: {} },
   { icon: '🎲', label: 'Wagers',      screen: 'MyWagers',    params: undefined },
@@ -220,8 +220,8 @@ export default function HomeScreen({ navigation }: Props) {
       {/* ── Hero header ─────────────────────────────── */}
       <View style={s.hero}>
         {/* Decorative balls */}
-        <Text style={s.decoBallTL}>🎾</Text>
-        <Text style={s.decoBallBR}>🎾</Text>
+        <Text style={s.decoBallTL}>🥎</Text>
+        <Text style={s.decoBallBR}>🥎</Text>
 
         {/* Settings (top-left) */}
         <TouchableOpacity style={s.settingsBtn} onPress={() => navigation.navigate('Settings')}>
@@ -270,7 +270,7 @@ export default function HomeScreen({ navigation }: Props) {
       {(myTournaments.length > 0 || openTournaments.length > 0) && (
         <View style={s.tournamentSection}>
           <View style={s.tournamentSectionHeader}>
-            <Text style={s.tournamentSectionTitle}>🎾 Your tournaments</Text>
+            <Text style={s.tournamentSectionTitle}>🥎 Your tournaments</Text>
             <TouchableOpacity onPress={() => navigation.navigate('Tournaments', {})}>
               <Text style={s.tournamentViewAll}>View all →</Text>
             </TouchableOpacity>
@@ -328,7 +328,7 @@ export default function HomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('DrillRequests')}
           activeOpacity={0.85}
         >
-          <Text style={s.drillBannerEmoji}>🏓</Text>
+          <Text style={s.drillBannerEmoji}>🥒</Text>
           <View style={{ flex: 1 }}>
             <Text style={s.drillBannerTitle}>Drill with {s2.partner_name} today!</Text>
             <Text style={s.drillBannerSub}>{slotRangeLabel(s2.session_slot, s2.length_minutes ?? 60)} · tap for details</Text>
@@ -363,7 +363,7 @@ export default function HomeScreen({ navigation }: Props) {
             initialMatchType: 'singles',
           })}
         >
-          <Text style={s.statEmoji}>🏓</Text>
+          <Text style={s.statEmoji}>🥒</Text>
           <Text style={s.statValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
           <Text style={s.statLabel}>Singles</Text>
         </TouchableOpacity>

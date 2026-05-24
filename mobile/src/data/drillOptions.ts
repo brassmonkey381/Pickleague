@@ -10,7 +10,7 @@ export const SHOT_PREFS: DrillPref[] = [
   { slug: 'volleys-kitchen', emoji: '🛡',  label: 'Kitchen-line volleys' },
   { slug: 'volleys-transit', emoji: '🌪',  label: 'Transition-zone volleys' },
   { slug: 'resets',          emoji: '🧘', label: 'Resets' },
-  { slug: 'returns-deep',    emoji: '🎾', label: 'Deep returns' },
+  { slug: 'returns-deep',    emoji: '🥎', label: 'Deep returns' },
   { slug: 'serves',          emoji: '🏐', label: 'Serves' },
   { slug: 'lobs-offense',    emoji: '☁️', label: 'Offensive lobs' },
   { slug: 'lobs-defense',    emoji: '⛅', label: 'Defensive lobs' },
@@ -33,7 +33,7 @@ export const PARTNER_PREFS: DrillPref[] = [
   { slug: 'feedback',      emoji: '💬', label: 'Open to feedback' },
   { slug: 'drills-only',   emoji: '🎯', label: 'Drills only — no games' },
   { slug: 'mix',           emoji: '🎲', label: 'Mix of drills + games' },
-  { slug: 'singles-focus', emoji: '🏓', label: 'Singles focus' },
+  { slug: 'singles-focus', emoji: '🥒', label: 'Singles focus' },
   { slug: 'doubles-focus', emoji: '👥', label: 'Doubles focus' },
 ];
 

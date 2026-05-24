@@ -209,7 +209,7 @@ export default function DrillScreen({ navigation }: Props) {
     >
       {/* Hero */}
       <View style={S.hero}>
-        <Text style={S.heroEmoji}>🏓</Text>
+        <Text style={S.heroEmoji}>🥒</Text>
         <Text style={S.heroTitle}>Drill Partners</Text>
         <Text style={S.heroSub}>Find someone to grind cross-court dinks with at 7am.</Text>
       </View>

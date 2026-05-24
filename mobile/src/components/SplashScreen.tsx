@@ -69,7 +69,7 @@ export default function SplashScreen({ onDone, minMs }: Props) {
   return (
     <Animated.View style={[styles.container, { opacity: screenOpacity }]}>
       <Animated.Text style={[styles.ball, { transform: [{ translateY: bounce }] }]}>
-        🎾
+        🥎
       </Animated.Text>
       <Animated.Text
         style={[styles.title, { opacity: titleOpacity, transform: [{ scale: titleScale }] }]}

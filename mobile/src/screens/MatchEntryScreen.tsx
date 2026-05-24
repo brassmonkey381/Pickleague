@@ -561,8 +561,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           doublesCategory === 'unspecified' && S.categoryCardUnspecified,
         ]}>
           <Text style={S.categoryHeader}>
-            {doublesCategory === 'gendered'    ? '🏓 Gendered Doubles' :
-             doublesCategory === 'mixed'       ? '🏓 Mixed Doubles'    :
+            {doublesCategory === 'gendered'    ? '🥒 Gendered Doubles' :
+             doublesCategory === 'mixed'       ? '🥒 Mixed Doubles'    :
                                                  '⚠️ Uncategorized Doubles'}
           </Text>
           <Text style={S.categorySub}>

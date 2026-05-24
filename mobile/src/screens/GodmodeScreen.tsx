@@ -387,7 +387,7 @@ export default function GodmodeScreen({ navigation }: Props) {
                 <View style={S.inviteHeaderInline}>
                   <View style={[S.scopeBadge, inv.scope_type === 'tournament' ? S.scopeBadgeTournament : S.scopeBadgeLeague]}>
                     <Text style={S.scopeBadgeText}>
-                      {inv.scope_type === 'tournament' ? '🏆 tournament' : '🎾 league'}
+                      {inv.scope_type === 'tournament' ? '🏆 tournament' : '🥎 league'}
                     </Text>
                   </View>
                   <Text style={S.inviteScopeName} numberOfLines={1}>
