@@ -12,6 +12,7 @@ import { cancelWager, genericSubjectLabel, WagerStatus } from '../lib/wager';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import FlairName from '../components/FlairName';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'MyWagers'> };
 
@@ -40,12 +41,18 @@ type SeasonMarket = {
   periodNumber: number;
 };
 
+type MatchPlayer = {
+  full_name: string;
+  name_color: string | null;
+  list_name_style_id: string | null;
+};
+
 type UpcomingMatchMarket = {
   id: string;
   leagueId: string;
   whenIso: string | null;
-  team1Label: string;
-  team2Label: string;
+  team1: { player: MatchPlayer; partner: MatchPlayer | null };
+  team2: { player: MatchPlayer; partner: MatchPlayer | null };
 };
 
 function timeAgo(iso: string | null): string {
@@ -303,10 +310,10 @@ export default function MyWagersScreen({ navigation }: Props) {
         .from('matches')
         .select(
           'id, league_id, scheduled_at, played_at, status,'
-          + ' player1:profiles!matches_player1_id_fkey(full_name),'
-          + ' partner1:profiles!matches_partner1_id_fkey(full_name),'
-          + ' player2:profiles!matches_player2_id_fkey(full_name),'
-          + ' partner2:profiles!matches_partner2_id_fkey(full_name)'
+          + ' player1:profiles!matches_player1_id_fkey(full_name, name_color, list_name_style_id),'
+          + ' partner1:profiles!matches_partner1_id_fkey(full_name, name_color, list_name_style_id),'
+          + ' player2:profiles!matches_player2_id_fkey(full_name, name_color, list_name_style_id),'
+          + ' partner2:profiles!matches_partner2_id_fkey(full_name, name_color, list_name_style_id)'
         )
         .eq('status', 'scheduled')
         .gt('scheduled_at', nowIso)
@@ -345,19 +352,27 @@ export default function MyWagersScreen({ navigation }: Props) {
 
     if (upcomingRes.error) status.error(upcomingRes.error.message);
     const matchRows = (upcomingRes.data ?? []) as any[];
-    setUpcomingMatches(matchRows.map(m => {
-      const p1 = m.player1?.full_name ?? 'Player 1';
-      const p2 = m.player2?.full_name ?? 'Player 2';
-      const t1 = m.partner1?.full_name ? `${p1} / ${m.partner1.full_name}` : p1;
-      const t2 = m.partner2?.full_name ? `${p2} / ${m.partner2.full_name}` : p2;
-      return {
-        id: m.id,
-        leagueId: m.league_id,
-        whenIso: m.scheduled_at ?? m.played_at ?? null,
-        team1Label: t1,
-        team2Label: t2,
-      };
-    }));
+    const toPlayer = (p: any, fallback: string): MatchPlayer => ({
+      full_name: p?.full_name ?? fallback,
+      name_color: p?.name_color ?? null,
+      list_name_style_id: p?.list_name_style_id ?? null,
+    });
+    setUpcomingMatches(matchRows.map(m => ({
+      id: m.id,
+      leagueId: m.league_id,
+      whenIso: m.scheduled_at ?? m.played_at ?? null,
+      team1: {
+        player:  toPlayer(m.player1,  'Player 1'),
+        // Match the previous behavior: only include a partner if full_name is
+        // present. Avoids rendering " / " followed by an empty FlairName when
+        // the partner join returns an object with a null name.
+        partner: m.partner1?.full_name ? toPlayer(m.partner1, '') : null,
+      },
+      team2: {
+        player:  toPlayer(m.player2,  'Player 2'),
+        partner: m.partner2?.full_name ? toPlayer(m.partner2, '') : null,
+      },
+    })));
   }
 
   // ────────────────────────────────────────────────────────────────────────
@@ -438,6 +453,19 @@ export default function MyWagersScreen({ navigation }: Props) {
   }
 
   function renderMatchCard(m: UpcomingMatchMarket) {
+    // Render team labels inline so each player name picks up their list-mode
+    // FlairName styling. RN <Text> nestable supports inlining <FlairName>
+    // (which is itself a <Text>) inside an outer <Text> for proper layout.
+    const renderPlayer = (p: MatchPlayer) => (
+      // TODO: smoke-test in browser — list mode FlairName wire-up
+      <FlairName
+        name={p.full_name}
+        nameColor={p.name_color}
+        styleId={p.list_name_style_id}
+        mode="list"
+        style={S.rowSubject}
+      />
+    );
     return (
       <TouchableOpacity
         key={m.id}
@@ -449,7 +477,11 @@ export default function MyWagersScreen({ navigation }: Props) {
       >
         <View style={{ flex: 1 }}>
           <Text style={S.rowSubject} numberOfLines={2}>
-            {m.team1Label} vs {m.team2Label}
+            {renderPlayer(m.team1.player)}
+            {m.team1.partner ? <>{' / '}{renderPlayer(m.team1.partner)}</> : null}
+            {' vs '}
+            {renderPlayer(m.team2.player)}
+            {m.team2.partner ? <>{' / '}{renderPlayer(m.team2.partner)}</> : null}
           </Text>
           <Text style={S.marketTag}>Scheduled for {formatWhen(m.whenIso)}</Text>
           <Text style={S.marketLink}>Open in match history →</Text>

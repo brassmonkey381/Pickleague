@@ -19,6 +19,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
 import { WagerSubject } from '../lib/wager';
+import FlairName from '../components/FlairName';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -108,6 +109,8 @@ function computeStandings(
       rating: seasonPlupr,
       avatar_id: m.profile?.avatar_id ?? 1,
       avatar_url: m.profile?.avatar_url ?? null,
+      name_color: m.profile?.name_color ?? null,
+      list_name_style_id: m.profile?.list_name_style_id ?? null,
       wins, losses,
       total_matches_played: m.profile?.total_matches_played ?? 0,
     };
@@ -187,6 +190,8 @@ type Props = {
 type LiveRow = {
   user_id: string; full_name: string; rating: number;
   avatar_id: number; avatar_url: string | null;
+  name_color: string | null;
+  list_name_style_id: string | null;
   wins: number; losses: number;
   total_matches_played: number;
 };
@@ -208,6 +213,8 @@ type MarketRow = {
   full_name: string;
   avatar_id: number;
   avatar_url: string | null;
+  name_color: string | null;
+  list_name_style_id: string | null;
   plupr: number;
 };
 
@@ -269,16 +276,16 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     const [seasonRes, snapshotsRes, finalsRes, role, membersRes, matchesRes] = await Promise.all([
       supabase.from('league_seasons').select('*').eq('id', seasonId).single(),
       supabase.from('season_snapshots')
-        .select('*, profile:profiles(full_name, avatar_id, avatar_url)')
+        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
         .eq('season_id', seasonId)
         .order('period_number').order('rank_at_snapshot'),
       supabase.from('season_final_standings')
-        .select('*, profile:profiles(full_name, avatar_id, avatar_url)')
+        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
         .eq('season_id', seasonId)
         .order('final_rank'),
       getLeagueRole(leagueId),
       supabase.from('league_members')
-        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url, total_matches_played)')
+        .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url, total_matches_played, name_color, list_name_style_id)')
         .eq('league_id', leagueId),
       // Pull every in-league match (date + winner + per-team PLUPR deltas).
       // We re-filter client-side per-period and for the live tab. The
@@ -343,7 +350,13 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             rank_at_snapshot: i + 1,
             wins_in_season: r.wins,
             losses_in_season: r.losses,
-            profile: { full_name: r.full_name, avatar_id: r.avatar_id, avatar_url: r.avatar_url },
+            profile: {
+              full_name: r.full_name,
+              avatar_id: r.avatar_id,
+              avatar_url: r.avatar_url,
+              name_color: r.name_color,
+              list_name_style_id: r.list_name_style_id,
+            },
           }));
           allPeriods.push({ periodNumber: p, date: snapshotDate, rows: synthRows, locked: false });
         }
@@ -525,7 +538,15 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               <View key={row.user_id} style={[S.marketRow, i % 2 === 0 && S.marketRowAlt]}>
                 <View style={S.marketNameCell}>
                   <AvatarCell avatarId={row.avatar_id} avatarUrl={row.avatar_url} />
-                  <Text style={S.marketName} numberOfLines={1}>{row.full_name}</Text>
+                  {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                  <FlairName
+                    name={row.full_name}
+                    nameColor={row.name_color}
+                    styleId={row.list_name_style_id}
+                    mode="list"
+                    style={S.marketName}
+                    numberOfLines={1}
+                  />
                 </View>
                 {MARKET_RANKS.map(rank => (
                   <TouchableOpacity
@@ -748,6 +769,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               full_name: r.profile?.full_name ?? 'Unknown',
               avatar_id: r.profile?.avatar_id ?? 1,
               avatar_url: r.profile?.avatar_url ?? null,
+              name_color: r.profile?.name_color ?? null,
+              list_name_style_id: r.profile?.list_name_style_id ?? null,
               plupr: Number(r.elo_at_snapshot ?? baseline),
             }))
           : [];
@@ -831,7 +854,15 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </Text>
                   <View style={S.tdNameCell}>
                     <AvatarCell avatarId={row.profile?.avatar_id ?? 1} avatarUrl={row.profile?.avatar_url ?? null} />
-                    <Text style={S.tdName} numberOfLines={1}>{row.profile?.full_name ?? '?'}</Text>
+                    {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                    <FlairName
+                      name={row.profile?.full_name ?? '?'}
+                      nameColor={row.profile?.name_color}
+                      styleId={row.profile?.list_name_style_id ?? null}
+                      mode="list"
+                      style={S.tdName}
+                      numberOfLines={1}
+                    />
                   </View>
                   <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
                   <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
@@ -907,7 +938,15 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </Text>
                   <View style={S.tdNameCell}>
                     <AvatarCell avatarId={row.profile?.avatar_id ?? 1} avatarUrl={row.profile?.avatar_url ?? null} />
-                    <Text style={S.tdName} numberOfLines={1}>{row.profile?.full_name ?? '?'}</Text>
+                    {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+                    <FlairName
+                      name={row.profile?.full_name ?? '?'}
+                      nameColor={row.profile?.name_color}
+                      styleId={row.profile?.list_name_style_id ?? null}
+                      mode="list"
+                      style={S.tdName}
+                      numberOfLines={1}
+                    />
                   </View>
                   <Text style={S.td}>{row.median_rank.toFixed(1)}</Text>
                   <Text style={[S.td, row.elo_bonus > 0 && S.tdBonus]}>
@@ -954,6 +993,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             full_name: r.profile?.full_name ?? 'Unknown',
             avatar_id: r.profile?.avatar_id ?? 1,
             avatar_url: r.profile?.avatar_url ?? null,
+            name_color: r.profile?.name_color ?? null,
+            list_name_style_id: r.profile?.list_name_style_id ?? null,
             plupr: Number(r.new_elo ?? Number((season as any)?.baseline_plupr ?? 3.5)),
           })),
           null,

@@ -380,7 +380,13 @@ export type SeasonSnapshot = {
   rank_at_snapshot: number;
   wins_in_season: number;
   losses_in_season: number;
-  profile?: { full_name: string; avatar_id?: number; avatar_url?: string | null };
+  profile?: {
+    full_name: string;
+    avatar_id?: number;
+    avatar_url?: string | null;
+    name_color?: string | null;
+    list_name_style_id?: string | null;
+  };
 };
 
 export type SeasonFinalStanding = {
@@ -392,7 +398,13 @@ export type SeasonFinalStanding = {
   median_rank: number;
   elo_bonus: number;
   new_elo: number;
-  profile?: { full_name: string; avatar_id?: number; avatar_url?: string | null };
+  profile?: {
+    full_name: string;
+    avatar_id?: number;
+    avatar_url?: string | null;
+    name_color?: string | null;
+    list_name_style_id?: string | null;
+  };
 };
 
 export type Wager = {
