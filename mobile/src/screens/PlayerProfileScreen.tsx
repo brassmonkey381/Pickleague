@@ -160,9 +160,12 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             </Text>
           </View>
         )}
+        {/* TODO: smoke-test in browser — hero mode FlairName wire-up */}
         <FlairName
           style={styles.fullName}
           nameColor={profile.name_color}
+          styleId={profile.hero_name_style_id}
+          mode="hero"
           name={profile.full_name}
         />
         {profile.tagline ? <Text style={styles.tagline}>{profile.tagline}</Text> : null}
