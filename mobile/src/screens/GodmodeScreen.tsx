@@ -64,6 +64,7 @@ export default function GodmodeScreen({ navigation }: Props) {
 
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [fullName, setFullName] = useState('');
+  const [genderChoice, setGenderChoice] = useState<'random' | 'male' | 'female' | 'other' | 'prefer-not-to-say'>('random');
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedAccount[]>([]);
   const [invites, setInvites] = useState<ActiveInvite[] | null>(null);
@@ -254,15 +255,21 @@ export default function GodmodeScreen({ navigation }: Props) {
     if (!canSubmit) return;
     status.clear();
     setCreating(true);
+    const body: { first_name: string; last_name: string; gender?: string } = {
+      first_name: first,
+      last_name: last,
+    };
+    if (genderChoice !== 'random') body.gender = genderChoice;
     const { data, error } = await supabase.functions.invoke<CreatedAccount>(
       'godmode-create-user',
-      { body: { first_name: first, last_name: last } },
+      { body },
     );
     setCreating(false);
     if (error) { status.error(error.message); return; }
     if (!data?.user_id) { status.error('Edge function returned no user_id'); return; }
     setCreated(prev => [data, ...prev].slice(0, 10));
     setFullName('');
+    setGenderChoice('random');
     status.success(`Created ${data.full_name} (${data.email})`);
   }
 
@@ -307,11 +314,27 @@ export default function GodmodeScreen({ navigation }: Props) {
           autoCorrect={false}
         />
 
+        <Text style={[S.label, { marginTop: 12 }]}>Gender</Text>
+        <View style={S.genderRow}>
+          {(['random','female','male','other','prefer-not-to-say'] as const).map(g => (
+            <TouchableOpacity
+              key={g}
+              style={[S.genderChip, genderChoice === g && S.genderChipActive]}
+              onPress={() => setGenderChoice(g)}
+            >
+              <Text style={[S.genderChipText, genderChoice === g && S.genderChipTextActive]}>
+                {g === 'prefer-not-to-say' ? 'N/A' : g === 'random' ? '🎲 random' : g}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {previewEmail ? (
           <View style={S.previewBox}>
             <PreviewRow label="Email"    value={previewEmail}    colors={c} />
             <PreviewRow label="Username" value={previewUsername} colors={c} />
             <PreviewRow label="Password" value="Pickle123!"      colors={c} />
+            <PreviewRow label="Gender"   value={genderChoice === 'random' ? '🎲 random' : genderChoice} colors={c} />
             <Text style={S.previewNote}>Email is pre-confirmed — usable on first sign-in.</Text>
           </View>
         ) : (
@@ -625,6 +648,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     primaryBtn:       { marginTop: 14, backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
     primaryBtnDim:    { opacity: 0.5 },
     primaryBtnText:   { color: '#fff', fontSize: 15, fontWeight: '700' },
+    genderRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
+    genderChip:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.bg },
+    genderChipActive: { backgroundColor: c.primary, borderColor: c.primary },
+    genderChipText:   { fontSize: 12, fontWeight: '600', color: c.textSub },
+    genderChipTextActive: { color: '#fff' },
     acctRow:          { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border },
     acctRowLast:      { borderBottomWidth: 0 },
     acctName:         { fontSize: 15, fontWeight: '700', color: c.text, marginBottom: 4 },
