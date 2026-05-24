@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, PanResponder, StyleSheet,
-  ScrollView, LayoutChangeEvent,
+  LayoutChangeEvent,
 } from 'react-native';
 import {
   DrillAvailability, DRILL_SLOTS_PER_DAY, dateLabel, dateSubLabel,
@@ -261,12 +261,7 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
         </View>
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={st.presetsScroll}
-        contentContainerStyle={st.presetsContent}
-      >
+      <View style={st.presetsWrap}>
         {PRESETS.map(p => (
           <TouchableOpacity
             key={p.id}
@@ -278,7 +273,7 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
             <Text style={[st.presetLabel, { color: colors.text }]}>{p.label}</Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </View>
 
       {editing && (
         <Text style={[st.hint, { color: colors.textMuted }]}>
@@ -351,11 +346,10 @@ const st = StyleSheet.create({
   editBtn:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 1.5 },
   editBtnText:     { fontSize: 12, fontWeight: '700' },
 
-  presetsScroll:   { marginBottom: 8 },
-  presetsContent:  { gap: 8, paddingBottom: 2 },
-  presetChip:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, gap: 5 },
-  presetIcon:      { fontSize: 15 },
-  presetLabel:     { fontSize: 12, fontWeight: '600' },
+  presetsWrap:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  presetChip:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, gap: 4 },
+  presetIcon:      { fontSize: 14 },
+  presetLabel:     { fontSize: 11, fontWeight: '600' },
 
   hint:            { fontSize: 10, textAlign: 'center', marginBottom: 5 },
 
