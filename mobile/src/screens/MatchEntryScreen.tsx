@@ -13,6 +13,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { PaddleIcon } from '../components/PickleIcons';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -560,11 +561,16 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           doublesCategory === 'mixed'       && S.categoryCardMixed,
           doublesCategory === 'unspecified' && S.categoryCardUnspecified,
         ]}>
-          <Text style={S.categoryHeader}>
-            {doublesCategory === 'gendered'    ? '🥒 Gendered Doubles' :
-             doublesCategory === 'mixed'       ? '🥒 Mixed Doubles'    :
-                                                 '⚠️ Uncategorized Doubles'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {doublesCategory === 'unspecified'
+              ? <Text style={S.categoryHeader}>⚠️ Uncategorized Doubles</Text>
+              : <>
+                  <PaddleIcon size={18} />
+                  <Text style={S.categoryHeader}>
+                    {doublesCategory === 'gendered' ? 'Gendered Doubles' : 'Mixed Doubles'}
+                  </Text>
+                </>}
+          </View>
           <Text style={S.categorySub}>
             {doublesCategory === 'gendered'    ? 'All four players are on the same side (or one declared the same as the others) — updates Gendered Doubles PLUPR.' :
              doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles PLUPR.'             :

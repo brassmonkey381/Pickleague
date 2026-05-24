@@ -25,6 +25,7 @@ import {
   ChemistryResult, DoublesMatch,
 } from '../lib/chemistry';
 import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
+import { PaddleIcon, BallIcon } from '../components/PickleIcons';
 
 // Shared progress row used inside the Unlockable Rewards card
 function UnlockProgressRow({
@@ -1016,8 +1017,9 @@ export default function ProfileScreen({ navigation }: Props) {
                     <Text style={styles.chemInsight}>{r.matchesTogether} match{r.matchesTogether !== 1 ? 'es' : ''} together</Text>
                   )}
                 </View>
-                <View style={styles.chemMatchCount}>
-                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}🥎</Text>
+                <View style={[styles.chemMatchCount, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
+                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}</Text>
+                  <BallIcon size={14} />
                 </View>
                 <View style={[styles.chemBadge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
                   <Text style={[styles.chemBadgeText, { color }]}>{deltaStr}</Text>
@@ -1034,7 +1036,10 @@ export default function ProfileScreen({ navigation }: Props) {
       {/* ── Default Paddle ───────────────────────────────────────── */}
       <View style={styles.paddleCard}>
         <View style={styles.paddleHeader}>
-          <Text style={styles.paddleTitle}>🥒 Default Paddle</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <PaddleIcon size={20} />
+            <Text style={styles.paddleTitle}>Default Paddle</Text>
+          </View>
           {defaultPaddle && (
             <TouchableOpacity onPress={removePaddle}>
               <Text style={styles.paddleRemove}>Remove</Text>

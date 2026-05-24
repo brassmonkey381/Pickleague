@@ -17,12 +17,13 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { PaddleIcon, BallIcon } from '../components/PickleIcons';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
   route: RouteProp<RootStackParamList, 'LeagueDetail'>;
 };
-type Option = { icon: string; label: string; sub: string; onPress: () => void; adminOnly?: boolean };
+type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () => void; adminOnly?: boolean };
 
 type LatestChampion = {
   tournamentId:   string;
@@ -35,7 +36,7 @@ type LatestChampion = {
 type ComingUpItem = {
   key:    string;
   kind:   'tournament' | 'event';
-  icon:   string;
+  icon:   React.ReactNode;
   title:  string;
   whenLabel: string;
   whenMs: number;
@@ -228,7 +229,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       tItems.push({
         key:   `t-${t.id}`,
         kind:  'tournament',
-        icon:  '🥎',
+        icon:  <BallIcon size={22} />,
         title: t.name,
         whenLabel: ms != null ? fmt(ms) : 'Date TBD',
         whenMs:    ms ?? Number.MAX_SAFE_INTEGER,
@@ -514,7 +515,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   const options: Option[] = [
     {
-      icon: '🥒', label: 'Record Match',
+      icon: <PaddleIcon size={26} />, label: 'Record Match',
       sub: 'Enter a singles or doubles result',
       onPress: () => navigation.navigate('MatchEntry', { leagueId }),
     },
@@ -539,7 +540,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
     },
     {
-      icon: '🥎', label: 'Tournaments',
+      icon: <BallIcon size={26} />, label: 'Tournaments',
       sub: 'Create and manage tournaments',
       onPress: () => navigation.navigate('Tournaments', { leagueId, leagueName }),
     },
@@ -681,7 +682,10 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       {/* ── Upcoming tournaments ───────────────────────────────── */}
       {comingUpLoaded && (
         <View style={S.comingUpCard}>
-          <Text style={S.comingUpHeader}>🥎 Upcoming Tournaments</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <BallIcon size={18} />
+            <Text style={S.comingUpHeader}>Upcoming Tournaments</Text>
+          </View>
           {upcomingTournaments.length === 0 ? (
             <Text style={S.comingUpEmpty}>No upcoming tournaments.</Text>
           ) : (
@@ -692,7 +696,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
                 onPress={item.onPress}
                 activeOpacity={0.7}
               >
-                <Text style={S.comingUpIcon}>{item.icon}</Text>
+                {typeof item.icon === 'string'
+                  ? <Text style={S.comingUpIcon}>{item.icon}</Text>
+                  : <View style={{ width: 26, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>}
                 <View style={{ flex: 1 }}>
                   <Text style={S.comingUpTitle}>{item.title}</Text>
                   <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
@@ -723,7 +729,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
                 onPress={item.onPress}
                 activeOpacity={0.7}
               >
-                <Text style={S.comingUpIcon}>{item.icon}</Text>
+                {typeof item.icon === 'string'
+                  ? <Text style={S.comingUpIcon}>{item.icon}</Text>
+                  : <View style={{ width: 26, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>}
                 <View style={{ flex: 1 }}>
                   <Text style={S.comingUpTitle}>{item.title}</Text>
                   <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
@@ -770,7 +778,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       {/* ── Option cards ───────────────────────────────────────── */}
       {options.map((opt) => (
         <TouchableOpacity key={opt.label} style={S.card} onPress={opt.onPress}>
-          <Text style={S.cardIcon}>{opt.icon}</Text>
+          {typeof opt.icon === 'string'
+            ? <Text style={S.cardIcon}>{opt.icon}</Text>
+            : <View style={{ marginRight: 14, alignItems: 'center', justifyContent: 'center' }}>{opt.icon}</View>}
           <View style={S.cardText}>
             <Text style={S.label}>{opt.label}</Text>
             <Text style={S.sub}>{opt.sub}</Text>

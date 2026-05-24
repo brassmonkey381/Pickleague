@@ -13,6 +13,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
+import { PaddleIcon } from '../components/PickleIcons';
 
 type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string };
 
@@ -209,7 +210,7 @@ export default function DrillScreen({ navigation }: Props) {
     >
       {/* Hero */}
       <View style={S.hero}>
-        <Text style={S.heroEmoji}>🥒</Text>
+        <View style={S.heroEmoji}><PaddleIcon size={56} /></View>
         <Text style={S.heroTitle}>Drill Partners</Text>
         <Text style={S.heroSub}>Find someone to grind cross-court dinks with at 7am.</Text>
       </View>
@@ -421,7 +422,7 @@ export default function DrillScreen({ navigation }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     hero:          { backgroundColor: c.headerBg, paddingTop: 24, paddingBottom: 22, paddingHorizontal: 24, alignItems: 'center' },
-    heroEmoji:     { fontSize: 44, marginBottom: 4 },
+    heroEmoji:     { marginBottom: 4, alignItems: 'center' },
     heroTitle:     { fontSize: 24, fontWeight: '900', color: c.headerText, letterSpacing: 2 },
     heroSub:       { fontSize: 13, color: c.headerSub, marginTop: 4, textAlign: 'center' },
 
