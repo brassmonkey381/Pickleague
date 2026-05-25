@@ -10,6 +10,8 @@ import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
+import FtueChecklistCard from '../components/FtueChecklistCard';
+import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { DumbbellIcon, SoloPlayerIcon, BallIcon } from '../components/PickleIcons';
 import {
   claimDailyLoginStreak,
@@ -271,6 +273,14 @@ export default function HomeScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* ── First-time-user checklist (hides once all steps claimed) ── */}
+      {/* TODO: smoke-test in browser */}
+      <FtueChecklistCard
+        profile={profile}
+        navigation={navigation}
+        onClaimed={(newBalance) => setProfile(prev => prev ? { ...prev, pickles: newBalance } : prev)}
+      />
+
       {/* ── Your tournaments (registered + open registration) ── */}
       {(myTournaments.length > 0 || openTournaments.length > 0) && (
         <View style={s.tournamentSection}>
@@ -406,6 +416,10 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={s.statLabel}>Mixed Doubles</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ── Closest unlocks (hides when nothing global remains) ── */}
+      {/* TODO: smoke-test in browser */}
+      <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
 
       {/* ── Nav grid ────────────────────────────────── */}
       <View style={s.grid}>

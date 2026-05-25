@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
+import { computeBadgeProgress } from '../lib/unlockProgress';
 import FlairName from '../components/FlairName';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'UnlockProgress'> };
@@ -107,52 +108,19 @@ export default function UnlockProgressScreen({ navigation }: Props) {
     if (prof) {
       setMyFullName(prof.full_name ?? 'You');
 
-      const { data: matches } = await supabase
-        .from('matches')
-        .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
-        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`)
-        .order('played_at', { ascending: false })
-        .limit(200);
-
-      const mx = matches ?? [];
-      const didWin = (m: any) => {
-        const t1 = m.player1_id === user.id || m.partner1_id === user.id;
-        return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
-      };
-      let streak = 0;
-      for (const m of mx) { if (didWin(m)) streak++; else break; }
-      const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
-      const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
-      const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
-      const memberDays = Math.floor((Date.now() - new Date(prof.created_at).getTime()) / 86_400_000);
-      const elo = prof.rating ?? 3.25;
-      const totalMatches = mx.length;
-
-      const entry = (current: number, target: number, label: (c: number, t: number) => string): Progress => ({
-        text: label(current, target),
-        pct: Math.min(current / target, 1),
-        showBar: true,
-      });
-      const league = (): Progress => ({ text: 'Progress tracked per-league', pct: 0, showBar: false });
-
-      setBadgeProgress({
-        // First Rally has a single match threshold — surface progress so the
-        // reward chip on ShopScreen can mirror it.
-        'First Rally':        entry(totalMatches,  1,   (c, t) => `${c} / ${t} matches played`),
-        'Hot Streak':         entry(streak,        5,   (c, t) => `${c} / ${t} wins in a row`),
-        'Top Rated':          entry(elo,           4.0, (c, t) => `${c.toFixed(2)} / ${t.toFixed(2)} PLUPR`),
-        'Veteran':            entry(memberDays,    30,  (c, t) => `${c} / ${t} days as member`),
-        'Court Hopper':       entry(courts,        5,   (c, t) => `${c} / ${t} courts played`),
-        'Doubles Dynamo':     entry(doublesPlayed, 20,  (c, t) => `${c} / ${t} doubles matches`),
-        'Singles Specialist': entry(singlesPlayed, 25,  (c, t) => `${c} / ${t} singles matches`),
-        'League Leader':      league(),
-        'Hat Trick':          league(),
-        'Home Court Hero':    league(),
-        'League Regular':     league(),
-        'Dominant':           league(),
-        'Iron Player':        league(),
-        'Comeback King':      league(),
-      });
+      // Badge-progress math lives in lib/unlockProgress so Home cards and the
+      // post-match nudge share the same source of truth. Map its
+      // BadgeProgress shape onto this screen's { text, pct, showBar } Progress.
+      const progressList = await computeBadgeProgress(user.id);
+      const progressMap: Record<string, Progress> = {};
+      for (const p of progressList) {
+        progressMap[p.badge] = {
+          text: p.perLeague ? 'Progress tracked per-league' : p.label,
+          pct: p.pct,
+          showBar: !p.perLeague,
+        };
+      }
+      setBadgeProgress(progressMap);
     }
     setLoading(false);
   }

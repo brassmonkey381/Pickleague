@@ -26,6 +26,7 @@ import {
 } from '../lib/chemistry';
 import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
 import { BallIcon } from '../components/PickleIcons';
+import FtueChecklistCard from '../components/FtueChecklistCard';
 
 // Shared progress row used inside the Unlockable Rewards card
 function UnlockProgressRow({
@@ -1199,9 +1200,6 @@ export default function ProfileScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('UnlockProgress')} style={{ marginBottom: 6 }}>
-            <Text style={styles.badgeActionText}>🔓 View Unlock Progress</Text>
-          </TouchableOpacity>
           <Text style={styles.badgeHint}>Tap a badge to see why you earned it.</Text>
           {profileBadgeGroups.length > 0 && (
             <>
@@ -1355,6 +1353,16 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.unlocksSectionTitle}>🔓 Unlockable Rewards</Text>
         <Text style={styles.unlocksSubtitle}>Earn badges to unlock special avatars, tags, and tag slots.</Text>
 
+        {/* Getting Started checklist — always visible here as a progress tracker */}
+        <Text style={styles.unlockCatLabel}>Getting Started</Text>
+        <FtueChecklistCard
+          profile={profile}
+          navigation={navigation}
+          alwaysShow
+          embedded
+          onClaimed={(bal) => setProfile(p => (p ? { ...p, pickles: bal } : p))}
+        />
+
         {/* Avatar unlocks */}
         <Text style={styles.unlockCatLabel}>Special Avatars</Text>
         {lockedAvatars.map(av => {
@@ -1435,6 +1443,10 @@ export default function ProfileScreen({ navigation }: Props) {
             </View>
           );
         })()}
+
+        <TouchableOpacity onPress={() => navigation.navigate('UnlockProgress')} style={styles.viewUnlockProgressBtn}>
+          <Text style={styles.badgeActionText}>🔓 View Unlock Progress</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.divider} />
@@ -1660,6 +1672,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], locPillW: number) 
   unlocksSectionTitle:{ fontSize: 16, fontWeight: '800', color: c.text, marginBottom: 4 },
   unlocksSubtitle:   { fontSize: 13, color: c.textMuted, marginBottom: 14 },
   unlockCatLabel:    { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
+  viewUnlockProgressBtn: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border, alignItems: 'center' },
   unlockRow:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
   unlockTagsRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
   unlockAvatarCircle: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
