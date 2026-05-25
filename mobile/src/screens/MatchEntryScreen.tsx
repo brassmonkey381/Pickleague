@@ -13,6 +13,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { computeBadgeProgress } from '../lib/unlockProgress';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -407,10 +408,24 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           can_edit_until: canEditUntil,
         });
       }
-      status.success(isGod
+      const baseMsg = isGod
         ? 'Match recorded and confirmed (godmode). PLUPR updated.'
-        : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.');
+        : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.';
+
+      // Show the result + schedule navigation immediately — never wait on the
+      // nudge query. The unlock nudge runs in parallel and, if it resolves
+      // before the screen pops, upgrades the banner with a "keep going" line
+      // when the entering user is 50–99% toward an unearned badge.
+      status.success(baseMsg);
       setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
+      if (enteringUid) {
+        computeBadgeProgress(enteringUid)
+          .then(progress => {
+            const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
+            if (close) status.success(`${baseMsg}\n\n🔥 ${close.label} — keep going to unlock ${close.badge}!`);
+          })
+          .catch(() => { /* nudge is best-effort */ });
+      }
     }
   }
 
