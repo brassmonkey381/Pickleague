@@ -72,6 +72,15 @@ export type DrillSession = {
   created_at: string;
 };
 
+export type DrillSessionReview = {
+  session_id: string;
+  user_id: string;
+  rating: number | null;
+  notes: string | null;
+  pickles_granted: number;
+  created_at: string;
+};
+
 export type LocationMatchType = 'singles' | 'doubles_gendered' | 'doubles_mixed';
 
 export type PlayerLocationRating = {
