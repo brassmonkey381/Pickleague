@@ -187,28 +187,28 @@ grant execute on function public.redeem_real_world_item(uuid) to authenticated;
 insert into public.shop_items (slug, category, name, description, icon, cost, payload, sort_order) values
   ('redeem-franklin-x40-3pack',     'real_world', 'Franklin X-40 (3-pack)',
      'Three USAPA-approved outdoor pickleballs. Tournament standard.',
-     '🟡',  9990,  '{"usdCents":999,  "purchaseUrl":"https://www.franklinsports.com"}', 10),
+     '🟡',  24975,  '{"usdCents":999,  "purchaseUrl":"https://www.franklinsports.com"}', 10),
   ('redeem-onix-lifetime-6pack',    'real_world', 'Onix Lifetime (6-pack)',
      'Six durable indoor/outdoor pickleballs. Sized for cooler weather.',
-     '🟢', 22990,  '{"usdCents":2299, "purchaseUrl":"https://www.onixpickleball.com"}', 11),
+     '🟢', 57475,  '{"usdCents":2299, "purchaseUrl":"https://www.onixpickleball.com"}', 11),
   ('redeem-selkirk-luxx-control',   'real_world', 'Selkirk Sport LUXX Control',
      'Top-tier control paddle. Pro-level feel with elongated sweet spot.',
-     '🥒', 199990, '{"usdCents":19999,"purchaseUrl":"https://www.selkirk.com"}',        12),
+     '🥒', 499975, '{"usdCents":19999,"purchaseUrl":"https://www.selkirk.com"}',        12),
   ('redeem-franklin-indoor-12pack', 'real_world', 'Franklin Indoor (12-pack)',
      'A dozen indoor pickleballs. Quieter, lighter, ideal for gym play.',
-     '🟠', 29990,  '{"usdCents":2999, "purchaseUrl":"https://www.franklinsports.com"}', 13),
+     '🟠', 74975,  '{"usdCents":2999, "purchaseUrl":"https://www.franklinsports.com"}', 13),
   ('redeem-onix-pro-backpack',      'real_world', 'Onix Pro Team Backpack',
      'Paddle pockets, ventilated shoe area, water bottle holders.',
-     '🎒', 79990,  '{"usdCents":7999, "purchaseUrl":"https://www.onixpickleball.com"}', 14),
+     '🎒', 199975,  '{"usdCents":7999, "purchaseUrl":"https://www.onixpickleball.com"}', 14),
   ('redeem-pickle-gloves',          'real_world', 'Pickleball Gloves (pair)',
      'Tacky-grip palms with breathable mesh backs. Sweat-proof your serve.',
-     '🧤', 24990,  '{"usdCents":2499}', 15),
+     '🧤', 62475,  '{"usdCents":2499}', 15),
   ('redeem-court-tape-kit',         'real_world', 'Court Boundary Tape Kit',
      'Mark a full regulation court on any flat surface in about 10 minutes.',
-     '📏', 44990,  '{"usdCents":4499}', 16),
+     '📏', 112475,  '{"usdCents":4499}', 16),
   ('redeem-selkirk-latitude',       'real_world', 'Selkirk Latitude Paddle',
      'Forgiving widebody face. Great all-around pick for any level.',
-     '🪶', 89990,  '{"usdCents":8999, "purchaseUrl":"https://www.selkirk.com"}',        17)
+     '🪶', 224975,  '{"usdCents":8999, "purchaseUrl":"https://www.selkirk.com"}',        17)
 on conflict (slug) do nothing;
 
 
