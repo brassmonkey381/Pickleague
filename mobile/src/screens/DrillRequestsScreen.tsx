@@ -35,9 +35,17 @@ export default function DrillRequestsScreen({}: Props) {
 
   // Chat modal state
   const [chatRequest, setChatRequest] = useState<DrillRequest | null>(null);
+  // When true, the chat modal renders a "Did you both decide on a location?"
+  // prompt above messages — set right after a successful accept.
+  const [chatLocationPrompt, setChatLocationPrompt] = useState(false);
 
   // Cancel-request confirm
   const [cancelTarget, setCancelTarget] = useState<DrillRequest | null>(null);
+
+  // Card-level location picker: which request is choosing, and the cached court list.
+  const [locationPickerReq, setLocationPickerReq] = useState<DrillRequest | null>(null);
+  const [courts, setCourts] = useState<CourtRow[]>([]);
+  const [courtsLoading, setCourtsLoading] = useState(false);
   const [cancelling, setCancelling]     = useState(false);
 
   const status = useStatusMessage();
@@ -63,7 +71,7 @@ export default function DrillRequestsScreen({}: Props) {
     setLoading(false);
   }
 
-  async function respondToRequest(req: DrillRequest, action: 'accept' | 'decline', acceptedSlot?: { date: string; slot: number }) {
+  async function respondToRequest(req: DrillRequest, action: 'accept' | 'decline', acceptedSlot?: { date: string; slot: number }): Promise<boolean> {
     const updates: any = {
       status: action === 'accept' ? 'accepted' : 'declined',
       responded_at: new Date().toISOString(),
@@ -76,19 +84,52 @@ export default function DrillRequestsScreen({}: Props) {
       .eq('id', req.id);
     if (error) {
       status.error(error.message);
-      return;
+      return false;
     }
     load();
+    return true;
   }
 
-  function acceptWithSelectedSlot(req: DrillRequest) {
+  async function acceptWithSelectedSlot(req: DrillRequest) {
     const idx = selectedSlotIdx[req.id];
     const slot = idx != null ? req.proposed_slots[idx] : null;
     if (!slot) {
       status.error('Tap one of the proposed times before accepting.');
       return;
     }
-    respondToRequest(req, 'accept', slot);
+    const ok = await respondToRequest(req, 'accept', slot);
+    if (ok) {
+      // Auto-open chat with the location prompt so the pair can sort out where
+      // to play before they show up.
+      setChatRequest({ ...req, status: 'accepted', accepted_slot: slot });
+      setChatLocationPrompt(true);
+    }
+  }
+
+  async function openLocationPicker(req: DrillRequest) {
+    setLocationPickerReq(req);
+    if (courts.length === 0) {
+      setCourtsLoading(true);
+      const { data } = await supabase
+        .from('court_locations')
+        .select('id, name, nickname, address')
+        .order('name');
+      setCourts((data ?? []) as CourtRow[]);
+      setCourtsLoading(false);
+    }
+  }
+
+  async function saveLocation(req: DrillRequest, court: CourtRow) {
+    setLocationPickerReq(null);
+    const label = court.nickname ? `${court.nickname} (${court.name})` : court.name;
+    const { error } = await supabase
+      .from('drill_requests')
+      .update({ location_name: label, location_id: court.id })
+      .eq('id', req.id);
+    if (error) { status.error(error.message); return; }
+    setRequests(prev => prev.map(r =>
+      r.id === req.id ? { ...r, location_name: label, location_id: court.id } : r
+    ));
   }
 
   function cancelRequest(req: DrillRequest) {
@@ -219,6 +260,26 @@ export default function DrillRequestsScreen({}: Props) {
                 })}
               </View>
 
+              {/* Location — both parties can set/change a confirmed court */}
+              {(isAccepted || isPending) && (
+                <View style={S.locationSection}>
+                  {item.location_name ? (
+                    <View style={S.locationConfirmedRow}>
+                      <Text style={S.locationConfirmedText} numberOfLines={2}>
+                        📍 {item.location_name}
+                      </Text>
+                      <TouchableOpacity onPress={() => openLocationPicker(item)}>
+                        <Text style={S.locationChangeText}>Change</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={S.locationSetBtn} onPress={() => openLocationPicker(item)}>
+                      <Text style={S.locationSetText}>📍 Set a location</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               {/* Actions */}
               {tab === 'incoming' && isPending && (
                 <>
@@ -271,7 +332,17 @@ export default function DrillRequestsScreen({}: Props) {
         visible={!!chatRequest}
         request={chatRequest}
         currentUserId={userId}
-        onClose={() => setChatRequest(null)}
+        showLocationPrompt={chatLocationPrompt}
+        onDismissLocationPrompt={() => setChatLocationPrompt(false)}
+        onClose={() => { setChatRequest(null); setChatLocationPrompt(false); }}
+      />
+
+      <CourtPickerModal
+        visible={!!locationPickerReq}
+        courts={courts}
+        loading={courtsLoading}
+        onPick={(court) => { if (locationPickerReq) saveLocation(locationPickerReq, court); }}
+        onClose={() => setLocationPickerReq(null)}
       />
 
       <ConfirmModal
@@ -290,12 +361,16 @@ export default function DrillRequestsScreen({}: Props) {
 }
 
 // ── Chat modal ─────────────────────────────────────────────
+type CourtRow = { id: string; name: string; nickname: string | null; address: string | null };
+
 function DrillChatModal({
-  visible, request, currentUserId, onClose,
+  visible, request, currentUserId, showLocationPrompt, onDismissLocationPrompt, onClose,
 }: {
   visible: boolean;
   request: DrillRequest | null;
   currentUserId: string | null;
+  showLocationPrompt?: boolean;
+  onDismissLocationPrompt?: () => void;
   onClose: () => void;
 }) {
   const { colors } = useTheme();
@@ -306,6 +381,13 @@ function DrillChatModal({
   const [loadingMsgs, setLoadingMsgs] = useState(true);
   const [sendError, setSendError] = useState<string | null>(null);
   const listRef = useRef<ScrollView | null>(null);
+
+  // Location-picker state for the "Did you both decide?" prompt.
+  // mode = 'confirm'  → "yes, we decided" → on pick, send confirmation message
+  // mode = 'propose' → "no, ask them"    → on pick, prefill the composer
+  const [locationPickerMode, setLocationPickerMode] = useState<'confirm' | 'propose' | null>(null);
+  const [courts, setCourts] = useState<CourtRow[]>([]);
+  const [courtsLoading, setCourtsLoading] = useState(false);
 
   useEffect(() => {
     if (!visible || !request) return;
@@ -348,6 +430,48 @@ function DrillChatModal({
     setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
   }
 
+  async function openLocationPicker(mode: 'confirm' | 'propose') {
+    setLocationPickerMode(mode);
+    if (courts.length === 0) {
+      setCourtsLoading(true);
+      const { data } = await supabase
+        .from('court_locations')
+        .select('id, name, nickname, address')
+        .order('name');
+      setCourts((data ?? []) as CourtRow[]);
+      setCourtsLoading(false);
+    }
+  }
+
+  async function handleCourtPick(court: CourtRow) {
+    const mode = locationPickerMode;
+    setLocationPickerMode(null);
+    if (!mode || !request || !currentUserId) return;
+    const label = court.nickname ? `${court.nickname} (${court.name})` : court.name;
+    if (mode === 'confirm') {
+      // Persist the confirmed location on the request so it shows on the card.
+      await supabase
+        .from('drill_requests')
+        .update({ location_name: label, location_id: court.id })
+        .eq('id', request.id);
+      // Send confirmation message.
+      setSending(true);
+      const { data, error } = await supabase
+        .from('drill_request_messages')
+        .insert({ request_id: request.id, sender_id: currentUserId, body: `📍 We're playing at: ${label}` })
+        .select()
+        .single();
+      setSending(false);
+      if (error) { setSendError(`Send failed: ${error.message}`); return; }
+      setMessages(prev => [...prev, data as DrillRequestMessage]);
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    } else {
+      // Propose mode: prefill the composer; let the user edit and send.
+      setDraft(`Where would you like to play? Does ${label} work for you?`);
+    }
+    onDismissLocationPrompt?.();
+  }
+
   if (!request) return null;
   const otherName =
     (currentUserId === request.from_user_id ? request.to_profile : request.from_profile)?.full_name
@@ -361,6 +485,33 @@ function DrillChatModal({
           <Text style={S.close}>✕</Text>
         </TouchableOpacity>
       </View>
+
+      {showLocationPrompt && (
+        <View style={S.locationPrompt}>
+          <Text style={S.locationPromptText}>📍 Did you both decide on a location?</Text>
+          <View style={S.locationPromptRow}>
+            <TouchableOpacity
+              style={[S.locationPromptBtn, S.locationPromptBtnYes]}
+              onPress={() => openLocationPicker('confirm')}
+            >
+              <Text style={S.locationPromptBtnTextYes}>Yes, pick a court</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.locationPromptBtn, S.locationPromptBtnNo]}
+              onPress={() => openLocationPicker('propose')}
+            >
+              <Text style={S.locationPromptBtnTextNo}>No — ask them</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={S.locationPromptDismiss}
+              onPress={() => onDismissLocationPrompt?.()}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={S.locationPromptDismissText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         ref={listRef}
@@ -417,6 +568,42 @@ function DrillChatModal({
             : <Text style={S.sendBtnText}>Send</Text>}
         </TouchableOpacity>
       </View>
+
+      {/* Location picker overlay — sits inside the chat sheet so we don't
+          have to stack two RN Modals (problematic on web). */}
+      {locationPickerMode !== null && (
+        <View style={S.locationPickerOverlay}>
+          <View style={S.locationPickerPanel}>
+            <View style={S.locationPickerHeader}>
+              <Text style={S.locationPickerTitle}>
+                {locationPickerMode === 'confirm' ? 'Where are you playing?' : 'Suggest a court'}
+              </Text>
+              <TouchableOpacity onPress={() => setLocationPickerMode(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Text style={S.close}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            {courtsLoading ? (
+              <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
+            ) : courts.length === 0 ? (
+              <Text style={S.empty}>No courts found in the database yet.</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
+                {courts.map(c2 => (
+                  <TouchableOpacity
+                    key={c2.id}
+                    style={S.courtRow}
+                    onPress={() => handleCourtPick(c2)}
+                  >
+                    <Text style={S.courtRowName}>{c2.nickname ?? c2.name}</Text>
+                    {c2.nickname && <Text style={S.courtRowSub}>{c2.name}</Text>}
+                    {c2.address && <Text style={S.courtRowSub}>{c2.address}</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      )}
     </View>
   );
 
@@ -434,6 +621,63 @@ function DrillChatModal({
       )}
     </Modal>
   );
+}
+
+// ── Court picker modal (card-level) ────────────────────────
+function CourtPickerModal({
+  visible, courts, loading, onPick, onClose,
+}: {
+  visible: boolean;
+  courts: CourtRow[];
+  loading: boolean;
+  onPick: (court: CourtRow) => void;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const S = makeCourtPickerStyles(colors);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={S.overlay}>
+        <View style={S.panel}>
+          <View style={S.header}>
+            <Text style={S.title}>📍 Pick a location</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={S.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
+          ) : courts.length === 0 ? (
+            <Text style={S.empty}>No courts found in the database yet.</Text>
+          ) : (
+            <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
+              {courts.map(court => (
+                <TouchableOpacity key={court.id} style={S.row} onPress={() => onPick(court)}>
+                  <Text style={S.rowName}>{court.nickname ?? court.name}</Text>
+                  {court.nickname && <Text style={S.rowSub}>{court.name}</Text>}
+                  {court.address && <Text style={S.rowSub}>{court.address}</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function makeCourtPickerStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    panel:   { backgroundColor: c.bg, borderRadius: 12, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
+    header:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    title:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
+    close:   { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
+    empty:   { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 32 },
+    row:     { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
+    rowName: { fontSize: 14, fontWeight: '700', color: c.text },
+    rowSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
+  });
 }
 
 function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
@@ -461,6 +705,25 @@ function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
     sendBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
     sendErrorRow:{ paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.surface },
     sendErrorText:{ color: '#c62828', fontSize: 12, fontWeight: '600' },
+
+    locationPrompt:        { padding: 12, backgroundColor: c.surfaceAlt, borderBottomWidth: 1, borderBottomColor: c.border },
+    locationPromptText:    { fontSize: 13, fontWeight: '700', color: c.text, marginBottom: 8 },
+    locationPromptRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    locationPromptBtn:     { flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+    locationPromptBtnYes:  { backgroundColor: c.primary, borderColor: c.primary },
+    locationPromptBtnNo:   { backgroundColor: c.bg, borderColor: c.border },
+    locationPromptBtnTextYes: { color: '#fff', fontWeight: '700', fontSize: 12 },
+    locationPromptBtnTextNo:  { color: c.text, fontWeight: '700', fontSize: 12 },
+    locationPromptDismiss:    { paddingHorizontal: 6 },
+    locationPromptDismissText:{ color: c.textMuted, fontSize: 16, fontWeight: '700' },
+
+    locationPickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    locationPickerPanel:   { backgroundColor: c.bg, borderRadius: 12, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
+    locationPickerHeader:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    locationPickerTitle:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
+    courtRow:              { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
+    courtRowName:          { fontSize: 14, fontWeight: '700', color: c.text },
+    courtRowSub:           { fontSize: 12, color: c.textMuted, marginTop: 2 },
   });
 }
 
@@ -515,6 +778,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotChipAccepted: { backgroundColor: c.primaryLight, borderColor: c.primary },
     slotChipText:{ fontSize: 12, color: c.textSub, fontWeight: '600' },
     slotChipTextAccepted: { color: c.primary, fontWeight: '800' },
+
+    locationSection:       { marginBottom: 12 },
+    locationConfirmedRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.primaryLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.primary },
+    locationConfirmedText: { flex: 1, fontSize: 13, fontWeight: '700', color: c.primary },
+    locationChangeText:    { fontSize: 12, fontWeight: '700', color: c.primary, textDecorationLine: 'underline' },
+    locationSetBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border, backgroundColor: c.surfaceAlt },
+    locationSetText:       { fontSize: 13, fontWeight: '700', color: c.textSub },
 
     actions:     { flexDirection: 'row', gap: 10 },
     actionBtn:   { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center' },
