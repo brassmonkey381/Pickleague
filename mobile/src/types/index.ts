@@ -42,6 +42,8 @@ export type DrillRequest = {
   status: 'pending' | 'accepted' | 'declined' | 'cancelled';
   accepted_slot: { date: string; slot: number } | null;
   length_minutes: number;
+  location_name: string | null;
+  location_id: string | null;
   created_at: string;
   responded_at: string | null;
   from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number; name_color?: string | null; list_name_style_id?: string | null };

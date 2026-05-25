@@ -41,6 +41,11 @@ export default function DrillRequestsScreen({}: Props) {
 
   // Cancel-request confirm
   const [cancelTarget, setCancelTarget] = useState<DrillRequest | null>(null);
+
+  // Card-level location picker: which request is choosing, and the cached court list.
+  const [locationPickerReq, setLocationPickerReq] = useState<DrillRequest | null>(null);
+  const [courts, setCourts] = useState<CourtRow[]>([]);
+  const [courtsLoading, setCourtsLoading] = useState(false);
   const [cancelling, setCancelling]     = useState(false);
 
   const status = useStatusMessage();
@@ -99,6 +104,32 @@ export default function DrillRequestsScreen({}: Props) {
       setChatRequest({ ...req, status: 'accepted', accepted_slot: slot });
       setChatLocationPrompt(true);
     }
+  }
+
+  async function openLocationPicker(req: DrillRequest) {
+    setLocationPickerReq(req);
+    if (courts.length === 0) {
+      setCourtsLoading(true);
+      const { data } = await supabase
+        .from('court_locations')
+        .select('id, name, nickname, address')
+        .order('name');
+      setCourts((data ?? []) as CourtRow[]);
+      setCourtsLoading(false);
+    }
+  }
+
+  async function saveLocation(req: DrillRequest, court: CourtRow) {
+    setLocationPickerReq(null);
+    const label = court.nickname ? `${court.nickname} (${court.name})` : court.name;
+    const { error } = await supabase
+      .from('drill_requests')
+      .update({ location_name: label, location_id: court.id })
+      .eq('id', req.id);
+    if (error) { status.error(error.message); return; }
+    setRequests(prev => prev.map(r =>
+      r.id === req.id ? { ...r, location_name: label, location_id: court.id } : r
+    ));
   }
 
   function cancelRequest(req: DrillRequest) {
@@ -229,6 +260,26 @@ export default function DrillRequestsScreen({}: Props) {
                 })}
               </View>
 
+              {/* Location — both parties can set/change a confirmed court */}
+              {(isAccepted || isPending) && (
+                <View style={S.locationSection}>
+                  {item.location_name ? (
+                    <View style={S.locationConfirmedRow}>
+                      <Text style={S.locationConfirmedText} numberOfLines={2}>
+                        📍 {item.location_name}
+                      </Text>
+                      <TouchableOpacity onPress={() => openLocationPicker(item)}>
+                        <Text style={S.locationChangeText}>Change</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={S.locationSetBtn} onPress={() => openLocationPicker(item)}>
+                      <Text style={S.locationSetText}>📍 Set a location</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               {/* Actions */}
               {tab === 'incoming' && isPending && (
                 <>
@@ -284,6 +335,14 @@ export default function DrillRequestsScreen({}: Props) {
         showLocationPrompt={chatLocationPrompt}
         onDismissLocationPrompt={() => setChatLocationPrompt(false)}
         onClose={() => { setChatRequest(null); setChatLocationPrompt(false); }}
+      />
+
+      <CourtPickerModal
+        visible={!!locationPickerReq}
+        courts={courts}
+        loading={courtsLoading}
+        onPick={(court) => { if (locationPickerReq) saveLocation(locationPickerReq, court); }}
+        onClose={() => setLocationPickerReq(null)}
       />
 
       <ConfirmModal
@@ -390,6 +449,11 @@ function DrillChatModal({
     if (!mode || !request || !currentUserId) return;
     const label = court.nickname ? `${court.nickname} (${court.name})` : court.name;
     if (mode === 'confirm') {
+      // Persist the confirmed location on the request so it shows on the card.
+      await supabase
+        .from('drill_requests')
+        .update({ location_name: label, location_id: court.id })
+        .eq('id', request.id);
       // Send confirmation message.
       setSending(true);
       const { data, error } = await supabase
@@ -559,6 +623,63 @@ function DrillChatModal({
   );
 }
 
+// ── Court picker modal (card-level) ────────────────────────
+function CourtPickerModal({
+  visible, courts, loading, onPick, onClose,
+}: {
+  visible: boolean;
+  courts: CourtRow[];
+  loading: boolean;
+  onPick: (court: CourtRow) => void;
+  onClose: () => void;
+}) {
+  const { colors } = useTheme();
+  const S = makeCourtPickerStyles(colors);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={S.overlay}>
+        <View style={S.panel}>
+          <View style={S.header}>
+            <Text style={S.title}>📍 Pick a location</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={S.close}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          {loading ? (
+            <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
+          ) : courts.length === 0 ? (
+            <Text style={S.empty}>No courts found in the database yet.</Text>
+          ) : (
+            <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
+              {courts.map(court => (
+                <TouchableOpacity key={court.id} style={S.row} onPress={() => onPick(court)}>
+                  <Text style={S.rowName}>{court.nickname ?? court.name}</Text>
+                  {court.nickname && <Text style={S.rowSub}>{court.name}</Text>}
+                  {court.address && <Text style={S.rowSub}>{court.address}</Text>}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function makeCourtPickerStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
+    panel:   { backgroundColor: c.bg, borderRadius: 12, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
+    header:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
+    title:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
+    close:   { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
+    empty:   { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 32 },
+    row:     { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
+    rowName: { fontSize: 14, fontWeight: '700', color: c.text },
+    rowSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
+  });
+}
+
 function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -657,6 +778,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotChipAccepted: { backgroundColor: c.primaryLight, borderColor: c.primary },
     slotChipText:{ fontSize: 12, color: c.textSub, fontWeight: '600' },
     slotChipTextAccepted: { color: c.primary, fontWeight: '800' },
+
+    locationSection:       { marginBottom: 12 },
+    locationConfirmedRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.primaryLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.primary },
+    locationConfirmedText: { flex: 1, fontSize: 13, fontWeight: '700', color: c.primary },
+    locationChangeText:    { fontSize: 12, fontWeight: '700', color: c.primary, textDecorationLine: 'underline' },
+    locationSetBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border, backgroundColor: c.surfaceAlt },
+    locationSetText:       { fontSize: 13, fontWeight: '700', color: c.textSub },
 
     actions:     { flexDirection: 'row', gap: 10 },
     actionBtn:   { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center' },
