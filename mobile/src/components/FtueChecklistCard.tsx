@@ -1,19 +1,26 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { Profile, RootStackParamList } from '../types';
+import { Profile } from '../types';
 
 // TODO: smoke-test in browser — verify each row flips to ✓ once complete, the
 // "Claim +N 🥒" button credits pickles (and bumps the home balance via
-// onClaimed), claimed steps don't re-show the button, and the whole card
-// disappears once all three steps are claimed.
+// onClaimed), claimed steps don't re-show the button. On Home the card hides
+// once all three are claimed; in Profile (alwaysShow) it stays visible as a
+// progress tracker, including for accounts that have everything done.
 
 type Props = {
   profile: Profile | null;
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
+  // The card only navigates, so accept any screen's nav prop (Home, Profile, …)
+  // by typing just the method we use. Avoids route-param variance conflicts.
+  navigation: { navigate: (...args: any[]) => void };
   onClaimed?: (newBalance: number) => void;
+  // When true, the card stays visible even after all steps are claimed (used
+  // in Profile → Unlockable Rewards so progress is always inspectable).
+  alwaysShow?: boolean;
+  // When true, drop the standalone card chrome so it nests inside another card.
+  embedded?: boolean;
 };
 
 type StepId = 'join_league' | 'setup_profile' | 'first_match';
@@ -31,7 +38,7 @@ type StepDef = {
   navTo: () => void;
 };
 
-export default function FtueChecklistCard({ profile, navigation, onClaimed }: Props) {
+export default function FtueChecklistCard({ profile, navigation, onClaimed, alwaysShow, embedded }: Props) {
   const { colors } = useTheme();
   const s = makeStyles(colors);
 
@@ -92,19 +99,20 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed }: Pr
     }
   }
 
-  // Hide entirely once every step is claimed (or while loading, to avoid flash).
+  // While loading, show a placeholder (avoids flash). On Home the card hides
+  // once all steps are claimed; in Profile (alwaysShow) it stays as a tracker.
   if (loading) {
     return (
-      <View style={s.card}>
+      <View style={embedded ? s.embedded : s.card}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
   const allClaimed = steps.every(st => claimed.has(st.id));
-  if (allClaimed) return null;
+  if (allClaimed && !alwaysShow) return null;
 
   return (
-    <View style={s.card}>
+    <View style={embedded ? s.embedded : s.card}>
       <Text style={s.title}>🚀 Get started</Text>
       {steps.map(st => {
         const complete = isComplete[st.id];
@@ -138,6 +146,9 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed }: Pr
           </TouchableOpacity>
         );
       })}
+      {allClaimed && (
+        <Text style={s.allDone}>🎉 All starter quests complete!</Text>
+      )}
     </View>
   );
 }
@@ -153,7 +164,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderWidth: 1,
       borderColor: c.border,
     },
+    embedded: { marginTop: 4 },
     title: { fontSize: 15, fontWeight: '800', color: c.text, marginBottom: 10 },
+    allDone: { fontSize: 12, fontWeight: '700', color: c.primary, marginTop: 10 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
