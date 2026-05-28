@@ -416,6 +416,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           </Text>
 
           {/* Open league — show Join if not a member */}
+          {/* TODO: smoke-test in browser — enlarged primary Join CTA on open-league cards */}
           {!item.myRole && item.is_open && (
             <TouchableOpacity
               style={S.joinBtn}
@@ -755,8 +756,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     roleStatusText: { fontSize: 13, fontWeight: '600' },
     roleStatusJoined: { color: c.primary },
     roleStatusNot: { color: c.textMuted },
-    joinBtn: { backgroundColor: c.primaryLight, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20 },
-    joinText: { color: c.primary, fontWeight: '700', fontSize: 13 },
+    joinBtn: { backgroundColor: c.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, elevation: 2, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+    joinText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     requestBtn: { backgroundColor: '#fff8e1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ffe082' },
     requestText: { color: '#b8860b', fontWeight: '700', fontSize: 13 },
     requestedBadge: { backgroundColor: c.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },

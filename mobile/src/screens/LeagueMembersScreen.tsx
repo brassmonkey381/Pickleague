@@ -14,6 +14,8 @@ import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetModal';
 import FlairName from '../components/FlairName';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueMembers'>;
@@ -44,21 +46,26 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [requests, setRequests] = useState<LeagueJoinRequest[]>([]);
   const [myRole, setMyRole]     = useState<LeagueRole>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [isOpen, setIsOpen]     = useState(true);
   const [loading, setLoading]   = useState(true);
   const [showSuggest, setShowSuggest]       = useState(false);
   const [suggestions, setSuggestions]       = useState<SuggestedPlayer[]>([]);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
   const [actionTarget, setActionTarget]     = useState<LeagueMember | null>(null);
+  const [joining, setJoining]   = useState(false);
+  const joinStatus = useStatusMessage();
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const [{ data: { user } }, role] = await Promise.all([
+    const [{ data: { user } }, role, leagueRes] = await Promise.all([
       supabase.auth.getUser(),
       getLeagueRole(leagueId),
+      supabase.from('leagues').select('is_open').eq('id', leagueId).single(),
     ]);
     setMyUserId(user?.id ?? null);
     setMyRole(role);
+    setIsOpen(leagueRes.data?.is_open ?? true);
 
     const [membersRes, requestsRes] = await Promise.all([
       supabase
@@ -179,6 +186,33 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     load();
   }
 
+  // ── Join / request-to-join (prospective members viewing the roster) ──
+  async function joinOpenLeague() {
+    setJoining(true);
+    joinStatus.clear();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setJoining(false); return; }
+    const { error } = await supabase
+      .from('league_members')
+      .upsert({ league_id: leagueId, user_id: user.id, role: 'member' });
+    setJoining(false);
+    if (error) { joinStatus.error(error.message); return; }
+    await load();
+  }
+
+  async function requestToJoin() {
+    setJoining(true);
+    joinStatus.clear();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setJoining(false); return; }
+    const { error } = await supabase
+      .from('league_join_requests')
+      .upsert({ league_id: leagueId, user_id: user.id, status: 'pending' });
+    setJoining(false);
+    if (error) { joinStatus.error(error.message); return; }
+    joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+  }
+
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
 
   const avgLeagueElo = members.length
@@ -194,6 +228,33 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
       ListHeaderComponent={
         <>
+          {/* TODO: smoke-test in browser — Join affordance for non-members viewing the roster */}
+          {myRole === null && (
+            <View style={S.joinCard}>
+              <Text style={S.joinCardTitle}>
+                {isOpen ? 'Join this league' : 'Want in?'}
+              </Text>
+              <Text style={S.joinCardSub}>
+                {isOpen
+                  ? 'Join to record matches, see standings, and play in events.'
+                  : 'This league is private — request to join and an admin will share an invite code.'}
+              </Text>
+              <StatusBanner status={joinStatus.value} style={{ marginTop: 8 }} />
+              <TouchableOpacity
+                style={[S.joinBtn, joining && S.joinBtnDisabled]}
+                onPress={isOpen ? joinOpenLeague : requestToJoin}
+                disabled={joining}
+                activeOpacity={0.85}
+              >
+                <Text style={S.joinBtnText}>
+                  {joining
+                    ? (isOpen ? 'Joining…' : 'Sending…')
+                    : (isOpen ? 'Join League' : 'Request to Join')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {isPrivileged(myRole) && requests.length > 0 && (
             <View style={S.requestsSection}>
               <Text style={S.requestsTitle}>
@@ -390,6 +451,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    joinCard:         { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1.5, borderColor: c.primary + '44', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    joinCardTitle:    { fontSize: 17, fontWeight: '800', color: c.text },
+    joinCardSub:      { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
+    joinBtn:          { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+    joinBtnDisabled:  { backgroundColor: c.primary + '80' },
+    joinBtnText:      { color: '#fff', fontSize: 16, fontWeight: '700' },
+
     requestsSection:  { backgroundColor: '#fff8e1', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#ffe082' },
     requestsTitle:    { fontSize: 14, fontWeight: '700', color: '#b8860b', marginBottom: 10 },
     requestRow:       { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 8 },
