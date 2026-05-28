@@ -118,6 +118,22 @@ export default function TournamentsScreen({ navigation, route }: Props) {
     return { label: '✓ Member', color: '#2e7d32' };
   }
 
+  // Prominent join CTA shown on registration-open, request-mode cards. The label
+  // reflects the viewer's per-tournament registration state (loaded into myRegs).
+  // `null` means no CTA (e.g. invite-only, or not in registration).
+  function joinCtaFor(item: Tournament): { label: string; disabled: boolean } | null {
+    if (item.status !== 'registration' || item.registration_mode !== 'request') return null;
+    const reg = myRegs[item.id];
+    if (!reg)                     return { label: 'Register →', disabled: false };
+    if (reg.status === 'rejected') return { label: 'View & Register →', disabled: false };
+    if (reg.status === 'pending') {
+      return reg.invited_by
+        ? { label: '📨 Respond to invite →', disabled: false }
+        : { label: '⏳ Request pending', disabled: true };
+    }
+    return { label: '✓ Joined — View →', disabled: false }; // approved
+  }
+
   const hasAvailability = myAvailability.some(Boolean);
 
   const endedCount = tournaments.filter(t => t.status === 'completed').length;
@@ -190,9 +206,27 @@ export default function TournamentsScreen({ navigation, route }: Props) {
           )}
         </View>
 
-        <Text style={S.regMode}>
-          {item.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'}
-        </Text>
+        {/* TODO: smoke-test in browser — prominent join CTA on Tournaments list cards */}
+        {(() => {
+          const cta = joinCtaFor(item);
+          if (cta) {
+            return (
+              <TouchableOpacity
+                style={[S.joinBtn, cta.disabled && S.joinBtnDisabled]}
+                disabled={cta.disabled}
+                onPress={() => navigation.navigate('TournamentDetail', { tournamentId: item.id, tournamentName: item.name })}
+                activeOpacity={0.85}
+              >
+                <Text style={[S.joinBtnText, cta.disabled && S.joinBtnTextDisabled]}>{cta.label}</Text>
+              </TouchableOpacity>
+            );
+          }
+          return (
+            <Text style={S.regMode}>
+              {item.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'}
+            </Text>
+          );
+        })()}
       </TouchableOpacity>
     );
   }
@@ -323,6 +357,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     meta:                { gap: 3, marginBottom: 8 },
     metaItem:            { fontSize: 12, color: c.textSub },
     regMode:             { fontSize: 12, color: c.textMuted },
+    joinBtn:             { marginTop: 4, backgroundColor: c.primary, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+    joinBtnDisabled:     { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    joinBtnText:         { color: '#fff', fontWeight: '700', fontSize: 15 },
+    joinBtnTextDisabled: { color: c.textMuted },
     empty:               { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15, lineHeight: 22 },
     fab:                 { position: 'absolute', bottom: 24, right: 24, backgroundColor: c.primary, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
     fabDisabled:         { backgroundColor: c.border, elevation: 0 },
