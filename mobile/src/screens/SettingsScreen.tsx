@@ -23,8 +23,11 @@ import {
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'> };
 
+// TODO: smoke-test in browser — toggle Theme (System/Light/Dark) and confirm
+// the Settings body flips between light and dark with no leftover light cards.
 export default function SettingsScreen({ navigation }: Props) {
   const { colors, themeMode, setThemeMode } = useTheme();
+  const styles = makeStyles(colors);
   const GREEN = colors.primary;
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
   const [badgesPublic, setBadgesPublic] = useState(true);
@@ -202,7 +205,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <Switch
           value={value}
           onValueChange={onChange}
-          trackColor={{ false: '#ddd', true: GREEN }}
+          trackColor={{ false: colors.border, true: GREEN }}
           thumbColor="#fff"
         />
       </View>
@@ -268,6 +271,7 @@ export default function SettingsScreen({ navigation }: Props) {
             value={displayName}
             onChangeText={setDisplayName}
             placeholder="Your name"
+            placeholderTextColor={colors.textMuted}
             returnKeyType="done"
             onSubmitEditing={updateDisplayName}
           />
@@ -478,7 +482,7 @@ export default function SettingsScreen({ navigation }: Props) {
             value={deletePassword}
             onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
             placeholder="Current password"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={colors.textMuted}
             secureTextEntry
             autoCapitalize="none"
             autoComplete="current-password"
@@ -492,37 +496,27 @@ export default function SettingsScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container:          { backgroundColor: '#f5f5f5' },
-  sectionHeader:      { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 28, marginBottom: 6, marginHorizontal: 20 },
-  card:               { backgroundColor: '#fff', marginHorizontal: 16, borderRadius: 12, overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
-  row:                { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 16, minHeight: 52 },
-  rowLabel:           { fontSize: 15, fontWeight: '600', color: '#1a1a1a' },
-  rowDesc:            { fontSize: 12, color: '#999', marginTop: 2 },
-  rowDetail:          { fontSize: 13, color: '#aaa', marginRight: 6 },
-  chevron:            { fontSize: 22, color: '#ccc' },
-  divider:            { height: 1, backgroundColor: '#f0f0f0', marginHorizontal: 16 },
-  dangerText:         { color: '#c62828' },
-  nameInput:          { flex: 1, fontSize: 14, color: '#333', textAlign: 'right', paddingHorizontal: 8 },
-  saveBtn:            { marginLeft: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#e8f5e9', borderRadius: 8 },
-  saveBtnText:        { color: '#2e7d32', fontWeight: '700', fontSize: 13 },
-  segmentRow:         { paddingVertical: 12, paddingHorizontal: 16 },
-  segmentGroup:       { flexDirection: 'row', marginTop: 8, borderRadius: 8, overflow: 'hidden', borderWidth: 1.5, borderColor: '#e0e0e0' },
-  segmentBtn:         { flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: '#fafafa' },
-  segmentBtnActive:   { backgroundColor: '#2e7d32' },
-  segmentText:        { fontSize: 13, fontWeight: '600', color: '#666' },
-  segmentTextActive:  { color: '#fff' },
-  modalBackdrop:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  modalCard:          { width: '100%', maxWidth: 440, backgroundColor: '#fff', borderRadius: 14, padding: 22 },
-  modalTitle:         { fontSize: 18, fontWeight: '800', color: '#1a1a1a', marginBottom: 10 },
-  modalBody:          { fontSize: 14, color: '#444', lineHeight: 20, marginBottom: 12 },
-  modalError:         { color: '#c62828', fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  passwordInput:      { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: '#1a1a1a', backgroundColor: '#fafafa', marginBottom: 6 },
-  modalActions:       { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
-  modalBtn:           { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, minWidth: 96, alignItems: 'center', justifyContent: 'center' },
-  modalBtnGhost:      { backgroundColor: '#f0f0f0' },
-  modalBtnGhostText:  { color: '#444', fontSize: 14, fontWeight: '700' },
-  modalBtnPrimary:    { backgroundColor: '#2e7d32' },
-  modalBtnDanger:     { backgroundColor: '#c62828' },
-  modalBtnPrimaryText:{ color: '#fff', fontSize: 14, fontWeight: '700' },
-});
+function makeStyles(colors: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container:          { backgroundColor: colors.bg },
+    sectionHeader:      { fontSize: 12, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 28, marginBottom: 6, marginHorizontal: 20 },
+    card:               { backgroundColor: colors.surface, marginHorizontal: 16, borderRadius: 12, overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
+    row:                { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 16, minHeight: 52 },
+    rowLabel:           { fontSize: 15, fontWeight: '600', color: colors.text },
+    rowDesc:            { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    rowDetail:          { fontSize: 13, color: colors.textMuted, marginRight: 6 },
+    chevron:            { fontSize: 22, color: colors.textMuted },
+    divider:            { height: 1, backgroundColor: colors.border, marginHorizontal: 16 },
+    dangerText:         { color: colors.danger },
+    nameInput:          { flex: 1, fontSize: 14, color: colors.text, textAlign: 'right', paddingHorizontal: 8 },
+    saveBtn:            { marginLeft: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primaryLight, borderRadius: 8 },
+    saveBtnText:        { color: colors.primary, fontWeight: '700', fontSize: 13 },
+    segmentRow:         { paddingVertical: 12, paddingHorizontal: 16 },
+    segmentGroup:       { flexDirection: 'row', marginTop: 8, borderRadius: 8, overflow: 'hidden', borderWidth: 1.5, borderColor: colors.border },
+    segmentBtn:         { flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: colors.surfaceAlt },
+    segmentBtnActive:   { backgroundColor: colors.primary },
+    segmentText:        { fontSize: 13, fontWeight: '600', color: colors.textSub },
+    segmentTextActive:  { color: '#fff' },
+    passwordInput:      { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: colors.text, backgroundColor: colors.surfaceAlt, marginBottom: 6 },
+  });
+}
