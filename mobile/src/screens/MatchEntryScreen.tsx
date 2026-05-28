@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ScrollView, Platform,
@@ -14,6 +14,8 @@ import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { computeBadgeProgress } from '../lib/unlockProgress';
+import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
+import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -84,6 +86,7 @@ function PlayerPickerField({ label, value, onChange, members, exclude, S, colors
 export default function MatchEntryScreen({ navigation, route }: Props) {
   const {
     leagueId,
+    fromHome,
     tournamentId,
     tournamentMatchId,
     tournamentName,
@@ -93,10 +96,28 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     prefillTeam2Player, prefillTeam2Partner,
   } = route.params;
   const isTournamentMatch = !!tournamentMatchId;
+  // Home-launched entry: no fixed league, so the user picks the league (required)
+  // and an optional tournament tag inline. Any other entry point fixes the league.
+  const pickLeagueInline = !leagueId && !isTournamentMatch;
   const { colors } = useTheme();
   const S = makeStyles(colors);
 
   const [members, setMembers] = useState<Profile[]>([]);
+  // Home-launched entry: the chosen league/tournament. When the league is fixed
+  // by the route, selectedLeagueId mirrors it and these dropdowns are hidden.
+  const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(leagueId ?? null);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(tournamentId ?? null);
+  const [leagueCandidates, setLeagueCandidates] = useState<PickableLeague[]>([]);
+  const [tournamentCandidates, setTournamentCandidates] = useState<PickableTournament[]>([]);
+  // The recording user's own league ids — candidate leagues are restricted to
+  // these so the matches INSERT RLS (auth.uid() must be a member of league_id)
+  // can never reject the submit.
+  const [myLeagueIds, setMyLeagueIds] = useState<Set<string>>(new Set());
+  // Tracks the court name we last auto-prefilled from a league's home court, so
+  // a later league switch can replace it without clobbering a user's own choice.
+  const autoFilledCourtRef = useRef<string | null>(null);
+  const [leaguePickerOpen, setLeaguePickerOpen] = useState(false);
+  const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
   const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'doubles');
   const [p1, setP1] = useState(prefillTeam1Player ?? '');
   const [partner1, setPartner1] = useState(prefillTeam1Partner ?? '');
@@ -169,6 +190,15 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       return;
     }
 
+    // ── Home-launched match: no fixed league yet ──
+    // Load the union of everyone the current user shares a league with, so
+    // players can be picked first; the league/tournament dropdowns are then
+    // filtered to those that contain all selected players (see candidate effect).
+    if (pickLeagueInline) {
+      await loadLeaguematesUnion();
+      return;
+    }
+
     // ── League / casual match (existing path) ──
     const [membersRes, leagueRes] = await Promise.all([
       supabase.from('league_members').select('profile:profiles(*)').eq('league_id', leagueId),
@@ -181,6 +211,147 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       setLocation({ name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
     }
   }
+
+  // Build the pool of pickable players for a Home-launched match: every profile
+  // who shares at least one league with the current user (union across the
+  // user's leagues), plus the user themselves. League/tournament candidates are
+  // narrowed afterwards based on which players actually get picked.
+  async function loadLeaguematesUnion() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setMembers([]); return; }
+
+    // Leagues the current user belongs to.
+    const { data: myLeaguesRows } = await supabase
+      .from('league_members')
+      .select('league_id')
+      .eq('user_id', user.id);
+    const myIds = Array.from(new Set(((myLeaguesRows ?? []) as any[]).map(r => r.league_id).filter(Boolean)));
+    setMyLeagueIds(new Set(myIds));
+    if (myIds.length === 0) { setMembers([]); return; }
+
+    // Everyone who is a member of any of those leagues (deduped by profile id).
+    const { data: memberRows } = await supabase
+      .from('league_members')
+      .select('profile:profiles(*)')
+      .in('league_id', myIds);
+
+    const byId = new Map<string, Profile>();
+    for (const row of ((memberRows ?? []) as any[])) {
+      const p = row.profile as Profile | null;
+      if (p?.id && !byId.has(p.id)) byId.set(p.id, p);
+    }
+    setMembers(Array.from(byId.values()).sort((a, b) =>
+      (a.full_name ?? '').localeCompare(b.full_name ?? '')));
+  }
+
+  // Recompute the league/tournament dropdown candidates whenever the selected
+  // players change (Home-launched entry only). A league/tournament qualifies
+  // only if ALL selected players are members / approved registrants of it.
+  const selectedPlayerIds = (matchType === 'singles'
+    ? [p1, p2]
+    : [p1, partner1, p2, partner2]
+  ).filter(Boolean);
+  // Stable dependency key so the effect only fires on a real selection change.
+  const selectedPlayerKey = [...selectedPlayerIds].sort().join(',');
+  // Stable key for the user's own leagues (a Set isn't a stable dep by identity).
+  const myLeagueIdsKey = [...myLeagueIds].sort().join(',');
+
+  useEffect(() => {
+    if (!pickLeagueInline) return;
+    const ids = selectedPlayerKey ? selectedPlayerKey.split(',') : [];
+    if (ids.length === 0) {
+      setLeagueCandidates([]);
+      setTournamentCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const need = ids.length;
+
+      // Leagues where every selected player is a member.
+      const { data: lmRows } = await supabase
+        .from('league_members')
+        .select('league_id, user_id')
+        .in('user_id', ids);
+      const leagueMemberSets = new Map<string, Set<string>>();
+      for (const r of ((lmRows ?? []) as any[])) {
+        if (!r.league_id || !r.user_id) continue;
+        if (!leagueMemberSets.has(r.league_id)) leagueMemberSets.set(r.league_id, new Set());
+        leagueMemberSets.get(r.league_id)!.add(r.user_id);
+      }
+      const qualifyingLeagueIds = [...leagueMemberSets.entries()]
+        // All selected players are members AND the recording user is a member
+        // (latter is required by the matches INSERT RLS policy).
+        .filter(([lid, set]) => set.size === need && myLeagueIds.has(lid))
+        .map(([lid]) => lid);
+
+      // Tournaments where every selected player is an approved registrant.
+      const { data: trRows } = await supabase
+        .from('tournament_registrations')
+        .select('tournament_id, user_id')
+        .eq('status', 'approved')
+        .in('user_id', ids);
+      const tournMemberSets = new Map<string, Set<string>>();
+      for (const r of ((trRows ?? []) as any[])) {
+        if (!r.tournament_id || !r.user_id) continue;
+        if (!tournMemberSets.has(r.tournament_id)) tournMemberSets.set(r.tournament_id, new Set());
+        tournMemberSets.get(r.tournament_id)!.add(r.user_id);
+      }
+      const qualifyingTournamentIds = [...tournMemberSets.entries()]
+        .filter(([, set]) => set.size === need)
+        .map(([tid]) => tid);
+
+      // Resolve names for the dropdowns.
+      const [leaguesRes, tournsRes] = await Promise.all([
+        qualifyingLeagueIds.length
+          ? supabase.from('leagues').select('id, name').in('id', qualifyingLeagueIds).order('name')
+          : Promise.resolve({ data: [] as any[] }),
+        qualifyingTournamentIds.length
+          ? supabase.from('tournaments').select('id, name').in('id', qualifyingTournamentIds).order('name')
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+      if (cancelled) return;
+
+      const leagues = ((leaguesRes.data ?? []) as PickableLeague[]);
+      const tourns = ((tournsRes.data ?? []) as PickableTournament[]);
+      setLeagueCandidates(leagues);
+      setTournamentCandidates(tourns);
+
+      // Clear selections that no longer qualify after a player change.
+      setSelectedLeagueId(prev => (prev && leagues.some(l => l.id === prev)) ? prev : null);
+      setSelectedTournamentId(prev => (prev && tourns.some(t => t.id === prev)) ? prev : null);
+    })();
+    return () => { cancelled = true; };
+    // myLeagueIdsKey: recompute once the user's own leagues finish loading.
+  }, [pickLeagueInline, selectedPlayerKey, myLeagueIdsKey]);
+
+  // Home-launched entry: when a league is picked, adopt its home court for the
+  // home-court flags (and prefill the location field if the user hasn't set one,
+  // or only previously accepted an auto-fill from another league).
+  useEffect(() => {
+    if (!pickLeagueInline || !selectedLeagueId) { return; }
+    let cancelled = false;
+    (async () => {
+      const { data: lg } = await supabase
+        .from('leagues')
+        .select('home_court, home_court_lat, home_court_lng')
+        .eq('id', selectedLeagueId)
+        .single();
+      if (cancelled) return;
+      setLeagueHomeCourt(lg?.home_court ?? null);
+      // Prefill the location only when it's empty or still holds a court we
+      // auto-filled from a previous league — never clobber a user's own pick.
+      const canAutoFill = !location || location.name === autoFilledCourtRef.current;
+      if (lg?.home_court && canAutoFill) {
+        setLocation({ name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
+        autoFilledCourtRef.current = lg.home_court;
+      }
+    })();
+    return () => { cancelled = true; };
+    // location intentionally excluded: we only want to prefill on league change,
+    // not re-run when the user edits the location afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickLeagueInline, selectedLeagueId]);
 
   // Determine indoor/outdoor default for a location.
   // Primary source: court_locations table (authoritative, keyword-seeded + user-confirmed).
@@ -289,6 +460,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       if (new Set([p1, partner1, p2, partner2]).size !== 4) return setError('All four players must be different.');
     }
 
+    // Home-launched entry: a league is required (matches.league_id is NOT NULL).
+    if (pickLeagueInline && !selectedLeagueId) {
+      return setError('Please choose a league for this match.');
+    }
+
     // Parse and validate every game; build the per-game array and roll-up totals.
     const parsedGames: { t1: number; t2: number }[] = [];
     for (let i = 0; i < games.length; i++) {
@@ -364,8 +540,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const deadline = isGod ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase.from('matches').insert({
-      league_id:    leagueId,
-      event_id:     eventId ?? null,
+      league_id:     selectedLeagueId,
+      tournament_id: selectedTournamentId ?? null,
+      event_id:      eventId ?? null,
       match_type:   matchType,
       player1_id:   p1,
       partner1_id:  matchType === 'doubles' ? partner1 : null,
@@ -516,6 +693,45 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           );
         })}
       </View>
+
+      {/* Home-launched entry: league (required) + tournament tag (optional).
+          Hidden for every other entry point, which fixes the league via route. */}
+      {pickLeagueInline && (
+        <View style={S.tagSection}>
+          <Text style={S.label}>League <Text style={S.locationRequired}>*</Text></Text>
+          <TouchableOpacity
+            style={S.dropdownField}
+            activeOpacity={0.7}
+            disabled={selectedPlayerIds.length === 0}
+            onPress={() => setLeaguePickerOpen(true)}
+          >
+            <Text style={[S.dropdownText, !selectedLeagueId && S.dropdownPlaceholder]} numberOfLines={1}>
+              {selectedPlayerIds.length === 0
+                ? 'Pick players first…'
+                : (leagueCandidates.find(l => l.id === selectedLeagueId)?.name
+                    ?? (leagueCandidates.length === 0 ? 'No shared league for these players' : 'Select a league…'))}
+            </Text>
+            <Text style={S.dropdownChevron}>▾</Text>
+          </TouchableOpacity>
+
+          <Text style={S.label}>Tournament <Text style={S.optionalHint}>(optional)</Text></Text>
+          <TouchableOpacity
+            style={S.dropdownField}
+            activeOpacity={0.7}
+            disabled={selectedPlayerIds.length === 0 || tournamentCandidates.length === 0}
+            onPress={() => setTournamentPickerOpen(true)}
+          >
+            <Text style={[S.dropdownText, !selectedTournamentId && S.dropdownPlaceholder]} numberOfLines={1}>
+              {selectedPlayerIds.length === 0
+                ? 'Pick players first…'
+                : selectedTournamentId
+                  ? (tournamentCandidates.find(t => t.id === selectedTournamentId)?.name ?? '(none)')
+                  : tournamentCandidates.length === 0 ? 'No shared tournament' : '(none)'}
+            </Text>
+            <Text style={S.dropdownChevron}>▾</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Team 1 */}
       <View style={S.teamSection}>
@@ -692,6 +908,27 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         <Text style={S.buttonText}>{loading ? 'Saving...' : 'Record Match'}</Text>
       </TouchableOpacity>
 
+      {/* Home-launched league / tournament pickers. */}
+      {/* TODO: smoke-test in browser */}
+      {pickLeagueInline && (
+        <>
+          <LeaguePickerModal
+            visible={leaguePickerOpen}
+            leagues={leagueCandidates}
+            selectedId={selectedLeagueId}
+            onPick={(id) => { setSelectedLeagueId(id); setLeaguePickerOpen(false); }}
+            onClose={() => setLeaguePickerOpen(false)}
+          />
+          <TournamentPickerModal
+            visible={tournamentPickerOpen}
+            tournaments={tournamentCandidates}
+            selectedId={selectedTournamentId}
+            onPick={(id) => { setSelectedTournamentId(id); setTournamentPickerOpen(false); }}
+            onClose={() => setTournamentPickerOpen(false)}
+          />
+        </>
+      )}
+
     </ScrollView>
   );
 }
@@ -709,6 +946,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     toggleTextActive: { color: '#fff' },
     teamSection: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
     teamLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+
+    tagSection:        { marginBottom: 16 },
+    optionalHint:      { fontSize: 12, fontWeight: '500', color: c.textMuted },
+    dropdownField:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: c.surface },
+    dropdownText:      { flex: 1, fontSize: 15, color: c.text },
+    dropdownPlaceholder: { color: c.textMuted },
+    dropdownChevron:   { fontSize: 14, color: c.textMuted, marginLeft: 8 },
 
     genderDeclareCard:       { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5, borderColor: '#d4a72c', backgroundColor: '#fff8e6' },
     genderDeclareTitle:      { fontSize: 14, fontWeight: '800', color: '#8a6d00', marginBottom: 4 },

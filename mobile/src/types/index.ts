@@ -469,7 +469,13 @@ export type RootStackParamList = {
   CreateEvent: { leagueId: string };
   EventDetail: { eventId: string; title: string };
   MatchEntry: {
-    leagueId: string;
+    // Optional: when provided (LeagueDetail "Record Match", tournament/event
+    // prefill) the league is fixed and its dropdown is hidden. When omitted
+    // (opened from Home via fromHome) the screen shows a required League
+    // dropdown + optional Tournament dropdown so the user picks them inline.
+    leagueId?: string;
+    // Set when launched from the Home "Record a Match" card.
+    fromHome?: boolean;
     // When set, recording a scheduled tournament match — the screen updates
     // that tournament_matches row instead of inserting a new league match.
     tournamentId?: string;
