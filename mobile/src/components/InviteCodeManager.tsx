@@ -155,10 +155,29 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     setInvite(null);
   }
 
+  // Builds the friendly multi-line invite message (code + subsidy + join link)
+  // shared by both the "Copy Code" and "Share" actions.
+  function buildInviteMessage(): string {
+    if (!invite) return '';
+    const code = formatToken(invite.token);
+    const subsidyLine = invite.pickle_subsidy > 0
+      ? `\n💸 I'll cover ${invite.pickle_subsidy} 🥒 of your entry fee!`
+      : '';
+    const target = scopeType === 'league' ? 'league' : 'tournament';
+    const joinUrl = scopeType === 'league'
+      ? 'https://pickleague.club/leagues'
+      : 'https://pickleague.club/tournaments';
+    return (
+      `You're invited to join the ${target} "${scopeName}" on Pickleague! 🥒\n` +
+      `Use invite code: ${code}${subsidyLine}\n\n` +
+      `Join here: ${joinUrl} (then tap "Join with Code" and enter the code)`
+    );
+  }
+
   async function copyCode() {
     if (!invite) return;
     try {
-      await setClipboard(formatToken(invite.token));
+      await setClipboard(buildInviteMessage());
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch (err) {
@@ -208,18 +227,10 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
   async function share() {
     if (!invite) return;
-    const code = formatToken(invite.token);
-    const subsidyLine = invite.pickle_subsidy > 0
-      ? `\n\n💸 I'll cover ${invite.pickle_subsidy} 🥒 of your entry fee!`
-      : '';
-    const target = scopeType === 'league' ? 'league' : 'tournament';
-    const where = scopeType === 'league' ? 'Leagues → "Join with Code"' : 'Tournaments → "Join with Code"';
+    // TODO: smoke-test in browser
     const result = await shareInvite({
       title: `Join ${scopeName} on Pickleague`,
-      message:
-        `You're invited to join the ${target} "${scopeName}" on Pickleague! 🥒\n\n` +
-        `Use invite code: ${code}${subsidyLine}\n\n` +
-        `Open the app → ${where} and enter this code.`,
+      message: buildInviteMessage(),
     });
     if (result.copied) {
       status.success('Invite copied to clipboard');
