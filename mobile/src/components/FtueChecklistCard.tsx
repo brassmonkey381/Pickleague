@@ -78,7 +78,7 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
   };
 
   const steps: StepDef[] = [
-    { id: 'join_league',   title: 'Join your league',        navTo: () => navigation.navigate('Leagues') },
+    { id: 'join_league',   title: 'Join or create a league', navTo: () => navigation.navigate('Leagues') },
     { id: 'setup_profile', title: 'Set up your profile',     navTo: () => navigation.navigate('Profile', {}) },
     { id: 'first_match',   title: 'Record your first match', navTo: () => navigation.navigate('Leagues') },
   ];
