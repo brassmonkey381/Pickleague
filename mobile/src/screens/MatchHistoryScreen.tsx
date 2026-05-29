@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -36,6 +36,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     win:  { borderLeftColor: c.primary },
     loss: { borderLeftColor: c.danger },
 
+    // Brief gold ring flashed on a deep-linked match (from a match-confirm notif).
+    highlightCard:     { borderWidth: 2, borderColor: '#ffe082', backgroundColor: '#fff8e1' },
     pendingCard:       { borderLeftColor: '#d4a72c', backgroundColor: '#fffaeb' },
     pendingHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     pendingBadgeText:  { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.5 },
@@ -186,7 +188,7 @@ function TeamFlair({
 }
 
 export default function MatchHistoryScreen({ navigation, route }: Props) {
-  const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly } = route.params;
+  const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly, highlightMatchId } = route.params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const [matches, setMatches]       = useState<Match[]>([]);
@@ -203,6 +205,17 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [myMatchesOnly, setMyMatchesOnly] = useState(!!initialMyMatchesOnly);
   const [indoorOutdoor, setIndoorOutdoor] = useState<IndoorOutdoorFilter>('all');
   const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>(initialDoublesCategory ?? 'all');
+
+  // Deep-link highlight: when arriving from a match-confirm notification, scroll
+  // to that match and flash a gold ring so the inline Confirm/Reject controls
+  // jump out. The highlight clears after a couple seconds.
+  const listRef = useRef<FlatList<Match>>(null);
+  // Tracks the highlightMatchId we've already auto-scrolled to, so later filter
+  // edits don't re-yank the viewport. `filteredRef` always holds the latest
+  // filtered list so deferred scrolls recompute a fresh (never stale) index.
+  const scrolledForRef = useRef<string | null>(null);
+  const filteredRef = useRef<Match[]>([]);
+  const [highlightedId, setHighlightedId] = useState<string | null>(highlightMatchId ?? null);
 
   const status = useStatusMessage();
 
@@ -367,6 +380,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
     const viewAs = userId ?? (currentUserId && inMatch(currentUserId) ? currentUserId : null);
 
+    // Gold ring flashed on the deep-linked match (cleared after a couple seconds).
+    const isHighlighted = item.id === highlightedId;
+
     // Pending match — custom card with a Confirm button when the viewer's
     // team hasn't confirmed yet. PLUPRs aren't applied until both teams sign off.
     if (item.status === 'pending') {
@@ -397,7 +413,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       }
 
       return (
-        <View style={[S.card, S.pendingCard]}>
+        <View style={[S.card, S.pendingCard, isHighlighted && S.highlightCard]}>
           <View style={S.pendingHeader}>
             <Text style={S.pendingBadgeText}>⏳ Pending confirmation</Text>
             <View style={S.pendingHeaderRight}>
@@ -494,7 +510,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     if (!viewAs) {
       const team1Won = item.winner_team === 'team1';
       return (
-        <View style={[S.card, team1Won ? S.win : S.loss]}>
+        <View style={[S.card, team1Won ? S.win : S.loss, isHighlighted && S.highlightCard]}>
           <View style={S.leagueRow}>
             <View style={[S.resultMini, team1Won ? S.resultMiniWin : S.resultMiniLoss]}>
               <Text style={S.resultMiniText}>{team1Won ? 'W' : 'L'}</Text>
@@ -551,7 +567,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       : null;
 
     return (
-      <View style={[S.card, won ? S.win : S.loss]}>
+      <View style={[S.card, won ? S.win : S.loss, isHighlighted && S.highlightCard]}>
         <View style={S.cardHeader}>
           <Text style={[S.result, won ? S.winText : S.lossText]}>
             {won ? 'W' : 'L'}
@@ -635,6 +651,32 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
     return { filtered: rest, upcoming: upcomingList };
   }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch, indoorOutdoor, doublesCategory]);
+
+  // Keep a live handle on the latest filtered list for deferred scrolls.
+  filteredRef.current = filtered;
+
+  // TODO: smoke-test in browser — deep-link scroll-to + gold highlight flash.
+  // Scroll to the deep-linked match once it actually appears in the filtered
+  // list, then flash its highlight (fades after 2.5s). Depends on `filtered`
+  // so it re-checks as the list settles (e.g. `myMatchesOnly` kicks in only
+  // after currentUserId resolves). We auto-scroll at most once per target
+  // (scrolledForRef) so later user filter edits don't yank the viewport, and
+  // the deferred scroll recomputes the index from filteredRef to avoid a stale
+  // index if the list changed length in the meantime.
+  useEffect(() => {
+    if (loading || !highlightMatchId) return;
+    if (scrolledForRef.current === highlightMatchId) return;
+    if (!filtered.some((m) => m.id === highlightMatchId)) return; // not in list yet — wait for it to settle
+
+    scrolledForRef.current = highlightMatchId;
+    setHighlightedId(highlightMatchId);
+    const scrollTimer = setTimeout(() => {
+      const liveIdx = filteredRef.current.findIndex((m) => m.id === highlightMatchId);
+      if (liveIdx >= 0) listRef.current?.scrollToIndex({ index: liveIdx, animated: true, viewPosition: 0.3 });
+    }, 200);
+    const fadeTimer = setTimeout(() => setHighlightedId(null), 2700);
+    return () => { clearTimeout(scrollTimer); clearTimeout(fadeTimer); };
+  }, [loading, highlightMatchId, filtered]);
 
   const activeFilterCount =
     (homeAway !== 'all' ? 1 : 0) +
@@ -774,10 +816,26 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       )}
 
       <FlatList
+        ref={listRef}
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
         contentContainerStyle={{ padding: 16 }}
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          // Target row isn't measured yet (it's below the render window). Nudge
+          // toward it by estimated offset, then retry. Recompute the index from
+          // the live filtered list (by id when deep-linking) so a list that
+          // shrank between attempts can't park us on the wrong row.
+          listRef.current?.scrollToOffset({ offset: index * (averageItemLength || 120), animated: false });
+          setTimeout(() => {
+            const liveIdx = highlightMatchId
+              ? filteredRef.current.findIndex((m) => m.id === highlightMatchId)
+              : index;
+            if (liveIdx >= 0 && liveIdx < filteredRef.current.length) {
+              listRef.current?.scrollToIndex({ index: liveIdx, animated: true, viewPosition: 0.3 });
+            }
+          }, 120);
+        }}
         ListEmptyComponent={
           upcoming.length === 0
             ? <Text style={S.empty}>No matches recorded yet.</Text>
