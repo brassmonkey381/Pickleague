@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ScrollView, Text, TouchableOpacity, StyleSheet,
   View, ActivityIndicator, Modal, TextInput,
@@ -17,6 +17,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { useTour } from '../lib/TourContext';
 import { BallIcon } from '../components/PickleIcons';
 import FlairName from '../components/FlairName';
 
@@ -67,6 +68,12 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const { leagueId, leagueName } = route.params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const { registerAnchor } = useTour();
+
+  // Spotlight-tour anchor: the gold "Record Match" card is the final step of
+  // the 'leagues' tour. Registered on layout (the card only renders once the
+  // screen has loaded). Harmless if the tour never reaches this step.
+  const recordAnchor = useRef<any>(null);
 
   const [myRole, setMyRole]   = useState<LeagueRole>(null);
   const [league, setLeague]   = useState<League | null>(null);
@@ -871,9 +878,14 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
       {/* ── Option cards ───────────────────────────────────────── */}
       {/* TODO: smoke-test in browser — Members 2nd, Record Match gold-highlighted for members */}
-      {options.map((opt) => (
+      {/* TODO: smoke-test in browser — leagues spotlight tour highlights this Record Match card as its final step */}
+      {options.map((opt) => {
+        const isRecord = opt.label === 'Record Match';
+        return (
         <TouchableOpacity
           key={opt.label}
+          ref={isRecord ? recordAnchor : undefined}
+          onLayout={isRecord ? () => registerAnchor('leagues', 'record', recordAnchor) : undefined}
           style={[S.card, opt.highlight && S.cardHighlight]}
           onPress={opt.onPress}
         >
@@ -890,7 +902,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             </View>
           )}
         </TouchableOpacity>
-      ))}
+        );
+      })}
 
       {/* ── Godmode delete ─────────────────────────────────────── */}
       {godmode && (
