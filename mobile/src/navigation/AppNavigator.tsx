@@ -7,6 +7,8 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
 import { useTheme } from '../lib/ThemeContext';
+import { TourProvider } from '../lib/TourContext';
+import SpotlightTour from '../components/SpotlightTour';
 import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
@@ -159,6 +161,7 @@ export default function AppNavigator() {
 
   return (
     <ToastProvider>
+      <TourProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
           <NavigationContainer theme={navTheme} linking={linking} fallback={<View />}>
@@ -211,6 +214,10 @@ export default function AppNavigator() {
           </NavigationContainer>
         </WebMaxWidth>
       )}
+      {/* Spotlight onboarding tour overlay — renders above the navigator so it
+          can dim/highlight any screen. No-op unless a tour is active. */}
+      <SpotlightTour />
+      </TourProvider>
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

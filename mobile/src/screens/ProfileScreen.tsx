@@ -7,6 +7,7 @@ import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-n
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useTour } from '../lib/TourContext';
 import { Gender, Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import FlairName from '../components/FlairName';
@@ -331,6 +332,16 @@ export default function ProfileScreen({ navigation }: Props) {
   const [loading, setLoading]             = useState(true);
   const [saving, setSaving]               = useState(false);
   const [userId, setUserId]               = useState<string | null>(null);
+
+  // Spotlight-tour anchors for the 'profile' tour: the avatar edit control
+  // ('edit') and the Unlockable Rewards card ('rewards'). Registering an
+  // anchor the tour may never reach is harmless.
+  // TODO: smoke-test in browser — from FTUE "Set up your profile", the profile
+  // tour should highlight the avatar edit control then the Unlockable Rewards
+  // card, once per user (clear AsyncStorage to re-trigger).
+  const { registerAnchor } = useTour();
+  const editAnchor = useRef<any>(null);
+  const rewardsAnchor = useRef<any>(null);
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -800,7 +811,12 @@ export default function ProfileScreen({ navigation }: Props) {
 
       {/* ── Avatar / photo ─────────────────────────────────────── */}
       <View style={styles.avatarSection}>
-        <TouchableOpacity onPress={() => setShowAvatarPicker(true)} activeOpacity={0.8}>
+        <TouchableOpacity
+          ref={editAnchor}
+          onLayout={() => registerAnchor('profile', 'edit', editAnchor)}
+          onPress={() => setShowAvatarPicker(true)}
+          activeOpacity={0.8}
+        >
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />
           ) : (
@@ -1349,7 +1365,11 @@ export default function ProfileScreen({ navigation }: Props) {
       </TouchableOpacity>
 
       {/* ── Unlocks progress ─────────────────────────────────────── */}
-      <View style={styles.unlocksCard}>
+      <View
+        ref={rewardsAnchor}
+        onLayout={() => registerAnchor('profile', 'rewards', rewardsAnchor)}
+        style={styles.unlocksCard}
+      >
         <Text style={styles.unlocksSectionTitle}>🔓 Unlockable Rewards</Text>
         <Text style={styles.unlocksSubtitle}>Earn badges to unlock special avatars, tags, and tag slots.</Text>
 

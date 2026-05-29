@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useTour } from '../lib/TourContext';
 import { Profile } from '../types';
 
 // TODO: smoke-test in browser — verify each row flips to ✓ once complete, the
@@ -41,6 +42,7 @@ type StepDef = {
 export default function FtueChecklistCard({ profile, navigation, onClaimed, alwaysShow, embedded }: Props) {
   const { colors } = useTheme();
   const s = makeStyles(colors);
+  const { armTour } = useTour();
 
   const [loading, setLoading] = useState(true);
   const [inLeague, setInLeague] = useState(false);
@@ -77,10 +79,12 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
     first_match: hasMatch,
   };
 
+  // Arm the matching spotlight tour BEFORE navigating so it starts once the
+  // destination screen's first anchor mounts (no-op if already seen).
   const steps: StepDef[] = [
-    { id: 'join_league',   title: 'Join or create a league', navTo: () => navigation.navigate('Leagues') },
-    { id: 'setup_profile', title: 'Set up your profile',     navTo: () => navigation.navigate('Profile', {}) },
-    { id: 'first_match',   title: 'Record your first match', navTo: () => navigation.navigate('Leagues') },
+    { id: 'join_league',   title: 'Join or create a league', navTo: () => { armTour('leagues'); navigation.navigate('Leagues'); } },
+    { id: 'setup_profile', title: 'Set up your profile',     navTo: () => { armTour('profile'); navigation.navigate('Profile', {}); } },
+    { id: 'first_match',   title: 'Record your first match', navTo: () => { armTour('leagues'); navigation.navigate('Leagues'); } },
   ];
 
   async function claim(step: StepId) {

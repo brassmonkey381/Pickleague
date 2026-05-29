@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   TextInput, Modal, Switch, ScrollView,
@@ -12,6 +12,7 @@ import { displayCourtName } from '../lib/courtNickname';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
+import { useTour } from '../lib/TourContext';
 import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
@@ -88,6 +89,17 @@ function formatSeasonRange(startIso: string | null, endIso: string | null): stri
 export default function LeaguesScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const { registerAnchor } = useTour();
+
+  // Spotlight-tour anchors. The filter bar is the 'search' step; the first
+  // joinable league card's Join button is the 'join' step. Registering an
+  // anchor the tour may never reach is harmless.
+  // TODO: smoke-test in browser — from FTUE "Join a league" / "Record your
+  // first match", the leagues tour should highlight the filter bar → first
+  // Join button → (on LeagueDetail) the Record Match card, once per user.
+  const searchAnchor = useRef<any>(null);
+  const joinAnchor = useRef<any>(null);
+  useEffect(() => { registerAnchor('leagues', 'search', searchAnchor); }, [registerAnchor]);
 
   const [allLeagues, setAllLeagues]   = useState<LeagueWithStats[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -296,6 +308,12 @@ export default function LeaguesScreen({ navigation, route }: Props) {
   const filtered = useMemo(() => applyFilters(allLeagues, filters), [allLeagues, filters]);
   const numActiveFilters = activeFilterCount(filters);
 
+  // First joinable open-league card hosts the 'join' tour anchor.
+  const firstJoinableId = useMemo(
+    () => filtered.find((l) => !l.myRole && l.is_open)?.id ?? null,
+    [filtered],
+  );
+
   function setFilter<K extends keyof Filters>(key: K, val: Filters[K]) {
     setFilters((prev) => ({ ...prev, [key]: val }));
   }
@@ -419,6 +437,8 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           {/* TODO: smoke-test in browser — enlarged primary Join CTA on open-league cards */}
           {!item.myRole && item.is_open && (
             <TouchableOpacity
+              ref={item.id === firstJoinableId ? joinAnchor : undefined}
+              onLayout={item.id === firstJoinableId ? () => registerAnchor('leagues', 'join', joinAnchor) : undefined}
               style={S.joinBtn}
               onPress={(e) => { e.stopPropagation?.(); joinLeague(item.id); }}
             >
@@ -448,8 +468,8 @@ export default function LeaguesScreen({ navigation, route }: Props) {
 
   return (
     <View style={S.container}>
-      {/* Filter bar */}
-      <View style={S.filterBar}>
+      {/* Filter bar — spotlight-tour 'search' anchor */}
+      <View ref={searchAnchor} style={S.filterBar}>
         <Text style={S.resultCount}>
           {filtered.length} {filtered.length === 1 ? 'league' : 'leagues'}
         </Text>
