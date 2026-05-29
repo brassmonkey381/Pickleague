@@ -24,7 +24,7 @@ type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
   route: RouteProp<RootStackParamList, 'LeagueDetail'>;
 };
-type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () => void; adminOnly?: boolean };
+type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () => void; adminOnly?: boolean; highlight?: boolean };
 
 type ChampionWinner = {
   name:        string;
@@ -147,6 +147,36 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     // render. Errors here are non-fatal — the cards just won't render.
     void loadLatestChampion();
     void loadComingUp();
+  }
+
+  // ── Join / request-to-join (prospective members) ──────────────
+  const [joining, setJoining] = useState(false);
+  const joinStatus = useStatusMessage();
+
+  async function joinOpenLeague() {
+    setJoining(true);
+    joinStatus.clear();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setJoining(false); return; }
+    const { error } = await supabase
+      .from('league_members')
+      .upsert({ league_id: leagueId, user_id: user.id, role: 'member' });
+    setJoining(false);
+    if (error) { joinStatus.error(error.message); return; }
+    await load();
+  }
+
+  async function requestToJoin() {
+    setJoining(true);
+    joinStatus.clear();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setJoining(false); return; }
+    const { error } = await supabase
+      .from('league_join_requests')
+      .upsert({ league_id: leagueId, user_id: user.id, status: 'pending' });
+    setJoining(false);
+    if (error) { joinStatus.error(error.message); return; }
+    joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
   }
 
   async function loadLatestChampion() {
@@ -538,6 +568,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       icon: '📝', label: 'Record Match',
       sub: 'Enter a singles or doubles result',
       onPress: () => navigation.navigate('MatchEntry', { leagueId }),
+      // Gold-highlight the primary action for members so it's the obvious next step.
+      highlight: !!myRole,
+    },
+    {
+      icon: '👥', label: 'Members',
+      sub: privileged ? 'View members, manage roles, find players' : 'View league members',
+      onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
     },
     {
       icon: '🗳️', label: 'Schedule & Events',
@@ -553,11 +590,6 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       icon: '🗓️', label: 'Calendar Analytics',
       sub: 'W-L records and PLUPR changes by day',
       onPress: () => navigation.navigate('CalendarAnalytics', { leagueId, title: `${leagueName} Calendar` }),
-    },
-    {
-      icon: '👥', label: 'Members',
-      sub: privileged ? 'View members, manage roles, find players' : 'View league members',
-      onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
     },
     {
       icon: <BallIcon size={26} />, label: 'Tournaments',
@@ -809,14 +841,47 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {/* ── Join block for prospective members ─────────────────── */}
+      {/* TODO: smoke-test in browser — Join League / Request to Join block shows only for non-members */}
+      {!myRole && (
+        <View style={S.joinCard}>
+          <Text style={S.joinCardTitle}>
+            {league?.is_open ? 'Join this league' : 'Want in?'}
+          </Text>
+          <Text style={S.joinCardSub}>
+            {league?.is_open
+              ? 'Join to record matches, see standings, and play in events.'
+              : 'This league is private — request to join and an admin will share an invite code.'}
+          </Text>
+          <StatusBanner status={joinStatus.value} style={{ marginTop: 8 }} />
+          <TouchableOpacity
+            style={[S.joinBtn, joining && S.joinBtnDisabled]}
+            onPress={league?.is_open ? joinOpenLeague : requestToJoin}
+            disabled={joining}
+            activeOpacity={0.85}
+          >
+            <Text style={S.joinBtnText}>
+              {joining
+                ? (league?.is_open ? 'Joining…' : 'Sending…')
+                : (league?.is_open ? 'Join League' : 'Request to Join')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── Option cards ───────────────────────────────────────── */}
+      {/* TODO: smoke-test in browser — Members 2nd, Record Match gold-highlighted for members */}
       {options.map((opt) => (
-        <TouchableOpacity key={opt.label} style={S.card} onPress={opt.onPress}>
+        <TouchableOpacity
+          key={opt.label}
+          style={[S.card, opt.highlight && S.cardHighlight]}
+          onPress={opt.onPress}
+        >
           {typeof opt.icon === 'string'
             ? <Text style={S.cardIcon}>{opt.icon}</Text>
             : <View style={{ marginRight: 14, alignItems: 'center', justifyContent: 'center' }}>{opt.icon}</View>}
           <View style={S.cardText}>
-            <Text style={S.label}>{opt.label}</Text>
+            <Text style={[S.label, opt.highlight && S.labelHighlight]}>{opt.label}</Text>
             <Text style={S.sub}>{opt.sub}</Text>
           </View>
           {opt.adminOnly && (
@@ -1172,10 +1237,20 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     pastSeasonMeta:     { fontSize: 12, color: c.textMuted, marginTop: 2 },
     pastSeasonChevron:  { fontSize: 22, color: c.textMuted, fontWeight: '600' },
 
+    // Join block (prospective members)
+    joinCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.primary + '44', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    joinCardTitle:  { fontSize: 17, fontWeight: '800', color: c.text },
+    joinCardSub:    { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
+    joinBtn:        { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
+    joinBtnDisabled:{ backgroundColor: c.primary + '80' },
+    joinBtnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
+
     card:           { backgroundColor: c.surface, borderRadius: 14, padding: 16, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, flexDirection: 'row', alignItems: 'center' },
+    cardHighlight:  { backgroundColor: '#fff8e1', borderWidth: 1.5, borderColor: '#ffe082' },
     cardIcon:       { fontSize: 26, marginRight: 14 },
     cardText:       { flex: 1 },
     label:          { fontSize: 16, fontWeight: '700', color: c.text },
+    labelHighlight: { color: '#b8860b' },
     sub:            { fontSize: 13, color: c.textSub, marginTop: 2 },
     adminTag:       { backgroundColor: '#fff8e1', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: '#ffe082' },
     adminTagText:   { fontSize: 11, fontWeight: '700', color: '#b8860b' },
