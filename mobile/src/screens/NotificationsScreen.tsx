@@ -10,6 +10,8 @@ import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
+import { useStatusMessage } from '../lib/useStatusMessage';
+import StatusBanner from '../components/StatusBanner';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
 
@@ -55,6 +57,7 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading]             = useState(true);
+  const status = useStatusMessage();
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -82,20 +85,59 @@ export default function NotificationsScreen({ navigation }: Props) {
     setNotifications(prev => prev.filter(n => n.id !== id));
   }
 
-  function handleTap(n: Notification) {
+  // League/tournament invite notifications embed a code in their body. Tapping
+  // one auto-redeems it and jumps straight to the joined scope's detail. If the
+  // redeem fails (revoked/expired/etc.) we fall back to the manual Join-with-Code
+  // page so the user can retry. Returns true if it handled an invite code.
+  async function tryAutoAcceptInvite(n: Notification): Promise<boolean> {
+    const code = extractInviteCode(n.body);
+    if (!code) return false;
+
+    const { data, error } = await supabase.rpc('redeem_invite_code', { p_token: code });
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (error || !row?.success) {
+      // Fall back to the current behavior — manual retry on the Leagues
+      // Join-with-Code page.
+      navigation.navigate('Leagues', { prefillInviteCode: code });
+      return true;
+    }
+
+    // Landing on the joined scope's detail is itself the confirmation. We don't
+    // set a success banner here: this screen unmounts on navigate before it
+    // could paint (and the banner would otherwise resurface stale on back-nav).
+    if (row.scope_type === 'tournament') {
+      navigation.navigate('TournamentDetail', { tournamentId: row.scope_id, tournamentName: row.scope_name });
+    } else {
+      navigation.navigate('LeagueDetail', { leagueId: row.scope_id, leagueName: row.scope_name });
+    }
+    return true;
+  }
+
+  async function handleTap(n: Notification) {
     markRead(n.id);
-    if (n.entity_type === 'tournament' && n.entity_id) {
-      navigation.navigate('TournamentDetail', { tournamentId: n.entity_id, tournamentName: n.title.replace('🏆 ', '') });
+    if (n.entity_type === 'tournament') {
+      // Tournament invites carry an embedded code → auto-accept. Other
+      // tournament notifications (no code) fall through to TournamentDetail.
+      if (await tryAutoAcceptInvite(n)) return;
+      if (n.entity_id) {
+        navigation.navigate('TournamentDetail', { tournamentId: n.entity_id, tournamentName: n.title.replace('🏆 ', '') });
+      }
     } else if (n.entity_type === 'league') {
-      // League invites land in Leagues with the code prefilled — recipient isn't
-      // a member yet, so LeagueDetail would fail. Other league notifications
-      // (no embedded code) fall through to LeagueDetail.
-      const code = extractInviteCode(n.body);
-      if (code) {
-        navigation.navigate('Leagues', { prefillInviteCode: code });
-      } else if (n.entity_id) {
+      // League invites carry an embedded code → auto-accept. Other league
+      // notifications (no code) fall through to LeagueDetail.
+      if (await tryAutoAcceptInvite(n)) return;
+      if (n.entity_id) {
         navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
       }
+    } else if (n.entity_type === 'match') {
+      // Deep-link to the exact match row so the user sees its inline
+      // Confirm/Reject controls right away.
+      navigation.navigate('MatchHistory', {
+        title: 'Match History',
+        initialMyMatchesOnly: true,
+        highlightMatchId: n.entity_id ?? undefined,
+      });
     } else if (n.entity_type === 'drill') {
       navigation.navigate('DrillRequests');
     } else if (n.entity_type === 'shop') {
@@ -117,6 +159,8 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   return (
     <View style={S.container}>
+      {/* TODO: smoke-test in browser — auto-accept invite toast + deep-link */}
+      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
       {unreadCount > 0 && (
         <TouchableOpacity style={S.markAllBtn} onPress={markAllRead}>
           <Text style={S.markAllText}>Mark all as read ({unreadCount})</Text>

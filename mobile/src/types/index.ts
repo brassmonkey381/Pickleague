@@ -501,6 +501,9 @@ export type RootStackParamList = {
     initialDoublesCategory?: 'gendered' | 'mixed' | 'unspecified';
     // When set, only show matches that this user participated in.
     initialMyMatchesOnly?: boolean;
+    // When arriving from a match-confirm notification, scroll to + briefly
+    // highlight this match row so the inline Confirm/Reject controls are obvious.
+    highlightMatchId?: string;
   };
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
   SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
