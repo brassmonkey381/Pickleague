@@ -46,6 +46,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [godmodeBalance, setGodmodeBalance] = useState(0);
   const [streakOpen, setStreakOpen] = useState(false);
   const [streakResult, setStreakResult] = useState<StreakResult | null>(null);
+  // Whether the current user belongs to any league — gates the Record-a-Match card.
+  const [inLeague, setInLeague] = useState(false);
 
   // Drill sessions today (player1 or player2 = me). Used for the morning-of banner.
   const [drillsToday, setDrillsToday] = useState<(DrillSession & { partner_name: string })[]>([]);
@@ -66,6 +68,7 @@ export default function HomeScreen({ navigation }: Props) {
     loadUnread();
     loadDrillsToday();
     loadTournaments();
+    loadInLeague();
   }, []));
 
   // Claim welcome pickles once per account, on first home visit after signup.
@@ -93,6 +96,18 @@ export default function HomeScreen({ navigation }: Props) {
     if (!user) return;
     const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setProfile(data);
+  }
+
+  // Mirror FtueChecklistCard's membership check (league_members, limit 1).
+  async function loadInLeague() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setInLeague(false); return; }
+    const { data } = await supabase
+      .from('league_members')
+      .select('league_id')
+      .eq('user_id', user.id)
+      .limit(1);
+    setInLeague((data ?? []).length > 0);
   }
 
   async function loadUnread() {
@@ -421,6 +436,23 @@ export default function HomeScreen({ navigation }: Props) {
       {/* TODO: smoke-test in browser */}
       <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
 
+      {/* ── Record a Match (only when the user is in a league) ── */}
+      {/* TODO: smoke-test in browser */}
+      {inLeague && (
+        <TouchableOpacity
+          style={s.recordCard}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MatchEntry', { fromHome: true })}
+        >
+          <Text style={s.recordIcon}>📝</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.recordTitle}>Record a Match</Text>
+            <Text style={s.recordSub}>Log your latest result</Text>
+          </View>
+          <Text style={s.recordChevron}>›</Text>
+        </TouchableOpacity>
+      )}
+
       {/* ── Nav grid ────────────────────────────────── */}
       <View style={s.grid}>
         {NAV_ITEMS.map(({ icon, label, screen, params }) => (
@@ -598,6 +630,19 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     welcomeBtnText:  { color: '#fff', fontWeight: '800', fontSize: 14 },
     welcomeBtnSecondary: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     welcomeBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
+
+    recordCard: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      marginHorizontal: 16, marginTop: 16,
+      paddingHorizontal: 16, paddingVertical: 16,
+      borderRadius: 14,
+      backgroundColor: '#fff8e1', borderWidth: 1.5, borderColor: '#ffe082',
+      elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+    },
+    recordIcon:    { fontSize: 30 },
+    recordTitle:   { fontSize: 17, fontWeight: '800', color: '#b8860b' },
+    recordSub:     { fontSize: 13, color: '#b8860b', marginTop: 2, opacity: 0.85 },
+    recordChevron: { fontSize: 26, color: '#b8860b', fontWeight: '700' },
 
     grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, marginTop: 8 },
 
