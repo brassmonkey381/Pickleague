@@ -1135,6 +1135,51 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           )}
         </View>
 
+        {/* ── Registration / invite CTA (primary action — sits directly under the
+            header so it's the first thing a prospective member sees) ──
+            TODO: smoke-test in browser */}
+        {canRegister && (
+          <TouchableOpacity style={S.registerBtn} onPress={register}>
+            <Text style={S.registerBtnText}>📝 Request to Join</Text>
+          </TouchableOpacity>
+        )}
+        {tournament.registration_mode === 'invite_only' && !myReg && (
+          <View style={S.inviteNote}>
+            <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
+          </View>
+        )}
+        {myReg && myReg.status === 'pending' && myReg.invited_by ? (
+          <View style={[S.myRegBadge, S.regPending]}>
+            <Text style={S.myRegText}>
+              📨 {playerName(myReg.invited_by)} invited you to this tournament.
+            </Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: c.primary, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => respondToTournamentInvite(myReg.id, true)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>Accept invite</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1.5, borderColor: c.border, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
+                onPress={() => respondToTournamentInvite(myReg.id, false)}
+              >
+                <Text style={{ color: c.textSub, fontWeight: '700' }}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : myReg && (
+          <View style={[S.myRegBadge,
+            myReg.status === 'approved' ? S.regApproved :
+            myReg.status === 'rejected' ? S.regRejected : S.regPending]}>
+            <Text style={S.myRegText}>
+              {myReg.status === 'approved' ? '✓ You\'re in the tournament!'
+               : myReg.status === 'rejected' ? '✗ Request not approved'
+               : '⏳ Registration pending — an admin will review your request shortly.'}
+            </Text>
+          </View>
+        )}
+
         <StatusBanner status={status.value} style={{ marginHorizontal: 12 }} />
 
         {/* ── Quick action row ── */}
@@ -1304,49 +1349,6 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 : '⏰ Set expected bracket release time'}
             </Text>
           </TouchableOpacity>
-        )}
-
-        {/* ── Registration ── */}
-        {canRegister && (
-          <TouchableOpacity style={S.registerBtn} onPress={register}>
-            <Text style={S.registerBtnText}>📝 Request to Join</Text>
-          </TouchableOpacity>
-        )}
-        {tournament.registration_mode === 'invite_only' && !myReg && (
-          <View style={S.inviteNote}>
-            <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
-          </View>
-        )}
-        {myReg && myReg.status === 'pending' && myReg.invited_by ? (
-          <View style={[S.myRegBadge, S.regPending]}>
-            <Text style={S.myRegText}>
-              📨 {playerName(myReg.invited_by)} invited you to this tournament.
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: c.primary, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
-                onPress={() => respondToTournamentInvite(myReg.id, true)}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Accept invite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1.5, borderColor: c.border, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
-                onPress={() => respondToTournamentInvite(myReg.id, false)}
-              >
-                <Text style={{ color: c.textSub, fontWeight: '700' }}>Decline</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : myReg && (
-          <View style={[S.myRegBadge,
-            myReg.status === 'approved' ? S.regApproved :
-            myReg.status === 'rejected' ? S.regRejected : S.regPending]}>
-            <Text style={S.myRegText}>
-              {myReg.status === 'approved' ? '✓ You\'re in the tournament!'
-               : myReg.status === 'rejected' ? '✗ Request not approved'
-               : '⏳ Registration pending — an admin will review your request shortly.'}
-            </Text>
-          </View>
         )}
 
         {/* ── Doubles partner pair (non-MLP doubles formats) ── */}
