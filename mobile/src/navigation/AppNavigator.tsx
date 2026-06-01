@@ -178,13 +178,19 @@ export default function AppNavigator() {
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
     (async () => {
-      // Guest-pass expiry: if this is a guest whose 7 days have lapsed, sign out.
-      const { data: prof } = await supabase
+      // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
+      // have lapsed, or if the profile is gone entirely (the hourly cleanup
+      // deletes expired anonymous users, leaving a stale token with no profile).
+      // Only act on a definitive "no profile" (null data, no error) so a flaky
+      // network read never signs out a legit user.
+      const { data: prof, error: profErr } = await supabase
         .from('profiles')
         .select('is_guest, guest_expires_at')
         .eq('id', session.user.id)
         .maybeSingle();
-      if (prof?.is_guest && prof.guest_expires_at && new Date(prof.guest_expires_at) < new Date()) {
+      const expiredGuest = !!prof?.is_guest && !!prof.guest_expires_at
+        && new Date(prof.guest_expires_at) < new Date();
+      if (expiredGuest || (!profErr && !prof)) {
         await supabase.auth.signOut();
         return;
       }
