@@ -11,6 +11,9 @@ import { LeagueEvent, EventSlot, Profile, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
+import ContactPickerModal from '../components/ContactPickerModal';
+import { sendSmsInvite } from '../lib/sms';
+import { DeviceContact } from '../lib/contacts';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -41,6 +44,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const S = makeStyles(c);
 
   const [event, setEvent] = useState<LeagueEvent | null>(null);
+  const [leagueName, setLeagueName] = useState<string>('');
+  const [isMember, setIsMember] = useState(false);
+  const [showGuestPicker, setShowGuestPicker] = useState(false);
+  const [invitingGuests, setInvitingGuests] = useState(false);
   const [closeWinner, setCloseWinner] = useState<EventSlot | null>(null);
   const [closing, setClosing]         = useState(false);
   const [slots, setSlots] = useState<EventSlot[]>([]);
@@ -80,6 +87,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       .select('*', { count: 'exact', head: true })
       .eq('league_id', ev.league_id);
     setMemberCount(count ?? 0);
+
+    const { data: lg } = await supabase.from('leagues').select('name').eq('id', ev.league_id).single();
+    setLeagueName(lg?.name ?? '');
 
     const { data: slotRows } = await supabase
       .from('event_slots')
@@ -168,8 +178,35 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const votingIsOpen = event?.status === 'voting' && new Date(event.vote_ends_at) > new Date();
   const [canClose, setCanClose] = React.useState(false);
   React.useEffect(() => {
-    if (event?.league_id) getLeagueRole(event.league_id).then(r => setCanClose(isPrivileged(r)));
+    if (event?.league_id) getLeagueRole(event.league_id).then(r => {
+      setCanClose(isPrivileged(r));
+      setIsMember(r != null);
+    });
   }, [event?.league_id]);
+
+  // Pick phone contacts → mint a shared guest invite → group-text the link.
+  async function sendGuestInvites(contacts: DeviceContact[]) {
+    if (!event || contacts.length === 0) return;
+    setInvitingGuests(true);
+    const { data, error } = await supabase.rpc('create_guest_invite', {
+      p_league_id:     event.league_id,
+      p_event_id:      eventId,
+      p_invited_names: contacts.map(c => c.name),
+    });
+    setInvitingGuests(false);
+    setShowGuestPicker(false);
+    const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
+    if (error || !token) {
+      Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
+      return;
+    }
+    const link = `https://pickleague.club/g/${token}`;
+    const where = leagueName ? ` in ${leagueName}` : '';
+    const message =
+      `You're invited to vote on a time for "${event.title}"${where} on Pickleague! 🥒\n` +
+      `Tap to join the vote — no account needed (7-day guest pass): ${link}`;
+    await sendSmsInvite({ message, recipients: contacts.map(c => c.phone) });
+  }
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
   if (!event) return <Text style={{ padding: 24, color: c.text }}>Event not found.</Text>;
@@ -259,6 +296,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         </Text>
       )}
 
+      {/* Invite guests (members only, while voting is open) */}
+      {votingIsOpen && isMember && (
+        <TouchableOpacity style={S.inviteGuestsBtn} onPress={() => setShowGuestPicker(true)}>
+          <Text style={S.inviteGuestsText}>📲  Invite guests to vote</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Slot cards */}
       {slots.map((slot) => {
         const isWinner = slot.id === event.confirmed_slot_id;
@@ -339,6 +383,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         onConfirm={confirmCloseVoting}
         onClose={() => setCloseWinner(null)}
       />
+
+      <ContactPickerModal
+        visible={showGuestPicker}
+        busy={invitingGuests}
+        onConfirm={sendGuestInvites}
+        onClose={() => setShowGuestPicker(false)}
+      />
     </ScrollView>
   );
 }
@@ -371,6 +422,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     matchRowTeams:        { fontSize: 14, fontWeight: '700', color: c.text },
     matchRowMeta:         { fontSize: 12, color: c.textSub, marginTop: 2 },
     voteInstruction: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginVertical: 8, paddingHorizontal: 16 },
+    inviteGuestsBtn: { marginHorizontal: 12, marginBottom: 8, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: c.primaryLight },
+    inviteGuestsText: { color: c.primary, fontSize: 14, fontWeight: '700' },
     slotCard: { backgroundColor: c.surface, marginHorizontal: 12, marginBottom: 10, borderRadius: 14, padding: 14, borderWidth: 2, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
     slotCardVoted: { borderColor: c.primary, backgroundColor: c.primaryLight },
     slotCardWinner: { borderColor: '#1565c0', backgroundColor: '#e8eaf6' },

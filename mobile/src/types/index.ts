@@ -449,6 +449,7 @@ export type Wager = {
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  GuestJoin: { token: string };
   Home: undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
