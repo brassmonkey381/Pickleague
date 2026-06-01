@@ -5,16 +5,27 @@ import { RootStackParamList } from '../types';
 // lib/push.ts) can navigate without prop-drilling the navigation object.
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
-// Pending navigation that must survive an auth-stack swap. The guest-join flow
-// signs the user in (anonymously), which unmounts the logged-out screen before
-// it can navigate — so we stash the target here and flush once the logged-in
-// navigator is mounted. Retries briefly because the target screen only exists
-// after the post-sign-in re-render commits.
+// Single pending-navigation queue for any navigate that must wait for the
+// navigator to become ready — a cold-start push tap (the container is gated
+// behind the auth-loading splash) or the guest-join flow (anonymous sign-in
+// unmounts the logged-out screen before it can navigate). Callers resolve their
+// target to a concrete (name, params) and hand it here; we navigate when ready,
+// retrying briefly because the target screen only exists after the relevant
+// re-render commits.
 type PendingNav = { name: keyof RootStackParamList; params?: object };
 let pendingNav: PendingNav | null = null;
 
-export function setPendingNavigation(name: keyof RootStackParamList, params?: object): void {
+function setPendingNavigation(name: keyof RootStackParamList, params?: object): void {
   pendingNav = { name, params };
+}
+
+/**
+ * Navigate now if the navigator is ready, otherwise queue and deliver once it
+ * is (survives the auth-loading splash and the logged-out↔logged-in stack swap).
+ */
+export function navigateWhenReady(name: keyof RootStackParamList, params?: object): void {
+  setPendingNavigation(name, params);
+  flushPendingNavigation();
 }
 
 export function flushPendingNavigation(attempt = 0): void {
