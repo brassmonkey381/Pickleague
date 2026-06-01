@@ -65,16 +65,21 @@ export default function SettingsScreen({ navigation }: Props) {
     if (error) status.error(`Couldn't save preferences: ${error}`);
   }
 
-  // Master push toggle. Turning it on triggers the OS permission prompt and
-  // registers this device's push token; if the user denies at the OS level we
-  // still keep the pref on (no token gets stored, so nothing is delivered).
+  // Master push toggle (opt-in). Turning it on triggers the OS permission
+  // prompt and registers a token; we only persist pushEnabled=true if a token
+  // was actually obtained, so the switch never claims "on" when the OS denied
+  // permission (or on web, where push isn't supported).
   async function togglePush(val: boolean) {
-    await savePrefs({ ...prefs, pushEnabled: val });
-    if (val) {
-      const token = await registerForPushNotificationsAsync();
-      if (!token) {
-        status.error('Enable notifications for Pickleague in your device settings to receive push.');
-      }
+    if (!val) {
+      await savePrefs({ ...prefs, pushEnabled: false });
+      return;
+    }
+    const token = await registerForPushNotificationsAsync();
+    if (token) {
+      await savePrefs({ ...prefs, pushEnabled: true });
+    } else {
+      await savePrefs({ ...prefs, pushEnabled: false });
+      status.error('Enable notifications for Pickleague in your device settings to receive push.');
     }
   }
 

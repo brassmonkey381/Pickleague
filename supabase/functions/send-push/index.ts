@@ -88,9 +88,11 @@ serve(async (req) => {
     .maybeSingle();
   const prefs = (prefRow?.prefs ?? {}) as Record<string, unknown>;
 
-  // Master toggle. Defaults ON when unset (parity with DEFAULT_PREFS).
-  if (prefs.pushEnabled === false) {
-    return json({ skipped: 'pushEnabled is false' });
+  // Master toggle. Push is opt-in: deliver only when the user has explicitly
+  // enabled it. Missing/undefined/false all mean "not opted in" → skip. (A token
+  // only exists after opt-in anyway, but this is the authoritative gate.)
+  if (prefs.pushEnabled !== true) {
+    return json({ skipped: 'push not enabled' });
   }
   // Prefer the precise category gate when the row carries one; else fall back
   // to the coarse type→pref map.
