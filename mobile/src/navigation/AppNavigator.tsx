@@ -12,6 +12,9 @@ import SpotlightTour from '../components/SpotlightTour';
 import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
+import { navigationRef } from '../lib/navigationRef';
+import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
+import { loadUserPreferences } from '../lib/userPreferences';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -156,15 +159,34 @@ export default function AppNavigator() {
     // Warm the court-nickname cache so display helpers across screens have
     // data on first render.
     ensureCourtNicknamesLoaded();
-    return () => subscription.unsubscribe();
+    // Route taps on push notifications to the relevant screen (live + cold start).
+    const teardownTaps = setupNotificationTapHandling();
+    return () => {
+      subscription.unsubscribe();
+      teardownTaps();
+    };
   }, []);
+
+  // Register this device for push whenever a session is present. Respects the
+  // user's saved master toggle — if push is disabled we skip the OS prompt.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      const { pushEnabled } = await loadUserPreferences();
+      if (!cancelled && pushEnabled) {
+        void registerForPushNotificationsAsync();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
 
   return (
     <ToastProvider>
       <TourProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
-          <NavigationContainer theme={navTheme} linking={linking} fallback={<View />}>
+          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />}>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>

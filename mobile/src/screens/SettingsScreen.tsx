@@ -12,6 +12,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
+import { registerForPushNotificationsAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
   loadUserPreferences,
@@ -62,6 +63,19 @@ export default function SettingsScreen({ navigation }: Props) {
     setPrefs(next);
     const { error } = await saveUserPreferences(next);
     if (error) status.error(`Couldn't save preferences: ${error}`);
+  }
+
+  // Master push toggle. Turning it on triggers the OS permission prompt and
+  // registers this device's push token; if the user denies at the OS level we
+  // still keep the pref on (no token gets stored, so nothing is delivered).
+  async function togglePush(val: boolean) {
+    await savePrefs({ ...prefs, pushEnabled: val });
+    if (val) {
+      const token = await registerForPushNotificationsAsync();
+      if (!token) {
+        status.error('Enable notifications for Pickleague in your device settings to receive push.');
+      }
+    }
   }
 
   async function loadProfile() {
@@ -305,8 +319,15 @@ export default function SettingsScreen({ navigation }: Props) {
       </View>
 
       {/* ── Notifications ────────────────────── */}
-      <SectionHeader title="Notifications" />
+      <SectionHeader title="Push Notifications" />
       <View style={styles.card}>
+        <ToggleRow
+          label="Push notifications"
+          desc="Get these on your phone. Turning a type off keeps it in the in-app bell — it just won't push."
+          value={prefs.pushEnabled}
+          onChange={togglePush}
+        />
+        <Divider />
         <ToggleRow
           label="Match results"
           desc="When a match you played is recorded"
@@ -316,7 +337,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <Divider />
         <ToggleRow
           label="Event reminders"
-          desc="24 hours before a league event starts"
+          desc="Before a league event starts, and before a scheduling vote closes"
           value={prefs.notifyEventReminders}
           onChange={(v) => savePrefs({ ...prefs, notifyEventReminders: v })}
         />

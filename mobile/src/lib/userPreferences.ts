@@ -11,6 +11,9 @@ export type MatchType = 'singles' | 'doubles';
 export type ScoreLimit = 11 | 15 | 21;
 
 export type Prefs = {
+  /** Master switch for phone push notifications. In-app notifications are
+   *  unaffected — they always appear in the bell/list. */
+  pushEnabled:              boolean;
   notifyMatchResults:       boolean;
   notifyEventReminders:     boolean;
   notifyLeagueUpdates:      boolean;
@@ -21,6 +24,7 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
+  pushEnabled:              true,
   notifyMatchResults:       true,
   notifyEventReminders:     true,
   notifyLeagueUpdates:      true,
