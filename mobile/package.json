@@ -21,6 +21,7 @@
     "expo": "~54.0.33",
     "expo-clipboard": "~8.0.8",
     "expo-constants": "~18.0.13",
+    "expo-contacts": "~15.0.11",
     "expo-device": "~8.0.10",
     "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",

@@ -12,7 +12,7 @@ import SpotlightTour from '../components/SpotlightTour';
 import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
-import { navigationRef } from '../lib/navigationRef';
+import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
 import { registerForPushNotificationsAsync, setupNotificationTapHandling, flushPendingNotificationRoute } from '../lib/push';
 import { loadUserPreferences } from '../lib/userPreferences';
 
@@ -53,6 +53,7 @@ import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 import MyWagersScreen from '../screens/MyWagersScreen';
+import GuestJoinScreen from '../screens/GuestJoinScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -83,6 +84,7 @@ const linking: LinkingOptions<RootStackParamList> = {
     screens: {
       Login: 'login',
       Register: 'register',
+      GuestJoin: 'g/:token',
       Home: '',
       Leagues: 'leagues',
       LeagueDetail: 'leagues/:leagueId',
@@ -167,12 +169,25 @@ export default function AppNavigator() {
     };
   }, []);
 
-  // Register this device for push whenever a session is present. Respects the
-  // user's saved master toggle — if push is disabled we skip the OS prompt.
+  // On sign-in: deliver any deep-link queued across the auth-stack swap (e.g. the
+  // guest-join flow lands on the event vote), enforce guest-pass expiry, and
+  // register for push (respecting the saved master toggle).
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+    // Flush a pending guest-join destination once the logged-in stack mounts.
+    flushPendingNavigation();
     (async () => {
+      // Guest-pass expiry: if this is a guest whose 7 days have lapsed, sign out.
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('is_guest, guest_expires_at')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (prof?.is_guest && prof.guest_expires_at && new Date(prof.guest_expires_at) < new Date()) {
+        await supabase.auth.signOut();
+        return;
+      }
       const { pushEnabled } = await loadUserPreferences();
       if (!cancelled && pushEnabled) {
         void registerForPushNotificationsAsync();
@@ -186,7 +201,7 @@ export default function AppNavigator() {
       <TourProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
-          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={flushPendingNotificationRoute}>
+          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={() => { flushPendingNotificationRoute(); flushPendingNavigation(); }}>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>
@@ -225,11 +240,15 @@ export default function AppNavigator() {
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
                 <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
+                {/* Reachable while signed in so a member tapping a guest link
+                    resolves; the screen short-circuits to the event. */}
+                <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />
               </>
             ) : (
               <>
                 <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+                <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ title: 'Join the vote' }} />
               </>
             )}
             </Stack.Navigator>
