@@ -14,7 +14,8 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { supabase } from './supabase';
-import { navigationRef } from './navigationRef';
+import { navigateWhenReady } from './navigationRef';
+import { RootStackParamList } from '../types';
 
 // Show notifications while the app is foregrounded too (otherwise native only
 // surfaces them when backgrounded).
@@ -107,76 +108,47 @@ type PushData = {
   title?: string;
 };
 
-// A cold-start tap can resolve before <NavigationContainer> mounts (it's gated
-// behind the auth-loading splash), so navigationRef isn't ready yet. We stash
-// the route and flush it from NavigationContainer's onReady.
-let pendingRoute: PushData | null = null;
-
-/** Called from NavigationContainer onReady to deliver any queued cold-start tap. */
-export function flushPendingNotificationRoute(): void {
-  if (pendingRoute) {
-    const data = pendingRoute;
-    pendingRoute = null;
-    routeNotification(data);
+// Resolve a tapped push to a concrete screen target. Mirrors the entity_type
+// routing in NotificationsScreen.handleTap (minus invite auto-accept, which
+// stays on the in-app notification list). Returns null when there's nothing to
+// open (e.g. a tournament/league push with no entity_id).
+function resolvePushTarget(
+  data: PushData,
+): { name: keyof RootStackParamList; params?: object } | null {
+  const { entity_type, entity_id, title } = data;
+  switch (entity_type) {
+    case 'tournament':
+      return entity_id
+        ? { name: 'TournamentDetail', params: { tournamentId: entity_id, tournamentName: (title ?? '').replace('🏆 ', '') || 'Tournament' } }
+        : null;
+    case 'league':
+      return entity_id
+        ? { name: 'LeagueDetail', params: { leagueId: entity_id, leagueName: title ?? 'League' } }
+        : null;
+    case 'match':
+      return { name: 'MatchHistory', params: { title: 'Match History', initialMyMatchesOnly: true, highlightMatchId: entity_id ?? undefined } };
+    case 'drill':
+      return { name: 'DrillRequests' };
+    case 'shop':
+      return { name: 'Shop' };
+    case 'profile':
+      return { name: 'Profile', params: { userId: entity_id ?? undefined } };
+    case 'plupr_history':
+      return { name: 'CalendarAnalytics', params: { userId: entity_id ?? undefined, title: 'My PLUPR History' } };
+    default:
+      return { name: 'Notifications' };
   }
 }
 
 /**
- * Deep-links a tapped push to the relevant screen. Mirrors the entity_type
- * routing in NotificationsScreen.handleTap (minus invite auto-accept, which
- * stays on the in-app notification list).
+ * Deep-links a tapped push to the relevant screen. Uses the shared
+ * navigateWhenReady queue so a cold-start tap (navigator not yet mounted) is
+ * delivered once it is.
  */
 export function routeNotification(data: PushData | undefined | null): void {
   if (!data) return;
-  if (!navigationRef.isReady()) {
-    // Nav not mounted yet (cold start) — queue and flush on onReady.
-    pendingRoute = data;
-    return;
-  }
-  const { entity_type, entity_id, title } = data;
-
-  switch (entity_type) {
-    case 'tournament':
-      if (entity_id) {
-        navigationRef.navigate('TournamentDetail', {
-          tournamentId: entity_id,
-          tournamentName: (title ?? '').replace('🏆 ', '') || 'Tournament',
-        });
-      }
-      break;
-    case 'league':
-      if (entity_id) {
-        navigationRef.navigate('LeagueDetail', {
-          leagueId: entity_id,
-          leagueName: title ?? 'League',
-        });
-      }
-      break;
-    case 'match':
-      navigationRef.navigate('MatchHistory', {
-        title: 'Match History',
-        initialMyMatchesOnly: true,
-        highlightMatchId: entity_id ?? undefined,
-      });
-      break;
-    case 'drill':
-      navigationRef.navigate('DrillRequests');
-      break;
-    case 'shop':
-      navigationRef.navigate('Shop');
-      break;
-    case 'profile':
-      navigationRef.navigate('Profile', { userId: entity_id ?? undefined });
-      break;
-    case 'plupr_history':
-      navigationRef.navigate('CalendarAnalytics', {
-        userId: entity_id ?? undefined,
-        title: 'My PLUPR History',
-      });
-      break;
-    default:
-      navigationRef.navigate('Notifications');
-  }
+  const target = resolvePushTarget(data);
+  if (target) navigateWhenReady(target.name, target.params);
 }
 
 /**

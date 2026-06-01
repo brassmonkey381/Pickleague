@@ -8,7 +8,7 @@ import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
-import { setPendingNavigation, flushPendingNavigation } from '../lib/navigationRef';
+import { navigateWhenReady } from '../lib/navigationRef';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'GuestJoin'>;
@@ -76,10 +76,10 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
     setSubmitting(true);
     setError(null);
 
-    // Stash the destination BEFORE sign-in: signing in swaps the navigator to the
-    // logged-in stack and unmounts this screen, so we can't navigate from here.
-    // We don't yet know the event id; redeem returns it, but the stack swap may
-    // race — so we set a placeholder and overwrite after redeem, then flush.
+    // Signing in swaps the navigator to the logged-in stack and unmounts this
+    // screen, so we can't navigate from here directly. redeem returns the event
+    // id; we hand it to navigateWhenReady, which delivers once the logged-in
+    // stack (and EventDetail) has mounted.
     const { error: authErr } = await supabase.auth.signInAnonymously({
       options: { data: { full_name: trimmed } },
     });
@@ -102,8 +102,7 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
       return;
     }
 
-    setPendingNavigation('EventDetail', { eventId: row.event_id, title: row.event_title });
-    flushPendingNavigation();
+    navigateWhenReady('EventDetail', { eventId: row.event_id, title: row.event_title });
   }
 
   if (loading) {
