@@ -162,7 +162,10 @@ begin
     raise exception 'Event does not belong to this league';
   end if;
 
-  v_token := upper(encode(gen_random_bytes(5), 'hex'));  -- 10-char URL-safe token
+  -- Use core gen_random_uuid() (pg_catalog, always on search_path) rather than
+  -- pgcrypto's gen_random_bytes/encode, which live in the `extensions` schema
+  -- and would not resolve under this function's `search_path = public`.
+  v_token := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));  -- 12-char URL-safe token
 
   insert into public.guest_invites (token, league_id, event_id, created_by, invited_names)
   values (v_token, p_league_id, p_event_id, auth.uid(), coalesce(p_invited_names, '{}'));
@@ -191,6 +194,14 @@ declare
 begin
   if auth.uid() is null then
     raise exception 'Not authenticated';
+  end if;
+
+  -- Only an anonymous (guest) session may redeem. Without this, a real user who
+  -- called this RPC directly would have their profile overwritten (is_guest=true,
+  -- name, 7-day expiry) and get signed out / cron-removed. The client never calls
+  -- this for a real user, but the server must enforce it too.
+  if coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) is not true then
+    raise exception 'Only a guest session can redeem a guest invite';
   end if;
 
   select * into v_inv
