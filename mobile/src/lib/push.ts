@@ -81,7 +81,23 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     },
     { onConflict: 'token' },
   );
+  lastRegisteredToken = token;
   return token;
+}
+
+// Remembered so we can delete exactly this device's row on sign-out.
+let lastRegisteredToken: string | null = null;
+
+/**
+ * Removes this device's push token so a signed-out (or switched) account stops
+ * receiving pushes here. MUST be called while still authenticated — the RLS
+ * delete policy requires auth.uid() = user_id.
+ */
+export async function unregisterPushTokenAsync(): Promise<void> {
+  if (!lastRegisteredToken) return;
+  const token = lastRegisteredToken;
+  lastRegisteredToken = null;
+  await supabase.from('push_tokens').delete().eq('token', token);
 }
 
 type PushData = {
@@ -91,13 +107,32 @@ type PushData = {
   title?: string;
 };
 
+// A cold-start tap can resolve before <NavigationContainer> mounts (it's gated
+// behind the auth-loading splash), so navigationRef isn't ready yet. We stash
+// the route and flush it from NavigationContainer's onReady.
+let pendingRoute: PushData | null = null;
+
+/** Called from NavigationContainer onReady to deliver any queued cold-start tap. */
+export function flushPendingNotificationRoute(): void {
+  if (pendingRoute) {
+    const data = pendingRoute;
+    pendingRoute = null;
+    routeNotification(data);
+  }
+}
+
 /**
  * Deep-links a tapped push to the relevant screen. Mirrors the entity_type
  * routing in NotificationsScreen.handleTap (minus invite auto-accept, which
  * stays on the in-app notification list).
  */
 export function routeNotification(data: PushData | undefined | null): void {
-  if (!data || !navigationRef.isReady()) return;
+  if (!data) return;
+  if (!navigationRef.isReady()) {
+    // Nav not mounted yet (cold start) — queue and flush on onReady.
+    pendingRoute = data;
+    return;
+  }
   const { entity_type, entity_id, title } = data;
 
   switch (entity_type) {

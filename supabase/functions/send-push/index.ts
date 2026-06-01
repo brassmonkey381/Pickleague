@@ -130,18 +130,31 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(messages),
   });
+
+  // A non-2xx response means Expo didn't accept the batch (rate limit, outage,
+  // bad request). Surface it instead of falsely reporting success — and don't
+  // prune, since we have no per-token verdicts.
+  if (!expoRes.ok) {
+    const detail = await expoRes.text().catch(() => '');
+    return json({ error: 'expo push failed', status: expoRes.status, detail }, 502);
+  }
+
   const expoJson = await expoRes.json().catch(() => null);
 
   // ── Prune dead tokens ──────────────────────────────────────────────────
-  // Expo returns one ticket per message, in order. A DeviceNotRegistered error
-  // means the token is permanently invalid → delete it.
-  const tickets: any[] = expoJson?.data ?? [];
+  // Expo returns one ticket per message, in the same order. A DeviceNotRegistered
+  // error means the token is permanently invalid → delete it. Only prune when
+  // the ticket count matches the tokens we sent, so a malformed/short response
+  // can never delete the wrong token.
+  const tickets: any[] = Array.isArray(expoJson?.data) ? expoJson.data : [];
   const dead: string[] = [];
-  tickets.forEach((t, i) => {
-    if (t?.status === 'error' && t?.details?.error === 'DeviceNotRegistered') {
-      dead.push(tokens[i]);
-    }
-  });
+  if (tickets.length === tokens.length) {
+    tickets.forEach((t, i) => {
+      if (t?.status === 'error' && t?.details?.error === 'DeviceNotRegistered') {
+        dead.push(tokens[i]);
+      }
+    });
+  }
   if (dead.length > 0) {
     await admin.from('push_tokens').delete().in('token', dead);
   }

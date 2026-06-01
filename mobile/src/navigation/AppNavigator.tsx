@@ -13,7 +13,7 @@ import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef } from '../lib/navigationRef';
-import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
+import { registerForPushNotificationsAsync, setupNotificationTapHandling, flushPendingNotificationRoute } from '../lib/push';
 import { loadUserPreferences } from '../lib/userPreferences';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -186,7 +186,7 @@ export default function AppNavigator() {
       <TourProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
-          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />}>
+          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={flushPendingNotificationRoute}>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>

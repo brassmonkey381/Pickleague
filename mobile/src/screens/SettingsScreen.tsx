@@ -12,7 +12,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
-import { registerForPushNotificationsAsync } from '../lib/push';
+import { registerForPushNotificationsAsync, unregisterPushTokenAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
   loadUserPreferences,
@@ -136,6 +136,9 @@ export default function SettingsScreen({ navigation }: Props) {
   async function doSignOut() {
     setSigningOut(true);
     try {
+      // Remove this device's push token first — the RLS delete policy needs the
+      // session, so it must happen before signOut() clears auth.
+      await unregisterPushTokenAsync();
       await supabase.auth.signOut();
     } finally {
       setSigningOut(false);
