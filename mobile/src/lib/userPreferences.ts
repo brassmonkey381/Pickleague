@@ -11,6 +11,10 @@ export type MatchType = 'singles' | 'doubles';
 export type ScoreLimit = 11 | 15 | 21;
 
 export type Prefs = {
+  /** Master switch for phone push notifications. Opt-in: defaults off until the
+   *  user enables it and grants OS permission. In-app notifications are
+   *  unaffected — they always appear in the bell/list regardless. */
+  pushEnabled:              boolean;
   notifyMatchResults:       boolean;
   notifyEventReminders:     boolean;
   notifyLeagueUpdates:      boolean;
@@ -21,6 +25,7 @@ export type Prefs = {
 };
 
 export const DEFAULT_PREFS: Prefs = {
+  pushEnabled:              false,
   notifyMatchResults:       true,
   notifyEventReminders:     true,
   notifyLeagueUpdates:      true,

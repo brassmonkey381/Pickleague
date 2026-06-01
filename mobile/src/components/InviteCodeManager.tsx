@@ -8,6 +8,7 @@ import { setClipboard } from '../lib/clipboard';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { shareInvite } from '../lib/share';
+import { sendSmsInvite } from '../lib/sms';
 import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -237,6 +238,15 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     }
   }
 
+  async function textInvite() {
+    if (!invite) return;
+    const result = await sendSmsInvite({ message: buildInviteMessage() });
+    if (result.copied) {
+      // No SMS handler (e.g. desktop browser) — we copied instead.
+      status.success('No texting app found — invite copied to clipboard');
+    }
+  }
+
   if (loading) return <ActivityIndicator style={{ marginVertical: 30 }} size="large" color={c.primary} />;
 
   const subsidyPreview = (() => {
@@ -278,6 +288,10 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
           <TouchableOpacity style={S.primaryBtn} onPress={openBroadcast}>
             <Text style={S.primaryBtnText}>💬  Invite Players In-App</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={S.secondaryBtn} onPress={textInvite}>
+            <Text style={S.secondaryBtnText}>📱  Invite via Text</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={S.secondaryBtn} onPress={share}>
