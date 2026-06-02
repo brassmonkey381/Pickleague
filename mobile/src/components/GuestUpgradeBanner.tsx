@@ -17,10 +17,13 @@ export default function GuestUpgradeBanner() {
 
   useEffect(() => {
     let cancelled = false;
-    async function check() {
-      const { data: { user } } = await supabase.auth.getUser();
-      // Only anonymous sessions can be guests — skip the DB query entirely for
-      // every normal (non-anonymous) user, on every auth event.
+    // IMPORTANT: never call an auth method (getUser/refreshSession) inside the
+    // onAuthStateChange callback — supabase-js invokes it while holding its auth
+    // lock, so an auth call there deadlocks. (That froze updateUser during the
+    // upgrade flow.) Use the session handed to us, and defer the PostgREST check
+    // off the lock with setTimeout. `supabase.from(...)` is lock-free, so safe.
+    async function check(user: { id: string; is_anonymous?: boolean } | null) {
+      // Only anonymous sessions can be guests — skip the DB query for everyone else.
       if (!user || !user.is_anonymous) { if (!cancelled) setIsGuest(false); return; }
       const { data } = await supabase
         .from('profiles')
@@ -29,8 +32,11 @@ export default function GuestUpgradeBanner() {
         .maybeSingle();
       if (!cancelled) setIsGuest(!!data?.is_guest);
     }
-    check();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => check());
+    supabase.auth.getSession().then(({ data: { session } }) => check(session?.user ?? null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      setTimeout(() => check(user), 0);
+    });
     return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);
 

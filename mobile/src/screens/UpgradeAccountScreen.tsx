@@ -85,45 +85,50 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
     setLoading(true);
-    // 1. Add email + password to the anonymous session (sends a confirmation
-    //    email; the user stays logged in as the same account). If a prior
-    //    attempt already set the email (the RPC below failed and they're
-    //    retrying), skip this — re-setting the same email would error — and go
-    //    straight to finalizing the profile.
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user?.email) {
-      const { error: authErr } = await supabase.auth.updateUser({
-        email,
-        password,
-        data: { full_name: fullName, gender },
+    try {
+      // 1. Add email + password to the anonymous session (sends a confirmation
+      //    email; the user stays logged in as the same account). If a prior
+      //    attempt already set the email (the RPC below failed and they're
+      //    retrying), skip this — re-setting the same email would error — and go
+      //    straight to finalizing the profile.
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) {
+        const { error: authErr } = await supabase.auth.updateUser({
+          email,
+          password,
+          data: { full_name: fullName, gender },
+        });
+        if (authErr) {
+          setErrorMessage(authErr.message);
+          return;
+        }
+      }
+
+      // 2. Finalize the profile server-side (username/gender/phone, clear guest
+      //    flags, make memberships permanent).
+      const { error: rpcErr } = await supabase.rpc('complete_guest_upgrade', {
+        p_full_name: fullName,
+        p_gender:    gender,
+        p_phone:     phone.trim() || null,
       });
-      if (authErr) {
-        setLoading(false);
-        setErrorMessage(authErr.message);
+      if (rpcErr) {
+        setErrorMessage(rpcErr.message ?? 'Could not finish setting up your account.');
         return;
       }
-    }
 
-    // 2. Finalize the profile server-side (username/gender/phone, clear guest
-    //    flags, make memberships permanent).
-    const { error: rpcErr } = await supabase.rpc('complete_guest_upgrade', {
-      p_full_name: fullName,
-      p_gender:    gender,
-      p_phone:     phone.trim() || null,
-    });
-    if (rpcErr) {
+      // Refresh claims (and let the guest banner hide) in the background — never
+      // await it: refreshSession can stall right after an email change, which
+      // would leave the button stuck on "Saving account...".
+      void supabase.auth.refreshSession().catch(() => { /* non-fatal */ });
+
+      setSuccessMessage('Account created! Check your email to confirm it — you stay signed in here meanwhile.');
+      setTimeout(() => navigation.goBack(), 2500);
+    } catch (e: any) {
+      // Surface any thrown rejection instead of silently hanging on "Saving…".
+      setErrorMessage(e?.message ?? 'Something went wrong. Please try again.');
+    } finally {
       setLoading(false);
-      setErrorMessage(rpcErr.message ?? 'Could not finish setting up your account.');
-      return;
     }
-
-    // Refresh the session so the new claims (and the cleared guest flag) take
-    // effect — this also tells the guest banner to hide.
-    try { await supabase.auth.refreshSession(); } catch { /* non-fatal */ }
-
-    setLoading(false);
-    setSuccessMessage('Account created! Check your email to confirm it — you stay signed in here meanwhile.');
-    setTimeout(() => navigation.goBack(), 2500);
   }
 
   const body = (
