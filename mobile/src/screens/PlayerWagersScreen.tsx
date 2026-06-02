@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -13,6 +13,7 @@ type Props = {
 
 type WagerOnPlayer = {
   wager_id: string;
+  bettor_id: string;
   bettor_name: string;
   stake: number;
   potential_payout: number;
@@ -89,7 +90,19 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
         return (
           <View style={S.card}>
             <View style={S.cardTop}>
-              <Text style={S.bettor} numberOfLines={1}>{item.bettor_name}</Text>
+              <TouchableOpacity
+                style={S.bettorWrap}
+                onPress={() => navigation.navigate('PlayerProfile', { userId: item.bettor_id, userName: item.bettor_name })}
+                activeOpacity={0.7}
+              >
+                <View style={S.bettorAvatar}>
+                  <Text style={S.bettorAvatarText}>{(item.bettor_name || '?')[0].toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={S.bettorLabel}>Wagered by</Text>
+                  <Text style={S.bettor} numberOfLines={1}>{item.bettor_name}</Text>
+                </View>
+              </TouchableOpacity>
               <View style={[S.statusChip, { borderColor: statusColor }]}>
                 <Text style={[S.statusText, { color: statusColor }]}>{STATUS_LABEL[item.status] ?? item.status}</Text>
               </View>
@@ -133,7 +146,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     card:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border },
     cardTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-    bettor:      { fontSize: 15, fontWeight: '700', color: c.text, flex: 1 },
+    bettorWrap:  { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
+    bettorAvatar:{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
+    bettorAvatarText: { fontSize: 14, fontWeight: '700', color: c.primary },
+    bettorLabel: { fontSize: 10, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+    bettor:      { fontSize: 15, fontWeight: '700', color: c.text },
     statusChip:  { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
     statusText:  { fontSize: 11, fontWeight: '700' },
     condition:   { fontSize: 13, color: c.textSub, marginTop: 4 },

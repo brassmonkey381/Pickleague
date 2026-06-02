@@ -262,6 +262,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // "Show all" toggle when the league has more than MARKET_TOP_N members.
   const [marketExpanded, setMarketExpanded] = useState(false);
   const [marketShowAll, setMarketShowAll]   = useState(false);
+  const [wagerTotals, setWagerTotals]       = useState<Record<string, number>>({});
 
   function openRowSheet(ctx: RowContext) {
     setRowContext(ctx);
@@ -312,6 +313,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       id: m.user_id,
       full_name: m.profile?.full_name ?? 'Unknown',
     })));
+
+    // Public "pickles wagered on this player" totals, scoped to this season.
+    const { data: wTotals } = await supabase.rpc('get_season_wager_totals', { p_season_id: seasonId });
+    const wMap: Record<string, number> = {};
+    (wTotals ?? []).forEach((t: any) => { if (t.user_id) wMap[t.user_id] = t.total; });
+    setWagerTotals(wMap);
 
     const todayIsoDate = new Date().toISOString().slice(0, 10);
 
@@ -863,6 +870,21 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                       style={S.tdName}
                       numberOfLines={1}
                     />
+                    {(wagerTotals[row.user_id] ?? 0) > 0 && (
+                      <TouchableOpacity
+                        style={S.wagerPill}
+                        onPress={() => navigation.navigate('PlayerWagers', {
+                          userId: row.user_id,
+                          userName: row.profile?.full_name ?? 'Player',
+                          scopeType: 'season',
+                          scopeId: seasonId,
+                          scopeName: season?.name ?? leagueName,
+                        })}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={S.wagerPillText}>🥒 {wagerTotals[row.user_id].toLocaleString()}</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
                   <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
@@ -947,6 +969,21 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                       style={S.tdName}
                       numberOfLines={1}
                     />
+                    {(wagerTotals[row.user_id] ?? 0) > 0 && (
+                      <TouchableOpacity
+                        style={S.wagerPill}
+                        onPress={() => navigation.navigate('PlayerWagers', {
+                          userId: row.user_id,
+                          userName: row.profile?.full_name ?? 'Player',
+                          scopeType: 'season',
+                          scopeId: seasonId,
+                          scopeName: season?.name ?? leagueName,
+                        })}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                      >
+                        <Text style={S.wagerPillText}>🥒 {wagerTotals[row.user_id].toLocaleString()}</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   <Text style={S.td}>{row.median_rank.toFixed(1)}</Text>
                   <Text style={[S.td, row.elo_bonus > 0 && S.tdBonus]}>
@@ -1126,6 +1163,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tdRank:         { flex: 0.6, fontSize: 18 },
     tdNameCell:     { flex: 3, flexDirection: 'row', alignItems: 'center', gap: 8 },
     tdName:         { flex: 1, fontSize: 14, fontWeight: '600', color: c.text },
+    wagerPill:      { backgroundColor: c.primaryLight, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 2 },
+    wagerPillText:  { fontSize: 10, fontWeight: '700', color: c.primary },
     tdWin:          { color: c.primary, fontWeight: '700' },
     tdLoss:         { color: c.danger },
     tdBonus:        { color: c.primary, fontWeight: '700' },
