@@ -169,6 +169,13 @@ export type LeagueEvent = {
   slots?: EventSlot[];
 };
 
+export type SlotVoter = {
+  id: string;
+  full_name: string | null;
+  avatar_emoji: string | null;
+  avatar_bg_color: string | null;
+};
+
 export type EventSlot = {
   id: string;
   event_id: string;
@@ -176,6 +183,7 @@ export type EventSlot = {
   ends_at: string;
   vote_count?: number;
   my_vote?: boolean;
+  voters?: SlotVoter[];
 };
 
 export type DoublesCategory = 'gendered' | 'mixed' | 'unspecified';
