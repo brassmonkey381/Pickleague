@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, ScrollView, Platform,
@@ -307,7 +307,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           ? supabase.from('leagues').select('id, name').in('id', qualifyingLeagueIds).order('name')
           : Promise.resolve({ data: [] as any[] }),
         qualifyingTournamentIds.length
-          ? supabase.from('tournaments').select('id, name').in('id', qualifyingTournamentIds).order('name')
+          ? supabase.from('tournaments').select('id, name, status, league_id').in('id', qualifyingTournamentIds).order('name')
           : Promise.resolve({ data: [] as any[] }),
       ]);
       if (cancelled) return;
@@ -324,6 +324,26 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     return () => { cancelled = true; };
     // myLeagueIdsKey: recompute once the user's own leagues finish loading.
   }, [pickLeagueInline, selectedPlayerKey, myLeagueIdsKey]);
+
+  // Only let a match be tagged with a tournament that is locked-in and running
+  // (status 'active') AND belongs to the selected league. Registration-stage,
+  // completed, or cancelled tournaments — and tournaments from other leagues —
+  // are not selectable.
+  const visibleTournaments = useMemo(
+    () => tournamentCandidates.filter(
+      t => t.status === 'active' && !!selectedLeagueId && t.league_id === selectedLeagueId,
+    ),
+    [tournamentCandidates, selectedLeagueId],
+  );
+
+  // Drop a tournament tag that no longer qualifies after a league/player change
+  // (inline-pick flow only; other entry points fix the tournament via route).
+  useEffect(() => {
+    if (!pickLeagueInline) return;
+    if (selectedTournamentId && !visibleTournaments.some(t => t.id === selectedTournamentId)) {
+      setSelectedTournamentId(null);
+    }
+  }, [pickLeagueInline, visibleTournaments, selectedTournamentId]);
 
   // Home-launched entry: when a league is picked, adopt its home court for the
   // home-court flags (and prefill the location field if the user hasn't set one,
@@ -718,15 +738,17 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           <TouchableOpacity
             style={S.dropdownField}
             activeOpacity={0.7}
-            disabled={selectedPlayerIds.length === 0 || tournamentCandidates.length === 0}
+            disabled={selectedPlayerIds.length === 0 || visibleTournaments.length === 0}
             onPress={() => setTournamentPickerOpen(true)}
           >
             <Text style={[S.dropdownText, !selectedTournamentId && S.dropdownPlaceholder]} numberOfLines={1}>
               {selectedPlayerIds.length === 0
                 ? 'Pick players first…'
-                : selectedTournamentId
-                  ? (tournamentCandidates.find(t => t.id === selectedTournamentId)?.name ?? '(none)')
-                  : tournamentCandidates.length === 0 ? 'No shared tournament' : '(none)'}
+                : !selectedLeagueId
+                  ? 'Pick a league first…'
+                  : selectedTournamentId
+                    ? (visibleTournaments.find(t => t.id === selectedTournamentId)?.name ?? '(none)')
+                    : visibleTournaments.length === 0 ? 'No active tournament in this league' : '(none)'}
             </Text>
             <Text style={S.dropdownChevron}>▾</Text>
           </TouchableOpacity>
@@ -921,7 +943,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           />
           <TournamentPickerModal
             visible={tournamentPickerOpen}
-            tournaments={tournamentCandidates}
+            tournaments={visibleTournaments}
             selectedId={selectedTournamentId}
             onPick={(id) => { setSelectedTournamentId(id); setTournamentPickerOpen(false); }}
             onClose={() => setTournamentPickerOpen(false)}

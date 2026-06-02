@@ -466,6 +466,10 @@ export type Wager = {
   actual_team2_score?: number | null;
   team_label_a?: string | null;
   team_label_b?: string | null;
+  // When the wagered-on thing is expected to resolve/end, and the league it
+  // rolls up to (for context when the subject alone isn't clear).
+  expected_end_at?: string | null;
+  league_name?: string | null;
 };
 
 export type RootStackParamList = {
