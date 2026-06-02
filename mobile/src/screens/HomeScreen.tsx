@@ -11,6 +11,7 @@ import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
 import FtueChecklistCard from '../components/FtueChecklistCard';
+import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { DumbbellIcon, SoloPlayerIcon, BallIcon } from '../components/PickleIcons';
 import {
@@ -287,6 +288,9 @@ export default function HomeScreen({ navigation }: Props) {
           <Text style={s.pickleLabel}>pickles · tap to shop</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Guest? Nudge to save the account (self-hides for real users). */}
+      <GuestUpgradeBanner />
 
       {/* ── First-time-user checklist (hides once all steps claimed) ── */}
       {/* TODO: smoke-test in browser */}
