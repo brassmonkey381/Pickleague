@@ -86,16 +86,22 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
 
     setLoading(true);
     // 1. Add email + password to the anonymous session (sends a confirmation
-    //    email; the user stays logged in as the same account).
-    const { error: authErr } = await supabase.auth.updateUser({
-      email,
-      password,
-      data: { full_name: fullName, gender },
-    });
-    if (authErr) {
-      setLoading(false);
-      setErrorMessage(authErr.message);
-      return;
+    //    email; the user stays logged in as the same account). If a prior
+    //    attempt already set the email (the RPC below failed and they're
+    //    retrying), skip this — re-setting the same email would error — and go
+    //    straight to finalizing the profile.
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.email) {
+      const { error: authErr } = await supabase.auth.updateUser({
+        email,
+        password,
+        data: { full_name: fullName, gender },
+      });
+      if (authErr) {
+        setLoading(false);
+        setErrorMessage(authErr.message);
+        return;
+      }
     }
 
     // 2. Finalize the profile server-side (username/gender/phone, clear guest

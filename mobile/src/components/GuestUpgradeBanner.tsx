@@ -19,7 +19,9 @@ export default function GuestUpgradeBanner() {
     let cancelled = false;
     async function check() {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { if (!cancelled) setIsGuest(false); return; }
+      // Only anonymous sessions can be guests — skip the DB query entirely for
+      // every normal (non-anonymous) user, on every auth event.
+      if (!user || !user.is_anonymous) { if (!cancelled) setIsGuest(false); return; }
       const { data } = await supabase
         .from('profiles')
         .select('is_guest')
