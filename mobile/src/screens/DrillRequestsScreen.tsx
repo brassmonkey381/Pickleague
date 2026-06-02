@@ -14,6 +14,7 @@ import { AVATARS } from '../data/profileCustomization';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
+import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
@@ -22,12 +23,6 @@ type Tab = 'incoming' | 'outgoing';
 
 // A past, not-yet-reviewed drill session the current user can review for pickles.
 type ReviewableSession = DrillSession & { partner_name: string };
-
-// 25 pickles per half hour of drilling, minimum one half hour.
-// Mirrors the bonus formula in submit_drill_review.
-function reviewBonus(lengthMinutes: number | null | undefined): number {
-  return Math.max(Math.floor((lengthMinutes ?? 30) / 30), 1) * 25;
-}
 
 export default function DrillRequestsScreen({}: Props) {
   const { colors } = useTheme();
@@ -117,10 +112,11 @@ export default function DrillRequestsScreen({}: Props) {
     setReviewable(list);
   }
 
-  function onReviewSubmitted(sessionId: string) {
-    // Drop the reviewed session from the list and close the modal.
+  function onReviewSubmitted(sessionId: string, earned: number) {
+    // Drop the reviewed session from the list, close the modal, and confirm the haul.
     setReviewable(prev => prev.filter(s => s.id !== sessionId));
     setReviewTarget(null);
+    status.success(`+${earned} pickles earned!`);
   }
 
   async function respondToRequest(req: DrillRequest, action: 'accept' | 'decline', acceptedSlot?: { date: string; slot: number }): Promise<boolean> {
@@ -225,24 +221,21 @@ export default function DrillRequestsScreen({}: Props) {
             <View style={S.reviewSection}>
               <Text style={S.reviewSectionTitle}>📝 Review your drills</Text>
               <Text style={S.reviewSectionSub}>
-                Share a quick rating to claim your pickle bonus.
+                Rate 5 aspects (5 🥒 each) and add a self-review (up to 50 🥒) to claim your bonus.
               </Text>
-              {reviewable.map(s => {
-                const bonus = reviewBonus(s.length_minutes);
-                return (
-                  <View key={s.id} style={S.reviewCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={S.reviewCardName}>Drill with {s.partner_name}</Text>
-                      <Text style={S.reviewCardSub}>
-                        {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotLabel(s.session_slot)} · {durationLabel(s.length_minutes ?? 60)}
-                      </Text>
-                    </View>
-                    <TouchableOpacity style={S.reviewCardBtn} onPress={() => setReviewTarget(s)}>
-                      <Text style={S.reviewCardBtnText}>📝 Review (+{bonus} 🥒)</Text>
-                    </TouchableOpacity>
+              {reviewable.map(s => (
+                <View key={s.id} style={S.reviewCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={S.reviewCardName}>Drill with {s.partner_name}</Text>
+                    <Text style={S.reviewCardSub}>
+                      {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotLabel(s.session_slot)} · {durationLabel(s.length_minutes ?? 60)}
+                    </Text>
                   </View>
-                );
-              })}
+                  <TouchableOpacity style={S.reviewCardBtn} onPress={() => setReviewTarget(s)}>
+                    <Text style={S.reviewCardBtnText}>📝 Review</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
             </View>
           ) : null
         }
@@ -443,158 +436,6 @@ export default function DrillRequestsScreen({}: Props) {
       />
     </View>
   );
-}
-
-// ── Self-review modal ──────────────────────────────────────
-// 1–5 star rating (required) + optional notes, then claim the pickle bonus
-// via submit_drill_review. Each participant reviews their own session once.
-function DrillReviewModal({
-  session, onSubmitted, onClose,
-}: {
-  session: ReviewableSession | null;
-  onSubmitted: (sessionId: string) => void;
-  onClose: () => void;
-}) {
-  const { colors } = useTheme();
-  const S = makeReviewStyles(colors);
-
-  const [rating, setRating] = useState(0);
-  const [notes, setNotes] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [earned, setEarned] = useState<number | null>(null);
-
-  // Reset transient state whenever a new session is opened.
-  useEffect(() => {
-    if (session) {
-      setRating(0);
-      setNotes('');
-      setSubmitting(false);
-      setError(null);
-      setEarned(null);
-    }
-  }, [session?.id]);
-
-  if (!session) return null;
-  const bonus = reviewBonus(session.length_minutes);
-
-  async function submit() {
-    if (!session || rating < 1) return;
-    setSubmitting(true);
-    setError(null);
-    const { data, error: rpcError } = await supabase.rpc('submit_drill_review', {
-      p_session_id: session.id,
-      p_rating: rating,
-      p_notes: notes.trim() || null,
-    });
-    setSubmitting(false);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) {
-      setError(row?.message ?? 'Could not submit your review.');
-      return;
-    }
-    setEarned(row.pickles_granted ?? bonus);
-    // Brief success beat, then drop the session from the list + close.
-    const sid = session.id;
-    setTimeout(() => onSubmitted(sid), 1200);
-  }
-
-  return (
-    <Modal visible={!!session} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={S.overlay}>
-        <View style={S.panel}>
-          <View style={S.header}>
-            <Text style={S.title} numberOfLines={1}>📝 Review your drill</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={S.close}>✕</Text>
-            </TouchableOpacity>
-          </View>
-
-          {earned !== null ? (
-            <View style={S.successWrap}>
-              <Text style={S.successEmoji}>🥒</Text>
-              <Text style={S.successText}>+{earned} pickles earned!</Text>
-              <Text style={S.successSub}>Thanks for reviewing your drill.</Text>
-            </View>
-          ) : (
-            <ScrollView contentContainerStyle={{ padding: 16 }}>
-              <Text style={S.partnerLine}>Drill with {session.partner_name}</Text>
-              <Text style={S.label}>How did it go?</Text>
-              <View style={S.starsRow}>
-                {[1, 2, 3, 4, 5].map(n => (
-                  <TouchableOpacity
-                    key={n}
-                    onPress={() => setRating(n)}
-                    hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
-                    disabled={submitting}
-                  >
-                    <Text style={[S.star, n <= rating ? S.starOn : S.starOff]}>★</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={S.label}>Notes (optional)</Text>
-              <TextInput
-                style={S.notesInput}
-                value={notes}
-                onChangeText={setNotes}
-                placeholder="What did you work on? How did it feel?"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                maxLength={500}
-                editable={!submitting}
-              />
-
-              {error && <Text style={S.errorText}>{error}</Text>}
-
-              <TouchableOpacity
-                style={[S.submitBtn, (rating < 1 || submitting) && S.submitBtnDim]}
-                onPress={submit}
-                disabled={rating < 1 || submitting}
-              >
-                {submitting
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={S.submitBtnText}>Submit & claim {bonus} 🥒</Text>}
-              </TouchableOpacity>
-              {rating < 1 && (
-                <Text style={S.hint}>Tap a star to rate your session first.</Text>
-              )}
-            </ScrollView>
-          )}
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function makeReviewStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    panel:        { backgroundColor: c.bg, borderRadius: 14, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border, overflow: 'hidden' },
-    header:       { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    title:        { flex: 1, fontSize: 16, fontWeight: '800', color: c.text },
-    close:        { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
-    partnerLine:  { fontSize: 13, color: c.textSub, fontWeight: '600', marginBottom: 14 },
-    label:        { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-    starsRow:     { flexDirection: 'row', gap: 8, marginBottom: 18 },
-    star:         { fontSize: 36 },
-    starOn:       { color: '#f5b301' },
-    starOff:      { color: c.border },
-    notesInput:   { borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 80, maxHeight: 160, fontSize: 14, color: c.text, backgroundColor: c.surface, textAlignVertical: 'top', marginBottom: 12 },
-    errorText:    { color: c.danger, fontSize: 12, fontWeight: '600', marginBottom: 10 },
-    submitBtn:    { backgroundColor: c.primary, paddingVertical: 13, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    submitBtnDim: { opacity: 0.5 },
-    submitBtnText:{ color: '#fff', fontWeight: '800', fontSize: 15 },
-    hint:         { fontSize: 12, color: c.textMuted, textAlign: 'center', marginTop: 8 },
-    successWrap:  { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
-    successEmoji: { fontSize: 56, marginBottom: 12 },
-    successText:  { fontSize: 22, fontWeight: '800', color: c.primary, marginBottom: 6 },
-    successSub:   { fontSize: 14, color: c.textSub, textAlign: 'center' },
-  });
 }
 
 // ── Chat modal ─────────────────────────────────────────────

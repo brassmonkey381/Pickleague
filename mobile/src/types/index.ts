@@ -75,7 +75,12 @@ export type DrillSession = {
 export type DrillSessionReview = {
   session_id: string;
   user_id: string;
-  rating: number | null;
+  rating: number | null; // rounded average of the answered facets (back-compat)
+  consistency: number | null;
+  effort: number | null;
+  organization: number | null;
+  intentionality: number | null;
+  fun: number | null;
   notes: string | null;
   pickles_granted: number;
   created_at: string;
