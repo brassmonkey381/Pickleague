@@ -10,12 +10,13 @@ import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, RootStackParamList } from '../types';
 import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
+import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 import { DumbbellIcon } from '../components/PickleIcons';
 
-type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string };
+type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean };
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Drill'> };
 
@@ -39,6 +40,7 @@ export default function DrillScreen({ navigation }: Props) {
   const [sessions, setSessions]               = useState<SessionWithPartner[]>([]);
   const [sessionFilter, setSessionFilter]     = useState<'upcoming' | 'past'>('upcoming');
   const [scheduledMatches, setScheduledMatches] = useState<{ date: string; slot: number; length_minutes: number }[]>([]);
+  const [reviewTarget, setReviewTarget]       = useState<SessionWithPartner | null>(null);
 
   const status = useStatusMessage();
 
@@ -65,7 +67,8 @@ export default function DrillScreen({ navigation }: Props) {
         .select(`
           *,
           p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
-          p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
+          p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
+          drill_session_reviews(user_id)
         `)
         .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
         .order('session_date')
@@ -99,6 +102,7 @@ export default function DrillScreen({ navigation }: Props) {
       ...r,
       partner_id: r.player1_id === user.id ? r.player2_id : r.player1_id,
       partner_name: r.player1_id === user.id ? (r.p2?.full_name ?? 'Unknown') : (r.p1?.full_name ?? 'Unknown'),
+      reviewed: (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === user.id),
     })));
 
     // Build the red overlay list:
@@ -203,6 +207,7 @@ export default function DrillScreen({ navigation }: Props) {
   const matchOverlay = scheduledMatches.filter(m => visibleDates.has(m.date));
 
   return (
+    <>
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ paddingBottom: 60 }}
@@ -308,6 +313,15 @@ export default function DrillScreen({ navigation }: Props) {
                         {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotRangeLabel(s.session_slot, s.length_minutes ?? 60)} · {durationLabel(s.length_minutes ?? 60)}
                       </Text>
                     </View>
+                    {sessionFilter === 'past' && (
+                      s.reviewed ? (
+                        <Text style={S.sessionReviewed}>✓ Reviewed</Text>
+                      ) : (
+                        <TouchableOpacity style={S.sessionReviewBtn} onPress={() => setReviewTarget(s)}>
+                          <Text style={S.sessionReviewBtnText}>📝 Review</Text>
+                        </TouchableOpacity>
+                      )
+                    )}
                   </View>
                 ))}
               </View>
@@ -416,6 +430,16 @@ export default function DrillScreen({ navigation }: Props) {
         </>
       )}
     </ScrollView>
+    <DrillReviewModal
+      session={reviewTarget}
+      onSubmitted={(sessionId, earned) => {
+        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, reviewed: true } : s));
+        setReviewTarget(null);
+        status.success(`+${earned} pickles earned!`);
+      }}
+      onClose={() => setReviewTarget(null)}
+    />
+    </>
   );
 }
 
@@ -485,5 +509,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     sessionDotPast:    { backgroundColor: c.textMuted },
     sessionTitle:      { fontSize: 14, fontWeight: '700', color: c.text },
     sessionSub:        { fontSize: 12, color: c.textSub, marginTop: 1 },
+    sessionReviewBtn:  { backgroundColor: c.primary, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8 },
+    sessionReviewBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+    sessionReviewed:   { fontSize: 11, fontWeight: '700', color: c.textMuted },
   });
 }
