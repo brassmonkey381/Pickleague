@@ -33,6 +33,7 @@ import FlairName from '../components/FlairName';
 import StatusBanner from '../components/StatusBanner';
 import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
+import BookmarkButton from '../components/BookmarkButton';
 import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useTheme } from '../lib/ThemeContext';
@@ -1191,6 +1192,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           >
             <Text style={S.quickActionText}>ℹ️ How this works</Text>
           </TouchableOpacity>
+          <BookmarkButton targetType="tournament" targetId={tournamentId} style={S.quickActionBtn} />
           {isAdmin && (godmode || (tournament.status !== 'completed' && tournament.status !== 'cancelled')) && (
             <TouchableOpacity
               style={[S.quickActionBtn, S.quickActionBtnPrimary]}
