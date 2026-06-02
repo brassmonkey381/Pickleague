@@ -100,14 +100,18 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
     const { data: voteRows } = await supabase
       .from('event_slot_votes')
-      .select('slot_id, user_id')
+      .select('slot_id, user_id, profile:profiles(id, full_name, avatar_emoji, avatar_bg_color)')
       .in('slot_id', (slotRows ?? []).map((s) => s.id));
 
-    const enriched: EventSlot[] = (slotRows ?? []).map((s) => ({
-      ...s,
-      vote_count: voteRows?.filter((v) => v.slot_id === s.id).length ?? 0,
-      my_vote: voteRows?.some((v) => v.slot_id === s.id && v.user_id === user?.id) ?? false,
-    }));
+    const enriched: EventSlot[] = (slotRows ?? []).map((s) => {
+      const slotVotes = (voteRows ?? []).filter((v) => v.slot_id === s.id);
+      return {
+        ...s,
+        vote_count: slotVotes.length,
+        my_vote: slotVotes.some((v) => v.user_id === user?.id),
+        voters: slotVotes.map((v: any) => v.profile).filter(Boolean),
+      };
+    });
     setSlots(enriched);
 
     // Confirmed attendees (if voting is closed)
@@ -400,6 +404,23 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             <Text style={S.voteCount}>
               {slot.vote_count} / {memberCount} {memberCount === 1 ? 'player' : 'players'} available
             </Text>
+
+            {/* Who voted for this slot */}
+            {(slot.voters?.length ?? 0) > 0 && (
+              <View style={S.voterWrap}>
+                {slot.voters!.map((vp) => {
+                  const first = (vp.full_name ?? '?').trim().split(' ')[0] || '?';
+                  return (
+                    <View key={vp.id} style={S.voterChip}>
+                      <View style={[S.voterAvatar, vp.avatar_bg_color ? { backgroundColor: vp.avatar_bg_color } : null]}>
+                        <Text style={S.voterAvatarText}>{vp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
+                      </View>
+                      <Text style={S.voterName} numberOfLines={1}>{first}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </TouchableOpacity>
         );
       })}
@@ -493,6 +514,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     progressFill: { height: 6, backgroundColor: c.primary, borderRadius: 3 },
     progressFillWinner: { backgroundColor: '#1565c0' },
     voteCount: { fontSize: 12, color: c.textMuted },
+    voterWrap:       { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+    voterChip:       { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: c.surfaceAlt, borderRadius: 12, paddingVertical: 3, paddingHorizontal: 7, borderWidth: 1, borderColor: c.border },
+    voterAvatar:     { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight },
+    voterAvatarText: { fontSize: 11, fontWeight: '700', color: c.primary },
+    voterName:       { fontSize: 12, color: c.textSub, maxWidth: 90 },
     closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 12, padding: 16, alignItems: 'center' },
     closeVoteText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     attendeesSection: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
