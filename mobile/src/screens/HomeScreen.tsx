@@ -356,10 +356,12 @@ export default function HomeScreen({ navigation }: Props) {
               />
             </TouchableOpacity>
 
-            {/* Pickle balance */}
+            {/* Pickle balance — count on top, "pickles · tap to shop" beneath it */}
             <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
-              <Text style={s.pickleEmoji}>🥒</Text>
-              <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+              <View style={s.pickleTopRow}>
+                <Text style={s.pickleEmoji}>🥒</Text>
+                <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+              </View>
               <Text style={s.pickleLabel}>pickles · tap to shop</Text>
             </TouchableOpacity>
           </View>
@@ -704,16 +706,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], wideStats: boolean
     pluprLabel:   { fontSize: wideStats ? 11 : 10, color: c.headerSub, fontWeight: '600', marginTop: 2, textAlign: 'center' },
 
     picklePill: {
-      flexDirection: 'row', alignItems: 'center', gap: 6,
+      alignItems: 'center',
       alignSelf: 'flex-start',
       backgroundColor: 'rgba(255,255,255,0.18)',
-      paddingHorizontal: 14, paddingVertical: 8,
-      borderRadius: 20, marginTop: 12,
+      paddingHorizontal: 16, paddingVertical: 8,
+      borderRadius: 16, marginTop: 12,
       borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
     },
+    pickleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     pickleEmoji: { fontSize: 16 },
     pickleValue: { fontSize: 16, fontWeight: '800', color: c.headerText },
-    pickleLabel: { fontSize: 12, color: c.headerSub, marginLeft: 4 },
+    pickleLabel: { fontSize: 12, color: c.headerSub, marginTop: 2 },
 
     drillBanner: {
       flexDirection: 'row', alignItems: 'center', gap: 12,
