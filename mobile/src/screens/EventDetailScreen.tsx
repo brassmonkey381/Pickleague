@@ -204,30 +204,41 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   }
 
   // Mints a shared guest invite and returns its token, or null (after alerting).
+  // Catches a rejected rpc (network failure) too, so callers never throw.
   async function createGuestInvite(invitedNames: string[]): Promise<string | null> {
     if (!event) return null;
-    const { data, error } = await supabase.rpc('create_guest_invite', {
-      p_league_id:     event.league_id,
-      p_event_id:      eventId,
-      p_invited_names: invitedNames,
-    });
-    const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
-    if (error || !token) {
-      Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
+    try {
+      const { data, error } = await supabase.rpc('create_guest_invite', {
+        p_league_id:     event.league_id,
+        p_event_id:      eventId,
+        p_invited_names: invitedNames,
+      });
+      const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
+      if (error || !token) {
+        Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
+        return null;
+      }
+      return token;
+    } catch (e: any) {
+      Alert.alert('Could not create invite', e?.message ?? 'Please try again.');
       return null;
     }
-    return token;
   }
 
   // Native: pick phone contacts → mint invite → group-text the link.
   async function sendGuestInvites(contacts: DeviceContact[]) {
     if (!event || contacts.length === 0) return;
     setInvitingGuests(true);
-    const token = await createGuestInvite(contacts.map(c => c.name));
-    setInvitingGuests(false);
-    setShowGuestPicker(false);
-    if (!token) return;
-    await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(c => c.phone) });
+    try {
+      const token = await createGuestInvite(contacts.map(c => c.name));
+      if (token) {
+        await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(c => c.phone) });
+      }
+    } finally {
+      // Always clear busy state so the button/modal never lock up on an error.
+      setInvitingGuests(false);
+      setShowGuestPicker(false);
+    }
   }
 
   // Web: no contacts access — mint invite (empty roster; the landing page lets
@@ -236,15 +247,18 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   async function shareGuestInviteWeb() {
     if (!event || invitingGuests) return;
     setInvitingGuests(true);
-    const token = await createGuestInvite([]);
-    setInvitingGuests(false);
-    if (!token) return;
-    const result = await shareInvite({
-      title:   `Vote on "${event.title}"`,
-      message: buildGuestMessage(token),
-    });
-    if (result.copied) {
-      Alert.alert('Invite copied', 'The invite link was copied — paste it into a group text to your guests.');
+    try {
+      const token = await createGuestInvite([]);
+      if (!token) return;
+      const result = await shareInvite({
+        title:   `Vote on "${event.title}"`,
+        message: buildGuestMessage(token),
+      });
+      if (result.copied) {
+        Alert.alert('Invite copied', 'The invite link was copied — paste it into a group text to your guests.');
+      }
+    } finally {
+      setInvitingGuests(false);
     }
   }
 
