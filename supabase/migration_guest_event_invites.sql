@@ -188,6 +188,10 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+-- The RETURNS TABLE columns (league_id, event_id, …) are in-scope variables, so
+-- a bare `league_id` in the INSERT's ON CONFLICT below is ambiguous with the
+-- table column. Resolve such names to the column.
+#variable_conflict use_column
 declare
   v_inv  public.guest_invites;
   v_name text;
