@@ -117,6 +117,11 @@ export type LeagueWithStats = League & {
   // Counts shown on the LeaguesScreen list card to convey activity at a glance.
   activeSeasonCount: number;
   activeTournamentCount: number;
+  upcomingEventCount: number;
+  openVoteCount: number;
+  // League admin (creator backfilled as admin) — for the clickable profile link.
+  adminId: string | null;
+  adminName: string | null;
   // Baseline PLUPR of the most-recent active season (null when no active season).
   currentBaselinePlupr: number | null;
   // Featured season: active if any (latest), else next upcoming, else null.

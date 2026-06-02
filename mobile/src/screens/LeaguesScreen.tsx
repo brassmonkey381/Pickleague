@@ -24,13 +24,14 @@ type Props = {
 };
 
 type Filters = {
-  openOnly: boolean;
+  showPrivate: boolean;
   createdWithin: number | null;
   minPlayers: number;
   region: string | null;
 };
 
-const DEFAULT_FILTERS: Filters = { openOnly: false, createdWithin: null, minPlayers: 0, region: null };
+// Private leagues are hidden by default; the "Show private leagues" toggle reveals them.
+const DEFAULT_FILTERS: Filters = { showPrivate: false, createdWithin: null, minPlayers: 0, region: null };
 
 const CREATED_WITHIN_OPTIONS = [
   { label: 'All time', value: null },
@@ -47,12 +48,12 @@ const MIN_PLAYERS_OPTIONS = [
 ];
 
 function activeFilterCount(f: Filters): number {
-  return (f.openOnly ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0);
+  return (f.showPrivate ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0);
 }
 
 function applyFilters(leagues: LeagueWithStats[], f: Filters): LeagueWithStats[] {
   return leagues.filter((l) => {
-    if (f.openOnly && !l.is_open) return false;
+    if (!f.showPrivate && !l.is_open) return false;
     if (f.minPlayers > 0 && l.memberCount < f.minPlayers) return false;
     if (f.createdWithin !== null) {
       const ageDays = (Date.now() - new Date(l.created_at).getTime()) / 86400000;
@@ -161,7 +162,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const uid = user?.id ?? null;
 
     // All parallel fetches
-    const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes] = await Promise.all([
+    const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes, adminRes, eventRes] = await Promise.all([
       supabase.from('league_members').select('league_id').in('league_id', ids),
       supabase.from('matches').select('league_id, played_at').in('league_id', ids),
       uid
@@ -178,6 +179,16 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         .select('league_id, status')
         .in('league_id', ids)
         .in('status', ['registration', 'active']),
+      // League admins (creator is backfilled as admin) — for the clickable admin link.
+      supabase.from('league_members')
+        .select('league_id, user_id, profile:profiles(id, full_name)')
+        .eq('role', 'admin')
+        .in('league_id', ids),
+      // Open votes + scheduled events (we resolve scheduled slots' times below).
+      supabase.from('league_events')
+        .select('id, league_id, status, vote_ends_at, confirmed_slot_id')
+        .in('league_id', ids)
+        .in('status', ['voting', 'scheduled']),
     ]);
 
     const memberRows     = memberRes.data ?? [];
@@ -186,6 +197,27 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const myRequests     = (myRequestRes as any).data ?? [];
     const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
     const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string }[];
+    const adminRows      = (adminRes.data ?? []) as any[];
+    const eventRows      = (eventRes.data ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
+
+    // One admin per league (first admin row). supabase may type the joined
+    // profile as an array; handle either shape.
+    const adminByLeague = new Map<string, { id: string; name: string }>();
+    for (const a of adminRows) {
+      const prof = Array.isArray(a.profile) ? a.profile[0] : a.profile;
+      if (!adminByLeague.has(a.league_id) && prof) {
+        adminByLeague.set(a.league_id, { id: prof.id, name: prof.full_name });
+      }
+    }
+
+    // Resolve the start times of scheduled events' confirmed slots.
+    const slotIds = eventRows.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
+    const slotStartsById = new Map<string, string>();
+    if (slotIds.length > 0) {
+      const { data: slotRows } = await supabase.from('event_slots').select('id, starts_at').in('id', slotIds);
+      (slotRows ?? []).forEach((s: any) => slotStartsById.set(s.id, s.starts_at));
+    }
+    const nowMs = Date.now();
 
     const leagues: LeagueWithStats[] = leagueRows.map((l) => {
       const members    = memberRows.filter((m) => m.league_id === l.id);
@@ -213,6 +245,16 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         : null;
       const activeTournamentCount = tournamentRows.filter(t => t.league_id === l.id).length;
 
+      const lEvents = eventRows.filter(e => e.league_id === l.id);
+      const openVoteCount = lEvents.filter(e =>
+        e.status === 'voting' && new Date(e.vote_ends_at).getTime() > nowMs).length;
+      const upcomingEventCount = lEvents.filter(e =>
+        e.status === 'scheduled'
+        && e.confirmed_slot_id
+        && slotStartsById.has(e.confirmed_slot_id)
+        && new Date(slotStartsById.get(e.confirmed_slot_id)!).getTime() > nowMs).length;
+      const admin = adminByLeague.get(l.id) ?? null;
+
       return {
         ...l,
         is_open: l.is_open ?? true,
@@ -223,6 +265,10 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         hasRequested,
         activeSeasonCount: myActiveSeasonsOnly.length,
         activeTournamentCount,
+        upcomingEventCount,
+        openVoteCount,
+        adminId:   admin?.id ?? null,
+        adminName: admin?.name ?? null,
         currentBaselinePlupr: currentSeason?.baseline_plupr != null ? Number(currentSeason.baseline_plupr) : null,
         featuredSeasonStatus: featuredStatus,
         featuredSeasonStart: featuredSeason?.start_date ?? null,
@@ -375,6 +421,22 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           <Text style={S.noCourtText}>📍 No home court set</Text>
         )}
 
+        {/* Admin — tappable link to their profile */}
+        {item.adminId && item.adminName && (
+          <TouchableOpacity
+            style={S.adminRow}
+            onPress={(e) => {
+              e.stopPropagation?.();
+              navigation.navigate('PlayerProfile', { userId: item.adminId!, userName: item.adminName! });
+            }}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            activeOpacity={0.6}
+          >
+            <Text style={S.adminLabel}>👑 Admin</Text>
+            <Text style={S.adminName} numberOfLines={1}>{item.adminName}</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Stats row */}
         <View style={S.statsRow}>
           <View style={S.statItem}>
@@ -411,8 +473,20 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           </View>
           {item.activeTournamentCount > 0 && (
             <View style={S.activityChip}>
-              <Text style={S.activityChipLabel}>Active tournaments</Text>
+              <Text style={S.activityChipLabel}>Upcoming Tournaments</Text>
               <Text style={S.activityChipValue}>{item.activeTournamentCount}</Text>
+            </View>
+          )}
+          {item.upcomingEventCount > 0 && (
+            <View style={S.activityChip}>
+              <Text style={S.activityChipLabel}>Upcoming Events</Text>
+              <Text style={S.activityChipValue}>{item.upcomingEventCount}</Text>
+            </View>
+          )}
+          {item.openVoteCount > 0 && (
+            <View style={S.activityChip}>
+              <Text style={S.activityChipLabel}>Open Votes</Text>
+              <Text style={S.activityChipValue}>{item.openVoteCount}</Text>
             </View>
           )}
         </View>
@@ -491,12 +565,12 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       {/* Collapsible filter panel */}
       {showFilters && (
         <View style={S.filterPanel}>
-          {/* Open only */}
+          {/* Show private leagues (hidden by default) */}
           <View style={S.filterRow}>
-            <Text style={S.filterLabel}>Open leagues only</Text>
+            <Text style={S.filterLabel}>Show private leagues</Text>
             <Switch
-              value={filters.openOnly}
-              onValueChange={(v) => setFilter('openOnly', v)}
+              value={filters.showPrivate}
+              onValueChange={(v) => setFilter('showPrivate', v)}
               trackColor={{ true: c.primary }}
               thumbColor={c.surface}
             />
@@ -776,8 +850,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     roleStatusText: { fontSize: 13, fontWeight: '600' },
     roleStatusJoined: { color: c.primary },
     roleStatusNot: { color: c.textMuted },
-    joinBtn: { backgroundColor: c.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, elevation: 2, shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
-    joinText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+    joinBtn: { backgroundColor: '#FFF3C4', borderWidth: 1.5, borderColor: '#E6B800', paddingHorizontal: 32, paddingVertical: 15, borderRadius: 26, elevation: 4, shadowColor: '#b8860b', shadowOpacity: 0.30, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+    joinText: { color: '#7A5C00', fontWeight: '800', fontSize: 17, letterSpacing: 0.3 },
+    adminRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+    adminLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted },
+    adminName: { fontSize: 13, fontWeight: '700', color: c.primary, flexShrink: 1 },
     requestBtn: { backgroundColor: '#fff8e1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ffe082' },
     requestText: { color: '#b8860b', fontWeight: '700', fontSize: 13 },
     requestedBadge: { backgroundColor: c.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
