@@ -23,6 +23,8 @@ type WagerOnPlayer = {
   subject_type: string;
   scope_name: string | null;
   placed_at: string;
+  expected_end_at: string | null;
+  league_name: string | null;
 };
 
 function timeAgo(iso: string): string {
@@ -36,6 +38,26 @@ function timeAgo(iso: string): string {
 }
 
 const STATUS_LABEL: Record<string, string> = { open: 'Open', won: 'Won', lost: 'Lost' };
+
+// Date-only, formatted in UTC so date-based ends (season / period / tournament,
+// returned at UTC midnight) don't shift a day in the local timezone.
+function fmtEndDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+// "Under <league> · Ends <date>" — league shown only when it isn't already the
+// scope named in the condition line.
+function wagerContext(w: WagerOnPlayer): string | null {
+  const parts: string[] = [];
+  if (w.league_name && w.league_name !== w.scope_name) parts.push(`Under ${w.league_name}`);
+  if (w.expected_end_at) {
+    const settled = w.status === 'won' || w.status === 'lost';
+    parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at)}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
 
 export default function PlayerWagersScreen({ navigation, route }: Props) {
   const { userId, userName, scopeType, scopeId, scopeName } = route.params;
@@ -110,6 +132,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
             <Text style={S.condition}>
               to finish #{item.rank}{item.scope_name ? ` in ${item.scope_name}` : ''}
             </Text>
+            {wagerContext(item) && <Text style={S.context}>{wagerContext(item)}</Text>}
             <View style={S.metaRow}>
               <View style={S.metaCol}>
                 <Text style={S.metaLabel}>Size</Text>
@@ -154,6 +177,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     statusChip:  { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
     statusText:  { fontSize: 11, fontWeight: '700' },
     condition:   { fontSize: 13, color: c.textSub, marginTop: 4 },
+    context:     { fontSize: 12, color: c.textMuted, marginTop: 3, fontStyle: 'italic' },
     metaRow:     { flexDirection: 'row', marginTop: 12, gap: 16 },
     metaCol:     {},
     metaLabel:   { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },

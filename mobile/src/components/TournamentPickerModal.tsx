@@ -5,7 +5,10 @@ import {
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
-export type PickableTournament = { id: string; name: string };
+// status/league_id are carried so callers can filter the candidate list
+// (e.g. to active tournaments within the selected league); the modal itself
+// only renders id + name.
+export type PickableTournament = { id: string; name: string; status?: string; league_id?: string | null };
 
 type Props = {
   visible: boolean;

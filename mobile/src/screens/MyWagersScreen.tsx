@@ -85,6 +85,27 @@ function ordinal(n: number): string {
   return `${n}th`;
 }
 
+// Date-only formatting in UTC. The server returns date-based ends (season /
+// period / tournament) at UTC midnight, so formatting in UTC keeps those dates
+// from shifting a day in the user's local timezone.
+function fmtEndDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+  });
+}
+
+// A muted context line: which league the wager rolls up to (when that isn't
+// already the scope shown in the prediction) + when it's expected to end.
+function buildWagerContext(w: Wager): string | null {
+  const parts: string[] = [];
+  if (w.league_name && w.league_name !== w.scope_name) parts.push(`Under ${w.league_name}`);
+  if (w.expected_end_at) {
+    const settled = w.status === 'won' || w.status === 'lost';
+    parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at)}`);
+  }
+  return parts.length ? parts.join(' · ') : null;
+}
+
 // Build a human "you bet X" line plus an optional "actually Y" line so the
 // MyWagers row tells the full story: predicted player / scope / rank for
 // rank wagers, predicted team / score for match wagers, and the actual
@@ -380,6 +401,7 @@ export default function MyWagersScreen({ navigation }: Props) {
   // ────────────────────────────────────────────────────────────────────────
   function renderWagerItem({ item }: { item: Wager }) {
     const { prediction, outcome } = buildWagerNarrative(item);
+    const context      = buildWagerContext(item);
     const settledLabel = item.settled_at ? timeAgo(item.settled_at) : '';
     const placedLabel  = timeAgo(item.placed_at);
 
@@ -392,6 +414,7 @@ export default function MyWagersScreen({ navigation }: Props) {
               {outcome}
             </Text>
           )}
+          {context && <Text style={S.contextLine}>{context}</Text>}
           <View style={S.metaRow}>
             <Text style={S.metaText}>Stake: <Text style={S.metaValue}>{item.stake} 🥒</Text></Text>
             <Text style={S.metaText}>Odds: <Text style={S.metaValue}>{Number(item.odds).toFixed(2)}×</Text></Text>
@@ -645,6 +668,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     outcomeLine: { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
     outcomeWon:  { color: c.primary, fontWeight: '700' },
     outcomeLost: { color: c.danger, fontWeight: '700' },
+    contextLine: { fontSize: 12, color: c.textMuted, marginTop: 4, fontStyle: 'italic' },
     metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
     metaText:    { fontSize: 12, color: c.textSub },
     metaValue:   { color: c.text, fontWeight: '700' },

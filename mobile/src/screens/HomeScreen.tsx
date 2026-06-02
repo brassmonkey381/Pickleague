@@ -13,7 +13,7 @@ import StreakModal from '../components/StreakModal';
 import FtueChecklistCard from '../components/FtueChecklistCard';
 import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
-import { DumbbellIcon, SoloPlayerIcon, BallIcon } from '../components/PickleIcons';
+import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import BookmarkButton from '../components/BookmarkButton';
 import {
   claimDailyLoginStreak,
@@ -336,25 +336,74 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Divider */}
         <View style={s.heroDivider} />
 
-        {/* Greeting — tap your name to open your profile */}
-        <Text style={s.welcomeLabel}>Welcome back,</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
-          {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
-          <FlairName
-            style={s.heroName}
-            nameColor={profile?.name_color}
-            styleId={profile?.profile_name_style_id}
-            mode="hero"
-            name={profile?.full_name ?? '...'}
-          />
-        </TouchableOpacity>
+        {/* Greeting + pickle balance (left), PLUPR quick-stats grid (right) */}
+        <View style={s.greetingRow}>
+          <View style={s.greetingLeft}>
+            {/* tap your name to open your profile */}
+            <Text style={s.welcomeLabel}>Welcome back,</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
+              {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
+              <FlairName
+                style={s.heroName}
+                nameColor={profile?.name_color}
+                styleId={profile?.profile_name_style_id}
+                mode="hero"
+                name={profile?.full_name ?? '...'}
+              />
+            </TouchableOpacity>
 
-        {/* Pickle balance */}
-        <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
-          <Text style={s.pickleEmoji}>🥒</Text>
-          <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
-          <Text style={s.pickleLabel}>pickles · tap to shop</Text>
-        </TouchableOpacity>
+            {/* Pickle balance */}
+            <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
+              <Text style={s.pickleEmoji}>🥒</Text>
+              <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+              <Text style={s.pickleLabel}>pickles · tap to shop</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* PLUPR ratings — 2x2 grid; tap a tile to see those matches */}
+          <View style={s.pluprGrid}>
+            <TouchableOpacity
+              style={s.pluprTile}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('MatchHistory', { title: 'Your Matches', initialMyMatchesOnly: true })}
+            >
+              <Text style={s.pluprValue}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
+              <Text style={s.pluprLabel}>⭐ Overall</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.pluprTile}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('MatchHistory', {
+                title: 'Your Singles Matches', initialMyMatchesOnly: true, initialMatchType: 'singles',
+              })}
+            >
+              <Text style={s.pluprValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
+              <Text style={s.pluprLabel}>🧍 Singles</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.pluprTile}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('MatchHistory', {
+                title: 'Your Gendered Doubles', initialMyMatchesOnly: true,
+                initialMatchType: 'doubles', initialDoublesCategory: 'gendered',
+              })}
+            >
+              <Text style={s.pluprValue}>{formatPlupr(profile?.doubles_rating, profile?.total_matches_played)}</Text>
+              <Text style={s.pluprLabel}>🤝 Doubles</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={s.pluprTile}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('MatchHistory', {
+                title: 'Your Mixed Doubles', initialMyMatchesOnly: true,
+                initialMatchType: 'doubles', initialDoublesCategory: 'mixed',
+              })}
+            >
+              <Text style={s.pluprValue}>{formatPlupr(profile?.mixed_doubles_rating, profile?.total_matches_played)}</Text>
+              <Text style={s.pluprLabel}>♀♂ Mixed</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
 
       {/* Guest? Nudge to save the account (self-hides for real users). */}
@@ -490,67 +539,6 @@ export default function HomeScreen({ navigation }: Props) {
         </TouchableOpacity>
       ))}
 
-      {/* ── PLUPR stats strip ───────────────────────── */}
-      <View style={s.statsCard}>
-        <TouchableOpacity
-          style={s.statItem}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('MatchHistory', { title: 'Your Matches', initialMyMatchesOnly: true })}
-        >
-          <Text style={s.statEmoji}>⭐</Text>
-          <Text style={[s.statValue, { color: colors.primary }]}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
-          <Text style={s.statLabel}>Overall PLUPR</Text>
-        </TouchableOpacity>
-        <View style={s.statDivider} />
-        <TouchableOpacity
-          style={s.statItem}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('MatchHistory', {
-            title: 'Your Singles Matches',
-            initialMyMatchesOnly: true,
-            initialMatchType: 'singles',
-          })}
-        >
-          <View style={s.statIconWrap}><SoloPlayerIcon size={22} /></View>
-          <Text style={s.statValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
-          <Text style={s.statLabel}>Singles</Text>
-        </TouchableOpacity>
-        <View style={s.statDivider} />
-        <TouchableOpacity
-          style={s.statItem}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('MatchHistory', {
-            title: 'Your Gendered Doubles',
-            initialMyMatchesOnly: true,
-            initialMatchType: 'doubles',
-            initialDoublesCategory: 'gendered',
-          })}
-        >
-          <Text style={s.statEmoji}>🤝</Text>
-          <Text style={s.statValue}>{formatPlupr(profile?.doubles_rating, profile?.total_matches_played)}</Text>
-          <Text style={s.statLabel}>Gendered Doubles</Text>
-        </TouchableOpacity>
-        <View style={s.statDivider} />
-        <TouchableOpacity
-          style={s.statItem}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('MatchHistory', {
-            title: 'Your Mixed Doubles',
-            initialMyMatchesOnly: true,
-            initialMatchType: 'doubles',
-            initialDoublesCategory: 'mixed',
-          })}
-        >
-          <Text style={s.statEmoji}>♀♂</Text>
-          <Text style={s.statValue}>{formatPlupr(profile?.mixed_doubles_rating, profile?.total_matches_played)}</Text>
-          <Text style={s.statLabel}>Mixed Doubles</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ── Closest unlocks (hides when nothing global remains) ── */}
-      {/* TODO: smoke-test in browser */}
-      <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
-
       {/* ── Record a Match (only when the user is in a league) ── */}
       {/* TODO: smoke-test in browser */}
       {inLeague && (
@@ -584,6 +572,10 @@ export default function HomeScreen({ navigation }: Props) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* ── Closest unlocks (hides when nothing global remains) ── */}
+      {/* TODO: smoke-test in browser */}
+      <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
 
       {/* ── Welcome pickles modal ────────────────────────── */}
       <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={() => setWelcomeOpen(false)}>
@@ -688,25 +680,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     welcomeLabel: { fontSize: 14, color: c.headerSub, fontWeight: '500' },
     heroName:  { fontSize: 30, fontWeight: '800', color: c.headerText, marginTop: 2 },
 
-    statsCard: {
-      flexDirection: 'row',
-      backgroundColor: c.surface,
-      marginHorizontal: 16,
-      marginTop: -1,
-      borderRadius: 14,
-      paddingVertical: 16,
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOpacity: 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 3 },
+    // Hero greeting laid out beside the PLUPR quick-stats grid.
+    greetingRow:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+    greetingLeft: { flex: 1, minWidth: 0 },
+    pluprGrid:    { flexDirection: 'row', flexWrap: 'wrap', width: 168, gap: 8, justifyContent: 'flex-end' },
+    pluprTile:    {
+      width: 80, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6,
+      borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.12)',
+      borderWidth: 1, borderColor: 'rgba(255,255,255,0.20)',
     },
-    statItem:  { flex: 1, alignItems: 'center', gap: 3 },
-    statEmoji: { fontSize: 20 },
-    statIconWrap: { height: 24, justifyContent: 'center', alignItems: 'center', marginBottom: 0 },
-    statValue: { fontSize: 20, fontWeight: '800', color: c.text },
-    statLabel: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-    statDivider: { width: 1, backgroundColor: c.border, marginVertical: 4 },
+    pluprValue:   { fontSize: 17, fontWeight: '800', color: c.headerText },
+    pluprLabel:   { fontSize: 10, color: c.headerSub, fontWeight: '600', marginTop: 2, textAlign: 'center' },
 
     picklePill: {
       flexDirection: 'row', alignItems: 'center', gap: 6,
