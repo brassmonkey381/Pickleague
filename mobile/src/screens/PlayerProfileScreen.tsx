@@ -13,7 +13,7 @@ import FlairName from '../components/FlairName';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
 import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
-import { formatPlupr } from '../lib/plupr';
+import { formatPlupr, formatPluprShort } from '../lib/plupr';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PlayerProfile'>;
@@ -287,19 +287,19 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
               <View style={styles.locRatings}>
                 {r.singles && (
                   <View style={styles.locPill}>
-                    <Text style={styles.locVal}>{r.singles.rating}</Text>
+                    <Text style={styles.locVal}>{formatPluprShort(r.singles.rating, r.singles.wins + r.singles.losses)}</Text>
                     <Text style={styles.locType}>Singles · {r.singles.wins}W-{r.singles.losses}L</Text>
                   </View>
                 )}
                 {r.doubles_gendered && (
                   <View style={[styles.locPill, styles.locPillD]}>
-                    <Text style={styles.locVal}>{r.doubles_gendered.rating}</Text>
+                    <Text style={styles.locVal}>{formatPluprShort(r.doubles_gendered.rating, r.doubles_gendered.wins + r.doubles_gendered.losses)}</Text>
                     <Text style={styles.locType}>Gendered Doubles · {r.doubles_gendered.wins}W-{r.doubles_gendered.losses}L</Text>
                   </View>
                 )}
                 {r.doubles_mixed && (
                   <View style={[styles.locPill, styles.locPillM]}>
-                    <Text style={styles.locVal}>{r.doubles_mixed.rating}</Text>
+                    <Text style={styles.locVal}>{formatPluprShort(r.doubles_mixed.rating, r.doubles_mixed.wins + r.doubles_mixed.losses)}</Text>
                     <Text style={styles.locType}>Mixed Doubles · {r.doubles_mixed.wins}W-{r.doubles_mixed.losses}L</Text>
                   </View>
                 )}
