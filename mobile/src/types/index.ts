@@ -511,6 +511,7 @@ export type RootStackParamList = {
   Profile: { userId?: string };
   UnlockProgress: undefined;
   Settings: undefined;
+  UpgradeAccount: undefined;
   About: undefined;
   Drill: undefined;
   DrillSearch: undefined;

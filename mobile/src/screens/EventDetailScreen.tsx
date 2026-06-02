@@ -205,13 +205,16 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
   // Mints a shared guest invite and returns its token, or null (after alerting).
   // Catches a rejected rpc (network failure) too, so callers never throw.
-  async function createGuestInvite(invitedNames: string[]): Promise<string | null> {
+  // invitedPhones is index-aligned with invitedNames so the server can attach a
+  // phone to the guest who later picks their name from the roster.
+  async function createGuestInvite(invitedNames: string[], invitedPhones: string[] = []): Promise<string | null> {
     if (!event) return null;
     try {
       const { data, error } = await supabase.rpc('create_guest_invite', {
-        p_league_id:     event.league_id,
-        p_event_id:      eventId,
-        p_invited_names: invitedNames,
+        p_league_id:      event.league_id,
+        p_event_id:       eventId,
+        p_invited_names:  invitedNames,
+        p_invited_phones: invitedPhones,
       });
       const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
       if (error || !token) {
@@ -230,7 +233,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     if (!event || contacts.length === 0) return;
     setInvitingGuests(true);
     try {
-      const token = await createGuestInvite(contacts.map(c => c.name));
+      const token = await createGuestInvite(contacts.map(c => c.name), contacts.map(c => c.phone));
       if (token) {
         await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(c => c.phone) });
       }

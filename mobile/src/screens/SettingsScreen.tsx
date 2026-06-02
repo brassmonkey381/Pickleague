@@ -32,6 +32,7 @@ export default function SettingsScreen({ navigation }: Props) {
   const GREEN = colors.primary;
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
   const [badgesPublic, setBadgesPublic] = useState(true);
+  const [isGuest, setIsGuest]           = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [savedName, setSavedName]     = useState('');
   const [savingName, setSavingName]   = useState(false);
@@ -90,13 +91,14 @@ export default function SettingsScreen({ navigation }: Props) {
     setEmail(user.email ?? '');
     const { data } = await supabase
       .from('profiles')
-      .select('full_name, badges_public')
+      .select('full_name, badges_public, is_guest')
       .eq('id', user.id)
       .single();
     if (data) {
       setDisplayName(data.full_name ?? '');
       setSavedName(data.full_name ?? '');
       setBadgesPublic(data.badges_public ?? true);
+      setIsGuest(!!data.is_guest);
     }
   }
 
@@ -285,6 +287,16 @@ export default function SettingsScreen({ navigation }: Props) {
       {/* ── Account ──────────────────────────── */}
       <SectionHeader title="Account" />
       <View style={styles.card}>
+        {isGuest && (
+          <>
+            <ActionRow
+              label="✨ Create your account"
+              desc="Add an email & password so you don't lose access"
+              onPress={() => navigation.navigate('UpgradeAccount')}
+            />
+            <Divider />
+          </>
+        )}
         {/* Display name */}
         <View style={styles.row}>
           <Text style={[styles.rowLabel, { minWidth: 110 }]}>Display name</Text>

@@ -43,6 +43,7 @@ import SeasonStandingsScreen from '../screens/SeasonStandingsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import UnlockProgressScreen from '../screens/UnlockProgressScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import UpgradeAccountScreen from '../screens/UpgradeAccountScreen';
 import AboutScreen from '../screens/AboutScreen';
 import DrillScreen from '../screens/DrillScreen';
 import DrillSearchScreen from '../screens/DrillSearchScreen';
@@ -236,6 +237,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="LeagueInfo" component={LeagueInfoScreen} options={({ route }) => ({ title: 'How ' + route.params.leagueName + ' works' })} />
                 <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
                 <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+                <Stack.Screen name="UpgradeAccount" component={UpgradeAccountScreen} options={{ title: 'Save Your Account' }} />
                 <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Pickleague' }} />
                 <Stack.Screen name="Drill" component={DrillScreen} options={{ title: 'Drill Partners' }} />
                 <Stack.Screen name="DrillSearch" component={DrillSearchScreen} options={{ title: 'Find Drillers' }} />
