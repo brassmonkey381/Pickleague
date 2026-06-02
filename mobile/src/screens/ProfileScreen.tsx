@@ -20,7 +20,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
 import { TOTAL_CELLS } from '../lib/availability';
 import { computeReliability } from '../lib/reliability';
-import { formatPlupr } from '../lib/plupr';
+import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import {
   computeAllPartnerChemistry, fmtDelta, chemistryColor,
   ChemistryResult, DoublesMatch,
@@ -1091,7 +1091,7 @@ export default function ProfileScreen({ navigation }: Props) {
               return (
                 <View key={r.id} style={[styles.locPill, pillStyle]}>
                   <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
-                  <Text style={styles.locPillRating}>{r.rating}</Text>
+                  <Text style={styles.locPillRating}>{formatPluprShort(r.rating, r.wins + r.losses)}</Text>
                   <Text style={styles.locPillType}>{typeLabel}</Text>
                   <Text style={styles.locPillRecord}>{r.wins}W-{r.losses}L</Text>
                 </View>
