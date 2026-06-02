@@ -537,7 +537,7 @@ export type RootStackParamList = {
   PlayerWagers: {
     userId: string;
     userName?: string;
-    scopeType?: 'tournament' | 'league';
+    scopeType?: 'tournament' | 'league' | 'season';
     scopeId?: string;
     scopeName?: string;
   };
