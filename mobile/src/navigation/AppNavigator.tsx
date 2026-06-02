@@ -54,6 +54,7 @@ import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 import MyWagersScreen from '../screens/MyWagersScreen';
+import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -248,6 +249,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
                 <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
+                <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />

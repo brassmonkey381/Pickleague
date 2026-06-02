@@ -26,6 +26,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
   const [actionTarget, setActionTarget] = useState<TournamentRegistration | null>(null);
+  const [wagerTotals, setWagerTotals]   = useState<Record<string, number>>({});
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -44,6 +45,13 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       .eq('status', 'approved')
       .order('role');
     setMembers((data ?? []) as TournamentRegistration[]);
+
+    // Public "pickles wagered on this player" totals, scoped to this tournament.
+    const { data: totals } = await supabase.rpc('get_tournament_wager_totals', { p_tournament_id: tournamentId });
+    const map: Record<string, number> = {};
+    (totals ?? []).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
+    setWagerTotals(map);
+
     setLoading(false);
   }
 
@@ -95,6 +103,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
         const role       = item.role as TournamentRole;
         const badgeColor = tournamentRoleBadgeColor(role);
         const manageable = canManage(item);
+        const wagered    = wagerTotals[item.user_id] ?? 0;
         return (
           <TouchableOpacity
             style={S.row}
@@ -111,6 +120,24 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
               <Text style={S.name}>{item.profile?.full_name ?? 'Unknown'}</Text>
               <Text style={S.rating}>{formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR</Text>
             </View>
+            {wagered > 0 && (
+              <TouchableOpacity
+                style={S.wagerPill}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  navigation.navigate('PlayerWagers', {
+                    userId: item.user_id,
+                    userName: item.profile?.full_name ?? 'Player',
+                    scopeType: 'tournament',
+                    scopeId: tournamentId,
+                    scopeName: route.params.tournamentName,
+                  });
+                }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text style={S.wagerPillText}>🥒 {wagered.toLocaleString()}</Text>
+              </TouchableOpacity>
+            )}
             <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
               <Text style={[S.badgeText, { color: badgeColor }]}>{tournamentRoleLabel(role)}</Text>
             </View>
@@ -151,6 +178,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     rating: { fontSize: 12, color: c.textMuted, marginTop: 1 },
     badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
     badgeText: { fontSize: 11, fontWeight: '700' },
+    wagerPill: { backgroundColor: c.primaryLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
+    wagerPillText: { fontSize: 11, fontWeight: '700', color: c.primary },
     chevron: { fontSize: 22, color: c.textMuted, marginLeft: 8 },
     kebab: { paddingHorizontal: 10, paddingVertical: 4, marginLeft: 4 },
     kebabText: { fontSize: 22, color: c.textMuted, fontWeight: '700' },

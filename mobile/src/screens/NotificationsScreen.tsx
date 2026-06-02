@@ -150,6 +150,12 @@ export default function NotificationsScreen({ navigation }: Props) {
         userId: n.entity_id ?? undefined,
         title: 'My PLUPR History',
       });
+    } else if (n.entity_type === 'wager_on_me') {
+      // entity_id is the recipient's own user_id — show the wagers on them.
+      if (n.entity_id) navigation.navigate('PlayerWagers', { userId: n.entity_id, userName: 'You' });
+    } else if (n.entity_type === 'wager') {
+      // Settlement notifications (to the bettor) → their own wager list.
+      navigation.navigate('MyWagers');
     }
   }
 
