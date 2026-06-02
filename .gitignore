@@ -26,3 +26,6 @@ supabase/.temp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local infra setup script (contains secrets once filled in)
+supabase/setup_infra.sh
