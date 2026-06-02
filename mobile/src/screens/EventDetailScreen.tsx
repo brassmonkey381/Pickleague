@@ -46,7 +46,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
   const [event, setEvent] = useState<LeagueEvent | null>(null);
   const [leagueName, setLeagueName] = useState<string>('');
-  const [isMember, setIsMember] = useState(false);
   const [showGuestPicker, setShowGuestPicker] = useState(false);
   const [invitingGuests, setInvitingGuests] = useState(false);
   const [closeWinner, setCloseWinner] = useState<EventSlot | null>(null);
@@ -181,7 +180,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   React.useEffect(() => {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => {
       setCanClose(isPrivileged(r));
-      setIsMember(r != null);
     });
   }, [event?.league_id]);
 
@@ -353,8 +351,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         </Text>
       )}
 
-      {/* Invite guests (members only, while voting is open) */}
-      {votingIsOpen && isMember && (
+      {/* Invite guests (league admins / co-admins only, while voting is open) */}
+      {votingIsOpen && canClose && (
         <TouchableOpacity style={S.inviteGuestsBtn} onPress={onInviteGuests} disabled={invitingGuests}>
           <Text style={S.inviteGuestsText}>📲  Invite guests to vote</Text>
         </TouchableOpacity>
@@ -413,6 +411,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           <Text style={S.closeVoteText}>Close Voting & Confirm Top Slot</Text>
         </TouchableOpacity>
       )}
+
+      {/* Done — back to home */}
+      <TouchableOpacity style={S.doneBtn} onPress={() => navigation.navigate('Home')}>
+        <Text style={S.doneBtnText}>Done</Text>
+      </TouchableOpacity>
 
       {/* Confirmed attendees */}
       {confirmedAttendees.length > 0 && (
@@ -497,6 +500,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     progressFillWinner: { backgroundColor: '#1565c0' },
     voteCount: { fontSize: 12, color: c.textMuted },
     closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 12, padding: 16, alignItems: 'center' },
+    doneBtn:      { marginHorizontal: 12, marginTop: 12, marginBottom: 4, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
+    doneBtnText:  { color: '#fff', fontWeight: '700', fontSize: 15 },
     closeVoteText: { color: '#fff', fontWeight: '700', fontSize: 15 },
     attendeesSection: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
     attendeesTitle: { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 12 },
