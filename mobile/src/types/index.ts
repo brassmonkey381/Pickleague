@@ -529,4 +529,11 @@ export type RootStackParamList = {
   GiftPickles: undefined;
   Godmode: undefined;
   MyWagers: undefined;
+  PlayerWagers: {
+    userId: string;
+    userName?: string;
+    scopeType?: 'tournament' | 'league';
+    scopeId?: string;
+    scopeName?: string;
+  };
 };

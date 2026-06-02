@@ -135,6 +135,10 @@ function resolvePushTarget(
       return { name: 'Profile', params: { userId: entity_id ?? undefined } };
     case 'plupr_history':
       return { name: 'CalendarAnalytics', params: { userId: entity_id ?? undefined, title: 'My PLUPR History' } };
+    case 'wager_on_me':
+      return entity_id ? { name: 'PlayerWagers', params: { userId: entity_id, userName: 'You' } } : { name: 'MyWagers' };
+    case 'wager':
+      return { name: 'MyWagers' };
     default:
       return { name: 'Notifications' };
   }
