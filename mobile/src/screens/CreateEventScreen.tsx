@@ -78,7 +78,16 @@ export default function CreateEventScreen({ navigation, route }: Props) {
       setSlots((prev) =>
         prev.map((s, i) => {
           if (i !== slotIndex) return s;
-          return field === 'start' ? { ...s, startsAt: picked } : { ...s, endsAt: picked };
+          if (field === 'end') return { ...s, endsAt: picked };
+          // Moving the start: if it lands at/past the current end, carry the end
+          // forward by the original duration so the slot keeps its length
+          // (e.g. a 16h slot pushed 7 days out stays 16h long). Otherwise leave
+          // the end where the user put it.
+          const durationMs = s.endsAt.getTime() - s.startsAt.getTime();
+          if (picked.getTime() >= s.endsAt.getTime()) {
+            return { ...s, startsAt: picked, endsAt: new Date(picked.getTime() + durationMs) };
+          }
+          return { ...s, startsAt: picked };
         })
       );
       setActivePicker(null);

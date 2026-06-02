@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged, LeagueRole, roleLabel, roleBadgeColor } from '../lib/leagueRole';
 import { checkGodmode } from '../lib/godmode';
 import { getRegionName } from '../lib/regions';
+import { TONE_COLORS, tournamentTone, ActivityTone } from '../lib/activityTone';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import ConfirmModal from '../components/ConfirmModal';
@@ -50,6 +51,9 @@ type ComingUpItem = {
   whenLabel: string;
   whenMs: number;
   badge?: string;        // e.g. "Voting"
+  // purple = open/joinable/upcoming-future; blue = locked-in & scheduled.
+  // undefined = no status tint (e.g. voting closed, awaiting finalization).
+  tone?:  ActivityTone;
   onPress: () => void;
 };
 
@@ -291,6 +295,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         title: t.name,
         whenLabel: ms != null ? fmt(ms) : 'Date TBD',
         whenMs:    ms ?? Number.MAX_SAFE_INTEGER,
+        // Open for registration → purple; registration closed (active) → blue.
+        tone:  tournamentTone(t.status),
         onPress: () => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }),
       });
     }
@@ -326,6 +332,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         title: ev.title,
         whenLabel: fmt(ms),
         whenMs: ms,
+        // Voting closed, locked into a future slot → blue.
+        tone:  'blue',
         onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
       });
     }
@@ -343,6 +351,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           whenLabel: `Voting ends ${fmt(ms)}`,
           whenMs: ms,
           badge: 'Voting',
+          // Voting open → purple.
+          tone:  'purple',
           onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
         });
       } else {
@@ -769,7 +779,11 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             upcomingTournaments.map(item => (
               <TouchableOpacity
                 key={item.key}
-                style={S.comingUpRow}
+                style={[
+                  S.comingUpRow,
+                  item.tone && S.comingUpRowToned,
+                  item.tone && { backgroundColor: TONE_COLORS[item.tone].bg, borderColor: TONE_COLORS[item.tone].border },
+                ]}
                 onPress={item.onPress}
                 activeOpacity={0.7}
               >
@@ -802,7 +816,11 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             upcomingEvents.map(item => (
               <TouchableOpacity
                 key={item.key}
-                style={S.comingUpRow}
+                style={[
+                  S.comingUpRow,
+                  item.tone && S.comingUpRowToned,
+                  item.tone && { backgroundColor: TONE_COLORS[item.tone].bg, borderColor: TONE_COLORS[item.tone].border },
+                ]}
                 onPress={item.onPress}
                 activeOpacity={0.7}
               >
@@ -1238,6 +1256,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     comingUpCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginTop: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
     comingUpHeader:     { fontSize: 12, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 },
     comingUpRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: c.bg, gap: 12 },
+    // Toned rows read as a colored pill: drop the divider, round + inset them.
+    comingUpRowToned:   { borderTopWidth: 0, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, marginTop: 6 },
     comingUpIcon:       { fontSize: 22 },
     comingUpTitle:      { fontSize: 15, fontWeight: '700', color: c.text },
     comingUpWhen:       { fontSize: 12, color: c.textMuted, marginTop: 2 },
