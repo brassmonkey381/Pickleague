@@ -122,6 +122,10 @@ export type LeagueWithStats = League & {
   // Counts shown on the LeaguesScreen list card to convey activity at a glance.
   activeSeasonCount: number;
   activeTournamentCount: number;
+  // Tournaments open for registration (purple) vs. closed-reg but scheduled for
+  // a future start (blue). Split out so the card can color them by status.
+  openRegistrationTournamentCount: number;
+  scheduledTournamentCount: number;
   upcomingEventCount: number;
   openVoteCount: number;
   // League admin (creator backfilled as admin) — for the clickable profile link.

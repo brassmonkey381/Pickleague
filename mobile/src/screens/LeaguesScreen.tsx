@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { REGIONS, getRegionName, inRegion } from '../lib/regions';
 import { displayCourtName } from '../lib/courtNickname';
+import { TONE_COLORS } from '../lib/activityTone';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
@@ -28,10 +29,19 @@ type Filters = {
   createdWithin: number | null;
   minPlayers: number;
   region: string | null;
+  // Always surface leagues I'm a member of, even if they'd be hidden by the
+  // discovery filters (private/region/min-players/age). On by default.
+  alwaysShowMine: boolean;
+  // Restrict the list to only leagues I'm a member of. Off by default.
+  onlyMine: boolean;
 };
 
 // Private leagues are hidden by default; the "Show private leagues" toggle reveals them.
-const DEFAULT_FILTERS: Filters = { showPrivate: false, createdWithin: null, minPlayers: 0, region: null };
+// My leagues are always shown by default; "only mine" is off by default.
+const DEFAULT_FILTERS: Filters = {
+  showPrivate: false, createdWithin: null, minPlayers: 0, region: null,
+  alwaysShowMine: true, onlyMine: false,
+};
 
 const CREATED_WITHIN_OPTIONS = [
   { label: 'All time', value: null },
@@ -48,11 +58,18 @@ const MIN_PLAYERS_OPTIONS = [
 ];
 
 function activeFilterCount(f: Filters): number {
-  return (f.showPrivate ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0);
+  return (f.showPrivate ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0)
+    // Count the membership filters only when they deviate from their defaults.
+    + (f.alwaysShowMine ? 0 : 1) + (f.onlyMine ? 1 : 0);
 }
 
 function applyFilters(leagues: LeagueWithStats[], f: Filters): LeagueWithStats[] {
   return leagues.filter((l) => {
+    const isMine = l.myRole !== null;
+    // "Only my leagues" restricts the list to leagues I'm a member of.
+    if (f.onlyMine) return isMine;
+    // "Always show my leagues" lets member leagues bypass the discovery filters.
+    if (f.alwaysShowMine && isMine) return true;
     if (!f.showPrivate && !l.is_open) return false;
     if (f.minPlayers > 0 && l.memberCount < f.minPlayers) return false;
     if (f.createdWithin !== null) {
@@ -176,7 +193,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         .in('league_id', ids)
         .in('status', ['active', 'upcoming']),
       supabase.from('tournaments')
-        .select('league_id, status')
+        .select('league_id, status, start_time')
         .in('league_id', ids)
         .in('status', ['registration', 'active']),
       // League admins (creator is backfilled as admin) — for the clickable admin link.
@@ -196,7 +213,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const myMembers      = (myMemberRes as any).data ?? [];
     const myRequests     = (myRequestRes as any).data ?? [];
     const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
-    const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string }[];
+    const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string; start_time: string | null }[];
     const adminRows      = (adminRes.data ?? []) as any[];
     const eventRows      = (eventRes.data ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
 
@@ -243,7 +260,13 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       const featuredStatus: 'active' | 'upcoming' | null = featuredSeason
         ? (featuredSeason.status === 'active' ? 'active' : 'upcoming')
         : null;
-      const activeTournamentCount = tournamentRows.filter(t => t.league_id === l.id).length;
+      const lTournaments = tournamentRows.filter(t => t.league_id === l.id);
+      const activeTournamentCount = lTournaments.length;
+      // Open for registration → purple. Closed-reg but scheduled for a future
+      // start (status 'active', start_time ahead) → blue.
+      const openRegistrationTournamentCount = lTournaments.filter(t => t.status === 'registration').length;
+      const scheduledTournamentCount = lTournaments.filter(t =>
+        t.status === 'active' && t.start_time != null && new Date(t.start_time).getTime() > nowMs).length;
 
       const lEvents = eventRows.filter(e => e.league_id === l.id);
       const openVoteCount = lEvents.filter(e =>
@@ -265,6 +288,8 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         hasRequested,
         activeSeasonCount: myActiveSeasonsOnly.length,
         activeTournamentCount,
+        openRegistrationTournamentCount,
+        scheduledTournamentCount,
         upcomingEventCount,
         openVoteCount,
         adminId:   admin?.id ?? null,
@@ -365,23 +390,30 @@ export default function LeaguesScreen({ navigation, route }: Props) {
   }
 
   // Color the season chip by its status: green for active (running now),
-  // amber for upcoming (planned but not yet started), gray for TBD (no
+  // purple for upcoming (planned for a future start), gray for TBD (no
   // season scheduled).
   function seasonChipStyle(status: 'active' | 'upcoming' | null) {
     if (status === 'active')   return { backgroundColor: c.primaryLight, borderColor: c.primary };
-    if (status === 'upcoming') return { backgroundColor: '#fff1d6',     borderColor: '#b8860b' };
+    if (status === 'upcoming') return { backgroundColor: TONE_COLORS.purple.bg, borderColor: TONE_COLORS.purple.border };
     return { backgroundColor: c.surfaceAlt, borderColor: c.border };
   }
   function seasonChipLabelStyle(status: 'active' | 'upcoming' | null) {
     if (status === 'active')   return { color: c.primary };
-    if (status === 'upcoming') return { color: '#8a5b00' };
+    if (status === 'upcoming') return { color: TONE_COLORS.purple.label };
     return { color: c.textMuted };
   }
   function seasonChipValueStyle(status: 'active' | 'upcoming' | null) {
     if (status === 'active')   return { color: c.text };
-    if (status === 'upcoming') return { color: '#5c3d00' };
+    if (status === 'upcoming') return { color: TONE_COLORS.purple.value };
     return { color: c.textSub };
   }
+
+  // Purple/blue chip style helpers shared by the tournament/event/vote chips.
+  function toneChip(tone: 'purple' | 'blue') {
+    return { backgroundColor: TONE_COLORS[tone].bg, borderColor: TONE_COLORS[tone].border };
+  }
+  function toneChipLabel(tone: 'purple' | 'blue') { return { color: TONE_COLORS[tone].label }; }
+  function toneChipValue(tone: 'purple' | 'blue') { return { color: TONE_COLORS[tone].value }; }
 
   function renderLeagueCard({ item }: { item: LeagueWithStats }) {
     return (
@@ -471,22 +503,32 @@ export default function LeaguesScreen({ navigation, route }: Props) {
               {formatSeasonRange(item.featuredSeasonStart, item.featuredSeasonEnd)}
             </Text>
           </View>
-          {item.activeTournamentCount > 0 && (
-            <View style={S.activityChip}>
-              <Text style={S.activityChipLabel}>Upcoming Tournaments</Text>
-              <Text style={S.activityChipValue}>{item.activeTournamentCount}</Text>
+          {/* Open for registration → purple (joinable now). */}
+          {item.openRegistrationTournamentCount > 0 && (
+            <View style={[S.activityChip, toneChip('purple')]}>
+              <Text style={[S.activityChipLabel, toneChipLabel('purple')]}>Tournaments Open</Text>
+              <Text style={[S.activityChipValue, toneChipValue('purple')]}>{item.openRegistrationTournamentCount}</Text>
             </View>
           )}
+          {/* Registration closed, scheduled for a future start → blue. */}
+          {item.scheduledTournamentCount > 0 && (
+            <View style={[S.activityChip, toneChip('blue')]}>
+              <Text style={[S.activityChipLabel, toneChipLabel('blue')]}>Upcoming Tournaments</Text>
+              <Text style={[S.activityChipValue, toneChipValue('blue')]}>{item.scheduledTournamentCount}</Text>
+            </View>
+          )}
+          {/* Scheduled events (voting closed, future start) → blue. */}
           {item.upcomingEventCount > 0 && (
-            <View style={S.activityChip}>
-              <Text style={S.activityChipLabel}>Upcoming Events</Text>
-              <Text style={S.activityChipValue}>{item.upcomingEventCount}</Text>
+            <View style={[S.activityChip, toneChip('blue')]}>
+              <Text style={[S.activityChipLabel, toneChipLabel('blue')]}>Upcoming Events</Text>
+              <Text style={[S.activityChipValue, toneChipValue('blue')]}>{item.upcomingEventCount}</Text>
             </View>
           )}
+          {/* Open votes → purple (votable now). */}
           {item.openVoteCount > 0 && (
-            <View style={S.activityChip}>
-              <Text style={S.activityChipLabel}>Open Votes</Text>
-              <Text style={S.activityChipValue}>{item.openVoteCount}</Text>
+            <View style={[S.activityChip, toneChip('purple')]}>
+              <Text style={[S.activityChipLabel, toneChipLabel('purple')]}>Open Votes</Text>
+              <Text style={[S.activityChipValue, toneChipValue('purple')]}>{item.openVoteCount}</Text>
             </View>
           )}
         </View>
@@ -565,6 +607,30 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       {/* Collapsible filter panel */}
       {showFilters && (
         <View style={S.filterPanel}>
+          {/* Always show my leagues (on by default) — member leagues bypass the
+              other discovery filters so you never lose sight of them. */}
+          <View style={S.filterRow}>
+            <Text style={S.filterLabel}>Always show my leagues</Text>
+            <Switch
+              value={filters.alwaysShowMine}
+              onValueChange={(v) => setFilter('alwaysShowMine', v)}
+              trackColor={{ true: c.primary }}
+              thumbColor={c.surface}
+            />
+          </View>
+
+          {/* Only my leagues (off by default) — restricts the list to leagues
+              I'm a member of. */}
+          <View style={S.filterRow}>
+            <Text style={S.filterLabel}>Only my leagues</Text>
+            <Switch
+              value={filters.onlyMine}
+              onValueChange={(v) => setFilter('onlyMine', v)}
+              trackColor={{ true: c.primary }}
+              thumbColor={c.surface}
+            />
+          </View>
+
           {/* Show private leagues (hidden by default) */}
           <View style={S.filterRow}>
             <Text style={S.filterLabel}>Show private leagues</Text>
