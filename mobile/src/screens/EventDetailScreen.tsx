@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Platform,
 } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,6 +13,7 @@ import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import ContactPickerModal from '../components/ContactPickerModal';
 import { sendSmsInvite } from '../lib/sms';
+import { shareInvite } from '../lib/share';
 import { DeviceContact } from '../lib/contacts';
 
 type Props = {
@@ -184,28 +185,81 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     });
   }, [event?.league_id]);
 
-  // Pick phone contacts → mint a shared guest invite → group-text the link.
+  // Entry point for "Invite guests". Native has device contacts, so we open the
+  // in-app picker and group-text the chosen numbers. Mobile web can't read
+  // contacts, so we skip the picker and hand the invite to the OS share sheet
+  // (Web Share API) — the user picks the recipients / creates the group there.
+  function onInviteGuests() {
+    if (Platform.OS === 'web') void shareGuestInviteWeb();
+    else setShowGuestPicker(true);
+  }
+
+  function buildGuestMessage(token: string): string {
+    const link = `https://pickleague.club/g/${token}`;
+    const where = leagueName ? ` in ${leagueName}` : '';
+    return (
+      `You're invited to vote on a time for "${event!.title}"${where} on Pickleague! 🥒\n` +
+      `Tap to join the vote — no account needed (7-day guest pass): ${link}`
+    );
+  }
+
+  // Mints a shared guest invite and returns its token, or null (after alerting).
+  // Catches a rejected rpc (network failure) too, so callers never throw.
+  async function createGuestInvite(invitedNames: string[]): Promise<string | null> {
+    if (!event) return null;
+    try {
+      const { data, error } = await supabase.rpc('create_guest_invite', {
+        p_league_id:     event.league_id,
+        p_event_id:      eventId,
+        p_invited_names: invitedNames,
+      });
+      const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
+      if (error || !token) {
+        Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
+        return null;
+      }
+      return token;
+    } catch (e: any) {
+      Alert.alert('Could not create invite', e?.message ?? 'Please try again.');
+      return null;
+    }
+  }
+
+  // Native: pick phone contacts → mint invite → group-text the link.
   async function sendGuestInvites(contacts: DeviceContact[]) {
     if (!event || contacts.length === 0) return;
     setInvitingGuests(true);
-    const { data, error } = await supabase.rpc('create_guest_invite', {
-      p_league_id:     event.league_id,
-      p_event_id:      eventId,
-      p_invited_names: contacts.map(c => c.name),
-    });
-    setInvitingGuests(false);
-    setShowGuestPicker(false);
-    const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
-    if (error || !token) {
-      Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
-      return;
+    try {
+      const token = await createGuestInvite(contacts.map(c => c.name));
+      if (token) {
+        await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(c => c.phone) });
+      }
+    } finally {
+      // Always clear busy state so the button/modal never lock up on an error.
+      setInvitingGuests(false);
+      setShowGuestPicker(false);
     }
-    const link = `https://pickleague.club/g/${token}`;
-    const where = leagueName ? ` in ${leagueName}` : '';
-    const message =
-      `You're invited to vote on a time for "${event.title}"${where} on Pickleague! 🥒\n` +
-      `Tap to join the vote — no account needed (7-day guest pass): ${link}`;
-    await sendSmsInvite({ message, recipients: contacts.map(c => c.phone) });
+  }
+
+  // Web: no contacts access — mint invite (empty roster; the landing page lets
+  // each guest type their name) → share via the OS share sheet, falling back to
+  // an sms: composer then clipboard.
+  async function shareGuestInviteWeb() {
+    if (!event || invitingGuests) return;
+    setInvitingGuests(true);
+    try {
+      const token = await createGuestInvite([]);
+      if (!token) return;
+      const result = await shareInvite({
+        title:   `Vote on "${event.title}"`,
+        message: buildGuestMessage(token),
+      });
+      if (result.copied) {
+        Alert.alert('Invite copied', 'The invite link was copied — paste it into a group text to your guests.');
+      }
+    } finally {
+      setInvitingGuests(false);
+    }
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
@@ -298,7 +352,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Invite guests (members only, while voting is open) */}
       {votingIsOpen && isMember && (
-        <TouchableOpacity style={S.inviteGuestsBtn} onPress={() => setShowGuestPicker(true)}>
+        <TouchableOpacity style={S.inviteGuestsBtn} onPress={onInviteGuests} disabled={invitingGuests}>
           <Text style={S.inviteGuestsText}>📲  Invite guests to vote</Text>
         </TouchableOpacity>
       )}
