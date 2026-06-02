@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal, Pressable, useWindowDimensions } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -300,7 +300,11 @@ export default function HomeScreen({ navigation }: Props) {
     if (result.claimed_today) loadProfile();
   }
 
-  const s = makeStyles(colors);
+  // Wide layouts (web / tablet) lay the 4 PLUPR tiles in a single row; phones
+  // get a roomy 2×2. 600px is the breakpoint between the two.
+  const { width } = useWindowDimensions();
+  const wideStats = width >= 600;
+  const s = makeStyles(colors, wideStats);
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -360,7 +364,7 @@ export default function HomeScreen({ navigation }: Props) {
             </TouchableOpacity>
           </View>
 
-          {/* PLUPR ratings — 2x2 grid; tap a tile to see those matches */}
+          {/* PLUPR ratings — 2×2 grid to the right; tap a tile to see those matches */}
           <View style={s.pluprGrid}>
             <TouchableOpacity
               style={s.pluprTile}
@@ -655,7 +659,7 @@ export default function HomeScreen({ navigation }: Props) {
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: ReturnType<typeof useTheme>['colors'], wideStats: boolean) {
   return StyleSheet.create({
     hero: {
       backgroundColor: c.headerBg,
@@ -680,17 +684,24 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     welcomeLabel: { fontSize: 14, color: c.headerSub, fontWeight: '500' },
     heroName:  { fontSize: 30, fontWeight: '800', color: c.headerText, marginTop: 2 },
 
-    // Hero greeting laid out beside the PLUPR quick-stats grid.
+    // Hero greeting laid out beside the PLUPR quick-stats grid (name + pickles
+    // on the left, a 2×2 grid of rating tiles pinned to the right). The grid
+    // keeps its size (flexShrink 0) while the greeting flexes to fill the rest —
+    // tiles are a touch larger on wide/web layouts and compact on phones so the
+    // name always has room.
     greetingRow:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
     greetingLeft: { flex: 1, minWidth: 0 },
-    pluprGrid:    { flexDirection: 'row', flexWrap: 'wrap', width: 168, gap: 8, justifyContent: 'flex-end' },
+    pluprGrid:    {
+      flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end',
+      flexShrink: 0, width: wideStats ? 2 * 96 + 8 : 2 * 78 + 8,
+    },
     pluprTile:    {
-      width: 80, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6,
+      width: wideStats ? 96 : 78, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6,
       borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.12)',
       borderWidth: 1, borderColor: 'rgba(255,255,255,0.20)',
     },
-    pluprValue:   { fontSize: 17, fontWeight: '800', color: c.headerText },
-    pluprLabel:   { fontSize: 10, color: c.headerSub, fontWeight: '600', marginTop: 2, textAlign: 'center' },
+    pluprValue:   { fontSize: wideStats ? 18 : 17, fontWeight: '800', color: c.headerText },
+    pluprLabel:   { fontSize: wideStats ? 11 : 10, color: c.headerSub, fontWeight: '600', marginTop: 2, textAlign: 'center' },
 
     picklePill: {
       flexDirection: 'row', alignItems: 'center', gap: 6,
