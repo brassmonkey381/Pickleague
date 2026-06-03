@@ -9,16 +9,10 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./supabase": "./src/supabase/index.ts",
-    "./theme": "./src/theme/index.ts",
-    "./toast": "./src/toast/index.ts",
-    "./navigation": "./src/navigation/index.ts",
-    "./tour": "./src/tour/index.ts",
     "./hooks": "./src/hooks/index.ts",
     "./platform": "./src/platform/index.ts",
-    "./scheduling": "./src/scheduling/index.ts",
-    "./styles": "./src/styles/index.ts",
-    "./ui": "./src/ui/index.ts"
+    "./scheduling/availability": "./src/scheduling/availability.ts",
+    "./scheduling/drillTime": "./src/scheduling/drillTime.ts"
   },
   "sideEffects": false,
   "peerDependencies": {
