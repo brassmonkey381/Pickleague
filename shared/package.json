@@ -14,6 +14,7 @@
     "./styles": "./src/styles/index.ts",
     "./ui": "./src/ui/index.ts",
     "./toast": "./src/toast/index.ts",
+    "./navigation": "./src/navigation/index.ts",
     "./hooks": "./src/hooks/index.ts",
     "./platform": "./src/platform/index.ts",
     "./scheduling/availability": "./src/scheduling/availability.ts",
