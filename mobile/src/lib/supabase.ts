@@ -1,17 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import { createClient } from '@supabase/supabase-js';
+// The Supabase client setup moved to @stockman/rn-foundation. This file stays as
+// the app's configured singleton — it injects the app's own env vars — so all
+// existing `import { supabase } from '../lib/supabase'` call sites are unchanged.
+import { createSupabase } from '@stockman/rn-foundation/supabase';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    // On web, Supabase needs to read the auth tokens from the URL hash
-    // when users land here from an email confirmation / magic link.
-    detectSessionInUrl: Platform.OS === 'web',
-  },
-});
+export const supabase = createSupabase(
+  process.env.EXPO_PUBLIC_SUPABASE_URL!,
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+);

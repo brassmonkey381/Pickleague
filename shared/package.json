@@ -9,6 +9,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./supabase": "./src/supabase/index.ts",
     "./hooks": "./src/hooks/index.ts",
     "./platform": "./src/platform/index.ts",
     "./scheduling/availability": "./src/scheduling/availability.ts",

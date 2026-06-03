@@ -1,0 +1,1 @@
+export { createSupabase } from './createSupabase';
