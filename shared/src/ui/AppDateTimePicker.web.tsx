@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Pressable } from 'react-native';
-import { useTheme } from '../lib/ThemeContext';
+import { useTheme } from '../theme';
 
 type Props = {
   visible: boolean;

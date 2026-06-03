@@ -1,14 +1,14 @@
 /**
- * Web CourtPicker — uses browser Geolocation + Nominatim (OpenStreetMap)
- * No native deps, fully CORS-compatible.
- * Google Places autocomplete works on the native app (iOS/Android).
+ * Web CourtPicker — uses browser Geolocation + Nominatim (OpenStreetMap).
+ * No native deps, fully CORS-compatible. The native variant (iOS/Android) uses
+ * Google Places autocomplete.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  FlatList, StyleSheet, ActivityIndicator,
+  View, Text, TouchableOpacity,
+  StyleSheet, ActivityIndicator,
 } from 'react-native';
-import { useTheme } from '../lib/ThemeContext';
+import { useTheme } from '../theme';
 
 export type CourtResult = {
   name: string;
@@ -85,7 +85,7 @@ export default function CourtPicker({
           : {}),
       });
       const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
-        headers: { 'User-Agent': 'Pickleague/1.0' },
+        headers: { 'User-Agent': 'rn-foundation-courtpicker/1.0' },
       });
       const data: NominatimResult[] = await res.json();
       setResults(data);
