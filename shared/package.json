@@ -10,6 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./supabase": "./src/supabase/index.ts",
+    "./theme": "./src/theme/index.ts",
+    "./styles": "./src/styles/index.ts",
     "./hooks": "./src/hooks/index.ts",
     "./platform": "./src/platform/index.ts",
     "./scheduling/availability": "./src/scheduling/availability.ts",

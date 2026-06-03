@@ -1,21 +1,10 @@
-export type ThemeMode = 'light' | 'dark' | 'system';
+// The Theme/ThemeMode shape now lives in @stockman/rn-foundation (single source
+// of truth shared with the foundation's UI primitives). This file keeps the
+// Pickleague brand palette and re-exports the types, so all existing
+// `import { Theme, ThemeMode, LIGHT, DARK } from '../lib/theme'` call sites work.
+import type { Theme } from '@stockman/rn-foundation/theme';
 
-export type Theme = {
-  bg: string;
-  surface: string;
-  surfaceAlt: string;
-  primary: string;
-  primaryLight: string;
-  primaryDark: string;
-  text: string;
-  textSub: string;
-  textMuted: string;
-  border: string;
-  danger: string;
-  headerBg: string;
-  headerText: string;
-  headerSub: string;
-};
+export type { Theme, ThemeMode } from '@stockman/rn-foundation/theme';
 
 export const LIGHT: Theme = {
   bg:           '#eef2ee',

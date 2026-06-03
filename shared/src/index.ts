@@ -3,6 +3,8 @@
 // Submodules are added here phase by phase as they are extracted.
 
 export * from './supabase';
+export * from './theme';
+export * from './styles';
 export * from './hooks';
 export * from './platform';
 

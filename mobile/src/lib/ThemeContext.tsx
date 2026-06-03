@@ -1,49 +1,11 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DARK, LIGHT, Theme, ThemeMode } from './theme';
+// The theme context now lives in @stockman/rn-foundation as a module singleton.
+// This adapter injects the Pickleague palette + storage key, then re-exports the
+// foundation's ThemeProvider/useTheme so all existing consumers
+// (`import { useTheme } from '../lib/ThemeContext'`) are unchanged AND share the
+// exact same context instance the foundation's own UI primitives use.
+import { configureTheme } from '@stockman/rn-foundation/theme';
+import { LIGHT, DARK } from './theme';
 
-type ThemeContextValue = {
-  colors: Theme;
-  themeMode: ThemeMode;
-  isDark: boolean;
-  setThemeMode: (mode: ThemeMode) => void;
-};
+configureTheme({ light: LIGHT, dark: DARK, storageKey: 'pickleague_theme_mode' });
 
-const ThemeContext = createContext<ThemeContextValue>({
-  colors: LIGHT,
-  themeMode: 'system',
-  isDark: false,
-  setThemeMode: () => {},
-});
-
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useColorScheme();
-  const [themeMode, setThemeModeState] = useState<ThemeMode>('system');
-
-  useEffect(() => {
-    AsyncStorage.getItem('pickleague_theme_mode').then((v) => {
-      if (v === 'light' || v === 'dark' || v === 'system') setThemeModeState(v);
-    });
-  }, []);
-
-  function setThemeMode(mode: ThemeMode) {
-    setThemeModeState(mode);
-    AsyncStorage.setItem('pickleague_theme_mode', mode);
-  }
-
-  const resolved =
-    themeMode === 'system'
-      ? systemScheme === 'dark' ? DARK : LIGHT
-      : themeMode === 'dark' ? DARK : LIGHT;
-
-  const isDark = resolved === DARK;
-
-  return (
-    <ThemeContext.Provider value={{ colors: resolved, themeMode, isDark, setThemeMode }}>
-      {children}
-    </ThemeContext.Provider>
-  );
-}
-
-export const useTheme = () => useContext(ThemeContext);
+export { ThemeProvider, useTheme } from '@stockman/rn-foundation/theme';
