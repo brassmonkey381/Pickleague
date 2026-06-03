@@ -1,6 +1,6 @@
 /**
  * Convenience re-export so callers can `import { useToast } from '../lib/useToast'`.
- * The actual implementation lives in ToastProvider.tsx.
+ * The implementation now lives in @stockman/rn-foundation/toast.
  */
-export { useToast } from './ToastProvider';
-export type { ToastContextValue, ToastKind, Toast } from './ToastProvider';
+export { useToast } from '@stockman/rn-foundation/toast';
+export type { ToastContextValue, ToastKind, Toast } from '@stockman/rn-foundation/toast';
