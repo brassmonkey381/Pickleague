@@ -235,7 +235,15 @@ export default function UnlockProgressScreen({ navigation }: Props) {
         const earned = earnedBadgeNames.includes(u.badge);
         const prog   = badgeProgress[u.badge];
         return (
-          <View key={u.badge} style={styles.row}>
+          // Tag slots are used on your profile (the tag picker), so tapping
+          // routes there — not the Shop. (A name-style reward chip inside,
+          // if any, keeps its own tap → Shop.)
+          <TouchableOpacity
+            key={u.badge}
+            style={styles.row}
+            activeOpacity={0.75}
+            onPress={() => navigation.navigate('Profile', {})}
+          >
             <View style={[styles.iconCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
               <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
             </View>
@@ -252,7 +260,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
                 : <Text style={styles.req}>{u.description}</Text>}
               {renderNameStyleReward(u.badge)}
             </View>
-          </View>
+          </TouchableOpacity>
         );
       })}
 
