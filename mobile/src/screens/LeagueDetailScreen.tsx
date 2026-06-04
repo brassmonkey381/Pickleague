@@ -13,6 +13,10 @@ import { TONE_COLORS, tournamentTone, ActivityTone } from '../lib/activityTone';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import ConfirmModal from '../components/ConfirmModal';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 import { displayCourtName } from '../lib/courtNickname';
 import StatusBanner from '../components/StatusBanner';
 import BookmarkButton from '../components/BookmarkButton';
@@ -129,6 +133,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       load();
     }, [leagueId])
   );
+
+  const refresh = useRefresh(load);
 
   async function load() {
     const [role, leagueRes, seasonRes, completedRes, godmodeResult] = await Promise.all([
@@ -575,7 +581,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   // ── Data ──────────────────────────────────────────────────────
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   const privileged = isPrivileged(myRole);
   const isAdmin    = myRole === 'admin';
@@ -625,7 +631,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const lockDates = seasonModal ? computeLockDates() : [];
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
 
       {/* ── Home court banner ──────────────────────────────────── */}
       <View style={S.courtBanner}>

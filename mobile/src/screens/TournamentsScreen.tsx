@@ -9,6 +9,9 @@ import { isAvailableAt, TOTAL_CELLS } from '../lib/availability';
 import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import EmptyState from '../components/EmptyState';
 import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
@@ -44,6 +47,8 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const atTournamentLimit = !godmode && activeOwnedTournamentCount >= 1;
 
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  const refresh = useRefresh(load);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -285,16 +290,15 @@ export default function TournamentsScreen({ navigation, route }: Props) {
         keyExtractor={i => i.id}
         renderItem={renderCard}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
-          <Text style={S.empty}>
-            {showEnded && trimmedQuery
-              ? `No tournaments match "${searchQuery.trim()}".`
-              : filterByAvail
-              ? 'No tournaments match your availability.\nTry removing the filter.'
-              : !showEnded && endedCount > 0
-              ? 'No active tournaments.\nToggle "Show ended" to see past tournaments.'
-              : 'No tournaments yet.\nCreate one to get started!'}
-          </Text>
+          showEnded && trimmedQuery
+            ? <EmptyState icon="🔍" title="No matches" subtitle={`No tournaments match "${searchQuery.trim()}".`} />
+            : filterByAvail
+            ? <EmptyState icon="📅" title="No matching tournaments" subtitle="No tournaments match your availability. Try removing the filter." />
+            : !showEnded && endedCount > 0
+            ? <EmptyState icon="🏆" title="No active tournaments" subtitle='Toggle "Show ended" to see past tournaments.' />
+            : <EmptyState icon="🏆" title="No tournaments yet" subtitle="Create one to get started!" />
         }
       />
       <TouchableOpacity

@@ -16,6 +16,10 @@ import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetMo
 import FlairName from '../components/FlairName';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueMembers'>;
@@ -55,6 +59,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [joining, setJoining]   = useState(false);
   const [wagerTotals, setWagerTotals]       = useState<Record<string, number>>({});
   const joinStatus = useStatusMessage();
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -221,7 +226,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   const avgLeagueElo = members.length
     ? +(members.reduce((s, m) => s + (m.profile?.rating ?? 3.25), 0) / members.length).toFixed(2)
@@ -233,6 +238,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       style={{ backgroundColor: colors.bg }}
       data={members}
       keyExtractor={(item) => item.id}
+      refreshControl={<AppRefreshControl {...refresh} />}
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
       ListHeaderComponent={
         <>
@@ -358,6 +364,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                   });
                 }}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityLabel={`View wagers on ${item.profile?.full_name ?? 'player'}`}
               >
                 <Text style={S.wagerPillText}>🥒 {wagered.toLocaleString()}</Text>
               </TouchableOpacity>
@@ -370,6 +378,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                 style={S.kebab}
                 onPress={(e) => { e.stopPropagation?.(); showOptions(item); }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Manage ${item.profile?.full_name ?? 'member'}`}
               >
                 <Text style={S.kebabText}>⋮</Text>
               </TouchableOpacity>
@@ -377,7 +387,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         );
       }}
-      ListEmptyComponent={<Text style={S.empty}>No members yet.</Text>}
+      ListEmptyComponent={<EmptyState icon="👥" title="No members yet" subtitle="No members yet." />}
     />
 
     <Modal

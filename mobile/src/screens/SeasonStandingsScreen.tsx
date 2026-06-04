@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -20,6 +19,10 @@ import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
 import { WagerSubject } from '../lib/wager';
 import FlairName from '../components/FlairName';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -270,6 +273,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   }
 
   const status = useStatusMessage();
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -559,6 +563,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   <TouchableOpacity
                     key={rank}
                     style={S.marketCell}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Wager on ${row.full_name} to finish rank ${rank}`}
                     onPress={() => openWagerForSubject(buildRankSubject({
                       userId: row.user_id,
                       userName: row.full_name,
@@ -589,7 +595,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
   // ── Render sections ───────────────────────────────────────────
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
   if (!season) return <Text style={S.empty}>Season not found.</Text>;
 
   const lockedCount    = periods.filter(p => p.locked).length;
@@ -618,7 +624,10 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                     :                                 '#e65100';
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView
+      contentContainerStyle={S.container}
+      refreshControl={<AppRefreshControl {...refresh} />}
+    >
 
       <StatusBanner status={status.value} style={{ marginTop: 0 }} />
 
@@ -873,6 +882,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                     {(wagerTotals[row.user_id] ?? 0) > 0 && (
                       <TouchableOpacity
                         style={S.wagerPill}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View wagers on ${row.profile?.full_name ?? 'Player'}`}
                         onPress={() => navigation.navigate('PlayerWagers', {
                           userId: row.user_id,
                           userName: row.profile?.full_name ?? 'Player',
@@ -933,7 +944,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               : `Ranked by median position across ${lockedCount} locked period${lockedCount !== 1 ? 's' : ''}`}
           </Text>
           {finals.length === 0 ? (
-            <Text style={S.empty}>No matches recorded yet this season.</Text>
+            <EmptyState icon="🏆" title="No standings yet" subtitle="No matches recorded yet this season." />
           ) : (
             <>
               <View style={S.tableHeader}>
@@ -972,6 +983,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                     {(wagerTotals[row.user_id] ?? 0) > 0 && (
                       <TouchableOpacity
                         style={S.wagerPill}
+                        accessibilityRole="button"
+                        accessibilityLabel={`View wagers on ${row.profile?.full_name ?? 'Player'}`}
                         onPress={() => navigation.navigate('PlayerWagers', {
                           userId: row.user_id,
                           userName: row.profile?.full_name ?? 'Player',

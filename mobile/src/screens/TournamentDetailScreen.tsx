@@ -36,6 +36,10 @@ import WagerProposeModal from '../components/WagerProposeModal';
 import BookmarkButton from '../components/BookmarkButton';
 import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { buildStandingsComparator, type TiebreakerMatch } from '../lib/tournamentTiebreakers';
@@ -160,6 +164,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }, [registrations]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  const refresh = useRefresh(load);
 
   // Refresh MLP standings whenever the tournament loads or new matches land —
   // the RPC reads completed sub-match counts, so it updates as games finish.
@@ -956,7 +962,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     openMatchActionSheet(m);
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
   if (!tournament) return <Text style={S.empty}>Tournament not found.</Text>;
 
   const fmt        = FORMAT_META[tournament.format];
@@ -997,7 +1003,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   return (
     <>
-      <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 48 }}>
+      <ScrollView
+        style={S.container}
+        contentContainerStyle={{ paddingBottom: 48 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
+      >
 
         {/* ── Header ── */}
         <View style={S.headerCard}>
@@ -1407,7 +1417,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               </View>
             );
           })}
-          {rosterShown.length === 0 && <Text style={S.emptySection}>No players yet.</Text>}
+          {rosterShown.length === 0 && (
+            <EmptyState icon="🏓" title="No players yet" subtitle="No one has joined this tournament yet." />
+          )}
         </View>
 
         {/* ── Pending join requests (admin/co-admin only) ── */}
@@ -1427,10 +1439,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 />
                 <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
                 <View style={S.pendingActions}>
-                  <TouchableOpacity style={S.approveBtn} onPress={() => approveReg(r.id)}>
+                  <TouchableOpacity
+                    style={S.approveBtn}
+                    onPress={() => approveReg(r.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Approve ${r.profile?.full_name ?? 'player'}`}
+                  >
                     <Text style={S.approveBtnText}>✓</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={S.rejectBtn} onPress={() => rejectReg(r.id)}>
+                  <TouchableOpacity
+                    style={S.rejectBtn}
+                    onPress={() => rejectReg(r.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Reject ${r.profile?.full_name ?? 'player'}`}
+                  >
                     <Text style={S.rejectBtnText}>✕</Text>
                   </TouchableOpacity>
                 </View>

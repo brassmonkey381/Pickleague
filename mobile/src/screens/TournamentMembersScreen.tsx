@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -11,6 +11,10 @@ import {
 import { TournamentRegistration, RootStackParamList } from '../types';
 import { formatPlupr } from '../lib/plupr';
 import ActionSheetModal, { ActionSheetAction } from '../components/ActionSheetModal';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentMembers'>;
@@ -27,6 +31,8 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   const [loading, setLoading]   = useState(true);
   const [actionTarget, setActionTarget] = useState<TournamentRegistration | null>(null);
   const [wagerTotals, setWagerTotals]   = useState<Record<string, number>>({});
+
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -87,7 +93,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
     return list;
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <>
@@ -96,6 +102,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       data={members}
       keyExtractor={item => item.id}
       contentContainerStyle={{ padding: 16 }}
+      refreshControl={<AppRefreshControl {...refresh} />}
       ListHeaderComponent={
         <Text style={S.count}>{members.length} approved member{members.length !== 1 ? 's' : ''}</Text>
       }
@@ -146,6 +153,8 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
                 style={S.kebab}
                 onPress={(e) => { e.stopPropagation?.(); showOptions(item); }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Manage ${item.profile?.full_name ?? 'member'}`}
               >
                 <Text style={S.kebabText}>⋮</Text>
               </TouchableOpacity>
@@ -153,7 +162,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         );
       }}
-      ListEmptyComponent={<Text style={S.empty}>No approved members yet.</Text>}
+      ListEmptyComponent={<EmptyState icon="👥" title="No members yet" subtitle="No approved members yet." />}
     />
 
     <ActionSheetModal

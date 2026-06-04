@@ -10,6 +10,10 @@ import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { AVATARS } from '../data/profileCustomization';
 import { formatPlupr } from '../lib/plupr';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInvitePlayers'>;
@@ -41,6 +45,8 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   const [tournamentAvg, setTournamentAvg] = useState<number>(3.25);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [excluded, setExcluded]     = useState<Set<string>>(new Set());
+
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
 
@@ -138,8 +144,8 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
 
   if (loading) {
     return (
-      <View style={S.loadingRoot}>
-        <ActivityIndicator size="large" color={c.primary} />
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <SkeletonList rows={6} />
       </View>
     );
   }
@@ -177,7 +183,12 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
           returnKeyType="search"
         />
         {query.length > 0 && (
-          <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
+          <TouchableOpacity
+            style={S.clearBtn}
+            onPress={() => setQuery('')}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
             <Text style={S.clearBtnText}>✕</Text>
           </TouchableOpacity>
         )}
@@ -233,13 +244,12 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
           );
         }}
         ListEmptyComponent={
-          <Text style={S.empty}>
-            {query
-              ? 'No players match that search.'
-              : 'No eligible players found in the PLUPR band ±1.5 of the tournament average.'}
-          </Text>
+          query
+            ? <EmptyState icon="🔍" title="No matches" subtitle="No players match that search." />
+            : <EmptyState icon="🏓" title="No eligible players" subtitle="No eligible players found in the PLUPR band ±1.5 of the tournament average." />
         }
         contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
       />
     </View>
   );

@@ -18,6 +18,10 @@ import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
@@ -146,6 +150,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
   const atLeagueLimit = !godmode && activeAdminLeagueCount >= 1;
 
   const status = useStatusMessage();
+  const refresh = useRefresh(loadLeagues);
 
   useEffect(() => { loadLeagues(); }, []);
 
@@ -463,6 +468,8 @@ export default function LeaguesScreen({ navigation, route }: Props) {
             }}
             hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             activeOpacity={0.6}
+            accessibilityRole="button"
+            accessibilityLabel={`View admin ${item.adminName} profile`}
           >
             <Text style={S.adminLabel}>👑 Admin</Text>
             <Text style={S.adminName} numberOfLines={1}>{item.adminName}</Text>
@@ -581,6 +588,8 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       </TouchableOpacity>
     );
   }
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
@@ -703,13 +712,16 @@ export default function LeaguesScreen({ navigation, route }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={renderLeagueCard}
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         ListHeaderComponent={
           status.value ? <StatusBanner status={status.value} style={{ marginBottom: 8 }} /> : null
         }
         ListEmptyComponent={
-          <Text style={S.empty}>
-            {loading ? 'Loading...' : allLeagues.length === 0 ? 'No leagues yet. Create one!' : 'No leagues match your filters.'}
-          </Text>
+          allLeagues.length === 0 ? (
+            <EmptyState icon="🏆" title="No leagues yet" subtitle="Create one to get started!" />
+          ) : (
+            <EmptyState icon="🔍" title="No matches" subtitle="No leagues match your filters." />
+          )
         }
       />
 
