@@ -5,7 +5,6 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, Profile, RootStackParamList } from '../types';
-import { isGodmodeUserId } from '../lib/godmode';
 import { isoDate, slotRangeLabel } from '../lib/drillTime';
 import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
@@ -21,9 +20,6 @@ import {
   markStreakShown,
   StreakResult,
 } from '../lib/loginStreak';
-
-// Module-level flag — fires once per app session (resets on app reload).
-let godmodeGrantClaimedThisSession = false;
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -43,8 +39,6 @@ export default function HomeScreen({ navigation }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [welcomeBalance, setWelcomeBalance] = useState(0);
-  const [godmodeOpen, setGodmodeOpen] = useState(false);
-  const [godmodeBalance, setGodmodeBalance] = useState(0);
   const [streakOpen, setStreakOpen] = useState(false);
   const [streakResult, setStreakResult] = useState<StreakResult | null>(null);
   // Whether the current user belongs to any league — gates the Record-a-Match card.
@@ -87,23 +81,20 @@ export default function HomeScreen({ navigation }: Props) {
 
   // Claim welcome pickles once per account, on first home visit after signup.
   useEffect(() => { claimWelcomePicklesOnce(); }, []);
-  // Godmode users: grant 50k 🥒 once per app session.
-  useEffect(() => { claimGodmodeGrantOncePerSession(); }, []);
   // Daily login streak: pop once per app session per user. Idempotent RPC.
   useEffect(() => { showStreakOncePerSession(); }, []);
 
   // Web: close info modals on Escape key.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (!welcomeOpen && !godmodeOpen) return;
+    if (!welcomeOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (welcomeOpen) setWelcomeOpen(false);
-      else if (godmodeOpen) setGodmodeOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [welcomeOpen, godmodeOpen]);
+  }, [welcomeOpen]);
 
   async function loadProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -267,22 +258,6 @@ export default function HomeScreen({ navigation }: Props) {
       setWelcomeBalance(row.new_balance ?? 1000);
       setWelcomeOpen(true);
       // Refresh profile so the home pickle balance reflects the new total
-      loadProfile();
-    }
-  }
-
-  async function claimGodmodeGrantOncePerSession() {
-    if (godmodeGrantClaimedThisSession) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!isGodmodeUserId(user?.id)) return;
-
-    godmodeGrantClaimedThisSession = true;
-    const { data, error } = await supabase.rpc('claim_godmode_pickles');
-    if (error) return;
-    const row = Array.isArray(data) ? data[0] : data;
-    if (row?.success) {
-      setGodmodeBalance(row.new_balance ?? 0);
-      setGodmodeOpen(true);
       loadProfile();
     }
   }
@@ -568,40 +543,6 @@ export default function HomeScreen({ navigation }: Props) {
                 onPress={() => { setWelcomeOpen(false); navigation.navigate('Shop'); }}
               >
                 <Text style={s.welcomeBtnText}>Visit Shop</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* ── Godmode 50k grant modal ──────────────────────── */}
-      <Modal visible={godmodeOpen} transparent animationType="fade" onRequestClose={() => setGodmodeOpen(false)}>
-        <Pressable
-          style={s.welcomeBackdrop}
-          onPress={(e) => { if (e.target === e.currentTarget) setGodmodeOpen(false); }}
-        >
-          <View style={s.welcomeCard}>
-            <Text style={s.welcomeEmoji}>🛠️</Text>
-            <Text style={s.welcomeTitle}>Godmode session unlocked</Text>
-            <Text style={s.welcomeBody}>
-              <Text style={s.welcomeAmount}>+50,000 🥒</Text> credited to your account.
-            </Text>
-            <Text style={s.welcomeSub}>
-              Use the Gift Pickles tool in Settings to send pickles to any user, or shop normally.
-            </Text>
-            <Text style={s.welcomeBalance}>Your balance: 🥒 {godmodeBalance.toLocaleString()}</Text>
-            <View style={s.welcomeBtnRow}>
-              <TouchableOpacity
-                style={[s.welcomeBtn, s.welcomeBtnSecondary]}
-                onPress={() => setGodmodeOpen(false)}
-              >
-                <Text style={s.welcomeBtnSecondaryText}>Dismiss</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.welcomeBtn}
-                onPress={() => { setGodmodeOpen(false); navigation.navigate('GiftPickles'); }}
-              >
-                <Text style={s.welcomeBtnText}>Gift Pickles</Text>
               </TouchableOpacity>
             </View>
           </View>
