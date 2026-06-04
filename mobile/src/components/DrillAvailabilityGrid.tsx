@@ -1,29 +1,38 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, PanResponder, StyleSheet,
-  LayoutChangeEvent,
+  ScrollView, LayoutChangeEvent,
 } from 'react-native';
-import {
-  DrillAvailability, DRILL_SLOTS_PER_DAY, dateLabel, dateSubLabel,
-  rollingDates, slotLabel, slotsFor, setSlot, totalSlots, emptyDay, isoDate,
-} from '../lib/drillTime';
+import { AVAIL_DAYS, SLOTS_PER_DAY, cellIdx, slotLabel } from '../lib/availability';
+import { isoWeekday, isoDate, DRILL_WEEKLY_CELLS, totalWeeklySlots } from '../lib/drillTime';
 import { useTheme } from '../lib/ThemeContext';
 
 const CELL_H  = 14;
 const TIME_W  = 38;
 
-// Quick-fill presets
-type Preset = { id: string; icon: string; label: string; build: () => DrillAvailability };
+const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const ALL_SLOTS = range(0, SLOTS_PER_DAY - 1);
+const ALL_DAYS  = [0, 1, 2, 3, 4, 5, 6];
+const WEEKDAYS  = [0, 1, 2, 3, 4]; // Mon–Fri (AVAIL_DAYS is Mon..Sun)
+const WEEKENDS  = [5, 6];          // Sat, Sun
 
-function buildPreset(slotsFor7: number[], dates: string[]): DrillAvailability {
-  const out: DrillAvailability = {};
-  for (const d of dates) {
-    const day = emptyDay();
-    for (const s of slotsFor7) day[s] = true;
-    out[d] = day;
-  }
-  return out;
+// Quick-fill presets build a recurring weekly template (boolean[336]).
+type Preset = { id: string; icon: string; label: string; build: () => boolean[] };
+
+function buildWeekly(slots: number[], days: number[]): boolean[] {
+  const av = Array(DRILL_WEEKLY_CELLS).fill(false) as boolean[];
+  for (const d of days) for (const s of slots) av[cellIdx(d, s)] = true;
+  return av;
 }
+
+const PRESETS: Preset[] = [
+  { id: 'evenings',   icon: '🌆', label: 'Evenings (5–9pm)',   build: () => buildWeekly(range(34, 41), ALL_DAYS) },
+  { id: 'mornings',   icon: '🌅', label: 'Mornings (7–10am)',  build: () => buildWeekly(range(14, 19), ALL_DAYS) },
+  { id: 'lunch',      icon: '🥗', label: 'Lunch (11:30–1:30)', build: () => buildWeekly(range(23, 26), ALL_DAYS) },
+  { id: 'weeknights', icon: '💼', label: 'Weeknights only',    build: () => buildWeekly(range(36, 41), WEEKDAYS) },
+  { id: 'weekends',   icon: '🏖', label: 'Weekends',           build: () => buildWeekly(ALL_SLOTS, WEEKENDS) },
+  { id: 'all-week',   icon: '☀️', label: 'Open all week',      build: () => buildWeekly(ALL_SLOTS, ALL_DAYS) },
+];
 
 const GridCell = React.memo(
   function GridCell({ bg }: { bg: string }) {
@@ -32,16 +41,19 @@ const GridCell = React.memo(
   (prev, next) => prev.bg === next.bg,
 );
 
+type Overlay = { date: string; slot: number; length_minutes?: number };
+
 type Props = {
-  availability: DrillAvailability;
-  onChange: (av: DrillAvailability) => void;
+  // Recurring weekly template: boolean[336] (7 weekdays × 48 slots, 0=Mon..6=Sun).
+  availability: boolean[];
+  onChange: (av: boolean[]) => void;
   onScrollLock: (locked: boolean) => void;
-  // Confirmed drill sessions (yellow). Painted yellow over the full
-  // length_minutes / 30 cells starting at `slot`.
-  confirmedSlots?: { date: string; slot: number; length_minutes?: number }[];
-  // Scheduled match commitments (red). Wins over both availability and
-  // drill-confirmed paint, since competitive matches outrank drills.
-  scheduledMatchSlots?: { date: string; slot: number; length_minutes?: number }[];
+  // Confirmed drill sessions (yellow) over the next 7 days. Date-keyed; each is
+  // mapped onto its weekday column and painted over its length_minutes / 30 cells.
+  confirmedSlots?: Overlay[];
+  // Scheduled match commitments (red). Wins over availability + drill-confirmed
+  // paint, since competitive matches outrank drills.
+  scheduledMatchSlots?: Overlay[];
 };
 
 export default function DrillAvailabilityGrid({ availability, onChange, onScrollLock, confirmedSlots, scheduledMatchSlots }: Props) {
@@ -52,33 +64,38 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
   const EVEN_BG = isDark ? '#1a2818' : '#ebebeb';
   const ODD_BG  = isDark ? '#243024' : '#f4f4f4';
 
-  // Fast lookup sets keyed by "YYYY-MM-DD:slot", each expanded over their length.
-  function expandToSet(slots: { date: string; slot: number; length_minutes?: number }[] | undefined): Set<string> {
-    const s = new Set<string>();
+  // Map date-keyed overlays onto flat weekly cell indices (cellIdx(weekday, slot)),
+  // expanded across each commitment's length. The next 7 days cover each weekday
+  // exactly once, so this paints the grid "as if the next 7 days were shown".
+  function expandToCellSet(slots: Overlay[] | undefined): Set<number> {
+    const s = new Set<number>();
     for (const c of slots ?? []) {
+      const wd   = isoWeekday(c.date);
       const span = Math.max(1, Math.ceil((c.length_minutes ?? 60) / 30));
       for (let i = 0; i < span; i++) {
         const sl = c.slot + i;
-        if (sl >= DRILL_SLOTS_PER_DAY) break; // don't bleed past midnight
-        s.add(`${c.date}:${sl}`);
+        if (sl >= SLOTS_PER_DAY) break; // don't bleed past midnight into the next day's column
+        s.add(cellIdx(wd, sl));
       }
     }
     return s;
   }
-  const confirmedSet = useMemo(() => expandToSet(confirmedSlots), [confirmedSlots]);
-  const matchSet     = useMemo(() => expandToSet(scheduledMatchSlots), [scheduledMatchSlots]);
+  const confirmedSet = useMemo(() => expandToCellSet(confirmedSlots), [confirmedSlots]);
+  const matchSet     = useMemo(() => expandToCellSet(scheduledMatchSlots), [scheduledMatchSlots]);
 
-  const dates = useMemo(() => rollingDates(), []);
-  const numDays = dates.length;
+  // Highlight the column for today's weekday so the overlays orient to "now".
+  const todayWd = useMemo(() => isoWeekday(isoDate(new Date())), []);
 
-  const [av, setAvState] = useState<DrillAvailability>(() => availability ?? {});
+  const [av, setAvState] = useState<boolean[]>(() =>
+    availability.length === DRILL_WEEKLY_CELLS ? [...availability] : Array(DRILL_WEEKLY_CELLS).fill(false),
+  );
   const avRef = useRef(av);
 
   const editingRef = useRef(false);
   useEffect(() => {
-    if (!editingRef.current) {
-      avRef.current = availability ?? {};
-      setAvState(availability ?? {});
+    if (!editingRef.current && availability.length === DRILL_WEEKLY_CELLS) {
+      avRef.current = [...availability];
+      setAvState([...availability]);
     }
   }, [availability]);
 
@@ -95,26 +112,24 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
 
   const [editing, setEditing] = useState(false);
 
-  function getCoords(pageX: number, pageY: number): { dateIdx: number; slot: number } | null {
+  function getIdx(pageX: number, pageY: number): number | null {
     const cw = cellWRef.current;
     if (cw === 0) return null;
     const relX = pageX - gridPage.current.x - TIME_W;
     const relY = pageY - gridPage.current.y;
     if (relX < 0 || relY < 0) return null;
-    const dateIdx = Math.floor(relX / cw);
-    const slot    = Math.floor(relY / CELL_H);
-    if (dateIdx < 0 || dateIdx >= numDays || slot < 0 || slot >= DRILL_SLOTS_PER_DAY) return null;
-    return { dateIdx, slot };
+    const d = Math.floor(relX / cw);
+    const s = Math.floor(relY / CELL_H);
+    if (d < 0 || d >= 7 || s < 0 || s >= SLOTS_PER_DAY) return null;
+    return cellIdx(d, s);
   }
 
-  function applyCell(dateIdx: number, slot: number, val: boolean) {
-    const date = dates[dateIdx];
-    const current = slotsFor(avRef.current, date)[slot];
-    if (current === val) return;
-    avRef.current = setSlot(avRef.current, date, slot, val);
+  function applyCell(idx: number, val: boolean) {
+    if (avRef.current[idx] === val) return;
+    avRef.current[idx] = val;
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
-      setAvState({ ...avRef.current });
+      setAvState([...avRef.current]);
       rafRef.current = null;
     });
   }
@@ -124,7 +139,7 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    const final = { ...avRef.current };
+    const final = [...avRef.current];
     setAvState(final);
     onChangeRef.current(final);
   }
@@ -137,15 +152,14 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
         gridRef.current?.measure((_x, _y, _w, _h, px, py) => {
           gridPage.current = { x: px, y: py };
         });
-        const c = getCoords(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
-        if (!c) return;
-        const cur = slotsFor(avRef.current, dates[c.dateIdx])[c.slot];
-        dragMode.current = !cur;
-        applyCell(c.dateIdx, c.slot, dragMode.current);
+        const idx = getIdx(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        if (idx === null) return;
+        dragMode.current = !avRef.current[idx];
+        applyCell(idx, dragMode.current);
       },
       onPanResponderMove: (evt) => {
-        const c = getCoords(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
-        if (c) applyCell(c.dateIdx, c.slot, dragMode.current);
+        const idx = getIdx(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        if (idx !== null) applyCell(idx, dragMode.current);
       },
       onPanResponderRelease:   finalizeDrag,
       onPanResponderTerminate: finalizeDrag,
@@ -160,9 +174,10 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
   }
 
   function clearAll() {
-    avRef.current = {};
-    setAvState({});
-    onChangeRef.current({});
+    const blank = Array(DRILL_WEEKLY_CELLS).fill(false) as boolean[];
+    avRef.current = blank;
+    setAvState(blank);
+    onChangeRef.current(blank);
   }
 
   function applyPreset(preset: Preset) {
@@ -177,47 +192,14 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
     }
   }
 
-  const PRESETS: Preset[] = useMemo(() => [
-    { id: 'evenings',   icon: '🌆', label: 'Evenings (5–9pm)', build: () => buildPreset([34,35,36,37,38,39,40,41], dates) },
-    { id: 'mornings',   icon: '🌅', label: 'Mornings (7–10am)', build: () => buildPreset([14,15,16,17,18,19], dates) },
-    { id: 'lunch',      icon: '🥗', label: 'Lunch (11:30–1:30)', build: () => buildPreset([23,24,25,26], dates) },
-    { id: 'weeknights', icon: '💼', label: 'Weeknights only',
-      build: () => {
-        const out: DrillAvailability = {};
-        for (const d of dates) {
-          const day = emptyDay();
-          const date = new Date(d + 'T12:00:00');
-          const dow = date.getDay();
-          if (dow >= 1 && dow <= 5) {
-            for (let s = 36; s <= 41; s++) day[s] = true;
-          }
-          out[d] = day;
-        }
-        return out;
-      },
-    },
-    { id: 'weekends', icon: '🏖', label: 'Weekends',
-      build: () => {
-        const out: DrillAvailability = {};
-        for (const d of dates) {
-          const date = new Date(d + 'T12:00:00');
-          const dow = date.getDay();
-          out[d] = dow === 0 || dow === 6 ? Array(48).fill(true) : emptyDay();
-        }
-        return out;
-      },
-    },
-    { id: 'all-week', icon: '☀️', label: 'Open all week', build: () => buildPreset(Array.from({length: 48}, (_,i) => i), dates) },
-  ], [dates]);
-
   function onGridLayout(e: LayoutChangeEvent) {
-    cellWRef.current = (e.nativeEvent.layout.width - TIME_W) / numDays;
+    cellWRef.current = (e.nativeEvent.layout.width - TIME_W) / 7;
     gridRef.current?.measure((_x, _y, _w, _h, px, py) => {
       gridPage.current = { x: px, y: py };
     });
   }
 
-  const total = totalSlots(av);
+  const total = totalWeeklySlots(av);
   const totalHours = (total * 0.5).toFixed(1).replace(/\.0$/, '');
   const hasAny = total > 0;
 
@@ -225,7 +207,7 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
     <View>
       <View style={st.controls}>
         {hasAny
-          ? <Text style={[st.hoursLabel, { color: colors.primary }]}>{totalHours}h available · next 7 days</Text>
+          ? <Text style={[st.hoursLabel, { color: colors.primary }]}>{totalHours}h / week available</Text>
           : <Text style={[st.noHoursLabel, { color: colors.textMuted }]}>No drill availability set</Text>
         }
         {(confirmedSet.size > 0 || matchSet.size > 0) && (
@@ -261,7 +243,12 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
         </View>
       </View>
 
-      <View style={st.presetsWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={st.presetsScroll}
+        contentContainerStyle={st.presetsContent}
+      >
         {PRESETS.map(p => (
           <TouchableOpacity
             key={p.id}
@@ -273,7 +260,7 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
             <Text style={[st.presetLabel, { color: colors.text }]}>{p.label}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       {editing && (
         <Text style={[st.hint, { color: colors.textMuted }]}>
@@ -282,24 +269,23 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
       )}
 
       <View ref={gridRef} {...panResponder.panHandlers} onLayout={onGridLayout}>
-        {/* Date header */}
+        {/* Day-name header (recurring weekly; today's weekday is highlighted) */}
         <View style={[st.headerRow, { borderBottomColor: colors.border }]}>
           <View style={{ width: TIME_W }} />
-          {dates.map(d => {
-            const isToday = d === isoDate(new Date());
+          {AVAIL_DAYS.map((d, i) => {
+            const isToday = i === todayWd;
             return (
               <View key={d} style={st.dayCell}>
                 <Text style={[st.dayText, { color: isToday ? colors.primary : colors.textSub, fontWeight: isToday ? '900' : '700' }]}>
-                  {dateLabel(d)}
+                  {d}
                 </Text>
-                <Text style={[st.daySub, { color: colors.textMuted }]}>{dateSubLabel(d)}</Text>
               </View>
             );
           })}
         </View>
 
         {/* 48 time rows */}
-        {Array.from({ length: DRILL_SLOTS_PER_DAY }, (_, slot) => {
+        {Array.from({ length: SLOTS_PER_DAY }, (_, slot) => {
           const even = slot % 2 === 0;
           const rowBg = even ? EVEN_BG : ODD_BG;
           return (
@@ -309,18 +295,17 @@ export default function DrillAvailabilityGrid({ availability, onChange, onScroll
                   <Text style={[st.timeText, { color: colors.textMuted }]}>{slotLabel(slot)}</Text>
                 )}
               </View>
-              {dates.map((date) => {
-                const isSelected = slotsFor(av, date)[slot];
-                const key = `${date}:${slot}`;
-                const isMatch     = matchSet.has(key);
-                const isConfirmed = confirmedSet.has(key);
-                // Match (red) > drill (yellow) > available (green) > default
+              {Array.from({ length: 7 }, (_, day) => {
+                const idx = cellIdx(day, slot);
+                const isMatch     = matchSet.has(idx);
+                const isConfirmed = confirmedSet.has(idx);
+                // Match (red) > drill (yellow) > available (green) > zebra default
                 const bg = isMatch
                   ? MATCH_BG
                   : isConfirmed
                     ? CONFIRMED_BG
-                    : isSelected ? SEL_BG : (even ? EVEN_BG : ODD_BG);
-                return <GridCell key={date} bg={bg} />;
+                    : av[idx] ? SEL_BG : (even ? EVEN_BG : ODD_BG);
+                return <GridCell key={day} bg={bg} />;
               })}
             </View>
           );
@@ -346,17 +331,17 @@ const st = StyleSheet.create({
   editBtn:         { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 1.5 },
   editBtnText:     { fontSize: 12, fontWeight: '700' },
 
-  presetsWrap:     { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  presetChip:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, gap: 4 },
-  presetIcon:      { fontSize: 14 },
-  presetLabel:     { fontSize: 11, fontWeight: '600' },
+  presetsScroll:   { marginBottom: 8 },
+  presetsContent:  { gap: 8, paddingBottom: 2 },
+  presetChip:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, gap: 5 },
+  presetIcon:      { fontSize: 15 },
+  presetLabel:     { fontSize: 12, fontWeight: '600' },
 
   hint:            { fontSize: 10, textAlign: 'center', marginBottom: 5 },
 
   headerRow:       { flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, marginBottom: 1 },
   dayCell:         { flex: 1, alignItems: 'center' },
   dayText:         { fontSize: 11 },
-  daySub:          { fontSize: 9, marginTop: 1 },
 
   row:             { flexDirection: 'row', height: CELL_H },
   timeCell:        { width: TIME_W, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 5 },

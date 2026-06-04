@@ -12,7 +12,7 @@ import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
 import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
-import { DrillAvailability, isoDate, pruneStale, rollingDates, slotLabel, slotRangeLabel, durationLabel, spanToDailyOverlays, totalSlots, dateLabel, dateSubLabel } from '../lib/drillTime';
+import { isoDate, rollingDates, slotRangeLabel, durationLabel, spanToDailyOverlays, dateLabel, dateSubLabel, toWeeklyDrill, DRILL_WEEKLY_CELLS } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 import { DumbbellIcon } from '../components/PickleIcons';
 
@@ -26,7 +26,7 @@ export default function DrillScreen({ navigation }: Props) {
 
   const [userId, setUserId]                   = useState<string | null>(null);
   const [enabled, setEnabled]                 = useState(false);
-  const [availability, setAvailability]       = useState<DrillAvailability>({});
+  const [availability, setAvailability]       = useState<boolean[]>(() => Array(DRILL_WEEKLY_CELLS).fill(false));
   const [shotPrefs, setShotPrefs]             = useState<string[]>([]);
   const [partnerPrefs, setPartnerPrefs]       = useState<string[]>([]);
   const [customTags, setCustomTags]           = useState<string[]>([]);
@@ -90,7 +90,7 @@ export default function DrillScreen({ navigation }: Props) {
 
     if (profileRes.data) {
       setEnabled(profileRes.data.drilling_enabled ?? false);
-      setAvailability(pruneStale(profileRes.data.drill_availability ?? {}));
+      setAvailability(toWeeklyDrill(profileRes.data.drill_availability ?? []));
       setShotPrefs(profileRes.data.drill_shot_prefs ?? []);
       setPartnerPrefs(profileRes.data.drill_partner_prefs ?? []);
       setCustomTags(profileRes.data.drill_custom_tags ?? []);
@@ -153,7 +153,7 @@ export default function DrillScreen({ navigation }: Props) {
     persist({ drilling_enabled: val });
   }
 
-  function onAvailabilityChange(av: DrillAvailability) {
+  function onAvailabilityChange(av: boolean[]) {
     setAvailability(av);
     persist({ drill_availability: av });
   }
@@ -190,8 +190,6 @@ export default function DrillScreen({ navigation }: Props) {
   }
 
   if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
-
-  const totalSlotsCount = totalSlots(availability);
 
   const today = isoDate(new Date());
   const upcomingSessions = sessions.filter(s => s.session_date >= today);
@@ -331,7 +329,7 @@ export default function DrillScreen({ navigation }: Props) {
           {/* Availability grid */}
           <View style={S.card}>
             <Text style={S.cardTitle}>Your Drill Availability</Text>
-            <Text style={S.cardSub}>Next 7 days · drag to paint your free slots · yellow = drill · red = match/tournament</Text>
+            <Text style={S.cardSub}>Recurring weekly · drag to paint your usual free slots · yellow = drill · red = match/tournament (next 7 days)</Text>
             <View style={{ marginTop: 10 }}>
               <DrillAvailabilityGrid
                 availability={availability}

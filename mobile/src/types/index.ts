@@ -26,7 +26,9 @@ export type Profile = {
   doubles_rating: number;
   mixed_doubles_rating: number;
   drilling_enabled: boolean;
-  drill_availability: Record<string, boolean[]>;
+  // Recurring weekly template boolean[336] (7 weekdays × 48). Legacy rows may
+  // still hold the old date-keyed shape; readers normalize via toWeeklyDrill().
+  drill_availability: boolean[] | Record<string, boolean[]>;
   drill_shot_prefs: string[];
   drill_partner_prefs: string[];
   drill_custom_tags: string[];

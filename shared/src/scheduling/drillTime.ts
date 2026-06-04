@@ -151,6 +151,74 @@ export function overlapSlots(
   return out;
 }
 
+// ── Recurring weekly template ─────────────────────────────────────────
+// Drill availability is stored as a recurring weekly template: boolean[336]
+// (7 weekdays × 48 half-hour slots, weekday 0=Mon..6=Sun — matching the
+// profile availability grid). Specific calendar dates are derived on demand
+// by expanding the template over the rolling 7-day window, so the request /
+// session / matching flow stays date-specific while the user only edits a
+// single repeating weekly schedule.
+
+export const DRILL_WEEKLY_CELLS = 7 * DRILL_SLOTS_PER_DAY; // 336
+
+/** Weekday index for an ISO 'YYYY-MM-DD' string: 0=Mon .. 6=Sun. */
+export function isoWeekday(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  const js = new Date(y, m - 1, d).getDay(); // 0=Sun..6=Sat (local)
+  return (js + 6) % 7;                        // shift to 0=Mon..6=Sun
+}
+
+/** Flat index into a weekly template for (weekday 0=Mon..6=Sun, slot 0..47). */
+export function weeklyIdx(day: number, slot: number): number {
+  return day * DRILL_SLOTS_PER_DAY + slot;
+}
+
+/** Expand a recurring weekly template into a date-keyed DrillAvailability over
+ *  the given dates (default: rolling next-7-days). Used so partner matching and
+ *  drill-request proposals stay keyed to concrete calendar dates. */
+export function expandWeeklyToDates(
+  weekly: boolean[], dates: string[] = rollingDates(),
+): DrillAvailability {
+  const out: DrillAvailability = {};
+  if (!Array.isArray(weekly) || weekly.length !== DRILL_WEEKLY_CELLS) return out;
+  for (const date of dates) {
+    const wd  = isoWeekday(date);
+    const day = emptyDay();
+    for (let s = 0; s < DRILL_SLOTS_PER_DAY; s++) day[s] = !!weekly[weeklyIdx(wd, s)];
+    out[date] = day;
+  }
+  return out;
+}
+
+/** Best-effort convert legacy date-keyed availability into a recurring weekly
+ *  template by OR-merging each date's slots onto its weekday. */
+export function dateKeyedToWeekly(av: DrillAvailability): boolean[] {
+  const weekly = Array(DRILL_WEEKLY_CELLS).fill(false) as boolean[];
+  for (const [date, slots] of Object.entries(av ?? {})) {
+    if (!Array.isArray(slots)) continue;
+    const wd = isoWeekday(date);
+    for (let s = 0; s < DRILL_SLOTS_PER_DAY && s < slots.length; s++) {
+      if (slots[s]) weekly[weeklyIdx(wd, s)] = true;
+    }
+  }
+  return weekly;
+}
+
+/** Normalize a raw stored value into a weekly boolean[336] template.
+ *    - boolean[336]             → used as-is (copied)
+ *    - legacy date-keyed object → best-effort converted (OR-merged by weekday)
+ *    - anything else            → empty template */
+export function toWeeklyDrill(raw: unknown): boolean[] {
+  if (Array.isArray(raw) && raw.length === DRILL_WEEKLY_CELLS) return raw.map(Boolean);
+  if (raw && typeof raw === 'object') return dateKeyedToWeekly(raw as DrillAvailability);
+  return Array(DRILL_WEEKLY_CELLS).fill(false);
+}
+
+/** Total available half-hour slots in a weekly template. */
+export function totalWeeklySlots(weekly: boolean[]): number {
+  return Array.isArray(weekly) ? weekly.filter(Boolean).length : 0;
+}
+
 /** Group consecutive slots into ranges for display. */
 export function rangesFor(slots: number[]): string[] {
   if (slots.length === 0) return [];

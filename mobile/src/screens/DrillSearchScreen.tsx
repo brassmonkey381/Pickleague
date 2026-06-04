@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import {
-  DrillAvailability, DrillSlot, overlapSlots, pruneStale, rollingDates,
+  DrillSlot, overlapSlots, rollingDates, expandWeeklyToDates, toWeeklyDrill,
 } from '../lib/drillTime';
 import { findShotPref, findPartnerPref } from '../data/drillOptions';
 import { AVATARS } from '../data/profileCustomization';
@@ -25,7 +25,7 @@ type Candidate = {
   total_matches_played: number;
   avatar_id: number;
   avatar_url: string | null;
-  drill_availability: DrillAvailability;
+  drill_availability: boolean[];
   drill_shot_prefs: string[];
   drill_partner_prefs: string[];
   drill_custom_tags: string[];
@@ -42,7 +42,7 @@ export default function DrillSearchScreen({}: Props) {
 
   const [me, setMe] = useState<{
     id: string; rating: number;
-    avail: DrillAvailability; shots: string[]; partner: string[];
+    avail: boolean[]; shots: string[]; partner: string[];
   } | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,11 +62,11 @@ export default function DrillSearchScreen({}: Props) {
       .eq('id', user.id)
       .single();
 
-    const myAvail   = pruneStale(myProfileRes.data?.drill_availability ?? {});
+    const myWeekly  = toWeeklyDrill(myProfileRes.data?.drill_availability ?? []);
     const myShots   = (myProfileRes.data?.drill_shot_prefs ?? []) as string[];
     const myPartner = (myProfileRes.data?.drill_partner_prefs ?? []) as string[];
     const myRating  = myProfileRes.data?.rating ?? 3.25;
-    setMe({ id: user.id, rating: myRating, avail: myAvail, shots: myShots, partner: myPartner });
+    setMe({ id: user.id, rating: myRating, avail: myWeekly, shots: myShots, partner: myPartner });
 
     const { data: others } = await supabase
       .from('profiles')
@@ -75,10 +75,11 @@ export default function DrillSearchScreen({}: Props) {
       .neq('id', user.id)
       .limit(100);
 
-    const dates = rollingDates();
+    const dates   = rollingDates();
+    const myDated = expandWeeklyToDates(myWeekly, dates);
     const list: Candidate[] = (others ?? []).map((p: any) => {
-      const theirAvail = pruneStale(p.drill_availability ?? {});
-      const overlap   = overlapSlots(myAvail, theirAvail, dates);
+      const theirWeekly = toWeeklyDrill(p.drill_availability ?? []);
+      const overlap     = overlapSlots(myDated, expandWeeklyToDates(theirWeekly, dates), dates);
       const sharedShots   = (p.drill_shot_prefs ?? []).filter((s: string) => myShots.includes(s)).length;
       const sharedPartner = (p.drill_partner_prefs ?? []).filter((s: string) => myPartner.includes(s)).length;
       return {
@@ -89,7 +90,7 @@ export default function DrillSearchScreen({}: Props) {
         total_matches_played: p.total_matches_played ?? 0,
         avatar_id: p.avatar_id ?? 1,
         avatar_url: p.avatar_url,
-        drill_availability: theirAvail,
+        drill_availability: theirWeekly,
         drill_shot_prefs: p.drill_shot_prefs ?? [],
         drill_partner_prefs: p.drill_partner_prefs ?? [],
         drill_custom_tags: p.drill_custom_tags ?? [],
