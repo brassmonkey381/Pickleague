@@ -340,7 +340,7 @@ export default function HomeScreen({ navigation }: Props) {
         {/* Divider */}
         <View style={s.heroDivider} />
 
-        {/* Greeting + pickle balance (left), PLUPR quick-stats grid (right) */}
+        {/* Greeting (left) + pickle balance (right) */}
         <View style={s.greetingRow}>
           <View style={s.greetingLeft}>
             {/* tap your name to open your profile */}
@@ -352,63 +352,21 @@ export default function HomeScreen({ navigation }: Props) {
                 nameColor={profile?.name_color}
                 styleId={profile?.profile_name_style_id}
                 mode="hero"
-                name={profile?.full_name ?? '...'}
+                name={profile?.full_name?.trim().split(/\s+/)[0] ?? '...'}
               />
             </TouchableOpacity>
-
-            {/* Pickle balance — count on top, "pickles · tap to shop" beneath it */}
-            <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
-              <View style={s.pickleTopRow}>
-                <Text style={s.pickleEmoji}>🥒</Text>
-                <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
-              </View>
-              <Text style={s.pickleLabel}>pickles · tap to shop</Text>
-            </TouchableOpacity>
           </View>
 
-          {/* PLUPR ratings — 2×2 grid to the right; tap a tile to see those matches */}
-          <View style={s.pluprGrid}>
-            <TouchableOpacity
-              style={s.pluprTile}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('MatchHistory', { title: 'Your Matches', initialMyMatchesOnly: true })}
-            >
-              <Text style={s.pluprValue}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
-              <Text style={s.pluprLabel}>⭐ Overall</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.pluprTile}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('MatchHistory', {
-                title: 'Your Singles Matches', initialMyMatchesOnly: true, initialMatchType: 'singles',
-              })}
-            >
-              <Text style={s.pluprValue}>{formatPlupr(profile?.singles_rating, profile?.total_matches_played)}</Text>
-              <Text style={s.pluprLabel}>🧍 Singles</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.pluprTile}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('MatchHistory', {
-                title: 'Your Gendered Doubles', initialMyMatchesOnly: true,
-                initialMatchType: 'doubles', initialDoublesCategory: 'gendered',
-              })}
-            >
-              <Text style={s.pluprValue}>{formatPlupr(profile?.doubles_rating, profile?.total_matches_played)}</Text>
-              <Text style={s.pluprLabel}>🤝 Doubles</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.pluprTile}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('MatchHistory', {
-                title: 'Your Mixed Doubles', initialMyMatchesOnly: true,
-                initialMatchType: 'doubles', initialDoublesCategory: 'mixed',
-              })}
-            >
-              <Text style={s.pluprValue}>{formatPlupr(profile?.mixed_doubles_rating, profile?.total_matches_played)}</Text>
-              <Text style={s.pluprLabel}>♀♂ Mixed</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Pickle balance — to the right of the greeting; count on top,
+              "pickles · tap to shop" beneath it. (PLUPR tiles previously lived
+              here; they're intentionally hidden — kept contained within a league.) */}
+          <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
+            <View style={s.pickleTopRow}>
+              <Text style={s.pickleEmoji}>🥒</Text>
+              <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+            </View>
+            <Text style={s.pickleLabel}>pickles · tap to shop</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -710,7 +668,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], wideStats: boolean
       alignSelf: 'flex-start',
       backgroundColor: 'rgba(255,255,255,0.18)',
       paddingHorizontal: 16, paddingVertical: 8,
-      borderRadius: 16, marginTop: 12,
+      borderRadius: 16,
       borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
     },
     pickleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

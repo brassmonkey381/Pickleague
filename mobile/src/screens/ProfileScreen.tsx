@@ -541,7 +541,9 @@ export default function ProfileScreen({ navigation }: Props) {
 
     setBadgeProgress({
       'Hot Streak':        entry(streak,       5,    (c, t) => `${c} / ${t} wins in a row`),
-      'Top Rated':         entry(elo,          4.0,  (c, t) => `${c.toFixed(2)} / ${t.toFixed(2)} PLUPR`),
+      // Show progress as a percentage rather than the raw PLUPR value — PLUPR is
+      // being kept contained within a league rather than surfaced on the profile.
+      'Top Rated':         entry(elo,          4.0,  (c, t) => `${Math.round(Math.min(c / t, 1) * 100)}% to top tier`),
       'Veteran':           entry(memberDays,   30,   (c, t) => `${c} / ${t} days as member`),
       'Court Hopper':      entry(courts,       5,    (c, t) => `${c} / ${t} courts played`),
       'Doubles Dynamo':    entry(doublesPlayed, 20,  (c, t) => `${c} / ${t} doubles matches`),
@@ -860,58 +862,13 @@ export default function ProfileScreen({ navigation }: Props) {
         )}
       </View>
 
-      {/* ── PLUPR ratings ───────────────────────────────────────── */}
-      {(() => {
-        const rel = computeReliability(
-          profile?.total_matches_played ?? 0,
-          profile?.last_match_at ?? null,
-        );
-        return (
-          <View style={styles.eloCard}>
-            <View style={styles.eloCardHeader}>
-              <Text style={styles.cardTitle}>PLUPR Ratings</Text>
-              <View style={styles.reliabilityPill}>
-                <View style={styles.reliabilityDots}>
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <View key={i} style={[styles.reliabilityDot, i < rel.dots && { backgroundColor: rel.color }]} />
-                  ))}
-                </View>
-                <Text style={[styles.reliabilityLabel, { color: rel.color }]}>{rel.label}</Text>
-              </View>
-            </View>
-            <Text style={styles.reliabilityDetail}>{rel.detail}</Text>
-            <View style={styles.eloRow}>
-              <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{formatPlupr(profile?.rating, profile?.total_matches_played)}</Text>
-                <Text style={styles.eloLabel}>Overall</Text>
-              </View>
-              <View style={styles.eloDivider} />
-              <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{formatPlupr(singlesRating, profile?.total_matches_played)}</Text>
-                <Text style={styles.eloLabel}>Singles</Text>
-              </View>
-              <View style={styles.eloDivider} />
-              <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{formatPlupr(doublesRating, profile?.total_matches_played)}</Text>
-                <Text style={styles.eloLabel}>Gendered Doubles</Text>
-              </View>
-              <View style={styles.eloDivider} />
-              <View style={styles.eloItem}>
-                <Text style={styles.eloValue}>{formatPlupr(mixedDoublesRating, profile?.total_matches_played)}</Text>
-                <Text style={styles.eloLabel}>Mixed Doubles</Text>
-              </View>
-            </View>
-
-            {/* PLUPR trajectory chart */}
-            {userId && (
-              <View style={styles.eloChartContainer}>
-                <Text style={styles.eloChartTitle}>Trajectory</Text>
-                <EloHistoryChart matches={eloHistory} userId={userId} colors={colors} />
-              </View>
-            )}
-          </View>
-        );
-      })()}
+      {/* ── PLUPR ratings (hidden) ──────────────────────────────────
+          The global PLUPR card — overall/singles/doubles/mixed values,
+          reliability pill, and the trajectory chart — is intentionally not
+          rendered. PLUPR is being kept contained within a league rather than
+          surfaced on the profile. The EloHistoryChart component, eloHistory
+          loader, reliability helper, and formatPlupr import are left intact
+          so this card can be restored by re-adding the block. */}
 
       {/* ── Pickle Shop Inventory ─────────────────────────────── */}
       {shopPurchases.length > 0 && (() => {
@@ -1075,31 +1032,11 @@ export default function ProfileScreen({ navigation }: Props) {
         );
       })()}
 
-      {/* ── Location ratings ────────────────────────────────────── */}
-      {locationRatings.length > 0 && (
-        <View style={styles.locationCard}>
-          <Text style={styles.cardTitle}>Court Ratings</Text>
-          <View style={styles.locationGrid}>
-            {locationRatings.map(r => {
-              const pillStyle =
-                r.match_type === 'doubles_gendered' ? styles.locPillDoubles :
-                r.match_type === 'doubles_mixed'    ? styles.locPillMixed   : null;
-              const typeLabel =
-                r.match_type === 'singles'          ? 'Singles'           :
-                r.match_type === 'doubles_gendered' ? 'Gendered Doubles'  :
-                                                      'Mixed Doubles';
-              return (
-                <View key={r.id} style={[styles.locPill, pillStyle]}>
-                  <Text style={styles.locPillCourt} numberOfLines={1}>📍 {r.location_name}</Text>
-                  <Text style={styles.locPillRating}>{formatPluprShort(r.rating, r.wins + r.losses)}</Text>
-                  <Text style={styles.locPillType}>{typeLabel}</Text>
-                  <Text style={styles.locPillRecord}>{r.wins}W-{r.losses}L</Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      )}
+      {/* ── Court ratings (hidden) ───────────────────────────────────
+          Per-court PLUPR ratings are intentionally not rendered — PLUPR is
+          being kept contained within a league. The locationRatings state and
+          its loader query are left intact so this card can be restored by
+          re-adding the block. */}
 
       {/* ── Partner Chemistry ────────────────────────────────────── */}
       {chemistryResults.length > 0 && (
@@ -1311,7 +1248,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.fieldLabel}>Gender</Text>
         <Text style={styles.fieldHint}>
           Used to classify doubles matches as Gendered Doubles or Mixed Doubles.
-          Until set, your doubles matches won't affect doubles PLUPR.
+          Until set, your doubles matches won't be counted as Gendered or Mixed Doubles.
         </Text>
         <View style={styles.genderRow}>
           {([
@@ -1475,7 +1412,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.secondaryIcon}>📜</Text>
         <View>
           <Text style={styles.secondaryLabel}>Match History</Text>
-          <Text style={styles.secondarySub}>All your results with dates & PLUPR changes</Text>
+          <Text style={styles.secondarySub}>All your match results with dates</Text>
         </View>
       </TouchableOpacity>
 
@@ -1483,7 +1420,7 @@ export default function ProfileScreen({ navigation }: Props) {
         <Text style={styles.secondaryIcon}>🗓️</Text>
         <View>
           <Text style={styles.secondaryLabel}>Calendar Analytics</Text>
-          <Text style={styles.secondarySub}>W-L and PLUPR changes by day</Text>
+          <Text style={styles.secondarySub}>Win-loss record by day</Text>
         </View>
       </TouchableOpacity>
 

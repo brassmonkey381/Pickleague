@@ -189,37 +189,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <Text style={styles.matchCount}>{matchCount} matches played</Text>
       </View>
 
-      {/* PLUPR strip + reliability */}
-      <View style={styles.eloCard}>
-        <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{formatPlupr(profile.rating, profile.total_matches_played)}</Text>
-          <Text style={styles.eloLabel}>Overall</Text>
-        </View>
-        <View style={styles.eloDivider} />
-        <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{formatPlupr(profile.singles_rating ?? profile.rating, profile.total_matches_played)}</Text>
-          <Text style={styles.eloLabel}>Singles</Text>
-        </View>
-        <View style={styles.eloDivider} />
-        <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{formatPlupr(profile.doubles_rating ?? profile.rating, profile.total_matches_played)}</Text>
-          <Text style={styles.eloLabel}>Gendered Doubles</Text>
-        </View>
-        <View style={styles.eloDivider} />
-        <View style={styles.eloItem}>
-          <Text style={styles.eloValue}>{formatPlupr(profile.mixed_doubles_rating ?? profile.rating, profile.total_matches_played)}</Text>
-          <Text style={styles.eloLabel}>Mixed Doubles</Text>
-        </View>
-      </View>
-      <View style={styles.relRow}>
-        <View style={styles.relDots}>
-          {Array.from({ length: 5 }, (_, i) => (
-            <View key={i} style={[styles.relDot, i < reliability.dots && { backgroundColor: reliability.color }]} />
-          ))}
-        </View>
-        <Text style={[styles.relLabel, { color: reliability.color }]}>{reliability.label}</Text>
-        <Text style={styles.relDetail}> · {reliability.detail}</Text>
-      </View>
+      {/* PLUPR strip + reliability (hidden) — global PLUPR is intentionally not
+          shown on other players' profiles; PLUPR is being kept contained within
+          a league. Re-add this block to restore. */}
 
       {/* Mutual chemistry card */}
       {myChemistry && myChemistry.matchesTogether > 0 && (
@@ -281,37 +253,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Court ratings */}
-      {Object.keys(locationGroups).length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Court Ratings</Text>
-          {Object.entries(locationGroups).map(([loc, r]) => (
-            <View key={loc} style={styles.locRow}>
-              <Text style={styles.locName} numberOfLines={1}>📍 {loc}</Text>
-              <View style={styles.locRatings}>
-                {r.singles && (
-                  <View style={styles.locPill}>
-                    <Text style={styles.locVal}>{formatPluprShort(r.singles.rating, r.singles.wins + r.singles.losses)}</Text>
-                    <Text style={styles.locType}>Singles · {r.singles.wins}W-{r.singles.losses}L</Text>
-                  </View>
-                )}
-                {r.doubles_gendered && (
-                  <View style={[styles.locPill, styles.locPillD]}>
-                    <Text style={styles.locVal}>{formatPluprShort(r.doubles_gendered.rating, r.doubles_gendered.wins + r.doubles_gendered.losses)}</Text>
-                    <Text style={styles.locType}>Gendered Doubles · {r.doubles_gendered.wins}W-{r.doubles_gendered.losses}L</Text>
-                  </View>
-                )}
-                {r.doubles_mixed && (
-                  <View style={[styles.locPill, styles.locPillM]}>
-                    <Text style={styles.locVal}>{formatPluprShort(r.doubles_mixed.rating, r.doubles_mixed.wins + r.doubles_mixed.losses)}</Text>
-                    <Text style={styles.locType}>Mixed Doubles · {r.doubles_mixed.wins}W-{r.doubles_mixed.losses}L</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
+      {/* Court ratings (hidden) — per-court PLUPR is intentionally not shown on
+          other players' profiles; PLUPR is being kept contained within a league.
+          The locationGroups data is left intact so this can be restored. */}
 
       {/* Actions */}
       <TouchableOpacity
