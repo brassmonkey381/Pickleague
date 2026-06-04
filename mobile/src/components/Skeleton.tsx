@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, View, StyleSheet, ViewStyle, StyleProp } from 'react-native';
+import { Animated, View, StyleSheet, ViewStyle, StyleProp, Platform } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 // Animated placeholder block for loading states. Compose these into a
@@ -26,8 +26,8 @@ export function Skeleton({
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1.0, duration: 700, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1.0, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: Platform.OS !== 'web' }),
       ]),
     );
     loop.start();

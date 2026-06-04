@@ -13,6 +13,7 @@ import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
 import { loadUserPreferences } from '../lib/userPreferences';
 
@@ -209,11 +210,13 @@ export default function AppNavigator() {
   }, [session]);
 
   return (
+    <ErrorBoundary>
     <ToastProvider>
       <TourProvider>
       {!loading && (
         <WebMaxWidth background={colors.bg}>
           <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={flushPendingNavigation}>
+            <ErrorBoundary>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>
@@ -268,6 +271,7 @@ export default function AppNavigator() {
               </>
             )}
             </Stack.Navigator>
+            </ErrorBoundary>
           </NavigationContainer>
         </WebMaxWidth>
       )}
@@ -279,5 +283,6 @@ export default function AppNavigator() {
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
     </ToastProvider>
+    </ErrorBoundary>
   );
 }

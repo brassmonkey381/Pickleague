@@ -160,16 +160,22 @@ export function routeNotification(data: PushData | undefined | null): void {
  * where a tap launched the app. Returns an unsubscribe function.
  */
 export function setupNotificationTapHandling(): () => void {
+  // Native-only: addNotificationResponseReceivedListener / getLastNotificationResponseAsync
+  // don't exist on web and throw. Push is a no-op on web (see header).
+  if (Platform.OS === 'web') return () => {};
+
   const sub = Notifications.addNotificationResponseReceivedListener((response) => {
     routeNotification(response.notification.request.content.data as PushData);
   });
 
   // Cold start: app was launched by tapping a push.
-  Notifications.getLastNotificationResponseAsync().then((response) => {
-    if (response) {
-      routeNotification(response.notification.request.content.data as PushData);
-    }
-  });
+  Notifications.getLastNotificationResponseAsync()
+    .then((response) => {
+      if (response) {
+        routeNotification(response.notification.request.content.data as PushData);
+      }
+    })
+    .catch(() => {});
 
   return () => sub.remove();
 }
