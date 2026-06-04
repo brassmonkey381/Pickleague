@@ -7,6 +7,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import EmptyState from '../components/EmptyState';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
@@ -102,6 +105,7 @@ export default function GodmodeScreen({ navigation }: Props) {
   }
 
   const status = useStatusMessage();
+  const refresh = useRefresh(loadInvites);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -293,7 +297,7 @@ export default function GodmodeScreen({ navigation }: Props) {
   if (authorized === null) return null;
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <Text style={S.hint}>
         Admin-only utilities. Anything risky should go behind a confirm. Feel free
         to keep stacking sections here as needs come up.
@@ -387,7 +391,7 @@ export default function GodmodeScreen({ navigation }: Props) {
         {invites === null || loadingInvites ? (
           <ActivityIndicator color={c.primary} />
         ) : invites.length === 0 ? (
-          <Text style={S.tbdText}>No active invite codes in the system.</Text>
+          <EmptyState icon="📨" title="No active invites" subtitle="No active invite codes in the system." />
         ) : (
           <>
             {(() => {

@@ -14,6 +14,9 @@ import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import BookmarkButton from '../components/BookmarkButton';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import EmptyState from '../components/EmptyState';
 import {
   claimDailyLoginStreak,
   hasStreakBeenShown,
@@ -78,6 +81,17 @@ export default function HomeScreen({ navigation }: Props) {
     loadInLeague();
     loadUpcomingEvents();
   }, []));
+
+  const refresh = useRefresh(async () => {
+    await Promise.all([
+      loadProfile(),
+      loadUnread(),
+      loadDrillsToday(),
+      loadTournaments(),
+      loadInLeague(),
+      loadUpcomingEvents(),
+    ]);
+  });
 
   // Claim welcome pickles once per account, on first home visit after signup.
   useEffect(() => { claimWelcomePicklesOnce(); }, []);
@@ -281,7 +295,11 @@ export default function HomeScreen({ navigation }: Props) {
   const s = makeStyles(colors, wideStats);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={<AppRefreshControl {...refresh} />}
+    >
 
       {/* ── Hero header ─────────────────────────────── */}
       <View style={s.hero}>
@@ -290,12 +308,22 @@ export default function HomeScreen({ navigation }: Props) {
         <View style={s.decoBallBR}><BallIcon size={100} /></View>
 
         {/* Settings (top-left) */}
-        <TouchableOpacity style={s.settingsBtn} onPress={() => navigation.navigate('Settings')}>
+        <TouchableOpacity
+          style={s.settingsBtn}
+          onPress={() => navigation.navigate('Settings')}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
+        >
           <Text style={s.settingsIcon}>⚙️</Text>
         </TouchableOpacity>
 
         {/* Bell (top-right) */}
-        <TouchableOpacity style={s.bellBtn} onPress={() => navigation.navigate('Notifications')}>
+        <TouchableOpacity
+          style={s.bellBtn}
+          onPress={() => navigation.navigate('Notifications')}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+        >
           <Text style={s.bellIcon}>🔔</Text>
           {unreadCount > 0 && (
             <View style={s.badge}>
@@ -362,13 +390,15 @@ export default function HomeScreen({ navigation }: Props) {
           <TouchableOpacity
             onPress={() => navigation.navigate('Bookmarks')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Bookmarks"
           >
             <Text style={s.bookmarkIcon}>🔖</Text>
           </TouchableOpacity>
         </View>
 
         {myTournaments.length === 0 && openTournaments.length === 0 && upcomingEvents.length === 0 && drillsToday.length === 0 ? (
-          <Text style={s.upcomingEmpty}>No upcoming events.</Text>
+          <EmptyState icon="📅" title="No upcoming events" subtitle="Tournaments, league events, and drill sessions you join will show up here." />
         ) : (
           <>
             {myTournaments.slice(0, 3).map(t => (
@@ -471,6 +501,8 @@ export default function HomeScreen({ navigation }: Props) {
           <TouchableOpacity
             onPress={(e) => { e.stopPropagation(); dismissDrillReminder(s2); }}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss drill reminder"
           >
             <Text style={s.drillBannerClose}>✕</Text>
           </TouchableOpacity>

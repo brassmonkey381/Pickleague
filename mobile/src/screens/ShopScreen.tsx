@@ -12,7 +12,11 @@ import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import ShippingAddressForm, { ShippingAddress, EMPTY_ADDRESS, isAddressValid } from '../components/ShippingAddressForm';
 import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
+import EmptyState from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
+import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -71,6 +75,7 @@ export default function ShopScreen({ navigation }: Props) {
   const [myUserId, setMyUserId]                 = useState<string | null>(null);
 
   const status = useStatusMessage();
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -288,7 +293,7 @@ export default function ShopScreen({ navigation }: Props) {
     );
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: c.bg }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
   // The "Profile Styles" tab surfaces both the new profile_name_style items
   // and the legacy `flair` items (color presets) so users see all profile
@@ -326,12 +331,12 @@ export default function ShopScreen({ navigation }: Props) {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={S.scroll}>
+      <ScrollView contentContainerStyle={S.scroll} refreshControl={<AppRefreshControl {...refresh} />}>
         <StatusBanner status={status.value} />
         <Text style={S.tabBlurb}>{tabMeta.blurb}</Text>
 
         {tabItems.length === 0 ? (
-          <Text style={S.empty}>No items in this category yet.</Text>
+          <EmptyState icon="🛒" title="Nothing here yet" subtitle="No items in this category yet." />
         ) : (
           <View style={S.grid}>
             {/* TODO: smoke-test in browser — verify the locked name-style row

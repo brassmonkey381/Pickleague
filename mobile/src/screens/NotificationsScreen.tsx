@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator,
+  StyleSheet,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -12,6 +12,10 @@ import { gs } from '../lib/globalStyles';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
 
@@ -58,6 +62,8 @@ export default function NotificationsScreen({ navigation }: Props) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading]             = useState(true);
   const status = useStatusMessage();
+
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -161,14 +167,19 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
       {/* TODO: smoke-test in browser — auto-accept invite toast + deep-link */}
       <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
       {unreadCount > 0 && (
-        <TouchableOpacity style={S.markAllBtn} onPress={markAllRead}>
+        <TouchableOpacity
+          style={S.markAllBtn}
+          onPress={markAllRead}
+          accessibilityRole="button"
+          accessibilityLabel={`Mark all ${unreadCount} notifications as read`}
+        >
           <Text style={S.markAllText}>Mark all as read ({unreadCount})</Text>
         </TouchableOpacity>
       )}
@@ -176,6 +187,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         data={notifications}
         keyExtractor={n => n.id}
         contentContainerStyle={{ padding: 16 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[S.card, !item.is_read && S.cardUnread]}
@@ -196,11 +208,11 @@ export default function NotificationsScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={S.emptyWrap}>
-            <Text style={S.emptyIcon}>🔔</Text>
-            <Text style={S.empty}>All quiet here!</Text>
-            <Text style={S.emptySub}>You'll be notified when brackets are set, invites arrive, and more.</Text>
-          </View>
+          <EmptyState
+            icon="🔔"
+            title="All quiet here!"
+            subtitle="You'll be notified when brackets are set, invites arrive, and more."
+          />
         }
       />
     </View>

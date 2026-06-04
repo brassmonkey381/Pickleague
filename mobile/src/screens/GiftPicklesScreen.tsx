@@ -13,6 +13,8 @@ import { isGodmodeUserId } from '../lib/godmode';
 import { AVATARS } from '../data/profileCustomization';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'GiftPickles'> };
 
@@ -30,18 +32,19 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const status = useStatusMessage();
 
-  useFocusEffect(useCallback(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      const uid = user?.id ?? null;
-      setMyUserId(uid);
-      setAuthorized(isGodmodeUserId(uid));
-      if (uid) {
-        const { data } = await supabase.from('profiles').select('pickles').eq('id', uid).single();
-        setMyBalance(data?.pickles ?? 0);
-      }
-    })();
-  }, []));
+  const load = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const uid = user?.id ?? null;
+    setMyUserId(uid);
+    setAuthorized(isGodmodeUserId(uid));
+    if (uid) {
+      const { data } = await supabase.from('profiles').select('pickles').eq('id', uid).single();
+      setMyBalance(data?.pickles ?? 0);
+    }
+  }, []);
+  const refresh = useRefresh(load);
+
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const n = parseInt(amount, 10);
   const valid = !!recipient && Number.isFinite(n) && n > 0 && n <= myBalance;
@@ -84,7 +87,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <View style={S.balanceCard}>
         <Text style={S.balanceLabel}>Your balance</Text>
         <Text style={S.balanceValue}>🥒 {myBalance.toLocaleString()}</Text>

@@ -1,9 +1,13 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 import { RootStackParamList } from '../types';
 
 type Props = {
@@ -68,6 +72,8 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
   const [name, setName]     = useState(userName ?? '');
   const [loading, setLoading] = useState(true);
 
+  const refresh = useRefresh(load);
+
   useFocusEffect(useCallback(() => { load(); /* eslint-disable-next-line */ }, []));
 
   async function load() {
@@ -90,7 +96,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
 
   const total = wagers.reduce((sum, w) => sum + w.stake, 0);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: c.bg }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <FlatList
@@ -98,6 +104,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
       data={wagers}
       keyExtractor={w => w.wager_id}
       contentContainerStyle={{ padding: 16 }}
+      refreshControl={<AppRefreshControl {...refresh} />}
       ListHeaderComponent={
         <View style={S.header}>
           <Text style={S.headerTotal}>🥒 {total.toLocaleString()} wagered on {name || 'this player'}</Text>
@@ -152,10 +159,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
         );
       }}
       ListEmptyComponent={
-        <View style={S.emptyWrap}>
-          <Text style={S.emptyIcon}>🎲</Text>
-          <Text style={S.empty}>No wagers on {name || 'this player'} yet.</Text>
-        </View>
+        <EmptyState icon="🎲" title="No wagers yet" subtitle={`No wagers on ${name || 'this player'} yet.`} />
       }
     />
   );
@@ -183,9 +187,5 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     metaLabel:   { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
     metaValue:   { fontSize: 14, fontWeight: '700', color: c.text, marginTop: 1 },
     placed:      { fontSize: 11, color: c.textMuted, marginTop: 10 },
-
-    emptyWrap:   { alignItems: 'center', marginTop: 70 },
-    emptyIcon:   { fontSize: 44, marginBottom: 10 },
-    empty:       { fontSize: 15, color: c.textMuted },
   });
 }
