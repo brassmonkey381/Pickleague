@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, ActivityIndicator, Image,
+  TouchableOpacity, Image,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -15,6 +15,9 @@ import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import BookmarkButton from '../components/BookmarkButton';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PlayerProfile'>;
@@ -36,6 +39,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const [matchCount, setMatchCount]       = useState(0);
   const [loading, setLoading]             = useState(true);
   const [myChemistry, setMyChemistry]     = useState<ReturnType<typeof computeChemistry> | null>(null);
+
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -89,7 +94,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     if (result.matchesTogether > 0) setMyChemistry(result);
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
   if (!profile) return <Text style={styles.error}>Player not found.</Text>;
 
   const reliability   = computeReliability(profile.total_matches_played ?? 0, profile.last_match_at ?? null);
@@ -149,7 +154,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
       {/* Header */}
       <View style={styles.header}>
         <View style={{ position: 'absolute', top: 12, right: 16 }}>

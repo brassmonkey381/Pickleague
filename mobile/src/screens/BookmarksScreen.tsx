@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -7,6 +7,10 @@ import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { RootStackParamList } from '../types';
 import { listBookmarks, removeBookmark, Bookmark, BookmarkTargetType } from '../lib/bookmarks';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Bookmarks'> };
 
@@ -32,6 +36,8 @@ export default function BookmarksScreen({ navigation }: Props) {
 
   const [loading, setLoading] = useState(true);
   const [items, setItems]     = useState<EnrichedBookmark[]>([]);
+
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -79,8 +85,8 @@ export default function BookmarksScreen({ navigation }: Props) {
 
   if (loading) {
     return (
-      <View style={[S.screen, S.center]}>
-        <ActivityIndicator color={c.primary} />
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <SkeletonList rows={6} />
       </View>
     );
   }
@@ -88,13 +94,17 @@ export default function BookmarksScreen({ navigation }: Props) {
   if (items.length === 0) {
     return (
       <View style={S.screen}>
-        <Text style={S.empty}>No bookmarks yet.{'\n'}Tap the 🔖 icon on any tournament, league, event, drill session or player profile to save it here.</Text>
+        <EmptyState
+          icon="🔖"
+          title="No bookmarks yet"
+          subtitle="Tap the 🔖 icon on any tournament, league, event, drill session or player profile to save it here."
+        />
       </View>
     );
   }
 
   return (
-    <ScrollView style={S.screen} contentContainerStyle={S.scrollPad}>
+    <ScrollView style={S.screen} contentContainerStyle={S.scrollPad} refreshControl={<AppRefreshControl {...refresh} />}>
       {TYPE_ORDER.map(t => {
         const list = grouped[t];
         if (list.length === 0) return null;
@@ -119,6 +129,8 @@ export default function BookmarksScreen({ navigation }: Props) {
                     onPress={() => handleRemove(b)}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     style={{ paddingHorizontal: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${b.title} from bookmarks`}
                   >
                     <Text style={{ fontSize: 20 }}>🔖</Text>
                   </TouchableOpacity>

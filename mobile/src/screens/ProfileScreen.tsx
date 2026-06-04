@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView, Image, useWindowDimensions,
+  ScrollView, Image, useWindowDimensions,
 } from 'react-native';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -28,6 +28,9 @@ import {
 import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
 import { BallIcon } from '../components/PickleIcons';
 import FtueChecklistCard from '../components/FtueChecklistCard';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 
 // Shared progress row used inside the Unlockable Rewards card
 function UnlockProgressRow({
@@ -261,7 +264,12 @@ function InvRow({
           </Text>
         )}
       </View>
-      <TouchableOpacity onPress={onToggleHidden} style={styles.invHideBtn}>
+      <TouchableOpacity
+        onPress={onToggleHidden}
+        style={styles.invHideBtn}
+        accessibilityRole="button"
+        accessibilityLabel={isHidden ? `Show ${name}` : `Hide ${name}`}
+      >
         <Text style={styles.invHideText}>{isHidden ? '🙈' : '👁️'}</Text>
       </TouchableOpacity>
       {actionLabel && (
@@ -342,6 +350,8 @@ export default function ProfileScreen({ navigation }: Props) {
   const { registerAnchor } = useTour();
   const editAnchor = useRef<any>(null);
   const rewardsAnchor = useRef<any>(null);
+
+  const refresh = useRefresh(loadProfile);
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -734,7 +744,7 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={GREEN} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   const earnedBadgeNames = Array.from(new Set(badges.map(b => b.badge.name)));
 
@@ -807,7 +817,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
   return (
     <>
-    <ScrollView contentContainerStyle={styles.container} scrollEnabled={!gridScrollLocked}>
+    <ScrollView contentContainerStyle={styles.container} scrollEnabled={!gridScrollLocked} refreshControl={<AppRefreshControl {...refresh} />}>
 
       <StatusBanner status={status.value} />
 
@@ -818,6 +828,8 @@ export default function ProfileScreen({ navigation }: Props) {
           onLayout={() => registerAnchor('profile', 'edit', editAnchor)}
           onPress={() => setShowAvatarPicker(true)}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Edit profile photo"
         >
           {photoUrl ? (
             <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />

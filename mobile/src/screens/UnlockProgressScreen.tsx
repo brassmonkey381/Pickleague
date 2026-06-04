@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -9,6 +9,9 @@ import { RootStackParamList } from '../types';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
 import { computeBadgeProgress } from '../lib/unlockProgress';
 import FlairName from '../components/FlairName';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'UnlockProgress'> };
 
@@ -58,6 +61,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   const [nameStyleRewards, setNameStyleRewards] = useState<Record<string, NameStyleReward>>({});
   // Preview name on the reward chip — same source of truth as ShopScreen.
   const [myFullName, setMyFullName] = useState<string>('You');
+  const refresh = useRefresh(load);
 
   useEffect(() => { load(); }, []);
 
@@ -162,7 +166,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
     );
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   const lockedAvatars = AVATARS.filter(a => !!a.unlock);
   const lockedTags    = PLAY_TAGS.filter(t => !!t.unlock);
@@ -177,7 +181,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   const earnedNameStyles = nameStyleBadgeNames.filter(n => earnedBadgeNames.includes(n)).length;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <Text style={styles.title}>🔓 Unlockable Rewards</Text>
       <Text style={styles.subtitle}>
         Earn the gating badge to unlock each cosmetic. Progress is tracked across your account.
