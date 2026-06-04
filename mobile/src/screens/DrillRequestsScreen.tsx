@@ -15,7 +15,11 @@ import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
 import DrillReviewModal from '../components/DrillReviewModal';
+import EmptyState from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
+import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { useRefresh } from '../lib/useRefresh';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
 
@@ -57,6 +61,7 @@ export default function DrillRequestsScreen({}: Props) {
   const [cancelling, setCancelling]     = useState(false);
 
   const status = useStatusMessage();
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
@@ -192,7 +197,7 @@ export default function DrillRequestsScreen({}: Props) {
     load();
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
@@ -215,6 +220,7 @@ export default function DrillRequestsScreen({}: Props) {
         data={requests}
         keyExtractor={r => r.id}
         contentContainerStyle={{ padding: 16 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         ListHeaderComponent={
           reviewable.length > 0 ? (
             // TODO: smoke-test in browser — review-your-drills section + bonus modal
@@ -240,15 +246,13 @@ export default function DrillRequestsScreen({}: Props) {
           ) : null
         }
         ListEmptyComponent={
-          <View style={S.emptyWrap}>
-            <Text style={S.emptyEmoji}>📭</Text>
-            <Text style={S.emptyText}>
-              No {tab} requests yet.
-              {tab === 'incoming'
-                ? '\n\nWhen someone wants to drill with you, you\'ll see it here.'
-                : '\n\nFind a partner from the Drill page to send your first request.'}
-            </Text>
-          </View>
+          <EmptyState
+            icon="📭"
+            title={`No ${tab} requests yet.`}
+            subtitle={tab === 'incoming'
+              ? 'When someone wants to drill with you, you\'ll see it here.'
+              : 'Find a partner from the Drill page to send your first request.'}
+          />
         }
         renderItem={({ item }) => {
           const otherProfile = tab === 'incoming' ? item.from_profile : item.to_profile;
@@ -559,7 +563,7 @@ function DrillChatModal({
     <View style={S.sheet}>
       <View style={S.header}>
         <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
-        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close chat">
           <Text style={S.close}>✕</Text>
         </TouchableOpacity>
       </View>
@@ -584,6 +588,8 @@ function DrillChatModal({
               style={S.locationPromptDismiss}
               onPress={() => onDismissLocationPrompt?.()}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss location prompt"
             >
               <Text style={S.locationPromptDismissText}>✕</Text>
             </TouchableOpacity>
@@ -656,7 +662,7 @@ function DrillChatModal({
               <Text style={S.locationPickerTitle}>
                 {locationPickerMode === 'confirm' ? 'Where are you playing?' : 'Suggest a court'}
               </Text>
-              <TouchableOpacity onPress={() => setLocationPickerMode(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <TouchableOpacity onPress={() => setLocationPickerMode(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close location picker">
                 <Text style={S.close}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -719,7 +725,7 @@ function CourtPickerModal({
         <View style={S.panel}>
           <View style={S.header}>
             <Text style={S.title}>📍 Pick a location</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close location picker">
               <Text style={S.close}>✕</Text>
             </TouchableOpacity>
           </View>

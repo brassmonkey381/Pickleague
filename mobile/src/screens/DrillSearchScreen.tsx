@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,10 @@ import { findShotPref, findPartnerPref } from '../data/drillOptions';
 import { AVATARS } from '../data/profileCustomization';
 import DrillRequestModal from '../components/DrillRequestModal';
 import { formatPlupr } from '../lib/plupr';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'> };
 
@@ -49,6 +53,8 @@ export default function DrillSearchScreen({}: Props) {
   const [search, setSearch]   = useState('');
   const [sort, setSort]       = useState<SortMode>('overlap');
   const [requestTarget, setRequestTarget] = useState<Candidate | null>(null);
+
+  const refresh = useRefresh(load);
 
   useEffect(() => { load(); }, []);
 
@@ -124,7 +130,7 @@ export default function DrillSearchScreen({}: Props) {
     return sorted;
   }, [candidates, search, sort, me]);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
@@ -139,7 +145,12 @@ export default function DrillSearchScreen({}: Props) {
           autoCorrect={false}
         />
         {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')} style={S.clearBtn}>
+          <TouchableOpacity
+            onPress={() => setSearch('')}
+            style={S.clearBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
             <Text style={S.clearText}>✕</Text>
           </TouchableOpacity>
         )}
@@ -165,13 +176,13 @@ export default function DrillSearchScreen({}: Props) {
         data={filtered}
         keyExtractor={c => c.id}
         contentContainerStyle={{ padding: 16 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
-          <View style={S.emptyWrap}>
-            <Text style={S.emptyEmoji}>🔍</Text>
-            <Text style={S.emptyText}>
-              No drillers found. Either nobody's set "Open to drilling" yet, or your search is too narrow.
-            </Text>
-          </View>
+          <EmptyState
+            icon="🔍"
+            title="No drillers found"
+            subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
+          />
         }
         renderItem={({ item }) => {
           const avatar = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];

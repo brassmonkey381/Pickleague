@@ -15,6 +15,10 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { isoDate, rollingDates, slotRangeLabel, durationLabel, spanToDailyOverlays, dateLabel, dateSubLabel, toWeeklyDrill, DRILL_WEEKLY_CELLS } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 import { DumbbellIcon } from '../components/PickleIcons';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean };
 
@@ -43,6 +47,7 @@ export default function DrillScreen({ navigation }: Props) {
   const [reviewTarget, setReviewTarget]       = useState<SessionWithPartner | null>(null);
 
   const status = useStatusMessage();
+  const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -189,7 +194,7 @@ export default function DrillScreen({ navigation }: Props) {
     persist({ drill_custom_tags: next });
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   const today = isoDate(new Date());
   const upcomingSessions = sessions.filter(s => s.session_date >= today);
@@ -210,6 +215,7 @@ export default function DrillScreen({ navigation }: Props) {
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ paddingBottom: 60 }}
       scrollEnabled={!scrollLocked}
+      refreshControl={<AppRefreshControl {...refresh} />}
     >
       {/* Hero */}
       <View style={S.hero}>
@@ -295,11 +301,13 @@ export default function DrillScreen({ navigation }: Props) {
               </View>
             </View>
             {visibleSessions.length === 0 ? (
-              <Text style={S.sessionsEmpty}>
-                {sessionFilter === 'upcoming'
-                  ? 'No upcoming sessions yet. Find a partner and accept a request to schedule one.'
-                  : 'No past sessions yet.'}
-              </Text>
+              <EmptyState
+                icon="🏓"
+                title={sessionFilter === 'upcoming' ? 'No upcoming sessions yet' : 'No past sessions yet'}
+                subtitle={sessionFilter === 'upcoming'
+                  ? 'Find a partner and accept a request to schedule one.'
+                  : undefined}
+              />
             ) : (
               <View style={{ marginTop: 10, gap: 8 }}>
                 {visibleSessions.map(s => (
@@ -418,6 +426,8 @@ export default function DrillScreen({ navigation }: Props) {
                     style={S.customChip}
                     onPress={() => removeCustomTag(tag)}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove tag ${tag}`}
                   >
                     <Text style={S.customChipText}>{tag}  ✕</Text>
                   </TouchableOpacity>
