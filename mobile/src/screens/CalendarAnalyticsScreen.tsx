@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, ScrollView, Pressable } from 'react-native';
+import { View, Text, FlatList, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 import { Match, RootStackParamList } from '../types';
 
 type Props = { route: RouteProp<RootStackParamList, 'CalendarAnalytics'> };
@@ -23,6 +27,13 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
+
+  const refresh = useRefresh(async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const uid = userId ?? user?.id ?? null;
+    setCurrentUserId(uid);
+    await loadMatches(uid);
+  });
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -102,10 +113,10 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
 
   const selectedDayRecord = selectedDate ? dateMap[selectedDate] : null;
 
-  if (loading) return <ActivityIndicator style={{ flex: 1, backgroundColor: colors.bg }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   return (
-    <ScrollView style={S.container}>
+    <ScrollView style={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <Calendar
         markedDates={markedDates}
         dayComponent={({ date, state }: any) => {
@@ -166,7 +177,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
       />
 
       {Object.keys(dateMap).length === 0 && (
-        <Text style={S.hint}>No match data found for this view.</Text>
+        <EmptyState icon="📅" title="No matches yet" subtitle="No match data found for this view." />
       )}
 
       {selectedDayRecord ? (

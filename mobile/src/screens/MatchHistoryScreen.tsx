@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -7,6 +7,10 @@ import { REGIONS, inRegion } from '../lib/regions';
 import { Match, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 import StatusBanner from '../components/StatusBanner';
 import { displayCourtName } from '../lib/courtNickname';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -218,6 +222,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightMatchId ?? null);
 
   const status = useStatusMessage();
+  const refresh = useRefresh(loadMatches);
 
   // wagerCtx is the row the user opened the menu for; team labels are frozen
   // there so the UI stays stable if `matches` reloads mid-flow.
@@ -350,6 +355,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           <Text style={S.upcomingBadgeText}>🗓️ Upcoming</Text>
           <TouchableOpacity
             style={S.pendingMenuBtn}
+            accessibilityRole="button"
             accessibilityLabel="Wager options"
             onPress={() => openWagerSheet({
               matchId: item.id,
@@ -420,6 +426,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
               {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
               <TouchableOpacity
                 style={S.pendingMenuBtn}
+                accessibilityRole="button"
                 accessibilityLabel="Wager options"
                 onPress={() => openWagerSheet({
                   matchId: item.id,
@@ -688,7 +695,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     (indoorOutdoor !== 'all' ? 1 : 0) +
     (doublesCategory !== 'all' ? 1 : 0);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={colors.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
@@ -739,7 +746,12 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
               returnKeyType="search"
             />
             {playerSearch.length > 0 && (
-              <TouchableOpacity style={S.clearSearch} onPress={() => setPlayerSearch('')}>
+              <TouchableOpacity
+                style={S.clearSearch}
+                accessibilityRole="button"
+                accessibilityLabel="Clear player name search"
+                onPress={() => setPlayerSearch('')}
+              >
                 <Text style={S.clearSearchText}>✕</Text>
               </TouchableOpacity>
             )}
@@ -821,6 +833,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
         contentContainerStyle={{ padding: 16 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         onScrollToIndexFailed={({ index, averageItemLength }) => {
           // Target row isn't measured yet (it's below the render window). Nudge
           // toward it by estimated offset, then retry. Recompute the index from
@@ -838,7 +851,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }}
         ListEmptyComponent={
           upcoming.length === 0
-            ? <Text style={S.empty}>No matches recorded yet.</Text>
+            ? <EmptyState icon="🏓" title="No matches yet" subtitle="No matches recorded yet." />
             : null
         }
         ListHeaderComponent={

@@ -1,10 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { DoublesCategory, Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type TypeFilter   = 'all' | 'singles' | 'doubles';
 type StatusFilter = 'all' | 'completed' | 'pending';
@@ -65,6 +69,8 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const [playerSearch, setPlayerSearch]   = useState('');
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
   const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>('all');
+
+  const refresh = useRefresh(load);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -247,7 +253,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     (playerSearch.trim() ? 1 : 0) +
     (doublesCategory !== 'all' ? 1 : 0);
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
   return (
     <View style={S.container}>
@@ -291,7 +297,12 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
               returnKeyType="search"
             />
             {playerSearch.length > 0 && (
-              <TouchableOpacity style={S.clearSearch} onPress={() => setPlayerSearch('')}>
+              <TouchableOpacity
+                style={S.clearSearch}
+                onPress={() => setPlayerSearch('')}
+                accessibilityRole="button"
+                accessibilityLabel="Clear player search"
+              >
                 <Text style={S.clearSearchText}>✕</Text>
               </TouchableOpacity>
             )}
@@ -340,7 +351,8 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
         contentContainerStyle={{ padding: 16 }}
-        ListEmptyComponent={<Text style={S.empty}>No tournament matches yet.</Text>}
+        refreshControl={<AppRefreshControl {...refresh} />}
+        ListEmptyComponent={<EmptyState icon="🎾" title="No matches yet" subtitle="No tournament matches yet." />}
       />
     </View>
   );
