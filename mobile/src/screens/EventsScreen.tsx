@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { LeagueEvent, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Events'>;
@@ -99,6 +102,9 @@ export default function EventsScreen({ navigation, route }: Props) {
   const [enabled, setEnabled] = useState<Set<Category>>(new Set(DEFAULT_ENABLED));
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const refresh = useRefresh(async () => {
+    await Promise.all([loadEvents(), getLeagueRole(leagueId).then(setMyRole)]);
+  });
 
   useFocusEffect(useCallback(() => {
     loadEvents();
@@ -190,6 +196,7 @@ export default function EventsScreen({ navigation, route }: Props) {
         data={visible}
         keyExtractor={(row) => row.event.id}
         contentContainerStyle={{ padding: 16 }}
+        refreshControl={<AppRefreshControl {...refresh} />}
         renderItem={({ item: row }) => {
           const meta = CATEGORY_META[row.category];
           return (
@@ -218,11 +225,9 @@ export default function EventsScreen({ navigation, route }: Props) {
           );
         }}
         ListEmptyComponent={
-          <Text style={S.empty}>
-            {categorized.length === 0
-              ? 'No events yet.\nCreate one to start scheduling league play.'
-              : 'No events match your filters.'}
-          </Text>
+          categorized.length === 0
+            ? <EmptyState icon="📅" title="No events yet" subtitle="Create one to start scheduling league play." />
+            : <EmptyState icon="🔍" title="No events match your filters" subtitle="Try enabling more categories above." />
         }
       />
 

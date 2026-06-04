@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, ActivityIndicator, Platform,
+  Alert, Platform,
 } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +16,9 @@ import { sendSmsInvite } from '../lib/sms';
 import { shareInvite } from '../lib/share';
 import { DeviceContact } from '../lib/contacts';
 import BookmarkButton from '../components/BookmarkButton';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -74,6 +77,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [eventMatches, setEventMatches] = useState<EventMatchRow[]>([]);
 
   useFocusEffect(useCallback(() => { load(); }, []));
+  const refresh = useRefresh(load);
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -268,13 +272,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
   if (!event) return <Text style={{ padding: 24, color: c.text }}>Event not found.</Text>;
 
   const confirmedSlot = event.confirmed_slot_id ? slots.find((s) => s.id === event.confirmed_slot_id) : null;
 
   return (
-    <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
       {/* Header */}
       <View style={S.header}>
         <View style={{ position: 'absolute', top: 8, right: 12 }}>
