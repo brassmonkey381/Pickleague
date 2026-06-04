@@ -479,6 +479,7 @@ export type RootStackParamList = {
   Register: undefined;
   GuestJoin: { token: string };
   Home: undefined;
+  Play: { initialTab?: 'leagues' | 'tournaments' } | undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
   Tournaments: { leagueId?: string; leagueName?: string };

@@ -19,6 +19,7 @@ import { loadUserPreferences } from '../lib/userPreferences';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
+import PlayScreen from '../screens/PlayScreen';
 import LeaguesScreen from '../screens/LeaguesScreen';
 import LeagueDetailScreen from '../screens/LeagueDetailScreen';
 import EventsScreen from '../screens/EventsScreen';
@@ -89,6 +90,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       Register: 'register',
       GuestJoin: 'g/:token',
       Home: '',
+      Play: 'play',
       Leagues: 'leagues',
       LeagueDetail: 'leagues/:leagueId',
       LeagueMembers: 'leagues/:leagueId/members',
@@ -216,6 +218,7 @@ export default function AppNavigator() {
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Play" component={PlayScreen} options={{ title: 'Play' }} />
                 <Stack.Screen name="Leagues" component={LeaguesScreen} options={{ title: 'Leagues' }} />
                 <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params.leagueName })} />
                 <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params.leagueName + ' Members' })} />

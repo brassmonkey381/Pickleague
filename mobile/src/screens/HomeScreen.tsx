@@ -29,8 +29,7 @@ type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>
 
 type NavItem = { icon: React.ReactNode; label: string; screen: any; params: any };
 const NAV_ITEMS: NavItem[] = [
-  { icon: '🏆',                    label: 'Leagues',     screen: 'Leagues',     params: undefined },
-  { icon: <BallIcon size={32} />,  label: 'Tournaments', screen: 'Tournaments', params: {} },
+  { icon: <BallIcon size={32} />,  label: 'Play',        screen: 'Play',        params: undefined },
   { icon: <DumbbellIcon size={32} />, label: 'Drill',    screen: 'Drill',       params: undefined },
   { icon: '🛒',                    label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '😎',                    label: 'Profile',     screen: 'Profile',     params: {} },
