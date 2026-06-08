@@ -236,48 +236,67 @@ export function generateSingleElim(seededPlayers: string[]): MatchPairing[] {
 }
 
 // ── Rotating partners ─────────────────────────────────────────
-// Whist/round-robin partner schedule for 2v2:
-//   Fix player 0 in place; rotate the rest by 1 each round.
-//   Pair adjacent positions in the rotated array:
-//     (rot[0], rot[1]) vs (rot[2], rot[3]),
-//     (rot[4], rot[5]) vs (rot[6], rot[7]), …
-//   Player count must be a multiple of 4 for clean rotating partners;
-//   if not, we pad with BYE and drop any match containing a BYE
-//   (mirroring generateRoundRobin's approach).
+// Whist-style "social mixer" schedule for 2v2 where partnerships rotate every
+// round (not just opponents). Each round we run the standard round-robin
+// "circle" over all players (padded to even with a single BYE that represents
+// a forced sit-out so the rester rotates too):
+//
+//   Fix position 0; rotate the rest of the circle by `r` each round.
+//   Pair mirrored positions: (cyc[0], cyc[n-1]), (cyc[1], cyc[n-2]), …
+//   These pairs are the partnerships — and because the whole circle rotates,
+//   each player draws a *new* partner every round (no partnership repeats over
+//   the first n-1 rounds).
+//
+//   Pairs containing the BYE placeholder are dropped (those players sit out
+//   this round). From the surviving real pairs we form exactly floor(N/4)
+//   matches by grouping them two-at-a-time: pair[0] vs pair[1], pair[2] vs
+//   pair[3], … This guarantees floor(N/4) matches *every* round and rotates
+//   who sits out fairly, instead of dropping whole matches when a BYE lands
+//   inside a fixed group-of-4.
+//
+// Returns [] for fewer than 4 players (can't field a single 2v2 court).
 export function generateRotatingPartners(
   seededPlayers: string[],
   numRounds: number
 ): MatchPairing[] {
-  if (seededPlayers.length < 4) return [];
+  const N = seededPlayers.length;
+  if (N < 4) return [];
 
-  // Pad up to a multiple of 4 with BYE placeholders.
-  const players = [...seededPlayers];
-  while (players.length % 4 !== 0) players.push('BYE');
-  const n = players.length;
+  const numCourts = Math.floor(N / 4);
+
+  // Pad to even so the circle is well-defined. A lone BYE marks the rester
+  // (only present when N is odd); pairs touching it are skipped below.
+  const base = [...seededPlayers];
+  if (base.length % 2 !== 0) base.push('BYE');
+  const size = base.length;            // even
+  const fixed = base[0];
+  const rest = base.slice(1);
+  const restLen = rest.length;         // size - 1
 
   const matches: MatchPairing[] = [];
 
   for (let r = 0; r < numRounds; r++) {
+    // Circle rotation: keep `fixed` at position 0, rotate the rest by r.
+    const rotated = rest.map((_, i) => rest[((i - r) % restLen + restLen) % restLen]);
+    const cyc = [fixed, ...rotated];
+
+    // Mirrored pairings are the partnerships for this round.
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < size / 2; i++) pairs.push([cyc[i], cyc[size - 1 - i]]);
+
+    // Drop pairs that include the BYE rester, preserving order.
+    const realPairs = pairs.filter(p => p[0] !== 'BYE' && p[1] !== 'BYE');
+
+    // Group surviving pairs into 2v2 matches, capped at floor(N/4) courts.
     let order = 0;
-    // Pair adjacent positions in groups of 4.
-    for (let i = 0; i < n; i += 4) {
-      const a = players[i];
-      const b = players[i + 1];
-      const c = players[i + 2];
-      const d = players[i + 3];
-      // Skip any match touching a BYE slot.
-      if (a !== 'BYE' && b !== 'BYE' && c !== 'BYE' && d !== 'BYE') {
-        matches.push({
-          round: r + 1,
-          matchOrder: order++,
-          team1: [a, b],
-          team2: [c, d],
-        });
-      }
+    for (let j = 0; order < numCourts && j + 1 < realPairs.length; j += 2) {
+      matches.push({
+        round: r + 1,
+        matchOrder: order++,
+        team1: realPairs[j],
+        team2: realPairs[j + 1],
+      });
     }
-    // Rotate: fix index 0, shift the rest by 1 (take the last, insert at index 1).
-    // Matches the circle-rotation used by generateRoundRobin.
-    players.splice(1, 0, players.pop()!);
   }
   return matches;
 }
