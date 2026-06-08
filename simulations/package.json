@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "brackets": "tsx brackets.ts"
+    "brackets": "tsx brackets.ts",
+    "sweep-mlp-schedule": "tsx sweep-mlp-schedule.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
