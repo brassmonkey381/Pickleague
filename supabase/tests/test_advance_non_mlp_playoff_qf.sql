@@ -14,20 +14,36 @@
 --     Then complete both SFs and assert a single Finals match pairing
 --     the two SF winners → one champion path.
 --
---   Test E — Top-4 Third Place Match toggle.
+--   Test E — Top-4 Third Place Match toggle (BUG #5 regression).
 --     With `tournaments.playoff_third_place = true` and
 --     `playoff_format = 'top_4'`, completing both Semifinals should
 --     create BOTH a Finals round (SF winners) AND a Third Place Match
 --     round (round_type 'third_place_match') pairing the two SF LOSERS.
---     This pins the behaviour added in migration_playoff_tiebreaker_and_3pm.sql
---     (#62) and extended in migration_playoff_byes_and_per_pool_3pm.sql (#69):
---     the playoff_third_place toggle is NOT inert for top_4 / top_8.
+--
+--     This test FAILS against the pre-fix live function: although the 3PM
+--     branch (added in #62 / #69) is present, it guarded the insert with
+--     `v_l1 is not null and v_l2 is not null` where v_l1/v_l2 are match
+--     RECORDS. `record IS NOT NULL` is true only when EVERY column is
+--     non-null, which never holds for a match row — so the 3PM was never
+--     created and the playoff_third_place toggle was effectively INERT for
+--     all top_4/top_8 tournaments. migration_fix_3pm_record_null.sql changes
+--     the guard to `v_l1.id is not null and v_l2.id is not null`. This file
+--     applies that fix inside the transaction so the test validates it.
 --
 -- Both tests are wrapped in begin; … rollback; so nothing persists.
 -- Score values respect tournament_matches_score_sanity_check (11-5).
+--
+--   • psql:        the `\i` line below pulls in the fix automatically.
+--   • MCP/SQL ed.: `\i` is unsupported — concatenate the fix migration in
+--                  front of this file and run as ONE batch (delete the `\i`
+--                  line first). The create-or-replace runs inside this file's
+--                  BEGIN and is rolled back with everything else.
 -- ============================================================
 
 begin;
+
+\set ON_ERROR_STOP on
+\i supabase/migration_fix_3pm_record_null.sql
 
 -- ── Test D — Top-8 QF → SF → Finals outside-in advancement ──────────
 do $test_d$
