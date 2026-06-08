@@ -123,7 +123,9 @@ begin
       into v_format, v_match_type
       from public.tournaments
      where id = new.tournament_id;
-    if v_format not in ('single_elimination', 'double_elimination') then
+    -- Bug #4 fix: single_elimination ONLY (DE is owned by its dedicated
+    -- trigger; this trigger used to prematurely complete DE at the WB final).
+    if v_format <> 'single_elimination' then
       return new;
     end if;
 
@@ -528,5 +530,58 @@ begin
   raise notice 'ALL SIZES PASS: %', v_sizes;
 end
 $sweep$;
+
+-- ── 2. Bug #4 regression: this trigger must NOT touch double_elimination ──
+-- A double_elimination tournament driven to its winners-bracket final must
+-- stay 'active' (DE completes only via the grand final, handled by the
+-- dedicated _advance_double_elim_bracket trigger). With the pre-fix guard
+-- (which included 'double_elimination'), the legacy "winner_count <= 1 ->
+-- mark completed" path fired here and prematurely completed the DE
+-- tournament at the WB final. The fixed guard returns early for DE.
+do $de_guard$
+declare
+  v_tid  uuid := gen_random_uuid();
+  v_wb1  uuid := gen_random_uuid();
+  v_a uuid:=gen_random_uuid(); v_b uuid:=gen_random_uuid();
+  v_c uuid:=gen_random_uuid(); v_d uuid:=gen_random_uuid();
+  v_email text := 'se-de-' || gen_random_uuid()::text || '@test.invalid';
+  v_m_ad uuid:=gen_random_uuid(); v_m_bc uuid:=gen_random_uuid();
+  v_wb2 uuid; v_wb2_m uuid; v_status text; v_gf integer;
+begin
+  set local session_replication_role = 'replica';
+  insert into auth.users (id, email) values
+    (v_a,'a-'||v_email),(v_b,'b-'||v_email),(v_c,'c-'||v_email),(v_d,'d-'||v_email);
+  insert into public.profiles (id, username, full_name, gender) values
+    (v_a,'sde_a_'||substr(v_a::text,1,8),'SDE A','male'),
+    (v_b,'sde_b_'||substr(v_b::text,1,8),'SDE B','male'),
+    (v_c,'sde_c_'||substr(v_c::text,1,8),'SDE C','male'),
+    (v_d,'sde_d_'||substr(v_d::text,1,8),'SDE D','male');
+  set local session_replication_role = 'origin';
+
+  insert into public.tournaments (id, name, format, match_type, status, created_by)
+  values (v_tid, 'DE guard N=4', 'double_elimination', 'singles', 'active', v_a);
+  insert into public.tournament_rounds (id, tournament_id, round_number, label, round_type)
+  values (v_wb1, v_tid, 1, 'Winners Round 1', 'winners');
+  insert into public.tournament_matches
+    (id, tournament_id, round_id, match_order, match_type, team1_player1, team2_player1, status)
+  values (v_m_ad, v_tid, v_wb1, 0, 'singles', v_a, v_d, 'pending'),
+         (v_m_bc, v_tid, v_wb1, 1, 'singles', v_b, v_c, 'pending');
+
+  -- Complete WB R1 → dedicated DE trigger builds WB R2 + LB R1.
+  update public.tournament_matches set team1_score=11, team2_score=5, winner_team='team1', status='completed' where id in (v_m_ad, v_m_bc);
+  select id into v_wb2 from public.tournament_rounds where tournament_id=v_tid and round_type='winners' and round_number=2;
+  select id into v_wb2_m from public.tournament_matches where round_id=v_wb2 limit 1;
+
+  -- Complete the WB final (1 winner). The single-elim trigger MUST NOT complete it.
+  update public.tournament_matches set team1_score=11, team2_score=5, winner_team='team1', status='completed' where id=v_wb2_m;
+
+  select status into v_status from public.tournaments where id=v_tid;
+  select count(*) into v_gf from public.tournament_rounds where tournament_id=v_tid and round_type='grand_final';
+  assert v_status = 'active',
+    format('Bug #4 regression: DE must stay active after WB final (single-elim trigger must not complete it), got status=%s', v_status);
+
+  raise notice 'Bug #4 regression PASS: single-elim trigger left double_elim untouched (status=%, grand_final_rounds=%)', v_status, v_gf;
+end
+$de_guard$;
 
 rollback;

@@ -1,9 +1,14 @@
 -- ============================================================
 -- migration_fix_single_elim_advance.sql
 --
--- BUG FIX (Unit 7 — single-elim advancement trigger):
---   public._advance_single_elim_bracket() silently DROPPED bye'd top
---   seeds in non-power-of-2 single/double-elimination brackets.
+-- BUG FIX (Unit 7 — single-elim advancement trigger). Two bugs:
+--   (1) public._advance_single_elim_bracket() silently DROPPED bye'd top
+--       seeds in non-power-of-2 single-elimination brackets (details below).
+--   (2) [Bug #4, found by the Unit 8 live sweep] the trigger ALSO fired for
+--       double_elimination (its guard included 'double_elimination') and
+--       prematurely COMPLETED DE tournaments at the winners-bracket final.
+--       Fix: the guard now handles single_elimination ONLY; DE is left to
+--       its dedicated _advance_double_elim_bracket trigger. See the guard.
 --
 -- Root cause
 -- ----------
@@ -91,7 +96,21 @@ begin
       into v_format, v_match_type
       from public.tournaments
      where id = new.tournament_id;
-    if v_format not in ('single_elimination', 'double_elimination') then
+    -- Handle single_elimination ONLY. double_elimination has its own
+    -- dedicated trigger (_advance_double_elim_bracket) that fully owns
+    -- winners/losers/grand-final advancement AND tournament completion.
+    --
+    -- BUG #4 (found by the Unit 8 live verification sweep): this trigger
+    -- used to also fire for DE (the guard included 'double_elimination').
+    -- Its legacy "v_winner_count <= 1 -> mark tournament completed" path
+    -- then prematurely COMPLETED a double-elim tournament the moment the
+    -- winners-bracket final resolved to a single winner — crowning the
+    -- undefeated WB winner and skipping the entire losers bracket + grand
+    -- final (verified live: after the WB final, status='completed',
+    -- grand_final_rounds=0). Excluding DE here leaves it entirely to the
+    -- dedicated double-elim trigger, which completes only via the grand
+    -- final / bracket reset.
+    if v_format <> 'single_elimination' then
       return new;
     end if;
 
@@ -143,11 +162,9 @@ begin
     --     players as teams — corrupting the bracket. The client does not
     --     generate bye'd doubles single-elim brackets, so we fall back to
     --     the (byes-unaware) legacy path, no worse than pre-fix behaviour.
-    --   * double_elimination: advancement is owned by the dedicated
-    --     _advance_double_elim_bracket trigger (winners/losers/grand-final/
-    --     bracket-reset). This trigger also fires for DE for historical
-    --     reasons; we deliberately do NOT engage the reconstruction path
-    --     there so we add zero new behaviour to the double-elim flow.
+    --   * double_elimination: not reached — the guard above now returns
+    --     early for DE (see Bug #4). DE is owned entirely by the dedicated
+    --     _advance_double_elim_bracket trigger.
     if v_is_first_round
        and v_format = 'single_elimination'
        and coalesce(v_match_type, 'singles') = 'singles' then
