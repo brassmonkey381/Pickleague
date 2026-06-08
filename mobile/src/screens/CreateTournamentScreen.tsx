@@ -265,6 +265,19 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       ? (teamCreation === 'random' ? 'mlp_random' : 'mlp')
       : format;
     const dbMatchType: 'singles' | 'doubles' = isMlp ? 'doubles' : matchType;
+
+    // Final safety net mirroring the DB `tournaments_format_match_type_check`
+    // constraint: mlp / mlp_random / rotating_partners are doubles-only. The UI
+    // already steers away from this (Singles pill is disabled for doubles-only
+    // formats, MLP forces doubles), but those corrections run on re-render, so
+    // guard here too rather than let the DB reject the insert with a raw 23514.
+    if (dbMatchType === 'singles' &&
+        (dbFormat === 'mlp' || dbFormat === 'mlp_random' || dbFormat === 'rotating_partners')) {
+      setLoading(false);
+      setError('This format requires doubles. Switch Team Type to Doubles (or MLP) and try again.');
+      return;
+    }
+
     const insertPayload: Record<string, any> = {
       league_id:         leagueId ?? null,
       name:              name.trim(),
