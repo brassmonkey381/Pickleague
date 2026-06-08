@@ -27,6 +27,18 @@ No CI runner is wired up yet — these are **human-runnable** today.
   - **Test C:** `_advance_non_mlp_playoff_bracket` trigger fires when the
     last Semifinal flips to `completed` — asserts a Finals round is created
     with one match populated from the two SF winners.
+- `test_advance_non_mlp_playoff_qf.sql`
+  - **Test D:** `_advance_non_mlp_playoff_bracket` driven across a full
+    Top-8 bracket — completes 4 Quarterfinals and asserts a Semifinals
+    round is seeded with the documented outside-in pairing of the QF
+    winners (`mo[0]` vs `mo[3]`, `mo[1]` vs `mo[2]`); then completes both
+    Semifinals and asserts a single Finals match pairing the two SF
+    winners (one champion). Also asserts no 3PM when
+    `playoff_third_place` is false.
+  - **Test E:** With `playoff_third_place = true` on a `top_4` bracket,
+    completing both Semifinals creates BOTH a Finals round (SF winners)
+    AND a Third Place Match (`round_type 'third_place_match'`) pairing the
+    two SF losers — pinning the toggle behaviour from PR #62 / #69.
 
 ## How to run
 
