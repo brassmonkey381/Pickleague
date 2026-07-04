@@ -38,6 +38,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [matchCount, setMatchCount]       = useState(0);
   const [loading, setLoading]             = useState(true);
+  const [meId, setMeId]                   = useState<string | null>(null);
   const [myChemistry, setMyChemistry]     = useState<ReturnType<typeof computeChemistry> | null>(null);
 
   const refresh = useRefresh(load);
@@ -46,6 +47,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
+    setMeId(user?.id ?? null);
     const [profileRes, badgesRes, locRes, matchRes, purchasesRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       supabase.from('player_badges')
@@ -194,6 +196,17 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <Text style={styles.matchCount}>{matchCount} matches played</Text>
       </View>
 
+      {/* Head-to-head — only when viewing someone other than yourself */}
+      {meId && meId !== userId && (
+        <TouchableOpacity
+          style={styles.h2hBtn}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('HeadToHead', { opponentId: userId, opponentName: profile.full_name })}
+        >
+          <Text style={styles.h2hBtnText}>⚔️  Head-to-head vs you</Text>
+        </TouchableOpacity>
+      )}
+
       {/* PLUPR strip + reliability (hidden) — global PLUPR is intentionally not
           shown on other players' profiles; PLUPR is being kept contained within
           a league. Re-add this block to restore. */}
@@ -285,6 +298,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tagline: { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginTop: 3, marginBottom: 2 },
     username: { fontSize: 14, color: c.textMuted, marginTop: 2 },
     matchCount: { fontSize: 13, color: c.textMuted, marginTop: 4 },
+    h2hBtn: { backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginBottom: 14 },
+    h2hBtnText: { color: c.primary, fontSize: 14, fontWeight: '700' },
     tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 6 },
     tagChip: { backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
     tagChipText: { fontSize: 12, color: c.primary, fontWeight: '600' },

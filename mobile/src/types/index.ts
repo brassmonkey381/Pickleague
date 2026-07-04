@@ -482,6 +482,7 @@ export type RootStackParamList = {
   Play: { initialTab?: 'leagues' | 'tournaments' } | undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
+  HeadToHead: { opponentId: string; opponentName: string };
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };
   TournamentDetail: { tournamentId: string; tournamentName: string };
