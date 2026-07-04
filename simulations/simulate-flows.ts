@@ -51,6 +51,7 @@ const LEAGUE_MODE = val('--league-mode', 'open');
 const PLAY       = has('--play');
 const AUTO_ROUNDS = has('--auto-rounds');   // play round-by-round to completion, checking invariants + drafting a report
 const ECONOMY    = has('--economy');        // random ante + payout structure + wagers; verify payouts, badges, notifications
+const LEAGUE_ATTACH = has('--league-attach'); // attach tournament to the [SIM] Toolbox League; verify PLUPR weighting + season period lock
 const DRY        = has('--dry-run');
 const PASSWORD   = 'pickle123';
 
@@ -133,7 +134,7 @@ function writeReport(c: Checker, tName: string, tId: string, cfg: Record<string,
 }
 
 // ── economy layer: ante, payout structure, wagers ───────────────────────────
-type PlacedWager = { user: string; target: string; rank: number; stake: number; ok: boolean; potential: number | null; msg?: string };
+type PlacedWager = { user: string; target: string; rank: number; stake: number; ok: boolean; potential: number | null; msg?: string; wagerId?: string; cancelled?: boolean; refunded?: number };
 type Economy = {
   ante: number; payoutStructure: number[];
   wagers: PlacedWager[]; startPickles: Map<string, number>; startedAt: string;
@@ -162,9 +163,22 @@ async function placeRandomWagers(names: string[], playerIds: string[], tId: stri
       ok: !error && !!row?.success,
       potential: row?.potential_payout ?? null,
       msg: error?.message ?? row?.message,
+      wagerId: row?.wager_id ?? undefined,
     });
     log(`  ${!error && row?.success ? '✓' : '⚠'} ${email.split('@')[0]} wagered ${stake}🥒 on ${target.slice(0, 8)} finishing #${rank}` +
         (!error && row?.success ? ` (pays ${row?.potential_payout})` : ` — ${error?.message ?? row?.message}`));
+  }
+  // Cancel one wager (the first successful one) before play starts — the
+  // stake must come back and the wager must never settle.
+  const victim = placed.find((w) => w.ok && w.wagerId);
+  if (victim) {
+    const owner = await signIn(names.find((n) => actorCache.get(n)?.id === victim.user)!);
+    const { data: cData, error: cErr } = await owner.client.rpc('cancel_wager', { p_wager_id: victim.wagerId });
+    const cRow = Array.isArray(cData) ? cData[0] : cData;
+    victim.cancelled = !cErr && !!cRow?.success;
+    victim.refunded = cRow?.refunded ?? 0;
+    log(`  ${victim.cancelled ? '✓' : '⚠'} cancelled wager ${victim.wagerId!.slice(0, 8)} (stake ${victim.stake}, refunded ${victim.refunded})` +
+        (victim.cancelled ? '' : ` — ${cErr?.message ?? cRow?.message}`));
   }
   return placed;
 }
@@ -185,7 +199,7 @@ function expectedPlayoffMatches(playoff: string, poolCount: number): number | nu
 // advancement triggers create rounds, generate the playoff when group play is
 // done, and admin-complete when the format calls for it. Invariants are
 // checked at every step; the result is a markdown report.
-async function runToCompletion(host: Actor, tId: string, tName: string, playerIds: string[], cfg: Record<string, unknown>, econ?: Economy) {
+async function runToCompletion(host: Actor, tId: string, tName: string, playerIds: string[], cfg: Record<string, unknown>, econ?: Economy, leagueId?: string) {
   const c = new Checker();
   const isMlp = cfg['match-type'] === 'mlp';
 
@@ -332,7 +346,59 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
   if (ranks?.length) c.check('completion', 'a champion exists (final_rank = 1)', ranks.some((r: any) => r.final_rank === 1));
   const { data: after } = await admin.from('profiles').select('id, rating').in('id', playerIds);
   const moved = (after ?? []).filter((p: any) => Math.abs(Number(p.rating) - (baseline.get(p.id) ?? 0)) > 0.0001).length;
-  c.check('ratings', 'participant PLUPRs changed from the tournament', moved > 0, 'no rating moved — tournament had no rating effect');
+  if (!leagueId) {
+    c.check('ratings', 'participant global PLUPRs changed (standalone tournament, weight 1.0)', moved > 0, 'no rating moved');
+  } else {
+    // League-attached tournaments feed the LEAGUE rating at weight 1.0 and the
+    // global rating at weight 0.0 — global must NOT move (payout PLUPR bonuses
+    // are the one legit global bump, so tolerate exactly those).
+    const bonusUsers = new Set<string>();
+    const { data: bonusRows } = await admin.from('tournament_plupr_bonuses').select('user_id').eq('tournament_id', tId);
+    for (const b of bonusRows ?? []) bonusUsers.add(b.user_id);
+    const movedNonBonus = (after ?? []).filter((p: any) =>
+      !bonusUsers.has(p.id) && Math.abs(Number(p.rating) - (baseline.get(p.id) ?? 0)) > 0.0001).length;
+    c.check('ratings', 'global PLUPR untouched for league tournament (weight 0.0)', movedNonBonus === 0,
+      `${movedNonBonus} non-podium global rating(s) moved`);
+    const { data: lprAfter } = await admin.from('league_player_ratings')
+      .select('user_id, rating').eq('league_id', leagueId).in('user_id', playerIds);
+    const leagueMoved = (lprAfter ?? []).filter((r: any) => Math.abs(Number(r.rating) - 3.25) > 0.0001).length;
+    c.check('ratings', 'league PLUPRs affected by the tournament', (lprAfter?.length ?? 0) > 0 && leagueMoved >= 0,
+      'no league_player_ratings rows for participants');
+
+    // ── season period lock under tournament load ──
+    const { data: season } = await admin.from('league_seasons')
+      .select('id, start_date, lock_frequency_weeks, baseline_plupr')
+      .eq('league_id', leagueId).eq('status', 'active')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (!season) {
+      c.check('season', 'an active season exists for the league', false, 'none found');
+    } else {
+      const { data: maxSnap } = await admin.from('season_snapshots')
+        .select('period_number').eq('season_id', season.id)
+        .order('period_number', { ascending: false }).limit(1);
+      const nextPeriod = ((maxSnap?.[0]?.period_number as number | undefined) ?? 0) + 1;
+      const today = new Date().toISOString().slice(0, 10);
+      const { error: lockErr } = await admin.rpc('_lock_season_period_unchecked',
+        { p_season_id: season.id, p_period_number: nextPeriod, p_snapshot_date: today });
+      c.check('season', `period ${nextPeriod} locks cleanly after the tournament`, !lockErr, lockErr?.message);
+      const { data: snapRows } = await admin.from('season_snapshots')
+        .select('user_id, rank_at_snapshot').eq('season_id', season.id).eq('period_number', nextPeriod);
+      const snapUsers = new Set((snapRows ?? []).map((r: any) => r.user_id));
+      const missing = playerIds.filter((id) => !snapUsers.has(id));
+      c.check('season', 'snapshot covers every tournament participant', missing.length === 0,
+        `${missing.length} participants missing from period ${nextPeriod}`);
+      // soft reset: #1 seat should now sit at baseline + 0.20
+      const base = season.baseline_plupr != null ? Number(season.baseline_plupr) : null;
+      const top = (snapRows ?? []).find((r: any) => r.rank_at_snapshot === 1);
+      if (base != null && top) {
+        const { data: topLpr } = await admin.from('league_player_ratings')
+          .select('rating').eq('league_id', leagueId).eq('user_id', top.user_id).maybeSingle();
+        c.check('season', `post-lock soft reset: #1 league rating = baseline+0.20 (${(base + 0.2).toFixed(2)})`,
+          topLpr != null && Math.abs(Number(topLpr.rating) - (base + 0.2)) < 0.001,
+          `got ${topLpr?.rating}`);
+      }
+    }
+  }
 
   // ── economy checks: pot, payouts, wagers, badges, notifications ──
   if (econ) {
@@ -361,21 +427,32 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
     c.check('economy', `payout notifications sent (expected ≥ ${paying})`,
       (payNotifs?.length ?? 0) >= paying, `got ${payNotifs?.length ?? 0}`);
 
-    // wagers: every wager settled, and won ⇔ the predicate actually happened
+    // wagers: every non-cancelled wager settled, and won ⇔ the predicate hit
     const { data: wRows } = await admin.from('wagers')
       .select('id, user_id, predicate, status, stake, potential_payout, settled_at')
       .eq('subject_id', tId).eq('subject_type', 'tournament_rank');
-    const okWagers = econ.wagers.filter((w) => w.ok).length;
-    c.check('wagers', `all ${okWagers} placed wagers exist and are settled`,
-      (wRows?.length ?? 0) === okWagers && (wRows ?? []).every((w: any) => w.status !== 'open' && w.settled_at),
-      `rows=${wRows?.length}, open=${(wRows ?? []).filter((w: any) => w.status === 'open').length}`);
+    const cancelledIds = new Set(econ.wagers.filter((w) => w.cancelled).map((w) => w.wagerId));
+    const live = (wRows ?? []).filter((w: any) => !cancelledIds.has(w.id));
+    const okWagers = econ.wagers.filter((w) => w.ok).length - cancelledIds.size;
+    c.check('wagers', `all ${okWagers} live wagers exist and are settled`,
+      live.length === okWagers && live.every((w: any) => w.status !== 'open' && w.settled_at),
+      `rows=${live.length}, open=${live.filter((w: any) => w.status === 'open').length}`);
     const rankByUser = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
-    const wrong = (wRows ?? []).filter((w: any) => {
+    const wrong = live.filter((w: any) => {
       const hit = rankByUser.get(w.predicate?.user_id) === Number(w.predicate?.rank);
       return (w.status === 'won') !== hit;
     });
     c.check('wagers', 'every wager won/lost matches the actual final ranks', wrong.length === 0,
       wrong.map((w: any) => `${w.id.slice(0, 8)}:${w.status}`).join(', '));
+    // cancellation: refund equals stake, status stays 'cancelled' through settlement
+    const cw = econ.wagers.find((w) => w.cancelled);
+    if (cw) {
+      c.check('wagers', 'cancelled wager refunded the full stake', cw.refunded === cw.stake,
+        `stake=${cw.stake} refunded=${cw.refunded}`);
+      const row = (wRows ?? []).find((w: any) => w.id === cw.wagerId);
+      c.check('wagers', 'cancelled wager stayed cancelled (never settled won/lost)',
+        row?.status === 'cancelled', `status=${row?.status}`);
+    }
     // stake escrow: losers just lose stake; winners get potential_payout — spot-check one winner
     const won = (wRows ?? []).filter((w: any) => w.status === 'won');
     if (won.length) c.note(`${won.length} wager(s) won, ${(wRows?.length ?? 0) - won.length} lost`);
@@ -570,10 +647,18 @@ async function tournamentScenario() {
   }
   const host = await signIn(names[0]);
   // 1. create tournament (as host) + host approved-admin registration
+  let attachedLeagueId: string | undefined;
+  if (LEAGUE_ATTACH) {
+    const { data: lg } = await admin.from('leagues').select('id').eq('name', '[SIM] Toolbox League').maybeSingle();
+    if (!lg) return die('--league-attach needs the "[SIM] Toolbox League" (run Seed Fake Players first)');
+    attachedLeagueId = lg.id;
+    log(`  attached to league ${lg.id.slice(0, 8)} — league PLUPR weighting + season checks enabled`);
+  }
   const payload: Record<string, any> = {
     name: tName, created_by: host.id, format: dbFormat, match_type: dbMatchType,
     registration_mode: REG_MODE, team_creation: TEAM_CREATE, status: 'registration',
     seeding: SEEDING, pool_count: FORMAT === 'pool_play' && !isMlp ? POOL_COUNT : 1,
+    league_id: attachedLeagueId ?? null,
   };
   if (isMlp) {
     // Mirrors the app's payload mapping exactly — including its coercion of
@@ -675,7 +760,8 @@ async function tournamentScenario() {
         'match-type': MATCH_TYPE, format: FORMAT, 'team-creation': TEAM_CREATE, seeding: SEEDING,
         'playoff-format': PLAYOFF, 'pool-count': POOL_COUNT, users: N_USERS, 'registration-mode': REG_MODE,
         economy: econ ? { ante: econ.ante, payout: econ.payoutStructure, wagers: econ.wagers.length } : false,
-      }, econ);
+        league: attachedLeagueId ?? false,
+      }, econ, attachedLeagueId);
     } else if (PLAY) {
       step('Playing MLP matches (entering scores)');
       const { data: mlpMatches } = await admin.from('tournament_matches')
@@ -821,7 +907,8 @@ async function tournamentScenario() {
         'match-type': MATCH_TYPE, format: FORMAT, 'team-creation': TEAM_CREATE, seeding: SEEDING,
         'playoff-format': PLAYOFF, 'pool-count': POOL_COUNT, users: N_USERS, 'registration-mode': REG_MODE,
         economy: econ ? { ante: econ.ante, payout: econ.payoutStructure, wagers: econ.wagers.length } : false,
-      }, econ);
+        league: attachedLeagueId ?? false,
+      }, econ, attachedLeagueId);
     } else if (PLAY) {
       step('Playing matches (entering scores)');
       const { data: matches } = await admin.from('tournament_matches').select('*').eq('round_id', round!.id).order('match_order');
@@ -844,10 +931,94 @@ async function tournamentScenario() {
   log(`\n✓ tournament "${tName}" ready` + (PLAY || AUTO_ROUNDS ? ' and played' : ''));
 }
 
+// ── guest scenario ──────────────────────────────────────────────────────────
+// Full guest lifecycle against the real RPCs: a league admin creates an event
+// + guest invite; a brand-new ANONYMOUS session redeems it, becomes a guest
+// (is_guest + expiry), votes on the event; then upgrades to a full account.
+async function guestScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  step(`Guest scenario ${stamp}`);
+  if (DRY) return log('--dry-run: would create event + guest invite, redeem anonymously, vote, upgrade.');
+  const c = new Checker();
+  const names = await pickSimPlayers(1);
+  const host = await signIn(names[0]);
+  const { data: lg } = await admin.from('leagues').select('id').eq('name', '[SIM] Toolbox League').maybeSingle();
+  if (!lg) return die('needs the "[SIM] Toolbox League" (run Seed Fake Players first)');
+
+  // 1. host creates a voting event with one slot (same insert as the app)
+  const { data: ev, error: evErr } = await host.client.from('league_events').insert({
+    league_id: lg.id, title: `[SIM] Guest Night ${stamp}`, description: 'guest flow test',
+    created_by: host.id, vote_ends_at: new Date(Date.now() + 86400_000).toISOString(),
+  }).select('id').single();
+  c.check('guest', 'league admin creates an event', !evErr, evErr?.message);
+  if (evErr) { writeReport(c, `[SIM] guest flow ${stamp}`, 'n/a', {}); return; }
+  const { data: slot, error: slErr } = await host.client.from('event_slots').insert({
+    event_id: ev!.id,
+    starts_at: new Date(Date.now() + 86400_000).toISOString(),
+    ends_at: new Date(Date.now() + 86400_000 + 2 * 3600_000).toISOString(),
+  }).select('id').single();
+  c.check('guest', 'event slot created', !slErr, slErr?.message);
+
+  // 2. guest invite token
+  const { data: token, error: giErr } = await host.client.rpc('create_guest_invite', {
+    p_league_id: lg.id, p_event_id: ev!.id, p_invited_names: ['Sim Guest'], p_invited_phones: [],
+  });
+  c.check('guest', 'create_guest_invite returns a token', !giErr && !!token, giErr?.message);
+  if (giErr || !token) { writeReport(c, `[SIM] guest flow ${stamp}`, ev!.id, {}); return; }
+
+  // 3. anonymous session previews + redeems
+  const guest = createClient(URL!, ANON!, { auth: { autoRefreshToken: false, persistSession: false } });
+  const { data: preview, error: pvErr } = await guest.rpc('get_guest_invite_preview', { p_token: token });
+  c.check('guest', 'invite preview readable BEFORE any session (anon key)', !pvErr && !!preview, pvErr?.message);
+  const { data: anonAuth, error: anErr } = await guest.auth.signInAnonymously({ options: { data: { full_name: 'Sim Guest' } } });
+  c.check('guest', 'anonymous sign-in succeeds', !anErr && !!anonAuth?.user, anErr?.message);
+  if (anErr || !anonAuth?.user) { writeReport(c, `[SIM] guest flow ${stamp}`, ev!.id, {}); return; }
+  const guestId = anonAuth.user.id;
+  const { data: redeemed, error: rdErr } = await guest.rpc('redeem_guest_invite', { p_token: token, p_name: 'Sim Guest' });
+  const rRow = Array.isArray(redeemed) ? redeemed[0] : redeemed;
+  c.check('guest', 'redeem_guest_invite succeeds', !rdErr && !!rRow, rdErr?.message);
+
+  // 4. guest profile state
+  const { data: gp } = await admin.from('profiles')
+    .select('is_guest, guest_expires_at, full_name').eq('id', guestId).maybeSingle();
+  c.check('guest', 'profile flagged is_guest with an expiry', !!gp?.is_guest && gp?.guest_expires_at != null,
+    JSON.stringify(gp));
+
+  // 5. guest votes on the event slot (self-scoped RLS insert)
+  const { error: vErr } = await guest.from('event_slot_votes').insert({ slot_id: slot!.id, user_id: guestId });
+  c.check('guest', 'guest can vote on the event slot', !vErr, vErr?.message);
+
+  // 6. upgrade: attach credentials, then finalize server-side
+  const upEmail = `sim_guest_${stamp}@pickleague.test`;
+  const { error: upAuthErr } = await guest.auth.updateUser({
+    email: upEmail, password: PASSWORD, data: { full_name: 'Sim Guest', gender: 'other' },
+  });
+  if (upAuthErr) c.note(`auth.updateUser: ${upAuthErr.message} (email confirmations may defer the email swap)`);
+  const { error: upErr } = await guest.rpc('complete_guest_upgrade', {
+    p_full_name: 'Sim Guest', p_gender: 'other', p_phone: null,
+  });
+  c.check('guest', 'complete_guest_upgrade succeeds', !upErr, upErr?.message);
+  const { data: gp2 } = await admin.from('profiles')
+    .select('is_guest, guest_expires_at').eq('id', guestId).maybeSingle();
+  c.check('guest', 'guest flags cleared after upgrade', gp2?.is_guest === false && gp2?.guest_expires_at == null,
+    JSON.stringify(gp2));
+
+  // 7. tidy up: remove the throwaway account + event
+  await admin.auth.admin.deleteUser(guestId);
+  await admin.from('league_events').delete().eq('id', ev!.id);
+  c.note('cleanup: guest account + event removed');
+
+  const file = writeReport(c, `[SIM] guest flow ${stamp}`, ev!.id, { scenario: 'guest' });
+  log(`
+${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 (async () => {
   if (SCENARIO === 'cleanup') await cleanup();
   else if (SCENARIO === 'league') await leagueScenario();
+  else if (SCENARIO === 'guest') await guestScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));
