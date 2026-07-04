@@ -35,7 +35,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     ],
     advancement: [
       'Win → advance to next round. Lose → eliminated.',
-      'BYEs auto-advance their holder.',
+      'BYEs auto-advance their holder. With PLUPR seeding the byes reward the top seeds; with a random draw they\'re pure luck.',
     ],
   },
   double_elimination: {
@@ -49,6 +49,7 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
       'First loss → moved to losers bracket.',
       'Second loss → eliminated.',
       'Losers bracket finalist plays the winners bracket champion in the grand final.',
+      'Non-power-of-2 fields use first-round BYEs — top seeds under PLUPR seeding, pure luck under a random draw.',
     ],
   },
   pool_play: {

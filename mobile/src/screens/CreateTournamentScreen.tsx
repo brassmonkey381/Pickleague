@@ -435,6 +435,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           {seeding === 'elo'
             ? 'Determines bracket structure and which players face off in each round. Players are sorted by PLUPR; pools and brackets use snake-draft so the top seed faces the bottom seed and skill levels stay balanced across pools.'
             : 'Determines bracket structure and which players face off in each round. Players are drawn randomly into pools and bracket slots.'}
+          {(format === 'single_elimination' || format === 'double_elimination') && (
+            seeding === 'elo'
+              ? ' If the field isn’t a power of 2 (4, 8, 16…), the top PLUPR seeds get first-round byes.'
+              : ' Heads up: if the field isn’t a power of 2 (4, 8, 16…), first-round byes are handed out by the random draw — a pure luck advantage for whoever lands them.'
+          )}
         </Text>
 
         {/* ── Pool count (pool play only) ── */}
