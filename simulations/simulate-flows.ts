@@ -1114,9 +1114,15 @@ async function stagedMidplayStop(host: Actor, tId: string, tName: string) {
   const done = (after ?? []).filter((m: any) => m.status === 'completed').length;
   c.check('stage', 'exactly the scored matches are completed', done === toScore.length, `completed=${done} expected=${toScore.length}`);
   c.check('stage', 'unplayed matches remain pending', (after ?? []).length - done > 0, `pending=${(after ?? []).length - done}`);
-  const { data: rounds } = await admin.from('tournament_rounds').select('round_number').eq('tournament_id', tId);
-  const maxRound = Math.max(...(rounds ?? []).map((r: any) => r.round_number));
-  c.check('stage', 'no premature advancement (round 1 only)', maxRound === 1, `maxRound=${maxRound}`);
+  // Pool play legitimately has one round PER POOL from lock-in, so "round 1
+  // only" is wrong there — premature advancement means a playoff/next-stage
+  // round appeared (advancement rounds use round_number >= 1000 or elim types).
+  const { data: rounds } = await admin.from('tournament_rounds').select('round_number, round_type').eq('tournament_id', tId);
+  const advanced = (rounds ?? []).filter((r: any) =>
+    r.round_number >= 1000 || ['quarterfinals', 'semifinals', 'finals', 'third_place_match', 'losers'].includes(r.round_type)
+    || (FORMAT !== 'pool_play' && r.round_number > 1));
+  c.check('stage', 'no premature advancement (no playoff/next rounds yet)', advanced.length === 0,
+    `advanced rounds: ${JSON.stringify(advanced)}`);
   const { count: ranksCount } = await admin.from('tournament_final_ranks')
     .select('user_id', { count: 'exact', head: true }).eq('tournament_id', tId);
   c.check('stage', 'no final ranks / payout while mid-play', (ranksCount ?? 0) === 0 && t?.champion_payout_applied_at == null,

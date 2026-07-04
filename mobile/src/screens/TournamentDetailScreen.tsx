@@ -23,6 +23,8 @@ import { checkGodmode } from '../lib/godmode';
 import { formatPlupr } from '../lib/plupr';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
+import TournamentFlowOverview, { FlowOverviewStage } from '../components/TournamentFlowOverview';
+import { predictFlow } from '../lib/tournamentFlow';
 import PicklePotCard from '../components/PicklePotCard';
 import MlpTeamSection from '../components/MlpTeamSection';
 import DoublesPairSection from '../components/DoublesPairSection';
@@ -1039,6 +1041,55 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     .filter(r => r.status === 'waitlisted')
     .sort((a, b) => new Date(a.registered_at).getTime() - new Date(b.registered_at).getTime());
   const isFull = tournament.max_players != null && approved.length >= tournament.max_players;
+
+  // ── Predicted tournament flow ────────────────────────────────
+  // The full expected stage structure (pools → QF → SF → F, elim rounds, …)
+  // known at lock-in time. Stages whose DB rounds exist use live data;
+  // stages the advancement triggers haven't created yet come from
+  // predictFlow() and render as "upcoming" skeletons.
+  const flowStages: FlowOverviewStage[] | null = (() => {
+    if (tournament.status !== 'active' && tournament.status !== 'completed') return null;
+    if (savedRounds.length === 0) return null;
+    const isTeamDoubles = tournament.match_type === 'doubles' && tournament.format !== 'rotating_partners';
+    const entrants = isTeamDoubles
+      ? doublesPairs.filter((p: any) => p.partner_1_id && p.partner_2_id).length
+      : approved.length;
+    const actualPoolCount = savedRounds.filter((r: any) => r.round_type === 'pool').length;
+    const predicted = predictFlow({
+      format: tournament.format,
+      playoffFormat: tournament.playoff_format,
+      playoffThirdPlace: tournament.playoff_third_place,
+      poolCount: actualPoolCount || tournament.pool_count,
+      entrants,
+    });
+    if (!predicted) return null;
+    const rounds = [...savedRounds].sort((a: any, b: any) => a.round_number - b.round_number);
+    const out: FlowOverviewStage[] = [];
+    for (let i = 0; i < Math.max(predicted.length, rounds.length); i++) {
+      const r = rounds[i];
+      const p = predicted[i];
+      if (r) {
+        const ms = savedMatches.filter((m: any) =>
+          m.round?.id === r.id && !(m.is_dreambreaker && m.status === 'cancelled'));
+        out.push({
+          key: r.id,
+          label: r.label ?? p?.label ?? `Round ${i + 1}`,
+          kind: p?.kind ?? (r.round_type === 'pool' ? 'group' : 'playoff'),
+          exists: true,
+          total: ms.length,
+          completed: ms.filter((m: any) => m.status === 'completed').length,
+          byes: ms.filter((m: any) => m.match_type === 'bye').length,
+        });
+      } else {
+        out.push({
+          key: p.key, label: p.label, kind: p.kind,
+          exists: false, total: p.matchCount, completed: 0, byes: p.byes,
+        });
+      }
+    }
+    return out;
+  })();
+  const upcomingStages = (flowStages ?? []).filter(s => !s.exists);
   // Public "Players" list: approved members + outstanding invites (the people the
   // tournament is actively trying to fill its roster with). Join-requests stay
   // admin-only since admins haven't decided on them yet.
@@ -1668,6 +1719,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* ── Tournament flow overview — the whole expected road to the
+            final, rendered from lock-in: group stages on the left, playoff
+            stages chained to the right, upcoming stages as dashed skeletons ── */}
+        {flowStages && flowStages.length > 1 && (
+          <View style={S.section}>
+            <Text style={S.sectionTitle}>Tournament Flow</Text>
+            <TournamentFlowOverview stages={flowStages} />
+          </View>
+        )}
+
         {/* ── Pool-play bracket view ── */}
         {(tournament.status === 'active' || tournament.status === 'completed') && tournament.format === 'pool_play' && savedRounds.length > 0 && (() => {
           const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
@@ -1773,6 +1834,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           const semi2Winner = winnerOfMatch(semi2Match);
           const finalWinner = winnerOfMatch(finalMatch);
 
+          // The visual tree below is hardcoded to the classic 2-pool shape
+          // (A1 vs B2, B1 vs A2 → final). Rendering it for other pool/playoff
+          // configs mislabels the feeders and skips whole stages (a 3-pool
+          // quarterfinal bracket showed as 2-pool semis). Those configs get
+          // the generalized Tournament Flow overview instead.
+          const classicTwoPoolTree = poolRounds.length === 2
+            && tournament.playoff_format === 'top_2_per_pool';
+
           return (
             <View style={S.section}>
               <Text style={S.sectionTitle}>Tournament Bracket</Text>
@@ -1804,6 +1873,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 })}
               </View>
 
+              {classicTwoPoolTree && (<>
               <View style={S.bracketDivider} />
 
               {/* Advancement criteria */}
@@ -1855,6 +1925,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 }}
                 onPressMatch={openMatchActionSheetById}
               />
+              </>)}
             </View>
           );
         })()}
@@ -2079,7 +2150,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               {/* Filter toggle */}
               <View style={S.scheduleHeader}>
                 <Text style={S.sectionTitle}>
-                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${visibleMatches.length}`})
+                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${visibleMatches.length}`}
+                  {!myMatchesOnly && upcomingStages.length > 0
+                    ? ` · ${visibleMatches.length + upcomingStages.reduce((n, s) => n + s.total, 0)} expected`
+                    : ''})
                 </Text>
                 <TouchableOpacity
                   style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
@@ -2211,6 +2285,31 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                   </View>
                 ));
               })()}
+
+              {/* ── Upcoming stages the DB hasn't created yet — predicted
+                  skeleton so the whole flow is visible from lock-in ── */}
+              {!myMatchesOnly && upcomingStages.map(stage => (
+                <View key={stage.key} style={S.roundBlock}>
+                  <Text style={S.scheduleRoundLabel}>
+                    {stage.label} · {stage.total} match{stage.total === 1 ? '' : 'es'} upcoming
+                  </Text>
+                  {Array.from({ length: stage.total }).map((_, gi) => {
+                    const byeSlot = gi < stage.byes;
+                    return (
+                      <View key={gi} style={[S.matchRow, S.matchRowGhost]}>
+                        <Text style={S.matchNum}>·</Text>
+                        <Text style={[S.matchup, S.matchupGhost]} numberOfLines={1}>
+                          {byeSlot ? 'bye slot' : 'TBD'}
+                        </Text>
+                        <Text style={S.vs}>{byeSlot ? '—' : 'vs'}</Text>
+                        <Text style={[S.matchup, S.matchupGhost]} numberOfLines={1}>
+                          {byeSlot ? 'lucky draw advances' : 'TBD'}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
           );
         })()}
@@ -2878,6 +2977,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     roundBlock: { marginBottom: 12 },
     roundLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
     matchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: c.bg },
+    matchRowGhost: { opacity: 0.55 },
+    matchupGhost: { color: c.textMuted, fontStyle: 'italic', fontWeight: '400' },
     matchNum: { width: 20, fontSize: 11, color: c.border, fontWeight: '600' },
     matchup: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
     vs: { fontSize: 11, color: c.border, fontWeight: '700' },
