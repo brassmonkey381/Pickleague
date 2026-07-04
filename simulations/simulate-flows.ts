@@ -35,6 +35,7 @@ import {
   generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim,
   generateDoublesPoolPlay, type MatchPairing,
 } from '../mobile/src/lib/tournament';
+import { buildStandingsComparator, teamKey } from '../mobile/src/lib/tournamentTiebreakers';
 
 // ── args ────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -354,6 +355,116 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
   const { data: ranks } = await admin.from('tournament_final_ranks').select('user_id, final_rank').eq('tournament_id', tId);
   c.check('completion', 'final ranks computed', (ranks?.length ?? 0) > 0, 'tournament_final_ranks empty');
   if (ranks?.length) c.check('completion', 'a champion exists (final_rank = 1)', ranks.some((r: any) => r.final_rank === 1));
+
+  // ── double-elim structural invariants ──────────────────────────────────
+  // Standard no-reset double elimination: the champion loses at most once,
+  // the runner-up once or twice, and EVERY other competitive unit exactly
+  // twice (that's what "double elimination" means). The grand-final winner
+  // must be the stored champion.
+  if (cfg.format === 'double_elimination') {
+    const { data: allM } = await admin.from('tournament_matches')
+      .select('team1_player1, team1_player2, team2_player1, team2_player2, winner_team, match_type, status, round:tournament_rounds(round_type, round_number)')
+      .eq('tournament_id', tId).eq('status', 'completed');
+    const unitKey = (p1: string | null, p2: string | null) => p1 ? (p2 ? [p1, p2].sort().join('|') : p1) : null;
+    const losses = new Map<string, number>();
+    const seen = new Set<string>();
+    for (const m of (allM ?? []) as any[]) {
+      const k1 = unitKey(m.team1_player1, m.team1_player2);
+      const k2 = unitKey(m.team2_player1, m.team2_player2);
+      if (k1) { seen.add(k1); if (!losses.has(k1)) losses.set(k1, 0); }
+      if (k2) { seen.add(k2); if (!losses.has(k2)) losses.set(k2, 0); }
+      if (m.match_type === 'bye' || !k1 || !k2) continue; // byes have no loser
+      const loser = m.winner_team === 'team1' ? k2 : k1;
+      losses.set(loser, (losses.get(loser) ?? 0) + 1);
+    }
+    // Grand final = last completed finals/grand_final match.
+    const gf = ((allM ?? []) as any[])
+      .filter(m => ['finals', 'grand_final'].includes(m.round?.round_type))
+      .sort((a, b) => (b.round?.round_number ?? 0) - (a.round?.round_number ?? 0))[0];
+    const champKey = gf ? unitKey(
+      gf.winner_team === 'team1' ? gf.team1_player1 : gf.team2_player1,
+      gf.winner_team === 'team1' ? gf.team1_player2 : gf.team2_player2,
+    ) : null;
+    const runnerKey = gf ? unitKey(
+      gf.winner_team === 'team1' ? gf.team2_player1 : gf.team1_player1,
+      gf.winner_team === 'team1' ? gf.team2_player2 : gf.team1_player2,
+    ) : null;
+    c.check('double-elim', 'grand final exists', !!gf);
+    if (champKey) {
+      c.check('double-elim', 'champion lost at most once', (losses.get(champKey) ?? 0) <= 1,
+        `champion losses=${losses.get(champKey)}`);
+      const rank1 = (ranks ?? []).find((r: any) => r.final_rank === 1);
+      c.check('double-elim', 'stored champion matches the grand-final winner',
+        rank1 != null && champKey.split('|').includes(rank1.user_id), `rank1=${rank1?.user_id?.slice(0, 8)}`);
+    }
+    if (runnerKey) {
+      const rl = losses.get(runnerKey) ?? 0;
+      c.check('double-elim', 'runner-up lost once or twice', rl === 1 || rl === 2, `runner-up losses=${rl}`);
+    }
+    const badUnits = [...seen].filter(k => k !== champKey && k !== runnerKey && (losses.get(k) ?? 0) !== 2);
+    c.check('double-elim', 'every eliminated unit lost exactly twice', badUnits.length === 0,
+      badUnits.map(k => `${k.slice(0, 8)}: ${losses.get(k)} losses`).join(', '));
+  }
+
+  // ── unified-rankings checks ─────────────────────────────────────────────
+  // Fixed-team formats: doubles partners must share their team's final rank,
+  // and for playoff-free RR/pool the stored ranks must equal the CLIENT
+  // standings comparator exactly (wins → 2-way H2H → point diff → seed).
+  // (cfg.format is the CLI value — MLP runs pass their PLAY format here while
+  // the DB stores mlp/mlp_random, so gate on match-type too: MLP ranks are
+  // per-user over rotating sub-match lineups, not fixed teams.)
+  if (String(cfg['match-type']) !== 'mlp'
+      && ['round_robin', 'pool_play', 'single_elimination', 'double_elimination'].includes(String(cfg.format))) {
+    const rankOf = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
+    if (String(cfg['match-type']) === 'doubles') {
+      const { data: prs } = await admin.from('doubles_pairs')
+        .select('partner_1_id, partner_2_id').eq('tournament_id', tId);
+      const mismatched = (prs ?? []).filter((p: any) => p.partner_1_id && p.partner_2_id
+        && rankOf.has(p.partner_1_id)
+        && rankOf.get(p.partner_1_id) !== rankOf.get(p.partner_2_id));
+      c.check('rankings', 'doubles partners share their team\'s final rank', mismatched.length === 0,
+        JSON.stringify(mismatched.map((p: any) => [rankOf.get(p.partner_1_id), rankOf.get(p.partner_2_id)])));
+    }
+    if ((cfg.format === 'round_robin' || cfg.format === 'pool_play') && cfg['playoff-format'] === 'none') {
+      const { data: ms } = await admin.from('tournament_matches')
+        .select('team1_player1, team1_player2, team2_player1, team2_player2, team1_score, team2_score, winner_team, status, match_type')
+        .eq('tournament_id', tId);
+      const { data: regs } = await admin.from('tournament_registrations')
+        .select('user_id, seed').eq('tournament_id', tId).eq('status', 'approved');
+      const seedOf = new Map((regs ?? []).map((r: any) => [r.user_id, r.seed ?? 999]));
+      type E = { key: string; wins: number; pf: number; pa: number; seed?: number };
+      const entries = new Map<string, E>();
+      const ensure = (p1: string | null, p2: string | null) => {
+        if (!p1) return null;
+        const k = teamKey(p1, p2);
+        if (!entries.has(k)) entries.set(k, { key: k, wins: 0, pf: 0, pa: 0 });
+        return entries.get(k)!;
+      };
+      for (const m of (ms ?? []) as any[]) {
+        const a = ensure(m.team1_player1, m.team1_player2);
+        const b = ensure(m.team2_player1, m.team2_player2);
+        if (!a || !b || m.status !== 'completed' || !m.winner_team || m.match_type === 'bye') continue;
+        a.pf += m.team1_score ?? 0; a.pa += m.team2_score ?? 0;
+        b.pf += m.team2_score ?? 0; b.pa += m.team1_score ?? 0;
+        if (m.winner_team === 'team1') a.wins++; else b.wins++;
+      }
+      for (const e of entries.values()) {
+        e.seed = Math.min(...e.key.split('|').map((u) => Number(seedOf.get(u) ?? 999)));
+      }
+      const list = [...entries.values()];
+      list.sort(buildStandingsComparator(list, (ms ?? []) as any));
+      const clientOrder = list.map((e) => e.key);
+      const byRank = new Map<number, string[]>();
+      for (const r of (ranks ?? []) as any[]) {
+        byRank.set(r.final_rank, [...(byRank.get(r.final_rank) ?? []), r.user_id]);
+      }
+      const dbOrder = [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([, uids]) => uids.sort().join('|'));
+      const equal = clientOrder.length === dbOrder.length && clientOrder.every((k, i) => k === dbOrder[i]);
+      c.check('rankings', 'stored final ranks match the client standings comparator exactly', equal,
+        equal ? undefined : `client=${clientOrder.map((k) => k.slice(0, 8)).join(',')} db=${dbOrder.map((k) => k.slice(0, 8)).join(',')}`);
+    }
+  }
+
   const { data: after } = await admin.from('profiles').select('id, rating').in('id', playerIds);
   const moved = (after ?? []).filter((p: any) => Math.abs(Number(p.rating) - (baseline.get(p.id) ?? 0)) > 0.0001).length;
   if (!leagueId) {
@@ -880,6 +991,12 @@ async function tournamentScenario() {
       try { ({ pairings, order: seededOrder } = generateTeamPairings(FORMAT, teams, ratings, SEEDING as 'random' | 'elo')); }
       catch (e: any) { return die('doubles bracket generation: ' + e.message); }
     } else {
+      // Same guard as the app: singles double elim requires a power-of-2
+      // field — the double-elim advancement trigger can't reconstruct BYE
+      // slots (5 players once produced a ONE-match "tournament").
+      if (FORMAT === 'double_elimination' && (playerIds.length & (playerIds.length - 1)) !== 0) {
+        return die(`singles double_elimination needs a power-of-2 player count (got ${playerIds.length}) — same guard as the app`);
+      }
       try { ({ pairings, order: seededOrder } = generatePairings(FORMAT, playerIds, ratings, SEEDING as 'random' | 'elo')); }
       catch (e: any) { return die('bracket generation: ' + e.message); }
     }
@@ -926,7 +1043,7 @@ async function tournamentScenario() {
     log(`  ✓ ${rows.length} matches created (+${seededOrder.length} seeds persisted), tournament active`);
 
     if (STAGE === 'midplay') {
-      await stagedMidplayStop(host, t!.id, tName);
+      await stagedMidplayStop(host, t!.id, tName, names);
       return;
     }
 
@@ -1088,7 +1205,7 @@ async function stagedRegistrationStop(host: Actor, tId: string, tName: string, n
   log(`✓ tournament "${tName}" left in ${closed ? 'CLOSED-registration' : 'OPEN-registration'} state (${tId})`);
 }
 
-async function stagedMidplayStop(host: Actor, tId: string, tName: string) {
+async function stagedMidplayStop(host: Actor, tId: string, tName: string, names: string[]) {
   step('Stage: scoring ~half of round 1, then stopping mid-play + checks');
   const c = new Checker();
   const { data: ms } = await admin.from('tournament_matches')
@@ -1128,10 +1245,201 @@ async function stagedMidplayStop(host: Actor, tId: string, tName: string) {
   c.check('stage', 'no final ranks / payout while mid-play', (ranksCount ?? 0) === 0 && t?.champion_payout_applied_at == null,
     `ranks=${ranksCount} payout=${t?.champion_payout_applied_at}`);
 
+  // Roster freeze: once the bracket is live, nobody slips out of it —
+  // self-withdrawals and admin kicks would corrupt seed-based advancement
+  // and standings, so both must be rejected by the DB.
+  const quitter = await signIn(names[names.length - 1]);
+  const { data: qReg } = await admin.from('tournament_registrations')
+    .select('id, status').eq('tournament_id', tId).eq('user_id', quitter.id).single();
+  const { error: quitErr } = await quitter.client.from('tournament_registrations').delete().eq('id', qReg!.id);
+  c.check('roster-freeze', 'self-withdrawal mid-play is BLOCKED', quitErr != null && /locked/i.test(quitErr.message),
+    quitErr?.message ?? 'delete succeeded — player escaped a live bracket!');
+  const { error: kickErr } = await host.client.from('tournament_registrations')
+    .update({ status: 'rejected' }).eq('id', qReg!.id);
+  c.check('roster-freeze', 'admin kick mid-play is BLOCKED', kickErr != null && /locked/i.test(kickErr.message),
+    kickErr?.message ?? 'kick succeeded — approved player vanished from a live bracket!');
+  const { data: qAfter } = await admin.from('tournament_registrations').select('status').eq('id', qReg!.id).single();
+  c.check('roster-freeze', 'registration row intact and still approved', qAfter?.status === 'approved', `status=${qAfter?.status}`);
+
+  // Completed-match immutability: once recorded (ratings applied, wagers
+  // settled, advancement possibly fired), neither participants nor the
+  // creator may rewrite or delete the row.
+  const { data: doneMatch } = await admin.from('tournament_matches')
+    .select('id, winner_team, team1_player1, team2_player1')
+    .eq('tournament_id', tId).eq('status', 'completed').limit(1).single();
+  if (doneMatch) {
+    const loserId = doneMatch.winner_team === 'team1' ? doneMatch.team2_player1 : doneMatch.team1_player1;
+    const loserEmail = names.find(n => actorCache.get(n)?.id === loserId);
+    const loser = loserEmail ? await signIn(loserEmail) : host;
+    const { error: flipErr } = await loser.client.from('tournament_matches')
+      .update({ winner_team: doneMatch.winner_team === 'team1' ? 'team2' : 'team1' }).eq('id', doneMatch.id);
+    c.check('immutability', 'loser cannot flip a completed match result', flipErr != null && /recorded|can''?t be changed/i.test(flipErr.message),
+      flipErr?.message ?? 'update succeeded — completed result was rewritten!');
+    const { error: editErr } = await host.client.from('tournament_matches')
+      .update({ team1_score: 99 }).eq('id', doneMatch.id);
+    c.check('immutability', 'creator cannot edit a completed score', editErr != null, editErr?.message ?? 'update succeeded!');
+    const { error: delErr } = await host.client.from('tournament_matches').delete().eq('id', doneMatch.id);
+    const { count: stillThere } = await admin.from('tournament_matches').select('id', { count: 'exact', head: true }).eq('id', doneMatch.id);
+    c.check('immutability', 'creator cannot delete a completed match', (delErr != null || (stillThere ?? 0) === 1),
+      delErr?.message ?? `row count after delete: ${stillThere}`);
+    const { data: intact } = await admin.from('tournament_matches').select('winner_team, team1_score').eq('id', doneMatch.id).single();
+    c.check('immutability', 'completed row unchanged after all attempts',
+      intact?.winner_team === doneMatch.winner_team && intact?.team1_score !== 99, JSON.stringify(intact));
+  }
+  // Pending rows must stay writable (play continues) — harmless field update.
+  const { data: pendingMatch } = await admin.from('tournament_matches')
+    .select('id').eq('tournament_id', tId).eq('status', 'pending').limit(1).single();
+  if (pendingMatch) {
+    const { error: pendErr } = await host.client.from('tournament_matches')
+      .update({ scheduled_at: new Date().toISOString() }).eq('id', pendingMatch.id);
+    c.check('immutability', 'pending matches remain editable', pendErr == null, pendErr?.message);
+  }
+
   const file = writeReport(c, tName, tId, { scenario: 'tournament', stage: 'midplay' });
   log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
   log(`📄 report: ${file}`);
   log(`✓ tournament "${tName}" left ACTIVE mid-round-1 (${tId})`);
+}
+
+// ── refunds scenario ────────────────────────────────────────────────────────
+// Economy lifecycle: antes charged on approval must come BACK when a paid
+// player withdraws or is kicked during registration, when the tournament is
+// cancelled (new cancel_tournament RPC — also refunds voluntary contributions
+// and open wagers), and when a funded tournament is deleted. Every balance
+// must end exactly where it started.
+async function refundsScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  const tName = `[SIM] refunds ${stamp}`;
+  const ANTE = 100;
+  step(`Refunds scenario: "${tName}" (ante ${ANTE}🥒)`);
+  const c = new Checker();
+  const names = await pickSimPlayers(4);
+  const actors = [] as Actor[];
+  for (const n of names) actors.push(await signIn(n));
+  const [host, p2, p3, p4] = actors;
+
+  // Baseline balances (top up so antes can't bounce).
+  const start = new Map<string, number>();
+  for (const a of actors) {
+    const { data: prof } = await admin.from('profiles').select('pickles').eq('id', a.id).single();
+    let bal = Number(prof?.pickles ?? 0);
+    if (bal < 500) { await admin.from('profiles').update({ pickles: 500 }).eq('id', a.id); bal = 500; }
+    start.set(a.id, bal);
+  }
+  const balOf = async (uid: string) =>
+    Number((await admin.from('profiles').select('pickles').eq('id', uid).single()).data?.pickles ?? 0);
+  const potOf = async (tid: string) =>
+    Number((await admin.from('tournaments').select('prize_pool').eq('id', tid).single()).data?.prize_pool ?? 0);
+
+  // 1. create + approve everyone → antes charged
+  const { data: t, error: te } = await host.client.from('tournaments').insert({
+    name: tName, created_by: host.id, format: 'round_robin', match_type: 'singles',
+    registration_mode: 'request', team_creation: 'fixed', status: 'registration',
+    seeding: 'random', pool_count: 1, pickle_ante: ANTE, payout_structure: [100],
+  }).select('id').single();
+  if (te) die('create tournament: ' + te.message);
+  const tId = t!.id;
+  await host.client.from('tournament_registrations').insert({ tournament_id: tId, user_id: host.id, status: 'approved', role: 'admin' });
+  const regIds = new Map<string, string>();
+  for (const a of [p2, p3, p4]) {
+    await a.client.from('tournament_registrations').insert({ tournament_id: tId, user_id: a.id });
+    const { data: reg } = await admin.from('tournament_registrations').select('id').eq('tournament_id', tId).eq('user_id', a.id).single();
+    regIds.set(a.id, reg!.id);
+    const { error } = await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg!.id);
+    if (error) die(`approve: ${error.message}`);
+  }
+  c.check('ante', `pot = ante × 4 after approvals`, (await potOf(tId)) === ANTE * 4, `pot=${await potOf(tId)}`);
+  c.check('ante', 'approved player was charged the ante', (await balOf(p2.id)) === start.get(p2.id)! - ANTE,
+    `bal=${await balOf(p2.id)} start=${start.get(p2.id)}`);
+
+  // 2. withdraw during registration → ante back
+  const { error: wErr } = await p4.client.from('tournament_registrations').delete().eq('id', regIds.get(p4.id)!);
+  if (wErr) die('withdraw: ' + wErr.message);
+  c.check('refund', 'withdrawing during registration refunds the ante',
+    (await balOf(p4.id)) === start.get(p4.id)!, `bal=${await balOf(p4.id)}`);
+  c.check('refund', 'pot decremented by the refunded ante', (await potOf(tId)) === ANTE * 3, `pot=${await potOf(tId)}`);
+  const { data: wNotif } = await admin.from('notifications').select('id').eq('user_id', p4.id)
+    .like('title', '%Ante refunded%').gte('created_at', new Date(Date.now() - 300_000).toISOString());
+  c.check('refund', 'withdrawer notified of the refund', (wNotif?.length ?? 0) > 0);
+
+  // 3. kick → ante back; re-approve → charged again
+  await host.client.from('tournament_registrations').update({ status: 'rejected' }).eq('id', regIds.get(p3.id)!);
+  c.check('refund', 'kicked player refunded', (await balOf(p3.id)) === start.get(p3.id)!, `bal=${await balOf(p3.id)}`);
+  await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', regIds.get(p3.id)!);
+  c.check('refund', 're-approval charges the ante again (fresh ledger row)',
+    (await balOf(p3.id)) === start.get(p3.id)! - ANTE && (await potOf(tId)) === ANTE * 3,
+    `bal=${await balOf(p3.id)} pot=${await potOf(tId)}`);
+
+  // 4. voluntary contribution (house adds 25% on top) + lock in + a wager
+  const { data: contrib } = await host.client.rpc('contribute_pickles_to_pool',
+    { p_scope_type: 'tournament', p_scope_id: tId, p_amount: 40 });
+  const contribRow = Array.isArray(contrib) ? contrib[0] : contrib;
+  c.check('economy', 'voluntary contribution lands (+25% house bonus)',
+    !!contribRow?.success && (await potOf(tId)) === ANTE * 3 + 50, `pot=${await potOf(tId)}`);
+
+  const { data: round } = await host.client.from('tournament_rounds')
+    .insert({ tournament_id: tId, round_number: 1, label: 'Round Robin Schedule', round_type: 'winners' })
+    .select('id').single();
+  const trio = [host, p2, p3];
+  const rows = [] as any[];
+  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
+    rows.push({ tournament_id: tId, round_id: round!.id, match_order: rows.length, match_type: 'singles',
+                team1_player1: trio[i].id, team2_player1: trio[j].id });
+  }
+  await host.client.from('tournament_matches').insert(rows);
+  await host.client.from('tournaments').update({ status: 'active' }).eq('id', tId);
+
+  const { data: wager } = await p2.client.rpc('place_wager', {
+    p_subject_type: 'tournament_rank', p_subject_id: tId,
+    p_predicate: { user_id: host.id, rank: 1 }, p_stake: 60,
+  });
+  const wagerRow = Array.isArray(wager) ? wager[0] : wager;
+  c.check('economy', 'wager placed on the active tournament', !!wagerRow?.success, wagerRow?.message);
+
+  // score one match so cancellation happens genuinely mid-play
+  const { data: m1 } = await admin.from('tournament_matches').select('id').eq('tournament_id', tId).limit(1).single();
+  await host.client.from('tournament_matches').update({
+    team1_score: 11, team2_score: 5, winner_team: 'team1', status: 'completed',
+  }).eq('id', m1!.id);
+
+  // 5. CANCEL — everything comes back
+  const { data: cRes, error: cErr } = await host.client.rpc('cancel_tournament', { p_tournament_id: tId });
+  c.check('cancel', 'cancel_tournament succeeds for the creator mid-play', cErr == null, cErr?.message);
+  const { data: tAfter } = await admin.from('tournaments').select('status, prize_pool').eq('id', tId).single();
+  c.check('cancel', 'status flipped to cancelled', tAfter?.status === 'cancelled', `status=${tAfter?.status}`);
+  c.check('cancel', 'pot drained to zero by refunds', Number(tAfter?.prize_pool) === 0, `pot=${tAfter?.prize_pool}`);
+  for (const a of actors) {
+    c.check('cancel', `${a.username} balance restored exactly`, (await balOf(a.id)) === start.get(a.id)!,
+      `bal=${await balOf(a.id)} start=${start.get(a.id)}`);
+  }
+  const { data: wagerAfter } = await admin.from('wagers').select('status').eq('subject_id', tId).eq('user_id', p2.id)
+    .order('placed_at', { ascending: false }).limit(1).single();
+  c.check('cancel', 'open wager cancelled + refunded', wagerAfter?.status === 'cancelled', `status=${wagerAfter?.status}`);
+  const { data: cNotif } = await admin.from('notifications').select('id').eq('user_id', p2.id)
+    .like('title', '%Tournament cancelled%').gte('created_at', new Date(Date.now() - 300_000).toISOString());
+  c.check('cancel', 'participants notified of the cancellation', (cNotif?.length ?? 0) > 0);
+  c.note(`cancel result: ${JSON.stringify(cRes)}`);
+
+  // 6. DELETE a funded tournament — pot refunds there too
+  const { data: t2 } = await host.client.from('tournaments').insert({
+    name: `${tName} del`, created_by: host.id, format: 'round_robin', match_type: 'singles',
+    registration_mode: 'request', team_creation: 'fixed', status: 'registration',
+    seeding: 'random', pool_count: 1, pickle_ante: ANTE, payout_structure: [100],
+  }).select('id').single();
+  await host.client.from('tournament_registrations').insert({ tournament_id: t2!.id, user_id: host.id, status: 'approved', role: 'admin' });
+  await p2.client.from('tournament_registrations').insert({ tournament_id: t2!.id, user_id: p2.id });
+  const { data: reg2 } = await admin.from('tournament_registrations').select('id').eq('tournament_id', t2!.id).eq('user_id', p2.id).single();
+  await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg2!.id);
+  c.check('delete', 'second tournament funded', (await potOf(t2!.id)) === ANTE * 2, `pot=${await potOf(t2!.id)}`);
+  const { error: dErr } = await admin.rpc('godmode_delete_tournament', { p_tournament_id: t2!.id });
+  c.check('delete', 'godmode delete succeeds via service role', dErr == null, dErr?.message);
+  c.check('delete', 'antes refunded on delete (host)', (await balOf(host.id)) === start.get(host.id)!, `bal=${await balOf(host.id)}`);
+  c.check('delete', 'antes refunded on delete (p2)', (await balOf(p2.id)) === start.get(p2.id)!, `bal=${await balOf(p2.id)}`);
+
+  const file = writeReport(c, tName, tId, { scenario: 'refunds', ante: ANTE });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ cancelled tournament "${tName}" left in place for app inspection (${tId})`);
 }
 
 // ── waitlist scenario ───────────────────────────────────────────────────────
@@ -1243,6 +1551,7 @@ async function waitlistScenario() {
   else if (SCENARIO === 'league') await leagueScenario();
   else if (SCENARIO === 'guest') await guestScenario();
   else if (SCENARIO === 'waitlist') await waitlistScenario();
+  else if (SCENARIO === 'refunds') await refundsScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));

@@ -118,6 +118,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Godmode (Brian Stockman superuser bypass)
   const [godmode, setGodmode] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling]               = useState(false);
+  const [cancelError, setCancelError]             = useState<string | null>(null);
   const [deleting, setDeleting]                   = useState(false);
   const [simulating, setSimulating]               = useState(false);
   const [deleteError, setDeleteError]             = useState<string | null>(null);
@@ -506,6 +509,26 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  // ── Cancel tournament (creator) ─────────────────────────────
+  // Server-side RPC refunds every ante/contribution and open wager, then
+  // flips status to cancelled and notifies participants.
+  async function confirmCancelTournament() {
+    if (!tournament) return;
+    setCancelError(null);
+    setCancelling(true);
+    try {
+      const { data, error } = await supabase.rpc('cancel_tournament', { p_tournament_id: tournament.id });
+      if (error) { setCancelError(error.message ?? 'Cancel failed.'); return; }
+      setShowCancelConfirm(false);
+      status.success(typeof data === 'string' ? data : 'Tournament cancelled — everything refunded.');
+      load();
+    } catch (e: any) {
+      setCancelError(e?.message ?? String(e));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   // ── Edit tournament (admin) ────────────────────────────────
   function openEditModal() {
     if (!tournament) return;
@@ -725,6 +748,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     // ── Singles + Rotating-partners: existing per-player logic ──
     const seeded = seedPlayers(approved, profileRatings, tournament.seeding);
     seededOrderRef.current = seeded;
+
+    // Singles DOUBLE elim also requires a power-of-2 field: the single-elim
+    // advancement trigger reconstructs BYE slots from seeds, but the
+    // double-elim one doesn't — a non-power-of-2 draw strands the bracket
+    // after round 1 (found by the sweep: 5 players produced ONE match and a
+    // garbage podium). Single elim singles handles byes fine.
+    if (tournament.format === 'double_elimination' && tournament.match_type === 'singles'
+        && (approved.length & (approved.length - 1)) !== 0) {
+      status.error(`Double Elimination needs a power-of-2 player count (2, 4, 8, 16). You have ${approved.length} players — adjust the roster, or switch to Single Elim / Round Robin.`);
+      return null;
+    }
 
     try {
       switch (tournament.format) {
@@ -2434,6 +2468,20 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </>
         )}
 
+        {/* ── Cancel tournament (creator; any live status, pre-payout) ── */}
+        {isAdmin && tournamentLive && tournament.champion_payout_applied_at == null && (
+          <TouchableOpacity
+            style={S.dangerBtn}
+            onPress={() => { setCancelError(null); setShowCancelConfirm(true); }}
+            activeOpacity={0.85}
+          >
+            <Text style={S.dangerBtnText}>🚫  Cancel Tournament</Text>
+            <Text style={S.dangerBtnSub}>
+              Refunds every ante, pot contribution and open wager, then closes the tournament as cancelled.
+            </Text>
+          </TouchableOpacity>
+        )}
+
       </ScrollView>
 
       {/* ── Bracket release time picker ── */}
@@ -2665,6 +2713,18 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         error={completeError}
         onConfirm={() => confirmCompleteTournament()}
         onClose={() => setShowCompleteConfirm(false)}
+      />
+
+      <ConfirmModal
+        visible={showCancelConfirm}
+        title={`🚫  Cancel "${tournament?.name ?? ''}"?`}
+        body="This refunds every ante, pot contribution and open wager to its owner, notifies all participants, and permanently marks the tournament cancelled. Matches already played keep their rating effects."
+        primaryLabel="Cancel & Refund Everyone"
+        variant="danger"
+        busy={cancelling}
+        error={cancelError}
+        onConfirm={confirmCancelTournament}
+        onClose={() => setShowCancelConfirm(false)}
       />
 
       <ConfirmModal
