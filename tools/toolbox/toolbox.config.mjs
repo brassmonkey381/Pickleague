@@ -26,7 +26,7 @@ export default {
   tools: [
     {
       id: 'seed-fake-players', label: 'Seed Fake Players',
-      description: 'Create N sim accounts (sim_player_*@pickleague.test, password Pickle123!), each with a target DUPR. Simulates a match history whose outcomes follow the DUPR gaps so PLUPR converges organically via the real DB triggers; optional calibrate snaps ratings exactly to target afterward. Delete removes all sim players + their matches + the [SIM] league (rating side-effects are reversed by the delete trigger).',
+      description: 'Create N sim accounts (sim_player_*@pickleague.test, password pickle123), each with a target DUPR and a fully randomized profile — avatar, tagline, tags, name color/styles, frame, availability grid, drilling prefs, paddles, pickles. Simulates a match history whose outcomes follow the DUPR gaps so PLUPR converges organically via the real DB triggers; optional calibrate snaps ratings exactly to target afterward. Delete removes all sim players + their matches + the [SIM] league (rating side-effects are reversed by the delete trigger).',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['seed-fake-players.mjs'], needsInstall: true,
       fields: [
         { name: 'count', flag: '--count', type: 'number', default: 12 },

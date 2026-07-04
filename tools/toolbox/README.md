@@ -21,10 +21,14 @@ node tools/toolbox/run.mjs
   a `.env`/notes file (it picks the `service_role` vs `anon` JWT by decoding each).
 - **🛠 Tools:**
   - **Seed Fake Players** — create N `sim_player_*@pickleague.test` accounts (password
-    `Pickle123!`), each with a target DUPR. Simulates a match history whose outcomes follow
-    the DUPR gaps so PLUPR converges organically through the real DB triggers; optional
-    **calibrate** snaps global + league PLUPR exactly to target. **delete** removes all sim
-    players + their matches + `[SIM]` leagues (rating effects reversed by the delete trigger).
+    `pickle123`), each with a target DUPR and a **fully randomized profile**: avatar,
+    tagline, play-style tags, name color, list/hero name styles, profile frame, weekly
+    availability grid, drilling prefs (shot/partner/custom tags), 1–2 paddles from the real
+    catalog, and a pickle balance — every field rolled independently so plain and maxed-out
+    profiles both occur. Simulates a match history whose outcomes follow the DUPR gaps so
+    PLUPR converges organically through the real DB triggers; optional **calibrate** snaps
+    global + league PLUPR exactly to target. **delete** removes all sim players + their
+    matches + `[SIM]` leagues (rating effects reversed by the delete trigger).
   - **Simulate Flows** — pick N sim players and drive real flows by signing in as them:
     `league` (create + joins / invite-code redemptions) or `tournament` (create → invites+
     accepts or requests+approvals → doubles pairing → generate round 1 → play to completion),

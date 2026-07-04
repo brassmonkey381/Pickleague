@@ -36,7 +36,7 @@ const CALIBRATE   = flag('--calibrate');
 const DELETE      = flag('--delete');
 const DRY         = flag('--dry-run');
 
-const PASSWORD = 'Pickle123!';
+const PASSWORD = 'pickle123';
 const EMAIL_RE = 'sim_player_%@pickleague.test';
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -56,9 +56,61 @@ const FIRST_M = ['Alex','Ben','Chris','Diego','Ethan','Felix','Gabe','Hank','Iva
 const FIRST_F = ['Amy','Bella','Cara','Dana','Elle','Faye','Gina','Holly','Iris','Jade','Kate','Lena','Mia','Nora','Opal','Page','Rosa','Sky','Tess','Uma'];
 const LAST    = ['Alvarez','Baker','Costa','Dawson','Ellis','Ferris','Gomez','Hayes','Ito','Jensen','Kwan','Lopez','Marsh','Novak','Ortiz','Perry','Reyes','Silva','Turner','Vance'];
 
+// ── profile customization pools (mirror mobile/src/data + lib catalogs) ────
+// Free avatars from data/profileCustomization.ts (id, emoji, bgColor).
+const AVATARS = [
+  [1,'🐻','#c8a97e'],[2,'🐼','#e0e0e0'],[3,'🐸','#a5d6a7'],[4,'🦊','#ffb74d'],
+  [5,'🐱','#f8bbd0'],[6,'🐶','#ffe082'],[7,'🐯','#ffa726'],[8,'🦁','#ffcc80'],
+  [9,'🐺','#b0bec5'],[10,'🐧','#81d4fa'],[11,'🦄','#e1bee7'],[12,'🦅','#90caf9'],
+  [13,'🦋','#b3e5fc'],[14,'🐲','#c8e6c9'],[15,'🤖','#cfd8dc'],[16,'👾','#ce93d8'],[17,'🦝','#b0bec5'],
+];
+// Free play-style + personality tags.
+const TAGS = ['dink-master','power-banger','net-rusher','baseline-camper','spin-doctor','touch-player',
+  'counterpuncher','kitchen-wizard','drop-shot-artist','all-court','the-attacker','serve-and-volley',
+  'poacher','patient-player','the-grinder','speed-demon','defensive-wall','shake-and-bake',
+  'third-shot-legend','the-strategist','wind-reader','fast-twitch','aggressive-baseline','the-lobber',
+  'dink-or-die','never-dinks','lucky-lobber','banana-roll','atp-enthusiast','snack-bringer',
+  'trash-talker','the-encourager','left-handed-terror','tennis-convert','ping-pong-pro',
+  'volleyball-convert','weekend-warrior','teaching-pro','beginner-vibes'];
+const TAGLINES = [
+  'Dink responsibly.','Here for the kitchen gossip.','Zero to eleven real quick.',
+  'Body bags are a love language.','My third shot is a prayer.','Lob me once, shame on you.',
+  'Retired from tennis, not from winning.','Sweat, dink, repeat.','Powered by pickle juice.',
+  'The ATP was intentional.','I only poach on weekends.','Stacking since before it was cool.',
+  'Certified rec-game menace.','Will trade snacks for lessons.','Kitchen violations: allegedly.',
+  'Slow feet, fast hands.','Erne apologist.','Running it back since 2024.',
+];
+const NAME_COLORS = ['#e0245e','#1d4ed8','#059669','#7c3aed','#06b6d4','#f97316','#d4af37','#ec4899'];
+const LIST_STYLES = ['list-solid-ruby','list-solid-sapphire','list-solid-emerald','list-solid-royal-purple',
+  'list-solid-cyber','list-solid-sunset-orange','list-grad-sunset','list-grad-ocean','list-grad-forest',
+  'list-grad-lavender','list-grad-volcano','list-grad-monochrome','list-glow-neon-pink','list-glow-cyber-blue',
+  'list-glow-toxic-green','list-glow-inferno','list-metal-gold-leaf','list-metal-silver-shine',
+  'list-metal-bronze','list-metal-holographic-foil'];
+const HERO_STYLES = ['hero-anim-pulse','hero-anim-rainbow','hero-anim-sparkle','hero-anim-typewriter','hero-anim-holographic'];
+const FRAMES = ['frame-gold-wreath','frame-sparkle-ring','frame-cherry-blossom','frame-fire-ring','frame-lightning','frame-star'];
+const SHOT_PREFS = ['dinks-cross','dinks-straight','third-shot-drop','third-shot-drive','volleys-kitchen',
+  'volleys-transit','resets','returns-deep','serves','lobs-offense','lobs-defense','erne-atp','stacking',
+  'footwork','fitness','shadow','live-balls'];
+const PARTNER_PREFS = ['similar-level','higher-level','lower-level','casual','intense','one-off','regular',
+  'feedback','drills-only','mix'];
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 const rnd = (lo, hi) => lo + Math.random() * (hi - lo);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const chance = (p) => Math.random() < p;
+const sample = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
+// Weekly availability: boolean[336] (7 days × 48 half-hour slots, Mon-first).
+// Realistic pattern: some weekday-evening blocks + some weekend daytime blocks.
+function makeAvailability() {
+  const av = new Array(7 * 48).fill(false);
+  const block = (day, from, to) => { for (let s = from; s < to; s++) av[day * 48 + s] = true; };
+  for (let d = 0; d < 5; d++) if (chance(0.5)) block(d, 34 + Math.floor(rnd(0, 3)), 40 + Math.floor(rnd(0, 4))); // ~5–8pm weekdays
+  for (const d of [5, 6]) {
+    if (chance(0.7)) block(d, 16 + Math.floor(rnd(0, 3)), 22 + Math.floor(rnd(0, 5)));  // weekend morning
+    if (chance(0.4)) block(d, 28, 34 + Math.floor(rnd(0, 4)));                          // weekend afternoon
+  }
+  return av;
+}
 // Win probability from DUPR gap: odds 10^(gap/1.0) → 0.5 gap ≈ 76%, 1.0 ≈ 91%.
 const winProb = (dA, dB) => 1 / (1 + Math.pow(10, (dB - dA) / 1.0));
 // Loser score: closer DUPRs → closer game.
@@ -168,6 +220,47 @@ async function seed() {
     await db.from('profiles').update({ gender: r.gender }).eq('id', r.id);
   }
   console.log(`✓ ${roster.length} accounts ready (password: ${PASSWORD})`);
+
+  // 1b. randomize EVERYTHING a player can customize — avatar, tagline, tags,
+  //     name color/styles, frame, availability, drilling prefs, pickles, phone.
+  //     Deliberately high variability: every field independently rolled, with
+  //     a real chance of staying default so "plain" profiles exist too.
+  const { data: paddleModels } = await db.from('paddle_models').select('brand_id, name, thickness_mm').limit(500);
+  for (const r of roster) {
+    const avatar = pick(AVATARS);
+    const drilling = chance(0.6);
+    const patch = {
+      avatar_id: avatar[0], avatar_emoji: avatar[1], avatar_bg_color: avatar[2],
+      tagline: chance(0.8) ? pick(TAGLINES) : null,
+      selected_tags: sample(TAGS, Math.floor(rnd(0, 5))),
+      availability: makeAvailability(),
+      badges_public: chance(0.8),
+      name_color: chance(0.4) ? pick(NAME_COLORS) : null,
+      list_name_style_id: chance(0.4) ? pick(LIST_STYLES) : null,
+      profile_name_style_id: chance(0.3) ? pick(HERO_STYLES) : null,
+      profile_frame: chance(0.3) ? pick(FRAMES) : null,
+      pickles: Math.floor(rnd(0, 8000)),
+      phone: chance(0.3) ? `+1555${String(Math.floor(rnd(1000000, 9999999)))}` : null,
+      drilling_enabled: drilling,
+      drill_availability: drilling ? makeAvailability() : [],
+      drill_shot_prefs: drilling ? sample(SHOT_PREFS, 2 + Math.floor(rnd(0, 4))) : [],
+      drill_partner_prefs: drilling ? sample(PARTNER_PREFS, 1 + Math.floor(rnd(0, 3))) : [],
+      drill_custom_tags: drilling && chance(0.3) ? ['early bird', 'has a ball machine'] : [],
+    };
+    const { error: pe } = await db.from('profiles').update(patch).eq('id', r.id);
+    if (pe) console.warn(`  ⚠ customize ${r.username}: ${pe.message}`);
+    // 1–2 paddles from the real catalog, first one default.
+    if (paddleModels?.length && chance(0.85)) {
+      const models = sample(paddleModels, chance(0.3) ? 2 : 1);
+      for (const [mi, m] of models.entries()) {
+        const { error: pdE } = await db.from('player_paddles').upsert(
+          { user_id: r.id, brand_id: m.brand_id, model_name: m.name, thickness_mm: m.thickness_mm, is_default: mi === 0 },
+          { onConflict: 'user_id,brand_id,model_name', ignoreDuplicates: true });
+        if (pdE && !/duplicate/i.test(pdE.message)) console.warn(`  ⚠ paddle ${r.username}: ${pdE.message}`);
+      }
+    }
+  }
+  console.log(`✓ profiles randomized (avatars, taglines, tags, styles, frames, availability, drilling, paddles)`);
 
   // 2. league + memberships (creator = first sim player, open league)
   let { data: league } = await db.from('leagues').select('id').eq('name', LEAGUE_NAME).maybeSingle();

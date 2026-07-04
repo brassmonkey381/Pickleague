@@ -41,7 +41,7 @@ const REG_MODE   = val('--registration-mode', 'request');
 const LEAGUE_MODE = val('--league-mode', 'open');
 const PLAY       = has('--play');
 const DRY        = has('--dry-run');
-const PASSWORD   = 'Pickle123!';
+const PASSWORD   = 'pickle123';
 
 const URL = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
