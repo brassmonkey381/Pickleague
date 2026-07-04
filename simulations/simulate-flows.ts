@@ -50,6 +50,7 @@ const REG_MODE   = val('--registration-mode', 'request');
 const LEAGUE_MODE = val('--league-mode', 'open');
 const PLAY       = has('--play');
 const AUTO_ROUNDS = has('--auto-rounds');   // play round-by-round to completion, checking invariants + drafting a report
+const ECONOMY    = has('--economy');        // random ante + payout structure + wagers; verify payouts, badges, notifications
 const DRY        = has('--dry-run');
 const PASSWORD   = 'pickle123';
 
@@ -131,6 +132,43 @@ function writeReport(c: Checker, tName: string, tId: string, cfg: Record<string,
   return file;
 }
 
+// ── economy layer: ante, payout structure, wagers ───────────────────────────
+type PlacedWager = { user: string; target: string; rank: number; stake: number; ok: boolean; potential: number | null; msg?: string };
+type Economy = {
+  ante: number; payoutStructure: number[];
+  wagers: PlacedWager[]; startPickles: Map<string, number>; startedAt: string;
+};
+
+const pickOne = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)];
+
+// Random wagers: each player (60% chance) backs someone for a final rank via
+// the same place_wager RPC the app uses — stake debited at placement, odds
+// from calculate_wager_odds, settled by the tournament-completion trigger.
+async function placeRandomWagers(names: string[], playerIds: string[], tId: string): Promise<PlacedWager[]> {
+  const placed: PlacedWager[] = [];
+  for (const email of names) {
+    if (Math.random() > 0.6) continue;
+    const actor = await signIn(email);
+    const target = pickOne(playerIds);
+    const rank = pickOne([1, 1, 1, 2, 3]);
+    const stake = 10 + Math.floor(Math.random() * 141);
+    const { data, error } = await actor.client.rpc('place_wager', {
+      p_subject_type: 'tournament_rank', p_subject_id: tId,
+      p_predicate: { user_id: target, rank }, p_stake: stake,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    placed.push({
+      user: actor.id, target, rank, stake,
+      ok: !error && !!row?.success,
+      potential: row?.potential_payout ?? null,
+      msg: error?.message ?? row?.message,
+    });
+    log(`  ${!error && row?.success ? '✓' : '⚠'} ${email.split('@')[0]} wagered ${stake}🥒 on ${target.slice(0, 8)} finishing #${rank}` +
+        (!error && row?.success ? ` (pays ${row?.potential_payout})` : ` — ${error?.message ?? row?.message}`));
+  }
+  return placed;
+}
+
 // Expected first-batch playoff match count for a playoff format.
 function expectedPlayoffMatches(playoff: string, poolCount: number): number | null {
   switch (playoff) {
@@ -147,7 +185,7 @@ function expectedPlayoffMatches(playoff: string, poolCount: number): number | nu
 // advancement triggers create rounds, generate the playoff when group play is
 // done, and admin-complete when the format calls for it. Invariants are
 // checked at every step; the result is a markdown report.
-async function runToCompletion(host: Actor, tId: string, tName: string, playerIds: string[], cfg: Record<string, unknown>) {
+async function runToCompletion(host: Actor, tId: string, tName: string, playerIds: string[], cfg: Record<string, unknown>, econ?: Economy) {
   const c = new Checker();
   const isMlp = cfg['match-type'] === 'mlp';
 
@@ -296,6 +334,81 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
   const moved = (after ?? []).filter((p: any) => Math.abs(Number(p.rating) - (baseline.get(p.id) ?? 0)) > 0.0001).length;
   c.check('ratings', 'participant PLUPRs changed from the tournament', moved > 0, 'no rating moved — tournament had no rating effect');
 
+  // ── economy checks: pot, payouts, wagers, badges, notifications ──
+  if (econ) {
+    const { data: tEcon } = await admin.from('tournaments')
+      .select('prize_pool, pickle_ante, payout_structure, champion_payout_applied_at').eq('id', tId).single();
+    c.check('economy', `prize pool = ante × players (${econ.ante} × ${playerIds.length})`,
+      Number(tEcon?.prize_pool) === econ.ante * playerIds.length,
+      `prize_pool=${tEcon?.prize_pool}`);
+    // Payout is a MANUAL admin action in the app (Payout modal →
+    // auto_payout_tournament) — run it exactly like an admin would, then
+    // verify the marker + notifications.
+    const payoutAt = new Date().toISOString();
+    const { error: payErr } = await host.client.rpc('auto_payout_tournament', { p_tournament_id: tId });
+    c.check('economy', 'auto_payout_tournament succeeds (admin payout modal flow)', !payErr, payErr?.message);
+    const { data: tPost } = await admin.from('tournaments').select('champion_payout_applied_at').eq('id', tId).single();
+    c.check('economy', 'payout dispatched (champion_payout_applied_at set)',
+      tPost?.champion_payout_applied_at != null, 'still null after auto_payout_tournament');
+
+    // payout notifications: one “🥒 +N pickles!” per paying rank (bounded by
+    // ranked players), counted from the payout call so match-win bonus
+    // notifications can't false-positive this.
+    const paying = Math.min(econ.payoutStructure.length, ranks?.length ?? 0);
+    const { data: payNotifs } = await admin.from('notifications')
+      .select('user_id, title').like('title', '🥒 +%').gte('created_at', payoutAt).in('user_id', playerIds);
+    c.check('economy', `payout notifications sent (expected ≥ ${paying})`,
+      (payNotifs?.length ?? 0) >= paying, `got ${payNotifs?.length ?? 0}`);
+
+    // wagers: every wager settled, and won ⇔ the predicate actually happened
+    const { data: wRows } = await admin.from('wagers')
+      .select('id, user_id, predicate, status, stake, potential_payout, settled_at')
+      .eq('subject_id', tId).eq('subject_type', 'tournament_rank');
+    const okWagers = econ.wagers.filter((w) => w.ok).length;
+    c.check('wagers', `all ${okWagers} placed wagers exist and are settled`,
+      (wRows?.length ?? 0) === okWagers && (wRows ?? []).every((w: any) => w.status !== 'open' && w.settled_at),
+      `rows=${wRows?.length}, open=${(wRows ?? []).filter((w: any) => w.status === 'open').length}`);
+    const rankByUser = new Map((ranks ?? []).map((r: any) => [r.user_id, r.final_rank]));
+    const wrong = (wRows ?? []).filter((w: any) => {
+      const hit = rankByUser.get(w.predicate?.user_id) === Number(w.predicate?.rank);
+      return (w.status === 'won') !== hit;
+    });
+    c.check('wagers', 'every wager won/lost matches the actual final ranks', wrong.length === 0,
+      wrong.map((w: any) => `${w.id.slice(0, 8)}:${w.status}`).join(', '));
+    // stake escrow: losers just lose stake; winners get potential_payout — spot-check one winner
+    const won = (wRows ?? []).filter((w: any) => w.status === 'won');
+    if (won.length) c.note(`${won.length} wager(s) won, ${(wRows?.length ?? 0) - won.length} lost`);
+
+    // badges: “Tournament Champion” is a PROGRESS badge granted by the daily
+    // 8am cron — invoke the cron function to compress time, then assert.
+    const { error: badgeCronErr } = await admin.rpc('_award_progress_badges_all');
+    c.check('badges', 'progress-badge cron pass runs clean', !badgeCronErr, badgeCronErr?.message);
+    const champ = (ranks ?? []).find((r: any) => r.final_rank === 1)?.user_id;
+    if (champ) {
+      const { data: champBadge } = await admin.from('player_badges')
+        .select('id, badges!inner(name)').eq('user_id', champ)
+        .eq('badges.name', 'Tournament Champion').gte('earned_at', econ.startedAt);
+      c.check('badges', 'champion earned a “Tournament Champion” badge',
+        (champBadge?.length ?? 0) > 0, 'no new Tournament Champion badge for the winner');
+    }
+    const { data: newBadges } = await admin.from('player_badges')
+      .select('id').in('user_id', playerIds).gte('earned_at', econ.startedAt);
+    c.note(`${newBadges?.length ?? 0} badge(s) awarded to participants during the run`);
+
+    // wager settlement notifications ('🎲 Wager won!' / '🎲 Wager settled')
+    if (okWagers > 0) {
+      const { data: wagerNotifs } = await admin.from('notifications')
+        .select('id').like('title', '🎲 Wager%').gte('created_at', econ.startedAt)
+        .in('user_id', econ.wagers.filter((w) => w.ok).map((w) => w.user));
+      c.check('messages', 'wager settlement notifications sent',
+        (wagerNotifs?.length ?? 0) >= okWagers, `got ${wagerNotifs?.length ?? 0} of ${okWagers}`);
+    }
+    // general message volume for participants during the run
+    const { count: notifCount } = await admin.from('notifications')
+      .select('*', { count: 'exact', head: true }).in('user_id', playerIds).gte('created_at', econ.startedAt);
+    c.check('messages', 'participants received notifications during the run', (notifCount ?? 0) > 0, 'zero notifications');
+  }
+
   const file = writeReport(c, tName, tId, cfg);
   log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
   log(`📄 report: ${file}`);
@@ -431,6 +544,22 @@ async function tournamentScenario() {
   if (DRY) return log('--dry-run: would create tournament, invite/approve, form teams, generate + play.');
 
   const names = await pickSimPlayers(N_USERS);
+  let econ: Economy | undefined;
+  if (ECONOMY) {
+    const ante = pickOne([50, 100, 250]);
+    const payoutStructure = pickOne([[100], [60, 40], [60, 25, 15], [50, 30, 20]]);
+    econ = { ante, payoutStructure, wagers: [], startPickles: new Map(), startedAt: new Date().toISOString() };
+    step(`Economy: ante ${ante}🥒 · payout ${payoutStructure.join('/')}% · topping up balances`);
+    for (const u of names) {
+      const a = await signIn(u);
+      const { data: prof } = await admin.from('profiles').select('pickles').eq('id', a.id).single();
+      const bal = Number(prof?.pickles ?? 0);
+      const target = Math.max(bal, 1000);   // never bounce an ante or a stake
+      if (target !== bal) await admin.from('profiles').update({ pickles: target }).eq('id', a.id);
+      econ.startPickles.set(a.id, target);
+    }
+    log(`  ✓ ${names.length} balances at ≥1000🥒`);
+  }
   const host = await signIn(names[0]);
   // 1. create tournament (as host) + host approved-admin registration
   const payload: Record<string, any> = {
@@ -454,6 +583,7 @@ async function tournamentScenario() {
     payload.playoff_format = PLAYOFF;
     payload.playoff_third_place = (PLAYOFF === 'top_4' || PLAYOFF === 'top_8') && THIRD_PLACE;
   }
+  if (econ) { payload.pickle_ante = econ.ante; payload.payout_structure = econ.payoutStructure; }
   const { data: t, error: te } = await host.client.from('tournaments').insert(payload).select('id').single();
   if (te) die('create tournament: ' + te.message);
   await host.client.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: host.id, status: 'approved', role: 'admin' });
@@ -527,12 +657,17 @@ async function tournamentScenario() {
     if (be) return die('generate_mlp_bracket: ' + be.message);
     log(`  ✓ schedule generated${gen != null ? ` (${JSON.stringify(gen)})` : ''}`);
 
+    if (econ) {
+      step('Placing random wagers (tournament_rank market)');
+      econ.wagers = await placeRandomWagers(names, playerIds, t!.id);
+    }
     if (AUTO_ROUNDS) {
       step('Running MLP tournament to completion (auto-rounds + checks)');
       await runToCompletion(host, t!.id, tName, playerIds, {
         'match-type': MATCH_TYPE, format: FORMAT, 'team-creation': TEAM_CREATE, seeding: SEEDING,
         'playoff-format': PLAYOFF, 'pool-count': POOL_COUNT, users: N_USERS, 'registration-mode': REG_MODE,
-      });
+        economy: econ ? { ante: econ.ante, payout: econ.payoutStructure, wagers: econ.wagers.length } : false,
+      }, econ);
     } else if (PLAY) {
       step('Playing MLP matches (entering scores)');
       const { data: mlpMatches } = await admin.from('tournament_matches')
@@ -665,12 +800,17 @@ async function tournamentScenario() {
 
     // 6. play: auto-rounds runs the whole tournament with invariant checks;
     //    plain --play only scores the generated first batch.
+    if (econ) {
+      step('Placing random wagers (tournament_rank market)');
+      econ.wagers = await placeRandomWagers(names, playerIds, t!.id);
+    }
     if (AUTO_ROUNDS) {
       step('Running tournament to completion (auto-rounds + checks)');
       await runToCompletion(host, t!.id, tName, playerIds, {
         'match-type': MATCH_TYPE, format: FORMAT, 'team-creation': TEAM_CREATE, seeding: SEEDING,
         'playoff-format': PLAYOFF, 'pool-count': POOL_COUNT, users: N_USERS, 'registration-mode': REG_MODE,
-      });
+        economy: econ ? { ante: econ.ante, payout: econ.payoutStructure, wagers: econ.wagers.length } : false,
+      }, econ);
     } else if (PLAY) {
       step('Playing matches (entering scores)');
       const { data: matches } = await admin.from('tournament_matches').select('*').eq('round_id', round!.id).order('match_order');

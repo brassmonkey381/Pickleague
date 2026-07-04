@@ -90,6 +90,7 @@ export default {
         { name: 'registration-mode', flag: '--registration-mode', type: 'select', options: ['request', 'invite_only'], default: 'request', help: 'request = self-requests + admin approvals; invite_only = invites + accepts', showIf: { scenario: ['tournament'] } },
         { name: 'league-mode', flag: '--league-mode', type: 'select', options: ['open', 'invite_only'], default: 'open', help: 'league scenario: open = direct joins; invite_only = join requests + invite-code redemption', showIf: { scenario: ['league'] } },
         { name: 'auto-rounds', flag: '--auto-rounds', type: 'checkbox', default: true, help: 'run the WHOLE tournament round-by-round to completion — playoffs generated, every step invariant-checked, failures drafted into simulations/reports/<name>.md', showIf: { scenario: ['tournament'] } },
+        { name: 'economy', flag: '--economy', type: 'checkbox', default: true, help: 'random ante into the pot, random payout structure, random tournament_rank wagers — then verify pot size, payout dispatch + notifications, wager settlement vs actual final ranks, and the champion badge', showIf: { scenario: ['tournament'] } },
         { name: 'play', flag: '--play', type: 'checkbox', default: false, help: 'lighter alternative: only score the generated first batch (ignored when auto-rounds is on)', showIf: { scenario: ['tournament'] } },
         { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true },
       ],
