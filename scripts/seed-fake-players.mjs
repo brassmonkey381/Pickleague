@@ -286,14 +286,19 @@ async function seed() {
   console.log(`✓ profiles randomized (avatars, taglines, tags, styles, frames, availability, drilling, paddles)`);
 
   // 2. league + memberships (creator = first sim player, open league)
-  let { data: league } = await db.from('leagues').select('id').eq('name', LEAGUE_NAME).maybeSingle();
+  // League home court = the match location, so the home-court trigger marks
+  // every simulated match as played at Home.
+  let { data: league } = await db.from('leagues').select('id, home_court').eq('name', LEAGUE_NAME).maybeSingle();
   if (!league) {
     const { data, error } = await db.from('leagues')
-      .insert({ name: LEAGUE_NAME, description: 'Toolbox simulation league', created_by: roster[0].id, is_open: true })
-      .select('id').single();
+      .insert({ name: LEAGUE_NAME, description: 'Toolbox simulation league', created_by: roster[0].id, is_open: true, home_court: LOCATION })
+      .select('id, home_court').single();
     if (error) throw new Error('create league: ' + error.message);
     league = data;
-    console.log(`✓ created league "${LEAGUE_NAME}"`);
+    console.log(`✓ created league "${LEAGUE_NAME}" (home court: ${LOCATION})`);
+  } else if (league.home_court !== LOCATION) {
+    await db.from('leagues').update({ home_court: LOCATION }).eq('id', league.id);
+    console.log(`✓ set league home court to ${LOCATION}`);
   }
   const players = [
     ...existing.filter(e => !roster.some(r => r.id === e.id)).map(e => ({ id: e.id, username: e.username ?? e.email, dupr: null })),
@@ -352,6 +357,11 @@ async function seed() {
         winner_team: team1Wins ? 'team1' : 'team2',
         played_at: randomPlayedAt(),
         location_name: LOCATION,
+        is_outdoor: false,      // all matches indoors
+        // The app sets these client-side when location == league.home_court
+        // (there is no DB trigger for it) — mirror that here: always home.
+        is_home_court: true,
+        was_home_court: true,
       });
     }
     sims.sort((x, y) => x.played_at.localeCompare(y.played_at));
@@ -381,7 +391,7 @@ async function seed() {
     while (nextPeriod <= nPeriods && boundary(nextPeriod) <= new Date()) {
       await lockPeriod(nextPeriod); nextPeriod++;
     }
-    console.log(`✓ ${singles} singles + ${doubles} doubles simulated at "${LOCATION}"`);
+    console.log(`✓ ${singles} singles + ${doubles} doubles simulated at "${LOCATION}" (home court, indoors)`);
   }
 
   // 4. optional exact calibration
