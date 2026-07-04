@@ -62,6 +62,17 @@ export default {
       ],
     },
     {
+      id: 'migrations', label: 'Migrations (check / run)',
+      description: 'check = diff every function defined in supabase/migration_*.sql against LIVE prod (canonical = the file most recently touched in git; schema.sql/setup_all_migrations.sql excluded) and report OK / DRIFT / MISSING — this is how we caught prod running a weeks-old create_mlp_team. run = apply one migration file to prod via the service-role admin helper; dry-run prints the SQL without executing. Function bodies only — tables/triggers/policies are out of scope.',
+      cwd: '../../scripts', cmd: 'node', baseArgs: ['migration-audit.mjs'], needsInstall: true,
+      fields: [
+        { name: 'mode', flag: '--mode', type: 'select', options: ['check', 'run'], default: 'check' },
+        { name: 'only', flag: '--only', type: 'text', placeholder: 'mlp', help: 'check mode: only audit files whose name contains this' },
+        { name: 'file', flag: '--file', type: 'text', placeholder: 'migration_x.sql', help: 'run mode: which supabase/ file to apply' },
+        { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true, help: 'run mode: print the SQL, do not execute' },
+      ],
+    },
+    {
       id: 'backdate-finish-tournaments', label: 'Backdate & Finish Tournaments',
       description: 'Backdate every open (registration/active) tournament by 30 days, simulate all unfinished matches with realistic scores, then mark it completed. Existing script — no dry-run; writes immediately.',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['backdate-and-finish-tournaments.js'], needsInstall: true,
