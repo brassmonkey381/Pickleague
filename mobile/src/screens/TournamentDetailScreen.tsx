@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
   StyleSheet, ActivityIndicator, FlatList, TextInput, Alert,
@@ -83,6 +83,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [myUserId, setMyUserId]           = useState<string | null>(null);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
   const [generatedMatches, setGeneratedMatches] = useState<MatchPairing[] | null>(null);
+  // Draw order captured at generation time (a ref so godmode's generate→lock
+  // in one tick sees it without a state flush). Persisted to
+  // tournament_registrations.seed at lock-in — the DB advancement triggers
+  // reconstruct round-1 bracket slots by ordering registrations on seed, so
+  // without this a random draw advanced the WRONG players.
+  const seededOrderRef = useRef<string[] | null>(null);
   const [pools, setPools]                 = useState<string[][] | null>(null);
   // Fixed doubles pairs (non-MLP doubles formats). Loaded alongside regs.
   const [doublesPairs, setDoublesPairs]   = useState<{ partner_1_id: string | null; partner_2_id: string | null }[]>([]);
@@ -665,6 +671,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       if (teamErr) { status.error(`Doubles teams invalid: ${teamErr.message}`); return null; }
 
       const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
+      seededOrderRef.current = seededTeams.flat();
 
       try {
         switch (tournament.format) {
@@ -688,6 +695,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
     // ── Singles + Rotating-partners: existing per-player logic ──
     const seeded = seedPlayers(approved, profileRatings, tournament.seeding);
+    seededOrderRef.current = seeded;
 
     try {
       switch (tournament.format) {
@@ -852,6 +860,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       // 3. Update tournament status
       const { error: sErr } = await supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id);
       if (sErr) throw new Error('Could not update status: ' + sErr.message);
+
+      // 3b. Persist the draw order as registration seeds — the advancement
+      // triggers order registrations by seed to reconstruct round-1 slots.
+      if (seededOrderRef.current) {
+        for (let i = 0; i < seededOrderRef.current.length; i++) {
+          await supabase.from('tournament_registrations')
+            .update({ seed: i + 1 })
+            .eq('tournament_id', tournament.id)
+            .eq('user_id', seededOrderRef.current[i]);
+        }
+      }
 
       // 4. Notify each member individually to avoid RLS batch-check timeouts
       const approvedRegs = registrations.filter(r => r.status === 'approved');

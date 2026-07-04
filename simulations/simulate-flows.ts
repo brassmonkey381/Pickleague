@@ -183,6 +183,23 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
     // (MLP is exempt everywhere: a team meeting is 4 sub-matches, so each
     // player legitimately appears twice per round.)
     const knockoutFmt = ['single_elimination', 'double_elimination'].includes(String(t!.format));
+    // Advancement correctness: an eliminated player (1 loss in single elim,
+    // 2 in double elim) must never appear in a still-pending match. This is
+    // the check that catches "the wrong player advanced" — e.g. seeds not
+    // matching the actual draw.
+    if (knockoutFmt && !isMlp) {
+      const losses = new Map<string, number>();
+      for (const m of (matches ?? []).filter((m: any) => m.status === 'completed' && m.winner_team)) {
+        const losers = m.winner_team === 'team1' ? [m.team2_player1, m.team2_player2] : [m.team1_player1, m.team1_player2];
+        for (const id of losers) if (id) losses.set(id, (losses.get(id) ?? 0) + 1);
+      }
+      const maxLoss = String(t!.format) === 'double_elimination' ? 2 : 1;
+      const zombies = [...new Set(real.filter((m: any) => m.status !== 'completed')
+        .flatMap((m: any) => [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2])
+        .filter((id: string | null) => id && (losses.get(id) ?? 0) >= maxLoss))];
+      c.check('advancement', `iter ${iter}: no eliminated player scheduled again`, zombies.length === 0,
+        zombies.map((z: any) => z.slice(0, 8)).join(', '));
+    }
     const playoffTypes = new Set(['quarterfinals', 'semifinals', 'finals', 'third_place_match']);
     for (const r of rounds ?? []) {
       if (isMlp) break;
@@ -362,27 +379,29 @@ async function leagueScenario() {
 // ── tournament scenario ─────────────────────────────────────────────────────
 // Per-player draws: singles formats + rotating partners (which builds its own
 // full foursomes each round). `ratings` only matters for elo seeding.
-function generatePairings(format: string, playerIds: string[], ratings: Record<string, number>, seeding: 'random' | 'elo'): MatchPairing[] {
+function generatePairings(format: string, playerIds: string[], ratings: Record<string, number>, seeding: 'random' | 'elo'): { pairings: MatchPairing[]; order: string[] } {
   const seeded = seedPlayers(playerIds, ratings, seeding);
+  const order = seeded;
   switch (format) {
-    case 'round_robin':        return generateRoundRobin(seeded);
-    case 'single_elimination': return generateSingleElim(seeded);
-    case 'double_elimination': return generateDoubleElim(seeded);
-    case 'pool_play':          return generatePoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches;
-    case 'rotating_partners':  return generateRotatingPartners(seeded, Math.max(1, seeded.length - 1));
+    case 'round_robin':        return { pairings: generateRoundRobin(seeded), order };
+    case 'single_elimination': return { pairings: generateSingleElim(seeded), order };
+    case 'double_elimination': return { pairings: generateDoubleElim(seeded), order };
+    case 'pool_play':          return { pairings: generatePoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches, order };
+    case 'rotating_partners':  return { pairings: generateRotatingPartners(seeded, Math.max(1, seeded.length - 1)), order };
     default: throw new Error('unsupported format ' + format);
   }
 }
 
 // Team draws for doubles (non-rotating): every entrant is a COMPLETE pair of 2
 // — mirrors the app's requirement that all players are paired before the draw.
-function generateTeamPairings(format: string, teams: [string, string][], ratings: Record<string, number>, seeding: 'random' | 'elo'): MatchPairing[] {
+function generateTeamPairings(format: string, teams: [string, string][], ratings: Record<string, number>, seeding: 'random' | 'elo'): { pairings: MatchPairing[]; order: string[] } {
   const seeded = seedTeams(teams, ratings, seeding);
+  const order = seeded.flat();
   switch (format) {
-    case 'round_robin':        return generateDoublesRoundRobin(seeded);
-    case 'single_elimination': return generateDoublesSingleElim(seeded);
-    case 'double_elimination': return generateDoublesDoubleElim(seeded);
-    case 'pool_play':          return generateDoublesPoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches;
+    case 'round_robin':        return { pairings: generateDoublesRoundRobin(seeded), order };
+    case 'single_elimination': return { pairings: generateDoublesSingleElim(seeded), order };
+    case 'double_elimination': return { pairings: generateDoublesDoubleElim(seeded), order };
+    case 'pool_play':          return { pairings: generateDoublesPoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches, order };
     default: throw new Error('unsupported doubles format ' + format);
   }
 }
@@ -570,6 +589,7 @@ async function tournamentScenario() {
       for (const p of profs ?? []) ratings[p.id] = Number(p.rating);
     }
     let pairings: MatchPairing[];
+    let seededOrder: string[] = [];
     const isTeamDoubles = MATCH_TYPE === 'doubles' && FORMAT !== 'rotating_partners';
     if (isTeamDoubles) {
       // Doubles draws are generated from COMPLETE pairs only — same requirement
@@ -591,10 +611,10 @@ async function tournamentScenario() {
       if (unpaired.length) return die(`${unpaired.length} approved player(s) not in a pair of 2 — doubles draws require full pairing (unpaired ids: ${unpaired.join(', ')})`);
       if (teams.length < 2) return die('need at least 2 complete doubles pairs');
       log(`  ✓ ${teams.length} complete teams of 2`);
-      try { pairings = generateTeamPairings(FORMAT, teams, ratings, SEEDING as 'random' | 'elo'); }
+      try { ({ pairings, order: seededOrder } = generateTeamPairings(FORMAT, teams, ratings, SEEDING as 'random' | 'elo')); }
       catch (e: any) { return die('doubles bracket generation: ' + e.message); }
     } else {
-      try { pairings = generatePairings(FORMAT, playerIds, ratings, SEEDING as 'random' | 'elo'); }
+      try { ({ pairings, order: seededOrder } = generatePairings(FORMAT, playerIds, ratings, SEEDING as 'random' | 'elo')); }
       catch (e: any) { return die('bracket generation: ' + e.message); }
     }
     // Rounds mirror the app's lock-in exactly: pool play gets ONE ROUND PER
@@ -631,7 +651,13 @@ async function tournamentScenario() {
     const { error: mErr } = await host.client.from('tournament_matches').insert(rows);
     if (mErr) die('insert matches: ' + mErr.message);
     await host.client.from('tournaments').update({ status: 'active' }).eq('id', t!.id);
-    log(`  ✓ ${rows.length} matches created, tournament active`);
+    // Persist the draw order as registration seeds — the DB advancement
+    // triggers reconstruct round-1 bracket slots by ordering on seed.
+    for (let i = 0; i < seededOrder.length; i++) {
+      await host.client.from('tournament_registrations').update({ seed: i + 1 })
+        .eq('tournament_id', t!.id).eq('user_id', seededOrder[i]);
+    }
+    log(`  ✓ ${rows.length} matches created (+${seededOrder.length} seeds persisted), tournament active`);
 
     // 6. play: auto-rounds runs the whole tournament with invariant checks;
     //    plain --play only scores the generated first batch.
