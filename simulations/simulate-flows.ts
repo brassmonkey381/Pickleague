@@ -54,22 +54,29 @@ const step = (s: string) => console.log(`\n▸ ${s}`);
 const die = (s: string) => { console.error('\n✗ ' + s); process.exit(1); };
 
 // A signed-in client acting AS one sim player (its own JWT → RLS applies).
+// Sim players are identified by AUTH EMAIL (sim_player_<n>@pickleague.test) —
+// profile usernames get sanitized by the signup trigger (underscores stripped),
+// so the email is the stable key. `signIn` takes the full email.
 type Actor = { id: string; username: string; client: SupabaseClient };
-async function signIn(username: string): Promise<Actor> {
+async function signIn(email: string): Promise<Actor> {
   const client = createClient(URL!, ANON!, { auth: { autoRefreshToken: false, persistSession: false } });
-  const email = `${username}@pickleague.test`;
   const { data, error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
-  if (error || !data.user) throw new Error(`sign in ${username}: ${error?.message}`);
-  return { id: data.user.id, username, client };
+  if (error || !data.user) throw new Error(`sign in ${email}: ${error?.message}`);
+  return { id: data.user.id, username: email.split('@')[0], client };
 }
 
+const SIM_EMAIL = /^sim_player_(\d+)@pickleague\.test$/;
 async function pickSimPlayers(n: number): Promise<string[]> {
-  const { data, error } = await admin.from('profiles').select('username')
-    .like('username', 'sim\\_player\\_%').limit(n);
-  if (error) throw new Error('list sim players: ' + error.message);
-  const names = (data ?? []).map((r: any) => r.username);
-  if (names.length < n) die(`Only ${names.length} sim players exist; need ${n}. Run "Seed Fake Players" first.`);
-  return names.slice(0, n);
+  const emails: string[] = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error('list sim players: ' + error.message);
+    emails.push(...data.users.map((u: any) => u.email as string).filter((e: string) => SIM_EMAIL.test(e ?? '')));
+    if (data.users.length < 1000) break;
+  }
+  emails.sort((a, b) => Number(a.match(SIM_EMAIL)![1]) - Number(b.match(SIM_EMAIL)![1]));
+  if (emails.length < n) die(`Only ${emails.length} sim players exist; need ${n}. Run "Seed Fake Players" first.`);
+  return emails.slice(0, n);
 }
 
 // ── cleanup ─────────────────────────────────────────────────────────────────
@@ -206,7 +213,7 @@ async function tournamentScenario() {
       if (!capName || !partName) continue;
       const captain = await signIn(capName);
       const { data: pairId, error: ce } = await captain.client.rpc('create_doubles_pair',
-        { p_tournament_id: t!.id, p_name: `${capName} & ${partName}` });
+        { p_tournament_id: t!.id, p_name: `${capName.split('@')[0]} & ${partName.split('@')[0]}` });
       if (ce) { log(`  ⚠ create pair ${capName}: ${ce.message}`); continue; }
       const { data: reqId, error: ie } = await captain.client.rpc('pair_invite',
         { p_pair_id: pairId, p_user_id: partId, p_message: null });

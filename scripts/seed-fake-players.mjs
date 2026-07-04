@@ -125,17 +125,33 @@ function randomPlayedAt() {
   return d.toISOString();
 }
 
-async function findSimProfiles() {
-  const { data, error } = await db.from('profiles')
-    .select('id, username, full_name, rating')
-    .like('username', 'sim\\_player\\_%');
-  if (error) throw new Error('list sim profiles: ' + error.message);
-  return data ?? [];
+// Identify sim players by AUTH EMAIL, not profile username — handle_new_user
+// sanitizes usernames ('[^a-z0-9]' stripped), so sim_player_1 becomes
+// simplayer1 in profiles. The email is the stable key we control.
+const SIM_EMAIL = /^sim_player_(\d+)@pickleague\.test$/;
+async function findSimUsers() {
+  const users = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error('list users: ' + error.message);
+    users.push(...data.users.filter((u) => SIM_EMAIL.test(u.email ?? '')));
+    if (data.users.length < 1000) break;
+  }
+  users.sort((a, b) => Number(a.email.match(SIM_EMAIL)[1]) - Number(b.email.match(SIM_EMAIL)[1]));
+  if (!users.length) return [];
+  // join profile fields (may be missing if a signup half-failed — keep the row)
+  const byId = new Map(users.map((u) => [u.id, { id: u.id, email: u.email, n: Number(u.email.match(SIM_EMAIL)[1]) }]));
+  for (let i = 0; i < users.length; i += 100) {
+    const ids = users.slice(i, i + 100).map((u) => u.id);
+    const { data } = await db.from('profiles').select('id, username, full_name, rating').in('id', ids);
+    for (const p of data ?? []) Object.assign(byId.get(p.id), p);
+  }
+  return [...byId.values()];
 }
 
 // ── delete mode ─────────────────────────────────────────────────────────────
 async function cleanup() {
-  const sims = await findSimProfiles();
+  const sims = await findSimUsers();
   console.log(`Found ${sims.length} sim players.`);
   const ids = sims.map((s) => s.id);
 
@@ -171,7 +187,7 @@ async function cleanup() {
   let deleted = 0;
   for (const s of sims) {
     const { error } = await db.auth.admin.deleteUser(s.id);
-    if (error) console.warn(`  ⚠ ${s.username}: ${error.message}`);
+    if (error) console.warn(`  ⚠ ${s.email}: ${error.message}`);
     else deleted++;
   }
   console.log(`✓ deleted ${deleted}/${sims.length} sim accounts`);
@@ -183,9 +199,9 @@ async function seed() {
   // target DUPR uniform in [min,max], sorted for a readable report. In dry-run
   // we tolerate an unreachable DB so the preview works without live keys.
   let existing = [];
-  try { existing = await findSimProfiles(); }
+  try { existing = await findSimUsers(); }
   catch (e) { if (!DRY) throw e; console.log(`(dry-run: could not read existing sims — ${e.message}; assuming none)`); }
-  const startIdx = existing.length + 1;
+  const startIdx = existing.reduce((mx, s) => Math.max(mx, s.n), 0) + 1;
   const roster = Array.from({ length: COUNT }, (_, i) => {
     const n = startIdx + i;
     const gender = n % 2 === 1 ? 'male' : 'female';
@@ -217,9 +233,10 @@ async function seed() {
     });
     if (error) {
       if (/already been registered/i.test(error.message)) {
-        const { data: p } = await db.from('profiles').select('id').eq('username', r.username).single();
-        r.id = p?.id;
-        console.log(`  ⚠ ${r.username} exists — reusing`);
+        const prior = existing.find((s) => s.email === r.email);
+        r.id = prior?.id;
+        console.log(`  ⚠ ${r.email} exists — reusing`);
+        if (!r.id) { console.warn(`  ⚠ could not resolve id for ${r.email}; skipping`); continue; }
       } else throw new Error(`createUser ${r.username}: ${error.message}`);
     } else r.id = data.user.id;
     // gender is NOT NULL on profiles and the auth trigger may not set it.
@@ -278,7 +295,10 @@ async function seed() {
     league = data;
     console.log(`✓ created league "${LEAGUE_NAME}"`);
   }
-  const players = [...existing.map(e => ({ id: e.id, username: e.username, dupr: null })), ...roster];
+  const players = [
+    ...existing.filter(e => !roster.some(r => r.id === e.id)).map(e => ({ id: e.id, username: e.username ?? e.email, dupr: null })),
+    ...roster.filter(r => r.id),
+  ];
   for (const [i, r] of players.entries()) {
     const { error } = await db.from('league_members')
       .upsert({ league_id: league.id, user_id: r.id, role: i === 0 ? 'admin' : 'member' }, { onConflict: 'league_id,user_id', ignoreDuplicates: true });
@@ -379,11 +399,11 @@ async function seed() {
 
   // 5. report
   const { data: final } = await db.from('profiles')
-    .select('username, rating, total_matches_played')
-    .in('id', roster.map(r => r.id)).order('rating', { ascending: false });
+    .select('id, username, rating, total_matches_played')
+    .in('id', roster.filter(r => r.id).map(r => r.id)).order('rating', { ascending: false });
   console.log('\nFinal roster (target → PLUPR after simulation):');
   for (const f of final ?? []) {
-    const r = roster.find(x => x.username === f.username);
+    const r = roster.find(x => x.id === f.id);
     console.log(`  ${f.username.padEnd(16)} target ${r?.dupr?.toFixed(2)}  →  PLUPR ${Number(f.rating).toFixed(2)}  (${f.total_matches_played} matches)`);
   }
 
