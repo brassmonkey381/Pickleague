@@ -27,7 +27,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  seedPlayers, seedTeams, generateRoundRobin, generateSingleElim, generateDoubleElim,
+  FORMAT_META, seedPlayers, seedTeams, generateRoundRobin, generateSingleElim, generateDoubleElim,
   generatePoolPlay, generateRotatingPartners,
   generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim,
   generateDoublesPoolPlay, type MatchPairing,
@@ -575,7 +575,11 @@ async function tournamentScenario() {
       if (ie) { log(`  ⚠ invite ${partName}: ${ie.message}`); continue; }
       const partner = await signIn(partName);
       const { error: re } = await partner.client.rpc('pair_respond_to_join', { p_request_id: reqId, p_accept: true });
-      log(re ? `  ⚠ ${partName} accept: ${re.message}` : `  ✓ paired ${capName} + ${partName}`);
+      if (re) { log(`  ⚠ ${partName} accept: ${re.message}`); continue; }
+      // Lock the pair — the app's happy path; without it the Doubles Partners
+      // UI shows every team stuck on "Forming" with a Lock In Pair nag.
+      const { error: le } = await captain.client.rpc('pair_lock_pair', { p_pair_id: pairId });
+      log(le ? `  ⚠ lock pair: ${le.message}` : `  ✓ paired + locked ${capName} + ${partName}`);
     }
   }
 
@@ -633,7 +637,7 @@ async function tournamentScenario() {
       }
     } else {
       const { data: round, error: rErr } = await host.client.from('tournament_rounds')
-        .insert({ tournament_id: t!.id, round_number: 1, label: `${FORMAT} Schedule`, round_type: 'winners' })
+        .insert({ tournament_id: t!.id, round_number: 1, label: `${(FORMAT_META as any)[FORMAT]?.label ?? FORMAT} Schedule`, round_type: 'winners' })
         .select('id').single();
       if (rErr) die('create round: ' + rErr.message);
       defaultRoundId = round!.id;
