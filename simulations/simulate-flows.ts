@@ -1609,6 +1609,265 @@ async function leagueDeepScenario() {
   log(`✓ league "${lName}" left in place for app inspection (${lid})`);
 }
 
+// ── extras scenario: reminders, drilling, shop/badges ───────────────────────
+// The thinner surfaces: every remind_* cron fires the right notifications for
+// in-window fixtures (and is idempotent), the drill request → accept →
+// session → chat → review lifecycle, and the pickle shop (purchase rules,
+// gifting, insufficient funds, badge-gated items).
+async function extrasScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  step(`Extras scenario: reminders / drills / shop (${stamp})`);
+  const c = new Checker();
+  const names = await pickSimPlayers(4);
+  const A: Actor[] = [];
+  for (const n of names) A.push(await signIn(n));
+  const [host, p2, p3, p4] = A;
+
+  const notifCountFor = async (entityId: string, since: string) =>
+    (await admin.from('notifications').select('id', { count: 'exact', head: true })
+      .eq('entity_id', entityId).gte('created_at', since)).count ?? 0;
+
+  // ── R: reminder crons ────────────────────────────────────────────────────
+  step('R: reminder crons (in-window fixtures, correct recipients, idempotent)');
+  const { data: lg, error: lgErr } = await host.client.from('leagues').insert({
+    name: `[SIM] extras league ${stamp}`, created_by: host.id, is_open: true,
+  }).select('id').single();
+  if (lgErr || !lg) die('create extras league: ' + (lgErr?.message ?? 'no row'));
+  const lid = lg!.id;
+  for (const a of A) await a.client.from('league_members').insert({ league_id: lid, user_id: a.id, role: a === host ? 'admin' : 'member' });
+
+  // fixture: event starting in ~1h (scheduled + confirmed slot)
+  const mkEvent = async (title: string, status: string, voteEndsAt: string | null) => {
+    const { data: ev, error: evErr } = await host.client.from('league_events').insert({
+      league_id: lid, title, created_by: host.id, status, vote_ends_at: voteEndsAt,
+    }).select('id').single();
+    if (evErr || !ev) die(`create event "${title}": ` + (evErr?.message ?? 'no row'));
+    return ev!.id as string;
+  };
+  const evStart = await mkEvent('[SIM] starts soon', 'voting', new Date(Date.now() + 86400_000).toISOString());
+  const { data: slotSoon, error: slotErr } = await host.client.from('event_slots').insert({
+    event_id: evStart, starts_at: new Date(Date.now() + 3600_000).toISOString(),
+    ends_at: new Date(Date.now() + 2 * 3600_000).toISOString(),
+  }).select('id').single();
+  if (slotErr || !slotSoon) die('create slot: ' + (slotErr?.message ?? 'no row'));
+  // Event reminders go to slot VOTERS — vote before confirming the slot.
+  for (const a of [p2, p3]) await a.client.from('event_slot_votes').insert({ slot_id: slotSoon!.id, user_id: a.id });
+  await host.client.from('league_events').update({ status: 'scheduled', confirmed_slot_id: slotSoon!.id }).eq('id', evStart);
+
+  const evVote = await mkEvent('[SIM] vote closing', 'voting', new Date(Date.now() + 3 * 3600_000).toISOString());
+  await host.client.from('event_slots').insert({
+    event_id: evVote, starts_at: new Date(Date.now() + 5 * 86400_000).toISOString(),
+    ends_at: new Date(Date.now() + 5 * 86400_000 + 7200_000).toISOString(),
+  });
+
+  const evEnded = await mkEvent('[SIM] ended unrecorded', 'voting', new Date(Date.now() - 8 * 3600_000).toISOString());
+  const { data: slotPast } = await host.client.from('event_slots').insert({
+    event_id: evEnded, starts_at: new Date(Date.now() - 7 * 3600_000).toISOString(),
+    ends_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+  }).select('id').single();
+  for (const a of [p2, p4]) await a.client.from('event_slot_votes').insert({ slot_id: slotPast!.id, user_id: a.id });
+  await host.client.from('league_events').update({ status: 'scheduled', confirmed_slot_id: slotPast!.id }).eq('id', evEnded);
+
+  // Registration-closing reminders target UNREGISTERED league members (and
+  // pending invitees), so the tournament must belong to the league.
+  const { data: tRem } = await host.client.from('tournaments').insert({
+    name: `[SIM] extras reminder t ${stamp}`, created_by: host.id, format: 'round_robin', match_type: 'singles',
+    registration_mode: 'request', team_creation: 'fixed', status: 'registration', seeding: 'random', pool_count: 1,
+    league_id: lid,
+    registration_closes_at: new Date(Date.now() + 3 * 3600_000).toISOString(),
+    start_time: new Date(Date.now() + 12 * 3600_000).toISOString(),
+  }).select('id').single();
+  await host.client.from('tournament_registrations').insert({ tournament_id: tRem!.id, user_id: host.id, status: 'approved', role: 'admin' });
+  await p2.client.from('tournament_registrations').insert({ tournament_id: tRem!.id, user_id: p2.id });
+  const { data: reg2 } = await admin.from('tournament_registrations').select('id').eq('tournament_id', tRem!.id).eq('user_id', p2.id).single();
+  await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg2!.id);
+
+  // Count by title pattern + our users (reminder entity ids vary: event
+  // reminders point at the event, vote-closing at the LEAGUE, tournament
+  // reminders at the tournament — the title is the stable signal).
+  const uids = A.map(a => a.id);
+  const remindAndCheck = async (fn: string, titleLike: string, label: string) => {
+    const since = new Date().toISOString();
+    const countNow = async () =>
+      (await admin.from('notifications').select('id', { count: 'exact', head: true })
+        .in('user_id', uids).ilike('title', titleLike).gte('created_at', since)).count ?? 0;
+    const { error: e1 } = await admin.rpc(fn);
+    const after1 = await countNow();
+    const { error: e2 } = await admin.rpc(fn);
+    const after2 = await countNow();
+    c.check('reminders', `${fn}: ${label}`, e1 == null && after1 > 0, e1?.message ?? `notifications=${after1}`);
+    c.check('reminders', `${fn} is idempotent (second run adds none)`, e2 == null && after2 === after1,
+      e2?.message ?? `first=${after1} second=${after2}`);
+  };
+  await remindAndCheck('remind_event_starts', '%Event reminder%', 'notifies slot voters before a confirmed event starts');
+  await remindAndCheck('remind_vote_closings', '%Vote closing soon%', 'nudges non-voters before voting closes');
+  await remindAndCheck('remind_event_record_results', '%Record your results%', 'nudges voters to record results after an event ends');
+  await remindAndCheck('remind_tournament_registration_closings', '%Registration closing soon%', 'warns unregistered league members before registration closes');
+  await remindAndCheck('remind_tournament_starts', '%Tournament starting soon%', 'reminds registered players before the tournament starts');
+
+  // ── D: drill lifecycle ───────────────────────────────────────────────────
+  step('D: drill request → accept → session → chat → review');
+  const target = new Date(Date.now() + 90 * 60_000);
+  const slotIdx = target.getUTCHours() * 2 + (target.getUTCMinutes() >= 30 ? 1 : 0);
+  const slotDate = target.toISOString().slice(0, 10);
+
+  const since = new Date().toISOString();
+  const { data: dr, error: drErr } = await p2.client.from('drill_requests').insert({
+    from_user_id: p2.id, to_user_id: p3.id,
+    proposed_slots: [{ date: slotDate, slot: slotIdx }, { date: slotDate, slot: slotIdx + 2 }],
+    message: 'dinks?', length_minutes: 60,
+  }).select('id').single();
+  c.check('drills', 'drill request sends', drErr == null, drErr?.message);
+  const { count: reqNotif } = await admin.from('notifications').select('id', { count: 'exact', head: true })
+    .eq('user_id', p3.id).gte('created_at', since);
+  c.check('drills', 'recipient notified of the request', (reqNotif ?? 0) > 0);
+
+  // outsider can't accept someone else's request
+  await p4.client.from('drill_requests').update({ status: 'accepted', accepted_slot: { date: slotDate, slot: slotIdx } }).eq('id', dr!.id);
+  const { data: drState } = await admin.from('drill_requests').select('status').eq('id', dr!.id).single();
+  c.check('drills', 'outsider cannot accept a request that is not theirs', drState?.status === 'pending', `status=${drState?.status}`);
+
+  const { error: accErr } = await p3.client.from('drill_requests').update({
+    status: 'accepted', accepted_slot: { date: slotDate, slot: slotIdx }, responded_at: new Date().toISOString(),
+  }).eq('id', dr!.id);
+  const { data: sess } = await admin.from('drill_sessions').select('id, starts_at').eq('request_id', dr!.id).maybeSingle();
+  c.check('drills', 'acceptance creates the drill session at the slot time', accErr == null && !!sess,
+    accErr?.message ?? 'no session row');
+
+  const { error: chatErr } = await p2.client.from('drill_request_messages').insert({
+    request_id: dr!.id, sender_id: p2.id, body: 'meet at Bladium court 3',
+  });
+  c.check('drills', 'drill chat message sends (and notifies via trigger)', chatErr == null, chatErr?.message);
+
+  if (sess) {
+    const sinceRem = new Date().toISOString();
+    const { error: dremErr } = await admin.rpc('remind_drill_sessions');
+    const { count: dremNotif } = await admin.from('notifications').select('id', { count: 'exact', head: true })
+      .in('user_id', [p2.id, p3.id]).gte('created_at', sinceRem).like('title', '%rill%');
+    c.check('reminders', 'remind_drill_sessions reminds both players of the upcoming session',
+      dremErr == null && (dremNotif ?? 0) >= 1, dremErr?.message ?? `notifs=${dremNotif}`);
+  }
+
+  // past session → review grants pickles
+  const past = new Date(Date.now() - 3 * 3600_000);
+  const pastIdx = past.getUTCHours() * 2;
+  const { data: dr2 } = await p2.client.from('drill_requests').insert({
+    from_user_id: p2.id, to_user_id: p3.id,
+    proposed_slots: [{ date: past.toISOString().slice(0, 10), slot: pastIdx }], length_minutes: 60,
+  }).select('id').single();
+  await p3.client.from('drill_requests').update({
+    status: 'accepted', accepted_slot: { date: past.toISOString().slice(0, 10), slot: pastIdx },
+  }).eq('id', dr2!.id);
+  const { data: sess2 } = await admin.from('drill_sessions').select('id').eq('request_id', dr2!.id).maybeSingle();
+  if (sess2) {
+    const { data: rev, error: revErr } = await p2.client.rpc('submit_drill_review', {
+      p_session_id: sess2.id, p_consistency: 4, p_effort: 5, p_organization: 4, p_intentionality: 5, p_fun: 5, p_notes: 'solid session',
+    });
+    const revRow = Array.isArray(rev) ? rev[0] : rev;
+    const { data: revStored } = await admin.from('drill_session_reviews').select('rating, pickles_granted')
+      .eq('session_id', sess2.id).eq('user_id', p2.id).maybeSingle();
+    c.check('drills', 'post-session review stores and grants pickles', revErr == null && !!revStored,
+      revErr?.message ?? JSON.stringify({ rpc: revRow, stored: revStored }));
+  } else {
+    c.check('drills', 'post-session review stores and grants pickles', false, 'past-slot session was not created');
+  }
+
+  // decline + cancel paths
+  const { data: dr3 } = await p2.client.from('drill_requests').insert({
+    from_user_id: p2.id, to_user_id: p4.id, proposed_slots: [{ date: slotDate, slot: slotIdx }], length_minutes: 30,
+  }).select('id').single();
+  await p4.client.from('drill_requests').update({ status: 'declined', responded_at: new Date().toISOString() }).eq('id', dr3!.id);
+  const { data: dr3After } = await admin.from('drill_requests').select('status').eq('id', dr3!.id).single();
+  c.check('drills', 'recipient can decline', dr3After?.status === 'declined', `status=${dr3After?.status}`);
+  const { data: dr4 } = await p2.client.from('drill_requests').insert({
+    from_user_id: p2.id, to_user_id: p4.id, proposed_slots: [{ date: slotDate, slot: slotIdx }], length_minutes: 30,
+  }).select('id').single();
+  await p2.client.from('drill_requests').update({ status: 'cancelled' }).eq('id', dr4!.id);
+  const { data: dr4After } = await admin.from('drill_requests').select('status').eq('id', dr4!.id).single();
+  c.check('drills', 'sender can cancel their own request', dr4After?.status === 'cancelled', `status=${dr4After?.status}`);
+
+  // ── S: shop + badges ─────────────────────────────────────────────────────
+  step('S: shop purchases, gifting, gates');
+  const balOf = async (uid: string) =>
+    Number((await admin.from('profiles').select('pickles').eq('id', uid).single()).data?.pickles ?? 0);
+  await admin.from('profiles').update({ pickles: 1000 }).eq('id', p2.id);
+
+  const { data: owned } = await admin.from('player_shop_purchases').select('shop_item_id').eq('user_id', p2.id);
+  const ownedSet = new Set((owned ?? []).map((o: any) => o.shop_item_id));
+  const { data: items } = await admin.from('shop_items').select('id, cost, category, unlock_badge_id')
+    .eq('is_active', true).order('cost');
+  const buyable = (items ?? []).filter((i: any) => i.unlock_badge_id == null && i.category !== 'real_world' && !ownedSet.has(i.id));
+  const gated = (items ?? []).find((i: any) => i.unlock_badge_id != null);
+  if (buyable.length < 2) { c.check('shop', 'enough purchasable catalog items to test', false, `buyable=${buyable.length}`); }
+  else {
+    const item = buyable[0] as any;
+    const before = await balOf(p2.id);
+    const { data: buy } = await p2.client.rpc('purchase_shop_item', { p_item_id: item.id });
+    const buyRow = Array.isArray(buy) ? buy[0] : buy;
+    c.check('shop', 'purchase succeeds and debits exactly the cost',
+      !!buyRow?.success && (await balOf(p2.id)) === before - item.cost, JSON.stringify(buyRow));
+    const { data: again } = await p2.client.rpc('purchase_shop_item', { p_item_id: item.id });
+    const againRow = Array.isArray(again) ? again[0] : again;
+    c.check('shop', 'double-purchase is rejected as already owned',
+      !againRow?.success && /owned/i.test(againRow?.message ?? ''), JSON.stringify(againRow));
+    const { data: p2prof } = await admin.from('profiles').select('avatar_emoji, name_color, list_name_style_id, profile_name_style_id').eq('id', p2.id).single();
+    c.check('shop', 'purchase applied its payload to the profile', p2prof != null, JSON.stringify({ category: item.category, profile: p2prof }));
+
+    // insufficient funds
+    const broke = await balOf(p4.id);
+    await admin.from('profiles').update({ pickles: 0 }).eq('id', p4.id);
+    const pricey = buyable.find((i: any) => i.cost > 0 && !ownedSet.has(i.id) && i.id !== item.id) as any;
+    if (pricey) {
+      const { data: poor } = await p4.client.rpc('purchase_shop_item', { p_item_id: pricey.id });
+      const poorRow = Array.isArray(poor) ? poor[0] : poor;
+      c.check('shop', 'insufficient pickles is rejected without a charge',
+        !poorRow?.success && /insufficient/i.test(poorRow?.message ?? '') && (await balOf(p4.id)) === 0, JSON.stringify(poorRow));
+    }
+    await admin.from('profiles').update({ pickles: broke }).eq('id', p4.id);
+
+    if (gated) {
+      const { data: locked } = await p2.client.rpc('purchase_shop_item', { p_item_id: (gated as any).id });
+      const lockedRow = Array.isArray(locked) ? locked[0] : locked;
+      c.check('shop', 'badge-unlock items cannot be bought with pickles',
+        !lockedRow?.success && /badge/i.test(lockedRow?.message ?? ''), JSON.stringify(lockedRow));
+    }
+
+    // gifting
+    const { data: p3owned } = await admin.from('player_shop_purchases').select('shop_item_id').eq('user_id', p3.id);
+    const p3set = new Set((p3owned ?? []).map((o: any) => o.shop_item_id));
+    const giftItem = buyable.find((i: any) => !p3set.has(i.id) && i.id !== item.id) as any;
+    if (giftItem) {
+      const giverBefore = await balOf(p2.id);
+      const sinceGift = new Date().toISOString();
+      const { data: gift, error: giftErr } = await p2.client.rpc('gift_shop_item', {
+        p_item_id: giftItem.id, p_recipient: p3.id, p_message: 'enjoy!',
+      });
+      const giftRow = Array.isArray(gift) ? gift[0] : gift;
+      const { data: giftPurchase } = await admin.from('player_shop_purchases')
+        .select('gifted_by_user_id').eq('user_id', p3.id).eq('shop_item_id', giftItem.id).maybeSingle();
+      const { count: giftNotif } = await admin.from('notifications').select('id', { count: 'exact', head: true })
+        .eq('user_id', p3.id).gte('created_at', sinceGift);
+      c.check('shop', 'gifting charges the giver and delivers to the recipient with a notification',
+        giftErr == null && !!(giftRow?.success ?? true) && giftPurchase?.gifted_by_user_id === p2.id
+          && (await balOf(p2.id)) === giverBefore - giftItem.cost && (giftNotif ?? 0) > 0,
+        giftErr?.message ?? JSON.stringify({ giftRow, giftPurchase, giftNotif }));
+    }
+  }
+
+  // badge catalog sanity
+  const { data: badgeRows } = await admin.from('badges').select('name');
+  const badgeNames = (badgeRows ?? []).map((b: any) => b.name);
+  c.check('badges', 'badge catalog has no duplicate names', new Set(badgeNames).size === badgeNames.length,
+    `total=${badgeNames.length} unique=${new Set(badgeNames).size}`);
+  const { error: progErr } = await admin.rpc('_award_progress_badges_all');
+  c.check('badges', 'progress-badge cron runs clean', progErr == null, progErr?.message);
+
+  const file = writeReport(c, `[SIM] extras ${stamp}`, lid, { scenario: 'extras' });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ extras fixtures left under "[SIM] extras league ${stamp}" (${lid})`);
+}
+
 // ── refunds scenario ────────────────────────────────────────────────────────
 // Economy lifecycle: antes charged on approval must come BACK when a paid
 // player withdraws or is kicked during registration, when the tournament is
@@ -1861,6 +2120,7 @@ async function waitlistScenario() {
   else if (SCENARIO === 'waitlist') await waitlistScenario();
   else if (SCENARIO === 'refunds') await refundsScenario();
   else if (SCENARIO === 'league-deep') await leagueDeepScenario();
+  else if (SCENARIO === 'extras') await extrasScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));
