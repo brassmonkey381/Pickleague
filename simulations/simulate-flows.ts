@@ -352,11 +352,12 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
       tPost?.champion_payout_applied_at != null, 'still null after auto_payout_tournament');
 
     // payout notifications: one “🥒 +N pickles!” per paying rank (bounded by
-    // ranked players), counted from the payout call so match-win bonus
-    // notifications can't false-positive this.
+    // ranked players). Non-MLP pays on the manual call, so count from then;
+    // MLP AUTO-pays at completion, so count from the run start.
     const paying = Math.min(econ.payoutStructure.length, ranks?.length ?? 0);
+    const notifWindow = isMlp ? econ.startedAt : payoutAt;
     const { data: payNotifs } = await admin.from('notifications')
-      .select('user_id, title').like('title', '🥒 +%').gte('created_at', payoutAt).in('user_id', playerIds);
+      .select('user_id, title').like('title', '🥒 +%').gte('created_at', notifWindow).in('user_id', playerIds);
     c.check('economy', `payout notifications sent (expected ≥ ${paying})`,
       (payNotifs?.length ?? 0) >= paying, `got ${payNotifs?.length ?? 0}`);
 
@@ -379,17 +380,24 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
     const won = (wRows ?? []).filter((w: any) => w.status === 'won');
     if (won.length) c.note(`${won.length} wager(s) won, ${(wRows?.length ?? 0) - won.length} lost`);
 
-    // badges: “Tournament Champion” is a PROGRESS badge granted by the daily
-    // 8am cron — invoke the cron function to compress time, then assert.
+    // badges: run the daily progress-badge cron pass (compressing time), then
+    // assert on the PAYOUT's champion — the champion-badge ledger's place-1
+    // users (for MLP that's the whole winning team; the per-user final-ranks
+    // heuristic can name a different individual than the winning TEAM).
     const { error: badgeCronErr } = await admin.rpc('_award_progress_badges_all');
     c.check('badges', 'progress-badge cron pass runs clean', !badgeCronErr, badgeCronErr?.message);
-    const champ = (ranks ?? []).find((r: any) => r.final_rank === 1)?.user_id;
-    if (champ) {
+    const { data: champLedger } = await admin.from('tournament_champion_badges')
+      .select('user_id').eq('tournament_id', tId).eq('place', 1);
+    const champs: string[] = champLedger?.length
+      ? champLedger.map((r: any) => r.user_id)
+      : (ranks ?? []).filter((r: any) => r.final_rank === 1).map((r: any) => r.user_id);
+    if (champs.length) {
       const { data: champBadge } = await admin.from('player_badges')
-        .select('id, badges!inner(name)').eq('user_id', champ)
+        .select('user_id, badges!inner(name)').in('user_id', champs)
         .eq('badges.name', 'Tournament Champion').gte('earned_at', econ.startedAt);
-      c.check('badges', 'champion earned a “Tournament Champion” badge',
-        (champBadge?.length ?? 0) > 0, 'no new Tournament Champion badge for the winner');
+      c.check('badges', `all ${champs.length} champion(s) earned a “Tournament Champion” badge`,
+        new Set((champBadge ?? []).map((b: any) => b.user_id)).size === champs.length,
+        `${new Set((champBadge ?? []).map((b: any) => b.user_id)).size}/${champs.length} badged`);
     }
     const { data: newBadges } = await admin.from('player_badges')
       .select('id').in('user_id', playerIds).gte('earned_at', econ.startedAt);
@@ -749,6 +757,9 @@ async function tournamentScenario() {
       const unpaired = playerIds.filter(id => !covered.has(id));
       if (unpaired.length) return die(`${unpaired.length} approved player(s) not in a pair of 2 — doubles draws require full pairing (unpaired ids: ${unpaired.join(', ')})`);
       if (teams.length < 2) return die('need at least 2 complete doubles pairs');
+      if ((FORMAT === 'single_elimination' || FORMAT === 'double_elimination') && (teams.length & (teams.length - 1)) !== 0) {
+        return die(`doubles ${FORMAT} needs a power-of-2 team count (2/4/8/16) — got ${teams.length}. DB advancement can't reconstruct doubles BYE slots (singles-only); same guard as the app.`);
+      }
       log(`  ✓ ${teams.length} complete teams of 2`);
       try { ({ pairings, order: seededOrder } = generateTeamPairings(FORMAT, teams, ratings, SEEDING as 'random' | 'elo')); }
       catch (e: any) { return die('doubles bracket generation: ' + e.message); }

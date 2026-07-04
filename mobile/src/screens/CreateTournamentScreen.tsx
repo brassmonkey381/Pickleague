@@ -213,13 +213,20 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   // top_N_per_pool is only meaningful for non-MLP pool_play. Reset if either
   // condition no longer holds so we don't ship an invalid combination.
   useEffect(() => {
+    // The playoff generator only supports qualifier fields of 2/4/6/8, so
+    // top_1_per_pool needs 2/4/6 pools and top_2_per_pool needs 2/3/4 pools —
+    // otherwise the admin finds out AFTER group play that no bracket can be
+    // generated. Reset to 'none' whenever the combo goes invalid.
+    const perPoolValid =
+      playoffFormat === 'top_1_per_pool' ? [2, 4, 6].includes(poolCount) :
+      playoffFormat === 'top_2_per_pool' ? [2, 3, 4].includes(poolCount) : true;
     if (
       (playoffFormat === 'top_1_per_pool' || playoffFormat === 'top_2_per_pool') &&
-      (format !== 'pool_play' || matchType === 'mlp')
+      (format !== 'pool_play' || matchType === 'mlp' || !perPoolValid)
     ) {
       setPlayoffFormat('none');
     }
-  }, [format, matchType, playoffFormat]);
+  }, [format, matchType, playoffFormat, poolCount]);
 
 
   function parsePayout(): number[] | null {
@@ -472,8 +479,13 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               {/* Top N per Pool: pool_play only (non-MLP); crossover seeding. */}
               {format === 'pool_play' && matchType !== 'mlp' && (
                 <>
-                  <Pill label="Top 1 per Pool" active={playoffFormat === 'top_1_per_pool'} onPress={() => setPlayoffFormat('top_1_per_pool')} S={S} />
-                  <Pill label="Top 2 per Pool" active={playoffFormat === 'top_2_per_pool'} onPress={() => setPlayoffFormat('top_2_per_pool')} S={S} />
+                  {/* Only combos yielding 2/4/6/8 qualifiers are generatable. */}
+                  {[2, 4, 6].includes(poolCount) && (
+                    <Pill label="Top 1 per Pool" active={playoffFormat === 'top_1_per_pool'} onPress={() => setPlayoffFormat('top_1_per_pool')} S={S} />
+                  )}
+                  {[2, 3, 4].includes(poolCount) && (
+                    <Pill label="Top 2 per Pool" active={playoffFormat === 'top_2_per_pool'} onPress={() => setPlayoffFormat('top_2_per_pool')} S={S} />
+                  )}
                 </>
               )}
             </View>

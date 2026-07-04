@@ -665,6 +665,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         status.error('Not enough teams — need at least 2 doubles pairs to generate a bracket.');
         return null;
       }
+      // Doubles elimination advancement can't (yet) reconstruct BYE slots the
+      // way singles can — a non-power-of-2 team count strands the bracket
+      // after round 1. Require 2/4/8/16 teams for elim formats.
+      if ((tournament.format === 'single_elimination' || tournament.format === 'double_elimination')
+          && (teams.length & (teams.length - 1)) !== 0) {
+        status.error(`Doubles ${FORMAT_META[tournament.format].label} needs a power-of-2 team count (2, 4, 8, 16). You have ${teams.length} teams — add or remove a pair, or switch to Round Robin / Pool Play.`);
+        return null;
+      }
       // Validate every team has two distinct partners and no player is on
       // multiple teams.
       const teamErr = validateDoublesTeams(teams);
