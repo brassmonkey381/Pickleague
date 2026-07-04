@@ -26,16 +26,17 @@ export default {
   tools: [
     {
       id: 'seed-fake-players', label: 'Seed Fake Players',
-      description: 'Create N sim accounts (sim_player_*@pickleague.test, password pickle123), each with a target DUPR and a fully randomized profile — avatar, tagline, tags, name color/styles, frame, availability grid, drilling prefs, paddles, pickles. Simulates a match history whose outcomes follow the DUPR gaps so PLUPR converges organically via the real DB triggers; optional calibrate snaps ratings exactly to target afterward. Delete removes all sim players + their matches + the [SIM] league (rating side-effects are reversed by the delete trigger).',
+      description: 'Create N sim accounts (sim_player_*@pickleague.test, password pickle123), each with a target DUPR and a fully randomized profile — avatar, tagline, tags, name color/styles, frame, availability grid, drilling prefs, paddles, pickles. Always creates a [SIM] league + an active season; all matches are played at the given location and inserted chronologically with standings locked every (days/5) so the SeasonStandings screen shows real per-period history. Match outcomes follow the DUPR gaps so PLUPR converges organically via the real DB triggers; optional calibrate snaps live ratings exactly to target afterward (snapshots keep their organic values). Delete removes all sim players + their matches + the [SIM] league (rating side-effects are reversed by the delete trigger).',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['seed-fake-players.mjs'], needsInstall: true,
       fields: [
         { name: 'count', flag: '--count', type: 'number', default: 12 },
         { name: 'dupr-min', flag: '--dupr-min', type: 'number', default: 3.0, help: 'each player gets a target DUPR uniform in [min,max]' },
         { name: 'dupr-max', flag: '--dupr-max', type: 'number', default: 5.5 },
         { name: 'league', flag: '--league', type: 'text', default: '[SIM] Toolbox League', help: 'created if missing; players join; matches are league matches' },
+        { name: 'location', flag: '--location', type: 'text', default: 'Bladium Sports & Fitness Club', help: 'location_name stamped on every match' },
         { name: 'matches', flag: '--matches', type: 'number', default: 60, help: 'total simulated matches across the pool' },
         { name: 'doubles-pct', flag: '--doubles-pct', type: 'number', default: 30, help: '% of matches that are doubles' },
-        { name: 'days', flag: '--days', type: 'number', default: 30, help: 'spread played_at over the last N days' },
+        { name: 'days', flag: '--days', type: 'number', default: 30, help: 'spread played_at over the last N days; season standings refresh every days/5' },
         { name: 'calibrate', flag: '--calibrate', type: 'checkbox', default: true, help: 'after simulating, snap global + league PLUPR exactly to each target DUPR' },
         { name: 'delete', flag: '--delete', type: 'checkbox', help: 'remove all sim players/matches/[SIM] league instead of creating' },
         { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true },

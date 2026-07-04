@@ -32,6 +32,7 @@ const LEAGUE_NAME = String(val('--league', '[SIM] Toolbox League'));
 const N_MATCHES   = Number(val('--matches', 60));
 const DOUBLES_PCT = Number(val('--doubles-pct', 30));
 const DAYS        = Number(val('--days', 30));
+const LOCATION    = String(val('--location', 'Bladium Sports & Fitness Club'));
 const CALIBRATE   = flag('--calibrate');
 const DELETE      = flag('--delete');
 const DRY         = flag('--dry-run');
@@ -200,7 +201,12 @@ async function seed() {
 
   console.log(`Roster (${COUNT} new sim players, ${existing.length} already exist):`);
   for (const r of roster) console.log(`  ${r.username}  ${r.fullName.padEnd(16)} ${r.gender.padEnd(6)} target DUPR ${r.dupr.toFixed(2)}`);
+  const totalWeeks = Math.max(1, Math.ceil(DAYS / 7));
+  const lockFreqWeeks = Math.max(1, Math.floor(totalWeeks / 5));
+  const nPeriods = Math.floor(totalWeeks / lockFreqWeeks);
   console.log(`League: "${LEAGUE_NAME}" · ${N_MATCHES} matches (${DOUBLES_PCT}% doubles) over last ${DAYS} days · calibrate=${CALIBRATE}`);
+  console.log(`Location: all matches at "${LOCATION}"`);
+  console.log(`Season: ${totalWeeks} weeks, standings locked every ${lockFreqWeeks} week(s) → ${nPeriods} refresh periods (≈ backfill/5)`);
   if (DRY) { console.log('\n--dry-run: nothing written.'); return; }
 
   // 1. accounts
@@ -280,11 +286,32 @@ async function seed() {
   }
   console.log(`✓ ${players.length} league memberships`);
 
+  // 2b. season covering the backfilled window, standings locked every
+  //     lockFreqWeeks so the SeasonStandings screen shows real period history.
+  const seasonStart = new Date(Date.now() - DAYS * 86400_000);
+  const seasonEnd = new Date(seasonStart.getTime() + totalWeeks * 7 * 86400_000);
+  const dateStr = (d) => d.toISOString().slice(0, 10);
+  let { data: season } = await db.from('league_seasons').select('id, start_date, lock_frequency_weeks')
+    .eq('league_id', league.id).eq('status', 'active').maybeSingle();
+  if (!season) {
+    const { data: s, error: se } = await db.from('league_seasons').insert({
+      league_id: league.id, name: `[SIM] Season ${dateStr(seasonStart)}`,
+      start_date: dateStr(seasonStart), end_date: dateStr(seasonEnd),
+      total_weeks: totalWeeks, lock_frequency_weeks: lockFreqWeeks,
+      status: 'active', created_by: roster[0].id,
+    }).select('id, start_date, lock_frequency_weeks').single();
+    if (se) throw new Error('create season: ' + se.message);
+    season = s;
+    console.log(`✓ created season "${'[SIM] Season ' + dateStr(seasonStart)}" (${nPeriods} periods)`);
+  }
+
   // 3. simulated match history — outcomes follow the DUPR gaps; the real DB
-  //    triggers update global + league PLUPR on every insert.
+  //    triggers update global + league PLUPR on every insert. Matches are
+  //    inserted CHRONOLOGICALLY with period locks interleaved at each period
+  //    boundary, so every snapshot captures the ratings/W-L as of that date.
   const pool = roster; // only players with a known target participate
   if (pool.length >= 2) {
-    let singles = 0, doubles = 0;
+    const sims = [];
     for (let i = 0; i < N_MATCHES; i++) {
       const isDoubles = pool.length >= 4 && Math.random() * 100 < DOUBLES_PCT;
       const picks = [...pool].sort(() => Math.random() - 0.5).slice(0, isDoubles ? 4 : 2);
@@ -294,7 +321,7 @@ async function seed() {
       const p = winProb(dupr1, dupr2);
       const team1Wins = Math.random() < p;
       const ls = loserScore(team1Wins ? p : 1 - p);
-      const payload = {
+      sims.push({
         league_id: league.id,
         match_type: isDoubles ? 'doubles' : 'singles',
         player1_id: a.id, partner1_id: isDoubles ? b.id : null,
@@ -304,13 +331,37 @@ async function seed() {
         winner_id: team1Wins ? a.id : (isDoubles ? c.id : b.id),
         winner_team: team1Wins ? 'team1' : 'team2',
         played_at: randomPlayedAt(),
-      };
-      const { error } = await db.from('matches').insert(payload);
+        location_name: LOCATION,
+      });
+    }
+    sims.sort((x, y) => x.played_at.localeCompare(y.played_at));
+
+    // period boundary n = season start + n * lockFreqWeeks weeks
+    const boundary = (n) => new Date(new Date(season.start_date).getTime() + n * (season.lock_frequency_weeks ?? lockFreqWeeks) * 7 * 86400_000);
+    let nextPeriod = 1;
+    const lockPeriod = async (n) => {
+      const snapDate = dateStr(boundary(n));
+      const { error } = await db.rpc('_lock_season_period_unchecked',
+        { p_season_id: season.id, p_period_number: n, p_snapshot_date: snapDate });
+      if (error) console.warn(`  ⚠ lock period ${n}: ${error.message}`);
+      else console.log(`  🔒 period ${n} locked @ ${snapDate}`);
+    };
+
+    let singles = 0, doubles = 0;
+    for (const [i, m] of sims.entries()) {
+      while (nextPeriod <= nPeriods && new Date(m.played_at) >= boundary(nextPeriod)) {
+        await lockPeriod(nextPeriod); nextPeriod++;
+      }
+      const { error } = await db.from('matches').insert(m);
       if (error) throw new Error(`match ${i + 1}: ${error.message}`);
-      isDoubles ? doubles++ : singles++;
+      m.match_type === 'doubles' ? doubles++ : singles++;
       if ((i + 1) % 10 === 0) console.log(`  … ${i + 1}/${N_MATCHES} matches`);
     }
-    console.log(`✓ ${singles} singles + ${doubles} doubles simulated`);
+    // lock any remaining elapsed periods (boundary already in the past)
+    while (nextPeriod <= nPeriods && boundary(nextPeriod) <= new Date()) {
+      await lockPeriod(nextPeriod); nextPeriod++;
+    }
+    console.log(`✓ ${singles} singles + ${doubles} doubles simulated at "${LOCATION}"`);
   }
 
   // 4. optional exact calibration
@@ -334,6 +385,28 @@ async function seed() {
   for (const f of final ?? []) {
     const r = roster.find(x => x.username === f.username);
     console.log(`  ${f.username.padEnd(16)} target ${r?.dupr?.toFixed(2)}  →  PLUPR ${Number(f.rating).toFixed(2)}  (${f.total_matches_played} matches)`);
+  }
+
+  // 6. proof the matches were tracked in league standings: print each locked
+  //    period's snapshot (rank / W-L / rating as of that period boundary).
+  const nameOf = new Map(roster.map(r => [r.id, r.username]));
+  const { data: snaps } = await db.from('season_snapshots')
+    .select('period_number, snapshot_date, user_id, rank_at_snapshot, wins_in_season, losses_in_season, elo_at_snapshot')
+    .eq('season_id', season.id)
+    .order('period_number').order('rank_at_snapshot');
+  if (snaps?.length) {
+    console.log('\nSeason standings by refresh period:');
+    let cur = null;
+    for (const s of snaps) {
+      if (s.period_number !== cur) {
+        cur = s.period_number;
+        console.log(`  — Period ${s.period_number} (locked ${s.snapshot_date}) —`);
+      }
+      const nm = nameOf.get(s.user_id) ?? s.user_id.slice(0, 8);
+      console.log(`    #${String(s.rank_at_snapshot).padEnd(3)} ${String(nm).padEnd(16)} ${s.wins_in_season}W-${s.losses_in_season}L  rating ${Number(s.elo_at_snapshot).toFixed(2)}`);
+    }
+  } else {
+    console.log('\n(no season snapshots — no period boundary fell inside the backfilled window)');
   }
 }
 
