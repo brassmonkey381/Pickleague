@@ -1434,8 +1434,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </TouchableOpacity>
         )}
 
-        {/* ── Member: bracket release countdown ── */}
-        {myReg?.status === 'approved' && !generatedMatches && (
+        {/* ── Member: bracket release countdown ──
+            Only meaningful while the tournament is still in registration —
+            once active/completed the bracket exists, so the "release date"
+            banner would contradict the finalized-bracket state. (Gating on
+            !generatedMatches alone missed this: that's just the unsaved
+            preview, which is always null on a loaded active tournament.) */}
+        {myReg?.status === 'approved' && !generatedMatches && tournament.status === 'registration' && (
           <View style={S.infoBox}>
             {bracketLabel ? (
               <>
@@ -1452,7 +1457,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Admin: set bracket release time ── */}
-        {isPriv && !generatedMatches && (
+        {isPriv && !generatedMatches && tournament.status === 'registration' && (
           <TouchableOpacity style={S.setReleaseBtn} onPress={() => setShowReleasePicker(true)}>
             <Text style={S.setReleaseBtnText}>
               {tournament.bracket_release_time

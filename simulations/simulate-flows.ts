@@ -55,6 +55,13 @@ const PLAY       = has('--play');
 const AUTO_ROUNDS = has('--auto-rounds');   // play round-by-round to completion, checking invariants + drafting a report
 const ECONOMY    = has('--economy');        // random ante + payout structure + wagers; verify payouts, badges, notifications
 const LEAGUE_ATTACH = has('--league-attach'); // attach tournament to the [SIM] Toolbox League; verify PLUPR weighting + season period lock
+// --stage stops the tournament scenario mid-lifecycle and leaves the
+// tournament in place for app inspection:
+//   registration — approvals done, no bracket; verifies a new request still lands
+//   closed       — registration_closes_at forced into the past; verifies RLS blocks late joins
+//   midplay      — round 1 locked in, roughly half of it scored; verifies no premature advancement
+//   complete     — (default) normal full run
+const STAGE = val('--stage', 'complete');
 const DRY        = has('--dry-run');
 const PASSWORD   = 'pickle123';
 
@@ -618,6 +625,9 @@ async function tournamentScenario() {
   if (isMlp && (N_USERS < 8 || N_USERS % 4 !== 0)) {
     return die(`MLP needs a multiple of 4 players, at least 8 (got ${N_USERS}) — teams are 2 men + 2 women`);
   }
+  if (STAGE === 'midplay' && isMlp) {
+    return die('--stage midplay is not supported for MLP (server-generated schedule)');
+  }
   if (MATCH_TYPE === 'singles' && FORMAT === 'rotating_partners') {
     return die('rotating_partners is doubles-only (the app flips Team Type to Doubles for it)');
   }
@@ -724,6 +734,11 @@ async function tournamentScenario() {
     .select('user_id').eq('tournament_id', t!.id).eq('status', 'approved').order('registered_at');
   const playerIds: string[] = (approved ?? []).map((r: any) => r.user_id);
   log(`\n  ${playerIds.length} approved players`);
+
+  if (STAGE === 'registration' || STAGE === 'closed') {
+    await stagedRegistrationStop(host, t!.id, tName, names, STAGE === 'closed');
+    return;
+  }
 
   // ── MLP: form teams of 4 (2M+2F) → server-side bracket → play ────────────
   if (isMlp) {
@@ -910,6 +925,11 @@ async function tournamentScenario() {
     }
     log(`  ✓ ${rows.length} matches created (+${seededOrder.length} seeds persisted), tournament active`);
 
+    if (STAGE === 'midplay') {
+      await stagedMidplayStop(host, t!.id, tName);
+      return;
+    }
+
     // 6. play: auto-rounds runs the whole tournament with invariant checks;
     //    plain --play only scores the generated first batch.
     if (econ) {
@@ -1027,6 +1047,85 @@ async function guestScenario() {
   log(`
 ${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
   log(`📄 report: ${file}`);
+}
+
+// ── staged stops: leave a tournament mid-lifecycle for app inspection ───────
+async function stagedRegistrationStop(host: Actor, tId: string, tName: string, names: string[], closed: boolean) {
+  step(closed ? 'Stage: closing registration + checks' : 'Stage: leaving tournament open for registration + checks');
+  const c = new Checker();
+  if (closed) {
+    const { error } = await host.client.from('tournaments')
+      .update({ registration_closes_at: new Date(Date.now() - 3600_000).toISOString() }).eq('id', tId);
+    if (error) die('set registration_closes_at: ' + error.message);
+    c.note('registration_closes_at forced 1h into the past');
+  }
+  const { data: t } = await admin.from('tournaments')
+    .select('status, start_time, registration_closes_at, min_players, max_players').eq('id', tId).single();
+  c.check('stage', 'tournament still in registration status', t?.status === 'registration', `status=${t?.status}`);
+  c.check('stage', 'schedule fields populated (start_time + registration deadline)',
+    t?.start_time != null && t?.registration_closes_at != null,
+    JSON.stringify({ start: t?.start_time, closes: t?.registration_closes_at }));
+  const { count: roundCount } = await admin.from('tournament_rounds')
+    .select('id', { count: 'exact', head: true }).eq('tournament_id', tId);
+  c.check('stage', 'no rounds/bracket exist yet', (roundCount ?? 0) === 0, `rounds=${roundCount}`);
+
+  // A fresh sim player (not among the participants) tries to request in:
+  // accepted while open, blocked by the RLS deadline check once closed.
+  const pool = await pickSimPlayers(names.length + 1);
+  const extra = await signIn(pool[pool.length - 1]);
+  const { error: reqErr } = await extra.client.from('tournament_registrations')
+    .insert({ tournament_id: tId, user_id: extra.id });
+  if (closed) {
+    c.check('stage', 'late join request BLOCKED after the deadline (RLS)', reqErr != null, reqErr?.message ?? 'insert succeeded — deadline not enforced!');
+  } else {
+    c.check('stage', 'new join request accepted while open', reqErr == null, reqErr?.message);
+    if (!reqErr) c.note(`${extra.username} left as a pending request for the admin to review in the app`);
+  }
+
+  const file = writeReport(c, tName, tId, { scenario: 'tournament', stage: closed ? 'closed' : 'registration' });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ tournament "${tName}" left in ${closed ? 'CLOSED-registration' : 'OPEN-registration'} state (${tId})`);
+}
+
+async function stagedMidplayStop(host: Actor, tId: string, tName: string) {
+  step('Stage: scoring ~half of round 1, then stopping mid-play + checks');
+  const c = new Checker();
+  const { data: ms } = await admin.from('tournament_matches')
+    .select('id, team1_player1, team2_player1, status').eq('tournament_id', tId).order('match_order');
+  const playable = (ms ?? []).filter((m: any) => m.team1_player1 && m.team2_player1 && m.status !== 'completed');
+  const toScore = playable.slice(0, Math.max(1, Math.floor(playable.length / 2)));
+  if (toScore.length >= playable.length) die('not enough round-1 matches to leave some unplayed');
+  for (const m of toScore) {
+    const t1Wins = Math.random() < 0.5;
+    const { error } = await host.client.from('tournament_matches').update({
+      team1_score: t1Wins ? 11 : Math.floor(Math.random() * 9) + 1,
+      team2_score: t1Wins ? Math.floor(Math.random() * 9) + 1 : 11,
+      winner_team: t1Wins ? 'team1' : 'team2',
+      status: 'completed',
+    }).eq('id', m.id);
+    if (error) die('score match: ' + error.message);
+  }
+  c.note(`scored ${toScore.length}/${playable.length} round-1 matches`);
+
+  const { data: t } = await admin.from('tournaments').select('status, champion_payout_applied_at').eq('id', tId).single();
+  c.check('stage', 'tournament still active mid-round', t?.status === 'active', `status=${t?.status}`);
+  const { data: after } = await admin.from('tournament_matches').select('status').eq('tournament_id', tId);
+  const done = (after ?? []).filter((m: any) => m.status === 'completed').length;
+  c.check('stage', 'exactly the scored matches are completed', done === toScore.length, `completed=${done} expected=${toScore.length}`);
+  c.check('stage', 'unplayed matches remain pending', (after ?? []).length - done > 0, `pending=${(after ?? []).length - done}`);
+  const { data: rounds } = await admin.from('tournament_rounds').select('round_number').eq('tournament_id', tId);
+  const maxRound = Math.max(...(rounds ?? []).map((r: any) => r.round_number));
+  c.check('stage', 'no premature advancement (round 1 only)', maxRound === 1, `maxRound=${maxRound}`);
+  const { count: ranksCount } = await admin.from('tournament_final_ranks')
+    .select('user_id', { count: 'exact', head: true }).eq('tournament_id', tId);
+  c.check('stage', 'no final ranks / payout while mid-play', (ranksCount ?? 0) === 0 && t?.champion_payout_applied_at == null,
+    `ranks=${ranksCount} payout=${t?.champion_payout_applied_at}`);
+
+  const file = writeReport(c, tName, tId, { scenario: 'tournament', stage: 'midplay' });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ tournament "${tName}" left ACTIVE mid-round-1 (${tId})`);
 }
 
 // ── waitlist scenario ───────────────────────────────────────────────────────

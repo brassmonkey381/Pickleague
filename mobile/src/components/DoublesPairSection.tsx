@@ -244,15 +244,19 @@ export default function DoublesPairSection({
   return (
     <View style={S.root}>
       <Text style={S.title}>🤝 Doubles Partners</Text>
-      <View style={S.callout}>
-        <Text style={S.calloutTitle}>👯 Every player needs a fixed teammate</Text>
-        <Text style={S.calloutBody}>
-          This is a doubles tournament with fixed partners — you'll play with the same teammate every round. Pair up by creating a pair (you become captain) or accepting an invite.
-        </Text>
-        <Text style={S.calloutBody}>
-          Anyone still unpaired when the bracket is drawn will be <Text style={S.calloutEmphasis}>randomly paired with one of the other free players</Text>.
-        </Text>
-      </View>
+      {/* Recruitment pitch only makes sense while pairing is still possible —
+          once the bracket is locked (active/completed) just show the teams. */}
+      {tournamentStatus === 'registration' && (
+        <View style={S.callout}>
+          <Text style={S.calloutTitle}>👯 Every player needs a fixed teammate</Text>
+          <Text style={S.calloutBody}>
+            This is a doubles tournament with fixed partners — you'll play with the same teammate every round. Pair up by creating a pair (you become captain) or accepting an invite.
+          </Text>
+          <Text style={S.calloutBody}>
+            Anyone still unpaired when the bracket is drawn will be <Text style={S.calloutEmphasis}>randomly paired with one of the other free players</Text>.
+          </Text>
+        </View>
+      )}
 
       {/* Create */}
       {onApproved && !myPair && tournamentStatus === 'registration' && (
