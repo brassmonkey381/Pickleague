@@ -46,18 +46,44 @@ export default {
       id: 'simulate-flows', label: 'Simulate Flows',
       description: 'Pick N sim players (from Seed Fake Players) and drive real user flows by SIGNING IN AS THEM (anon key + password) and calling the same tables/RPCs the app does — so RLS policies and RPC grants are exercised for real. Scenarios: league = create league (open/invite) → joins / invite-code redemptions; tournament = create tournament (format / match type / team comp / registration mode) → invites sent + accepted or requests + approvals → doubles pairing → generate round 1 → play matches to completion. Cleanup tears down [SIM]-prefixed leagues/tournaments created by flows.',
       cwd: '../../simulations', cmd: 'npx', baseArgs: ['tsx', 'simulate-flows.ts'], needsInstall: true,
+      // Fields mirror the app's CreateTournament screen and show/hide the SAME
+      // way: Playoff Format only appears for round_robin / pool_play (never for
+      // single/double elim or rotating partners), and its option set differs by
+      // format (round_robin & MLP → top_2/4/8; non-MLP pool_play → per-pool).
+      // Team Creation only for doubles & MLP; pool count only for pool_play.
       fields: [
         { name: 'scenario', flag: '--scenario', type: 'select', options: ['tournament', 'league', 'cleanup'], default: 'tournament' },
         { name: 'users', flag: '--users', type: 'number', default: 8, help: 'sim players to involve (MLP: multiple of 4, min 8)' },
-        { name: 'match-type', flag: '--match-type', type: 'select', options: ['singles', 'doubles', 'mlp'], default: 'singles', help: 'Team Type — mlp = MLP team tournament (doubles under the hood, teams of 2M+2F)' },
-        { name: 'format', flag: '--format', type: 'select', options: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play', 'rotating_partners'], default: 'round_robin', help: 'MLP supports round_robin / pool_play only' },
-        { name: 'seeding', flag: '--seeding', type: 'select', options: ['random', 'elo'], default: 'random', help: 'Bracket Seeding — random draw vs PLUPR-based (elo)' },
-        { name: 'playoff-format', flag: '--playoff-format', type: 'select', options: ['none', 'top_2', 'top_4', 'top_8'], default: 'none', help: 'round_robin / pool_play (incl. MLP): playoff after group play' },
-        { name: 'pool-count', flag: '--pool-count', type: 'number', default: 2, help: 'pool_play only' },
-        { name: 'team-creation', flag: '--team-creation', type: 'select', options: ['fixed', 'random'], default: 'fixed', help: 'doubles & MLP (singles ignores it): fixed = players pair/team up via the real RPC flows; random = auto-generated' },
-        { name: 'registration-mode', flag: '--registration-mode', type: 'select', options: ['request', 'invite_only'], default: 'request', help: 'request = self-requests + admin approvals; invite_only = invites + accepts' },
-        { name: 'league-mode', flag: '--league-mode', type: 'select', options: ['open', 'invite_only'], default: 'open', help: 'league scenario: open = direct joins; invite_only = join requests + invite-code redemption' },
-        { name: 'play', flag: '--play', type: 'checkbox', default: true, help: 'tournament: generate the draw and enter scores through completion' },
+        // Team Type
+        { name: 'match-type', flag: '--match-type', type: 'select', options: ['singles', 'doubles', 'mlp'], default: 'singles', help: 'Team Type — mlp = MLP team tournament (doubles under the hood, teams of 2M+2F)', showIf: { scenario: ['tournament'] } },
+        // Format — options depend on Team Type (MLP: RR/pool only; rotating partners is doubles-only)
+        { name: 'format', flag: '--format', type: 'select', default: 'round_robin', showIf: { scenario: ['tournament'] },
+          options: { __by: 'match-type', default: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play'], map: {
+            singles: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play'],
+            doubles: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play', 'rotating_partners'],
+            mlp:     ['round_robin', 'pool_play'],
+          } } },
+        // Bracket Seeding
+        { name: 'seeding', flag: '--seeding', type: 'select', options: ['random', 'elo'], default: 'random', help: 'Bracket Seeding — random draw vs PLUPR-based (elo)', showIf: { scenario: ['tournament'] } },
+        // Playoff Format — only for round_robin / pool_play; options differ by (team-type, format)
+        { name: 'playoff-format', flag: '--playoff-format', type: 'select', default: 'none',
+          help: 'playoff after group play',
+          showIf: { scenario: ['tournament'], format: ['round_robin', 'pool_play'] },
+          options: { __by: ['match-type', 'format'], default: ['none'], map: {
+            'singles|round_robin': ['none', 'top_2', 'top_4', 'top_8'],
+            'doubles|round_robin': ['none', 'top_2', 'top_4', 'top_8'],
+            'mlp|round_robin':     ['none', 'top_2', 'top_4', 'top_8'],
+            'singles|pool_play':   ['none', 'top_1_per_pool', 'top_2_per_pool'],
+            'doubles|pool_play':   ['none', 'top_1_per_pool', 'top_2_per_pool'],
+            'mlp|pool_play':       ['none', 'top_2', 'top_4', 'top_8'],
+          } } },
+        // Pool count — pool_play only
+        { name: 'pool-count', flag: '--pool-count', type: 'number', default: 2, help: 'number of pools', showIf: { scenario: ['tournament'], format: ['pool_play'] } },
+        // Team Creation — doubles & MLP only (singles has no teams)
+        { name: 'team-creation', flag: '--team-creation', type: 'select', options: ['fixed', 'random'], default: 'fixed', help: 'fixed = players pair/team up via the real RPC flows; random = auto-generated', showIf: { scenario: ['tournament'], 'match-type': ['doubles', 'mlp'] } },
+        { name: 'registration-mode', flag: '--registration-mode', type: 'select', options: ['request', 'invite_only'], default: 'request', help: 'request = self-requests + admin approvals; invite_only = invites + accepts', showIf: { scenario: ['tournament'] } },
+        { name: 'league-mode', flag: '--league-mode', type: 'select', options: ['open', 'invite_only'], default: 'open', help: 'league scenario: open = direct joins; invite_only = join requests + invite-code redemption', showIf: { scenario: ['league'] } },
+        { name: 'play', flag: '--play', type: 'checkbox', default: true, help: 'tournament: generate the draw and enter scores through completion', showIf: { scenario: ['tournament'] } },
         { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true },
       ],
     },

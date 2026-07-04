@@ -166,26 +166,66 @@ function renderTool(t) {
   box.append(el('h2', {}, t.label));
   box.append(el('p', { class:'desc' }, t.description || ''));
   const inputs = {};
+  const wrappers = {};
+  // A select's `options` may be a static array, or dynamic:
+  //   { __by: 'fieldName' | ['f1','f2'], map: { 'v'|'v1|v2': [opts] }, default: [opts] }
+  // The option list is recomputed from the controlling field(s) whenever they
+  // change. `showIf: { fieldName: [values] }` hides a field until every listed
+  // controller holds an allowed value.
+  const optionListFor = (f) => {
+    if (Array.isArray(f.options)) return f.options;
+    if (f.options && f.options.__by) {
+      const by = Array.isArray(f.options.__by) ? f.options.__by : [f.options.__by];
+      const key = by.map((n) => (inputs[n] ? inputs[n].value : '')).join('|');
+      return f.options.map[key] || f.options.default || [];
+    }
+    return [];
+  };
   for (const f of t.fields || []) {
+    let inp, wrap;
     if (f.type === 'checkbox') {
-      const inp = el('input', { type:'checkbox' }); if (f.default) inp.checked = true;
-      inputs[f.name] = inp;
-      box.append(el('div', { class:'field check' }, inp, el('label', {}, (f.flag||f.name).replace(/^--/,''), f.help ? el('span',{class:'help'},f.help) : null)));
+      inp = el('input', { type:'checkbox' }); if (f.default) inp.checked = true;
+      wrap = el('div', { class:'field check' }, inp, el('label', {}, (f.flag||f.name).replace(/^--/,''), f.help ? el('span',{class:'help'},f.help) : null));
     } else if (f.type === 'select') {
-      const inp = el('select'); for (const o of f.options) { const op = el('option',{value:o},o); if (o===f.default) op.selected=true; inp.append(op); }
-      inputs[f.name] = inp;
-      box.append(el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp));
+      inp = el('select'); // options populated by applyDynamics() below
+      wrap = el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp);
     } else if (f.type === 'file') {
-      const inp = el('input', { type:'file' }); if (f.accept) inp.setAttribute('accept', f.accept);
-      inputs[f.name] = inp;
-      box.append(el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp));
+      inp = el('input', { type:'file' }); if (f.accept) inp.setAttribute('accept', f.accept);
+      wrap = el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp);
     } else {
-      const inp = el('input', { type: f.type==='number'?'number':'text', placeholder: f.placeholder || '' });
+      inp = el('input', { type: f.type==='number'?'number':'text', placeholder: f.placeholder || '' });
       if (f.default != null) inp.value = f.default;
-      inputs[f.name] = inp;
-      box.append(el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp));
+      wrap = el('div', { class:'field' }, el('label', {}, f.name, f.help?el('span',{class:'help'},f.help):null), inp);
+    }
+    inputs[f.name] = inp; wrappers[f.name] = wrap;
+    box.append(wrap);
+  }
+
+  const isVisible = (f) => wrappers[f.name].style.display !== 'none';
+  function applyDynamics() {
+    for (const f of t.fields || []) {
+      if (f.type === 'select') {
+        const opts = optionListFor(f);
+        const prev = inputs[f.name].value;
+        const want = opts.includes(prev) ? prev : (opts.includes(f.default) ? f.default : opts[0]);
+        // Rebuild only when the set changed, to preserve the selection otherwise.
+        const cur = Array.from(inputs[f.name].options).map((o) => o.value);
+        if (cur.join('') !== opts.join('')) {
+          inputs[f.name].textContent = '';
+          for (const o of opts) { const op = el('option', { value:o }, o); if (o===want) op.selected = true; inputs[f.name].append(op); }
+        }
+        if (inputs[f.name].value !== want) inputs[f.name].value = want;
+      }
+      if (f.showIf) {
+        const ok = Object.entries(f.showIf).every(([ctrl, allowed]) => inputs[ctrl] && allowed.includes(inputs[ctrl].value));
+        wrappers[f.name].style.display = ok ? '' : 'none';
+      }
     }
   }
+  for (const f of t.fields || []) {
+    if (f.type === 'select') inputs[f.name].addEventListener('change', applyDynamics);
+  }
+  applyDynamics();
 
   const consoleEl = el('pre', { class:'console' });
   const runBtn = el('button', { class:'action run' }, 'Run');
@@ -202,6 +242,9 @@ function renderTool(t) {
   const collectArgs = async () => {
     const a = {};
     for (const f of t.fields || []) {
+      // Hidden (showIf false) → send an empty value so the flag is omitted and
+      // the script falls back to its own default for that inapplicable option.
+      if (!isVisible(f)) { a[f.name] = f.type === 'checkbox' ? false : ''; continue; }
       if (f.type === 'checkbox') { a[f.name] = inputs[f.name].checked; continue; }
       if (f.type === 'file') {
         const file = inputs[f.name].files?.[0];
