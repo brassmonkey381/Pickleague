@@ -33,6 +33,8 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const { leagueId, leagueName } = route.params ?? {};
   const [tournaments, setTournaments] = React.useState<Tournament[]>([]);
   const [playerCounts, setPlayerCounts] = React.useState<Record<string, number>>({});
+  // approved-only counts drive the full/waitlist CTA (invites don't hold a slot)
+  const [approvedCounts, setApprovedCounts] = React.useState<Record<string, number>>({});
   // tournamentId → my registration metadata for the role pill
   const [myRegs, setMyRegs] = React.useState<
     Record<string, { status: 'pending' | 'approved' | 'rejected' | 'waitlisted'; role: string | null; invited_by: string | null }>
@@ -93,12 +95,19 @@ export default function TournamentsScreen({ navigation, route }: Props) {
           : Promise.resolve({ data: null } as any),
       ]);
       const counts: Record<string, number> = {};
+      const approvedOnly: Record<string, number> = {};
       (regs ?? []).forEach(r => {
         if (r.status === 'approved' || (r.status === 'pending' && r.invited_by != null)) {
           counts[r.tournament_id] = (counts[r.tournament_id] ?? 0) + 1;
         }
+        // Capacity (full → waitlist) is decided on APPROVED players only —
+        // same rule as the DB waitlist trigger.
+        if (r.status === 'approved') {
+          approvedOnly[r.tournament_id] = (approvedOnly[r.tournament_id] ?? 0) + 1;
+        }
       });
       setPlayerCounts(counts);
+      setApprovedCounts(approvedOnly);
 
       const mine: typeof myRegs = {};
       (mineRes?.data ?? []).forEach((r: any) => {
@@ -124,14 +133,29 @@ export default function TournamentsScreen({ navigation, route }: Props) {
     return { label: '✓ Member', color: '#2e7d32' };
   }
 
+  // Registration deadline passed (tournament may still be in 'registration'
+  // status until the bracket is locked) — the RLS policy rejects new
+  // self-requests after this, so the card must not offer "Register".
+  function regClosed(item: Tournament): boolean {
+    return item.registration_closes_at != null
+      && Date.now() >= new Date(item.registration_closes_at).getTime();
+  }
+  function isFull(item: Tournament): boolean {
+    return item.max_players != null && (approvedCounts[item.id] ?? 0) >= item.max_players;
+  }
+
   // Prominent join CTA shown on registration-open, request-mode cards. The label
-  // reflects the viewer's per-tournament registration state (loaded into myRegs).
+  // reflects the viewer's per-tournament registration state (loaded into myRegs)
+  // plus the tournament's live state (deadline passed, at capacity).
   // `null` means no CTA (e.g. invite-only, or not in registration).
   function joinCtaFor(item: Tournament): { label: string; disabled: boolean } | null {
     if (item.status !== 'registration' || item.registration_mode !== 'request') return null;
     const reg = myRegs[item.id];
-    if (!reg)                     return { label: 'Register →', disabled: false };
-    if (reg.status === 'rejected') return { label: 'View & Register →', disabled: false };
+    if (!reg || reg.status === 'rejected') {
+      if (regClosed(item)) return { label: '⏳ Registration closed', disabled: true };
+      if (isFull(item))    return { label: 'Full — join waitlist →', disabled: false };
+      return { label: reg ? 'View & Register →' : 'Register →', disabled: false };
+    }
     if (reg.status === 'waitlisted') return { label: '⏳ On the waitlist', disabled: true };
     if (reg.status === 'pending') {
       return reg.invited_by
@@ -158,7 +182,13 @@ export default function TournamentsScreen({ navigation, route }: Props) {
 
   function renderCard({ item }: { item: Tournament }) {
     const fmt    = FORMAT_META[item.format];
-    const status = STATUS_META[item.status];
+    // "Registration Open" would be stale once the deadline has passed or the
+    // roster is at capacity — reflect the live state on the badge.
+    const status = item.status === 'registration' && regClosed(item)
+      ? { label: 'Registration Closed', color: '#b8860b' }
+      : item.status === 'registration' && isFull(item)
+      ? { label: 'Full — Waitlist Open', color: '#b8860b' }
+      : STATUS_META[item.status];
     const count  = playerCounts[item.id] ?? 0;
     const matchesAvail = hasAvailability && item.start_time
       ? isAvailableAt(myAvailability, new Date(item.start_time))

@@ -364,7 +364,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Full-pipeline auto-setup: approve all → create teams (if applicable) →
   // generate bracket → lock in. Each step soft-skips if the underlying RPC
   // isn't deployed so partially-deployed environments still make progress.
-  async function godmodeAutoGenerateAndLock() {
+  // Godmode: approve everyone, form teams, and generate the bracket PREVIEW.
+  // Deliberately does NOT lock in — locking is a separate explicit button so
+  // the draw can be reviewed first. (The old combined version also locked
+  // from a stale `registrations` closure, so the min-players guard could
+  // silently bail while the toast claimed success.)
+  async function godmodeAutoGeneratePreview() {
     if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
     const steps: string[] = [];
     try {
@@ -389,16 +394,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       // 3. Reload so generateBracket sees the newly approved/paired rows.
       await load();
 
-      // 4. Generate matches + lock in.
+      // 4. Generate the bracket preview.
       //    MLP formats need the server-side generate_mlp_bracket RPC because
       //    each round expands into 4 sub-matches (Men's / Women's / Mixed 1 /
       //    Mixed 2) that the local generateBracket() pure helpers don't
-      //    produce. Non-MLP formats go through the standard generate-then-lock
-      //    flow.
+      //    produce — there is no client preview step for MLP, so that path
+      //    goes live immediately.
       if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
         const mlpBracket = await tryRpc('generate_mlp_bracket', { p_tournament_id: tournament.id });
         steps.push(mlpBracket.ok
-          ? `✓ Generated MLP bracket (${mlpBracket.message})`
+          ? `✓ Generated MLP schedule — live immediately (MLP has no preview step)`
           : `✗ MLP bracket failed (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
         const summary = steps.join('\n');
         if (mlpBracket.ok) { status.success(`Auto-setup complete\n${summary}`); load(); }
@@ -412,10 +417,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         status.error(`Auto-setup partial\n${steps.join('\n')}`);
         return;
       }
-      steps.push(`✓ Generated ${matches.length} matches`);
-      await doLockIn(matches);
-      steps.push('✓ Locked in');
-      status.success(`Auto-setup complete\n${steps.join('\n')}`);
+      steps.push(`✓ Generated ${matches.length}-match preview`);
+      status.success(`Preview ready\n${steps.join('\n')}\nReview the draw below, then tap 🔒 Lock in bracket.`);
     } catch (e: any) {
       steps.push(`✗ ${e?.message ?? String(e)}`);
       status.error(`Auto-setup failed\n${steps.join('\n')}`);
@@ -820,10 +823,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       // collapses into "Pool A" because pool identity is lost).
       //
       // Derive the pool count from the matches themselves rather than the
-      // `pools` React state — the godmode auto-generate-and-lock path calls
-      // doLockIn back-to-back with generateBracket, before setPools has had
-      // a chance to flush, so reading `pools` would give us stale/empty data
-      // and we'd fall through to the single-round branch.
+      // `pools` React state — callers can pass freshly generated matches
+      // before setPools has flushed, so reading `pools` would give us
+      // stale/empty data and we'd fall through to the single-round branch.
       const isPoolPlay = tournament.format === 'pool_play';
       const roundType  = isPoolPlay ? 'pool' : 'winners';
       const poolCountFromMatches = isPoolPlay
@@ -932,6 +934,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       );
     } catch (err: any) {
       setLockInError(err?.message ?? 'Unknown error. Please try again.');
+      // Also toast it — callers outside the confirm modal (godmode lock
+      // button) never render lockInError.
+      status.error(`Lock-in failed: ${err?.message ?? 'Unknown error'}`);
     } finally {
       setLocking(false);
     }
@@ -2289,11 +2294,23 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 )}
                 <TouchableOpacity
                   style={[S.quickActionBtn, S.godmodeSetupBtn]}
-                  onPress={godmodeAutoGenerateAndLock}
+                  onPress={godmodeAutoGeneratePreview}
                   activeOpacity={0.7}
                 >
-                  <Text style={S.quickActionText}>🎯 Auto-generate + lock-in bracket</Text>
+                  <Text style={S.quickActionText}>🎯 Auto-generate bracket preview</Text>
                 </TouchableOpacity>
+                {generatedMatches && generatedMatches.length > 0 && (
+                  <TouchableOpacity
+                    style={[S.quickActionBtn, S.godmodeSetupBtn, S.godmodeLockBtn]}
+                    onPress={() => doLockIn()}
+                    disabled={locking}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[S.quickActionText, S.godmodeLockText]}>
+                      {locking ? 'Locking in…' : `🔒 Lock in bracket (${generatedMatches.length} matches) & notify`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -2709,6 +2726,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     godmodeSetupBlock: { marginHorizontal: 12, marginTop: 16, padding: 12, gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: '#6d28d988', backgroundColor: c.surface },
     godmodeSectionTitle: { fontSize: 13, fontWeight: '800', color: '#6d28d9', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
     godmodeSetupBtn:  { flex: 0, alignSelf: 'stretch' },
+    godmodeLockBtn:   { backgroundColor: '#6d28d9', borderColor: '#6d28d9' },
+    godmodeLockText:  { color: '#fff', fontWeight: '700' },
 
     confirmBackdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
     confirmCard:            { backgroundColor: c.surface, borderRadius: 16, padding: 22, maxWidth: 460, width: '100%' },
