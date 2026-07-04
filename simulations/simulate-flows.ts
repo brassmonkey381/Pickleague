@@ -24,7 +24,7 @@
  */
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
-  seedPlayers, generateRoundRobin, generateSingleElim, generateDoubleElim,
+  seedPlayers, seedTeams, generateRoundRobin, generateSingleElim, generateDoubleElim,
   generatePoolPlay, generateRotatingPartners,
   generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim,
   generateDoublesPoolPlay, type MatchPairing,
@@ -37,8 +37,11 @@ const val = (n: string, d: string) => { const i = argv.indexOf(n); return i >= 0
 const SCENARIO   = val('--scenario', 'tournament');
 const N_USERS    = Number(val('--users', '8'));
 const FORMAT     = val('--format', 'round_robin');
-const MATCH_TYPE = val('--match-type', 'singles');
-const TEAM_CREATE = val('--team-creation', 'fixed');
+const MATCH_TYPE = val('--match-type', 'singles');       // singles | doubles | mlp
+const TEAM_CREATE = val('--team-creation', 'fixed');     // doubles & MLP; singles ignores it
+const SEEDING    = val('--seeding', 'random');           // random | elo (PLUPR-based)
+const PLAYOFF    = val('--playoff-format', 'none');      // none | top_2 | top_4 | top_8
+const POOL_COUNT = Number(val('--pool-count', '2'));     // pool_play only
 const REG_MODE   = val('--registration-mode', 'request');
 const LEAGUE_MODE = val('--league-mode', 'open');
 const PLAY       = has('--play');
@@ -112,7 +115,7 @@ async function cleanup() {
 
 // ── league scenario ─────────────────────────────────────────────────────────
 async function leagueScenario() {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
   const leagueName = `[SIM] ${LEAGUE_MODE} league ${stamp}`;
   step(`League scenario: "${leagueName}" (${LEAGUE_MODE}), ${N_USERS} players`);
   if (DRY) return log('--dry-run: would create league, then ' + (LEAGUE_MODE === 'open' ? 'direct joins.' : 'join requests + invite-code redemptions.'));
@@ -154,14 +157,14 @@ async function leagueScenario() {
 
 // ── tournament scenario ─────────────────────────────────────────────────────
 // Per-player draws: singles formats + rotating partners (which builds its own
-// full foursomes each round).
-function generatePairings(format: string, playerIds: string[]): MatchPairing[] {
-  const seeded = seedPlayers(playerIds, {}, 'random');   // random seeding: ratings unused
+// full foursomes each round). `ratings` only matters for elo seeding.
+function generatePairings(format: string, playerIds: string[], ratings: Record<string, number>, seeding: 'random' | 'elo'): MatchPairing[] {
+  const seeded = seedPlayers(playerIds, ratings, seeding);
   switch (format) {
     case 'round_robin':        return generateRoundRobin(seeded);
     case 'single_elimination': return generateSingleElim(seeded);
     case 'double_elimination': return generateDoubleElim(seeded);
-    case 'pool_play':          return generatePoolPlay(seeded, Math.max(2, Math.floor(seeded.length / 4))).matches;
+    case 'pool_play':          return generatePoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches;
     case 'rotating_partners':  return generateRotatingPartners(seeded, Math.max(1, seeded.length - 1));
     default: throw new Error('unsupported format ' + format);
   }
@@ -169,32 +172,58 @@ function generatePairings(format: string, playerIds: string[]): MatchPairing[] {
 
 // Team draws for doubles (non-rotating): every entrant is a COMPLETE pair of 2
 // — mirrors the app's requirement that all players are paired before the draw.
-function generateTeamPairings(format: string, teams: [string, string][]): MatchPairing[] {
-  const seeded = [...teams].sort(() => Math.random() - 0.5);
+function generateTeamPairings(format: string, teams: [string, string][], ratings: Record<string, number>, seeding: 'random' | 'elo'): MatchPairing[] {
+  const seeded = seedTeams(teams, ratings, seeding);
   switch (format) {
     case 'round_robin':        return generateDoublesRoundRobin(seeded);
     case 'single_elimination': return generateDoublesSingleElim(seeded);
     case 'double_elimination': return generateDoublesDoubleElim(seeded);
-    case 'pool_play':          return generateDoublesPoolPlay(seeded, Math.max(2, Math.floor(seeded.length / 2))).matches;
+    case 'pool_play':          return generateDoublesPoolPlay(seeded, Math.min(POOL_COUNT, Math.floor(seeded.length / 2))).matches;
     default: throw new Error('unsupported doubles format ' + format);
   }
 }
 
 async function tournamentScenario() {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
   const tName = `[SIM] ${FORMAT} ${MATCH_TYPE} ${stamp}`;
+
+  // Mirror the app's CreateTournament mapping: "MLP" is a team type in the UI
+  // but lands in the DB as format mlp/mlp_random (by team creation) with
+  // match_type doubles and the mlp_* columns derived from format + playoff.
+  const isMlp = MATCH_TYPE === 'mlp';
+  if (isMlp && FORMAT !== 'round_robin' && FORMAT !== 'pool_play') {
+    return die(`MLP supports --format round_robin or pool_play (got ${FORMAT})`);
+  }
+  if (isMlp && (N_USERS < 8 || N_USERS % 4 !== 0)) {
+    return die(`MLP needs a multiple of 4 players, at least 8 (got ${N_USERS}) — teams are 2 men + 2 women`);
+  }
+  const dbFormat = isMlp ? (TEAM_CREATE === 'random' ? 'mlp_random' : 'mlp') : FORMAT;
+  const dbMatchType = isMlp ? 'doubles' : MATCH_TYPE;
+
   step(`Tournament scenario: "${tName}"`);
-  log(`  format=${FORMAT} match-type=${MATCH_TYPE} team-creation=${TEAM_CREATE} registration=${REG_MODE} play=${PLAY}`);
-  if (DRY) return log('--dry-run: would create tournament, invite/approve, pair, generate + play.');
+  log(`  format=${FORMAT} match-type=${MATCH_TYPE} team-creation=${TEAM_CREATE} seeding=${SEEDING} playoff=${PLAYOFF} registration=${REG_MODE} play=${PLAY}`);
+  if (DRY) return log('--dry-run: would create tournament, invite/approve, form teams, generate + play.');
 
   const names = await pickSimPlayers(N_USERS);
   const host = await signIn(names[0]);
   // 1. create tournament (as host) + host approved-admin registration
-  const { data: t, error: te } = await host.client.from('tournaments').insert({
-    name: tName, created_by: host.id, format: FORMAT, match_type: MATCH_TYPE,
+  const payload: Record<string, any> = {
+    name: tName, created_by: host.id, format: dbFormat, match_type: dbMatchType,
     registration_mode: REG_MODE, team_creation: TEAM_CREATE, status: 'registration',
-    seeding: 'random', pool_count: 2,
-  }).select('id').single();
+    seeding: SEEDING, pool_count: FORMAT === 'pool_play' && !isMlp ? POOL_COUNT : 1,
+  };
+  if (isMlp) {
+    const hasPlayoff = PLAYOFF !== 'none';
+    payload.mlp_play_format = FORMAT === 'pool_play'
+      ? (hasPlayoff ? 'pool_play_playoff' : 'pool_play')
+      : (hasPlayoff ? 'round_robin_playoff' : 'round_robin');
+    payload.mlp_pool_count = FORMAT === 'pool_play' ? POOL_COUNT : 2;
+    payload.mlp_playoff_teams = PLAYOFF === 'top_2' ? 2 : PLAYOFF === 'top_8' ? 8 : 4;
+  } else if (FORMAT === 'round_robin' || FORMAT === 'pool_play') {
+    payload.playoff_format = PLAYOFF;
+    payload.playoff_third_place = false;
+  }
+  const { data: t, error: te } = await host.client.from('tournaments').insert(payload).select('id').single();
   if (te) die('create tournament: ' + te.message);
   await host.client.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: host.id, status: 'approved', role: 'admin' });
   log(`  ✓ ${names[0]} created tournament + is admin`);
@@ -227,6 +256,68 @@ async function tournamentScenario() {
   const playerIds: string[] = (approved ?? []).map((r: any) => r.user_id);
   log(`\n  ${playerIds.length} approved players`);
 
+  // ── MLP: form teams of 4 (2M+2F) → server-side bracket → play ────────────
+  if (isMlp) {
+    step(`Forming MLP teams (${TEAM_CREATE})`);
+    if (TEAM_CREATE === 'random') {
+      // Same RPC as the app's "Generate Random Teams" button.
+      const { data: nTeams, error: ge } = await host.client.rpc('generate_random_mlp_teams',
+        { p_tournament_id: t!.id, p_mode: 'snake' });
+      if (ge) return die('generate_random_mlp_teams: ' + ge.message);
+      log(`  ✓ ${nTeams} random MLP team(s) generated`);
+    } else {
+      // Fixed teams via the real captain flow: create team → invite 3 → accept.
+      // Sim players alternate M/F by index, so consecutive chunks of 4 are 2M+2F.
+      const idToEmail = new Map<string, string>();
+      for (const u of names) { const a = await signIn(u); idToEmail.set(a.id, u); }
+      for (let i = 0; i + 3 < playerIds.length; i += 4) {
+        const chunk = playerIds.slice(i, i + 4);
+        const capEmail = idToEmail.get(chunk[0])!;
+        const captain = await signIn(capEmail);
+        const { data: teamId, error: ce } = await captain.client.rpc('create_mlp_team',
+          { p_tournament_id: t!.id, p_name: `[SIM] Team ${i / 4 + 1}` });
+        if (ce) { log(`  ⚠ create team: ${ce.message}`); continue; }
+        for (const uid of chunk.slice(1)) {
+          const { data: reqId, error: ie } = await captain.client.rpc('mlp_invite',
+            { p_team_id: teamId, p_user_id: uid, p_message: null });
+          if (ie) { log(`  ⚠ invite ${idToEmail.get(uid)}: ${ie.message}`); continue; }
+          const member = await signIn(idToEmail.get(uid)!);
+          const { error: re } = await member.client.rpc('mlp_respond_to_join', { p_request_id: reqId, p_accept: true });
+          if (re) log(`  ⚠ ${idToEmail.get(uid)} accept: ${re.message}`);
+        }
+        // Bracket generation only counts LOCKED teams — captain locks once full.
+        const { error: le } = await captain.client.rpc('mlp_lock_team', { p_team_id: teamId });
+        log(le ? `  ⚠ lock team: ${le.message}` : `  ✓ [SIM] Team ${i / 4 + 1} formed + locked (captain ${capEmail.split('@')[0]})`);
+      }
+    }
+
+    step('Generating MLP schedule (generate_mlp_bracket)');
+    const { data: gen, error: be } = await host.client.rpc('generate_mlp_bracket', { p_tournament_id: t!.id });
+    if (be) return die('generate_mlp_bracket: ' + be.message);
+    log(`  ✓ schedule generated${gen != null ? ` (${JSON.stringify(gen)})` : ''}`);
+
+    if (PLAY) {
+      step('Playing MLP matches (entering scores)');
+      const { data: mlpMatches } = await admin.from('tournament_matches')
+        .select('id, team1_player1, team2_player1, status').eq('tournament_id', t!.id).order('match_order');
+      let played = 0;
+      for (const m of mlpMatches ?? []) {
+        if (!m.team1_player1 || !m.team2_player1 || m.status === 'completed') continue;
+        const t1Wins = Math.random() < 0.5;
+        const { error: ue } = await host.client.from('tournament_matches').update({
+          team1_score: t1Wins ? 11 : Math.floor(Math.random() * 9) + 1,
+          team2_score: t1Wins ? Math.floor(Math.random() * 9) + 1 : 11,
+          winner_team: t1Wins ? 'team1' : 'team2',
+          status: 'completed',
+        }).eq('id', m.id);
+        if (!ue) played++;
+      }
+      log(`  ✓ played ${played} MLP matches (auto-advance/playoff triggers take it from here)`);
+    }
+    log(`\n✓ MLP tournament "${tName}" ready` + (PLAY ? ' and played' : ''));
+    return;
+  }
+
   // 4. doubles pairing (fixed → pair RPCs; random → auto-paired at generation).
   //    Model: a captain creates a doubles_pair, invites the partner, partner
   //    accepts. All three are SECURITY DEFINER RPCs, called as the acting user.
@@ -254,6 +345,12 @@ async function tournamentScenario() {
   // 5. generate round 1 (mirrors the app's lock-in: rounds + tournament_matches, status→active)
   if (playerIds.length >= 2) {
     step('Generating round 1');
+    // PLUPR-based seeding needs the profile ratings; random ignores them.
+    let ratings: Record<string, number> = {};
+    if (SEEDING === 'elo') {
+      const { data: profs } = await admin.from('profiles').select('id, rating').in('id', playerIds);
+      for (const p of profs ?? []) ratings[p.id] = Number(p.rating);
+    }
     let pairings: MatchPairing[];
     const isTeamDoubles = MATCH_TYPE === 'doubles' && FORMAT !== 'rotating_partners';
     if (isTeamDoubles) {
@@ -276,10 +373,10 @@ async function tournamentScenario() {
       if (unpaired.length) return die(`${unpaired.length} approved player(s) not in a pair of 2 — doubles draws require full pairing (unpaired ids: ${unpaired.join(', ')})`);
       if (teams.length < 2) return die('need at least 2 complete doubles pairs');
       log(`  ✓ ${teams.length} complete teams of 2`);
-      try { pairings = generateTeamPairings(FORMAT, teams); }
+      try { pairings = generateTeamPairings(FORMAT, teams, ratings, SEEDING as 'random' | 'elo'); }
       catch (e: any) { return die('doubles bracket generation: ' + e.message); }
     } else {
-      try { pairings = generatePairings(FORMAT, playerIds); }
+      try { pairings = generatePairings(FORMAT, playerIds, ratings, SEEDING as 'random' | 'elo'); }
       catch (e: any) { return die('bracket generation: ' + e.message); }
     }
     const { data: round, error: rErr } = await host.client.from('tournament_rounds')
