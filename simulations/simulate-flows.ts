@@ -40,7 +40,8 @@ const FORMAT     = val('--format', 'round_robin');
 const MATCH_TYPE = val('--match-type', 'singles');       // singles | doubles | mlp
 const TEAM_CREATE = val('--team-creation', 'fixed');     // doubles & MLP; singles ignores it
 const SEEDING    = val('--seeding', 'random');           // random | elo (PLUPR-based)
-const PLAYOFF    = val('--playoff-format', 'none');      // none | top_2 | top_4 | top_8
+const PLAYOFF    = val('--playoff-format', 'none');      // none | top_2/4/8 | top_1/2_per_pool (non-MLP pool_play)
+const THIRD_PLACE = has('--third-place');                // top_4 / top_8 playoffs only
 const POOL_COUNT = Number(val('--pool-count', '2'));     // pool_play only
 const REG_MODE   = val('--registration-mode', 'request');
 const LEAGUE_MODE = val('--league-mode', 'open');
@@ -191,11 +192,14 @@ async function tournamentScenario() {
   // but lands in the DB as format mlp/mlp_random (by team creation) with
   // match_type doubles and the mlp_* columns derived from format + playoff.
   const isMlp = MATCH_TYPE === 'mlp';
-  if (isMlp && FORMAT !== 'round_robin' && FORMAT !== 'pool_play') {
-    return die(`MLP supports --format round_robin or pool_play (got ${FORMAT})`);
-  }
   if (isMlp && (N_USERS < 8 || N_USERS % 4 !== 0)) {
     return die(`MLP needs a multiple of 4 players, at least 8 (got ${N_USERS}) — teams are 2 men + 2 women`);
+  }
+  if (MATCH_TYPE === 'singles' && FORMAT === 'rotating_partners') {
+    return die('rotating_partners is doubles-only (the app flips Team Type to Doubles for it)');
+  }
+  if (isMlp && PLAYOFF.endsWith('_per_pool')) {
+    return die('per-pool playoffs are non-MLP pool_play only');
   }
   const dbFormat = isMlp ? (TEAM_CREATE === 'random' ? 'mlp_random' : 'mlp') : FORMAT;
   const dbMatchType = isMlp ? 'doubles' : MATCH_TYPE;
@@ -213,15 +217,20 @@ async function tournamentScenario() {
     seeding: SEEDING, pool_count: FORMAT === 'pool_play' && !isMlp ? POOL_COUNT : 1,
   };
   if (isMlp) {
+    // Mirrors the app's payload mapping exactly — including its coercion of
+    // non-RR/pool formats to round-robin play for MLP.
     const hasPlayoff = PLAYOFF !== 'none';
     payload.mlp_play_format = FORMAT === 'pool_play'
       ? (hasPlayoff ? 'pool_play_playoff' : 'pool_play')
       : (hasPlayoff ? 'round_robin_playoff' : 'round_robin');
     payload.mlp_pool_count = FORMAT === 'pool_play' ? POOL_COUNT : 2;
     payload.mlp_playoff_teams = PLAYOFF === 'top_2' ? 2 : PLAYOFF === 'top_8' ? 8 : 4;
+    if (FORMAT !== 'round_robin' && FORMAT !== 'pool_play') {
+      log(`  (MLP + ${FORMAT} coerces to ${payload.mlp_play_format} — same as the app)`);
+    }
   } else if (FORMAT === 'round_robin' || FORMAT === 'pool_play') {
     payload.playoff_format = PLAYOFF;
-    payload.playoff_third_place = false;
+    payload.playoff_third_place = (PLAYOFF === 'top_4' || PLAYOFF === 'top_8') && THIRD_PLACE;
   }
   const { data: t, error: te } = await host.client.from('tournaments').insert(payload).select('id').single();
   if (te) die('create tournament: ' + te.message);

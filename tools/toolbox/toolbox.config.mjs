@@ -56,29 +56,35 @@ export default {
         { name: 'users', flag: '--users', type: 'number', default: 8, help: 'sim players to involve (MLP: multiple of 4, min 8)' },
         // Team Type
         { name: 'match-type', flag: '--match-type', type: 'select', options: ['singles', 'doubles', 'mlp'], default: 'singles', help: 'Team Type — mlp = MLP team tournament (doubles under the hood, teams of 2M+2F)', showIf: { scenario: ['tournament'] } },
-        // Format — options depend on Team Type (MLP: RR/pool only; rotating partners is doubles-only)
+        // Format — the app shows all 5 cards to every Team Type. Two app rules
+        // mirrored here: singles can't pick rotating_partners (the app flips it
+        // to doubles), and MLP coerces non-RR/pool formats to round-robin play
+        // at insert (same as the app's payload mapping).
         { name: 'format', flag: '--format', type: 'select', default: 'round_robin', showIf: { scenario: ['tournament'] },
+          help: 'MLP: single/double elim + rotating coerce to round-robin play (same as the app)',
           options: { __by: 'match-type', default: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play'], map: {
             singles: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play'],
             doubles: ['round_robin', 'single_elimination', 'double_elimination', 'pool_play', 'rotating_partners'],
-            mlp:     ['round_robin', 'pool_play'],
+            mlp:     ['round_robin', 'single_elimination', 'double_elimination', 'pool_play', 'rotating_partners'],
           } } },
         // Bracket Seeding
         { name: 'seeding', flag: '--seeding', type: 'select', options: ['random', 'elo'], default: 'random', help: 'Bracket Seeding — random draw vs PLUPR-based (elo)', showIf: { scenario: ['tournament'] } },
-        // Playoff Format — only for round_robin / pool_play; options differ by (team-type, format)
+        // Playoff Format — round_robin / pool_play only. Base options are always
+        // None/Top 2/Top 4/Top 8; non-MLP pool_play ADDS the per-pool pair.
         { name: 'playoff-format', flag: '--playoff-format', type: 'select', default: 'none',
           help: 'playoff after group play',
           showIf: { scenario: ['tournament'], format: ['round_robin', 'pool_play'] },
-          options: { __by: ['match-type', 'format'], default: ['none'], map: {
-            'singles|round_robin': ['none', 'top_2', 'top_4', 'top_8'],
-            'doubles|round_robin': ['none', 'top_2', 'top_4', 'top_8'],
-            'mlp|round_robin':     ['none', 'top_2', 'top_4', 'top_8'],
-            'singles|pool_play':   ['none', 'top_1_per_pool', 'top_2_per_pool'],
-            'doubles|pool_play':   ['none', 'top_1_per_pool', 'top_2_per_pool'],
-            'mlp|pool_play':       ['none', 'top_2', 'top_4', 'top_8'],
+          options: { __by: ['match-type', 'format'], default: ['none', 'top_2', 'top_4', 'top_8'], map: {
+            'singles|pool_play': ['none', 'top_2', 'top_4', 'top_8', 'top_1_per_pool', 'top_2_per_pool'],
+            'doubles|pool_play': ['none', 'top_2', 'top_4', 'top_8', 'top_1_per_pool', 'top_2_per_pool'],
           } } },
-        // Pool count — pool_play only
-        { name: 'pool-count', flag: '--pool-count', type: 'number', default: 2, help: 'number of pools', showIf: { scenario: ['tournament'], format: ['pool_play'] } },
+        // Third Place Match — top_4 / top_8 playoffs only (same toggle as the app)
+        { name: 'third-place', flag: '--third-place', type: 'checkbox', help: 'losing semifinalists play a 3rd-place match',
+          showIf: { scenario: ['tournament'], format: ['round_robin', 'pool_play'], 'playoff-format': ['top_4', 'top_8'] } },
+        // Pool count — pool_play only; the app offers 2/3/4/6 (MLP caps at 4)
+        { name: 'pool-count', flag: '--pool-count', type: 'select', default: '2', help: 'number of pools',
+          showIf: { scenario: ['tournament'], format: ['pool_play'] },
+          options: { __by: 'match-type', default: ['2', '3', '4', '6'], map: { mlp: ['2', '3', '4'] } } },
         // Team Creation — doubles & MLP only (singles has no teams)
         { name: 'team-creation', flag: '--team-creation', type: 'select', options: ['fixed', 'random'], default: 'fixed', help: 'fixed = players pair/team up via the real RPC flows; random = auto-generated', showIf: { scenario: ['tournament'], 'match-type': ['doubles', 'mlp'] } },
         { name: 'registration-mode', flag: '--registration-mode', type: 'select', options: ['request', 'invite_only'], default: 'request', help: 'request = self-requests + admin approvals; invite_only = invites + accepts', showIf: { scenario: ['tournament'] } },
