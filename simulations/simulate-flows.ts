@@ -1609,6 +1609,254 @@ async function leagueDeepScenario() {
   log(`✓ league "${lName}" left in place for app inspection (${lid})`);
 }
 
+// ── league-marathon scenario ────────────────────────────────────────────────
+// Leagues under sustained load: dozens of confirmed matches across period
+// windows, full tournaments run FROM WITHIN the league (league weight 1.0 /
+// global 0.0 verified exactly), and TWO complete seasons back to back —
+// period locks, cumulative vs season-scoped win counts, median-rank final
+// standings, league-scoped soft resets, and cross-season data isolation.
+async function leagueMarathonScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  const lName = `[SIM] marathon league ${stamp}`;
+  step(`League marathon: "${lName}" — 2 seasons, in-league tournaments, heavy match volume`);
+  const c = new Checker();
+  const names = await pickSimPlayers(8);
+  const A: Actor[] = [];
+  for (const n of names) A.push(await signIn(n));
+  const host = A[0];
+  const uids = A.map(a => a.id);
+  const days = (n: number) => new Date(Date.now() + n * 86400_000);
+  const dstr = (n: number) => days(n).toISOString().slice(0, 10);
+
+  const { data: lg, error: lgErr } = await host.client.from('leagues').insert({
+    name: lName, created_by: host.id, is_open: true, home_court: 'Bladium Sports & Fitness Club',
+  }).select('id').single();
+  if (lgErr || !lg) die('create league: ' + (lgErr?.message ?? 'no row'));
+  const lid = lg!.id;
+  for (const a of A) await a.client.from('league_members').insert({ league_id: lid, user_id: a.id, role: a === host ? 'admin' : 'member' });
+
+  const leagueRatings = async () => {
+    const { data } = await admin.from('league_player_ratings').select('user_id, rating').eq('league_id', lid);
+    return new Map((data ?? []).map((r: any) => [r.user_id, Number(r.rating)]));
+  };
+  const globalRatings = async () => {
+    const { data } = await admin.from('profiles').select('id, rating').in('id', uids);
+    return new Map((data ?? []).map((r: any) => [r.id, Number(r.rating)]));
+  };
+
+  // Record a completed league match (recorder inserts pending + auto-confirms
+  // their side; the opponent confirms via the real RPC) with a backdated
+  // played_at so it lands inside a specific season/period window.
+  const winTally = new Map<string, number>();
+  let matchCount = 0;
+  const playMatch = async (i1: number, i2: number, playedAt: Date) => {
+    const [pa, pb] = [A[i1], A[i2]];
+    const aWins = Math.random() < 0.5 + (i1 < i2 ? 0.2 : -0.2); // seeded-ish skew for stable ranks
+    const { data: m, error } = await pa.client.from('matches').insert({
+      league_id: lid, match_type: 'singles', status: 'pending',
+      player1_id: pa.id, player2_id: pb.id,
+      player1_score: aWins ? 11 : 5 + Math.floor(Math.random() * 5),
+      player2_score: aWins ? 5 + Math.floor(Math.random() * 5) : 11,
+      winner_id: aWins ? pa.id : pb.id, winner_team: aWins ? 'team1' : 'team2',
+      team1_confirmed_by: pa.id,
+      confirm_deadline: new Date(Date.now() + 3600_000).toISOString(),
+      played_at: playedAt.toISOString(),
+      location_name: 'Bladium Sports & Fitness Club', is_home_court: true, was_home_court: true, is_outdoor: false,
+    }).select('id').single();
+    if (error) die('record match: ' + error.message);
+    const { error: ce } = await pb.client.rpc('confirm_match', { p_match_id: m!.id });
+    if (ce) die('confirm match: ' + ce.message);
+    winTally.set(aWins ? pa.id : pb.id, (winTally.get(aWins ? pa.id : pb.id) ?? 0) + 1);
+    matchCount++;
+  };
+  const playBatch = async (count: number, fromDay: number, toDay: number) => {
+    for (let k = 0; k < count; k++) {
+      let i1 = Math.floor(Math.random() * 8);
+      let i2 = Math.floor(Math.random() * 8);
+      if (i1 === i2) i2 = (i2 + 1) % 8;
+      const t = days(fromDay).getTime() + Math.random() * (days(toDay).getTime() - days(fromDay).getTime());
+      await playMatch(i1, i2, new Date(t));
+    }
+    log(`  ✓ ${count} matches recorded + confirmed (${matchCount} total)`);
+  };
+
+  // Full round-robin tournament INSIDE the league, played to completion.
+  const runLeagueTournament = async (label: string) => {
+    const gBefore = await globalRatings();
+    const lBefore = await leagueRatings();
+    const { data: t, error: te } = await host.client.from('tournaments').insert({
+      name: `${lName} · ${label}`, created_by: host.id, format: 'round_robin', match_type: 'singles',
+      registration_mode: 'request', team_creation: 'fixed', status: 'registration',
+      seeding: 'random', pool_count: 1, league_id: lid, location_name: 'Bladium Sports & Fitness Club',
+    }).select('id').single();
+    if (te) die(`create ${label}: ` + te.message);
+    await host.client.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: host.id, status: 'approved', role: 'admin' });
+    for (const a of A.slice(1)) {
+      await a.client.from('tournament_registrations').insert({ tournament_id: t!.id, user_id: a.id });
+      const { data: reg } = await admin.from('tournament_registrations').select('id').eq('tournament_id', t!.id).eq('user_id', a.id).single();
+      await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg!.id);
+    }
+    const { data: round } = await host.client.from('tournament_rounds')
+      .insert({ tournament_id: t!.id, round_number: 1, label: 'Round Robin Schedule', round_type: 'winners' })
+      .select('id').single();
+    const pairings = generateRoundRobin(uids);
+    const rows = pairings.map((m, i) => ({
+      tournament_id: t!.id, round_id: round!.id, match_order: i, match_type: 'singles',
+      team1_player1: m.team1[0], team2_player1: m.team2[0],
+    }));
+    await host.client.from('tournament_matches').insert(rows);
+    await host.client.from('tournaments').update({ status: 'active' }).eq('id', t!.id);
+    let i = 0;
+    for (const uid of uids) {
+      await host.client.from('tournament_registrations').update({ seed: ++i }).eq('tournament_id', t!.id).eq('user_id', uid);
+    }
+    const { data: tms } = await admin.from('tournament_matches').select('id').eq('tournament_id', t!.id);
+    for (const m of tms ?? []) {
+      const t1Wins = Math.random() < 0.5;
+      await host.client.from('tournament_matches').update({
+        team1_score: t1Wins ? 11 : Math.floor(Math.random() * 9) + 1,
+        team2_score: t1Wins ? Math.floor(Math.random() * 9) + 1 : 11,
+        winner_team: t1Wins ? 'team1' : 'team2', status: 'completed',
+      }).eq('id', m.id);
+    }
+    const { error: compErr } = await host.client.rpc('admin_complete_tournament', { p_tournament_id: t!.id });
+    const { data: tAfter } = await admin.from('tournaments').select('status').eq('id', t!.id).single();
+    c.check('league-tournament', `${label}: ${rows.length}-match round robin completes inside the league`,
+      compErr == null && tAfter?.status === 'completed', compErr?.message ?? `status=${tAfter?.status}`);
+
+    const gAfter = await globalRatings();
+    const lAfter = await leagueRatings();
+    const gMoved = uids.filter(u => Math.abs((gAfter.get(u) ?? 0) - (gBefore.get(u) ?? 0)) > 0.0005);
+    const lMoved = uids.filter(u => Math.abs((lAfter.get(u) ?? 0) - (lBefore.get(u) ?? 0)) > 0.0005);
+    c.check('league-tournament', `${label}: GLOBAL PLUPRs untouched (league tournament weight 0.0)`, gMoved.length === 0,
+      `moved: ${gMoved.map(u => u.slice(0, 8)).join(',')}`);
+    c.check('league-tournament', `${label}: league PLUPRs moved (weight 1.0)`, lMoved.length >= 4, `moved=${lMoved.length}`);
+    return t!.id;
+  };
+
+  // ── Season 1: two periods + a tournament in the middle ───────────────────
+  step('Season 1: 2 periods, 32 matches, tournament mid-season');
+  const { data: s1, error: s1e } = await host.client.from('league_seasons').insert({
+    league_id: lid, name: `[SIM] marathon S1 ${stamp}`, created_by: host.id,
+    start_date: dstr(-42), end_date: dstr(-14), total_weeks: 4, lock_frequency_weeks: 2, status: 'active',
+  }).select('id, baseline_plupr').single();
+  if (s1e) die('create season 1: ' + s1e.message);
+  const baseline = Number(s1!.baseline_plupr ?? 3.5);
+
+  await playBatch(16, -42, -36);
+  const preLockL = await leagueRatings();
+  const { error: l1e } = await host.client.rpc('lock_season_period', { p_season_id: s1!.id, p_period_number: 1, p_snapshot_date: dstr(-35) });
+  c.check('season1', 'period 1 locks', l1e == null, l1e?.message);
+  const { data: snap1 } = await admin.from('season_snapshots')
+    .select('user_id, elo_at_snapshot, rank_at_snapshot, wins_in_season').eq('season_id', s1!.id).eq('period_number', 1);
+  c.check('season1', 'P1 snapshot covers all 8 members', (snap1?.length ?? 0) === 8, `rows=${snap1?.length}`);
+  const snapOrder = [...(snap1 ?? [])].sort((a: any, b: any) => a.rank_at_snapshot - b.rank_at_snapshot);
+  const orderedByRating = snapOrder.every((s: any, i: number, arr: any[]) =>
+    i === 0 || Number(arr[i - 1].elo_at_snapshot) >= Number(s.elo_at_snapshot) - 1e-9);
+  c.check('season1', 'P1 ranks ordered by pre-lock league rating', orderedByRating,
+    JSON.stringify(snapOrder.map((s: any) => [s.rank_at_snapshot, s.elo_at_snapshot])));
+  const p1SnapOk = snapOrder.every((s: any) =>
+    Math.abs(Number(s.elo_at_snapshot) - (preLockL.get(s.user_id) ?? baseline)) < 0.005);
+  c.check('season1', 'P1 snapshot stores the ending league PLUPR per player', p1SnapOk);
+  const winsOk = (snap1 ?? []).every((s: any) => s.wins_in_season === (winTally.get(s.user_id) ?? 0));
+  c.check('season1', 'P1 wins_in_season match the recorded results exactly', winsOk,
+    JSON.stringify((snap1 ?? []).map((s: any) => [s.wins_in_season, winTally.get(s.user_id) ?? 0])));
+  const postL1 = await leagueRatings();
+  const resetOk = uids.every(u => {
+    const r = postL1.get(u) ?? 0;
+    return r >= baseline - 0.005 && r <= baseline + 0.2 + 0.005;
+  });
+  c.check('season1', 'P1 soft reset: league ratings at baseline + rank bonus', resetOk,
+    JSON.stringify([...postL1.values()]));
+
+  await runLeagueTournament('S1 midseason open');
+
+  await playBatch(16, -34, -16);
+  const { error: l2e } = await host.client.rpc('lock_season_period', { p_season_id: s1!.id, p_period_number: 2, p_snapshot_date: dstr(-15) });
+  c.check('season1', 'period 2 locks', l2e == null, l2e?.message);
+  const { data: snap2 } = await admin.from('season_snapshots')
+    .select('user_id, wins_in_season').eq('season_id', s1!.id).eq('period_number', 2);
+  const cumulativeOk = (snap2 ?? []).every((s: any) => s.wins_in_season === (winTally.get(s.user_id) ?? 0));
+  c.check('season1', 'P2 wins_in_season are season-cumulative (P1+P2 matches)', cumulativeOk,
+    JSON.stringify((snap2 ?? []).map((s: any) => [s.wins_in_season, winTally.get(s.user_id) ?? 0])));
+
+  const gBeforeComplete = await globalRatings();
+  const { error: c1e } = await host.client.rpc('complete_season', { p_season_id: s1!.id });
+  c.check('season1', 'complete_season succeeds', c1e == null, c1e?.message);
+  const gAfterComplete = await globalRatings();
+  const gStable = uids.every(u => Math.abs((gAfterComplete.get(u) ?? 0) - (gBeforeComplete.get(u) ?? 0)) < 0.0005);
+  c.check('season1', 'completing the season does NOT touch global PLUPRs (league-scoped reset)', gStable,
+    JSON.stringify(uids.map(u => [gBeforeComplete.get(u), gAfterComplete.get(u)])));
+  const { data: fin1 } = await admin.from('season_final_standings')
+    .select('user_id, final_rank, median_rank, elo_bonus, new_elo').eq('season_id', s1!.id);
+  c.check('season1', 'final standings written for all 8', (fin1?.length ?? 0) === 8, `rows=${fin1?.length}`);
+  // median-rank contract: recompute from snapshots and compare the ordering
+  const { data: allSnaps } = await admin.from('season_snapshots')
+    .select('user_id, rank_at_snapshot').eq('season_id', s1!.id);
+  const medianOf = (xs: number[]) => {
+    const s = [...xs].sort((a, b) => a - b);
+    const mid = Math.floor(s.length / 2);
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  };
+  const medians = new Map<string, number>();
+  for (const u of uids) {
+    medians.set(u, medianOf((allSnaps ?? []).filter((s: any) => s.user_id === u).map((s: any) => s.rank_at_snapshot)));
+  }
+  const medianOk = (fin1 ?? []).every((f: any) => Math.abs(Number(f.median_rank) - (medians.get(f.user_id) ?? -1)) < 0.001);
+  c.check('season1', 'final median_rank matches the per-period snapshot medians', medianOk,
+    JSON.stringify((fin1 ?? []).map((f: any) => [f.median_rank, medians.get(f.user_id)])));
+  const crown = (fin1 ?? []).find((f: any) => f.final_rank === 1);
+  const { data: crownBadge } = crown ? await admin.from('player_badges')
+    .select('id, badge:badges(name)').eq('user_id', crown.user_id).eq('league_id', lid) : { data: null } as any;
+  c.check('season1', 'Season Crown badge awarded to the #1 finisher',
+    (crownBadge ?? []).some((b: any) => b.badge?.name === 'Season Crown'), JSON.stringify(crownBadge?.map((b: any) => b.badge?.name)));
+  const { error: dblErr } = await host.client.rpc('complete_season', { p_season_id: s1!.id });
+  c.check('season1', 'double-complete is blocked (elo_reset_applied guard)', dblErr != null && /already/i.test(dblErr.message), dblErr?.message);
+
+  // ── Season 2: fresh window, isolation from season 1 ──────────────────────
+  step('Season 2: fresh window, tournament, cross-season isolation');
+  const s1Wins = new Map(winTally);
+  winTally.clear();
+  const { data: s2, error: s2e } = await host.client.from('league_seasons').insert({
+    league_id: lid, name: `[SIM] marathon S2 ${stamp}`, created_by: host.id,
+    start_date: dstr(-13), end_date: dstr(14), total_weeks: 2, lock_frequency_weeks: 2, status: 'active',
+  }).select('id').single();
+  if (s2e) die('create season 2: ' + s2e.message);
+
+  await playBatch(16, -13, -1);
+  await runLeagueTournament('S2 winter classic');
+
+  const { error: l3e } = await host.client.rpc('lock_season_period', { p_season_id: s2!.id, p_period_number: 1, p_snapshot_date: dstr(0) });
+  c.check('season2', 'S2 period 1 locks', l3e == null, l3e?.message);
+  const { data: s2snap } = await admin.from('season_snapshots')
+    .select('user_id, wins_in_season').eq('season_id', s2!.id).eq('period_number', 1);
+  const isolated = (s2snap ?? []).every((s: any) => s.wins_in_season === (winTally.get(s.user_id) ?? 0));
+  c.check('season2', 'S2 wins count ONLY season-2 matches (no bleed from season 1)', isolated,
+    JSON.stringify((s2snap ?? []).map((s: any) => [s.user_id.slice(0, 8), s.wins_in_season, winTally.get(s.user_id) ?? 0, `s1=${s1Wins.get(s.user_id) ?? 0}`])));
+  const { error: c2e } = await host.client.rpc('complete_season', { p_season_id: s2!.id });
+  c.check('season2', 'S2 completes', c2e == null, c2e?.message);
+
+  // cross-season integrity
+  const { count: snapCount } = await admin.from('season_snapshots').select('id', { count: 'exact', head: true })
+    .in('season_id', [s1!.id, s2!.id]);
+  const { count: finCount } = await admin.from('season_final_standings').select('id', { count: 'exact', head: true })
+    .in('season_id', [s1!.id, s2!.id]);
+  c.check('cross-season', 'both seasons keep full snapshot history (2+1 periods × 8)', (snapCount ?? 0) === 24, `snapshots=${snapCount}`);
+  c.check('cross-season', 'both seasons keep final standings (8 + 8)', (finCount ?? 0) === 16, `finals=${finCount}`);
+  const { data: seasonsAfter } = await admin.from('league_seasons').select('id, status, elo_reset_applied').in('id', [s1!.id, s2!.id]);
+  c.check('cross-season', 'both seasons completed with resets applied',
+    (seasonsAfter ?? []).every((s: any) => s.status === 'completed' && s.elo_reset_applied === true), JSON.stringify(seasonsAfter));
+  const { count: leagueMatches } = await admin.from('matches').select('id', { count: 'exact', head: true })
+    .eq('league_id', lid).eq('status', 'completed');
+  c.check('volume', `all ${matchCount} recorded matches completed (plus 2×28 tournament matches)`,
+    (leagueMatches ?? 0) === matchCount, `matches=${leagueMatches} expected=${matchCount}`);
+
+  const file = writeReport(c, lName, lid, { scenario: 'league-marathon', matches: matchCount });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ league "${lName}" left in place with 2 completed seasons (${lid})`);
+}
+
 // ── extras scenario: reminders, drilling, shop/badges ───────────────────────
 // The thinner surfaces: every remind_* cron fires the right notifications for
 // in-window fixtures (and is idempotent), the drill request → accept →
@@ -2121,6 +2369,7 @@ async function waitlistScenario() {
   else if (SCENARIO === 'refunds') await refundsScenario();
   else if (SCENARIO === 'league-deep') await leagueDeepScenario();
   else if (SCENARIO === 'extras') await extrasScenario();
+  else if (SCENARIO === 'league-marathon') await leagueMarathonScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));
