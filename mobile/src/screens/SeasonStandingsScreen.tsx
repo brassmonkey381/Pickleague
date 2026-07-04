@@ -835,6 +835,16 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
             ? `In progress · ${fmtDate(pStart)} → ${fmtDate(period.date)} · W/L from matches played so far`
             : `Computed from matches played ${fmtDate(pStart)} → ${fmtDate(period.date)} — not yet locked in`;
 
+        // Starting PLUPR for THIS period: everyone opens period 1 at the season
+        // baseline; later periods open at baseline + the rank bonus earned in
+        // the PREVIOUS period's lock (the soft-reset value). Ending PLUPR is
+        // the raw rating at this period's lock — no adjustments.
+        const prevPeriod = periods.find(pp => pp.periodNumber === period.periodNumber - 1);
+        const startPluprFor = (userId: string) =>
+          period.periodNumber <= 1
+            ? baseline
+            : baseline + bonusForRank(prevPeriod?.rows.find(r => r.user_id === userId)?.rank_at_snapshot ?? 0);
+
         return (
           <>
           <View style={S.tableCard}>
@@ -848,11 +858,10 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               <Text style={S.th}>W</Text>
               <Text style={S.th}>L</Text>
               <Text style={S.th}>STARTING PLUPR</Text>
-              <Text style={S.th}>PLUPR</Text>
+              <Text style={S.th}>ENDING PLUPR</Text>
             </View>
             {period.rows.map((row, i) => {
-              const bonus = bonusForRank(row.rank_at_snapshot);
-              const newPlupr = baseline + bonus;
+              const startPlupr = startPluprFor(row.user_id);
               return (
                 <TouchableOpacity
                   key={row.user_id}
@@ -899,7 +908,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                   </View>
                   <Text style={[S.td, S.tdWin]}>{row.wins_in_season}</Text>
                   <Text style={[S.td, S.tdLoss]}>{row.losses_in_season}</Text>
-                  <Text style={[S.td, S.tdNewElo]}>{newPlupr.toFixed(2)}</Text>
+                  <Text style={[S.td, S.tdNewElo]}>{startPlupr.toFixed(2)}</Text>
                   <Text style={S.td}>{Number(row.elo_at_snapshot ?? baseline).toFixed(2)}</Text>
                 </TouchableOpacity>
               );
