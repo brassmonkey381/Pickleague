@@ -6,7 +6,11 @@
     "brackets": "tsx brackets.ts",
     "rotating-partners": "tsx sweep-rotating-partners.ts",
     "sweep-doubles": "tsx sweep-doubles.ts",
-    "sweep-mlp-schedule": "tsx sweep-mlp-schedule.ts"
+    "sweep-mlp-schedule": "tsx sweep-mlp-schedule.ts",
+    "flows": "tsx simulate-flows.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.3"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
