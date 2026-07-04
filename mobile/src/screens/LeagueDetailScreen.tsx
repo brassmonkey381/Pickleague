@@ -441,15 +441,12 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     }).eq('id', leagueId);
     if (error) { editStatus.error(error.message); setSaving(false); return; }
 
-    // Re-derive is_home_court on existing matches only if home court changed
+    // Re-derive is_home_court on existing matches only if home court changed.
+    // Server-side RPC: `matches` has no RLS UPDATE policy, so the old
+    // per-row client updates silently no-opped (matched zero rows).
     if (homeCourtChanged) {
-      const { data: allMatches } = await supabase.from('matches').select('id, location_name').eq('league_id', leagueId);
-      if (allMatches) {
-        for (const m of allMatches) {
-          const isHome = !!(m.location_name && newCourtName && m.location_name === newCourtName);
-          await supabase.from('matches').update({ is_home_court: isHome }).eq('id', m.id);
-        }
-      }
+      const { error: relabelErr } = await supabase.rpc('relabel_league_home_court', { p_league_id: leagueId });
+      if (relabelErr) editStatus.error(`Home court saved, but match relabeling failed: ${relabelErr.message}`);
     }
 
     setSaving(false);

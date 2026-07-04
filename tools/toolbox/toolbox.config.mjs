@@ -52,7 +52,7 @@ export default {
       // format (round_robin & MLP → top_2/4/8; non-MLP pool_play → per-pool).
       // Team Creation only for doubles & MLP; pool count only for pool_play.
       fields: [
-        { name: 'scenario', flag: '--scenario', type: 'select', options: ['tournament', 'league', 'guest', 'waitlist', 'cleanup'], default: 'tournament', help: 'guest = full guest-invite lifecycle (event → anonymous redeem → vote → upgrade); waitlist = min/max players + full-tournament waitlist (overflow requests waitlisted, capacity guard, FIFO auto-promotion)' },
+        { name: 'scenario', flag: '--scenario', type: 'select', options: ['tournament', 'league', 'league-deep', 'guest', 'waitlist', 'refunds', 'cleanup'], default: 'tournament', help: 'league-deep = full league lifecycle (membership/roles/codes, match confirm flow + rating weights, season period locks, period-rank wagers, pots, events, deletion refunds); guest = guest-invite lifecycle; waitlist = min/max + waitlist; refunds = tournament ante/cancel/delete refund economy' },
         { name: 'users', flag: '--users', type: 'number', default: 8, help: 'sim players to involve (MLP: multiple of 4, min 8)' },
         // Team Type
         { name: 'match-type', flag: '--match-type', type: 'select', options: ['singles', 'doubles', 'mlp'], default: 'singles', help: 'Team Type — mlp = MLP team tournament (doubles under the hood, teams of 2M+2F)', showIf: { scenario: ['tournament'] } },

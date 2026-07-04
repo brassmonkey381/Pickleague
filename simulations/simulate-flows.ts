@@ -1301,6 +1301,314 @@ async function stagedMidplayStop(host: Actor, tId: string, tName: string, names:
   log(`✓ tournament "${tName}" left ACTIVE mid-round-1 (${tId})`);
 }
 
+// ── league-deep scenario ────────────────────────────────────────────────────
+// Full league lifecycle as signed-in sim users: membership/roles/invite codes
+// + RLS probes, the match confirm flow with rating weights and per-court
+// ratings, season periods (locks, bonuses, soft reset), period-rank wagers
+// (place → settle on lock; cancel → refund), events + voting, league/season
+// pot economy, and deletion refunds. The league is left in place.
+async function leagueDeepScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  const lName = `[SIM] deep league ${stamp}`;
+  step(`League deep scenario: "${lName}"`);
+  const c = new Checker();
+  const names = await pickSimPlayers(6);
+  const A: Actor[] = [];
+  for (const n of names) A.push(await signIn(n));
+  const [host, p2, p3, p4, p5, p6] = A;
+  const startedAt = new Date().toISOString();
+
+  const balOf = async (uid: string) =>
+    Number((await admin.from('profiles').select('pickles').eq('id', uid).single()).data?.pickles ?? 0);
+
+  // ── S1: membership, roles, invite codes ─────────────────────────────────
+  step('S1: membership, roles, invite codes, RLS probes');
+  const { data: lg, error: le } = await host.client.from('leagues').insert({
+    name: lName, description: 'deep sweep', created_by: host.id, is_open: true,
+    home_court: 'Bladium Sports & Fitness Club',
+  }).select('id').single();
+  if (le) die('create league: ' + le.message);
+  const lid = lg!.id;
+  await host.client.from('league_members').insert({ league_id: lid, user_id: host.id, role: 'admin' });
+
+  for (const a of [p2, p3, p4]) {
+    const { error } = await a.client.from('league_members').insert({ league_id: lid, user_id: a.id, role: 'member' });
+    if (error) die(`${a.username} join: ${error.message}`);
+  }
+  // RLS probe: self-join as admin must be rejected (role escalation)
+  const { error: escErr } = await p5.client.from('league_members').insert({ league_id: lid, user_id: p5.id, role: 'admin' });
+  c.check('membership', 'self-join as admin is BLOCKED (role escalation)', escErr != null, escErr?.message ?? 'insert succeeded!');
+  await p5.client.from('league_members').insert({ league_id: lid, user_id: p5.id, role: 'member' });
+
+  // role promotion by admin; member self-promotion blocked
+  const { error: promoErr } = await host.client.from('league_members')
+    .update({ role: 'co-admin' }).eq('league_id', lid).eq('user_id', p5.id);
+  const { data: p5m } = await admin.from('league_members').select('role').eq('league_id', lid).eq('user_id', p5.id).single();
+  c.check('membership', 'admin can promote a member to co-admin', promoErr == null && p5m?.role === 'co-admin',
+    promoErr?.message ?? `role=${p5m?.role}`);
+  await p2.client.from('league_members').update({ role: 'admin' }).eq('league_id', lid).eq('user_id', p2.id);
+  const { data: p2m } = await admin.from('league_members').select('role').eq('league_id', lid).eq('user_id', p2.id).single();
+  c.check('membership', 'member cannot self-promote', p2m?.role === 'member', `role=${p2m?.role}`);
+
+  // invite code: create as admin, redeem as p6
+  const { data: code, error: codeErr } = await host.client.rpc('create_invite_code', {
+    p_scope_type: 'league', p_scope_id: lid, p_max_uses: 2, p_expires_days: 7, p_pickle_subsidy: 0,
+  });
+  const codeRow = Array.isArray(code) ? code[0] : code;
+  const token = codeRow?.token ?? codeRow;
+  c.check('membership', 'admin can mint a league invite code', codeErr == null && !!token, codeErr?.message);
+  if (token) {
+    const { error: redeemErr } = await p6.client.rpc('redeem_invite_code', { p_token: token });
+    const { data: p6m } = await admin.from('league_members').select('id').eq('league_id', lid).eq('user_id', p6.id).maybeSingle();
+    c.check('membership', 'invite code redemption joins the league', redeemErr == null && !!p6m, redeemErr?.message);
+  }
+
+  // kick + rejoin
+  await host.client.from('league_members').delete().eq('league_id', lid).eq('user_id', p4.id);
+  const { data: p4gone } = await admin.from('league_members').select('id').eq('league_id', lid).eq('user_id', p4.id).maybeSingle();
+  c.check('membership', 'admin can remove a member', !p4gone);
+  await p4.client.from('league_members').insert({ league_id: lid, user_id: p4.id, role: 'member' });
+
+  // ── S2: match confirm flow, rating weights, courts ──────────────────────
+  step('S2: match recording → confirmation → ratings');
+  const ratingsOf = async (uid: string) => {
+    const { data: prof } = await admin.from('profiles').select('rating, singles_rating').eq('id', uid).single();
+    const { data: lr } = await admin.from('league_player_ratings').select('rating').eq('league_id', lid).eq('user_id', uid).maybeSingle();
+    return { global: Number(prof?.rating), singles: Number(prof?.singles_rating), league: lr ? Number(lr.rating) : null };
+  };
+  const b2 = await ratingsOf(p2.id); const b3 = await ratingsOf(p3.id);
+
+  const recordMatch = async (recorder: Actor, payload: Record<string, any>) => {
+    const { data, error } = await recorder.client.from('matches').insert({
+      league_id: lid, match_type: 'singles', status: 'pending',
+      confirm_deadline: new Date(Date.now() + 3600_000).toISOString(),
+      location_name: 'Bladium Sports & Fitness Club', is_home_court: true, was_home_court: true, is_outdoor: false,
+      ...payload,
+    }).select('id').single();
+    if (error) die('record match: ' + error.message);
+    return data!.id as string;
+  };
+  const m1 = await recordMatch(p2, {
+    player1_id: p2.id, player2_id: p3.id, player1_score: 11, player2_score: 7,
+    winner_id: p2.id, winner_team: 'team1', team1_confirmed_by: p2.id,
+  });
+  const mid2 = await ratingsOf(p2.id);
+  c.check('matches', 'ratings NOT applied while pending confirmation', mid2.global === b2.global && mid2.singles === b2.singles,
+    JSON.stringify({ before: b2, pending: mid2 }));
+
+  // outsider can't confirm
+  const { error: outsiderErr } = await p4.client.rpc('confirm_match', { p_match_id: m1 });
+  c.check('matches', 'non-participant cannot confirm a match', outsiderErr != null, outsiderErr?.message ?? 'confirm succeeded!');
+
+  const { error: confErr } = await p3.client.rpc('confirm_match', { p_match_id: m1 });
+  c.check('matches', 'opponent confirmation completes the match', confErr == null, confErr?.message);
+  const a2 = await ratingsOf(p2.id); const a3 = await ratingsOf(p3.id);
+  // PLUPR is margin-of-victory based (delta = K × (actual_diff − expected_diff)/10,
+  // see migration_plupr_margin_of_victory) — a favorite who wins by LESS than
+  // the ratings predict legitimately loses points. The invariants are
+  // symmetry (delta1 = −delta2 on league ratings) and the 0.5× global weight.
+  const dl2 = (a2.league ?? 0) - (b2.league ?? 0);
+  const dl3 = (a3.league ?? 0) - (b3.league ?? 0);
+  const dg2 = a2.global - b2.global;
+  c.check('matches', 'league PLUPR deltas applied symmetrically (delta1 = −delta2)',
+    dl2 !== 0 && Math.abs(dl2 + dl3) < 0.0021,
+    JSON.stringify({ p2: [b2.league, a2.league], p3: [b3.league, a3.league] }));
+  c.check('matches', 'global PLUPR moved at exactly half the league delta (weight 0.5)',
+    Math.abs(dg2 - dl2 / 2) < 0.0021 && dg2 !== 0,
+    JSON.stringify({ globalDelta: dg2, leagueDelta: dl2 }));
+  c.check('matches', 'singles facet rating moved', a2.singles !== b2.singles, `${b2.singles} -> ${a2.singles}`);
+  const { data: court } = await admin.from('player_location_ratings')
+    .select('rating, wins').eq('user_id', p2.id).eq('location_name', 'Bladium Sports & Fitness Club').eq('match_type', 'singles').maybeSingle();
+  c.check('matches', 'per-court rating row updated for the venue', !!court && (court.wins ?? 0) > 0, JSON.stringify(court));
+
+  // immutability: matches has NO RLS update/delete policy — direct writes must no-op
+  const { error: flipErr, count: flipCount } = await p3.client.from('matches')
+    .update({ winner_id: p3.id, winner_team: 'team2' }, { count: 'exact' }).eq('id', m1);
+  const { data: m1After } = await admin.from('matches').select('winner_id').eq('id', m1).single();
+  c.check('matches', 'loser cannot rewrite a completed match (RLS)', m1After?.winner_id === p2.id,
+    `winner=${m1After?.winner_id?.slice(0, 8)} err=${flipErr?.message} count=${flipCount}`);
+  const { error: mdelErr } = await p3.client.from('matches').delete().eq('id', m1);
+  const { count: m1Still } = await admin.from('matches').select('id', { count: 'exact', head: true }).eq('id', m1);
+  c.check('matches', 'participant cannot delete match history (RLS)', (m1Still ?? 0) === 1, mdelErr?.message ?? `rows=${m1Still}`);
+
+  // expiry: past-deadline pending match can't be confirmed; expiry cron removes it
+  const mExp = await recordMatch(p3, {
+    player1_id: p3.id, player2_id: p4.id, player1_score: 11, player2_score: 9,
+    winner_id: p3.id, winner_team: 'team1', team1_confirmed_by: p3.id,
+    confirm_deadline: new Date(Date.now() - 60_000).toISOString(),
+  });
+  const { error: expErr } = await p4.client.rpc('confirm_match', { p_match_id: mExp });
+  c.check('matches', 'confirmation after the deadline is rejected', expErr != null && /expired/i.test(expErr.message), expErr?.message);
+  const { error: cronErr } = await admin.rpc('expire_pending_matches');
+  const { count: expGone } = await admin.from('matches').select('id', { count: 'exact', head: true }).eq('id', mExp);
+  c.check('matches', 'expiry cron removes stale pending matches without rating effects',
+    cronErr == null && (expGone ?? 0) === 0, cronErr?.message ?? `rows=${expGone}`);
+
+  // doubles match with multi-game scores
+  const bD = await ratingsOf(p4.id);
+  const mD = await recordMatch(p2, {
+    match_type: 'doubles', player1_id: p2.id, partner1_id: p3.id, player2_id: p4.id, partner2_id: p5.id,
+    player1_score: 21, player2_score: 15, game_scores: [{ t1: 11, t2: 7 }, { t1: 10, t2: 8 }],
+    winner_id: p2.id, winner_team: 'team1', team1_confirmed_by: p2.id,
+  });
+  const { error: dConfErr } = await p4.client.rpc('confirm_match', { p_match_id: mD });
+  const { data: p4prof } = await admin.from('profiles').select('doubles_rating').eq('id', p4.id).single();
+  c.check('matches', 'doubles match confirms and moves the doubles facet', dConfErr == null && p4prof?.doubles_rating != null,
+    dConfErr?.message ?? JSON.stringify({ before: bD, after: p4prof }));
+
+  // ── S3+S4: season periods, bonuses, period-rank wagers ──────────────────
+  step('S3/S4: season lifecycle + period-rank wagers');
+  const { data: season, error: se } = await host.client.from('league_seasons').insert({
+    league_id: lid, name: `[SIM] deep season ${stamp}`, created_by: host.id,
+    start_date: new Date(Date.now() - 14 * 86400_000).toISOString().slice(0, 10),
+    end_date: new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 10),
+    total_weeks: 4, lock_frequency_weeks: 2, status: 'active',
+  }).select('id, baseline_plupr').single();
+  if (se) die('create season: ' + se.message);
+  const sid = season!.id;
+  const baseline = Number(season!.baseline_plupr ?? 3.25);
+
+  const preLock2 = await ratingsOf(p2.id);
+  const { error: lock1Err } = await host.client.rpc('lock_season_period', {
+    p_season_id: sid, p_period_number: 1,
+    p_snapshot_date: new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10),
+  });
+  c.check('season', 'admin can lock period 1 via the client RPC', lock1Err == null, lock1Err?.message);
+  const { data: snap1 } = await admin.from('season_snapshots').select('user_id, elo_at_snapshot, rank_at_snapshot')
+    .eq('season_id', sid).eq('period_number', 1);
+  c.check('season', 'period-1 snapshot covers the league members', (snap1?.length ?? 0) >= 6, `rows=${snap1?.length}`);
+  const p2snap = (snap1 ?? []).find((s: any) => s.user_id === p2.id);
+  c.check('season', 'snapshot stores the pre-lock (ending) league PLUPR', p2snap != null
+    && Math.abs(Number(p2snap.elo_at_snapshot) - (preLock2.league ?? 0)) < 0.005,
+    JSON.stringify({ snap: p2snap?.elo_at_snapshot, preLock: preLock2.league }));
+  const post2 = await ratingsOf(p2.id);
+  const rank1 = (snap1 ?? []).find((s: any) => s.rank_at_snapshot === 1);
+  c.check('season', 'soft reset: post-lock league ratings return to baseline (+capped bonus)',
+    post2.league != null && post2.league >= baseline - 0.005 && post2.league <= baseline + 0.2 + 0.005,
+    JSON.stringify({ post: post2.league, baseline }));
+  c.check('season', 'a period-1 #1 exists', !!rank1);
+
+  // period 2: matches + period-rank wagers, then lock
+  const m2 = await recordMatch(p2, {
+    player1_id: p2.id, player2_id: p4.id, player1_score: 11, player2_score: 4,
+    winner_id: p2.id, winner_team: 'team1', team1_confirmed_by: p2.id,
+  });
+  await p4.client.rpc('confirm_match', { p_match_id: m2 });
+
+  const wagerOn = async (actor: Actor, target: string, rank: number, stake: number) => {
+    const { data, error } = await actor.client.rpc('place_wager', {
+      p_subject_type: 'period_rank', p_subject_id: sid,
+      p_predicate: { user_id: target, rank, period_number: 2 }, p_stake: stake,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    return { ok: !error && !!row?.success, id: row?.wager_id, payout: row?.potential_payout, msg: error?.message ?? row?.message };
+  };
+  const w1 = await wagerOn(p4, p2.id, 1, 40);      // plausible: p2 is winning everything
+  const w2 = await wagerOn(p5, p3.id, 6, 30);      // wrong-rank long shot
+  const w3 = await wagerOn(p6, p2.id, 1, 25);      // will cancel pre-lock
+  c.check('period-wagers', 'period-rank wagers place through the real RPC', w1.ok && w2.ok && w3.ok,
+    JSON.stringify({ w1: w1.msg, w2: w2.msg, w3: w3.msg }));
+  const p6before = await balOf(p6.id);
+  const { data: cxl } = await p6.client.rpc('cancel_wager', { p_wager_id: w3.id });
+  const cxlRow = Array.isArray(cxl) ? cxl[0] : cxl;
+  c.check('period-wagers', 'pre-lock cancellation refunds the stake', !!cxlRow?.success && (await balOf(p6.id)) === p6before + 25,
+    JSON.stringify(cxlRow));
+
+  const { error: lock2Err } = await host.client.rpc('lock_season_period', {
+    p_season_id: sid, p_period_number: 2, p_snapshot_date: new Date().toISOString().slice(0, 10),
+  });
+  c.check('season', 'period 2 locks', lock2Err == null, lock2Err?.message);
+  const { data: snap2 } = await admin.from('season_snapshots').select('user_id, rank_at_snapshot')
+    .eq('season_id', sid).eq('period_number', 2);
+  const p2rank = (snap2 ?? []).find((s: any) => s.user_id === p2.id)?.rank_at_snapshot;
+  const p3rank = (snap2 ?? []).find((s: any) => s.user_id === p3.id)?.rank_at_snapshot;
+  const { data: wRows } = await admin.from('wagers').select('id, status').in('id', [w1.id, w2.id, w3.id].filter(Boolean));
+  const st = new Map((wRows ?? []).map((w: any) => [w.id, w.status]));
+  c.check('period-wagers', 'period wagers settle on lock exactly per snapshot ranks',
+    st.get(w1.id) === (p2rank === 1 ? 'won' : 'lost') && st.get(w2.id) === (p3rank === 6 ? 'won' : 'lost') && st.get(w3.id) === 'cancelled',
+    JSON.stringify({ p2rank, p3rank, statuses: [...st.values()] }));
+
+  // ── S5: pots + season completion + payout ────────────────────────────────
+  step('S5: pot economy + season completion');
+  const potOfSeason = async () =>
+    Number((await admin.from('league_seasons').select('prize_pool').eq('id', sid).single()).data?.prize_pool ?? 0);
+  await host.client.rpc('set_season_pickle_config', { p_season_id: sid, p_payout_structure: [60, 40] });
+  const { data: contrib } = await host.client.rpc('contribute_pickles_to_pool',
+    { p_scope_type: 'season', p_scope_id: sid, p_amount: 80 });
+  const contribRow = Array.isArray(contrib) ? contrib[0] : contrib;
+  c.check('economy', 'season pool contribution (+25% house bonus)', !!contribRow?.success && (await potOfSeason()) === 100,
+    JSON.stringify(contribRow));
+
+  const { error: compErr } = await host.client.rpc('complete_season', { p_season_id: sid });
+  c.check('season', 'complete_season succeeds', compErr == null, compErr?.message);
+  const { data: finals } = await admin.from('season_final_standings').select('user_id, final_rank').eq('season_id', sid);
+  c.check('season', 'final standings written', (finals?.length ?? 0) >= 6, `rows=${finals?.length}`);
+  const { error: distErr } = await host.client.rpc('distribute_season_pool', { p_season_id: sid });
+  c.check('economy', 'season pool distributes to the podium', distErr == null && (await potOfSeason()) === 0,
+    distErr?.message ?? `pot=${await potOfSeason()}`);
+
+  // ── S6: events + voting ──────────────────────────────────────────────────
+  step('S6: events + slot voting');
+  const { data: ev, error: evErr } = await host.client.from('league_events').insert({
+    league_id: lid, title: '[SIM] deep event', created_by: host.id, status: 'voting',
+    vote_ends_at: new Date(Date.now() + 86400_000).toISOString(),
+  }).select('id').single();
+  c.check('events', 'admin creates an event', evErr == null, evErr?.message);
+  const { data: slots } = await host.client.from('event_slots').insert([
+    { event_id: ev!.id, starts_at: new Date(Date.now() + 3 * 86400_000).toISOString(), ends_at: new Date(Date.now() + 3 * 86400_000 + 7200_000).toISOString() },
+    { event_id: ev!.id, starts_at: new Date(Date.now() + 4 * 86400_000).toISOString(), ends_at: new Date(Date.now() + 4 * 86400_000 + 7200_000).toISOString() },
+  ]).select('id');
+  const [slotA, slotB] = (slots ?? []).map((s: any) => s.id);
+  for (const a of [p2, p3]) await a.client.from('event_slot_votes').insert({ slot_id: slotA, user_id: a.id });
+  await p4.client.from('event_slot_votes').insert({ slot_id: slotB, user_id: p4.id });
+  const { count: votesA } = await admin.from('event_slot_votes').select('id', { count: 'exact', head: true }).eq('slot_id', slotA);
+  c.check('events', 'members vote on slots', (votesA ?? 0) === 2, `slotA votes=${votesA}`);
+  const { error: confSlotErr } = await host.client.from('league_events')
+    .update({ confirmed_slot_id: slotA, status: 'scheduled' }).eq('id', ev!.id);
+  const { data: evAfter } = await admin.from('league_events').select('status, confirmed_slot_id').eq('id', ev!.id).single();
+  c.check('events', 'admin confirms the winning slot (status → scheduled)', confSlotErr == null && evAfter?.status === 'scheduled' && evAfter?.confirmed_slot_id === slotA,
+    confSlotErr?.message ?? JSON.stringify(evAfter));
+
+  // ── S7: deletion refunds (throwaway league) ──────────────────────────────
+  step('S7: league deletion refunds');
+  const { data: lg2 } = await host.client.from('leagues').insert({
+    name: `${lName} del`, created_by: host.id, is_open: true,
+  }).select('id').single();
+  await host.client.from('league_members').insert({ league_id: lg2!.id, user_id: host.id, role: 'admin' });
+  await p2.client.from('league_members').insert({ league_id: lg2!.id, user_id: p2.id, role: 'member' });
+  const { data: s2 } = await host.client.from('league_seasons').insert({
+    league_id: lg2!.id, name: `${lName} del season`, created_by: host.id,
+    start_date: new Date().toISOString().slice(0, 10), end_date: new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 10),
+    total_weeks: 2, lock_frequency_weeks: 2, status: 'active',
+  }).select('id').single();
+  const hostBefore = await balOf(host.id);
+  const p2Before = await balOf(p2.id);
+  await host.client.rpc('contribute_pickles_to_pool', { p_scope_type: 'league', p_scope_id: lg2!.id, p_amount: 40 });
+  await host.client.rpc('contribute_pickles_to_pool', { p_scope_type: 'season', p_scope_id: s2!.id, p_amount: 40 });
+  const wDel = await (async () => {
+    const { data } = await p2.client.rpc('place_wager', {
+      p_subject_type: 'period_rank', p_subject_id: s2!.id,
+      p_predicate: { user_id: host.id, rank: 1, period_number: 1 }, p_stake: 35,
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    return row?.wager_id as string | undefined;
+  })();
+  const { error: delErr } = await admin.rpc('godmode_delete_league', { p_league_id: lg2!.id });
+  c.check('delete', 'godmode league delete succeeds via service role', delErr == null, delErr?.message);
+  c.check('delete', 'league + season pot contributions refunded', (await balOf(host.id)) === hostBefore, `bal=${await balOf(host.id)} start=${hostBefore}`);
+  const { data: wDelRow } = wDel
+    ? await admin.from('wagers').select('status').eq('id', wDel).single()
+    : { data: null } as any;
+  c.check('delete', 'open period wager cancelled + stake refunded on delete',
+    wDelRow?.status === 'cancelled' && (await balOf(p2.id)) === p2Before,
+    JSON.stringify({ status: wDelRow?.status, bal: await balOf(p2.id), start: p2Before }));
+
+  const file = writeReport(c, lName, lid, { scenario: 'league-deep' });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ league "${lName}" left in place for app inspection (${lid})`);
+}
+
 // ── refunds scenario ────────────────────────────────────────────────────────
 // Economy lifecycle: antes charged on approval must come BACK when a paid
 // player withdraws or is kicked during registration, when the tournament is
@@ -1552,6 +1860,7 @@ async function waitlistScenario() {
   else if (SCENARIO === 'guest') await guestScenario();
   else if (SCENARIO === 'waitlist') await waitlistScenario();
   else if (SCENARIO === 'refunds') await refundsScenario();
+  else if (SCENARIO === 'league-deep') await leagueDeepScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));
