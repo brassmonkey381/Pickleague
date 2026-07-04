@@ -1628,12 +1628,20 @@ async function leagueMarathonScenario() {
   const days = (n: number) => new Date(Date.now() + n * 86400_000);
   const dstr = (n: number) => days(n).toISOString().slice(0, 10);
 
+  // The league (and everyone's membership) predates the first backfilled
+  // match: matches start at day -42, the league exists from day -45.
   const { data: lg, error: lgErr } = await host.client.from('leagues').insert({
     name: lName, created_by: host.id, is_open: true, home_court: 'Bladium Sports & Fitness Club',
+    created_at: days(-45).toISOString(),
   }).select('id').single();
   if (lgErr || !lg) die('create league: ' + (lgErr?.message ?? 'no row'));
   const lid = lg!.id;
-  for (const a of A) await a.client.from('league_members').insert({ league_id: lid, user_id: a.id, role: a === host ? 'admin' : 'member' });
+  for (const a of A) {
+    await a.client.from('league_members').insert({
+      league_id: lid, user_id: a.id, role: a === host ? 'admin' : 'member',
+      joined_at: days(-45).toISOString(),
+    });
+  }
 
   const leagueRatings = async () => {
     const { data } = await admin.from('league_player_ratings').select('user_id, rating').eq('league_id', lid);
@@ -1739,9 +1747,11 @@ async function leagueMarathonScenario() {
   const { data: s1, error: s1e } = await host.client.from('league_seasons').insert({
     league_id: lid, name: `[SIM] marathon S1 ${stamp}`, created_by: host.id,
     start_date: dstr(-42), end_date: dstr(-14), total_weeks: 4, lock_frequency_weeks: 2, status: 'active',
+    baseline_plupr: 3.25, created_at: days(-44).toISOString(),
   }).select('id, baseline_plupr').single();
   if (s1e) die('create season 1: ' + s1e.message);
   const baseline = Number(s1!.baseline_plupr ?? 3.5);
+  c.check('setup', 'season anchors at the explicit PLUPR baseline (3.25)', Math.abs(baseline - 3.25) < 0.001, `baseline=${baseline}`);
 
   await playBatch(16, -42, -36);
   const preLockL = await leagueRatings();
@@ -1819,7 +1829,8 @@ async function leagueMarathonScenario() {
   winTally.clear();
   const { data: s2, error: s2e } = await host.client.from('league_seasons').insert({
     league_id: lid, name: `[SIM] marathon S2 ${stamp}`, created_by: host.id,
-    start_date: dstr(-13), end_date: dstr(14), total_weeks: 2, lock_frequency_weeks: 2, status: 'active',
+    start_date: dstr(-13), end_date: dstr(-1), total_weeks: 2, lock_frequency_weeks: 2, status: 'active',
+    baseline_plupr: 3.25, created_at: days(-14).toISOString(),
   }).select('id').single();
   if (s2e) die('create season 2: ' + s2e.message);
 
@@ -1850,6 +1861,62 @@ async function leagueMarathonScenario() {
     .eq('league_id', lid).eq('status', 'completed');
   c.check('volume', `all ${matchCount} recorded matches completed (plus 2×28 tournament matches)`,
     (leagueMatches ?? 0) === matchCount, `matches=${leagueMatches} expected=${matchCount}`);
+
+  // ── The league keeps living: in-flight season, upcoming season, events ───
+  step('Living league: in-flight season 3, upcoming season 4, upcoming events');
+  const { data: s3, error: s3e } = await host.client.from('league_seasons').insert({
+    league_id: lid, name: `[SIM] marathon S3 ${stamp}`, created_by: host.id,
+    start_date: dstr(0), end_date: dstr(14), total_weeks: 2, lock_frequency_weeks: 2, status: 'active',
+    baseline_plupr: 3.25,
+  }).select('id').single();
+  if (s3e) die('create season 3: ' + s3e.message);
+  await playBatch(8, 0, 0); // today's matches — season 3 is mid-period
+  const { count: s3snaps } = await admin.from('season_snapshots').select('id', { count: 'exact', head: true }).eq('season_id', s3!.id);
+  c.check('living', 'season 3 is IN-FLIGHT: active, matches played, no period locked yet',
+    (s3snaps ?? 0) === 0, `snapshots=${s3snaps}`);
+  const { error: s4e } = await host.client.from('league_seasons').insert({
+    league_id: lid, name: `[SIM] marathon S4 ${stamp}`, created_by: host.id,
+    start_date: dstr(15), end_date: dstr(43), total_weeks: 4, lock_frequency_weeks: 2, status: 'upcoming',
+    baseline_plupr: 3.25,
+  });
+  c.check('living', 'season 4 queued as upcoming', s4e == null, s4e?.message);
+
+  const { data: evV } = await host.client.from('league_events').insert({
+    league_id: lid, title: '[SIM] Marathon Members Night', created_by: host.id,
+    status: 'voting', vote_ends_at: days(3).toISOString(),
+  }).select('id').single();
+  const { data: evSlots } = await host.client.from('event_slots').insert([
+    { event_id: evV!.id, starts_at: days(7).toISOString(), ends_at: new Date(days(7).getTime() + 3 * 3600_000).toISOString() },
+    { event_id: evV!.id, starts_at: days(8).toISOString(), ends_at: new Date(days(8).getTime() + 3 * 3600_000).toISOString() },
+  ]).select('id');
+  for (const [i, a] of A.slice(1, 6).entries()) {
+    await a.client.from('event_slot_votes').insert({ slot_id: evSlots![i % 2].id, user_id: a.id });
+  }
+  const { data: evS } = await host.client.from('league_events').insert({
+    league_id: lid, title: '[SIM] Marathon Court Social', created_by: host.id,
+    status: 'voting', vote_ends_at: days(1).toISOString(),
+  }).select('id').single();
+  const { data: schedSlot } = await host.client.from('event_slots').insert({
+    event_id: evS!.id, starts_at: days(6).toISOString(), ends_at: new Date(days(6).getTime() + 4 * 3600_000).toISOString(),
+  }).select('id').single();
+  await host.client.from('league_events').update({ status: 'scheduled', confirmed_slot_id: schedSlot!.id }).eq('id', evS!.id);
+  const { data: evAfter } = await admin.from('league_events').select('id, status, vote_ends_at').eq('league_id', lid);
+  c.check('living', 'two upcoming events exist (one voting with member votes, one scheduled)',
+    (evAfter ?? []).filter((e: any) => e.status === 'voting').length === 1
+      && (evAfter ?? []).filter((e: any) => e.status === 'scheduled').length === 1,
+    JSON.stringify(evAfter));
+
+  // date sanity: creation precedes play, everywhere
+  const { data: lgRow } = await admin.from('leagues').select('created_at').eq('id', lid).single();
+  const { data: firstMatch } = await admin.from('matches').select('played_at').eq('league_id', lid)
+    .order('played_at', { ascending: true }).limit(1).single();
+  c.check('living', 'league created BEFORE the first match was played',
+    new Date(lgRow!.created_at).getTime() < new Date(firstMatch!.played_at).getTime(),
+    JSON.stringify({ created: lgRow?.created_at, firstMatch: firstMatch?.played_at }));
+  const { data: allSeasons } = await admin.from('league_seasons').select('name, baseline_plupr').eq('league_id', lid);
+  c.check('living', 'every season carries the explicit 3.25 baseline PLUPR',
+    (allSeasons ?? []).length === 4 && (allSeasons ?? []).every((s: any) => Math.abs(Number(s.baseline_plupr) - 3.25) < 0.001),
+    JSON.stringify((allSeasons ?? []).map((s: any) => [s.name, s.baseline_plupr])));
 
   const file = writeReport(c, lName, lid, { scenario: 'league-marathon', matches: matchCount });
   log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);

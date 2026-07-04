@@ -288,14 +288,17 @@ async function seed() {
   // 2. league + memberships (creator = first sim player, open league)
   // League home court = the match location, so the home-court trigger marks
   // every simulated match as played at Home.
+  // The league (and memberships) must predate the first simulated match —
+  // matches are backfilled DAYS ago, so creation is backdated 3 days earlier.
+  const leagueCreatedAt = new Date(Date.now() - (DAYS + 3) * 86400_000).toISOString();
   let { data: league } = await db.from('leagues').select('id, home_court').eq('name', LEAGUE_NAME).maybeSingle();
   if (!league) {
     const { data, error } = await db.from('leagues')
-      .insert({ name: LEAGUE_NAME, description: 'Toolbox simulation league', created_by: roster[0].id, is_open: true, home_court: LOCATION })
+      .insert({ name: LEAGUE_NAME, description: 'Toolbox simulation league', created_by: roster[0].id, is_open: true, home_court: LOCATION, created_at: leagueCreatedAt })
       .select('id, home_court').single();
     if (error) throw new Error('create league: ' + error.message);
     league = data;
-    console.log(`✓ created league "${LEAGUE_NAME}" (home court: ${LOCATION})`);
+    console.log(`✓ created league "${LEAGUE_NAME}" (home court: ${LOCATION}, created ${leagueCreatedAt.slice(0, 10)})`);
   } else if (league.home_court !== LOCATION) {
     await db.from('leagues').update({ home_court: LOCATION }).eq('id', league.id);
     console.log(`✓ set league home court to ${LOCATION}`);
@@ -306,7 +309,7 @@ async function seed() {
   ];
   for (const [i, r] of players.entries()) {
     const { error } = await db.from('league_members')
-      .upsert({ league_id: league.id, user_id: r.id, role: i === 0 ? 'admin' : 'member' }, { onConflict: 'league_id,user_id', ignoreDuplicates: true });
+      .upsert({ league_id: league.id, user_id: r.id, role: i === 0 ? 'admin' : 'member', joined_at: leagueCreatedAt }, { onConflict: 'league_id,user_id', ignoreDuplicates: true });
     if (error && !/duplicate/i.test(error.message)) console.warn(`  ⚠ membership ${r.username}: ${error.message}`);
   }
   console.log(`✓ ${players.length} league memberships`);
@@ -324,10 +327,57 @@ async function seed() {
       start_date: dateStr(seasonStart), end_date: dateStr(seasonEnd),
       total_weeks: totalWeeks, lock_frequency_weeks: lockFreqWeeks,
       status: 'active', created_by: roster[0].id,
+      baseline_plupr: 3.25,                 // seasons always anchor at the PLUPR baseline
+      created_at: leagueCreatedAt,          // season configured before play started
     }).select('id, start_date, lock_frequency_weeks').single();
     if (se) throw new Error('create season: ' + se.message);
     season = s;
-    console.log(`✓ created season "${'[SIM] Season ' + dateStr(seasonStart)}" (${nPeriods} periods)`);
+    console.log(`✓ created season "${'[SIM] Season ' + dateStr(seasonStart)}" (${nPeriods} periods, baseline 3.25)`);
+  }
+
+  // 2c. a living league has a FUTURE too: an upcoming season queued after the
+  //     active one, plus upcoming events (one still voting, one scheduled).
+  const { data: upcomingSeason } = await db.from('league_seasons').select('id')
+    .eq('league_id', league.id).eq('status', 'upcoming').maybeSingle();
+  if (!upcomingSeason) {
+    const nextStart = new Date(seasonEnd.getTime() + 86400_000);
+    const nextEnd = new Date(nextStart.getTime() + 28 * 86400_000);
+    await db.from('league_seasons').insert({
+      league_id: league.id, name: `[SIM] Season ${dateStr(nextStart)}`,
+      start_date: dateStr(nextStart), end_date: dateStr(nextEnd),
+      total_weeks: 4, lock_frequency_weeks: 2,
+      status: 'upcoming', created_by: roster[0].id, baseline_plupr: 3.25,
+    });
+    console.log(`✓ queued upcoming season starting ${dateStr(nextStart)}`);
+  }
+  const { data: existingEvents } = await db.from('league_events').select('id')
+    .eq('league_id', league.id).in('status', ['voting', 'scheduled']);
+  if (!existingEvents || existingEvents.length === 0) {
+    const inDays = (n, h = 18) => new Date(Date.now() + n * 86400_000 + h * 3600_000).toISOString();
+    const { data: evVote } = await db.from('league_events').insert({
+      league_id: league.id, title: '[SIM] Friday Night Round Robin', created_by: roster[0].id,
+      status: 'voting', vote_ends_at: inDays(3, 0),
+    }).select('id').single();
+    const { data: voteSlots } = await db.from('event_slots').insert([
+      { event_id: evVote.id, starts_at: inDays(7), ends_at: inDays(7, 21) },
+      { event_id: evVote.id, starts_at: inDays(8), ends_at: inDays(8, 21) },
+      { event_id: evVote.id, starts_at: inDays(9), ends_at: inDays(9, 21) },
+    ]).select('id');
+    for (const [i, r] of players.slice(0, 6).entries()) {
+      await db.from('event_slot_votes').insert({ slot_id: voteSlots[i % voteSlots.length].id, user_id: r.id });
+    }
+    const { data: evSched } = await db.from('league_events').insert({
+      league_id: league.id, title: '[SIM] Saturday Ladder Social', created_by: roster[0].id,
+      status: 'voting', vote_ends_at: inDays(1, 0),
+    }).select('id').single();
+    const { data: schedSlot } = await db.from('event_slots').insert({
+      event_id: evSched.id, starts_at: inDays(6, 9), ends_at: inDays(6, 13),
+    }).select('id').single();
+    for (const r of players.slice(0, 4)) {
+      await db.from('event_slot_votes').insert({ slot_id: schedSlot.id, user_id: r.id });
+    }
+    await db.from('league_events').update({ status: 'scheduled', confirmed_slot_id: schedSlot.id }).eq('id', evSched.id);
+    console.log('✓ created upcoming events (1 voting, 1 scheduled)');
   }
 
   // 3. simulated match history — outcomes follow the DUPR gaps; the real DB
