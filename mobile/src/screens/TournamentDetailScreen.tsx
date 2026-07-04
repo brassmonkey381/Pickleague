@@ -979,8 +979,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const myReg      = registrations.find(r => r.user_id === myUserId);
   const isPriv     = isTournamentPrivileged(myRole);
   const isAdmin    = myRole === 'admin';
+  // Registration deadline (optional, client-enforced): once passed, hide the
+  // Request to Join button and show the closed note instead.
+  const regClosed = tournament.registration_closes_at != null
+                     && Date.now() >= new Date(tournament.registration_closes_at).getTime();
   const canRegister = !myReg && tournament.status === 'registration'
-                       && tournament.registration_mode === 'request';
+                       && tournament.registration_mode === 'request' && !regClosed;
   const bracketLabel = bracketReleaseLabel(tournament.bracket_release_time);
 
   // Partner state for current user
@@ -1065,6 +1069,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           )}
           {tournament.expected_length_hours != null && (
             <Text style={S.metaLine}>⏱️ ~{tournament.expected_length_hours}h expected</Text>
+          )}
+          {tournament.registration_closes_at && tournament.status === 'registration' && (
+            <Text style={S.metaLine}>
+              ⏳ Registration {regClosed ? 'closed' : 'closes'} {new Date(tournament.registration_closes_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </Text>
           )}
           {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
@@ -1157,6 +1166,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         {tournament.registration_mode === 'invite_only' && !myReg && (
           <View style={S.inviteNote}>
             <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
+          </View>
+        )}
+        {regClosed && !myReg && tournament.status === 'registration' && tournament.registration_mode === 'request' && (
+          <View style={S.inviteNote}>
+            <Text style={S.inviteNoteText}>⏳ Registration has closed for this tournament.</Text>
           </View>
         )}
         {myReg && myReg.status === 'pending' && myReg.invited_by ? (

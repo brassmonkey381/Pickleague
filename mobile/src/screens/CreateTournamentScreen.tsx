@@ -123,6 +123,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
   // Registration
   const [inviteOnly, setInviteOnly]   = useState(false);
+  const [regCloses, setRegCloses]     = useState<Date | null>(null);
+  const [showRegClosesPicker, setShowRegClosesPicker] = useState(false);
 
   // Pickle pot
   const [ante, setAnte]               = useState('0');
@@ -291,6 +293,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       // Captures Fixed vs Random for both Doubles and MLP. Singles ignores it.
       team_creation:     (matchType === 'doubles' || matchType === 'mlp') ? teamCreation : 'fixed',
       registration_mode: inviteOnly ? 'invite_only' : 'request',
+      registration_closes_at: regCloses?.toISOString() ?? null,
       max_players:       maxPlayers ? parseInt(maxPlayers) : null,
       start_time:        startTime?.toISOString() ?? null,
       expected_duration_hours: durationNum,
@@ -535,6 +538,21 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: colors.primary }} thumbColor="#fff" />
         </View>
 
+        <Text style={S.label}>Registration Deadline (optional)</Text>
+        <TouchableOpacity style={S.dateBtn} onPress={() => setShowRegClosesPicker(true)}>
+          <Text style={S.dateBtnText}>
+            {regCloses
+              ? regCloses.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              : 'No deadline'}
+          </Text>
+          {regCloses && (
+            <TouchableOpacity onPress={() => setRegCloses(null)}>
+              <Text style={S.clearDate}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+        <Text style={S.hint}>After this, players can no longer request to join. Non-registered players get a reminder 6 hours before it closes.</Text>
+
         {/* ── Pickle pot ── */}
         <SectionHeader title="🥒 Pickle Pot" S={S} />
 
@@ -607,6 +625,13 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         minimumDate={new Date()}
         onChange={d => { setStartTime(d); setShowDatePicker(false); }}
         onClose={() => setShowDatePicker(false)}
+      />
+      <AppDateTimePicker
+        visible={showRegClosesPicker}
+        value={regCloses ?? startTime ?? new Date(Date.now() + 86400000)}
+        minimumDate={new Date()}
+        onChange={d => { setRegCloses(d); setShowRegClosesPicker(false); }}
+        onClose={() => setShowRegClosesPicker(false)}
       />
     </>
   );
