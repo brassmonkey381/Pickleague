@@ -654,11 +654,23 @@ async function tournamentScenario() {
     attachedLeagueId = lg.id;
     log(`  attached to league ${lg.id.slice(0, 8)} — league PLUPR weighting + season checks enabled`);
   }
+  // Realistic schedule details so sim tournaments read like genuine ones in
+  // the app: next Saturday 9am, registration closing an hour before, a
+  // plausible length, and the same venue the seeder uses for matches.
+  const startTime = new Date();
+  startTime.setDate(startTime.getDate() + ((6 - startTime.getDay() + 7) % 7 || 7));
+  startTime.setHours(9, 0, 0, 0);
+  const regClosesAt = new Date(startTime.getTime() - 3600_000);
+  const lengthHours = [2, 2.5, 3, 4][Math.floor(Math.random() * 4)];
   const payload: Record<string, any> = {
     name: tName, created_by: host.id, format: dbFormat, match_type: dbMatchType,
     registration_mode: REG_MODE, team_creation: TEAM_CREATE, status: 'registration',
     seeding: SEEDING, pool_count: FORMAT === 'pool_play' && !isMlp ? POOL_COUNT : 1,
     league_id: attachedLeagueId ?? null,
+    start_time: startTime.toISOString(),
+    registration_closes_at: regClosesAt.toISOString(),
+    expected_length_hours: lengthHours,
+    location_name: 'Bladium Sports & Fitness Club',
   };
   if (isMlp) {
     // Mirrors the app's payload mapping exactly — including its coercion of

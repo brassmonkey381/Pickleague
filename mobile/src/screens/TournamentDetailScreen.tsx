@@ -1096,18 +1096,30 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
           </View>
 
-          {tournament.start_time && (
+          {tournament.start_time ? (
             <Text style={S.metaLine}>📅 {new Date(tournament.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
+          ) : (
+            <Text style={S.metaLineEmpty}>📅 Date & time TBD</Text>
           )}
-          {tournament.expected_length_hours != null && (
+          {tournament.expected_length_hours != null ? (
             <Text style={S.metaLine}>⏱️ ~{tournament.expected_length_hours}h expected</Text>
+          ) : (
+            <Text style={S.metaLineEmpty}>⏱️ Length TBD</Text>
           )}
-          {tournament.registration_closes_at && tournament.status === 'registration' && (
-            <Text style={S.metaLine}>
-              ⏳ Registration {regClosed ? 'closed' : 'closes'} {new Date(tournament.registration_closes_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-            </Text>
+          {tournament.status === 'registration' && (
+            tournament.registration_closes_at ? (
+              <Text style={S.metaLine}>
+                ⏳ Registration {regClosed ? 'closed' : 'closes'} {new Date(tournament.registration_closes_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            ) : (
+              <Text style={S.metaLineEmpty}>⏳ Registration open until the bracket is locked in</Text>
+            )
           )}
-          {tournament.location_name && <Text style={S.metaLine}>📍 {tournament.location_name}</Text>}
+          {tournament.location_name ? (
+            <Text style={S.metaLine}>📍 {tournament.location_name}</Text>
+          ) : (
+            <Text style={S.metaLineEmpty}>📍 Location TBD</Text>
+          )}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
 
           {/* Wager Market — visible only while the tournament is still in play. */}
@@ -2562,6 +2574,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
     chip: { backgroundColor: c.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontSize: 12, color: c.textSub, fontWeight: '500' },
     metaLine: { fontSize: 13, color: c.textSub, marginBottom: 3 },
+    metaLineEmpty: { fontSize: 13, color: c.textMuted, marginBottom: 3, fontStyle: 'italic' },
     desc: { fontSize: 13, color: c.textMuted, marginTop: 6 },
 
     infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#ffe082' },

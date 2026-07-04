@@ -242,8 +242,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     const anteNum = parseInt(ante, 10);
     if (!Number.isFinite(anteNum) || anteNum < 0) { setError('Ante must be 0 or a positive number.'); return; }
     const durationNum = parseFloat(durationHours);
-    if (!Number.isFinite(durationNum) || durationNum <= 0) {
-      setError('Expected duration must be a positive number of hours.');
+    if (!Number.isFinite(durationNum) || durationNum < 0.5 || durationNum > 168) {
+      setError('Expected duration must be between 0.5 and 168 hours.');
       return;
     }
     const structure = parsePayout();
@@ -303,7 +303,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       registration_closes_at: regCloses?.toISOString() ?? null,
       max_players:       maxPlayers ? parseInt(maxPlayers) : null,
       start_time:        startTime?.toISOString() ?? null,
-      expected_duration_hours: durationNum,
+      expected_length_hours: durationNum,
       location_name:     location?.name ?? null,
       location_lat:      location?.lat ?? null,
       location_lng:      location?.lng ?? null,
