@@ -14,6 +14,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import ContactPickerModal from '../components/ContactPickerModal';
 import { sendSmsInvite } from '../lib/sms';
 import { shareInvite } from '../lib/share';
+import { addToCalendar } from '../lib/calendar';
 import { DeviceContact } from '../lib/contacts';
 import BookmarkButton from '../components/BookmarkButton';
 import { useRefresh } from '../lib/useRefresh';
@@ -276,6 +277,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   if (!event) return <Text style={{ padding: 24, color: c.text }}>Event not found.</Text>;
 
   const confirmedSlot = event.confirmed_slot_id ? slots.find((s) => s.id === event.confirmed_slot_id) : null;
+  // "Live": the confirmed slot has started and is still within its 24h open
+  // window — the event is open for recording matches and gets the red treatment.
+  const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const slotStart = confirmedSlot ? new Date(confirmedSlot.starts_at).getTime() : null;
+  const isLive = slotStart != null && Date.now() >= slotStart && Date.now() < slotStart + LIVE_WINDOW_MS;
 
   return (
     <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
@@ -290,6 +296,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             <>
               <View style={S.dotOpen} />
               <Text style={S.statusOpen}>Voting open · {countdown}</Text>
+            </>
+          ) : isLive ? (
+            <>
+              <View style={S.dotLive} />
+              <Text style={S.statusLive}>Live now · record your matches</Text>
             </>
           ) : event.status === 'scheduled' ? (
             <>
@@ -312,8 +323,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Confirmed slot banner */}
       {confirmedSlot && (
-        <View style={S.confirmedBanner}>
-          <Text style={S.confirmedLabel}>Confirmed Time</Text>
+        <View style={[S.confirmedBanner, isLive && S.confirmedBannerLive]}>
+          <Text style={S.confirmedLabel}>{isLive ? '🔴 Live now' : 'Confirmed Time'}</Text>
           <Text style={S.confirmedDate}>
             {new Date(confirmedSlot.starts_at).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
           </Text>
@@ -329,6 +340,19 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             onPress={() => navigation.navigate('MatchEntry', { leagueId: event.league_id, eventId })}
           >
             <Text style={S.recordBtnText}>📝 Record a match for this event</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={S.calBtn}
+            activeOpacity={0.85}
+            onPress={() => addToCalendar({
+              title: event.title,
+              startsAt: confirmedSlot.starts_at,
+              endsAt: confirmedSlot.ends_at,
+              location: leagueName || null,
+              description: event.description || (leagueName ? `${leagueName} event on Pickleague` : 'Pickleague event'),
+            })}
+          >
+            <Text style={S.calBtnText}>📅 Add to calendar</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -492,11 +516,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     dotOpen: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.primary },
     dotScheduled: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1565c0' },
     dotClosed: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#e65100' },
+    dotLive: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.danger },
     statusOpen: { fontSize: 14, color: c.primary, fontWeight: '600' },
+    statusLive: { fontSize: 14, color: c.danger, fontWeight: '700' },
     statusScheduled: { fontSize: 14, color: '#1565c0', fontWeight: '600' },
     statusClosed: { fontSize: 14, color: '#e65100', fontWeight: '600' },
     voteDeadline: { fontSize: 12, color: c.textMuted, marginTop: 4 },
     confirmedBanner: { backgroundColor: '#1565c0', margin: 12, borderRadius: 14, padding: 18, alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4 },
+    confirmedBannerLive: { backgroundColor: c.danger },
     confirmedLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
     confirmedDate: { fontSize: 20, fontWeight: '800', color: '#fff' },
     confirmedTime: { fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
@@ -504,6 +531,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     recordBtn:      { marginTop: 12, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
     recordBtnText:  { color: '#fff', fontSize: 14, fontWeight: '700' },
+    calBtn:         { marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
+    calBtnText:     { color: '#fff', fontSize: 14, fontWeight: '700' },
 
     matchesSection:       { marginHorizontal: 12, marginTop: 4, marginBottom: 12, padding: 14, borderRadius: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
     matchesSectionTitle:  { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },

@@ -136,6 +136,9 @@ export default function NotificationsScreen({ navigation }: Props) {
       if (n.entity_id) {
         navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
       }
+    } else if (n.entity_type === 'event') {
+      // Event reminders deep-link to the event page (confirmed time + record button).
+      if (n.entity_id) navigation.navigate('EventDetail', { eventId: n.entity_id, title: n.title });
     } else if (n.entity_type === 'match') {
       // Deep-link to the exact match row so the user sees its inline
       // Confirm/Reject controls right away.

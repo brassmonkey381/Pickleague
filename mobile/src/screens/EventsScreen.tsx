@@ -17,43 +17,44 @@ type Props = {
 
 type ConfirmedSlot = { id: string; starts_at: string; ends_at: string };
 
-type Category = 'voting_open' | 'vote_closed' | 'scheduled' | 'past' | 'cancelled';
+type Category = 'voting_open' | 'vote_closed' | 'scheduled' | 'live' | 'past' | 'cancelled';
 
 const CATEGORY_META: Record<Category, { label: string; emoji: string; color: string }> = {
   voting_open:  { label: 'Voting open',  emoji: '🗳',  color: '#2e7d32' },
   vote_closed:  { label: 'Vote closed',  emoji: '🔒', color: '#e65100' },
   scheduled:    { label: 'Scheduled',    emoji: '📅', color: '#1565c0' },
+  live:         { label: 'Live now',     emoji: '🔴', color: '#c62828' },
   past:         { label: 'Past',         emoji: '⏳', color: '#888'    },
   cancelled:    { label: 'Cancelled',    emoji: '✖',  color: '#999'    },
 };
 
-const ALL_CATEGORIES: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'past', 'cancelled'];
-const DEFAULT_ENABLED: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'cancelled']; // past hidden by default
+const ALL_CATEGORIES: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'live', 'past', 'cancelled'];
+const DEFAULT_ENABLED: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'live', 'cancelled']; // past hidden by default
+
+// Once a confirmed slot reaches its start time, the event stays "live" (open for
+// recording matches) for this long before it rolls over to "past".
+const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const DATE_OPTS = {
   weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   hour: '2-digit', minute: '2-digit',
 } as const;
 
-// "Past" rule: an event becomes past at midnight ENDING the scheduled play day.
-// In other words, if the slot's calendar date is strictly before today's calendar date.
-function startOfDay(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  return out;
-}
-
 function categorize(event: LeagueEvent, confirmedStartsAt: string | null): Category {
   if (event.status === 'cancelled') return 'cancelled';
 
-  // Past detection — any event with a confirmed slot whose calendar day is
-  // strictly before today's calendar day. Applies regardless of `status`,
-  // so stale "voting" events that ended up with a confirmed slot don't get
-  // stuck reading "vote closed" forever.
+  // Clock-based detection for any event with a confirmed slot. Applies
+  // regardless of `status`, so a confirmed event is always categorized by where
+  // "now" sits relative to its start time (and stale "voting" events that ended
+  // up confirmed don't get stuck reading "vote closed" forever):
+  //   • before start                  → scheduled (falls through below)
+  //   • start ≤ now < start + 24h      → live (open for recording matches)
+  //   • now ≥ start + 24h              → past
   if (confirmedStartsAt) {
-    const slotDay  = startOfDay(new Date(confirmedStartsAt));
-    const todayDay = startOfDay(new Date());
-    if (slotDay < todayDay) return 'past';
+    const start = new Date(confirmedStartsAt).getTime();
+    const now = Date.now();
+    if (now >= start + LIVE_WINDOW_MS) return 'past';
+    if (now >= start) return 'live';
   }
 
   if (event.status === 'scheduled') return 'scheduled';
@@ -82,6 +83,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     countBar: { paddingHorizontal: 16, paddingVertical: 6, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
     countText: { fontSize: 12, color: c.textMuted },
     card: { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+    cardLive: { backgroundColor: c.danger + '1F', borderWidth: 1.5, borderColor: c.danger },
+    liveHint: { fontSize: 12, color: c.danger, fontWeight: '700', marginTop: 4 },
     cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
     eventTitle: { fontSize: 17, fontWeight: '700', color: c.text, flex: 1, marginRight: 8 },
     badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
@@ -141,16 +144,19 @@ export default function EventsScreen({ navigation, route }: Props) {
 
   const counts = useMemo(() => {
     const c: Record<Category, number> = {
-      voting_open: 0, vote_closed: 0, scheduled: 0, past: 0, cancelled: 0,
+      voting_open: 0, vote_closed: 0, scheduled: 0, live: 0, past: 0, cancelled: 0,
     };
     for (const row of categorized) c[row.category]++;
     return c;
   }, [categorized]);
 
-  const visible = useMemo(
-    () => categorized.filter(row => enabled.has(row.category)),
-    [categorized, enabled],
-  );
+  const visible = useMemo(() => {
+    const rows = categorized.filter(row => enabled.has(row.category));
+    // Surface live events (started, within the 24h window) at the top — they're
+    // the time-sensitive call to action. sort() is stable, so everything else
+    // keeps its existing load order.
+    return rows.sort((a, b) => Number(b.category === 'live') - Number(a.category === 'live'));
+  }, [categorized, enabled]);
 
   function toggleCategory(cat: Category) {
     setEnabled(prev => {
@@ -201,7 +207,7 @@ export default function EventsScreen({ navigation, route }: Props) {
           const meta = CATEGORY_META[row.category];
           return (
             <TouchableOpacity
-              style={S.card}
+              style={[S.card, row.category === 'live' && S.cardLive]}
               onPress={() => navigation.navigate('EventDetail', { eventId: row.event.id, title: row.event.title })}
             >
               <View style={S.cardTop}>
@@ -211,10 +217,13 @@ export default function EventsScreen({ navigation, route }: Props) {
                 </View>
               </View>
               {row.event.description ? <Text style={S.desc}>{row.event.description}</Text> : null}
-              {(row.category === 'scheduled' || row.category === 'past') && row.slot && (
+              {(row.category === 'scheduled' || row.category === 'past' || row.category === 'live') && row.slot && (
                 <Text style={S.meta}>
                   📅  {new Date(row.slot.starts_at).toLocaleString(undefined, DATE_OPTS)}
                 </Text>
+              )}
+              {row.category === 'live' && (
+                <Text style={S.liveHint}>🔴  Happening now · tap to record matches</Text>
               )}
               {row.event.status === 'voting' && (
                 <Text style={S.meta}>

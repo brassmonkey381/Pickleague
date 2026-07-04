@@ -125,6 +125,10 @@ function resolvePushTarget(
       return entity_id
         ? { name: 'LeagueDetail', params: { leagueId: entity_id, leagueName: title ?? 'League' } }
         : null;
+    case 'event':
+      return entity_id
+        ? { name: 'EventDetail', params: { eventId: entity_id, title: title ?? 'Event' } }
+        : null;
     case 'match':
       return { name: 'MatchHistory', params: { title: 'Match History', initialMyMatchesOnly: true, highlightMatchId: entity_id ?? undefined } };
     case 'drill':
