@@ -24,7 +24,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,6 +77,16 @@ function extractBody(def) {
 // Consolidated snapshots — never canonical (they hold historical definitions).
 const EXCLUDED = new Set(['schema.sql', 'setup_all_migrations.sql']);
 
+// Intentionally absent from prod — one-time helpers and superseded code:
+//   _drill_seed_day / backfill_season_history  — one-shot seed/backfill utils
+//   set_match_home_court_flags / update_matches_is_home_court — the trigger
+//     approach was never adopted; home flags are set client-side at entry
+//   update_elo_ratings — ELO-era, superseded by update_plupr_ratings
+const INTENTIONALLY_MISSING = new Set([
+  '_drill_seed_day', 'backfill_season_history', 'set_match_home_court_flags',
+  'update_matches_is_home_court', 'update_elo_ratings',
+]);
+
 function gitTimestamps() {
   // One pass over git history: newest commit epoch per supabase/*.sql file.
   const out = execFileSync('git', ['log', '--format=C:%ct', '--name-only', '--', 'supabase'], {
@@ -122,7 +132,9 @@ async function check() {
   let parseWarnings = 0;
   for (const f of files) {
     const sql = readFileSync(path.join(migDir, f), 'utf8');
-    const epoch = ts.get(f) ?? 0;
+    // Not-yet-committed files fall back to filesystem mtime so a freshly
+    // written migration immediately becomes canonical.
+    const epoch = ts.get(f) ?? Math.floor(statSync(path.join(migDir, f)).mtimeMs / 1000);
     for (const fn of parseFunctions(sql, f)) {
       if (fn.body == null) { parseWarnings++; continue; }
       if (!all.has(fn.name)) all.set(fn.name, []);
@@ -148,7 +160,7 @@ async function check() {
   let ok = 0;
   for (const [name, repo] of [...canonical.entries()].sort()) {
     const prods = prodByName.get(name);
-    if (!prods) { missing.push({ name, file: repo.file }); continue; }
+    if (!prods) { if (!INTENTIONALLY_MISSING.has(name)) missing.push({ name, file: repo.file }); continue; }
     if (prods.some((p) => p.body === repo.body)) { ok++; continue; }
     drifted.push({ name, repo, prod: prods[0] });
   }
