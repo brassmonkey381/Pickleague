@@ -287,6 +287,9 @@ export type Tournament = {
   max_players: number | null;
   status: 'registration' | 'active' | 'completed' | 'cancelled';
   start_time: string | null;
+  // Optional deadline after which players can no longer request to join.
+  // Informational + client-enforced; nothing auto-transitions status.
+  registration_closes_at: string | null;
   expected_length_hours: number | null;
   mlp_play_format: 'round_robin' | 'pool_play' | 'round_robin_playoff' | 'pool_play_playoff';
   mlp_pool_count: number;
@@ -310,6 +313,8 @@ export type Tournament = {
   pickle_ante: number;
   payout_structure: number[];
   champion_payout_applied_at: string | null;
+  // When set, brackets/pairings stay hidden from non-admins until this time.
+  bracket_release_time: string | null;
   created_at: string;
 };
 
@@ -499,6 +504,8 @@ export type RootStackParamList = {
   Events: { leagueId: string; leagueName: string };
   CreateEvent: { leagueId: string };
   EventDetail: { eventId: string; title: string };
+  // Screen exists but is not yet registered in AppNavigator.
+  ScheduleMatch: { leagueId: string };
   MatchEntry: {
     // Optional: when provided (LeagueDetail "Record Match", tournament/event
     // prefill) the league is fixed and its dropdown is hidden. When omitted

@@ -75,6 +75,17 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
       'No bracket — the round-robin standings are the final order.',
     ],
   },
+  mlp_random: {
+    headline: 'Randomly drafted teams play a round-robin against each other.',
+    flow: [
+      'Approved players are randomly drafted into teams when the tournament starts.',
+      'Teams play every other team once in a circle-method round robin.',
+      'Standings are by wins, with PLUPR of the team average as tiebreaker.',
+    ],
+    advancement: [
+      'No bracket — the round-robin standings are the final order.',
+    ],
+  },
   rotating_partners: {
     headline: 'Doubles where partners rotate every round.',
     flow: [
