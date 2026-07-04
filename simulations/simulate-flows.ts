@@ -11,6 +11,9 @@
  *   tournament — create a tournament (format / match-type / team-creation /
  *                registration-mode) → invites+accepts or requests+approvals →
  *                doubles pairing → (optional) generate round 1 + play to done.
+ *   waitlist   — min/max players + registration waitlist: fill to max, overflow
+ *                requests waitlisted, capacity guard, FIFO auto-promotion on
+ *                withdrawal / max raise.
  *   cleanup    — tear down every [SIM]-prefixed league & tournament.
  *
  * Reuses the pure bracket generators from mobile/src/lib/tournament.ts (same as
@@ -1026,11 +1029,115 @@ ${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} 
   log(`📄 report: ${file}`);
 }
 
+// ── waitlist scenario ───────────────────────────────────────────────────────
+// Exercises min/max players + the registration waitlist end-to-end, all as
+// signed-in sim users (RLS + triggers for real):
+//   fill to max → extra requests waitlisted (+ notification, FIFO position) →
+//   approving while full is blocked → a member withdrawing promotes the oldest
+//   waitlisted to pending (+ notifications) → raising max promotes another.
+// The tournament is left in place (registration status) for app inspection.
+async function waitlistScenario() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  const tName = `[SIM] waitlist ${stamp}`;
+  const MAXP = 4;
+  step(`Waitlist scenario: "${tName}" (min 3 / max ${MAXP})`);
+  const c = new Checker();
+  const names = await pickSimPlayers(7);
+  const startedAt = new Date().toISOString();
+
+  const host = await signIn(names[0]);
+  const { data: t, error: te } = await host.client.from('tournaments').insert({
+    name: tName, created_by: host.id, format: 'round_robin', match_type: 'singles',
+    registration_mode: 'request', team_creation: 'fixed', status: 'registration',
+    seeding: 'random', pool_count: 1, min_players: 3, max_players: MAXP,
+    location_name: 'Bladium Sports & Fitness Club',
+  }).select('id, min_players, max_players').single();
+  if (te) die('create tournament: ' + te.message);
+  const tId = t!.id;
+  await host.client.from('tournament_registrations').insert({ tournament_id: tId, user_id: host.id, status: 'approved', role: 'admin' });
+  c.check('setup', 'min/max players persisted on create', t!.min_players === 3 && t!.max_players === MAXP,
+    `min=${t!.min_players} max=${t!.max_players}`);
+
+  // Registration helpers (the app inserts with default status; triggers decide).
+  const request = async (i: number) => {
+    const a = await signIn(names[i]);
+    const { error } = await a.client.from('tournament_registrations').insert({ tournament_id: tId, user_id: a.id });
+    if (error) die(`${a.username} request: ${error.message}`);
+    return a;
+  };
+  const regOf = async (uid: string) =>
+    (await admin.from('tournament_registrations').select('id, status').eq('tournament_id', tId).eq('user_id', uid).maybeSingle()).data;
+
+  // 1. fill to max: players 2-4 request, host approves each (host is #4 of MAXP).
+  const filled = [] as { id: string; username: string; client: SupabaseClient }[];
+  for (let i = 1; i <= 2; i++) {
+    const a = await request(i);
+    const reg = await regOf(a.id);
+    const { error } = await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', reg!.id);
+    if (error) die(`approve ${a.username}: ${error.message}`);
+    filled.push(a);
+  }
+  const third = await request(3);
+  const thirdReg = await regOf(third.id);
+  c.check('setup', 'requests below capacity stay pending', thirdReg?.status === 'pending', `status=${thirdReg?.status}`);
+  await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', thirdReg!.id);
+  c.note(`roster filled: 4/${MAXP} approved (host + 3)`);
+
+  // 2. two more requests arrive while full → waitlisted, FIFO.
+  const w1 = await request(4);
+  const w1Reg = await regOf(w1.id);
+  c.check('waitlist', 'request while full is waitlisted (not pending)', w1Reg?.status === 'waitlisted', `status=${w1Reg?.status}`);
+  const { data: w1Notif } = await admin.from('notifications').select('id, body')
+    .eq('user_id', w1.id).like('title', '%waitlist%').gte('created_at', startedAt);
+  c.check('waitlist', 'waitlisted player notified with their position', (w1Notif?.length ?? 0) > 0 && (w1Notif![0].body as string).includes('#1'),
+    JSON.stringify(w1Notif?.map(n => n.body)));
+  const w2 = await request(5);
+  const w2Reg = await regOf(w2.id);
+  c.check('waitlist', 'second overflow request also waitlisted', w2Reg?.status === 'waitlisted', `status=${w2Reg?.status}`);
+
+  // 3. capacity guard: approving a waitlisted player while full must fail.
+  const { error: overErr } = await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', w1Reg!.id);
+  c.check('waitlist', 'approving while full is blocked by the capacity guard',
+    overErr != null && /full/i.test(overErr.message), overErr?.message ?? 'update succeeded — guard missing!');
+
+  // 4. an approved member withdraws → oldest waitlisted auto-promoted to pending.
+  const leaver = filled[0];
+  const leaverReg = await regOf(leaver.id);
+  const { error: delErr } = await leaver.client.from('tournament_registrations').delete().eq('id', leaverReg!.id);
+  if (delErr) die(`${leaver.username} withdraw: ${delErr.message}`);
+  const w1After = await regOf(w1.id);
+  const w2After = await regOf(w2.id);
+  c.check('promotion', 'oldest waitlisted promoted to pending when a member withdraws', w1After?.status === 'pending', `status=${w1After?.status}`);
+  c.check('promotion', 'younger waitlisted entry stays waitlisted (one promotion per free spot)', w2After?.status === 'waitlisted', `status=${w2After?.status}`);
+  const { data: promoNotif } = await admin.from('notifications').select('id')
+    .eq('user_id', w1.id).like('title', '%spot opened%').gte('created_at', startedAt);
+  c.check('promotion', 'promoted player notified a spot opened', (promoNotif?.length ?? 0) > 0);
+  const { data: adminNotif } = await admin.from('notifications').select('id')
+    .eq('user_id', host.id).like('title', '%Waitlist%').gte('created_at', startedAt);
+  c.check('promotion', 'creator notified the waitlist moved', (adminNotif?.length ?? 0) > 0);
+
+  // 5. promoted player can now be approved normally.
+  const { error: appErr } = await host.client.from('tournament_registrations').update({ status: 'approved' }).eq('id', w1After!.id ?? w1Reg!.id);
+  c.check('promotion', 'promoted player approved into the freed spot', appErr == null, appErr?.message);
+
+  // 6. raising max_players promotes the remaining waitlisted entry.
+  const { error: raiseErr } = await host.client.from('tournaments').update({ max_players: MAXP + 1 }).eq('id', tId);
+  if (raiseErr) die('raise max_players: ' + raiseErr.message);
+  const w2Final = await regOf(w2.id);
+  c.check('promotion', 'raising max players promotes the next waitlisted entry', w2Final?.status === 'pending', `status=${w2Final?.status}`);
+
+  const file = writeReport(c, tName, tId, { scenario: 'waitlist', min_players: 3, max_players: MAXP });
+  log(`\n${c.failures.length === 0 ? '✅ ALL CHECKS PASSED' : `❌ ${c.failures.length} CHECK(S) FAILED`} (${c.results.length} checks)`);
+  log(`📄 report: ${file}`);
+  log(`✓ tournament "${tName}" left in registration for app inspection (${tId})`);
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 (async () => {
   if (SCENARIO === 'cleanup') await cleanup();
   else if (SCENARIO === 'league') await leagueScenario();
   else if (SCENARIO === 'guest') await guestScenario();
+  else if (SCENARIO === 'waitlist') await waitlistScenario();
   else if (SCENARIO === 'tournament') await tournamentScenario();
   else die('unknown scenario ' + SCENARIO);
 })().catch((e) => die(e.message));

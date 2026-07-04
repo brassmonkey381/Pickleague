@@ -146,6 +146,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [editName, setEditName]               = useState('');
   const [editDesc, setEditDesc]               = useState('');
   const [editLocation, setEditLocation]       = useState('');
+  const [editMinPlayers, setEditMinPlayers]   = useState('');
   const [editMaxPlayers, setEditMaxPlayers]   = useState('');
   const [editStartTime, setEditStartTime]     = useState<Date | null>(null);
   const [editLengthHours, setEditLengthHours] = useState('');
@@ -266,15 +267,21 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
   // ── Registration ────────────────────────────────────────────
   async function register() {
+    // When the tournament is at max_players, a DB trigger flips this insert
+    // to 'waitlisted' — same call either way.
+    const wasFull = tournament?.max_players != null
+      && registrations.filter(r => r.status === 'approved').length >= tournament.max_players;
     const { error } = await supabase.from('tournament_registrations').insert({
       tournament_id: tournamentId, user_id: myUserId,
     });
     if (error) status.error(error.message);
-    else { status.success('Request to join submitted.'); load(); }
+    else { status.success(wasFull ? 'Tournament is full — you\'ve been added to the waitlist.' : 'Request to join submitted.'); load(); }
   }
 
   async function approveReg(regId: string) {
-    await supabase.from('tournament_registrations').update({ status: 'approved' }).eq('id', regId);
+    // Can fail on the DB capacity guard when the tournament is full.
+    const { error } = await supabase.from('tournament_registrations').update({ status: 'approved' }).eq('id', regId);
+    if (error) status.error(error.message);
     load();
   }
   async function rejectReg(regId: string) {
@@ -500,6 +507,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setEditName(tournament.name);
     setEditDesc(tournament.description ?? '');
     setEditLocation(tournament.location_name ?? '');
+    setEditMinPlayers(tournament.min_players != null ? String(tournament.min_players) : '');
     setEditMaxPlayers(tournament.max_players != null ? String(tournament.max_players) : '');
     setEditStartTime(tournament.start_time ? new Date(tournament.start_time) : null);
     setEditLengthHours(tournament.expected_length_hours != null ? String(tournament.expected_length_hours) : '');
@@ -519,6 +527,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const maxPlayersN = editMaxPlayers.trim() ? parseInt(editMaxPlayers.trim(), 10) : null;
     if (editMaxPlayers.trim() && (Number.isNaN(maxPlayersN!) || maxPlayersN! < 2)) {
       setEditError('Max players must be a number ≥ 2.'); return;
+    }
+    const minPlayersN = editMinPlayers.trim() ? parseInt(editMinPlayers.trim(), 10) : null;
+    if (editMinPlayers.trim() && (Number.isNaN(minPlayersN!) || minPlayersN! < 2)) {
+      setEditError('Min players must be a number ≥ 2.'); return;
+    }
+    if (minPlayersN != null && maxPlayersN != null && minPlayersN > maxPlayersN) {
+      setEditError('Min players can\'t be greater than max players.'); return;
     }
     let lengthN: number | null = null;
     if (editLengthHours.trim()) {
@@ -557,6 +572,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       name,
       description:           editDesc.trim() || null,
       location_name:         editLocation.trim() || null,
+      min_players:           minPlayersN,
       max_players:           maxPlayersN,
       start_time:            editStartTime ? editStartTime.toISOString() : null,
       expected_length_hours: lengthN,
@@ -745,6 +761,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const passed = Array.isArray(matchesArg) ? matchesArg : undefined;
     const matches = passed ?? generatedMatches;
     if (!matches || !tournament) return;
+    // Min-roster gate (covers the godmode shortcut path too, which skips
+    // the confirm modal and calls doLockIn directly).
+    const approvedCount = registrations.filter(r => r.status === 'approved').length;
+    if (tournament.min_players != null && approvedCount < tournament.min_players) {
+      status.error(`This tournament needs at least ${tournament.min_players} approved players to lock in (currently ${approvedCount}).`);
+      setShowLockInConfirm(false);
+      return;
+    }
     setLocking(true);
 
     try {
@@ -1004,6 +1028,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Pending registrations split: admin-invited (waiting on invitee) vs self-submitted requests.
   const pendingInvited  = pending.filter(r => r.invited_by != null);
   const pendingRequests = pending.filter(r => r.invited_by == null);
+  // Waitlist: self-requests that arrived while the tournament was full,
+  // oldest first (that's the promotion order the DB uses).
+  const waitlisted = registrations
+    .filter(r => r.status === 'waitlisted')
+    .sort((a, b) => new Date(a.registered_at).getTime() - new Date(b.registered_at).getTime());
+  const isFull = tournament.max_players != null && approved.length >= tournament.max_players;
   // Public "Players" list: approved members + outstanding invites (the people the
   // tournament is actively trying to fill its roster with). Join-requests stay
   // admin-only since admins haven't decided on them yet.
@@ -1120,6 +1150,16 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           ) : (
             <Text style={S.metaLineEmpty}>📍 Location TBD</Text>
           )}
+          {tournament.min_players != null || tournament.max_players != null ? (
+            <Text style={S.metaLine}>
+              👥 {approved.length} joined
+              {tournament.min_players != null ? ` · min ${tournament.min_players}` : ''}
+              {tournament.max_players != null ? ` · max ${tournament.max_players}` : ''}
+              {isFull && tournament.status === 'registration' ? ' — full (waitlist open)' : ''}
+            </Text>
+          ) : (
+            <Text style={S.metaLineEmpty}>👥 {approved.length} joined · no player limits</Text>
+          )}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
 
           {/* Wager Market — visible only while the tournament is still in play. */}
@@ -1204,7 +1244,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             TODO: smoke-test in browser */}
         {canRegister && (
           <TouchableOpacity style={S.registerBtn} onPress={register}>
-            <Text style={S.registerBtnText}>📝 Request to Join</Text>
+            <Text style={S.registerBtnText}>{isFull ? '⏳ Tournament Full — Join Waitlist' : '📝 Request to Join'}</Text>
           </TouchableOpacity>
         )}
         {tournament.registration_mode === 'invite_only' && !myReg && (
@@ -1244,6 +1284,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             <Text style={S.myRegText}>
               {myReg.status === 'approved' ? '✓ You\'re in the tournament!'
                : myReg.status === 'rejected' ? '✗ Request not approved'
+               : myReg.status === 'waitlisted' ? `⏳ Tournament is full — you're #${Math.max(1, waitlisted.findIndex(r => r.id === myReg.id) + 1)} on the waitlist. You'll be notified when a spot opens.`
                : '⏳ Registration pending — an admin will review your request shortly.'}
             </Text>
           </View>
@@ -1519,6 +1560,49 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* ── Waitlist (admin/co-admin only; users see their own position in
+            their registration banner) ── */}
+        {isPriv && waitlisted.length > 0 && (
+          <View style={S.section}>
+            <Text style={S.sectionTitle}>Waitlist ({waitlisted.length})</Text>
+            <Text style={S.waitlistNote}>
+              Oldest first — this is the order spots are offered when someone leaves or Max Players is raised. Approving directly only works while a spot is free.
+            </Text>
+            {waitlisted.map((r, i) => (
+              <View key={r.id} style={S.pendingRow}>
+                <Text style={S.playerSeed}>#{i + 1}</Text>
+                <FlairName
+                  name={r.profile?.full_name ?? '—'}
+                  nameColor={(r.profile as any)?.name_color}
+                  styleId={(r.profile as any)?.list_name_style_id ?? null}
+                  mode="list"
+                  style={S.playerName}
+                  numberOfLines={1}
+                />
+                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
+                <View style={S.pendingActions}>
+                  <TouchableOpacity
+                    style={S.approveBtn}
+                    onPress={() => approveReg(r.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Approve ${r.profile?.full_name ?? 'player'} from waitlist`}
+                  >
+                    <Text style={S.approveBtnText}>✓</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={S.rejectBtn}
+                    onPress={() => rejectReg(r.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${r.profile?.full_name ?? 'player'} from waitlist`}
+                  >
+                    <Text style={S.rejectBtnText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
         {/* ── Generate / Lock bracket ── */}
         {tournament.status === 'registration' && isAdmin && approved.length >= 2 && (
           <>
@@ -1551,6 +1635,13 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         {!isAdmin && isPriv && tournament.status === 'registration' && (
           <View style={S.coAdminNote}>
             <Text style={S.coAdminNoteText}>Only the tournament admin can generate the bracket.</Text>
+          </View>
+        )}
+        {isAdmin && tournament.status === 'registration' && tournament.min_players != null && approved.length < tournament.min_players && (
+          <View style={S.coAdminNote}>
+            <Text style={S.coAdminNoteText}>
+              👥 {approved.length}/{tournament.min_players} minimum players — the bracket can't be locked in until {tournament.min_players - approved.length} more join.
+            </Text>
           </View>
         )}
 
@@ -2333,7 +2424,18 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             maxLength={200}
           />
 
-          <Text style={S.editFieldLabel}>Max players</Text>
+          <Text style={S.editFieldLabel}>Min players</Text>
+          <TextInput
+            style={S.editInput}
+            value={editMinPlayers}
+            onChangeText={setEditMinPlayers}
+            placeholder="No minimum"
+            placeholderTextColor={c.textMuted}
+            keyboardType="number-pad"
+            maxLength={4}
+          />
+
+          <Text style={S.editFieldLabel}>Max players (raising it promotes the waitlist)</Text>
           <TextInput
             style={S.editInput}
             value={editMaxPlayers}
@@ -2575,6 +2677,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     chip: { backgroundColor: c.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontSize: 12, color: c.textSub, fontWeight: '500' },
     metaLine: { fontSize: 13, color: c.textSub, marginBottom: 3 },
     metaLineEmpty: { fontSize: 13, color: c.textMuted, marginBottom: 3, fontStyle: 'italic' },
+    waitlistNote: { fontSize: 12, color: c.textMuted, marginBottom: 8 },
     desc: { fontSize: 13, color: c.textMuted, marginTop: 6 },
 
     infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#ffe082' },

@@ -35,7 +35,7 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const [playerCounts, setPlayerCounts] = React.useState<Record<string, number>>({});
   // tournamentId → my registration metadata for the role pill
   const [myRegs, setMyRegs] = React.useState<
-    Record<string, { status: 'pending' | 'approved' | 'rejected'; role: string | null; invited_by: string | null }>
+    Record<string, { status: 'pending' | 'approved' | 'rejected' | 'waitlisted'; role: string | null; invited_by: string | null }>
   >({});
   const [myAvailability, setMyAvailability] = React.useState<boolean[]>([]);
   const [filterByAvail, setFilterByAvail] = React.useState(false);
@@ -112,6 +112,7 @@ export default function TournamentsScreen({ navigation, route }: Props) {
     const reg = myRegs[tournamentId];
     if (!reg) return { label: 'Not joined', color: '#888' };
     if (reg.status === 'rejected') return { label: '✗ Declined', color: '#c62828' };
+    if (reg.status === 'waitlisted') return { label: '⏳ Waitlisted', color: '#b8860b' };
     if (reg.status === 'pending') {
       return reg.invited_by
         ? { label: '📨 Invited', color: '#b8860b' }
@@ -131,6 +132,7 @@ export default function TournamentsScreen({ navigation, route }: Props) {
     const reg = myRegs[item.id];
     if (!reg)                     return { label: 'Register →', disabled: false };
     if (reg.status === 'rejected') return { label: 'View & Register →', disabled: false };
+    if (reg.status === 'waitlisted') return { label: '⏳ On the waitlist', disabled: true };
     if (reg.status === 'pending') {
       return reg.invited_by
         ? { label: '📨 Respond to invite →', disabled: false }

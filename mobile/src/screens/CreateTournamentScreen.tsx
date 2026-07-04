@@ -106,6 +106,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [durationHours, setDurationHours] = useState('3');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [location, setLocation]           = useState<CourtResult | null>(null);
+  const [minPlayers, setMinPlayers]       = useState('');
   const [maxPlayers, setMaxPlayers]       = useState('');
 
   // Format
@@ -248,6 +249,17 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     }
     const structure = parsePayout();
     if (!structure) { setError('Payout structure must be comma-separated percentages summing to 100 (e.g. 60,25,15).'); return; }
+    const minPlayersN = minPlayers.trim() ? parseInt(minPlayers.trim(), 10) : null;
+    const maxPlayersN = maxPlayers.trim() ? parseInt(maxPlayers.trim(), 10) : null;
+    if (minPlayersN != null && (!Number.isFinite(minPlayersN) || minPlayersN < 2)) {
+      setError('Min players must be a number ≥ 2.'); return;
+    }
+    if (maxPlayersN != null && (!Number.isFinite(maxPlayersN) || maxPlayersN < 2)) {
+      setError('Max players must be a number ≥ 2.'); return;
+    }
+    if (minPlayersN != null && maxPlayersN != null && minPlayersN > maxPlayersN) {
+      setError('Min players can\'t be greater than max players.'); return;
+    }
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -301,7 +313,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       team_creation:     (matchType === 'doubles' || matchType === 'mlp') ? teamCreation : 'fixed',
       registration_mode: inviteOnly ? 'invite_only' : 'request',
       registration_closes_at: regCloses?.toISOString() ?? null,
-      max_players:       maxPlayers ? parseInt(maxPlayers) : null,
+      min_players:       minPlayersN,
+      max_players:       maxPlayersN,
       start_time:        startTime?.toISOString() ?? null,
       expected_length_hours: durationNum,
       location_name:     location?.name ?? null,
@@ -397,8 +410,13 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         <Text style={S.label}>Location</Text>
         <CourtPicker value={location} onSelect={setLocation} active showNoneOption placeholder="Search for tournament venue…" />
 
+        <Text style={S.label}>Min Players</Text>
+        <TextInput style={[S.input, S.inputSmall]} placeholder="No minimum" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={minPlayers} onChangeText={setMinPlayers} />
+        <Text style={S.hint}>The bracket can't be locked in with fewer approved players than this.</Text>
+
         <Text style={S.label}>Max Players</Text>
         <TextInput style={[S.input, S.inputSmall]} placeholder="No limit" placeholderTextColor={colors.textMuted} keyboardType="number-pad" value={maxPlayers} onChangeText={setMaxPlayers} />
+        <Text style={S.hint}>Once full, new join requests go on a waitlist and are promoted automatically when a spot opens.</Text>
 
         {/* ── Team Type ── (moved above Format; defaults to Doubles) */}
         <SectionHeader title="Team Type" S={S} />

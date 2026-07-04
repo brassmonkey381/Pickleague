@@ -151,6 +151,7 @@ export default function TournamentInfoScreen({ route }: Props) {
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}
         <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'} />
+        {t.min_players != null && <Row S={S} label="Min players"   value={`${t.min_players}`} />}
         {t.max_players != null && <Row S={S} label="Max players"   value={`${t.max_players}`} />}
         <Row S={S} label="Approved players"  value={`${memberCount}`} />
         <Row S={S} label="Status"            value={statusLabel(t.status)} />

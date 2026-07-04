@@ -285,6 +285,8 @@ export type Tournament = {
   partner_rotation: 'every_match' | 'every_round' | null;
   registration_mode: 'request' | 'invite_only';
   max_players: number | null;
+  // Minimum roster to lock in a bracket. Client-enforced at lock-in.
+  min_players: number | null;
   status: 'registration' | 'active' | 'completed' | 'cancelled';
   start_time: string | null;
   // Optional deadline after which players can no longer request to join.
@@ -384,7 +386,9 @@ export type TournamentRegistration = {
   id: string;
   tournament_id: string;
   user_id: string;
-  status: 'pending' | 'approved' | 'rejected';
+  // 'waitlisted' = self-request that arrived while the tournament was at
+  // max_players; auto-promoted back to 'pending' when a spot opens.
+  status: 'pending' | 'approved' | 'rejected' | 'waitlisted';
   seed: number | null;
   registered_at: string;
   invited_by: string | null;          // null = user requested in themselves; uuid = admin invite
