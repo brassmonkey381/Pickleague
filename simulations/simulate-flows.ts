@@ -57,12 +57,22 @@ const die = (s: string) => { console.error('\n✗ ' + s); process.exit(1); };
 // Sim players are identified by AUTH EMAIL (sim_player_<n>@pickleague.test) —
 // profile usernames get sanitized by the signup trigger (underscores stripped),
 // so the email is the stable key. `signIn` takes the full email.
+//
+// Sessions are CACHED: each user signs in exactly once per run. Supabase Auth
+// rate-limits the /token endpoint (sign-ins + refreshes) to ~30 per 5 min per
+// IP by default, and a single flow re-uses the same actors many times — without
+// the cache an 8-user run trips "Request rate limit reached" mid-flow.
 type Actor = { id: string; username: string; client: SupabaseClient };
+const actorCache = new Map<string, Actor>();
 async function signIn(email: string): Promise<Actor> {
+  const cached = actorCache.get(email);
+  if (cached) return cached;
   const client = createClient(URL!, ANON!, { auth: { autoRefreshToken: false, persistSession: false } });
   const { data, error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
   if (error || !data.user) throw new Error(`sign in ${email}: ${error?.message}`);
-  return { id: data.user.id, username: email.split('@')[0], client };
+  const actor = { id: data.user.id, username: email.split('@')[0], client };
+  actorCache.set(email, actor);
+  return actor;
 }
 
 const SIM_EMAIL = /^sim_player_(\d+)@pickleague\.test$/;
