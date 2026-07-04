@@ -366,18 +366,26 @@ async function seed() {
     for (const [i, r] of players.slice(0, 6).entries()) {
       await db.from('event_slot_votes').insert({ slot_id: voteSlots[i % voteSlots.length].id, user_id: r.id });
     }
+    // The scheduled event goes through a REAL vote: three slots, votes
+    // spread with a clear favorite, then the winning slot is confirmed —
+    // so the event page shows actual attendees.
     const { data: evSched } = await db.from('league_events').insert({
       league_id: league.id, title: '[SIM] Saturday Ladder Social', created_by: roster[0].id,
       status: 'voting', vote_ends_at: inDays(1, 0),
     }).select('id').single();
-    const { data: schedSlot } = await db.from('event_slots').insert({
-      event_id: evSched.id, starts_at: inDays(6, 9), ends_at: inDays(6, 13),
-    }).select('id').single();
-    for (const r of players.slice(0, 4)) {
-      await db.from('event_slot_votes').insert({ slot_id: schedSlot.id, user_id: r.id });
+    const { data: schedSlots } = await db.from('event_slots').insert([
+      { event_id: evSched.id, starts_at: inDays(6, 9),  ends_at: inDays(6, 13) },
+      { event_id: evSched.id, starts_at: inDays(6, 14), ends_at: inDays(6, 18) },
+      { event_id: evSched.id, starts_at: inDays(13, 9), ends_at: inDays(13, 13) },
+    ]).select('id');
+    // 5 votes on the favorite, 2 spread across the others
+    const voters = players.slice(0, 7);
+    for (const [i, r] of voters.entries()) {
+      const slot = i < 5 ? schedSlots[0] : schedSlots[1 + (i % 2)];
+      await db.from('event_slot_votes').insert({ slot_id: slot.id, user_id: r.id });
     }
-    await db.from('league_events').update({ status: 'scheduled', confirmed_slot_id: schedSlot.id }).eq('id', evSched.id);
-    console.log('✓ created upcoming events (1 voting, 1 scheduled)');
+    await db.from('league_events').update({ status: 'scheduled', confirmed_slot_id: schedSlots[0].id }).eq('id', evSched.id);
+    console.log('✓ created upcoming events (1 voting; 1 scheduled via a real 3-slot vote, 5 attending)');
   }
 
   // 3. simulated match history — outcomes follow the DUPR gaps; the real DB

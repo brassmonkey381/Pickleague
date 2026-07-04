@@ -1892,19 +1892,41 @@ async function leagueMarathonScenario() {
   for (const [i, a] of A.slice(1, 6).entries()) {
     await a.client.from('event_slot_votes').insert({ slot_id: evSlots![i % 2].id, user_id: a.id });
   }
+  // The scheduled event goes through a REAL vote: several slots, members
+  // voting (with a clear favorite), then the admin confirms the winning
+  // slot — so the confirmed event has actual attendees, never 0/N.
   const { data: evS } = await host.client.from('league_events').insert({
     league_id: lid, title: '[SIM] Marathon Court Social', created_by: host.id,
     status: 'voting', vote_ends_at: days(1).toISOString(),
   }).select('id').single();
-  const { data: schedSlot } = await host.client.from('event_slots').insert({
-    event_id: evS!.id, starts_at: days(6).toISOString(), ends_at: new Date(days(6).getTime() + 4 * 3600_000).toISOString(),
-  }).select('id').single();
-  await host.client.from('league_events').update({ status: 'scheduled', confirmed_slot_id: schedSlot!.id }).eq('id', evS!.id);
-  const { data: evAfter } = await admin.from('league_events').select('id, status, vote_ends_at').eq('league_id', lid);
-  c.check('living', 'two upcoming events exist (one voting with member votes, one scheduled)',
+  const { data: socialSlots } = await host.client.from('event_slots').insert([
+    { event_id: evS!.id, starts_at: days(6).toISOString(), ends_at: new Date(days(6).getTime() + 4 * 3600_000).toISOString() },
+    { event_id: evS!.id, starts_at: new Date(days(6).getTime() + 24 * 3600_000).toISOString(), ends_at: new Date(days(6).getTime() + 28 * 3600_000).toISOString() },
+    { event_id: evS!.id, starts_at: new Date(days(6).getTime() + 48 * 3600_000).toISOString(), ends_at: new Date(days(6).getTime() + 52 * 3600_000).toISOString() },
+  ]).select('id');
+  const [sA, sB, sC] = (socialSlots ?? []).map((s: any) => s.id);
+  // host + 4 others favor slot A; two split across B and C
+  for (const a of [host, A[1], A[2], A[3], A[4]]) {
+    await a.client.from('event_slot_votes').insert({ slot_id: sA, user_id: a.id });
+  }
+  await A[5].client.from('event_slot_votes').insert({ slot_id: sB, user_id: A[5].id });
+  await A[6].client.from('event_slot_votes').insert({ slot_id: sC, user_id: A[6].id });
+  const { data: tally } = await admin.from('event_slot_votes').select('slot_id').in('slot_id', [sA, sB, sC]);
+  const counts = new Map<string, number>();
+  for (const v of tally ?? []) counts.set(v.slot_id, (counts.get(v.slot_id) ?? 0) + 1);
+  const winner = [...counts.entries()].sort((x, y) => y[1] - x[1])[0];
+  await host.client.from('league_events').update({ status: 'scheduled', confirmed_slot_id: winner[0] }).eq('id', evS!.id);
+  c.check('living', 'scheduled event confirmed the MOST-VOTED slot with real attendees',
+    winner[0] === sA && winner[1] === 5, JSON.stringify([...counts.values()]));
+  const { data: evAfter } = await admin.from('league_events').select('id, status, vote_ends_at, confirmed_slot_id').eq('league_id', lid);
+  const sched = (evAfter ?? []).find((e: any) => e.status === 'scheduled');
+  const { count: attendees } = sched ? await admin.from('event_slot_votes')
+    .select('id', { count: 'exact', head: true }).eq('slot_id', sched.confirmed_slot_id) : { count: 0 } as any;
+  c.check('living', 'two upcoming events exist and the scheduled one has voters attending',
     (evAfter ?? []).filter((e: any) => e.status === 'voting').length === 1
-      && (evAfter ?? []).filter((e: any) => e.status === 'scheduled').length === 1,
-    JSON.stringify(evAfter));
+      && (evAfter ?? []).filter((e: any) => e.status === 'scheduled').length === 1
+      && (attendees ?? 0) >= 5,
+    JSON.stringify({ events: evAfter, attendees }));
 
   // date sanity: creation precedes play, everywhere
   const { data: lgRow } = await admin.from('leagues').select('created_at').eq('id', lid).single();
