@@ -25,7 +25,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   seedPlayers, generateRoundRobin, generateSingleElim, generateDoubleElim,
-  generatePoolPlay, generateRotatingPartners, type MatchPairing,
+  generatePoolPlay, generateRotatingPartners,
+  generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim,
+  generateDoublesPoolPlay, type MatchPairing,
 } from '../mobile/src/lib/tournament';
 
 // ── args ────────────────────────────────────────────────────────────────────
@@ -151,7 +153,9 @@ async function leagueScenario() {
 }
 
 // ── tournament scenario ─────────────────────────────────────────────────────
-function generatePairings(format: string, _matchType: string, playerIds: string[]): MatchPairing[] {
+// Per-player draws: singles formats + rotating partners (which builds its own
+// full foursomes each round).
+function generatePairings(format: string, playerIds: string[]): MatchPairing[] {
   const seeded = seedPlayers(playerIds, {}, 'random');   // random seeding: ratings unused
   switch (format) {
     case 'round_robin':        return generateRoundRobin(seeded);
@@ -160,6 +164,19 @@ function generatePairings(format: string, _matchType: string, playerIds: string[
     case 'pool_play':          return generatePoolPlay(seeded, Math.max(2, Math.floor(seeded.length / 4))).matches;
     case 'rotating_partners':  return generateRotatingPartners(seeded, Math.max(1, seeded.length - 1));
     default: throw new Error('unsupported format ' + format);
+  }
+}
+
+// Team draws for doubles (non-rotating): every entrant is a COMPLETE pair of 2
+// — mirrors the app's requirement that all players are paired before the draw.
+function generateTeamPairings(format: string, teams: [string, string][]): MatchPairing[] {
+  const seeded = [...teams].sort(() => Math.random() - 0.5);
+  switch (format) {
+    case 'round_robin':        return generateDoublesRoundRobin(seeded);
+    case 'single_elimination': return generateDoublesSingleElim(seeded);
+    case 'double_elimination': return generateDoublesDoubleElim(seeded);
+    case 'pool_play':          return generateDoublesPoolPlay(seeded, Math.max(2, Math.floor(seeded.length / 2))).matches;
+    default: throw new Error('unsupported doubles format ' + format);
   }
 }
 
@@ -238,8 +255,33 @@ async function tournamentScenario() {
   if (playerIds.length >= 2) {
     step('Generating round 1');
     let pairings: MatchPairing[];
-    try { pairings = generatePairings(FORMAT, MATCH_TYPE, playerIds); }
-    catch (e: any) { return die('bracket generation: ' + e.message); }
+    const isTeamDoubles = MATCH_TYPE === 'doubles' && FORMAT !== 'rotating_partners';
+    if (isTeamDoubles) {
+      // Doubles draws are generated from COMPLETE pairs only — same requirement
+      // the app enforces. random team-creation persists pairs via the same RPC
+      // the app's "Generate Random Pairs" button calls.
+      if (TEAM_CREATE === 'random') {
+        const { data: nPairs, error: gre } = await host.client.rpc('generate_random_pairs',
+          { p_tournament_id: t!.id, p_mode: 'random' });
+        if (gre) return die('generate_random_pairs: ' + gre.message);
+        log(`  ✓ auto-paired ${nPairs} random pair(s)`);
+      }
+      const { data: pairRows } = await admin.from('doubles_pairs')
+        .select('partner_1_id, partner_2_id').eq('tournament_id', t!.id);
+      const teams = (pairRows ?? [])
+        .filter((p: any) => p.partner_1_id && p.partner_2_id)
+        .map((p: any) => [p.partner_1_id, p.partner_2_id] as [string, string]);
+      const covered = new Set(teams.flat());
+      const unpaired = playerIds.filter(id => !covered.has(id));
+      if (unpaired.length) return die(`${unpaired.length} approved player(s) not in a pair of 2 — doubles draws require full pairing (unpaired ids: ${unpaired.join(', ')})`);
+      if (teams.length < 2) return die('need at least 2 complete doubles pairs');
+      log(`  ✓ ${teams.length} complete teams of 2`);
+      try { pairings = generateTeamPairings(FORMAT, teams); }
+      catch (e: any) { return die('doubles bracket generation: ' + e.message); }
+    } else {
+      try { pairings = generatePairings(FORMAT, playerIds); }
+      catch (e: any) { return die('bracket generation: ' + e.message); }
+    }
     const { data: round, error: rErr } = await host.client.from('tournament_rounds')
       .insert({ tournament_id: t!.id, round_number: 1, label: `${FORMAT} Schedule`, round_type: FORMAT === 'pool_play' ? 'pool' : 'winners' })
       .select('id').single();

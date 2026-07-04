@@ -641,14 +641,19 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           paired.add(p.partner_2_id);
         }
       }
-      // Random-pair the leftovers (preview only — does NOT persist to DB).
+      // REQUIRE every approved player to be locked into a pair of 2 before the
+      // draw is generated. The old behavior silently random-paired leftovers
+      // (never persisted — so the roster views disagreed with the draw) and
+      // silently DROPPED an odd player, which surfaced as 1v1 "doubles"
+      // matches. Now it's a hard stop naming the unpaired players.
       const leftovers = approved.filter(uid => !paired.has(uid));
-      for (let i = leftovers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [leftovers[i], leftovers[j]] = [leftovers[j], leftovers[i]];
-      }
-      for (let i = 0; i + 1 < leftovers.length; i += 2) {
-        teams.push([leftovers[i], leftovers[i + 1]]);
+      if (leftovers.length > 0) {
+        const names = leftovers.map(uid => playerName(uid)).join(', ');
+        const hint = tournament.team_creation === 'random'
+          ? 'Use "Generate Random Pairs" in the Teams section to pair everyone.'
+          : 'Everyone must pair up in the Teams section first.';
+        status.error(`All players must be in a doubles pair of 2 before generating the draw. Unpaired (${leftovers.length}): ${names}. ${hint}`);
+        return null;
       }
       if (teams.length < 2) {
         status.error('Not enough teams — need at least 2 doubles pairs to generate a bracket.');
