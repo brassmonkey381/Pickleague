@@ -24,6 +24,12 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - name: Install (mobile)
         working-directory: mobile
+        # The foundation is a private GitHub Packages dep in another org
+        # (just-messin-around), so the repo's automatic token can't read it —
+        # PACKAGES_TOKEN is a read:packages PAT stored as a repo secret. The
+        # mobile/.npmrc references ${GITHUB_TOKEN} for the registry auth.
+        env:
+          GITHUB_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: npm ci
       - name: Typecheck
         working-directory: mobile
