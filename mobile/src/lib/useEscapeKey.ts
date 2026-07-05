@@ -1,3 +1,3 @@
-// Moved to @stockman/rn-foundation. Re-exported here so existing imports
+// Moved to @just-messin-around/expo-foundation. Re-exported here so existing imports
 // (`../lib/useEscapeKey`) keep working unchanged.
-export { useEscapeKey } from '@stockman/rn-foundation/hooks';
+export { useEscapeKey } from '@just-messin-around/expo-foundation/hooks';

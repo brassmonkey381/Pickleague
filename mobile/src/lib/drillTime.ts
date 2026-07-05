@@ -1,3 +1,3 @@
-// Moved to @stockman/rn-foundation. Re-exported here so existing imports
+// Moved to @just-messin-around/expo-foundation. Re-exported here so existing imports
 // (`../lib/drillTime`) keep working unchanged.
-export * from '@stockman/rn-foundation/scheduling/drillTime';
+export * from '@just-messin-around/expo-foundation/scheduling/drillTime';
