@@ -35,6 +35,8 @@ const MODE = val('--mode', 'check');
 const ONLY = val('--only', '');
 const FILE = val('--file', '');
 const DRY = flag('--dry-run');
+// --strict also fails on AMBIGUOUS/UNRECONCILED drift (not just BEHIND/MISSING).
+const STRICT = flag('--strict');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..');
@@ -156,7 +158,7 @@ async function check() {
     prodByName.get(r.name).push({ sig: r.sig, body: normalizeBody(extractBody(r.def) ?? '') });
   }
 
-  const drifted = [], missing = [];
+  const drifted = [], missing = [], behind = [], ambiguous = [], unknown = [];
   let ok = 0;
   for (const [name, repo] of [...canonical.entries()].sort()) {
     const prods = prodByName.get(name);
@@ -175,7 +177,6 @@ async function check() {
     // the canonical file) vs prod matching NOTHING in the repo (someone
     // hotfixed prod out-of-band, or a re-typed apply differs cosmetically —
     // reconcile by re-applying the repo file, or commit the prod version).
-    const behind = [], ambiguous = [], unknown = [];
     for (const d of drifted) {
       const versions = all.get(d.name) ?? [];
       const prodBodies = new Set((prodByName.get(d.name) ?? []).map((p) => p.body));
@@ -217,6 +218,17 @@ async function check() {
   if (!missing.length && !drifted.length) console.log('\nNo drift — every canonical repo definition is live. 🎉');
   else console.log(`\nTo apply a file: mode=run, file=<migration>.sql (dry-run first).`);
   console.log('\nNote: this audits FUNCTION BODIES only — tables/columns/triggers/policies are out of scope.');
+
+  // Exit non-zero so CI fails on drift. MISSING (repo has a fn prod lacks) and
+  // BEHIND (prod runs an older committed version) are always hard failures;
+  // AMBIGUOUS/UNRECONCILED are often intentional, so only fail under --strict.
+  const hard = missing.length + behind.length;
+  const soft = ambiguous.length + unknown.length;
+  if (hard > 0 || (STRICT && soft > 0)) {
+    console.error(`\n✖ DRIFT GATE FAILED — ${missing.length} missing, ${behind.length} behind` +
+      (STRICT ? `, ${ambiguous.length} ambiguous, ${unknown.length} unreconciled` : '') + '.');
+    process.exitCode = 1;
+  }
 }
 
 // ── run mode ────────────────────────────────────────────────────────────────

@@ -87,15 +87,28 @@ const die = (s: string) => { console.error('\n✗ ' + s); process.exit(1); };
 // the cache an 8-user run trips "Request rate limit reached" mid-flow.
 type Actor = { id: string; username: string; client: SupabaseClient };
 const actorCache = new Map<string, Actor>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function signIn(email: string): Promise<Actor> {
   const cached = actorCache.get(email);
   if (cached) return cached;
   const client = createClient(URL!, ANON!, { auth: { autoRefreshToken: false, persistSession: false } });
-  const { data, error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
-  if (error || !data.user) throw new Error(`sign in ${email}: ${error?.message}`);
-  const actor = { id: data.user.id, username: email.split('@')[0], client };
-  actorCache.set(email, actor);
-  return actor;
+  // Supabase Auth rate-limits /token (~30 per 5 min per IP). A long suite of
+  // scenarios can brush that limit, so back off and retry rather than fail.
+  let lastErr: string | undefined;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { data, error } = await client.auth.signInWithPassword({ email, password: PASSWORD });
+    if (!error && data.user) {
+      const actor = { id: data.user.id, username: email.split('@')[0], client };
+      actorCache.set(email, actor);
+      return actor;
+    }
+    lastErr = error?.message;
+    if (!/rate limit/i.test(lastErr ?? '')) break;
+    const wait = 15_000 * (attempt + 1);
+    log(`  ⏳ auth rate limit signing in ${email}; waiting ${wait / 1000}s (attempt ${attempt + 1}/6)`);
+    await sleep(wait);
+  }
+  throw new Error(`sign in ${email}: ${lastErr}`);
 }
 
 // ── run-to-completion: checks + report ──────────────────────────────────────
@@ -141,6 +154,10 @@ function writeReport(c: Checker, tName: string, tId: string, cfg: Record<string,
     '',
   ].join('\n');
   writeFileSync(file, md);
+  // Any failed invariant makes the whole run exit non-zero so CI catches it.
+  // (process.exitCode doesn't stop execution — the run finishes and reports
+  // every failure, then exits 1.)
+  if (c.failures.length > 0) process.exitCode = 1;
   return file;
 }
 
@@ -2474,9 +2491,33 @@ async function waitlistScenario() {
   log(`✓ tournament "${tName}" left in registration for app inspection (${tId})`);
 }
 
+// The CI regression suite: every self-contained scenario, run in ONE process
+// so the sign-in cache is shared (each sim account authenticates once, staying
+// under the auth rate limit). Bookended with cleanup. Any failed invariant in
+// any scenario leaves process.exitCode = 1 (set in writeReport), so the whole
+// run fails while still reporting every scenario's results.
+async function runSuite() {
+  const steps: Array<[string, () => Promise<void>]> = [
+    ['cleanup (start)', cleanup],
+    ['guest', guestScenario],
+    ['waitlist', waitlistScenario],
+    ['refunds', refundsScenario],
+    ['extras', extrasScenario],
+    ['league-deep', leagueDeepScenario],
+    ['league-marathon', leagueMarathonScenario],
+    ['cleanup (end)', cleanup],
+  ];
+  for (const [name, fn] of steps) {
+    log(`\n═══════════════════════════ SUITE: ${name} ═══════════════════════════`);
+    await fn();
+  }
+  log(`\n${process.exitCode ? '❌ SUITE FAILED — one or more scenarios had failing checks' : '✅ SUITE PASSED — all scenarios green'}`);
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 (async () => {
   if (SCENARIO === 'cleanup') await cleanup();
+  else if (SCENARIO === 'suite') await runSuite();
   else if (SCENARIO === 'league') await leagueScenario();
   else if (SCENARIO === 'guest') await guestScenario();
   else if (SCENARIO === 'waitlist') await waitlistScenario();
