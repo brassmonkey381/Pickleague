@@ -28,3 +28,7 @@ Thumbs.db
 
 # Local infra setup script (contains secrets once filled in)
 supabase/setup_infra.sh
+
+# tool scratch / local recovery notes
+scripts/fn-diffs/
+deleted-branches-backup.txt
