@@ -1,7 +1,7 @@
 // Thin wrapper over the foundation's generic SingleSelectModal. Keeps the
 // Pickleague-specific copy + the original prop API so call sites are unchanged.
 import React from 'react';
-import { SingleSelectModal } from '@stockman/rn-foundation/ui';
+import { SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
 
 export type PickableLeague = { id: string; name: string };
 

@@ -1,3 +1,3 @@
-// Moved to @stockman/rn-foundation. Re-exported here so existing imports
+// Moved to @just-messin-around/expo-foundation. Re-exported here so existing imports
 // (`../lib/clipboard`) keep working unchanged.
-export { setClipboard } from '@stockman/rn-foundation/platform';
+export { setClipboard } from '@just-messin-around/expo-foundation/platform';

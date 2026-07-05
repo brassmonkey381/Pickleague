@@ -1,11 +1,11 @@
-// The spotlight-tour engine moved to @stockman/rn-foundation/tour as a factory.
+// The spotlight-tour engine moved to @just-messin-around/expo-foundation/tour as a factory.
 // This adapter keeps the Pickleague-specific tour definitions + storage-key
 // prefix and instantiates the engine, so consumers
 // (`import { TourProvider, useTour, TOURS } from '../lib/TourContext'`) are
 // unchanged.
-import { createTourContext, type TourStep } from '@stockman/rn-foundation/tour';
+import { createTourContext, type TourStep } from '@just-messin-around/expo-foundation/tour';
 
-export type { TourStep } from '@stockman/rn-foundation/tour';
+export type { TourStep } from '@just-messin-around/expo-foundation/tour';
 
 export type TourKey = 'leagues' | 'profile';
 
