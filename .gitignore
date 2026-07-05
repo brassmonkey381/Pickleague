@@ -7,7 +7,6 @@ mobile/.env
 
 # Scripts
 scripts/node_modules/
-scripts/package-lock.json
 
 # Supabase secrets
 supabase/supabase_service_role_key.txt
