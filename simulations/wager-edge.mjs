@@ -39,6 +39,30 @@ const FIELD8 = [
 // per-match win prob for A over B — the app's exact formula
 const pWin = (rA, rB) => 1 / (1 + Math.pow(10, (rB - rA) * 0.5));
 
+// Plackett-Luce exact P(finish rank r), mirroring the DB _wager_rank_probability.
+// weights[i] = 10^(0.5*rating_i). Exact for r=1,2,3.
+function plRankProb(weights, target, rank) {
+  const n = weights.length;
+  const s = weights.reduce((a, b) => a + b, 0);
+  const wt = weights[target];
+  if (rank <= 1) return wt / s;
+  let acc = 0;
+  if (rank === 2) {
+    for (let j = 0; j < n; j++) if (j !== target && s - weights[j] > 0)
+      acc += (weights[j] / s) * (wt / (s - weights[j]));
+    return acc;
+  }
+  for (let j = 0; j < n; j++) {
+    if (j === target || s - weights[j] <= 0) continue;
+    for (let k = 0; k < n; k++) {
+      if (k === target || k === j) continue;
+      const d = s - weights[j] - weights[k];
+      if (d > 0) acc += (weights[j] / s) * (weights[k] / (s - weights[j])) * (wt / d);
+    }
+  }
+  return acc;
+}
+
 function simSingleElim(players) {
   // seed 1..N already ordered strongest-first; standard 1vN bracket
   let alive = players.map((p, i) => ({ ...p, seed: i }));
@@ -85,28 +109,29 @@ function trueWinProbsCorrect(players, simFn) {
   return out;
 }
 
-function analyze(label, players, simFn) {
+function analyze(label, players, simFn, beta) {
   const N = players.length;
-  const quotedProb = 1 / Math.sqrt(N);              // rank=1, every player
-  const quotedOdds = (1 - HOUSE_EDGE) / quotedProb;
+  const oldProb = 1 / Math.sqrt(N);                 // OLD: rank=1, every player
+  const oldOdds = (1 - HOUSE_EDGE) / oldProb;
+  const weights = players.map(p => Math.pow(10, 0.5 * beta * p.r));   // NEW: format-aware PL
   const trueP = trueWinProbsCorrect(players, simFn);
-  console.log(`\n=== ${label} — N=${N}, quoted prob(#1)=${quotedProb.toFixed(4)} for EVERYONE, odds=${quotedOdds.toFixed(3)}x ===`);
-  console.log('  A fair market would need true-prob to sum to 1.00; this market\'s quoted probs sum to ' +
-    (quotedProb * N).toFixed(2) + ' (√N).');
-  console.log('  player           true P(#1)   fair odds   quoted odds   EV/unit   verdict');
-  let sumTrue = 0, bestEV = -1, bestName = '';
-  for (const p of players) {
+  console.log(`\n=== ${label} — N=${N} ===`);
+  console.log('  player          true P(#1)  |  OLD odds  OLD EV  |  NEW odds  NEW EV');
+  let bestOld = -1, bestOldName = '', bestNew = -1, bestNewName = '';
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
     const pt = trueP.get(p.name);
-    sumTrue += pt;
-    const fairOdds = pt > 0 ? 1 / pt : Infinity;
-    const ev = pt * quotedOdds - 1;
-    if (ev > bestEV) { bestEV = ev; bestName = p.name; }
-    const verdict = ev > 0.001 ? `+EV  BET  (edge ${(ev * 100).toFixed(0)}%)` : ev < -0.001 ? 'house wins' : 'fair';
-    console.log(`  ${p.name.padEnd(14)}  ${pt.toFixed(4)}      ${(isFinite(fairOdds) ? fairOdds.toFixed(2) : '∞').padStart(6)}x     ${quotedOdds.toFixed(3)}x       ${(ev >= 0 ? '+' : '') + ev.toFixed(3)}   ${verdict}`);
+    const newProb = plRankProb(weights, i, 1);
+    const newOdds = (1 - HOUSE_EDGE) / Math.min(0.95, Math.max(0.02, newProb));
+    const evOld = pt * oldOdds - 1;
+    const evNew = pt * newOdds - 1;
+    if (evOld > bestOld) { bestOld = evOld; bestOldName = p.name; }
+    if (evNew > bestNew) { bestNew = evNew; bestNewName = p.name; }
+    const tag = evNew > 0.03 ? ' <-- still +EV' : '';
+    console.log(`  ${p.name.padEnd(13)}  ${pt.toFixed(4)}     |  ${oldOdds.toFixed(2)}x   ${(evOld >= 0 ? '+' : '') + (evOld * 100).toFixed(0)}%  |  ${newOdds.toFixed(2).padStart(6)}x  ${(evNew >= 0 ? '+' : '') + (evNew * 100).toFixed(0)}%${tag}`);
   }
-  console.log(`  (true probs sum to ${sumTrue.toFixed(3)} ✓)`);
-  console.log(`  >>> best bet: ${bestName} at +${(bestEV * 100).toFixed(0)}% expected return per pickle staked.`);
-  return { bestName, bestEV, quotedOdds };
+  console.log(`  best exploit  OLD: ${bestOldName} +${(bestOld * 100).toFixed(0)}%   ->   NEW: ${bestNewName} ${(bestNew >= 0 ? '+' : '') + (bestNew * 100).toFixed(0)}%`);
+  return { bestOld, bestNew };
 }
 
 console.log('PICKLEAGUE WAGER EDGE ANALYSIS');
@@ -114,19 +139,8 @@ console.log('==============================');
 console.log('Model: the app\'s own Elo formula p = 1/(1+10^((rB-rA)*0.5)).');
 console.log(`Monte Carlo: ${TRIALS.toLocaleString()} bracket simulations per format.`);
 
-analyze('tournament_rank · SINGLE ELIM', FIELD8, simSingleElim);
-analyze('tournament_rank · ROUND ROBIN', FIELD8, simRoundRobin);
+analyze('tournament_rank · SINGLE ELIM (beta=1.0)', FIELD8, simSingleElim, 1.0);
+analyze('tournament_rank · ROUND ROBIN (beta=1.8)', FIELD8, simRoundRobin, 1.8);
 
-// N-sensitivity of the break-even favorite: how strong must the favorite be
-// for a rank-1 bet to turn +EV, as the field grows?
-console.log('\n=== break-even favorite strength by field size ===');
-console.log('  N    quoted prob   break-even true P   (= uniform 1/N x this multiple)');
-for (const N of [2, 4, 6, 8, 12, 16, 24, 32]) {
-  const q = 1 / Math.sqrt(N);
-  const be = q / (1 - HOUSE_EDGE);
-  console.log(`  ${String(N).padStart(2)}    ${q.toFixed(4)}        ${be.toFixed(4)}             ${(be * N).toFixed(2)}x`);
-}
-console.log('\nInterpretation: any player whose true chance of #1 exceeds the break-even');
-console.log('column is a profitable bet. Because the market quotes the SAME price for');
-console.log('every competitor, every real favorite is systematically underpriced and');
-console.log('every underdog is systematically overpriced.');
+console.log('\nOLD = rating-blind 1/sqrt(N); NEW = Plackett-Luce (10^(0.5*rating)).');
+console.log('The NEW column prices favourites near the -5% house edge — the free money is gone.');

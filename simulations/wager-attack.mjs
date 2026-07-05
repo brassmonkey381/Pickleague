@@ -21,9 +21,12 @@ const admin = createClient(URL, SERVICE, { auth: { autoRefreshToken: false, pers
 
 const K = 16;           // tournaments to run
 const STAKE = 100;      // pickles per bet
-const FAV = 8;          // sim player index of the favourite (rating ~7.0)
-const FIELD = [8, 1, 4, 5];   // favourite + three ~4.0 players
-const BETTOR = 6;       // a non-participant places all the bets (clean P&L)
+// Field is passed as args: FIELD players then --bettor N. Favourite is chosen
+// DYNAMICALLY as the highest-rated player in the field (what a real exploiter
+// does). Default = a lopsided field led by P7 (~6.9).
+const args = process.argv.slice(2).map(Number).filter(n => !Number.isNaN(n));
+const FIELD = args.length >= 2 ? args : [7, 1, 4, 5];
+const BETTOR = 2;       // a non-participant places all the bets (clean P&L)
 
 const cache = new Map();
 async function signIn(n) {
@@ -46,7 +49,9 @@ const pWin = (rA, rB) => 1 / (1 + Math.pow(10, (rB - rA) * 0.5));
   const ids = FIELD.map(n => actors[n].id);
   const { data: profs } = await admin.from('profiles').select('id, rating').in('id', ids);
   const ratingOf = new Map(profs.map(p => [p.id, Number(p.rating)]));
-  const favId = actors[FAV].id;
+  // the exploiter bets the strongest player in the field
+  const favId = ids.slice().sort((a, b) => ratingOf.get(b) - ratingOf.get(a))[0];
+  const FAV = FIELD.find(n => actors[n].id === favId);
   const bettor = actors[BETTOR];
 
   // make sure the bettor can cover every stake
