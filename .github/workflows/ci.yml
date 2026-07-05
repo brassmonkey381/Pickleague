@@ -15,6 +15,10 @@ jobs:
   unit:
     name: mobile typecheck + vitest
     runs-on: ubuntu-latest
+    # Lets the built-in GITHUB_TOKEN read the (public) foundation package.
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,12 +28,13 @@ jobs:
           cache-dependency-path: mobile/package-lock.json
       - name: Install (mobile)
         working-directory: mobile
-        # The foundation is a private GitHub Packages dep in another org
-        # (just-messin-around), so the repo's automatic token can't read it —
-        # PACKAGES_TOKEN is a read:packages PAT stored as a repo secret. The
-        # mobile/.npmrc references ${GITHUB_TOKEN} for the registry auth.
+        # The foundation is a GitHub Packages dep; mobile/.npmrc references
+        # ${GITHUB_TOKEN} for registry auth. While the package is PUBLIC, the
+        # built-in Actions token (with packages:read above) can read it even
+        # cross-org. If it's ever made private, swap this for a read:packages
+        # PAT stored as a repo secret (e.g. secrets.PACKAGES_TOKEN).
         env:
-          GITHUB_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci
       - name: Typecheck
         working-directory: mobile
