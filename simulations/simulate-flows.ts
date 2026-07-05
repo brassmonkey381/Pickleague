@@ -1111,8 +1111,13 @@ async function guestScenario() {
   const c = new Checker();
   const names = await pickSimPlayers(1);
   const host = await signIn(names[0]);
-  const { data: lg } = await admin.from('leagues').select('id').eq('name', '[SIM] Toolbox League').maybeSingle();
-  if (!lg) return die('needs the "[SIM] Toolbox League" (run Seed Fake Players first)');
+  // Self-provision a league (host as admin) so the scenario doesn't depend on
+  // pre-seeded data — the [SIM] cleanup removes it afterward.
+  const { data: lg, error: lgErr } = await host.client.from('leagues').insert({
+    name: `[SIM] guest league ${stamp}`, created_by: host.id, is_open: true,
+  }).select('id').single();
+  if (lgErr || !lg) return die('create guest league: ' + (lgErr?.message ?? 'no row'));
+  await host.client.from('league_members').insert({ league_id: lg.id, user_id: host.id, role: 'admin' });
 
   // 1. host creates a voting event with one slot (same insert as the app)
   const { data: ev, error: evErr } = await host.client.from('league_events').insert({
