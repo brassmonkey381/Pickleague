@@ -1273,7 +1273,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                   <View style={S.wagerMarketPanel}>
                     <View style={S.wagerMarketHeader}>
                       <Text style={[S.wagerMarketCellLabel, { flex: 1, textAlign: 'left' }]}>Player</Text>
-                      {WAGER_MARKET_RANKS.map(rc => (
+                      {/* Only offer finishing ranks the field can actually
+                          produce — no "🥉 3rd" in a 2-player tournament. */}
+                      {WAGER_MARKET_RANKS.filter(rc => rc.rank <= approved.length).map(rc => (
                         <Text key={rc.rank} style={S.wagerMarketCellLabel}>{rc.emoji}</Text>
                       ))}
                     </View>
@@ -1288,7 +1290,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                             </View>
                             <Text style={S.wagerMarketName} numberOfLines={1}>{uname}</Text>
                           </View>
-                          {WAGER_MARKET_RANKS.map(rc => (
+                          {WAGER_MARKET_RANKS.filter(rc => rc.rank <= approved.length).map(rc => (
                             <Pressable
                               key={rc.rank}
                               style={({ pressed }) => [S.wagerMarketBetBtn, pressed && S.wagerMarketBetBtnPressed]}
