@@ -44,7 +44,7 @@ jobs:
           fetch-depth: 0   # audit picks the canonical file by git history
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: scripts/package-lock.json
       - name: Install (scripts)
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: simulations/package-lock.json
       - name: Install (simulations)
