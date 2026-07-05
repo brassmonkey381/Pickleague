@@ -1155,10 +1155,35 @@ async function guestScenario() {
   c.check('guest', 'guest flags cleared after upgrade', gp2?.is_guest === false && gp2?.guest_expires_at == null,
     JSON.stringify(gp2));
 
-  // 7. tidy up: remove the throwaway account + event
+  // 7. orphaned-guest cleanup: the hourly cron deletes expired,
+  //    never-upgraded anonymous guests after a 14-day grace — and must
+  //    never touch live guests or upgraded accounts.
+  const mkGuest = async (label: string) => {
+    const g = createClient(URL!, ANON!, { auth: { autoRefreshToken: false, persistSession: false } });
+    const { data: ga, error: ge } = await g.auth.signInAnonymously({ options: { data: { full_name: label } } });
+    if (ge || !ga.user) die(`guest ${label}: ` + ge?.message);
+    const { error: re } = await g.rpc('redeem_guest_invite', { p_token: token, p_name: label });
+    if (re) die(`redeem ${label}: ` + re.message);
+    return ga.user.id;
+  };
+  const expiredGuestId = await mkGuest('Sim Expired Guest');
+  const liveGuestId = await mkGuest('Sim Live Guest');
+  await admin.from('profiles').update({ guest_expires_at: new Date(Date.now() - 20 * 86400_000).toISOString() })
+    .eq('id', expiredGuestId);
+  const { error: cleanErr } = await admin.rpc('cleanup_expired_guests');
+  const gone = await admin.auth.admin.getUserById(expiredGuestId);
+  const alive = await admin.auth.admin.getUserById(liveGuestId);
+  const upgraded = await admin.auth.admin.getUserById(guestId);
+  c.check('guest-cleanup', 'cleanup cron deletes expired never-upgraded guest accounts',
+    cleanErr == null && (gone.error != null || gone.data?.user == null), cleanErr?.message ?? 'expired guest still exists');
+  c.check('guest-cleanup', 'live guests survive the cleanup', alive.data?.user != null, alive.error?.message);
+  c.check('guest-cleanup', 'upgraded ex-guests survive the cleanup', upgraded.data?.user != null, upgraded.error?.message);
+
+  // 8. tidy up: remove the throwaway accounts + event
   await admin.auth.admin.deleteUser(guestId);
+  await admin.auth.admin.deleteUser(liveGuestId).catch(() => {});
   await admin.from('league_events').delete().eq('id', ev!.id);
-  c.note('cleanup: guest account + event removed');
+  c.note('cleanup: guest accounts + event removed');
 
   const file = writeReport(c, `[SIM] guest flow ${stamp}`, ev!.id, { scenario: 'guest' });
   log(`

@@ -176,6 +176,14 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
       <Text style={S.fine}>
         You'll get a 7-day guest pass to Pickleague for this league. No password needed.
       </Text>
+      {/* Anonymous sessions have no credentials — the browser's session
+          storage is the only key, so closing this window loses the guest
+          account permanently. Say so up front. */}
+      <Text style={S.fineWarning}>
+        ⚠️ Your guest pass lives in this browser only — if you close this window
+        (or use a private/incognito tab), you'll lose access to it and your votes
+        can't be changed. Create a free account any time to keep it.
+      </Text>
     </ScrollView>
   );
 }
@@ -209,5 +217,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     ctaText:      { color: '#fff', fontSize: 16, fontWeight: '800' },
 
     fine:         { fontSize: 12, color: c.textMuted, textAlign: 'center', marginTop: 18, lineHeight: 18 },
+    fineWarning:  { fontSize: 12, color: '#b8860b', textAlign: 'center', marginTop: 10, lineHeight: 18, paddingHorizontal: 8 },
   });
 }
