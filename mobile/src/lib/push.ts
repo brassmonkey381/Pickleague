@@ -1,39 +1,60 @@
 // Push-notification client: token registration + tap routing.
 //
-// The server side (DB trigger → send-push Edge Function) mirrors every in-app
-// notification to a phone push. This module handles the device half:
-//   - registerForPushNotificationsAsync(): permission → Expo token → DB upsert
-//   - foreground display handler
-//   - routeNotification(data): deep-link a tapped push to the right screen,
-//     mirroring handleTap() in NotificationsScreen.
+// The mechanics (permission prompt, Expo token fetch, Android channel, tap
+// listeners, cold-start replay) now live in
+// @just-messin-around/expo-foundation/platform. This module composes those
+// helpers with the Pickleague-specific halves that stay local:
+//   - the push_tokens upsert/delete (Supabase + RLS)
+//   - resolvePushTarget(): entity_type → concrete screen + typed params
+// so consumers (`import { ... } from '../lib/push'`) are unchanged.
 //
 // Web is a no-op (Expo push tokens are native-only).
 
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
+import {
+  configurePushNotificationHandler,
+  createPushTokenLifecycle,
+  wirePushResponseRouting,
+} from '@just-messin-around/expo-foundation/platform';
 import { supabase } from './supabase';
 import { navigateWhenReady } from './navigationRef';
 import { RootStackParamList } from '../types';
 
 // Show notifications while the app is foregrounded too (otherwise native only
-// surfaces them when backgrounded).
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+// surfaces them when backgrounded). Module-level, as before — the kit just makes
+// the setNotificationHandler call explicit instead of an import side effect.
+configurePushNotificationHandler({ showAlertWhenForeground: true });
 
-function getProjectId(): string | undefined {
-  return (
-    Constants.expoConfig?.extra?.eas?.projectId ??
-    Constants.easConfig?.projectId
-  );
-}
+// The user the in-flight registration belongs to. Resolved by the exported
+// wrapper below (which owns the "must be signed in" rule) and read by the
+// lifecycle's register callback.
+let pendingUserId: string | null = null;
+// The user whose token is currently persisted, so an account switch on this
+// device re-points the row instead of being deduped away by the lifecycle.
+let lastUserId: string | null = null;
+
+const pushTokens = createPushTokenLifecycle({
+  register: async (token, platform) => {
+    // Throwing (rather than returning) keeps the kit from remembering a token it
+    // never actually persisted, so a later attempt isn't deduped into a no-op.
+    if (!pendingUserId) throw new Error('push: no authenticated user');
+    await supabase.from('push_tokens').upsert(
+      {
+        user_id: pendingUserId,
+        token,
+        platform,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'token' },
+    );
+  },
+  unregister: async (token) => {
+    await supabase.from('push_tokens').delete().eq('token', token);
+  },
+  // MUST stay 'default': existing installs already have this channel, and
+  // Android channel settings are immutable once created.
+  registerOptions: { androidChannelId: 'default', androidChannelName: 'Default' },
+});
 
 /**
  * Requests notification permission, fetches the Expo push token, and upserts it
@@ -42,52 +63,21 @@ function getProjectId(): string | undefined {
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   if (Platform.OS === 'web') return null;
-  // Push tokens require physical hardware; simulators/emulators can't get them.
-  if (!Device.isDevice) return null;
-
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Default',
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  }
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let status = existing;
-  if (existing !== 'granted') {
-    const req = await Notifications.requestPermissionsAsync();
-    status = req.status;
-  }
-  if (status !== 'granted') return null;
-
-  let token: string;
   try {
-    const projectId = getProjectId();
-    const resp = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
-    );
-    token = resp.data;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    // Signed in as someone else on this device (e.g. a sign-out that couldn't
+    // run the RLS delete): forget the remembered token so the row is re-upserted
+    // under the new user_id rather than skipped as "already registered".
+    if (lastUserId && lastUserId !== user.id) await pushTokens.unregister();
+    pendingUserId = user.id;
+    const token = await pushTokens.register();
+    lastUserId = token ? user.id : null;
+    return token;
   } catch {
     return null;
   }
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  await supabase.from('push_tokens').upsert(
-    {
-      user_id: user.id,
-      token,
-      platform: Platform.OS,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'token' },
-  );
-  lastRegisteredToken = token;
-  return token;
 }
-
-// Remembered so we can delete exactly this device's row on sign-out.
-let lastRegisteredToken: string | null = null;
 
 /**
  * Removes this device's push token so a signed-out (or switched) account stops
@@ -95,10 +85,8 @@ let lastRegisteredToken: string | null = null;
  * delete policy requires auth.uid() = user_id.
  */
 export async function unregisterPushTokenAsync(): Promise<void> {
-  if (!lastRegisteredToken) return;
-  const token = lastRegisteredToken;
-  lastRegisteredToken = null;
-  await supabase.from('push_tokens').delete().eq('token', token);
+  lastUserId = null;
+  await pushTokens.unregister();
 }
 
 type PushData = {
@@ -161,25 +149,8 @@ export function routeNotification(data: PushData | undefined | null): void {
 
 /**
  * Wires up tap handling: live taps while the app runs, plus the cold-start case
- * where a tap launched the app. Returns an unsubscribe function.
+ * where a tap launched the app. Returns an unsubscribe function. No-op on web.
  */
 export function setupNotificationTapHandling(): () => void {
-  // Native-only: addNotificationResponseReceivedListener / getLastNotificationResponseAsync
-  // don't exist on web and throw. Push is a no-op on web (see header).
-  if (Platform.OS === 'web') return () => {};
-
-  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-    routeNotification(response.notification.request.content.data as PushData);
-  });
-
-  // Cold start: app was launched by tapping a push.
-  Notifications.getLastNotificationResponseAsync()
-    .then((response) => {
-      if (response) {
-        routeNotification(response.notification.request.content.data as PushData);
-      }
-    })
-    .catch(() => {});
-
-  return () => sub.remove();
+  return wirePushResponseRouting((data) => routeNotification(data as PushData));
 }

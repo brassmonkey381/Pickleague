@@ -21,7 +21,30 @@ export const TOURS: Record<TourKey, TourStep[]> = {
   ],
 };
 
-export const { TourProvider, useTour } = createTourContext<TourKey>({
+const tour = createTourContext<TourKey>({
   storagePrefix: 'pickleague_tour_',
   tours: TOURS,
+  // Behavior/layout of the overlay. These reproduce Pickleague's original
+  // hand-rolled overlay: a non-blocking absolute layer (taps reach the
+  // highlighted target), tap-the-dim-to-dismiss, an anchored 280px bubble, and
+  // nothing rendered until the anchor has been measured. The theme-dependent
+  // styling lives in components/SpotlightTour.tsx, which needs the palette.
+  spotlight: {
+    blockInteraction: false,
+    dismissOnBackdropPress: true,
+    showSkipOnLastStep: true,
+    anchored: true,
+    cardWidth: 280,
+    spotlightPadding: 8,
+    hideUntilMeasured: true,
+    dimColor: 'rgba(0,0,0,0.62)',
+    counterPlacement: 'aboveTitle',
+    nextLabel: 'Next →',
+  },
 });
+
+export const { TourProvider, useTour } = tour;
+
+/** Kit-bound overlay. Render it via components/SpotlightTour.tsx, which layers
+ *  the Pickleague palette on top. */
+export const SpotlightTourBase = tour.SpotlightTour;
