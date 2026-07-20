@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, FlatList, TouchableOpacity, StyleSheet,
   ScrollView, RefreshControl,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,6 +12,8 @@ import { cancelWager, genericSubjectLabel, WagerStatus } from '../lib/wager';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import EmptyState from '../components/EmptyState';
+import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 import FlairName from '../components/FlairName';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'MyWagers'> };
@@ -557,16 +559,16 @@ export default function MyWagersScreen({ navigation }: Props) {
           </View>
 
           {loading ? (
-            <View style={S.center}><ActivityIndicator color={c.primary} /></View>
+            <LoadingState label="Loading…" />
           ) : visible.length === 0 ? (
             <View style={S.center}>
-              <Text style={S.emptyEmoji}>🎲</Text>
-              <Text style={S.emptyTitle}>No {tab} wagers</Text>
-              <Text style={S.emptyBody}>
-                {tab === 'open'
+              <EmptyState
+                icon="🎲"
+                title={`No ${tab} wagers`}
+                subtitle={tab === 'open'
                   ? 'Place a wager from a match or tournament to see it here.'
                   : `You don't have any ${tab} wagers yet.`}
-              </Text>
+              />
             </View>
           ) : (
             <FlatList
@@ -580,7 +582,7 @@ export default function MyWagersScreen({ navigation }: Props) {
         </>
       ) : (
         marketsLoading && !marketsRefreshing ? (
-          <View style={S.center}><ActivityIndicator color={c.primary} /></View>
+          <LoadingState label="Loading…" />
         ) : (
           <ScrollView
             contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
@@ -657,9 +659,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tabTextActive:{ color: '#fff' },
 
     center:      { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-    emptyEmoji:  { fontSize: 48, marginBottom: 10 },
-    emptyTitle:  { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 6 },
-    emptyBody:   { fontSize: 13, color: c.textSub, textAlign: 'center', lineHeight: 19 },
 
     row:         { flexDirection: 'row', alignItems: 'center', gap: 10,
                    backgroundColor: c.surface, borderRadius: 12, padding: 14,

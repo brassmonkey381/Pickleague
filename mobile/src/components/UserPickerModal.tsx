@@ -6,6 +6,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
+import EmptyState from './EmptyState';
 
 export type PickedUser = {
   id: string;
@@ -98,7 +99,7 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
         <FlatList
           data={filtered}
           keyExtractor={u => u.id}
-          ListEmptyComponent={<Text style={S.empty}>No matches.</Text>}
+          ListEmptyComponent={<EmptyState icon="🔍" title="No matches." />}
           renderItem={({ item }) => {
             const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
             const emoji   = item.avatar_emoji ?? cartoon.emoji;
@@ -179,6 +180,5 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     name:        { fontSize: 15, fontWeight: '700', color: c.text },
     username:    { fontSize: 12, color: c.textMuted, marginTop: 1 },
     chevron:     { fontSize: 20, color: c.textMuted },
-    empty:       { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 14 },
   });
 }

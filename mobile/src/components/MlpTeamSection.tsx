@@ -11,6 +11,7 @@ import UserPickerModal, { PickedUser } from './UserPickerModal';
 import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import EmptyState from './EmptyState';
 import { isGodmodeUserId } from '../lib/godmode';
 
 type Props = {
@@ -552,11 +553,11 @@ export default function MlpTeamSection({
 
       {/* Teams list */}
       {teams.length === 0 && (
-        <Text style={S.empty}>
-          {format === 'mlp_random'
+        <EmptyState
+          title={format === 'mlp_random'
             ? 'No teams yet — admin will generate them once registration is closed.'
             : 'No teams yet — be the first to create one!'}
-        </Text>
+        />
       )}
 
       {teams.map(t => {
@@ -1037,7 +1038,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     godmodeDetailLine:    { fontSize: 11, color: '#3730a3', marginVertical: 1 },
     godmodeDetailLineFail:{ color: '#991b1b' },
 
-    empty: { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 16 },
 
     teamCard:    { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border },
     teamHeader:  { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },

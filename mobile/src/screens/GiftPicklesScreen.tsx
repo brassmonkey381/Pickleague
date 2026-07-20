@@ -14,6 +14,7 @@ import { AVATARS } from '../data/profileCustomization';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 import AppRefreshControl from '../components/AppRefreshControl';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'GiftPickles'> };
@@ -72,7 +73,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   }
 
   if (authorized === null) {
-    return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+    return <LoadingState label="Checking access…" />;
   }
   if (!authorized) {
     return (

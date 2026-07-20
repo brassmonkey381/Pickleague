@@ -606,9 +606,7 @@ function DrillChatModal({
         {loadingMsgs ? (
           <ActivityIndicator size="small" color={colors.primary} />
         ) : messages.length === 0 ? (
-          <Text style={S.empty}>
-            No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept.
-          </Text>
+          <EmptyState icon="💬" title="No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept." />
         ) : (
           messages.map(m => {
             const mine = m.sender_id === currentUserId;
@@ -669,7 +667,7 @@ function DrillChatModal({
             {courtsLoading ? (
               <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
             ) : courts.length === 0 ? (
-              <Text style={S.empty}>No courts found in the database yet.</Text>
+              <EmptyState title="No courts found in the database yet." />
             ) : (
               <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
                 {courts.map(c2 => (
@@ -732,7 +730,7 @@ function CourtPickerModal({
           {loading ? (
             <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
           ) : courts.length === 0 ? (
-            <Text style={S.empty}>No courts found in the database yet.</Text>
+            <EmptyState title="No courts found in the database yet." />
           ) : (
             <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
               {courts.map(court => (
@@ -757,7 +755,6 @@ function makeCourtPickerStyles(c: ReturnType<typeof useTheme>['colors']) {
     header:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
     title:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
     close:   { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
-    empty:   { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 32 },
     row:     { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
     rowName: { fontSize: 14, fontWeight: '700', color: c.text },
     rowSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
@@ -772,7 +769,6 @@ function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
     title:       { flex: 1, fontSize: 16, fontWeight: '800', color: c.text },
     close:       { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
     messageList: { flex: 1 },
-    empty:       { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 40, lineHeight: 20 },
     bubbleRow:   { flexDirection: 'row', marginBottom: 6 },
     bubbleRowMine: { justifyContent: 'flex-end' },
     bubble:      { maxWidth: '80%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },

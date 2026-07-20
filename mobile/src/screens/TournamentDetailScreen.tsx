@@ -1060,7 +1060,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  if (!tournament) return <Text style={S.empty}>Tournament not found.</Text>;
+  if (!tournament) return <EmptyState title="Tournament not found." />;
 
   const fmt        = FORMAT_META[tournament.format];
   const approved   = registrations.filter(r => r.status === 'approved');
@@ -2847,7 +2847,6 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
-    empty: { textAlign: 'center', marginTop: 60, color: c.textMuted, fontSize: 15 },
 
     headerCard: { backgroundColor: c.surface, padding: 16, marginBottom: 8, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
     headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },

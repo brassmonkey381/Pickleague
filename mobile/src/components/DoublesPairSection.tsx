@@ -9,6 +9,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { DoublesPair, DoublesPairJoinRequest, TournamentRegistration } from '../types';
 import UserPickerModal, { PickedUser } from './UserPickerModal';
 import ConfirmModal from './ConfirmModal';
+import EmptyState from './EmptyState';
 
 type Props = {
   tournamentId: string;
@@ -269,7 +270,7 @@ export default function DoublesPairSection({
 
       {/* Pairs list */}
       {pairs.length === 0 && (
-        <Text style={S.empty}>No pairs yet — be the first to create one!</Text>
+        <EmptyState icon="🤝" title="No pairs yet — be the first to create one!" />
       )}
 
       {pairs.map(p => {
@@ -537,7 +538,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     adminBtnText: { color: c.text, fontWeight: '700', fontSize: 13 },
     btnDim:       { opacity: 0.4 },
 
-    empty:        { fontSize: 13, color: c.textMuted, textAlign: 'center', marginVertical: 16 },
 
     teamCard:     { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border },
     teamHeader:   { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },

@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { useTheme } from '../lib/ThemeContext';
+import EmptyState from '../components/EmptyState';
+import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInfo'>;
@@ -122,8 +124,8 @@ export default function TournamentInfoScreen({ route }: Props) {
     setLoading(false);
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
-  if (!t) return <Text style={S.empty}>Tournament not found.</Text>;
+  if (loading) return <LoadingState label="Loading…" />;
+  if (!t) return <EmptyState title="Tournament not found." />;
 
   const meta = FORMAT_META[t.format];
   const expl = FORMAT_EXPLAINERS[t.format];
@@ -273,6 +275,5 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     bulletNum:    { width: 22, height: 22, borderRadius: 11, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
     bulletNumText:{ fontSize: 11, fontWeight: '800', color: '#fff' },
     bulletText:   { flex: 1, fontSize: 14, color: c.text, lineHeight: 20 },
-    empty:        { textAlign: 'center', marginTop: 60, color: c.textMuted, fontSize: 15 },
   });
 }

@@ -596,7 +596,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // ── Render sections ───────────────────────────────────────────
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
-  if (!season) return <Text style={S.empty}>Season not found.</Text>;
+  if (!season) return <EmptyState title="Season not found." />;
 
   const lockedCount    = periods.filter(p => p.locked).length;
   const totalPeriods   = season.total_periods;
@@ -1129,7 +1129,6 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container:      { padding: 16, paddingBottom: 40, backgroundColor: c.bg },
-    empty:          { color: c.textMuted, textAlign: 'center', marginTop: 16, fontSize: 14 },
 
     // Header card
     headerCard:     { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },

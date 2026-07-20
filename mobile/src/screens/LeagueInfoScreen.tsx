@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { League, LeagueSeason, RootStackParamList, Tournament } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { useTheme } from '../lib/ThemeContext';
+import EmptyState from '../components/EmptyState';
+import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueInfo'>;
@@ -42,8 +44,8 @@ export default function LeagueInfoScreen({ route }: Props) {
     setLoading(false);
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
-  if (!league) return <Text style={S.empty}>League not found.</Text>;
+  if (loading) return <LoadingState label="Loading…" />;
+  if (!league) return <EmptyState title="League not found." />;
 
   const activeSeason = seasons.find(s => s.status === 'active' || s.status === 'upcoming');
   const completedSeasons = seasons.filter(s => s.status === 'completed');
@@ -220,6 +222,5 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     calloutTitle: { fontSize: 13, fontWeight: '700', color: c.primary },
     calloutLine:  { fontSize: 13, color: c.text },
     formatLine:   { fontSize: 13, color: c.textSub, fontWeight: '600' },
-    empty:        { textAlign: 'center', marginTop: 60, color: c.textMuted, fontSize: 15 },
   });
 }

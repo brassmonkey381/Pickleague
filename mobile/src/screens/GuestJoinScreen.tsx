@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { navigateWhenReady } from '../lib/navigationRef';
+import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'GuestJoin'>;
@@ -106,7 +107,7 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
   }
 
   if (loading) {
-    return <ActivityIndicator style={{ flex: 1 }} size="large" color={c.primary} />;
+    return <LoadingState label="Loading…" />;
   }
 
   if (!preview?.valid) {
