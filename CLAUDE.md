@@ -10,8 +10,7 @@ Pickleague is a pickleball league management app: Expo + React Native + TypeScri
 
 This is a multi-package repo. Each of these has its own `node_modules` and is installed/run independently — there is no root package manifest.
 
-- `mobile/` — the Expo app. Almost all product work happens here.
-- `shared/` — `@stockman/rn-foundation`, a domain-agnostic Expo/RN foundation (Supabase client factory, theming, toast, navigation ref, UI primitives, platform + scheduling utils) extracted from `mobile/` to seed future apps. Consumed by `mobile/` via `file:../shared`.
+- `mobile/` — the Expo app. Almost all product work happens here. Its domain-agnostic Expo/RN foundation (Supabase client factory, theming, toast, navigation ref, UI primitives, platform + scheduling utils) comes from the published `@just-messin-around/expo-foundation` package.
 - `supabase/` — `schema.sql` (full fresh-install schema) plus ~145 incrementally-applied `migration_*.sql` files. This is the source of truth for DB structure, RLS, and the Postgres triggers/RPCs that drive ratings, payouts, and notifications.
 - `scripts/` — Node (CommonJS) admin/seeding scripts run directly against Supabase (seed users/matches/paddles, recalculate ELO, backdate tournaments).
 - `simulations/` — `tsx` scripts that exercise tournament generator logic end-to-end and assert on results (exit 1 on failure).
@@ -53,9 +52,9 @@ These import pure functions from `mobile/src/lib/tournament.ts` and assert struc
 - **App shell** (`App.tsx`) wraps everything in `ThemeProvider` (light/dark) plus global `EmailConfirmedBanner` and `BadgeToast` overlays.
 - **Supabase singleton** — `lib/supabase.ts` is a thin wrapper that injects this app's `EXPO_PUBLIC_*` env vars into `createSupabase()` from the shared foundation. Always `import { supabase } from '../lib/supabase'`.
 
-### shared/ (@stockman/rn-foundation)
-- TypeScript-source package (no build step) exposed via subpath exports (`/supabase`, `/theme`, `/ui`, `/platform`, etc.) — see `shared/package.json` `exports`. React/RN deps are `peerDependencies`.
-- `mobile/metro.config.js` is what makes this work: it adds `shared/` to `watchFolders` (so edits hot-reload) and pins `react`, `react-native`, etc. to `mobile/node_modules` via `extraNodeModules`. If you see "Invalid hook call" or a broken `useTheme`/`useToast`, suspect a duplicate React copy and check this config.
+### Foundation (@just-messin-around/expo-foundation)
+- Published TypeScript-source package (no build step) exposed via subpath exports (`/supabase`, `/theme`, `/ui`, `/platform`, etc.). React/RN deps are `peerDependencies`.
+- `mobile/metro.config.js` pins `react`, `react-native`, etc. to `mobile/node_modules` via `extraNodeModules` so the foundation resolves a single React copy. If you see "Invalid hook call" or a broken `useTheme`/`useToast`, suspect a duplicate React copy and check this config.
 - Platform-specific files use the `.web.tsx` convention (e.g. `AppDateTimePicker.web.tsx`) so web and native diverge without branching in code.
 
 ### Back end (supabase/)
