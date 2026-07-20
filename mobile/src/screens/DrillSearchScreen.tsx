@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import {
-  DrillSlot, overlapSlots, rollingDates, expandWeeklyToDates, toWeeklyDrill,
+  DateSlot, overlapSlots, rollingDates, expandWeeklyToDates, toWeeklyTemplate,
 } from '../lib/drillTime';
 import { findShotPref, findPartnerPref } from '../data/drillOptions';
 import { AVATARS } from '../data/profileCustomization';
@@ -33,7 +33,7 @@ type Candidate = {
   drill_shot_prefs: string[];
   drill_partner_prefs: string[];
   drill_custom_tags: string[];
-  overlap: DrillSlot[];
+  overlap: DateSlot[];
   sharedShots: number;
   sharedPartner: number;
 };
@@ -68,7 +68,7 @@ export default function DrillSearchScreen({}: Props) {
       .eq('id', user.id)
       .single();
 
-    const myWeekly  = toWeeklyDrill(myProfileRes.data?.drill_availability ?? []);
+    const myWeekly  = toWeeklyTemplate(myProfileRes.data?.drill_availability ?? []);
     const myShots   = (myProfileRes.data?.drill_shot_prefs ?? []) as string[];
     const myPartner = (myProfileRes.data?.drill_partner_prefs ?? []) as string[];
     const myRating  = myProfileRes.data?.rating ?? 3.25;
@@ -84,7 +84,7 @@ export default function DrillSearchScreen({}: Props) {
     const dates   = rollingDates();
     const myDated = expandWeeklyToDates(myWeekly, dates);
     const list: Candidate[] = (others ?? []).map((p: any) => {
-      const theirWeekly = toWeeklyDrill(p.drill_availability ?? []);
+      const theirWeekly = toWeeklyTemplate(p.drill_availability ?? []);
       const overlap     = overlapSlots(myDated, expandWeeklyToDates(theirWeekly, dates), dates);
       const sharedShots   = (p.drill_shot_prefs ?? []).filter((s: string) => myShots.includes(s)).length;
       const sharedPartner = (p.drill_partner_prefs ?? []).filter((s: string) => myPartner.includes(s)).length;

@@ -12,7 +12,7 @@ import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
 import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
-import { isoDate, rollingDates, slotRangeLabel, durationLabel, spanToDailyOverlays, dateLabel, dateSubLabel, toWeeklyDrill, DRILL_WEEKLY_CELLS } from '../lib/drillTime';
+import { isoDate, rollingDates, slotRangeLabel, durationLabel, spanToDailyOverlays, dateLabel, dateSubLabel, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 import { DumbbellIcon } from '../components/PickleIcons';
 import { useRefresh } from '../lib/useRefresh';
@@ -30,7 +30,7 @@ export default function DrillScreen({ navigation }: Props) {
 
   const [userId, setUserId]                   = useState<string | null>(null);
   const [enabled, setEnabled]                 = useState(false);
-  const [availability, setAvailability]       = useState<boolean[]>(() => Array(DRILL_WEEKLY_CELLS).fill(false));
+  const [availability, setAvailability]       = useState<boolean[]>(() => Array(WEEKLY_CELLS).fill(false));
   const [shotPrefs, setShotPrefs]             = useState<string[]>([]);
   const [partnerPrefs, setPartnerPrefs]       = useState<string[]>([]);
   const [customTags, setCustomTags]           = useState<string[]>([]);
@@ -95,7 +95,7 @@ export default function DrillScreen({ navigation }: Props) {
 
     if (profileRes.data) {
       setEnabled(profileRes.data.drilling_enabled ?? false);
-      setAvailability(toWeeklyDrill(profileRes.data.drill_availability ?? []));
+      setAvailability(toWeeklyTemplate(profileRes.data.drill_availability ?? []));
       setShotPrefs(profileRes.data.drill_shot_prefs ?? []);
       setPartnerPrefs(profileRes.data.drill_partner_prefs ?? []);
       setCustomTags(profileRes.data.drill_custom_tags ?? []);

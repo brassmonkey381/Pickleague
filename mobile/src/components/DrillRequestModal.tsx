@@ -6,7 +6,7 @@ import {
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 import {
-  DrillSlot, dateLabel, dateSubLabel, slotLabel,
+  DateSlot, dateLabel, dateSubLabel, slotLabel,
 } from '../lib/drillTime';
 
 const IS_WEB = Platform.OS === 'web';
@@ -18,7 +18,7 @@ type Props = {
   fromUserId: string;
   toUserId: string;
   toName: string;
-  overlapSlots: DrillSlot[];
+  overlapSlots: DateSlot[];
 };
 
 export default function DrillRequestModal({
@@ -42,9 +42,9 @@ export default function DrillRequestModal({
     return m;
   }, [overlapSlots]);
 
-  function key(s: DrillSlot) { return `${s.date}|${s.slot}`; }
+  function key(s: DateSlot) { return `${s.date}|${s.slot}`; }
 
-  function toggle(s: DrillSlot) {
+  function toggle(s: DateSlot) {
     const k = key(s);
     const next = new Set(picked);
     if (next.has(k)) next.delete(k);
