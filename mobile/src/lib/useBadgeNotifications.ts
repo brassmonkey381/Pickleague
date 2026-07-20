@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { manageChannel } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
 /**
@@ -6,6 +7,13 @@ import { supabase } from './supabase';
  * to `public.player_badges` realtime inserts filtered by user_id, fetches the
  * matching `badges` row to populate icon + name, and auto-dismisses each toast
  * after AUTO_DISMISS_MS.
+ *
+ * The channel is managed by the kit's manageChannel (the primitive behind
+ * useRealtimeChannel), so it self-heals: it re-joins automatically when the
+ * network comes back or the app returns to the foreground, instead of silently
+ * staying dead after a socket drop. manageChannel is used directly (rather
+ * than the hook wrapper) because we only subscribe once the async
+ * auth.getUser() lookup resolves a user id.
  */
 export type BadgeToastItem = {
   id: string;            // player_badges.id
@@ -39,52 +47,59 @@ export function useBadgeNotifications() {
     timersRef.current.set(item.id, timer);
   }, []);
 
+  // Resolve the signed-in user before subscribing (realtime filter needs it).
+  const [userId, setUserId] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!cancelled) setUserId(user?.id ?? null);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (cancelled || !user) return;
+  useEffect(() => {
+    if (!userId) return;
 
-      channel = supabase
-        .channel(`badge-toasts-${user.id}`)
-        .on(
-          // Cast: supabase-js typings for realtime args are loose; this matches docs.
-          'postgres_changes' as any,
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'player_badges',
-            filter: `user_id=eq.${user.id}`,
-          },
-          async (payload: any) => {
-            const row = payload?.new;
-            if (!row?.id || !row?.badge_id) return;
-            const { data: badge } = await supabase
-              .from('badges')
-              .select('name, icon')
-              .eq('id', row.badge_id)
-              .maybeSingle();
-            if (!badge) return;
-            enqueueToast({
-              id: row.id,
-              badgeId: row.badge_id,
-              name: badge.name,
-              icon: badge.icon,
-            });
-          },
-        )
-        .subscribe();
-    })();
+    const managed = manageChannel(supabase, `badge-toasts-${userId}`, ch =>
+      ch.on(
+        // Cast: supabase-js typings for realtime args are loose; this matches docs.
+        'postgres_changes' as any,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'player_badges',
+          filter: `user_id=eq.${userId}`,
+        },
+        async (payload: any) => {
+          const row = payload?.new;
+          if (!row?.id || !row?.badge_id) return;
+          const { data: badge } = await supabase
+            .from('badges')
+            .select('name, icon')
+            .eq('id', row.badge_id)
+            .maybeSingle();
+          if (!badge) return;
+          enqueueToast({
+            id: row.id,
+            badgeId: row.badge_id,
+            name: badge.name,
+            icon: badge.icon,
+          });
+        },
+      ),
+    );
 
+    return () => managed.stop();
+  }, [userId, enqueueToast]);
+
+  // Clear any pending auto-dismiss timers on unmount.
+  useEffect(() => {
+    const timers = timersRef.current;
     return () => {
-      cancelled = true;
-      if (channel) supabase.removeChannel(channel);
-      timersRef.current.forEach(t => clearTimeout(t));
-      timersRef.current.clear();
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
     };
-  }, [enqueueToast]);
+  }, []);
 
   return { toasts, dismissToast };
 }

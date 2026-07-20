@@ -14,6 +14,8 @@ import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
 import ErrorBoundary from '../components/ErrorBoundary';
+import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
+import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
 import { loadUserPreferences } from '../lib/userPreferences';
 
@@ -171,9 +173,12 @@ export default function AppNavigator() {
     ensureCourtNicknamesLoaded();
     // Route taps on push notifications to the relevant screen (live + cold start).
     const teardownTaps = setupNotificationTapHandling();
+    // Track connectivity (feeds OfflineBanner + self-healing realtime channels).
+    const stopNetworkMonitor = startNetworkMonitor();
     return () => {
       subscription.unsubscribe();
       teardownTaps();
+      stopNetworkMonitor();
     };
   }, []);
 
@@ -281,6 +286,9 @@ export default function AppNavigator() {
           can dim/highlight any screen. No-op unless a tour is active. */}
       <SpotlightTour />
       </TourProvider>
+      {/* Connectivity banner — renders null while online, so it can sit
+          unconditionally next to the toast stack. */}
+      <OfflineBanner />
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

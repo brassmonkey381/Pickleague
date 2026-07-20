@@ -53,7 +53,8 @@
         {
           "contactsPermission": "Pickleague uses your contacts so you can pick people to invite to an event vote."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
