@@ -21,9 +21,10 @@ import { join } from 'node:path';
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SQL_OUT = process.env.SQL_OUT; // when set, emit SQL chunks instead of PostgREST upserts
-const FILE = process.argv[2];
-if (!FILE || (!SQL_OUT && (!URL || !KEY))) {
-  console.error('Usage: (SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. | SQL_OUT=dir) node scripts/load-osm-venues.mjs <venues.geojsonseq>');
+const FILE = process.argv[2]; // omit or "-" to read geojsonseq from stdin (pipe mode)
+if (!SQL_OUT && (!URL || !KEY)) {
+  console.error('Usage: (SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. | SQL_OUT=dir) node scripts/load-osm-venues.mjs [venues.geojsonseq]');
+  console.error('  Omit the file (or pass "-") to read from stdin, e.g.  fetch-overpass-venues.mjs … | load-osm-venues.mjs');
   process.exit(1);
 }
 
@@ -217,7 +218,8 @@ async function main() {
   const regions = await getRegions();
   console.log(`Loaded ${regions.length} region(s).`);
   if (SQL_OUT) mkdirSync(SQL_OUT, { recursive: true });
-  const rl = createInterface({ input: createReadStream(FILE), crlfDelay: Infinity });
+  const input = (!FILE || FILE === '-') ? process.stdin : createReadStream(FILE);
+  const rl = createInterface({ input, crlfDelay: Infinity });
 
   // osmium emits a closed way twice — once as a LineString and once as an area —
   // and both decode to the same osm id. Dedup by id, keeping the richer row.
