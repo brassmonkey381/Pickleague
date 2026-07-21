@@ -52,8 +52,43 @@ These import pure functions from `mobile/src/lib/tournament.ts` and assert struc
 - **App shell** (`App.tsx`) wraps everything in `ThemeProvider` (light/dark) plus global `EmailConfirmedBanner` and `BadgeToast` overlays.
 - **Supabase singleton** — `lib/supabase.ts` is a thin wrapper that injects this app's `EXPO_PUBLIC_*` env vars into `createSupabase()` from the shared foundation. Always `import { supabase } from '../lib/supabase'`.
 
-### Foundation (@just-messin-around/expo-foundation)
-- Published TypeScript-source package (no build step) exposed via subpath exports (`/supabase`, `/theme`, `/ui`, `/platform`, etc.). React/RN deps are `peerDependencies`.
+### Foundation (@just-messin-around/expo-foundation) — reach here FIRST
+
+**Foundation-first is the prime directive.** The foundation is the shared, domain-agnostic base that
+Pickleague and its sibling apps (e.g. Doggle) all consume; it lives in its own repo at
+`C:\Users\Brian\source\repos\expo-foundation` and is published to GitHub Packages. Before you build any
+component, hook, util, provider, or platform helper:
+
+1. **Look in the foundation first** — skim its README/module catalog and `rg -i <concept>` in
+   `C:\Users\Brian\source\repos\expo-foundation\src`. It already covers Supabase (client factory,
+   retrying `sbCall`, error taxonomy, realtime), theming, toast, navigation ref, the SWR-lite query
+   `cache`, offline/mutation-queue, tour, push, contacts, ~40 UI primitives (modals, pickers,
+   `EmptyState`/`Skeleton`/`QueryState`/`OfflineBanner`, `VenuePicker`), and scheduling math.
+2. **exists** → import it from `@just-messin-around/expo-foundation/<subpath>`.
+3. **almost exists** → *extend the foundation primitive* (add a prop/variant/option) in the foundation
+   repo and publish — don't fork a private copy into `mobile/`. The recent tour options
+   (`counterSeparator`, `footerMarginTop`) are the model: a need became two additive options on the
+   existing primitive.
+4. **new + generic** → build it as a **new abstraction in the foundation repo**, publish, and bump
+   `mobile/`'s dependency (checklist below). Only Pickleague-specific things — tournament/bracket/ELO
+   logic, league schema, screens, domain copy — stay in `mobile/`.
+
+An app file may *wrap* a foundation primitive to inject Pickleague routing/domain (the adapter pattern,
+e.g. `components/SpotlightTour.tsx` skinning the kit overlay) — re-implementing one the foundation
+already has is not.
+
+**Cross-repo extension checklist** (the foundation is a separate published repo, so hoisting is a small
+release cycle):
+1. In `expo-foundation`: add/extend `src/<area>/…` (relative imports; `useTheme` from `../theme`; keep
+   it **domain-agnostic** — no pickleball names/tables/palette/copy). Export from the area `index.ts` +
+   root barrel; a new area needs a `"./<area>"` entry in its `package.json` `"exports"`.
+2. `npm run typecheck` (expect 0), bump the version (minor = additive, major = breaking), commit, push,
+   `npm publish` (needs `$env:GITHUB_TOKEN = (gh auth token)`).
+3. In `mobile/`: bump `@just-messin-around/expo-foundation`, reinstall
+   (`$env:GITHUB_TOKEN = (gh auth token); npm install`), consume it, then `npx tsc --noEmit` + `npm test`.
+
+**Wiring:**
+- Published TypeScript-source package (no build step) exposed via subpath exports (`/supabase`, `/theme`, `/ui`, `/platform`, `/cache`, etc.). React/RN deps are `peerDependencies` — when you add a foundation runtime lib, add it to `mobile/package.json` too.
 - `mobile/metro.config.js` pins `react`, `react-native`, etc. to `mobile/node_modules` via `extraNodeModules` so the foundation resolves a single React copy. If you see "Invalid hook call" or a broken `useTheme`/`useToast`, suspect a duplicate React copy and check this config.
 - Platform-specific files use the `.web.tsx` convention (e.g. `AppDateTimePicker.web.tsx`) so web and native diverge without branching in code.
 
@@ -78,6 +113,9 @@ EAS/OTA updates are configured in `mobile/app.json` (project `a6b4311e-…`, own
 
 ## Conventions
 
+- **Foundation-first (see Architecture → Foundation).** Before writing any generic component/hook/util,
+  check `@just-messin-around/expo-foundation` and extend it (or add a new abstraction there) rather than
+  building a one-off in `mobile/`. Only pickleball-domain code stays in the app.
 - **New match-history display dimension → add a filter pill.** Whenever a new vertical is shown on match history cards, add the corresponding filter control.
 - **SIM data against prod** (simulations that write to the real DB): users are `sim_*@pickleague.test`, leagues and tournaments are named `[SIM] …`, and each script must run an idempotent `cleanup()` at both start and end that deletes SIM rows in FK order. Assertions key on counts of newly created rows, never on table totals. See `simulations/README.md`.
 - Web is a first-class target: after non-trivial UI changes, sanity-check the web build renders (some native-only Expo APIs and `RefreshControl` behave differently under `react-native-web`).
