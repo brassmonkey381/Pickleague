@@ -17,6 +17,9 @@ export default {
     { name: 'GOOGLE_PLACES_KEY', label: 'Google Places key', hint: 'optional — court location autocomplete parity',
       aliases: ['googleplaceskey', 'expopublicgoogleplaceskey', 'googleapikey', 'google', 'places'],
       match: { regex: '^AIza[\\w-]{20,}$' } },
+    { name: 'SUPABASE_BIN', label: 'Supabase CLI path', hint: 'optional — path to supabase.exe for --linked read-only tools (Venue Coverage Report)',
+      aliases: ['supabasebin', 'supabasecli'],
+      match: { pathEndsWith: 'supabase.exe' } },
   ],
   envAliases: {
     SUPABASE_URL: ['EXPO_PUBLIC_SUPABASE_URL'],
@@ -112,6 +115,32 @@ export default {
       id: 'backdate-finish-tournaments', label: 'Backdate & Finish Tournaments',
       description: 'Backdate every open (registration/active) tournament by 30 days, simulate all unfinished matches with realistic scores, then mark it completed. Existing script — no dry-run; writes immediately.',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['backdate-and-finish-tournaments.js'], needsInstall: true,
+      fields: [],
+    },
+    {
+      id: 'ingest-overpass-venues', label: 'Ingest Venues (Overpass)',
+      description: 'Fetch sport venues (basketball, pickleball, tennis, soccer, volleyball, baseball, softball, skateboard, disc golf, bocce) from the Overpass API and upsert into public.venues — no osmium/PBF needed, works on Windows. Give a bbox ("south west north east", best per-metro) OR an ISO area like US-CA (may time out on the public server). Idempotent osm:<type>/<id> upsert; re-run any time. Dry-run parses + prints the per-sport summary without writing.',
+      cwd: '../../scripts', cmd: 'bash', baseArgs: ['ingest-overpass-venues.sh'],
+      fields: [
+        { name: 'bbox', flag: '--bbox', type: 'text', placeholder: '37.70 -122.55 37.83 -122.35', help: 'south west north east (grab from openstreetmap.org → Export)' },
+        { name: 'area', flag: '--area', type: 'text', placeholder: 'US-CA', help: 'alternative to bbox: a whole ISO3166-2 area' },
+        { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true },
+      ],
+    },
+    {
+      id: 'ingest-osm-venues', label: 'Ingest Venues (osmium bulk, heavy)',
+      description: 'Whole-state/US venue load: download a Geofabrik .osm.pbf extract, osmium tags-filter → geojsonseq → upsert into public.venues. No API rate limits; needs the osmium CLI on PATH (on Windows: activate the conda env that has osmium-tool first) and several GB of disk. Defaults to the California extract.',
+      cwd: '../../scripts', cmd: 'bash', baseArgs: ['ingest-osm-venues.sh'],
+      fields: [
+        { name: 'extract_url', env: 'EXTRACT_URL', type: 'text',
+          placeholder: 'https://download.geofabrik.de/north-america/us/california-latest.osm.pbf',
+          help: 'Geofabrik extract URL; leave blank for California. Full US: .../north-america/us-latest.osm.pbf (~10 GB)' },
+      ],
+    },
+    {
+      id: 'venue-coverage-report', label: 'Venue Coverage Report',
+      description: 'Read-only: per-sport venue counts + per-field coverage % of public.venues, via the Supabase CLI (--linked; no service-role key). Prints a Markdown table and writes scripts/venue-coverage-report.md.',
+      cwd: '../../scripts', cmd: 'node', baseArgs: ['venue-coverage-report.mjs'],
       fields: [],
     },
   ],

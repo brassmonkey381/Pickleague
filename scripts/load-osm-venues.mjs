@@ -21,9 +21,10 @@ import { join } from 'node:path';
 const URL = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SQL_OUT = process.env.SQL_OUT; // when set, emit SQL chunks instead of PostgREST upserts
+const DRY_RUN = !!process.env.DRY_RUN; // parse + summarize only; write nothing
 const FILE = process.argv[2]; // omit or "-" to read geojsonseq from stdin (pipe mode)
-if (!SQL_OUT && (!URL || !KEY)) {
-  console.error('Usage: (SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. | SQL_OUT=dir) node scripts/load-osm-venues.mjs [venues.geojsonseq]');
+if (!DRY_RUN && !SQL_OUT && (!URL || !KEY)) {
+  console.error('Usage: (SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. | SQL_OUT=dir | DRY_RUN=1) node scripts/load-osm-venues.mjs [venues.geojsonseq]');
   console.error('  Omit the file (or pass "-") to read from stdin, e.g.  fetch-overpass-venues.mjs … | load-osm-venues.mjs');
   process.exit(1);
 }
@@ -243,7 +244,9 @@ async function main() {
   let total = 0, withRegion = 0, chunk = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const batch = rows.slice(i, i + CHUNK);
-    if (SQL_OUT) {
+    if (DRY_RUN) {
+      // no writes — just tally
+    } else if (SQL_OUT) {
       writeFileSync(join(SQL_OUT, `chunk-${String(chunk).padStart(4, '0')}.sql`), chunkSql(batch));
       chunk++;
     } else {
@@ -251,10 +254,10 @@ async function main() {
     }
     total += batch.length;
     withRegion += batch.filter((r) => r.region_slug).length;
-    process.stdout.write(`\r${SQL_OUT ? 'Wrote' : 'Upserted'} ${total} venues…`);
+    process.stdout.write(`\r${DRY_RUN ? 'Parsed' : SQL_OUT ? 'Wrote' : 'Upserted'} ${total} venues…`);
   }
   const breakdown = Object.entries(perSport).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ');
-  console.log(`\nDone. ${total} venues (region-assigned ${withRegion}), skipped ${skipped}.`);
+  console.log(`\n${DRY_RUN ? 'DRY RUN — nothing written. ' : 'Done. '}${total} venues (region-assigned ${withRegion}), skipped ${skipped}.`);
   console.log(`By sport: ${breakdown || '(none)'}`);
   if (SQL_OUT) console.log(`Wrote ${chunk} SQL chunk(s) to ${SQL_OUT}.`);
 }
