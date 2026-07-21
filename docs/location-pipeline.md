@@ -204,6 +204,24 @@ To adopt: bump `mobile/` to `^1.2.0`, then pass `externalSearch="none"` through 
    the "suggest a court" flow (user adds an unconfirmed venue by dropping a pin / pasting coords →
    admin confirms → it enters the catalog for everyone).
 
+## Running the ingest — two paths
+
+**A. Overpass (no osmium, works on Windows as-is).** Pure Node — queries the Overpass API over HTTP,
+no PBF download. Best for a metro/bbox first run; the public server can time out on a whole state.
+```
+node scripts/fetch-overpass-venues.mjs <south> <west> <north> <east> > venues.geojsonseq
+SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node scripts/load-osm-venues.mjs venues.geojsonseq
+# key-free: SQL_OUT=./out node scripts/load-osm-venues.mjs venues.geojsonseq  → apply chunks with the CLI
+```
+Verified live: a small SF bbox returned 295 raw features → 15 venues (tennis/skateboard/pickleball/
+soccer/baseball/basketball). Overpass rate-limits + occasionally 504s; the fetcher retries with backoff.
+Override the endpoint with `OVERPASS_URL` (e.g. a mirror) for heavier runs.
+
+**B. osmium bulk (`ingest-osm-venues.sh`).** Needs the `osmium` CLI (osmium-tool). Best for a whole
+state/US — downloads a Geofabrik `.osm.pbf` and filters offline, no rate limits. On Windows osmium
+comes from conda-forge, so **activate the conda env that has it first** (`conda activate <env>`), same
+as the doggle parks run.
+
 ## Coverage & ops
 
 - **Seed regions** (`venue_regions`) for launch metros; assign each venue to its nearest region center
