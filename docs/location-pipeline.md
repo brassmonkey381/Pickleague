@@ -215,11 +215,18 @@ To adopt: bump `mobile/` to `^1.2.0`, then pass `externalSearch="none"` through 
 
 ## Phased checklist
 
-- [ ] **P0 — Schema.** `migration_add_venues.sql` (`venues` + `venue_regions` + RLS + indexes);
-      `resolve_venue`, `merge_venue`; reuse `us_cities` geocoder.
-- [ ] **P1 — Search RPCs.** `search_venues`, `list_venues_in_radius` (sport-filtered).
-- [ ] **P2 — Scrapers.** `scripts/load-osm-courts.mjs` + `scripts/ingest-osm-courts.sh`
-      (clone parks scripts). Dry-run one metro, verify counts + a spot-check of known courts.
+- [x] **P0 — Schema.** `supabase/migration_add_venues.sql` — `venues` + `venue_regions` + RLS
+      (world-read; users may only suggest their own unconfirmed rows; service role writes canonical)
+      + gin/trgm indexes + `touch_venue` trigger + `haversine_meters`. *(Deferred: `resolve_venue`,
+      `merge_venue`, `us_cities` geocoder — add when we wire the "suggest a court" dedup flow.)*
+- [x] **P1 — Search RPCs.** `search_venues` (name/city/address + distance rank) and
+      `list_venues_in_radius` (nearest-N), both sport-filtered via `venues.sport && p_sports`. In
+      `migration_add_venues.sql`.
+- [x] **P2 — Scrapers.** `scripts/load-osm-courts.mjs` + `scripts/ingest-osm-courts.sh` (ported from
+      Doggle's parks pipeline). Handles multi-value `sport`, `pickleball=yes` on tennis courts, osmium
+      area-id decoding; idempotent `osm:<type>/<id>` upsert; PostgREST **or** `SQL_OUT` chunk mode.
+      Functionally tested offline in `SQL_OUT` mode (filtering + SQL emit verified). *(Still to do:
+      run a real metro extract against the DB and spot-check counts.)*
 - [ ] **P3 — Data module.** `mobile/src/data/venues.ts` (catalog/dynamics cache split, `venues:*` keys).
 - [ ] **P4 — Dual-run in app.** Wire `searchVenues` as `localSearch` on `CourtPicker`; ship; observe.
 - [x] **P5 — Foundation.** `externalSearch` prop added to `VenuePicker`, published as kit **v1.2.0** (`0799d3a`). Bump `mobile/` to `^1.2.0` when adopting.
