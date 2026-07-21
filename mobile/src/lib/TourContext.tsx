@@ -40,6 +40,10 @@ const tour = createTourContext<TourKey>({
     dimColor: 'rgba(0,0,0,0.62)',
     counterPlacement: 'aboveTitle',
     nextLabel: 'Next →',
+    // Pickleague's original overlay rendered a tight "1/3" and a 14px
+    // body-to-footer gap (the kit defaults are " / " and 16).
+    counterSeparator: '/',
+    footerMarginTop: 14,
   },
 });
 
