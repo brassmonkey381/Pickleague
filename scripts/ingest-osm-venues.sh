@@ -25,13 +25,30 @@ PBF="${PBF:-california-latest.osm.pbf}"
 FILTERED="venues-filtered.osm.pbf"
 SEQ="venues.geojsonseq"
 
+# osmium CLI: OSMIUM_BIN override → PATH → the known conda-env install on this
+# dev machine (osmium-tool lives in the tf_2 env; the base env only has pyosmium,
+# the Python bindings, which provide no `osmium` command).
+OSMIUM="${OSMIUM_BIN:-}"
+if [ -z "$OSMIUM" ]; then
+  if command -v osmium >/dev/null 2>&1; then
+    OSMIUM=osmium
+  elif [ -x "/c/Users/Brian/anaconda3/envs/tf_2/Library/bin/osmium.exe" ]; then
+    OSMIUM="/c/Users/Brian/anaconda3/envs/tf_2/Library/bin/osmium.exe"
+  else
+    echo "osmium not found. Install osmium-tool (conda install -c conda-forge osmium-tool," >&2
+    echo "or brew/apt install osmium-tool) or set OSMIUM_BIN to the executable path." >&2
+    echo "Note: the 'osmium' conda/pip package is pyosmium (Python bindings) — it has NO CLI." >&2
+    exit 1
+  fi
+fi
+
 echo "1/4 Downloading extract ($EXTRACT_URL)…"
 [ -f "$PBF" ] || curl -L --fail -o "$PBF" "$EXTRACT_URL"
 
 echo "2/4 Filtering to sport venues…"
 # Broad filter (pitches, sports centres, skateparks, disc-golf courses, and anything
 # tagged with a sport we track); load-osm-venues.mjs refines to our sports precisely.
-osmium tags-filter "$PBF" \
+"$OSMIUM" tags-filter "$PBF" \
   nwr/leisure=pitch \
   nwr/leisure=sports_centre \
   nwr/leisure=skatepark \
@@ -40,7 +57,7 @@ osmium tags-filter "$PBF" \
   -o "$FILTERED" --overwrite
 
 echo "3/4 Exporting to line-delimited GeoJSON (with osm type+id)…"
-osmium export "$FILTERED" -f geojsonseq --add-unique-id=type_id -o "$SEQ" --overwrite
+"$OSMIUM" export "$FILTERED" -f geojsonseq --add-unique-id=type_id -o "$SEQ" --overwrite
 
 echo "4/4 Loading into public.venues (idempotent upsert)…"
 node "$(dirname "$0")/load-osm-venues.mjs" "$SEQ"
