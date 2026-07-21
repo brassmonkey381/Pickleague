@@ -1,6 +1,11 @@
 # Location pipeline — getting off Google Places
 
-**Status:** plan / not yet built · **Owner:** TBD · **Related:** [basketball-vertical.md](./basketball-vertical.md)
+**Status:** schema + scraper built (P0–P2); migration not yet applied to the DB · **Related:** [basketball-vertical.md](./basketball-vertical.md)
+
+**Scope:** the pipeline covers **10 sports** — basketball, pickleball, tennis, soccer, volleyball
+(incl. beach), baseball, softball, skateboarding, disc golf, and bocce. Adding another is a one-line
+change (a row in `SPORT_ALIASES` in `scripts/load-osm-venues.mjs` + the tag in the osmium filter);
+the DB needs no change because `venues.sport` is `text[]` and the search/radius RPCs are sport-generic.
 
 ## Why
 
@@ -34,8 +39,8 @@ All paths under `C:\Users\Brian\source\repos\doggle`. See that repo's pipeline; 
 
 | Doggle (source) | Pickleague (target) | Change needed |
 | --- | --- | --- |
-| `scripts/load-osm-parks.mjs` (streaming osmium geojsonseq → upsert) | `scripts/load-osm-courts.mjs` | Swap tag filter → court detection; replace `kindFor`/`leashFor`/`amenitiesFor` with court attributes; widen/remove CA bbox guard |
-| `scripts/ingest-osm-parks.sh` (osmium bulk orchestration) | `scripts/ingest-osm-courts.sh` | `osmium tags-filter` → `leisure=pitch,sports_centre`; point at the courts loader |
+| `scripts/load-osm-parks.mjs` (streaming osmium geojsonseq → upsert) | `scripts/load-osm-venues.mjs` | `SPORT_ALIASES` registry → sport detection; `kindFor` for court/field/skatepark/etc; no CA bbox guard |
+| `scripts/ingest-osm-parks.sh` (osmium bulk orchestration) | `scripts/ingest-osm-venues.sh` | `osmium tags-filter` → pitches + sports centres + skateparks + disc-golf courses + our `sport=` values |
 | `scripts/load-osm-businesses.mjs` (Overpass live, retry/backoff, area vs bbox) | reuse pattern for gap-fill / per-metro | Swap `FILTERS` to court tags |
 | `db/migrations/0014_dog_places.sql` + `0184_dog_place_osm_enrichment.sql` (schema spine, PostGIS boundary trigger) | `supabase/migration_add_venues.sql` | Drop leash/fenced; add court attributes (§ schema) |
 | `db/migrations/0066_search_dog_places.sql` (`search_dog_places`) | `search_venues` | Rename table; add `sport` filter |
@@ -222,11 +227,12 @@ To adopt: bump `mobile/` to `^1.2.0`, then pass `externalSearch="none"` through 
 - [x] **P1 — Search RPCs.** `search_venues` (name/city/address + distance rank) and
       `list_venues_in_radius` (nearest-N), both sport-filtered via `venues.sport && p_sports`. In
       `migration_add_venues.sql`.
-- [x] **P2 — Scrapers.** `scripts/load-osm-courts.mjs` + `scripts/ingest-osm-courts.sh` (ported from
-      Doggle's parks pipeline). Handles multi-value `sport`, `pickleball=yes` on tennis courts, osmium
-      area-id decoding; idempotent `osm:<type>/<id>` upsert; PostgREST **or** `SQL_OUT` chunk mode.
-      Functionally tested offline in `SQL_OUT` mode (filtering + SQL emit verified). *(Still to do:
-      run a real metro extract against the DB and spot-check counts.)*
+- [x] **P2 — Scrapers.** `scripts/load-osm-venues.mjs` + `scripts/ingest-osm-venues.sh` (ported from
+      Doggle's parks pipeline). Multi-sport via a `SPORT_ALIASES` registry (10 sports); handles
+      multi-value `sport`, `pickleball=yes` on tennis courts, `leisure=skatepark`/`disc_golf_course`
+      with no `sport=` tag, and osmium area-id decoding; idempotent `osm:<type>/<id>` upsert; PostgREST
+      **or** `SQL_OUT` chunk mode. Functionally tested offline (per-sport detection + SQL emit verified).
+      *(Still to do: run a real extract against the DB and spot-check counts.)*
 - [ ] **P3 — Data module.** `mobile/src/data/venues.ts` (catalog/dynamics cache split, `venues:*` keys).
 - [ ] **P4 — Dual-run in app.** Wire `searchVenues` as `localSearch` on `CourtPicker`; ship; observe.
 - [x] **P5 — Foundation.** `externalSearch` prop added to `VenuePicker`, published as kit **v1.2.0** (`0799d3a`). Bump `mobile/` to `^1.2.0` when adopting.
