@@ -162,22 +162,30 @@ Same three mechanisms Doggle proved:
   (`venues:*`, `persistMs` ~ 1 week) via the foundation `cache` module; keep any volatile overlay
   (recent-play counts, etc.) on a short TTL. Result: instant, offline-capable search.
 
-## Foundation change required
+## Foundation change — DONE (kit v1.2.0)
 
-`VenuePicker` (`expo-foundation/src/ui/VenuePicker.tsx`) always renders an external autocomplete
-(Google on native, Nominatim on web); `localSearch` only *augments* it. To be fully off Google we need
-the inverse. Per the foundation-first doctrine, **extend the primitive, don't fork it**:
+`VenuePicker` used to *always* render an external autocomplete (Google on native, Nominatim on web),
+with `localSearch` only *augmenting* it. **Shipped in `@just-messin-around/expo-foundation@1.2.0`**
+(kit `0799d3a`): a new prop
 
-- Add prop **`externalSearch?: 'google' | 'nominatim' | 'none'`** (default keeps today's behavior).
-  When `'none'`, native skips `<GooglePlacesAutocomplete>` (and the `PLACES_KEY` requirement) and web
-  skips the Nominatim fetch, rendering `localSearch` results in a plain `TextField`-driven list.
-- Everything else stays: `VenueResult` (already has `catalogId`/`localBadge`), coord-paste
-  (`parseLatLngInput`), the "📍 Use my location" GPS button, `LocationUseConfirmModal`, distance
-  ranking. The building block for the `'none'` list already exists in the kit — `SuggestField<T>`
-  (generic async-search-to-value picker).
+```ts
+externalSearch?: 'google' | 'nominatim' | 'none'   // default undefined = today's behavior
+```
 
-This is a small additive minor-version bump to the kit. Do it in the foundation repo, publish, bump
-`mobile/`. (See the cross-repo checklist in the root `CLAUDE.md`.)
+With **`externalSearch="none"`** the picker uses only `localSearch` (our catalog) + GPS / pasted
+coordinates — native renders a plain controlled `TextInput` instead of `<GooglePlacesAutocomplete>` (no
+`EXPO_PUBLIC_GOOGLE_PLACES_KEY`, no Google calls) and web skips the Nominatim fetch. Everything else is
+unchanged: `VenueResult` (`catalogId`/`localBadge`), coord-paste (`parseLatLngInput`), the "📍 Use my
+location" GPS button, `LocationUseConfirmModal`, distance ranking. Additive + backward-compatible.
+
+To adopt: bump `mobile/` to `^1.2.0`, then pass `externalSearch="none"` through `CourtPicker` once our
+`venues` DB + `localSearch` are ready (the P6 flip below).
+
+> **Follow-up (not blocking):** the native `react-native-google-places-autocomplete` import is still
+> static (optional peer), so a consumer must have the package installed even when using `'none'`.
+> Pickleague already has it (kept during the dual-run), so this doesn't block us. Fully dropping the
+> install requirement for a brand-new never-Google app is a separate change (lazy require / injected
+> provider component).
 
 ## App migration path (low-risk, reversible)
 
@@ -214,6 +222,6 @@ This is a small additive minor-version bump to the kit. Do it in the foundation 
       (clone parks scripts). Dry-run one metro, verify counts + a spot-check of known courts.
 - [ ] **P3 — Data module.** `mobile/src/data/venues.ts` (catalog/dynamics cache split, `venues:*` keys).
 - [ ] **P4 — Dual-run in app.** Wire `searchVenues` as `localSearch` on `CourtPicker`; ship; observe.
-- [ ] **P5 — Foundation.** Add `externalSearch` prop to `VenuePicker` (kit minor bump), publish, bump `mobile/`.
+- [x] **P5 — Foundation.** `externalSearch` prop added to `VenuePicker`, published as kit **v1.2.0** (`0799d3a`). Bump `mobile/` to `^1.2.0` when adopting.
 - [ ] **P6 — Flip.** `externalSearch="none"`; drop the Google key; keep "suggest a court" for gaps.
 - [ ] **P7 — Ops.** Region seeds, refresh job, attribution on venue UI.
