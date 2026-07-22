@@ -131,6 +131,36 @@ function kindFor(t) {
   return 'court';
 }
 
+// Geofence radius (m) for point-only venues, by kind. A real polygon boundary
+// (from an osmium area) overrides this — it's the fallback when we only have a point.
+function geofenceRadiusFor(kind) {
+  switch (kind) {
+    case 'disc_golf_course': return 250;
+    case 'park': return 150;
+    case 'sports_centre': return 90;
+    case 'gym': return 70;
+    case 'skatepark': return 60;
+    default: return 45; // court / pitch
+  }
+}
+
+// Keep the boundary polygon for areas only; trim precision (~1 m) and skip giants.
+const round5 = (x) => Math.round(x * 1e5) / 1e5;
+function reduceCoords(coords) {
+  return typeof coords[0] === 'number' ? [round5(coords[0]), round5(coords[1])] : coords.map(reduceCoords);
+}
+function countCoords(coords) {
+  if (typeof coords[0] === 'number') return 1;
+  let n = 0;
+  for (const x of coords) n += countCoords(x);
+  return n;
+}
+function boundaryFor(geom) {
+  if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return null;
+  if (countCoords(geom.coordinates) > 30000) return null;
+  return { type: geom.type, coordinates: reduceCoords(geom.coordinates) };
+}
+
 const TYPE = { n: 'node', w: 'way', r: 'relation' };
 
 function rowFor(f, regions) {
@@ -141,6 +171,7 @@ function rowFor(f, regions) {
   if (sport.length === 0) return null;          // not a sport we track
   const c = centroid(f.geometry);
   if (!c) return null;
+  const kind = kindFor(t);
   // osmium ids: n=node, w=open way, r=relation, a=area. Area ids encode their
   // source: even = way (id/2), odd = relation ((id-1)/2). Decode back to OSM type/id.
   const m = String(f.id ?? '').match(/^([anwr])(\d+)$/);
@@ -157,9 +188,11 @@ function rowFor(f, regions) {
     id: `osm:${type}/${id}`,
     sport,
     name,
-    kind: kindFor(t),
+    kind,
     lat: c.lat,
     lng: c.lng,
+    boundary: boundaryFor(f.geometry),
+    geofence_radius_m: geofenceRadiusFor(kind),
     address: t['addr:street'] ? `${t['addr:housenumber'] ?? ''} ${t['addr:street']}`.trim() : null,
     city: t['addr:city'] ?? null,
     region_slug: nearestRegion(c.lat, c.lng, regions),
@@ -188,14 +221,15 @@ const COLS = [
   'id', 'sport', 'name', 'kind', 'lat', 'lng', 'address', 'city', 'region_slug',
   'surface', 'indoor', 'lit', 'covered', 'hoops', 'court_count', 'access', 'fee',
   'operator', 'website', 'phone', 'opening_hours', 'source', 'external_id',
-  'source_url', 'attribution', 'confirmation_status',
+  'source_url', 'attribution', 'confirmation_status', 'boundary', 'geofence_radius_m',
 ];
 const BOOL_COLS = new Set(['indoor', 'lit', 'covered', 'fee']);
-const NUM_COLS = new Set(['lat', 'lng', 'hoops', 'court_count']);
+const NUM_COLS = new Set(['lat', 'lng', 'hoops', 'court_count', 'geofence_radius_m']);
 const sqlStr = (v) => (v == null ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
 function sqlVal(col, r) {
   const v = r[col];
   if (col === 'sport') return v && v.length ? `ARRAY[${v.map(sqlStr).join(',')}]::text[]` : `'{}'::text[]`;
+  if (col === 'boundary') return v ? `${sqlStr(JSON.stringify(v))}::jsonb` : 'NULL';
   if (NUM_COLS.has(col)) return v == null ? 'NULL' : String(v);
   if (BOOL_COLS.has(col)) return v == null ? 'NULL' : v ? 'true' : 'false';
   return sqlStr(v);
