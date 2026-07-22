@@ -17,9 +17,6 @@ export default {
     { name: 'GOOGLE_PLACES_KEY', label: 'Google Places key', hint: 'optional — court location autocomplete parity',
       aliases: ['googleplaceskey', 'expopublicgoogleplaceskey', 'googleapikey', 'google', 'places'],
       match: { regex: '^AIza[\\w-]{20,}$' } },
-    { name: 'SUPABASE_BIN', label: 'Supabase CLI path', hint: 'optional — path to supabase.exe for --linked read-only tools (Venue Coverage Report)',
-      aliases: ['supabasebin', 'supabasecli'],
-      match: { pathEndsWith: 'supabase.exe' } },
   ],
   envAliases: {
     SUPABASE_URL: ['EXPO_PUBLIC_SUPABASE_URL'],
@@ -139,7 +136,7 @@ export default {
     },
     {
       id: 'venue-coverage-report', label: 'Venue Coverage Report',
-      description: 'Read-only: per-sport venue counts + per-field coverage % of public.venues, via the Supabase CLI (--linked; no service-role key). Prints a Markdown table and writes scripts/venue-coverage-report.md.',
+      description: 'Read-only: per-sport venue counts + per-field coverage % of public.venues. Reads rows via PostgREST using the service-role or anon key (venues is world-readable) — no Supabase CLI needed. Prints a Markdown table and writes scripts/venue-coverage-report.md.',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['venue-coverage-report.mjs'],
       fields: [],
     },
