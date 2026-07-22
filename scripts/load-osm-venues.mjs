@@ -132,15 +132,13 @@ function kindFor(t) {
 }
 
 // Geofence radius (m) for point-only venues, by kind. A real polygon boundary
-// (from an osmium area) overrides this — it's the fallback when we only have a point.
+// (from an osmium area) overrides this — it's the fallback when we only have a
+// point. 100 m floor (GPS wobble); bigger for large venues.
 function geofenceRadiusFor(kind) {
   switch (kind) {
     case 'disc_golf_course': return 250;
     case 'park': return 150;
-    case 'sports_centre': return 90;
-    case 'gym': return 70;
-    case 'skatepark': return 60;
-    default: return 45; // court / pitch
+    default: return 100; // court / pitch / sports_centre / gym / skatepark
   }
 }
 
