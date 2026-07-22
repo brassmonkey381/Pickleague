@@ -463,6 +463,12 @@ export default function SettingsScreen({ navigation }: Props) {
               desc="Send pickles to any user"
               onPress={() => navigation.navigate('GiftPickles')}
             />
+            <Divider />
+            <ActionRow
+              label="Review Submitted Venues"
+              desc="Confirm or reject user-added courts"
+              onPress={() => navigation.navigate('AdminVenueReview')}
+            />
           </View>
         </>
       )}

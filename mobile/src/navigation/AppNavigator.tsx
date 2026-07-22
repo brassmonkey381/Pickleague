@@ -62,6 +62,8 @@ import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
+import SubmitVenueScreen from '../screens/SubmitVenueScreen';
+import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -269,6 +271,8 @@ export default function AppNavigator() {
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Bookmarks' }} />
+                <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />
+                <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
               </>
             ) : (
               <>

@@ -882,6 +882,19 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           active
           placeholder="Search for the court played at..."
         />
+        <TouchableOpacity
+          style={{ alignSelf: 'flex-start', paddingVertical: 8 }}
+          onPress={() =>
+            navigation.navigate(
+              'SubmitVenue',
+              location ? { lat: location.lat, lng: location.lng } : undefined,
+            )
+          }
+        >
+          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
+            Can't find your court? Add it →
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Indoor / Outdoor */}

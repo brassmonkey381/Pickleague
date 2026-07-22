@@ -570,4 +570,6 @@ export type RootStackParamList = {
     scopeName?: string;
   };
   Bookmarks: undefined;
+  SubmitVenue: { lat?: number; lng?: number } | undefined;
+  AdminVenueReview: undefined;
 };
