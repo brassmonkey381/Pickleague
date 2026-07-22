@@ -194,7 +194,8 @@ function rowFor(f, regions) {
     boundary: boundaryFor(f.geometry),
     geofence_radius_m: geofenceRadiusFor(kind),
     address: t['addr:street'] ? `${t['addr:housenumber'] ?? ''} ${t['addr:street']}`.trim() : null,
-    city: t['addr:city'] ?? null,
+    // city is owned by the offline geocoder (backfill_venue_cities) — NOT written
+    // here, so re-running this loader never clobbers the geocoded city.
     region_slug: nearestRegion(c.lat, c.lng, regions),
     surface: t.surface ?? null,
     indoor: parseBool(t.indoor),
@@ -218,7 +219,7 @@ function rowFor(f, regions) {
 
 // ── SQL emitter ─────────────────────────────────────────────────────────────
 const COLS = [
-  'id', 'sport', 'name', 'kind', 'lat', 'lng', 'address', 'city', 'region_slug',
+  'id', 'sport', 'name', 'kind', 'lat', 'lng', 'address', 'region_slug',
   'surface', 'indoor', 'lit', 'covered', 'hoops', 'court_count', 'access', 'fee',
   'operator', 'website', 'phone', 'opening_hours', 'source', 'external_id',
   'source_url', 'attribution', 'confirmation_status', 'boundary', 'geofence_radius_m',
