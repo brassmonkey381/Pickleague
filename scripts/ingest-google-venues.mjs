@@ -26,19 +26,25 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GKEY = process.env.GOOGLE_PLACES_KEY || process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
 const DRY = flag('--dry-run');
 const PURGE = flag('--purge-expired');
-const WITHOUT_RATINGS = flag('--without-ratings');
+const WITH_CONTACT = flag('--with-contact'); // add website/phone → Enterprise SKU (pricier, smaller free cap)
 // Greater Bay Area default bbox (south west north east).
 const BBOX = (opt('--bbox', '37.2 -122.6 38.1 -121.6') || '').split(/\s+/).map(Number);
 const TILE_KM = Math.max(2, Number(opt('--tile-km', '8')));
 const MAX_PAGES = Math.max(1, Number(opt('--max-pages', '3'))); // Google caps Text Search at 60 (3 pages)
 const SPORTS = (opt('--sports', 'pickleball,tennis,basketball') || '').split(',').map((s) => s.trim()).filter(Boolean);
 const TTL_DAYS = 30;
-const TEXT_COST_PER_1K = 32; // Google Places (New) Text Search — order-of-magnitude; verify current SKU
+// Text Search SKU: default field mask = PRO (5,000 free calls/mo, then $32/1k);
+// --with-contact = ENTERPRISE (1,000 free/mo, $35/1k).
+const FREE_CAP = WITH_CONTACT ? 1000 : 5000;
+const PER_1K = WITH_CONTACT ? 35 : 32;
+const TIER = WITH_CONTACT ? 'Enterprise' : 'Pro';
 
+// The mask sets the SKU. Default = Text Search PRO (id/name/address/location).
+// --with-contact adds website/phone → Enterprise (pricier, 1/5th the free cap).
+// Ratings are Enterprise+Atmosphere and we don't store them, so never requested.
 const FIELD_MASK = [
-  'places.id', 'places.displayName', 'places.location', 'places.formattedAddress',
-  'places.websiteUri', 'places.nationalPhoneNumber',
-  ...(WITHOUT_RATINGS ? [] : ['places.rating', 'places.userRatingCount']),
+  'places.id', 'places.displayName', 'places.formattedAddress', 'places.location',
+  ...(WITH_CONTACT ? ['places.websiteUri', 'places.nationalPhoneNumber'] : []),
   'nextPageToken',
 ].join(',');
 
@@ -69,13 +75,17 @@ async function main() {
   }
   const grid = tiles(BBOX);
   const maxCalls = grid.length * SPORTS.length * MAX_PAGES;
-  const estCost = (maxCalls * TEXT_COST_PER_1K) / 1000;
 
   if (DRY) {
     console.log(`DRY RUN — no Google calls, nothing written.`);
     console.log(`bbox ${BBOX.join(' ')} → ${grid.length} tiles (${TILE_KM} km) × ${SPORTS.length} sports (${SPORTS.join(', ')}) × up to ${MAX_PAGES} pages`);
-    console.log(`= up to ${maxCalls} Text Search requests ≈ $${estCost.toFixed(2)} (at ~$${TEXT_COST_PER_1K}/1k${WITHOUT_RATINGS ? '' : ', incl. ratings SKU'}).`);
-    console.log(`Actual is lower — most tiles return < 20 results (1 page). Re-run without --dry-run to ingest.`);
+    console.log(`= up to ${maxCalls} Text Search ${TIER} calls (realistic: far fewer — most tiles return 1 page).`);
+    if (maxCalls <= FREE_CAP) {
+      console.log(`Text Search ${TIER} includes ${FREE_CAP.toLocaleString()} FREE calls/month — this whole run fits FREE (worst case ${maxCalls} ≤ ${FREE_CAP.toLocaleString()}).`);
+    } else {
+      console.log(`Text Search ${TIER} free cap is ${FREE_CAP.toLocaleString()}/month; worst case ${maxCalls} could exceed it (overage ~$${PER_1K}/1k). Actual is usually well under — narrow --sports / --bbox / raise --tile-km to stay free.`);
+    }
+    console.log(`Re-run without --dry-run to ingest.`);
     return;
   }
 
@@ -185,8 +195,8 @@ async function main() {
     }
     process.stdout.write(`\rTiles done: ${grid.indexOf(tile) + 1}/${grid.length} · added ${added} · ${calls} calls`);
   }
-  const cost = (calls * TEXT_COST_PER_1K) / 1000;
-  console.log(`\nDone. Added ${added} google venues, skipped ${skipped} dupes. ${calls} Text Search calls ≈ $${cost.toFixed(2)}.`);
+  const overage = Math.max(0, calls - FREE_CAP);
+  console.log(`\nDone. Added ${added} google venues, skipped ${skipped} dupes. ${calls} Text Search ${TIER} calls (${FREE_CAP.toLocaleString()} free/mo${overage ? `; ~${overage} over ≈ $${((overage * PER_1K) / 1000).toFixed(2)}` : ' — free'}).`);
 }
 
 main().catch((err) => { console.error('\n' + (err.message?.includes('401') ? '401 — check keys' : err.message)); process.exitCode = 1; });

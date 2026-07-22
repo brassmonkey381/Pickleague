@@ -136,13 +136,13 @@ export default {
     },
     {
       id: 'ingest-google-venues', label: 'Ingest Venues (Google gap-fill)',
-      description: 'Fill court gaps OSM misses from Google Places (New) Text Search, ToS-compliantly (place_id stored long-term; display fields are a 30-day cache; dedups vs existing venues). Tiles a bbox (default: greater Bay Area) and searches "<sport> court" per tile. ALWAYS run with dry-run first: it prints the planned Text Search call count + a $ estimate and spends nothing (no key needed). Uncheck dry-run to actually ingest (needs the Google Places key). Costs money — mind the estimate.',
+      description: 'Fill court gaps OSM misses from Google Places (New) Text Search, ToS-compliantly (place_id stored long-term; display fields are a 30-day cache; dedups vs existing venues). Tiles a bbox (default: greater Bay Area) and searches "<sport> court" per tile. Bills at the Text Search PRO SKU by default (5,000 free calls/month) — a Bay Area run is ~500-600 calls, well under the free cap. ALWAYS dry-run first: it prints the call count vs the free cap and spends nothing (no key needed). Uncheck dry-run to ingest (needs the Google Places key).',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['ingest-google-venues.mjs'],
       fields: [
         { name: 'bbox', flag: '--bbox', type: 'text', placeholder: '37.2 -122.6 38.1 -121.6', help: 'south west north east; blank = greater Bay Area' },
         { name: 'tile-km', flag: '--tile-km', type: 'number', default: 8, help: 'search-tile size in km (smaller = more coverage + more calls)' },
         { name: 'sports', flag: '--sports', type: 'text', default: 'pickleball,tennis,basketball', help: 'comma-separated' },
-        { name: 'without-ratings', flag: '--without-ratings', type: 'checkbox', help: 'drop ratings for the cheaper SKU' },
+        { name: 'with-contact', flag: '--with-contact', type: 'checkbox', help: 'also fetch website/phone — bumps to the ENTERPRISE SKU (only 1,000 free/mo, pricier). Leave off to stay on Pro (5,000 free).' },
         { name: 'purge-expired', flag: '--purge-expired', type: 'checkbox', help: 'instead of ingesting, drop google rows past their 30-day cache' },
         { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true, help: 'cost preview only — no calls, no key needed' },
       ],
