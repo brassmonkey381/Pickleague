@@ -135,6 +135,19 @@ export default {
       ],
     },
     {
+      id: 'ingest-google-venues', label: 'Ingest Venues (Google gap-fill)',
+      description: 'Fill court gaps OSM misses from Google Places (New) Text Search, ToS-compliantly (place_id stored long-term; display fields are a 30-day cache; dedups vs existing venues). Tiles a bbox (default: greater Bay Area) and searches "<sport> court" per tile. ALWAYS run with dry-run first: it prints the planned Text Search call count + a $ estimate and spends nothing (no key needed). Uncheck dry-run to actually ingest (needs the Google Places key). Costs money — mind the estimate.',
+      cwd: '../../scripts', cmd: 'node', baseArgs: ['ingest-google-venues.mjs'],
+      fields: [
+        { name: 'bbox', flag: '--bbox', type: 'text', placeholder: '37.2 -122.6 38.1 -121.6', help: 'south west north east; blank = greater Bay Area' },
+        { name: 'tile-km', flag: '--tile-km', type: 'number', default: 8, help: 'search-tile size in km (smaller = more coverage + more calls)' },
+        { name: 'sports', flag: '--sports', type: 'text', default: 'pickleball,tennis,basketball', help: 'comma-separated' },
+        { name: 'without-ratings', flag: '--without-ratings', type: 'checkbox', help: 'drop ratings for the cheaper SKU' },
+        { name: 'purge-expired', flag: '--purge-expired', type: 'checkbox', help: 'instead of ingesting, drop google rows past their 30-day cache' },
+        { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true, help: 'cost preview only — no calls, no key needed' },
+      ],
+    },
+    {
       id: 'venue-coverage-report', label: 'Venue Coverage Report',
       description: 'Read-only: per-sport venue counts + per-field coverage % of public.venues. Reads rows via PostgREST using the service-role or anon key (venues is world-readable) — no Supabase CLI needed. Prints a Markdown table and writes scripts/venue-coverage-report.md.',
       cwd: '../../scripts', cmd: 'node', baseArgs: ['venue-coverage-report.mjs'],
