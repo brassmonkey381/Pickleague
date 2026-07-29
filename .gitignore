@@ -37,3 +37,7 @@ deleted-branches-backup.txt
 *.osm.pbf
 *.geojsonseq
 out/
+
+# DUPR roster dumps (--out from scripts/import-dupr-club.mjs) — real member PII
+scripts/*dupr*.json
+scripts/alameda.json

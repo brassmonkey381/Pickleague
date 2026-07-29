@@ -15,8 +15,10 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "club.pickleague.app",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching."
+        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching.",
+        "NSContactsUsageDescription": "Pickleague uses your contacts so you can invite people you already play with to a league or match."
       }
     },
     "android": {

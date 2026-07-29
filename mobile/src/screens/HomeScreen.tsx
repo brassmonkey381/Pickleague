@@ -11,6 +11,7 @@ import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
 import FtueChecklistCard from '../components/FtueChecklistCard';
 import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
+import DuprImportBanner from '../components/DuprImportBanner';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import BookmarkButton from '../components/BookmarkButton';
@@ -374,6 +375,10 @@ export default function HomeScreen({ navigation }: Props) {
 
       {/* Guest? Nudge to save the account (self-hides for real users). */}
       <GuestUpgradeBanner />
+
+      {/* Confirmed email on an imported DUPR roster? Offer to carry the rating
+          over (self-hides when there's no match or it's already imported). */}
+      <DuprImportBanner />
 
       {/* ── First-time-user checklist (hides once all steps claimed) ── */}
       {/* TODO: smoke-test in browser */}
