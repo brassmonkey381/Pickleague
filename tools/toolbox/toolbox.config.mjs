@@ -17,6 +17,9 @@ export default {
     { name: 'GOOGLE_PLACES_KEY', label: 'Google Places key', hint: 'optional — court location autocomplete parity',
       aliases: ['googleplaceskey', 'expopublicgoogleplaceskey', 'googleapikey', 'google', 'places'],
       match: { regex: '^AIza[\\w-]{20,}$' } },
+    { name: 'DUPR_TOKEN', label: 'DUPR access token', hint: 'optional — dashboard.dupr.com → DevTools → Application → Cookies → accessToken. Lasts months; log out of DUPR to revoke.',
+      aliases: ['duprtoken', 'dupraccesstoken', 'dupr', 'accesstoken'],
+      match: { regex: '^eyJ[\\w-]+\\.[\\w-]+\\.[\\w-]+$' } },
   ],
   envAliases: {
     SUPABASE_URL: ['EXPO_PUBLIC_SUPABASE_URL'],
@@ -145,6 +148,31 @@ export default {
         { name: 'with-contact', flag: '--with-contact', type: 'checkbox', help: 'also fetch website/phone — bumps to the ENTERPRISE SKU (only 1,000 free/mo, pricier). Leave off to stay on Pro (5,000 free).' },
         { name: 'purge-expired', flag: '--purge-expired', type: 'checkbox', help: 'instead of ingesting, drop google rows past their 30-day cache' },
         { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true, help: 'cost preview only — no calls, no key needed' },
+      ],
+    },
+    {
+      id: 'import-dupr-club', label: 'Import DUPR Club Roster',
+      description: 'Pull a DUPR club roster from api.dupr.gg and upsert it into public.dupr_club_members, then link rows to Pickleague accounts by dupr_id. Needs a DUPR bearer token — a logged-in dashboard.dupr.com session token (DevTools → Application → Cookies → accessToken); they last months, so treat it as a secret. The API caps page size at 25 and needs query:"*" (an empty query silently returns 0), both of which the script handles: a 473-member club is 19 calls. CONTAINS PII — every member\'s email, phone, home lat/lng and birthdate land in dupr_-prefixed columns behind deny-by-default RLS (godmode reads all; a user reads only their own linked row). Dry-run hits DUPR and prints a sample row without writing.',
+      cwd: '../../scripts', cmd: 'node', baseArgs: ['import-dupr-club.mjs'], needsInstall: true,
+      fields: [
+        { name: 'club', flag: '--club', type: 'text', default: '8354485564', help: 'DUPR club id — the number in dashboard.dupr.com/dashboard/browse/clubs/<id> (default: The HUB - Alameda)' },
+        { name: 'query', flag: '--query', type: 'text', default: '*', help: 'member search string; "*" matches everyone (empty returns nothing)' },
+        { name: 'out', flag: '--out', type: 'text', placeholder: 'alameda.json', help: 'also dump the raw roster JSON here — PII, keep it out of git' },
+        { name: 'no-match', flag: '--no-match', type: 'checkbox', help: 'skip linking roster rows to profiles by dupr_id' },
+        { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true, help: 'fetch + summarize, write nothing' },
+      ],
+    },
+    {
+      id: 'seed-claimable-profiles', label: 'Seed Claimable Profiles (from DUPR roster)',
+      description: 'Turn imported DUPR club members into UNCLAIMED Pickleague profiles so leaderboards/search look populated and a real player can later claim their row. Each is a normal profiles row (no app special-casing) backed by an auth user with a SYNTHETIC email (dupr-<id>@unclaimed.pickleague.club) — the real address stays in dupr_club_members behind RLS and is only written to auth.users when a claim succeeds, so no Supabase auth mail can ever reach someone who did not ask for it. Name + ratings only; no DUPR PII lands in profiles (phone is left alone). PLUPR is the same scale as DUPR, so ratings carry over unconverted. Unrated members are skipped by default. Delete removes every profile seeded from this club (auth delete cascades). ALWAYS dry-run first — creating hundreds of auth users is tedious to undo by hand.',
+      cwd: '../../scripts', cmd: 'node', baseArgs: ['seed-claimable-profiles.mjs'], needsInstall: true,
+      fields: [
+        { name: 'club', flag: '--club', type: 'text', default: '8354485564', help: 'DUPR club id — must already be imported via Import DUPR Club Roster' },
+        { name: 'limit', flag: '--limit', type: 'number', help: 'only seed the top N by doubles rating — start small and eyeball them in the app' },
+        { name: 'include-unrated', flag: '--include-unrated', type: 'checkbox', help: 'also seed members with no DUPR rating at all' },
+        { name: 'mail-domain', flag: '--mail-domain', type: 'text', default: 'unclaimed.pickleague.club', help: 'synthetic auth-email domain; must be one you control so nothing ever bounces to a real inbox' },
+        { name: 'delete', flag: '--delete', type: 'checkbox', help: 'remove every profile seeded from this club instead of creating' },
+        { name: 'dry-run', flag: '--dry-run', type: 'checkbox', default: true },
       ],
     },
     {
