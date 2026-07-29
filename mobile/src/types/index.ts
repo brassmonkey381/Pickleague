@@ -13,6 +13,9 @@ export type Profile = {
   total_matches_played: number;
   last_match_at: string | null;
   gender: Gender | null;
+  // Seeded from a DUPR club roster and not yet claimed by a real person.
+  is_unclaimed?: boolean | null;
+  dupr_id?: string | null;
   pickles: number;
   welcome_pickles_granted: boolean;
   name_color: string | null;
@@ -491,6 +494,8 @@ export type RootStackParamList = {
   Play: { initialTab?: 'leagues' | 'tournaments' } | undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
+  // Landing for the magic link sent by the request-claim edge function.
+  Claim: undefined;
   HeadToHead: { opponentId: string; opponentName: string };
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };

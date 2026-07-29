@@ -15,6 +15,7 @@ import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import BookmarkButton from '../components/BookmarkButton';
+import ClaimAccountButton from '../components/ClaimAccountButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -180,6 +181,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           name={profile.full_name}
         />
         {profile.tagline ? <Text style={styles.tagline}>{profile.tagline}</Text> : null}
+        {/* Seeded from a DUPR roster and not yet claimed? Offer to claim it.
+            Self-hides for every normal profile. */}
+        <ClaimAccountButton profileId={userId} isUnclaimed={profile.is_unclaimed} />
         <Text style={styles.username}>@{profile.username}</Text>
         {(profile.selected_tags ?? []).length > 0 && (
           <View style={styles.tagsRow}>

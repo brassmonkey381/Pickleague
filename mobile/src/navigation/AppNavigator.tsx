@@ -30,6 +30,7 @@ import CreateEventScreen from '../screens/CreateEventScreen';
 import EventDetailScreen from '../screens/EventDetailScreen';
 import LeagueMembersScreen from '../screens/LeagueMembersScreen';
 import PlayerProfileScreen from '../screens/PlayerProfileScreen';
+import ClaimAccountScreen from '../screens/ClaimAccountScreen';
 import HeadToHeadScreen from '../screens/HeadToHeadScreen';
 import TournamentsScreen from '../screens/TournamentsScreen';
 import CreateTournamentScreen from '../screens/CreateTournamentScreen';
@@ -121,6 +122,7 @@ const linking: LinkingOptions<RootStackParamList> = {
         path: 'profile/:userId?',
       },
       PlayerProfile: 'players/:userId',
+      Claim: 'claim',
       Notifications: 'notifications',
       Settings: 'settings',
       About: 'about',
@@ -245,6 +247,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
                 <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
+                <Stack.Screen name="Claim" component={ClaimAccountScreen} options={{ title: 'Claim account' }} />
                 <Stack.Screen name="HeadToHead" component={HeadToHeadScreen} options={({ route }) => ({ title: `You vs ${route.params.opponentName}` })} />
                 <Stack.Screen name="Tournaments" component={TournamentsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' })} />
                 <Stack.Screen name="CreateTournament" component={CreateTournamentScreen} options={{ title: 'New Tournament' }} />
