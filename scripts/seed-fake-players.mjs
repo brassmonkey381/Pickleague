@@ -33,6 +33,11 @@ const N_MATCHES   = Number(val('--matches', 60));
 const DOUBLES_PCT = Number(val('--doubles-pct', 30));
 const DAYS        = Number(val('--days', 30));
 const LOCATION    = String(val('--location', 'Bladium Sports & Fitness Club'));
+// Optional venue/court mix: --outdoor-pct N sends that share of matches to an
+// outdoor court (--outdoor-location, played as away since it isn't the home
+// court). Default 0 keeps the original all-indoor-at-home behavior.
+const OUTDOOR_PCT      = Number(val('--outdoor-pct', 0));
+const OUTDOOR_LOCATION = String(val('--outdoor-location', 'Leydecker Park'));
 const CALIBRATE   = flag('--calibrate');
 const DELETE      = flag('--delete');
 const DRY         = flag('--dry-run');
@@ -414,12 +419,23 @@ async function seed() {
         winner_id: team1Wins ? a.id : (isDoubles ? c.id : b.id),
         winner_team: team1Wins ? 'team1' : 'team2',
         played_at: randomPlayedAt(),
-        location_name: LOCATION,
-        is_outdoor: false,      // all matches indoors
-        // The app sets these client-side when location == league.home_court
-        // (there is no DB trigger for it) — mirror that here: always home.
-        is_home_court: true,
-        was_home_court: true,
+        ...(Math.random() * 100 < OUTDOOR_PCT
+          ? {
+              // Outdoor share plays at the outdoor court — not the league home
+              // court, so the home flags mirror the app's location rule: away.
+              location_name: OUTDOOR_LOCATION,
+              is_outdoor: true,
+              is_home_court: false,
+              was_home_court: false,
+            }
+          : {
+              location_name: LOCATION,
+              is_outdoor: false,
+              // The app sets these client-side when location == league.home_court
+              // (there is no DB trigger for it) — mirror that here: home.
+              is_home_court: true,
+              was_home_court: true,
+            }),
       });
     }
     sims.sort((x, y) => x.played_at.localeCompare(y.played_at));
