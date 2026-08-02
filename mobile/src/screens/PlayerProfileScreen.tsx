@@ -185,6 +185,14 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             Self-hides for every normal profile. */}
         <ClaimAccountButton profileId={userId} isUnclaimed={profile.is_unclaimed} />
         <Text style={styles.username}>@{profile.username}</Text>
+        {/* The one place a linked DUPR profile is visible. Until this existed the
+            claim flow had no confirmation surface at all — profiles.dupr_id was
+            written and never shown. */}
+        {profile.dupr_id ? (
+          <View style={styles.duprChip}>
+            <Text style={styles.duprChipText}>DUPR {profile.dupr_id}</Text>
+          </View>
+        ) : null}
         {(profile.selected_tags ?? []).length > 0 && (
           <View style={styles.tagsRow}>
             {(profile.selected_tags ?? []).map(slug => {
@@ -302,6 +310,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tagline: { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginTop: 3, marginBottom: 2 },
     username: { fontSize: 14, color: c.textMuted, marginTop: 2 },
     matchCount: { fontSize: 13, color: c.textMuted, marginTop: 4 },
+    duprChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, marginTop: 6 },
+    duprChipText: { fontSize: 12, color: c.textSub, fontWeight: '700', letterSpacing: 0.4 },
     h2hBtn: { backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginBottom: 14 },
     h2hBtnText: { color: c.primary, fontSize: 14, fontWeight: '700' },
     tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 6 },
