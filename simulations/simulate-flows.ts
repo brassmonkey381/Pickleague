@@ -548,22 +548,43 @@ async function runToCompletion(host: Actor, tId: string, tName: string, playerId
     // Payout is a MANUAL admin action in the app (Payout modal →
     // auto_payout_tournament) — run it exactly like an admin would, then
     // verify the marker + notifications.
-    const payoutAt = new Date().toISOString();
     const { error: payErr } = await host.client.rpc('auto_payout_tournament', { p_tournament_id: tId });
     c.check('economy', 'auto_payout_tournament succeeds (admin payout modal flow)', !payErr, payErr?.message);
     const { data: tPost } = await admin.from('tournaments').select('champion_payout_applied_at').eq('id', tId).single();
     c.check('economy', 'payout dispatched (champion_payout_applied_at set)',
       tPost?.champion_payout_applied_at != null, 'still null after auto_payout_tournament');
 
-    // payout notifications: one “🥒 +N pickles!” per paying rank (bounded by
-    // ranked players). Non-MLP pays on the manual call, so count from then;
-    // MLP AUTO-pays at completion, so count from the run start.
+    // payout notifications: one per paying rank (bounded by ranked players).
+    // Non-MLP pays on the manual call, so count from then; MLP AUTO-pays at
+    // completion, so count from the run start.
+    //
+    // The two payout RPCs word these differently and only MLP uses the
+    // “🥒 +N pickles!” title: auto_payout_mlp_tournament fans out four
+    // notifications per recipient (prize / pickles / badge / PLUPR), while
+    // auto_payout_tournament was consolidated to a SINGLE “🥇 Prize: 1st
+    // place!” summary line. Matching only the pickles title silently scored
+    // every non-MLP payout as zero notifications sent.
     const paying = Math.min(econ.payoutStructure.length, ranks?.length ?? 0);
-    const notifWindow = isMlp ? econ.startedAt : payoutAt;
-    const { data: payNotifs } = await admin.from('notifications')
-      .select('user_id, title').like('title', '🥒 +%').gte('created_at', notifWindow).in('user_id', playerIds);
+    // Scoped by entity_id, NOT by a time window. The old form compared
+    // created_at against a CLIENT-generated timestamp taken just before the
+    // RPC; this machine's clock runs up to ~1.5s ahead of the database, so the
+    // notifications were stamped with a server now() that sorts BEFORE the
+    // window opened and the check scored 0. It only ever passed when the skew
+    // happened to fall the other way. entity_id is exact and clock-free.
+    //
+    // Titles are matched in JS: the two payout RPCs word them differently —
+    // auto_payout_mlp_tournament fans out four notifications per recipient
+    // (prize / “🥒 +N pickles!” / badge / PLUPR) while auto_payout_tournament
+    // was consolidated to a single “🥇 Prize: 1st place!” summary line, so
+    // matching only the pickles title missed every non-MLP payout.
+    const { data: notifRows, error: notifErr } = await admin.from('notifications')
+      .select('user_id, title').eq('entity_id', tId).in('user_id', playerIds);
+    if (notifErr) log(`  ⚠ payout notification query failed: ${notifErr.message}`);
+    const isPayoutTitle = (t: string) => t.startsWith('🥒 +') || /Prize: .* place!/.test(t);
+    const payNotifs = (notifRows ?? []).filter((n: any) => isPayoutTitle(n.title ?? ''));
     c.check('economy', `payout notifications sent (expected ≥ ${paying})`,
-      (payNotifs?.length ?? 0) >= paying, `got ${payNotifs?.length ?? 0}`);
+      payNotifs.length >= paying,
+      `got ${payNotifs.length} of ${notifRows?.length ?? 0} tournament notifications`);
 
     // wagers: every non-cancelled wager settled, and won ⇔ the predicate hit
     const { data: wRows } = await admin.from('wagers')
