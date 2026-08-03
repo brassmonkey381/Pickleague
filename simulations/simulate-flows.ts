@@ -715,6 +715,16 @@ async function cleanup() {
     log(error ? `  ⚠ ${t.name}: ${error.message}` : `  ✓ deleted tournament ${t.name}`);
   }
   for (const l of leagues ?? []) {
+    // The [SIM] name prefix is the cleanup contract, but tournaments.league_id
+    // is ON DELETE CASCADE — so dropping a [SIM] league also destroys every
+    // tournament inside it, whatever it is called. That is silent data loss for
+    // anything created in a sim league through the app. Name them before they
+    // go, so a real one is never quietly swept up.
+    const { data: collateral } = await admin.from('tournaments')
+      .select('id, name').eq('league_id', l.id).not('name', 'like', '[SIM]%');
+    for (const t of collateral ?? []) {
+      log(`  ⚠ cascade: "${t.name}" (${t.id}) is in ${l.name} and will be deleted with it`);
+    }
     const { error } = await admin.rpc('godmode_delete_league', { p_league_id: l.id })
       .then(r => r, () => admin.from('leagues').delete().eq('id', l.id));
     log(error ? `  ⚠ ${l.name}: ${error.message}` : `  ✓ deleted league ${l.name}`);
