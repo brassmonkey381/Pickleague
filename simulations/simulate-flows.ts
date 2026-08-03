@@ -76,6 +76,36 @@ const log = (s: string) => console.log(s);
 const step = (s: string) => console.log(`\n▸ ${s}`);
 const die = (s: string) => { console.error('\n✗ ' + s); process.exit(1); };
 
+// ── clock skew ───────────────────────────────────────────────────────────────
+// Rows are stamped by the DATABASE (now()), but "what happened since I started
+// this step?" markers are generated HERE. When the local clock runs ahead of
+// the server — this machine was ~1.5s ahead — a marker taken immediately before
+// an action sorts AFTER the rows that action creates, and every
+// `gte('created_at', marker)` check silently returns zero rows. That reads as
+// "the feature sent no notifications" when the feature is fine.
+//
+// calibrateClock() measures the offset once from the REST Date header;
+// sinceNow() applies it, minus a margin for that header's 1-second resolution.
+// Always use sinceNow() for a window marker — never new Date() directly.
+let CLOCK_SKEW_MS = 0;
+
+async function calibrateClock() {
+  try {
+    const t0 = Date.now();
+    const res = await fetch(`${URL}/rest/v1/`, { headers: { apikey: SERVICE!, Authorization: `Bearer ${SERVICE}` } });
+    const t1 = Date.now();
+    const header = res.headers.get('date');
+    if (!header) return;
+    CLOCK_SKEW_MS = Date.parse(header) - (t0 + t1) / 2;
+    if (Math.abs(CLOCK_SKEW_MS) > 1000) {
+      log(`  ⏱  clock skew vs server: ${CLOCK_SKEW_MS > 0 ? '+' : ''}${Math.round(CLOCK_SKEW_MS)}ms (compensated)`);
+    }
+  } catch { /* offline / blocked — fall back to the margin alone */ }
+}
+
+/** Window marker for "rows created from here on", safe against clock skew. */
+const sinceNow = (marginMs = 2000) => new Date(Date.now() + CLOCK_SKEW_MS - marginMs).toISOString();
+
 // A signed-in client acting AS one sim player (its own JWT → RLS applies).
 // Sim players are identified by AUTH EMAIL (sim_player_<n>@pickleague.test) —
 // profile usernames get sanitized by the signup trigger (underscores stripped),
@@ -795,7 +825,7 @@ async function tournamentScenario() {
   if (ECONOMY) {
     const ante = pickOne([50, 100, 250]);
     const payoutStructure = pickOne([[100], [60, 40], [60, 25, 15], [50, 30, 20]]);
-    econ = { ante, payoutStructure, wagers: [], startPickles: new Map(), startedAt: new Date().toISOString() };
+    econ = { ante, payoutStructure, wagers: [], startPickles: new Map(), startedAt: sinceNow() };
     step(`Economy: ante ${ante}🥒 · payout ${payoutStructure.join('/')}% · topping up balances`);
     for (const u of names) {
       const a = await signIn(u);
@@ -1384,7 +1414,7 @@ async function leagueDeepScenario() {
   const A: Actor[] = [];
   for (const n of names) A.push(await signIn(n));
   const [host, p2, p3, p4, p5, p6] = A;
-  const startedAt = new Date().toISOString();
+  const startedAt = sinceNow();
 
   const balOf = async (uid: string) =>
     Number((await admin.from('profiles').select('pickles').eq('id', uid).single()).data?.pickles ?? 0);
@@ -2092,7 +2122,7 @@ async function extrasScenario() {
   // reminders at the tournament — the title is the stable signal).
   const uids = A.map(a => a.id);
   const remindAndCheck = async (fn: string, titleLike: string, label: string) => {
-    const since = new Date().toISOString();
+    const since = sinceNow();
     const countNow = async () =>
       (await admin.from('notifications').select('id', { count: 'exact', head: true })
         .in('user_id', uids).ilike('title', titleLike).gte('created_at', since)).count ?? 0;
@@ -2116,7 +2146,7 @@ async function extrasScenario() {
   const slotIdx = target.getUTCHours() * 2 + (target.getUTCMinutes() >= 30 ? 1 : 0);
   const slotDate = target.toISOString().slice(0, 10);
 
-  const since = new Date().toISOString();
+  const since = sinceNow();
   const { data: dr, error: drErr } = await p2.client.from('drill_requests').insert({
     from_user_id: p2.id, to_user_id: p3.id,
     proposed_slots: [{ date: slotDate, slot: slotIdx }, { date: slotDate, slot: slotIdx + 2 }],
@@ -2145,7 +2175,7 @@ async function extrasScenario() {
   c.check('drills', 'drill chat message sends (and notifies via trigger)', chatErr == null, chatErr?.message);
 
   if (sess) {
-    const sinceRem = new Date().toISOString();
+    const sinceRem = sinceNow();
     const { error: dremErr } = await admin.rpc('remind_drill_sessions');
     const { count: dremNotif } = await admin.from('notifications').select('id', { count: 'exact', head: true })
       .in('user_id', [p2.id, p3.id]).gte('created_at', sinceRem).like('title', '%rill%');
@@ -2243,7 +2273,7 @@ async function extrasScenario() {
     const giftItem = buyable.find((i: any) => !p3set.has(i.id) && i.id !== item.id) as any;
     if (giftItem) {
       const giverBefore = await balOf(p2.id);
-      const sinceGift = new Date().toISOString();
+      const sinceGift = sinceNow();
       const { data: gift, error: giftErr } = await p2.client.rpc('gift_shop_item', {
         p_item_id: giftItem.id, p_recipient: p3.id, p_message: 'enjoy!',
       });
@@ -2428,7 +2458,7 @@ async function waitlistScenario() {
   step(`Waitlist scenario: "${tName}" (min 3 / max ${MAXP})`);
   const c = new Checker();
   const names = await pickSimPlayers(7);
-  const startedAt = new Date().toISOString();
+  const startedAt = sinceNow();
 
   const host = await signIn(names[0]);
   const { data: t, error: te } = await host.client.from('tournaments').insert({
@@ -2542,6 +2572,7 @@ async function runSuite() {
 
 // ── main ────────────────────────────────────────────────────────────────────
 (async () => {
+  await calibrateClock();
   if (SCENARIO === 'cleanup') await cleanup();
   else if (SCENARIO === 'suite') await runSuite();
   else if (SCENARIO === 'league') await leagueScenario();
