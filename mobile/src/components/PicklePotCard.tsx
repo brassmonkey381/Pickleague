@@ -72,7 +72,13 @@ export default function PicklePotCard(props: PicklePotCardProps) {
               <Text style={S.btnSecondaryText}>Award</Text>
             </TouchableOpacity>
           )}
-          {canDistribute && pool > 0 && (
+          {/* Seasons only. Tournament pots are paid through the automatic
+              Payout flow (PayoutPreviewModal → auto_payout_tournament), which
+              derives the podium from the final standings; hand-picking winners
+              was never actually used and could disagree with those standings.
+              Seasons have no automatic path — distribute_season_pool is the
+              only way to pay a season pot — so the button stays there. */}
+          {scopeType === 'season' && canDistribute && pool > 0 && (
             <TouchableOpacity style={[S.btn, S.btnAccent]} onPress={() => setShowDistribute(true)}>
               <Text style={S.btnAccentText}>Distribute</Text>
             </TouchableOpacity>
@@ -106,10 +112,8 @@ export default function PicklePotCard(props: PicklePotCardProps) {
       <DistributeModal
         visible={showDistribute}
         onClose={() => setShowDistribute(false)}
-        scopeType={scopeType}
         scopeId={scopeId}
         scopeLabel={scopeLabel}
-        members={members}
         pool={pool}
         structure={structure}
         onDone={() => { setShowDistribute(false); onChange(); }}
@@ -317,23 +321,27 @@ function AwardModal({
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Distribute modal — admin selects winners by rank, RPC splits pool
+// Distribute modal — SEASONS ONLY. The pot is paid from the locked-in
+// final standings server-side; there is nothing to pick.
+//
+// This used to double as the tournament payout: an admin hand-picked one
+// player per paying place and the pool was split across those picks. That
+// path is gone. Tournaments pay through PayoutPreviewModal →
+// auto_payout_tournament, which derives the podium from the same final
+// standings that settle wagers, so hand-picking could only ever disagree
+// with them. Seasons keep this because distribute_season_pool is their
+// only payout route.
 // ─────────────────────────────────────────────────────────────────────
 
 function DistributeModal({
-  visible, onClose, scopeType, scopeId, scopeLabel, members, pool, structure, onDone, S,
+  visible, onClose, scopeId, scopeLabel, pool, structure, onDone, S,
 }: {
   visible: boolean; onClose: () => void;
-  scopeType: ScopeType; scopeId: string; scopeLabel: string;
-  members: Array<{ id: string; full_name: string }>;
+  scopeId: string; scopeLabel: string;
   pool: number; structure: number[]; onDone: () => void;
   S: ReturnType<typeof makeStyles>;
 }) {
-  const [picks, setPicks] = useState<Array<string | null>>(() => structure.map(() => null));
-  const [activeRank, setActiveRank] = useState<number | null>(null);
-  const [busy, setBusy]   = useState(false);
-
-  const ladder = ['1st 🥇', '2nd 🥈', '3rd 🥉', '4th', '5th'];
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !visible) return;
@@ -344,28 +352,14 @@ function DistributeModal({
 
   async function submit() {
     setBusy(true);
-    let result;
-    if (scopeType === 'season') {
-      // Seasons pull from season_final_standings server-side; ignore picks.
-      result = await supabase.rpc('distribute_season_pool', { p_season_id: scopeId });
-    } else {
-      // Tournament: send picked uids in order
-      result = await supabase.rpc('distribute_tournament_pool', {
-        p_tournament_id: scopeId,
-        p_winner_uids:   picks,
-      });
-    }
+    const { data, error } = await supabase.rpc('distribute_season_pool', { p_season_id: scopeId });
     setBusy(false);
-    const { data, error } = result;
     if (error) { Alert.alert('Error', error.message); return; }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row?.success) { Alert.alert('Could not distribute', row?.message ?? 'Unknown error'); return; }
     Alert.alert('Distributed', row.message ?? `${row.distributed} 🥒 paid out.`);
     onDone();
   }
-
-  // Tournament: require all positions filled
-  const canSubmit = scopeType === 'season' || picks.every(Boolean);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -374,65 +368,19 @@ function DistributeModal({
           <Text style={S.modalTitle}>Distribute {scopeLabel} Pot</Text>
           <Text style={S.modalSub}>Pool: 🥒 {pool} · structure {structure.join(' / ')}%</Text>
 
-          {scopeType === 'season' ? (
-            <Text style={S.modalBody}>
-              Will pay top finishers from the locked-in <Text style={S.modalBold}>final standings</Text>
-              {' '}using the configured payout structure. Make sure the season has been completed first.
-            </Text>
-          ) : (
-            <>
-              <Text style={S.modalBody}>Pick the top finishers — pool splits across them per the structure.</Text>
-              {structure.map((pct, i) => {
-                const pickedId = picks[i];
-                const pickedName = members.find(m => m.id === pickedId)?.full_name;
-                const share = Math.floor(pool * pct / 100);
-                return (
-                  <View key={i} style={S.distRow}>
-                    <Text style={S.distLabel}>{ladder[i] ?? `#${i+1}`}</Text>
-                    <TouchableOpacity
-                      style={[S.distPickBtn, !pickedId && S.distPickBtnEmpty]}
-                      onPress={() => setActiveRank(activeRank === i ? null : i)}
-                    >
-                      <Text style={[S.distPickText, !pickedId && S.distPickTextEmpty]}>
-                        {pickedName ?? 'Pick player'}
-                      </Text>
-                    </TouchableOpacity>
-                    <Text style={S.distShare}>🥒 {share}</Text>
-                  </View>
-                );
-              })}
-
-              {activeRank !== null && (
-                <ScrollView style={S.memberList}>
-                  {members
-                    .filter(m => !picks.some((p, idx) => idx !== activeRank && p === m.id))
-                    .map(m => (
-                      <TouchableOpacity
-                        key={m.id}
-                        style={S.memberRow}
-                        onPress={() => {
-                          const next = [...picks];
-                          next[activeRank] = m.id;
-                          setPicks(next);
-                          setActiveRank(null);
-                        }}
-                      >
-                        <Text style={S.memberName}>{m.full_name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                </ScrollView>
-              )}
-            </>
-          )}
+          <Text style={S.modalBody}>
+            Will pay top finishers from the locked-in <Text style={S.modalBold}>final standings</Text>
+            {' '}using the configured payout structure. Make sure the season has been completed first.
+          </Text>
 
           <View style={S.modalBtnRow}>
             <TouchableOpacity style={[S.modalBtn, S.btnSecondary]} onPress={onClose} disabled={busy}>
               <Text style={S.btnSecondaryText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[S.modalBtn, S.btnAccent, !canSubmit && S.btnDisabled]}
+              style={[S.modalBtn, S.btnAccent, busy && S.btnDisabled]}
               onPress={submit}
-              disabled={!canSubmit || busy}
+              disabled={busy}
             >
               {busy
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -497,13 +445,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     memberCheck:   { fontSize: 16, color: c.primary, fontWeight: '700' },
     emptyText:     { padding: 14, fontSize: 13, color: c.textMuted, textAlign: 'center' },
 
-    distRow:       { flexDirection: 'row', alignItems: 'center', gap: 10, marginVertical: 4 },
-    distLabel:     { fontSize: 14, fontWeight: '800', color: c.text, width: 60 },
-    distPickBtn:   { flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
-    distPickBtnEmpty: { borderColor: c.border, backgroundColor: c.surfaceAlt, borderStyle: 'dashed' },
-    distPickText:  { fontSize: 13, color: c.primary, fontWeight: '700' },
-    distPickTextEmpty: { color: c.textMuted, fontWeight: '500' },
-    distShare:     { fontSize: 12, color: c.textSub, fontWeight: '700', minWidth: 50, textAlign: 'right' },
 
     modalBtnRow:   { flexDirection: 'row', gap: 10, marginTop: 16 },
     modalBtn:      { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
