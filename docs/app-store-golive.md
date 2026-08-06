@@ -44,27 +44,33 @@ Permanent once published.
 
 Removed. `READ_CONTACTS` retained. Confirmed nothing in the app writes contacts.
 
-### 1.4 `eas.json` `submit.production` — STILL OPEN
-
-The one item that can't be closed from here. Needs three values from App Store
-Connect, which requires interactive Apple auth:
+### 1.4 `eas.json` `submit.production` — DONE (iOS)
 
 ```json
 "submit": {
   "production": {
-    "ios": {
-      "appleId": "<your Apple ID email>",
-      "ascAppId": "<numeric App Store Connect app ID — not the bundle ID>",
-      "appleTeamId": "<10-char team ID>"
-    }
+    "ios": { "ascAppId": "6796130870", "appleTeamId": "WJ7Y8W9WKC" }
   }
 }
 ```
 
-Android submissions additionally need `android.serviceAccountKeyPath` pointing at
-a Play service-account JSON. Until this is filled in, `--auto-submit` prompts
-instead of running unattended. EAS itself is already authenticated
-(`eas whoami` → `brassmonkey381`).
+**`appleId` is deliberately absent.** This repo is public and git history is
+permanent, so the account email stays out of it — EAS reads `EXPO_APPLE_ID` from
+the environment when the field is missing. Export it before submitting:
+
+```bash
+export EXPO_APPLE_ID=brassmonkey381@msn.com   # or set it in your shell profile
+```
+
+The two values that *are* committed aren't secrets: the team ID ships inside
+every signed binary and the ASC app ID is in the App Store URL.
+
+Better still, long term: an App Store Connect **API key** (`ascApiKeyPath`)
+removes the Apple ID and its 2FA prompt from the flow entirely, which matters if
+submits ever run from CI.
+
+Android still has no `serviceAccountKeyPath`, so a Play submit will prompt. That
+needs the Firebase/Play service-account JSON from §2 of the push setup.
 
 ### 1.5 Wagering + real-world redemption — RESOLVED by removing redemptions
 
@@ -177,11 +183,32 @@ build you run, and the map screens are the first thing to open on the device.
 
 ## 5. What's left, in order
 
-1. **Make `support@pickleague.club` receive mail** (§1.1) — the policy is live and
-   names it; a dead contact address is a rejection risk.
-2. **Push credentials** (§3) — longest lead time, needs both developer accounts.
-3. **Fill in `eas.json` submit block** (§1.4) — needs the App Store Connect record
-   to exist first.
-4. **Production build; confirm the maps crash is gone** (§4) — still unvalidated.
-5. **Listing assets, demo account, privacy questionnaires** (§3).
-6. **Write the App Review note** about pickles (§1.5).
+Closed on 2026-08-06: privacy policy live, `support@pickleague.club` routing,
+iOS push working end to end, `eas.json` submit target, and all the `app.json`
+fixes.
+
+1. **Production build; confirm the maps crash is gone** (§4). Every existing
+   build (v1.0.1 build 6, 2026-07-31 and earlier) predates today's changes, so a
+   fresh one is required regardless. Open the map screens first.
+2. **Android FCM v1** — the other half of push. Firebase project → app registered
+   as `club.pickleague.app` → `google-services.json` in `mobile/` →
+   `googleServicesFile` wired into `app.json` → service-account JSON uploaded via
+   `eas credentials -p android`. Same JSON also unblocks Play submits (§1.4).
+3. **Listing assets, demo account, privacy questionnaires** (§3). Keep the Data
+   Safety contacts answer consistent with §1.1.
+4. **Write the App Review note** about pickles (§1.5).
+
+### iOS push — verified working 2026-08-06
+
+Token registered, APNs key good, delivery confirmed on device. Getting there
+turned up a bug that had silenced push since it shipped: `send-push` was deployed
+with the platform-default `verify_jwt: true`, so the gateway 401'd the DB
+trigger before the function body ran. The trigger authenticates with
+`x-push-secret` and swallows errors by design, so nothing surfaced — 1,975
+notifications over 30 days, zero delivered. Redeployed identical code as v4 with
+`verify_jwt: false`.
+
+**This regresses the moment anyone runs `supabase functions deploy send-push`
+without `--no-verify-jwt`.** To verify after any redeploy: insert a
+`notifications` row, then read `net._http_response` newest-first. Expect
+`{"sent":N,"pruned":0}`; a 401 means the flag is back on.
