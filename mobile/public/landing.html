@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pickleague: run a real pickleball league, free</title>
+<meta name="description" content="Real league infrastructure for recreational pickleball groups - tracked matches, PLUPR ratings, seven tournament formats, seasons and standings - free at pickleague.club.">
+<!--
+  PICKLEAGUE DESKTOP LANDING - marketing-studio, 2026-08-06.
+  Same interaction system as the michi/tcgscan landing pages (hover-to-play
+  frames, click-to-expand lightbox, full-bleed rows, max ~3s idle cuts) in
+  Pickleague's green sport-club voice. All demos captured live at desktop
+  width from [SIM]-seeded data with the sim branding stripped on camera.
+  No store mentions (production web app only). Open from dist/pickleague/.
+-->
+<style>
+  :root {
+    --bg: #EEF2EE;
+    --surface: #FFFFFF;
+    --ink: #14241A;
+    --ink-2: #52665A;
+    --accent: #2E7D32;
+    --accent-deep: #1B5E20;
+    --band-bg: #0D1A0D;
+    --band-title: #E9F5E9;
+    --band-body: #93B29A;
+    --hairline: rgba(20, 36, 26, 0.14);
+    --shadow-card: 0 16px 40px rgba(20, 36, 26, 0.14), 0 4px 10px rgba(20, 36, 26, 0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D1A0D; --surface: #16281A; --ink: #E9F5E9; --ink-2: #9DB8A4;
+      --accent: #66BB6A; --accent-deep: #4CAF50;
+      --hairline: rgba(233, 245, 233, 0.14);
+      --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.5), 0 4px 10px rgba(0, 0, 0, 0.35);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  .shell { max-width: 1984px; margin: 0 auto; padding: 0 48px 72px; }
+
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 26px 0 8px; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .logo { font-size: 56px; line-height: 1; }
+  .wordmark { font-weight: 800; font-size: 42px; letter-spacing: -1px; }
+  .nav-btn {
+    border: 1px solid var(--hairline); border-radius: 999px; padding: 10px 20px;
+    font-weight: 700; color: var(--ink); text-decoration: none; font-size: 15px;
+  }
+  .nav-btn:hover { background: var(--surface); }
+
+  .hero { display: grid; grid-template-columns: minmax(320px, 2fr) 3fr; gap: 40px; align-items: center; padding: 18px 0 48px; }
+  .kicker { color: var(--accent); font-weight: 800; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+  h1 { font-weight: 900; font-size: clamp(44px, 3.8vw, 76px); line-height: 1.04; letter-spacing: -1.5px; margin: 16px 0 22px; }
+  h1 .pop { color: var(--accent); }
+  .hero-sub { color: var(--ink-2); font-size: clamp(17px, 1.15vw, 21px); line-height: 1.6; max-width: 580px; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 30px; }
+  .cta { border-radius: 999px; padding: 16px 30px; font-weight: 800; font-size: 17px; text-decoration: none; display: inline-block; }
+  .cta-primary { background: var(--accent); color: #fff; box-shadow: 0 6px 20px rgba(46, 125, 50, 0.4); }
+  .cta-primary:hover { background: var(--accent-deep); }
+  .cta-secondary { border: 1px solid var(--hairline); color: var(--ink); font-weight: 700; }
+  .hero-art { justify-self: center; width: 100%; max-width: 1240px; }
+  .caption { text-align: center; color: var(--ink-2); font-size: 14.5px; margin-top: 16px; }
+
+  .card { background: var(--surface); border-radius: 20px; padding: 14px; box-shadow: var(--shadow-card); }
+  .media { position: relative; overflow: hidden; border-radius: 10px; cursor: pointer; }
+  .media img { display: block; width: 100%; }
+  .media video {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity .35s ease;
+  }
+  .media.playing video { opacity: 1; }
+  .media::after {
+    content: '\25B6'; position: absolute; right: 12px; bottom: 12px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(13, 26, 13, 0.68); color: #fff; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    padding-left: 3px; transition: opacity .3s ease; pointer-events: none;
+  }
+  .media.playing::after { opacity: 0; }
+  .media-auto video { opacity: 1; }
+  .media-auto::after { content: none; }
+  .placard { padding: 16px 22px 10px; text-align: center; }
+  .placard-title { font-weight: 800; font-size: 19px; }
+  .placard-body { color: var(--ink-2); font-size: 14.5px; line-height: 1.55; margin-top: 6px; max-width: 640px; margin-left: auto; margin-right: auto; }
+
+  .breakout { width: 100%; }
+  .section { margin-top: 96px; }
+  h2 { font-weight: 800; font-size: clamp(28px, 2vw, 38px); line-height: 1.25; letter-spacing: -0.5px; margin-top: 10px; max-width: 860px; }
+  .section-sub { color: var(--ink-2); font-size: 15.5px; margin-top: 12px; max-width: 760px; }
+
+  .wall { display: grid; grid-template-columns: 1fr 1fr; gap: 40px 32px; margin-top: 40px; }
+  .wall-item.span2 { grid-column: 1 / -1; }
+
+  .value-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; padding: 12px 0 8px; }
+  .rule { width: 36px; height: 4px; border-radius: 2px; background: var(--accent); margin-bottom: 12px; }
+  .value-title { font-weight: 800; font-size: 24px; line-height: 1.25; margin-bottom: 10px; }
+  .value-body { color: var(--ink-2); font-size: 15px; line-height: 1.55; }
+
+  .stats-band {
+    margin-top: 96px; background: var(--band-bg); border-radius: 24px;
+    padding: 44px 40px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 36px;
+  }
+  .stat-num { font-weight: 900; font-size: clamp(34px, 2.6vw, 52px); color: var(--band-title); letter-spacing: -1px; }
+  .stat-label { color: var(--band-body); font-size: 14.5px; margin-top: 6px; line-height: 1.5; }
+
+  .closing { margin-top: 96px; }
+  .footer { margin-top: 96px; border-top: 1px solid var(--hairline); padding-top: 28px; display: grid; gap: 10px; }
+  .footer p { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; max-width: 860px; }
+
+  .lightbox {
+    position: fixed; inset: 0; z-index: 60; background: rgba(8, 16, 8, 0.88);
+    display: flex; align-items: center; justify-content: center; padding: 4vh 4vw;
+  }
+  .lightbox[hidden] { display: none; }
+  .lightbox video {
+    width: min(92vw, calc(86vh * 16 / 9)); aspect-ratio: 16 / 9;
+    border-radius: 10px; background: #000; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .lightbox-close {
+    position: absolute; top: 20px; right: 26px; background: none; cursor: pointer;
+    color: #E9F5E9; font-size: 15px; font-weight: 700; padding: 8px 14px;
+    border-radius: 999px; border: 1px solid rgba(233, 245, 233, 0.35);
+  }
+
+  .reveal { opacity: 0; transform: translateY(22px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  @media (max-width: 980px) {
+    .hero, .wall, .value-row, .stats-band { grid-template-columns: 1fr; }
+    .wordmark { font-size: 28px; }
+    .logo { font-size: 36px; }
+    .shell { padding: 0 20px 56px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <nav class="nav">
+    <div class="brand">
+      <span class="logo">&#129362;</span>
+      <span class="wordmark">Pickleague</span>
+    </div>
+    <a class="nav-btn" href="/">Open the app &rarr;</a>
+  </nav>
+
+  <!-- ── Hero: the league tour plays live ─────────────────── -->
+  <header class="hero breakout">
+    <div class="reveal">
+      <div class="kicker">More fun &middot; More frequent &middot; More fair</div>
+      <h1>Run a <span class="pop">real league.</span></h1>
+      <p class="hero-sub">Your crew deserves better than a group chat and a whiteboard. Pickleague
+        runs it for you: seasons, scheduling, standings, PLUPR ratings, and
+        tournaments - with no club memberships and no entry fees.</p>
+      <div class="cta-row">
+        <a class="cta cta-primary" href="/">Start your league free</a>
+        <a class="cta cta-secondary" href="#features">See it running &darr;</a>
+      </div>
+    </div>
+    <div class="hero-art reveal">
+      <div class="card">
+        <div class="media media-auto">
+          <img src="./landing-assets/league.jpg" alt="A league home: active season, upcoming events and tournaments, league tools">
+          <video src="./landing-assets/demo-league.mp4" autoplay muted loop playsinline></video>
+        </div>
+      </div>
+      <p class="caption">A real league in daily use - season, events, tools, and the PLUPR roster, captured live.</p>
+    </div>
+  </header>
+
+  <!-- ── Value props: the tagline, unpacked ───────────────── -->
+  <section class="value-row">
+    <div class="reveal">
+      <div class="rule"></div>
+      <div class="value-title">More fun</div>
+      <p class="value-body">Streaks, pickles, events with guest voting, and a shop full of flair. The league runs itself, so the group chat can go back to trash talk.</p>
+    </div>
+    <div class="reveal">
+      <div class="rule"></div>
+      <div class="value-title">More frequent</div>
+      <p class="value-body">Seasons and scheduled play days keep games on the calendar; recording a match takes seconds on any phone or laptop.</p>
+    </div>
+    <div class="reveal">
+      <div class="rule"></div>
+      <div class="value-title">More fair</div>
+      <p class="value-body">Every match updates PLUPR ratings, so matchups stay close and the "who's actually best" debate finally has receipts.</p>
+    </div>
+  </section>
+
+  <!-- ── Feature frames ───────────────────────────────────── -->
+  <section class="section" id="features">
+    <div class="kicker">The features</div>
+    <h2>Captured live from the real app. Hover a frame to preview; click to watch it large.</h2>
+
+    <div class="wall breakout">
+      <div class="wall-item span2 reveal">
+        <div class="card">
+          <div class="media">
+            <img src="./landing-assets/tournament.jpg" alt="Summer Smash MLP: standings table and semifinal bracket with rotations">
+            <video src="./landing-assets/demo-tournament.mp4" loop muted playsinline preload="metadata"></video>
+          </div>
+        </div>
+        <div class="placard">
+          <div class="placard-title">Host your own tournaments</div>
+          <p class="placard-body">Seven formats with auto-generated draws. Here: a four-team MLP - locked rosters, live standings, the full rotation schedule, and a semifinal bracket the app derives itself.</p>
+        </div>
+      </div>
+
+      <div class="wall-item reveal">
+        <div class="card">
+          <div class="media">
+            <img src="./landing-assets/members.jpg" alt="League members with per-player PLUPR ratings">
+          </div>
+        </div>
+        <div class="placard">
+          <div class="placard-title">Fair matchups, by the numbers</div>
+          <p class="placard-body">The whole roster, each player with a live PLUPR rating that updates every match.</p>
+        </div>
+      </div>
+
+      <div class="wall-item reveal">
+        <div class="card">
+          <div class="media">
+            <img src="./landing-assets/shop.jpg" alt="The Pickle Shop: avatars, badges and profile styles priced in pickles">
+          </div>
+        </div>
+        <div class="placard">
+          <div class="placard-title">Play hard, earn pickles</div>
+          <p class="placard-body">Matches and streaks earn pickles; spend them on avatars, badges, and profile flair.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Stats band ───────────────────────────────────────── -->
+  <section class="stats-band breakout reveal">
+    <div>
+      <div class="stat-num">7 formats</div>
+      <p class="stat-label">MLP, round robin, single and double elim, pool play and more - brackets and standings auto-generated.</p>
+    </div>
+    <div>
+      <div class="stat-num">PLUPR</div>
+      <p class="stat-label">a live skill rating updated by every recorded match, keeping games close and rankings honest.</p>
+    </div>
+    <div>
+      <div class="stat-num">$0</div>
+      <p class="stat-label">no club membership, no entry fees, no download - the whole league runs free in the browser.</p>
+    </div>
+  </section>
+
+  <!-- ── Closing ──────────────────────────────────────────── -->
+  <section class="closing reveal">
+    <h2>Your league is already happening. Give it a home.</h2>
+    <p class="section-sub">Free at pickleague.club - create the league, invite the crew, play tonight.</p>
+    <div class="cta-row"><a class="cta cta-primary" href="/">Open Pickleague free</a></div>
+  </section>
+
+  <footer class="footer">
+    <p>Pickleague - free at pickleague.club. Made for rec players who take the fun seriously.</p>
+  </footer>
+
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <video controls loop muted playsinline></video>
+  <button class="lightbox-close" type="button">Close &#10005;</button>
+</div>
+
+<script>
+  try { localStorage.setItem('pickleague_landing_seen', '1'); } catch (e) { /* private mode */ }
+
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  const lightbox = document.getElementById('lightbox');
+  const lightboxVideo = lightbox.querySelector('video');
+  const closeLightbox = () => {
+    lightbox.hidden = true; lightboxVideo.pause();
+    lightboxVideo.removeAttribute('src'); lightboxVideo.load();
+  };
+  lightbox.addEventListener('click', (e) => { if (e.target !== lightboxVideo) closeLightbox(); });
+  lightbox.querySelector('.lightbox-close').addEventListener('click', closeLightbox);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lightbox.hidden) closeLightbox(); });
+
+  document.querySelectorAll('.media').forEach((m) => {
+    const v = m.querySelector('video');
+    if (!v) return;
+    if (!m.classList.contains('media-auto')) {
+      const frame = m.closest('.card') ?? m;
+      frame.addEventListener('mouseenter', () => { m.classList.add('playing'); v.play().catch(() => {}); });
+      frame.addEventListener('mouseleave', () => { m.classList.remove('playing'); v.pause(); });
+    }
+    m.addEventListener('click', () => {
+      if (!m.classList.contains('media-auto')) v.pause();
+      lightboxVideo.src = v.currentSrc || v.getAttribute('src');
+      lightbox.hidden = false;
+      lightboxVideo.play().catch(() => {});
+    });
+  });
+</script>
+</body>
+</html>

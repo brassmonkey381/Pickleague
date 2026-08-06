@@ -3,6 +3,19 @@ import { registerRootComponent } from 'expo';
 
 import { StartupErrorScreen, installFatalErrorHandler } from './src/lib/StartupErrorScreen';
 
+// First-visit web landing: fresh visitors hitting the root get the static
+// marketing page (public/landing.html - authored in marketing-studio, which
+// stamps this flag so the redirect never loops). Runs before the app graph
+// loads. `document` discriminates web from native (RN has a `window` global
+// but no DOM).
+if (
+  typeof document !== 'undefined' &&
+  window.location.pathname === '/' &&
+  !window.localStorage.getItem('pickleague_landing_seen')
+) {
+  window.location.replace('/landing.html');
+}
+
 installFatalErrorHandler();
 
 // `./App` is pulled in with require(), not a top-level import, on purpose: ES

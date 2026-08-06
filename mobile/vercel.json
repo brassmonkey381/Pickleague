@@ -6,6 +6,7 @@
   "framework": null,
   "rewrites": [
     { "source": "/privacy", "destination": "/privacy.html" },
+    { "source": "/landing", "destination": "/landing.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
