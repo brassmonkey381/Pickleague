@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Switch,
-  TextInput, TouchableOpacity, ActivityIndicator,
+  TextInput, TouchableOpacity, ActivityIndicator, Linking,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -441,9 +442,15 @@ export default function SettingsScreen({ navigation }: Props) {
           onPress={() => navigation.navigate('ScoringAlgo')}
         />
         <Divider />
+        <ActionRow
+          label="Privacy Policy"
+          desc="What we collect, and what we don't"
+          onPress={() => Linking.openURL('https://pickleague.club/privacy')}
+        />
+        <Divider />
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Version</Text>
-          <Text style={styles.rowDetail}>1.0.0</Text>
+          <Text style={styles.rowDetail}>{Constants.expoConfig?.version ?? '—'}</Text>
         </View>
       </View>
 

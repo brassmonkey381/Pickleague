@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import Constants from 'expo-constants';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
@@ -59,7 +60,7 @@ export default function AboutScreen({}: Props) {
         ))}
       </View>
 
-      <Text style={S.version}>Pickleague v1.0.0</Text>
+      <Text style={S.version}>Pickleague v{Constants.expoConfig?.version ?? '—'}</Text>
       <Text style={S.credit}>Made with love for recreational players everywhere</Text>
     </ScrollView>
   );
