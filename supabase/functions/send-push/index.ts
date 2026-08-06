@@ -10,6 +10,14 @@
 //
 // Deploy:  supabase functions deploy send-push --no-verify-jwt
 // Secret:  supabase secrets set PUSH_SHARED_SECRET=<same value as app_config.send_push_secret>
+//
+// !! --no-verify-jwt IS NOT OPTIONAL. The platform default is verify_jwt=true,
+// and with it on the gateway rejects the trigger with 401
+// UNAUTHORIZED_NO_AUTH_HEADER before this file ever executes. The trigger sends
+// x-push-secret, never an Authorization header, and it swallows errors so the
+// insert can't roll back — so the failure is completely silent. This shipped
+// wrong and lost every push for months (fixed 2026-08-06). After any redeploy,
+// insert a notifications row and check net._http_response for {"sent":N}.
 
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
