@@ -14,6 +14,27 @@
 //        --league "[SIM] Toolbox League" --matches 60 --doubles-pct 30 \
 //        --days 30 --calibrate --dry-run
 //
+// ── --qa: the App Review / QA fixture ───────────────────────────────────────
+// SIM data is disposable BY DESIGN: every simulation calls a cleanup() that
+// deletes any league matching '[SIM]%' on entry AND exit. That makes it a
+// terrible foundation for an App Store demo account — a sim run mid-review
+// empties the reviewer's app.
+//
+// --qa flips every convention to a durable one, so nothing here is reachable
+// by sim cleanup:
+//   emails   qa_player_<n>@pickleague.club   (not sim_*, not @pickleague.test)
+//   league   must NOT start with [SIM]       (inverted guard, below)
+//   seasons/events named without the [SIM] prefix
+//   --delete only ever touches qa_* accounts and the exact --league named
+//
+// The review login is qa_player_1@pickleague.club — it is roster[0], which is
+// the league admin AND plays in the simulated matches, so the reviewer lands on
+// an account with both organizer rights and personal match history.
+//
+//   node scripts/seed-fake-players.mjs --qa --count 8 \
+//        --league "Alameda Evening League" --matches 40 --doubles-pct 45 \
+//        --days 45 --password 'PickleReview!2026'
+//
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (the toolbox injects saved keys).
 
 import { createClient } from '@supabase/supabase-js';
@@ -41,16 +62,32 @@ const OUTDOOR_LOCATION = String(val('--outdoor-location', 'Leydecker Park'));
 const CALIBRATE   = flag('--calibrate');
 const DELETE      = flag('--delete');
 const DRY         = flag('--dry-run');
+// QA mode: build a DURABLE fixture that sim cleanup can never reach. See the
+// header. Everything below branches on this rather than forking the script,
+// so the seeding logic the sim fixture is trusted with is the same logic the
+// review account gets.
+const QA          = flag('--qa');
 
-const PASSWORD = 'pickle123';
-const EMAIL_RE = 'sim_player_%@pickleague.test';
+const PASSWORD  = String(val('--password', QA ? 'PickleReview!2026' : 'pickle123'));
+const USER_PRE  = QA ? 'qa_player'      : 'sim_player';
+const MAIL_HOST = QA ? 'pickleague.club' : 'pickleague.test';
+// Prefix applied to season/event names. SIM data is swept by name; QA data
+// must look like a real league to a reviewer, so it carries no marker.
+const TAG       = QA ? '' : '[SIM] ';
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env vars.');
   process.exit(1);
 }
-if (!LEAGUE_NAME.startsWith('[SIM]')) {
-  console.error('Refusing: --league must start with "[SIM]" (sim-data convention).');
+// The guard is INVERTED in QA mode, and that is the whole point: a [SIM]-named
+// QA league would be deleted by the next simulation run, which is exactly the
+// failure this mode exists to prevent.
+if (QA && LEAGUE_NAME.startsWith('[SIM]')) {
+  console.error('Refusing: --qa league must NOT start with "[SIM]" — sim cleanup deletes those.');
+  process.exit(1);
+}
+if (!QA && !LEAGUE_NAME.startsWith('[SIM]')) {
+  console.error('Refusing: --league must start with "[SIM]" (sim-data convention). Use --qa for a durable fixture.');
   process.exit(1);
 }
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -133,7 +170,10 @@ function randomPlayedAt() {
 // Identify sim players by AUTH EMAIL, not profile username — handle_new_user
 // sanitizes usernames ('[^a-z0-9]' stripped), so sim_player_1 becomes
 // simplayer1 in profiles. The email is the stable key we control.
-const SIM_EMAIL = /^sim_player_(\d+)@pickleague\.test$/;
+// Built from the active mode so QA and SIM fleets can never see each other:
+// a SIM run enumerating users will not match qa_player_*@pickleague.club, and
+// --qa --delete will not match sim_player_*@pickleague.test.
+const SIM_EMAIL = new RegExp(`^${USER_PRE}_(\\d+)@${MAIL_HOST.replace('.', '\\.')}$`);
 async function findSimUsers() {
   const users = [];
   for (let page = 1; ; page++) {
@@ -169,10 +209,14 @@ async function cleanup() {
       for (const m of data ?? []) matchIds.add(m.id);
     }
   }
-  // 2. [SIM] leagues
-  const { data: simLeagues } = await db.from('leagues').select('id, name').like('name', '[SIM]%');
+  // 2. leagues. SIM mode sweeps by the [SIM] name prefix; QA mode deliberately
+  //    does NOT pattern-match — it deletes only the exact --league it was told
+  //    about, so a durable QA fixture can never take a real league with it.
+  const { data: simLeagues } = QA
+    ? await db.from('leagues').select('id, name').eq('name', LEAGUE_NAME)
+    : await db.from('leagues').select('id, name').like('name', '[SIM]%');
 
-  console.log(`Would delete: ${matchIds.size} matches, ${simLeagues?.length ?? 0} [SIM] leagues, ${sims.length} accounts.`);
+  console.log(`Would delete: ${matchIds.size} matches, ${simLeagues?.length ?? 0} ${QA ? 'QA' : '[SIM]'} league(s), ${sims.length} accounts.`);
   if (DRY) { console.log('\n--dry-run: nothing deleted.'); return; }
 
   const allMatchIds = [...matchIds];
@@ -213,8 +257,8 @@ async function seed() {
     const first = gender === 'male' ? pick(FIRST_M) : pick(FIRST_F);
     return {
       n, gender,
-      username: `sim_player_${n}`,
-      email: `sim_player_${n}@pickleague.test`,
+      username: `${USER_PRE}_${n}`,
+      email: `${USER_PRE}_${n}@${MAIL_HOST}`,
       fullName: `${first} ${pick(LAST)}`,
       dupr: Math.round(rnd(DUPR_MIN, DUPR_MAX) * 20) / 20,   // 0.05 steps
     };
@@ -299,7 +343,7 @@ async function seed() {
   let { data: league } = await db.from('leagues').select('id, home_court').eq('name', LEAGUE_NAME).maybeSingle();
   if (!league) {
     const { data, error } = await db.from('leagues')
-      .insert({ name: LEAGUE_NAME, description: 'Toolbox simulation league', created_by: roster[0].id, is_open: true, home_court: LOCATION, created_at: leagueCreatedAt })
+      .insert({ name: LEAGUE_NAME, description: QA ? 'Recreational evening league — all levels welcome.' : 'Toolbox simulation league', created_by: roster[0].id, is_open: true, home_court: LOCATION, created_at: leagueCreatedAt })
       .select('id, home_court').single();
     if (error) throw new Error('create league: ' + error.message);
     league = data;
@@ -328,7 +372,7 @@ async function seed() {
     .eq('league_id', league.id).eq('status', 'active').maybeSingle();
   if (!season) {
     const { data: s, error: se } = await db.from('league_seasons').insert({
-      league_id: league.id, name: `[SIM] Season ${dateStr(seasonStart)}`,
+      league_id: league.id, name: `${TAG}Season ${dateStr(seasonStart)}`,
       start_date: dateStr(seasonStart), end_date: dateStr(seasonEnd),
       total_weeks: totalWeeks, lock_frequency_weeks: lockFreqWeeks,
       status: 'active', created_by: roster[0].id,
@@ -337,7 +381,7 @@ async function seed() {
     }).select('id, start_date, lock_frequency_weeks').single();
     if (se) throw new Error('create season: ' + se.message);
     season = s;
-    console.log(`✓ created season "${'[SIM] Season ' + dateStr(seasonStart)}" (${nPeriods} periods, baseline 3.25)`);
+    console.log(`✓ created season "${TAG}Season ${dateStr(seasonStart)}" (${nPeriods} periods, baseline 3.25)`);
   }
 
   // 2c. a living league has a FUTURE too: an upcoming season queued after the
@@ -348,7 +392,7 @@ async function seed() {
     const nextStart = new Date(seasonEnd.getTime() + 86400_000);
     const nextEnd = new Date(nextStart.getTime() + 28 * 86400_000);
     await db.from('league_seasons').insert({
-      league_id: league.id, name: `[SIM] Season ${dateStr(nextStart)}`,
+      league_id: league.id, name: `${TAG}Season ${dateStr(nextStart)}`,
       start_date: dateStr(nextStart), end_date: dateStr(nextEnd),
       total_weeks: 4, lock_frequency_weeks: 2,
       status: 'upcoming', created_by: roster[0].id, baseline_plupr: 3.25,
@@ -360,7 +404,7 @@ async function seed() {
   if (!existingEvents || existingEvents.length === 0) {
     const inDays = (n, h = 18) => new Date(Date.now() + n * 86400_000 + h * 3600_000).toISOString();
     const { data: evVote } = await db.from('league_events').insert({
-      league_id: league.id, title: '[SIM] Friday Night Round Robin', created_by: roster[0].id,
+      league_id: league.id, title: `${TAG}Friday Night Round Robin`, created_by: roster[0].id,
       status: 'voting', vote_ends_at: inDays(3, 0),
     }).select('id').single();
     const { data: voteSlots } = await db.from('event_slots').insert([
@@ -375,7 +419,7 @@ async function seed() {
     // spread with a clear favorite, then the winning slot is confirmed —
     // so the event page shows actual attendees.
     const { data: evSched } = await db.from('league_events').insert({
-      league_id: league.id, title: '[SIM] Saturday Ladder Social', created_by: roster[0].id,
+      league_id: league.id, title: `${TAG}Saturday Ladder Social`, created_by: roster[0].id,
       status: 'voting', vote_ends_at: inDays(1, 0),
     }).select('id').single();
     const { data: schedSlots } = await db.from('event_slots').insert([

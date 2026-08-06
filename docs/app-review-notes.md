@@ -4,9 +4,9 @@ Paste the block in §1 into App Store Connect → your build → **App Review
 Information → Notes**. Everything after §1 is our own working context, not for
 Apple.
 
-⚠️ **Before pasting, confirm the demo account is durable.** See §3 — the current
-seeded data lives in a `[SIM]`-prefixed league that our own simulation scripts
-delete on every run.
+The demo account is a purpose-built durable fixture — see §3. Do **not** point
+the notes at a `sim_player_*@pickleague.test` account: those live in a
+`[SIM]`-prefixed league that our own simulation scripts delete on every run.
 
 ---
 
@@ -20,19 +20,23 @@ league, schedule sessions, record match results, and track a skill rating
 in several formats (round robin, single/double elimination, pool play, MLP).
 
 DEMO ACCOUNT
-Email:    sim_player_1@pickleague.test
-Password: pickle123
+Email:    qa_player_1@pickleague.club
+Password: PickleReview!2026
 
-This account is an ADMIN of a populated league, so it can reach both the player
-and the organizer features. No special configuration or hardware is needed.
+This account ("Ben Ortiz") is the ADMIN of a populated league, so it reaches both
+the player and the organizer features. No special configuration, hardware, or
+second device is needed.
 
 SUGGESTED WALKTHROUGH
 1. Sign in with the demo account above.
-2. Leagues -> open the league -> Members, Standings, and Match History are all
-   populated with real recorded results.
-3. Tournaments -> open the tournament to see bracket generation, seeding, and
-   advancement.
-4. Profile -> shows the PLUPR rating, badges, and earned "pickles" balance.
+2. Leagues -> "Alameda Evening League" (8 members, 40 recorded matches).
+   - Members: the full roster with ratings and profiles.
+   - Standings: six locked scoring periods showing how ranks moved over time.
+   - Match History: singles and doubles results, filterable.
+3. Events -> two upcoming sessions: one open for time-slot voting, one already
+   scheduled from a completed vote.
+4. Profile -> the PLUPR rating (3.48), 23 matches in this league, badges, and
+   the earned "pickles" balance.
 5. Settings -> Delete account is available in-app (see below).
 
 ABOUT "PICKLES" (IN-APP CURRENCY) - PLEASE NOTE
@@ -98,29 +102,53 @@ unprompted will assume the worst reading.
 Do not soften it into vagueness, and do not claim more than is true. If
 redemptions are ever reinstated, this paragraph becomes false and must change.
 
-## 3. Demo-account durability — UNRESOLVED
+## 3. Demo-account durability — RESOLVED 2026-08-06
 
-The credentials above are verified working (checked 2026-08-06 against the live
-auth endpoint), but the data behind them is not safe yet:
+The original plan was to point Apple at `sim_player_1@pickleague.test`. That was
+unsafe: the only populated league was `[SIM] Toolbox League`, and `cleanup()` in
+both `simulations/simulate-flows.ts` and `scripts/seed-fake-players.mjs --delete`
+deletes every league matching `like '[SIM]%'`, on entry *and* exit of every run.
+A single sim run during the review window would have emptied the reviewer's app —
+a rejection that would be near-impossible to reproduce afterwards.
 
-- The only populated league in the database is **`[SIM] Toolbox League`** — 62
-  members, 180 matches, 1 tournament. Every other league is effectively empty.
-- `cleanup()` in `simulations/simulate-flows.ts` deletes every league matching
-  `like '[SIM]%'` through `godmode_delete_league`, and it runs at both the start
-  and the end of every simulation run.
+Replaced with a dedicated fixture, seeded by `--qa` mode on the same script:
 
-So any sim run during the review window empties the reviewer's account. Fix one
-of these before submitting:
+```bash
+node scripts/seed-fake-players.mjs --qa --count 8 \
+     --league "Alameda Evening League" --matches 40 --doubles-pct 45 \
+     --days 45 --dupr-min 3.0 --dupr-max 4.6
+```
 
-1. **Rename the league** to something without the `[SIM]` prefix. It drops out of
-   the cleanup matcher immediately, and sims still clean up the timestamped
-   leagues they create themselves. Cheapest option.
-2. **Build a dedicated demo account** with its own durable league, and don't
-   point the notes at the sim fleet at all. Cleanest option.
+`--qa` inverts every sim convention so nothing it creates is reachable by sim
+cleanup: emails are `qa_player_<n>@pickleague.club` (not `sim_*`, not
+`@pickleague.test`), the league-name guard is inverted to *refuse* a `[SIM]`
+prefix, and `--qa --delete` matches the exact league name rather than a pattern.
 
-Also worth fixing either way: `sim_player_1` has **0 matches of its own**, so
-"My Matches" is empty on the very account the notes send the reviewer to. Pick or
-seed an account that has both admin rights and personal match history.
+**Verified isolated** by running both teardowns in `--dry-run`:
+
+| cleanup | accounts | matches | leagues |
+| --- | --- | --- | --- |
+| SIM mode | 62 sim | 180 | 1 `[SIM]` |
+| QA mode  | 8 QA   | 40  | 1 QA |
+
+Neither sees the other's data. Login verified against the live auth endpoint.
+
+What the fixture contains: 8 players, `Alameda Evening League` (8 members, 40
+matches over 45 days through the real ELO triggers), 2 seasons with 48 standings
+snapshots across 6 locked periods, and 2 upcoming events. The review account is
+league admin with 23 matches of its own — so unlike the old sim account, "My
+Matches" is not empty.
+
+**Gap: there is no tournament in the QA league.** The walkthrough in §1 does not
+mention one, deliberately — do not add a tournament step to the notes without
+seeding one first. Tournaments are a headline feature and worth demoing, so
+consider seeding a completed round-robin before submitting.
+
+To rebuild or tear down:
+
+```bash
+node scripts/seed-fake-players.mjs --qa --delete --league "Alameda Evening League" --dry-run
+```
 
 ## 4. Still to fill in elsewhere in App Store Connect
 
