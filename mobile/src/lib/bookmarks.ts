@@ -1,5 +1,6 @@
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+import { saveBookmarkAdd, saveBookmarkRemove } from './offlineWrites';
 
 // Identity here comes from currentUserId (a LOCAL session read). getUser() is a
 // network round trip, so on flaky WiFi every function below decided the user was
@@ -24,11 +25,10 @@ export async function addBookmark(targetType: BookmarkTargetType, targetId: stri
   const userId = await currentUserId(supabase);
   if (!userId) return false;
   try {
-    await sbCall(() =>
-      supabase
-        .from('bookmarks')
-        .insert({ user_id: userId, target_type: targetType, target_id: targetId }),
-    );
+    // Queued on a transport failure (see ./offlineWrites): a bookmark is
+    // user-scoped and idempotent, so applying it late is indistinguishable from
+    // applying it now. The optimistic toggle stands either way.
+    await saveBookmarkAdd({ userId, targetType, targetId });
     return true;
   } catch (e: any) {
     // 23505 = unique violation (already bookmarked) — the desired end state.
@@ -41,14 +41,7 @@ export async function removeBookmark(targetType: BookmarkTargetType, targetId: s
   const userId = await currentUserId(supabase);
   if (!userId) return false;
   try {
-    await sbCall(() =>
-      supabase
-        .from('bookmarks')
-        .delete()
-        .eq('user_id', userId)
-        .eq('target_type', targetType)
-        .eq('target_id', targetId),
-    );
+    await saveBookmarkRemove({ userId, targetType, targetId });
     return true;
   } catch {
     return false;

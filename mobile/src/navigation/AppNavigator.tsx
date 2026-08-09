@@ -19,6 +19,7 @@ import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platfor
 import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
 import { loadUserPreferencesResult } from '../lib/userPreferences';
+import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -179,10 +180,15 @@ export default function AppNavigator() {
     const teardownTaps = setupNotificationTapHandling();
     // Track connectivity (feeds OfflineBanner + self-healing realtime channels).
     const stopNetworkMonitor = startNetworkMonitor();
+    // Replay writes queued while offline (bookmarks, preferences — see
+    // lib/offlineWrites for why only those). Importing that module is what
+    // registers the handlers, so this must come after it is in the graph.
+    const stopOfflineWrites = startOfflineWrites();
     return () => {
       subscription.unsubscribe();
       teardownTaps();
       stopNetworkMonitor();
+      stopOfflineWrites();
     };
   }, []);
 

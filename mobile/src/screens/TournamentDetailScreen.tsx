@@ -966,12 +966,42 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       // (round_id, match_order) identifies a match within the draw, so rows a
       // previous attempt already wrote are skipped rather than duplicated.
+      //
+      // But skipping is only correct when this is a RESUME of the same draw. If
+      // the admin regenerated a different draw after a failed attempt, those
+      // slots already hold different players, and silently keeping them would
+      // splice two draws into one bracket — worse than either failure. So the
+      // existing rows are compared against what we just generated, and a
+      // mismatch stops with an explanation instead of half-applying.
       const existingMatches = await sbCall(() => supabase
         .from('tournament_matches')
-        .select('round_id, match_order')
-        .eq('tournament_id', tournament.id)) as { round_id: string; match_order: number }[] | null;
-      const writtenKeys = new Set((existingMatches ?? []).map(m => `${m.round_id}|${m.match_order}`));
-      const pendingRows = matchRows.filter(r => !writtenKeys.has(`${r.round_id}|${r.match_order}`));
+        .select('round_id, match_order, team1_player1, team1_player2, team2_player1, team2_player2')
+        .eq('tournament_id', tournament.id)) as {
+          round_id: string; match_order: number;
+          team1_player1: string | null; team1_player2: string | null;
+          team2_player1: string | null; team2_player2: string | null;
+        }[] | null;
+
+      const slotKey = (r: { round_id: string; match_order: number }) => `${r.round_id}|${r.match_order}`;
+      const lineup = (r: {
+        team1_player1: string | null; team1_player2: string | null;
+        team2_player1: string | null; team2_player2: string | null;
+      }) => [r.team1_player1, r.team1_player2, r.team2_player1, r.team2_player2].join(',');
+
+      const existingBySlot = new Map((existingMatches ?? []).map(m => [slotKey(m), m]));
+      const conflicts = matchRows.filter(r => {
+        const prior = existingBySlot.get(slotKey(r));
+        return prior && lineup(prior) !== lineup(r);
+      });
+      if (conflicts.length > 0) {
+        throw new Error(
+          `This tournament already has ${existingBySlot.size} matches saved from an earlier Lock In, `
+          + `and ${conflicts.length} of them don't match the draw you're locking in now. `
+          + 'Locking in would mix the two draws. Delete the existing matches first if you meant to '
+          + 'replace them, or re-run Lock In without regenerating to finish the original draw.',
+        );
+      }
+      const pendingRows = matchRows.filter(r => !existingBySlot.has(slotKey(r)));
 
       // Insert in batches of 20 to avoid request size issues. Not retried: a
       // retry that lands after a lost reply would duplicate the batch, and the

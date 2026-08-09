@@ -672,19 +672,21 @@ export default function ProfileScreen({ navigation }: Props) {
     setAvSaveStatus('saving');
     if (avSaveTimer.current) clearTimeout(avSaveTimer.current);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ availability: newAv })
-      .eq('id', userId);
-
-    if (!error) {
+    // sbCall so a hung socket becomes a timeout instead of pinning the status on
+    // 'saving' indefinitely, and so a throw can't skip the status reset.
+    try {
+      await sbCall(() =>
+        supabase.from('profiles').update({ availability: newAv }).eq('id', userId),
+      );
       setAvSaveStatus('saved');
       avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 2500);
-    } else if (error.code === 'PGRST204' || error.message?.toLowerCase().includes('column')) {
-      setAvSaveStatus('needs-migration');
-    } else {
-      setAvSaveStatus('error');
-      avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 4000);
+    } catch (e: any) {
+      if (e?.code === 'PGRST204' || String(e?.message ?? '').toLowerCase().includes('column')) {
+        setAvSaveStatus('needs-migration');
+      } else {
+        setAvSaveStatus('error');
+        avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 4000);
+      }
     }
   }
 
@@ -751,31 +753,47 @@ export default function ProfileScreen({ navigation }: Props) {
     const earnedIds   = playerBadgeIds.filter(id => !purchaseIdSet.has(id));
     const cosmeticIds = playerBadgeIds.filter(id =>  purchaseIdSet.has(id));
 
-    if (earnedIds.length > 0) {
-      await supabase.from('player_badges').update({ is_hidden: hidden }).in('id', earnedIds);
-      const idSet = new Set(earnedIds);
-      setBadges(prev => prev.map(b => idSet.has(b.id) ? { ...b, is_hidden: hidden } : b));
-    }
-    if (cosmeticIds.length > 0) {
-      await Promise.all(cosmeticIds.map(id =>
-        supabase.rpc('set_purchase_hidden', { p_purchase_id: id, p_hidden: hidden })
-      ));
-      const idSet = new Set(cosmeticIds);
-      setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+    // Local state is updated only after the write lands. Previously both halves
+    // discarded their result and repainted regardless, so on bad WiFi a badge
+    // looked hidden while the server still showed it — and the lie survived
+    // until the next reload, by which point the user had moved on.
+    try {
+      if (earnedIds.length > 0) {
+        await sbCall(() =>
+          supabase.from('player_badges').update({ is_hidden: hidden }).in('id', earnedIds),
+        );
+        const idSet = new Set(earnedIds);
+        setBadges(prev => prev.map(b => idSet.has(b.id) ? { ...b, is_hidden: hidden } : b));
+      }
+      if (cosmeticIds.length > 0) {
+        await Promise.all(cosmeticIds.map(id =>
+          sbCall(() => supabase.rpc('set_purchase_hidden', { p_purchase_id: id, p_hidden: hidden })),
+        ));
+        const idSet = new Set(cosmeticIds);
+        setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+      }
+    } catch (e) {
+      status.error(friendlySbMessage(e, `Could not ${hidden ? 'hide' : 'show'} that badge.`));
     }
   }
 
   async function setAllBadgesHidden(hidden: boolean) {
     if (!userId) return;
-    await supabase.from('player_badges').update({ is_hidden: hidden }).eq('user_id', userId);
-    setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
-    const cosmetics = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
-    if (cosmetics.length > 0) {
-      await Promise.all(cosmetics.map(p =>
-        supabase.rpc('set_purchase_hidden', { p_purchase_id: p.id, p_hidden: hidden })
-      ));
-      const idSet = new Set(cosmetics.map(p => p.id));
-      setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+    try {
+      await sbCall(() =>
+        supabase.from('player_badges').update({ is_hidden: hidden }).eq('user_id', userId),
+      );
+      setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
+      const cosmetics = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
+      if (cosmetics.length > 0) {
+        await Promise.all(cosmetics.map(p =>
+          sbCall(() => supabase.rpc('set_purchase_hidden', { p_purchase_id: p.id, p_hidden: hidden })),
+        ));
+        const idSet = new Set(cosmetics.map(p => p.id));
+        setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
+      }
+    } catch (e) {
+      status.error(friendlySbMessage(e, `Could not ${hidden ? 'hide' : 'show'} your badges.`));
     }
   }
 

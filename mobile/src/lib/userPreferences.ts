@@ -14,6 +14,7 @@
 
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+import { savePrefs } from './offlineWrites';
 
 export type MatchType = 'singles' | 'doubles';
 export type ScoreLimit = 11 | 15 | 21;
@@ -98,11 +99,10 @@ export async function saveUserPreferences(prefs: Prefs): Promise<{ error: string
     return { error: "Couldn't load your current settings — reload before changing them." };
   }
   try {
-    await sbCall(() =>
-      supabase
-        .from('user_preferences')
-        .upsert({ user_id: userId, prefs, updated_at: new Date().toISOString() }),
-    );
+    // Queued on a transport failure, deduped per user so a burst of offline
+    // toggles collapses to the final state instead of replaying stale blobs.
+    // Either way the user's choice is recorded, so this reports success.
+    await savePrefs({ userId, prefs });
     lastGoodPrefs = prefs;
     return { error: null };
   } catch (e) {
