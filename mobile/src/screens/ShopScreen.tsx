@@ -6,6 +6,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { ShopCategory, ShopItem, ShopPurchase, RootStackParamList } from '../types';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
@@ -32,11 +33,15 @@ const TABS: { value: ShopCategory; label: string; emoji: string; blurb: string }
 export default function ShopScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
-  const [pickles, setPickles] = useState<number>(0);
+  // null = balance not known yet (still loading, or the read failed). Rendering
+  // an unknown balance as 0 told users who could afford an item that they
+  // couldn't — so every affordability check requires a real number.
+  const [pickles, setPickles] = useState<number | null>(null);
   const [items, setItems]     = useState<ShopItem[]>([]);
   const [owned, setOwned]     = useState<Set<string>>(new Set());
   const [tab, setTab]         = useState<ShopCategory>('avatar');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [buying, setBuying]   = useState<{ id: string; equip: boolean } | null>(null);
   // Used for live name previews on the List/Hero Name tabs.
   const [myFullName, setMyFullName] = useState<string>('You');
@@ -70,65 +75,75 @@ export default function ShopScreen({ navigation }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    setMyUserId(user.id);
+    try {
+      // Local session read — getUser() is a round trip that returns null on bad
+      // WiFi, which used to drop the viewer onto the pickles=0 path.
+      const uid = await currentUserId(supabase);
+      if (!uid) { setLoadError(null); return; }
+      setMyUserId(uid);
 
-    const [profileRes, itemsRes, ownedRes, badgesRes, playerBadgesRes] = await Promise.all([
-      supabase.from('profiles').select('pickles, full_name, created_at, rating').eq('id', user.id).single(),
-      supabase.from('shop_items').select('*').eq('is_active', true).order('sort_order'),
-      supabase.from('player_shop_purchases').select('shop_item_id').eq('user_id', user.id),
-      supabase.from('badges').select('id, name'),
-      supabase.from('player_badges').select('badge_id').eq('user_id', user.id),
-    ]);
+      const [profileRow, itemRows, ownedRows, badgeRows, playerBadgeRows] = await Promise.all([
+        sbCall(() => supabase.from('profiles').select('pickles, full_name, created_at, rating').eq('id', uid).single()) as Promise<any>,
+        sbCall(() => supabase.from('shop_items').select('*').eq('is_active', true).order('sort_order')),
+        sbCall(() => supabase.from('player_shop_purchases').select('shop_item_id').eq('user_id', uid)),
+        sbCall(() => supabase.from('badges').select('id, name')),
+        sbCall(() => supabase.from('player_badges').select('badge_id').eq('user_id', uid)),
+      ]);
 
-    setPickles(profileRes.data?.pickles ?? 0);
-    setMyFullName(profileRes.data?.full_name ?? 'You');
-    setItems((itemsRes.data ?? []) as ShopItem[]);
-    setOwned(new Set(((ownedRes.data ?? []) as ShopPurchase[]).map(p => p.shop_item_id)));
-    setBadgeNames(new Map(((badgesRes.data ?? []) as { id: string; name: string }[])
-      .map(b => [b.id, b.name])));
-    setEarnedBadgeIds(new Set(((playerBadgesRes.data ?? []) as { badge_id: string }[])
-      .map(p => p.badge_id)));
+      setPickles(profileRow?.pickles ?? 0);
+      setMyFullName(profileRow?.full_name ?? 'You');
+      setItems((itemRows ?? []) as ShopItem[]);
+      setOwned(new Set(((ownedRows ?? []) as ShopPurchase[]).map(p => p.shop_item_id)));
+      setBadgeNames(new Map(((badgeRows ?? []) as { id: string; name: string }[])
+        .map(b => [b.id, b.name])));
+      setEarnedBadgeIds(new Set(((playerBadgeRows ?? []) as { badge_id: string }[])
+        .map(p => p.badge_id)));
+      setLoadError(null);
 
-    // Only compute match-derived progress when we actually have an
-    // unlock-gated style on the wire — keeps the Shop snappy when the
-    // viewer is browsing non-style tabs.
-    const hasUnlockGated = ((itemsRes.data ?? []) as ShopItem[]).some(i => !!i.unlock_badge_id);
-    if (hasUnlockGated && profileRes.data) {
-      const prof = profileRes.data;
-      const { data: matches } = await supabase
-        .from('matches')
-        .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
-        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`)
-        .order('played_at', { ascending: false })
-        .limit(200);
-      const mx = matches ?? [];
-      const didWin = (m: any) => {
-        const t1 = m.player1_id === user.id || m.partner1_id === user.id;
-        return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
-      };
-      let streak = 0;
-      for (const m of mx) { if (didWin(m)) streak++; else break; }
-      const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
-      const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
-      const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
-      const memberDays = Math.floor((Date.now() - new Date(prof.created_at).getTime()) / 86_400_000);
-      const elo = prof.rating ?? 3.25;
+      // Only compute match-derived progress when we actually have an
+      // unlock-gated style on the wire — keeps the Shop snappy when the
+      // viewer is browsing non-style tabs.
+      const hasUnlockGated = ((itemRows ?? []) as ShopItem[]).some(i => !!i.unlock_badge_id);
+      if (hasUnlockGated && profileRow) {
+        const prof = profileRow;
+        const matches = await sbCall(() => supabase
+          .from('matches')
+          .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
+          .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
+          .order('played_at', { ascending: false })
+          .limit(200));
+        const mx = (matches ?? []) as any[];
+        const didWin = (m: any) => {
+          const t1 = m.player1_id === uid || m.partner1_id === uid;
+          return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
+        };
+        let streak = 0;
+        for (const m of mx) { if (didWin(m)) streak++; else break; }
+        const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
+        const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
+        const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
+        const memberDays = Math.floor((Date.now() - new Date(prof.created_at).getTime()) / 86_400_000);
+        const elo = prof.rating ?? 3.25;
 
-      const entry = (current: number, target: number, label: string) =>
-        ({ current, target, label });
-      setBadgeProgress({
-        'First Rally':        entry(mx.length,     1,   'matches played'),
-        'Hot Streak':         entry(streak,        5,   'wins in a row'),
-        'Top Rated':          entry(elo,           4.0, 'PLUPR'),
-        'Veteran':            entry(memberDays,    30,  'days as member'),
-        'Court Hopper':       entry(courts,        5,   'courts played'),
-        'Doubles Dynamo':     entry(doublesPlayed, 20,  'doubles matches'),
-        'Singles Specialist': entry(singlesPlayed, 25,  'singles matches'),
-      });
+        const entry = (current: number, target: number, label: string) =>
+          ({ current, target, label });
+        setBadgeProgress({
+          'First Rally':        entry(mx.length,     1,   'matches played'),
+          'Hot Streak':         entry(streak,        5,   'wins in a row'),
+          'Top Rated':          entry(elo,           4.0, 'PLUPR'),
+          'Veteran':            entry(memberDays,    30,  'days as member'),
+          'Court Hopper':       entry(courts,        5,   'courts played'),
+          'Doubles Dynamo':     entry(doublesPlayed, 20,  'doubles matches'),
+          'Singles Specialist': entry(singlesPlayed, 25,  'singles matches'),
+        });
+      }
+    } catch (e) {
+      // Keep whatever already loaded on screen; the header + banner say the
+      // balance couldn't be refreshed rather than silently showing 0.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   // Pretty number for progress: integers stay integers; PLUPR shows 2 decimals.
@@ -139,6 +154,10 @@ export default function ShopScreen({ navigation }: Props) {
   }
 
   function startGift(item: ShopItem) {
+    if (pickles == null) {
+      status.error("We couldn't check your pickle balance. Pull to refresh and try again.");
+      return;
+    }
     if (pickles < item.cost) {
       status.error(`Not enough pickles — you have ${pickles} 🥒, gifting ${item.name} costs ${item.cost} 🥒.`);
       return;
@@ -175,6 +194,10 @@ export default function ShopScreen({ navigation }: Props) {
 
   function startBuy(item: ShopItem) {
     if (owned.has(item.id)) return;
+    if (pickles == null) {
+      status.error("We couldn't check your pickle balance. Pull to refresh and try again.");
+      return;
+    }
     if (pickles < item.cost) {
       status.error(`Not enough pickles — you have ${pickles} 🥒, ${item.name} costs ${item.cost} 🥒.`);
       return;
@@ -236,7 +259,12 @@ export default function ShopScreen({ navigation }: Props) {
     );
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  // A failed first load must fall through to the ScrollView so pull-to-refresh
+  // and the Retry button stay reachable.
+  const loadFailed = loadError != null && items.length === 0;
+  if (loading && !loadFailed) {
+    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  }
 
   // The "Profile Styles" tab surfaces both the new profile_name_style items
   // and the legacy `flair` items (color presets) so users see all profile
@@ -255,7 +283,7 @@ export default function ShopScreen({ navigation }: Props) {
         <Text style={S.headerTitle}>Pickle Shop</Text>
         <View style={S.balancePill}>
           <Text style={S.balanceEmoji}>🥒</Text>
-          <Text style={S.balanceValue}>{pickles}</Text>
+          <Text style={S.balanceValue}>{pickles ?? '—'}</Text>
         </View>
       </View>
 
@@ -278,7 +306,15 @@ export default function ShopScreen({ navigation }: Props) {
         <StatusBanner status={status.value} />
         <Text style={S.tabBlurb}>{tabMeta.blurb}</Text>
 
-        {tabItems.length === 0 ? (
+        {loadFailed ? (
+          <EmptyState
+            icon="📡"
+            title="Couldn't load the shop"
+            subtitle={friendlySbMessage(loadError)}
+            actionLabel="Retry"
+            onAction={() => { setLoading(true); void load(); }}
+          />
+        ) : tabItems.length === 0 ? (
           <EmptyState icon="🛒" title="Nothing here yet" subtitle="No items in this category yet." />
         ) : (
           <View style={S.grid}>
@@ -289,7 +325,9 @@ export default function ShopScreen({ navigation }: Props) {
               const isNameStyle  = item.category === 'list_name_style' || item.category === 'profile_name_style';
               const isUnlockGated = !!item.unlock_badge_id;
               const isOwned     = owned.has(item.id);
-              const canAfford   = pickles >= item.cost;
+              // Unknown balance is not "can't afford" — the row stays enabled
+              // and startBuy explains why nothing happened.
+              const canAfford   = pickles == null || pickles >= item.cost;
               const isBuying    = buying?.id === item.id;
               const unlockBadgeName = isUnlockGated
                 ? badgeNames.get(item.unlock_badge_id!) ?? 'a badge'
@@ -437,7 +475,8 @@ export default function ShopScreen({ navigation }: Props) {
                   </View>
                   <View style={S.confirmCostRow}>
                     <Text style={S.confirmCostLabel}>Balance after</Text>
-                    <Text style={S.confirmCostValue}>🥒 {pickles - confirmingItem.cost}</Text>
+                    {/* startBuy already refused to open this modal on an unknown balance. */}
+                    <Text style={S.confirmCostValue}>🥒 {(pickles ?? 0) - confirmingItem.cost}</Text>
                   </View>
                 </View>
 
@@ -522,7 +561,7 @@ export default function ShopScreen({ navigation }: Props) {
                   multiline
                 />
 
-                <Text style={S.giftBalance}>Your balance after: 🥒 {pickles - giftCost}</Text>
+                <Text style={S.giftBalance}>Your balance after: 🥒 {(pickles ?? 0) - giftCost}</Text>
 
                 {giftError ? <Text style={S.inlineError}>{giftError}</Text> : null}
 

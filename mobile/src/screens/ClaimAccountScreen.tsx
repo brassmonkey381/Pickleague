@@ -4,6 +4,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Claim'> };
 
@@ -32,27 +33,36 @@ export default function ClaimAccountScreen({ navigation }: Props) {
   const [state, setState] = useState<'working' | 'done' | 'failed' | 'signed-out'>('working');
   const [message, setMessage] = useState('');
 
+  // Every exit from `working` has to be reachable, including the ones nobody
+  // planned for: the only escape button on this screen is gated on state, so a
+  // hang or a throw here strands the very first screen a claim user ever sees
+  // with a spinner and no way off. Hence the try/catch AND the bounded call.
   const run = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) { setState('signed-out'); return; }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setState('signed-out'); return; }
 
-    const { data, error } = await supabase.rpc('claim_my_dupr_profile');
-    if (error) {
+      const data = await sbCall(() => supabase.rpc('claim_my_dupr_profile')) as
+        { ok?: boolean; reason?: string; rating?: number | null; club?: string | null } | null;
+      if (data?.ok) {
+        setState('done');
+        setMessage(
+          data.rating != null
+            ? `Your PLUPR starts at ${Number(data.rating).toFixed(2)}${data.club ? `, from ${data.club}` : ''}.`
+            : 'Your account is claimed.',
+        );
+        return;
+      }
       setState('failed');
-      setMessage('Something went wrong finishing the claim. Please try the link again.');
-      return;
+      setMessage((data?.reason && REASON_COPY[data.reason]) ?? 'This claim link is no longer valid.');
+    } catch (e) {
+      setState('failed');
+      setMessage(friendlySbMessage(
+        e,
+        'Something went wrong finishing the claim. Please try the link again.',
+        { network: "We couldn't reach Pickleague. Check your connection and open the link again." },
+      ));
     }
-    if (data?.ok) {
-      setState('done');
-      setMessage(
-        data.rating != null
-          ? `Your PLUPR starts at ${Number(data.rating).toFixed(2)}${data.club ? `, from ${data.club}` : ''}.`
-          : 'Your account is claimed.',
-      );
-      return;
-    }
-    setState('failed');
-    setMessage(REASON_COPY[data?.reason] ?? 'This claim link is no longer valid.');
   }, []);
 
   useEffect(() => { run(); }, [run]);

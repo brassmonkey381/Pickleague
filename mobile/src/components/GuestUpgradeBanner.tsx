@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { navigationRef } from '../lib/navigationRef';
@@ -25,12 +26,16 @@ export default function GuestUpgradeBanner() {
     async function check(user: { id: string; is_anonymous?: boolean } | null) {
       // Only anonymous sessions can be guests — skip the DB query for everyone else.
       if (!user || !user.is_anonymous) { if (!cancelled) setIsGuest(false); return; }
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_guest')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (!cancelled) setIsGuest(!!data?.is_guest);
+      try {
+        const data = await sbCall(() =>
+          supabase.from('profiles').select('is_guest').eq('id', user.id).maybeSingle(),
+        );
+        if (!cancelled) setIsGuest(!!data?.is_guest);
+      } catch {
+        // Keep whatever we last showed. A failed read used to hide the nudge —
+        // exactly the banner a guest most needs to see before their account
+        // expires.
+      }
     }
     supabase.auth.getSession().then(({ data: { session } }) => check(session?.user ?? null));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, RootStackParamList } from '../types';
@@ -38,6 +39,9 @@ export default function DrillScreen({ navigation }: Props) {
   const [pendingCount, setPendingCount]       = useState(0);
   const [scrollLocked, setScrollLocked]       = useState(false);
   const [loading, setLoading]                 = useState(true);
+  // A failed read must not render as "drilling off, no sessions".
+  const [loadError, setLoadError]             = useState<string | null>(null);
+  const [loadedOnce, setLoadedOnce]           = useState(false);
   const [saveStatus, setSaveStatus]           = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,20 +56,37 @@ export default function DrillScreen({ navigation }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
+    try {
+      await loadInner();
+      setLoadError(null);
+      setLoadedOnce(true);
+    } catch (e) {
+      // Preferences rendering as "off" / sessions as "none" on a failed read is
+      // indistinguishable from the user never having set anything up.
+      setLoadError(friendlySbMessage(e, "Couldn't load your drill settings."));
+    } finally {
+      // Always: the old `if (!user) return` and the happy-path-only
+      // setLoading(false) both left the screen spinning.
+      setLoading(false);
+    }
+  }
+
+  async function loadInner() {
+    // LOCAL session read (getUser() is a network call that fails offline).
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    setUserId(uid);
 
     const [profileRes, requestsRes, sessionsRes, matchesRes, tournamentsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('drilling_enabled, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
-        .eq('id', user.id)
+        .eq('id', uid)
         .single(),
       supabase
         .from('drill_requests')
         .select('id', { count: 'exact', head: true })
-        .eq('to_user_id', user.id)
+        .eq('to_user_id', uid)
         .eq('status', 'pending'),
       supabase
         .from('drill_sessions')
@@ -75,7 +96,7 @@ export default function DrillScreen({ navigation }: Props) {
           p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
           drill_session_reviews(user_id)
         `)
-        .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
+        .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
         .order('session_date')
         .order('session_slot'),
       // Scheduled matches I'm part of (any of the 4 player slots), still upcoming.
@@ -84,14 +105,20 @@ export default function DrillScreen({ navigation }: Props) {
         .select('scheduled_at, player1_id, partner1_id, player2_id, partner2_id, status')
         .eq('status', 'scheduled')
         .gte('scheduled_at', new Date().toISOString())
-        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`),
+        .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`),
       // Tournaments I'm approved into that have a known start time + expected length.
       supabase
         .from('tournament_registrations')
         .select('tournament:tournaments(start_time, expected_length_hours, status)')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .eq('status', 'approved'),
     ]);
+
+    // Fail loud instead of rendering a failed read as "nothing configured".
+    const firstError = [profileRes, requestsRes, sessionsRes, matchesRes, tournamentsRes]
+      .map(r => (r as { error?: unknown }).error)
+      .find(Boolean);
+    if (firstError) throw firstError;
 
     if (profileRes.data) {
       setEnabled(profileRes.data.drilling_enabled ?? false);
@@ -105,9 +132,9 @@ export default function DrillScreen({ navigation }: Props) {
     const rows = ((sessionsRes as any).data ?? []) as any[];
     setSessions(rows.map(r => ({
       ...r,
-      partner_id: r.player1_id === user.id ? r.player2_id : r.player1_id,
-      partner_name: r.player1_id === user.id ? (r.p2?.full_name ?? 'Unknown') : (r.p1?.full_name ?? 'Unknown'),
-      reviewed: (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === user.id),
+      partner_id: r.player1_id === uid ? r.player2_id : r.player1_id,
+      partner_name: r.player1_id === uid ? (r.p2?.full_name ?? 'Unknown') : (r.p1?.full_name ?? 'Unknown'),
+      reviewed: (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === uid),
     })));
 
     // Build the red overlay list:
@@ -132,24 +159,23 @@ export default function DrillScreen({ navigation }: Props) {
     });
 
     setScheduledMatches([...matchOverlays, ...tournamentOverlays]);
-
-    setLoading(false);
   }
 
   async function persist(updates: Record<string, any>) {
     if (!userId) return;
+    const uid = userId;
     setSaveStatus('saving');
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', userId);
-    if (error) {
-      setSaveStatus('error');
-      status.error(`Save failed: ${error.message}`);
-    } else {
+    try {
+      // Retried through a flaky connection: these are idempotent column
+      // writes, and a silently dropped one leaves the UI showing a preference
+      // that isn't stored — the user finds out weeks later.
+      await sbCall(() => supabase.from('profiles').update(updates).eq('id', uid));
       setSaveStatus('saved');
       saveTimer.current = setTimeout(() => setSaveStatus('idle'), 1200);
+    } catch (e) {
+      setSaveStatus('error');
+      status.error(`Save failed: ${friendlySbMessage(e)}`);
     }
   }
 
@@ -195,6 +221,22 @@ export default function DrillScreen({ navigation }: Props) {
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  // Only when we have nothing to show — a refresh that fails keeps the last
+  // good screen rather than replacing it with an error.
+  if (loadError && !loadedOnce) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load drilling"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   const today = isoDate(new Date());
   const upcomingSessions = sessions.filter(s => s.session_date >= today);

@@ -3,7 +3,7 @@
 // unconfirmed submission ("same place?" affirm), and calls submit_venue. New
 // submissions are source='user'/unconfirmed and show in search right away
 // (ranked below confirmed) until a godmode admin confirms them.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import {
   requestForegroundLocationPermission,
   reverseGeocodeCoords,
 } from '@just-messin-around/expo-foundation/platform';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
@@ -76,6 +77,10 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
   const [city, setCity] = useState('');
   const [nearby, setNearby] = useState<NearbyVenueSubmission[]>([]);
   const [busy, setBusy] = useState(false);
+  // Nothing dedupes venue submissions, and both entry points (affirm an
+  // existing pin / submit new) write; `busy` only reaches the buttons on the
+  // next render, so the guard has to be a ref.
+  const submitting = useRef(false);
 
   // Whenever we have coordinates, look for an existing unconfirmed submission close by.
   useEffect(() => {
@@ -149,7 +154,9 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
   }
 
   async function affirm(match: NearbyVenueSubmission) {
+    if (submitting.current) return;
     if (!coords) return;
+    submitting.current = true;
     setBusy(true);
     status.clear();
     try {
@@ -162,13 +169,15 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
       });
       await finish();
     } catch (e: any) {
-      status.error(e?.message ?? 'Could not link to the existing submission.');
+      status.error(friendlySbMessage(e, 'Could not link to the existing submission.'));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
 
   async function submitNew() {
+    if (submitting.current) return;
     if (!coords) {
       status.error('Set the court location first.');
       return;
@@ -181,6 +190,7 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
       status.error('Pick at least one sport.');
       return;
     }
+    submitting.current = true;
     setBusy(true);
     status.clear();
     try {
@@ -195,8 +205,9 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
       });
       await finish();
     } catch (e: any) {
-      status.error(e?.message ?? 'Could not submit this court.');
+      status.error(friendlySbMessage(e, 'Could not submit this court.'));
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }

@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
@@ -14,10 +13,12 @@ import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
 import ErrorBoundary from '../components/ErrorBoundary';
+import StartupRetryScreen from '../components/StartupRetryScreen';
+import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
 import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
-import { loadUserPreferences } from '../lib/userPreferences';
+import { loadUserPreferencesResult } from '../lib/userPreferences';
 
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
@@ -142,8 +143,10 @@ const linking: LinkingOptions<RootStackParamList> = {
 
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
-  const [session, setSession]     = useState<Session | null>(null);
-  const [loading, setLoading]     = useState(true);
+  // Bounded startup session resolution: never gate the whole app on an
+  // unbounded network call. `phase === 'error'` gets a retry screen instead of
+  // the blank void this used to render.
+  const { session, phase, retry } = useBootstrapSession(supabase);
   const [splashDone, setSplashDone] = useState(false);
 
   const navTheme = useMemo(() => {
@@ -164,12 +167,9 @@ export default function AppNavigator() {
   }, [colors, isDark]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
+    // Session state itself is owned by useBootstrapSession; this subscription is
+    // only for the sign-out side effect.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_OUT') resetStreakShown();
     });
     // Warm the court-nickname cache so display helpers across screens have
@@ -208,11 +208,17 @@ export default function AppNavigator() {
       const expiredGuest = !!prof?.is_guest && !!prof.guest_expires_at
         && new Date(prof.guest_expires_at) < new Date();
       if (expiredGuest || (!profErr && !prof)) {
-        await supabase.auth.signOut();
+        // signOutSafely, not auth.signOut: the client now refuses session
+        // removal while offline (so a captive portal can't log anyone out), and
+        // a deliberate sign-out has to say so to get through that guard.
+        await signOutSafely(supabase);
         return;
       }
-      const { pushEnabled } = await loadUserPreferences();
-      if (!cancelled && pushEnabled) {
+      // Only skip push registration on a prefs read we actually trust. A failed
+      // read used to fall back to DEFAULT_PREFS (pushEnabled: false), silently
+      // costing a push-enabled user their notifications for the whole session.
+      const prefs = await loadUserPreferencesResult();
+      if (!cancelled && prefs.status === 'ok' && prefs.prefs.pushEnabled) {
         void registerForPushNotificationsAsync();
       }
     })();
@@ -223,7 +229,8 @@ export default function AppNavigator() {
     <ErrorBoundary>
     <ToastProvider>
       <TourProvider>
-      {!loading && (
+      {phase === 'error' && <StartupRetryScreen onRetry={retry} />}
+      {phase === 'ready' && (
         <WebMaxWidth background={colors.bg}>
           <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={flushPendingNavigation}>
             <ErrorBoundary>

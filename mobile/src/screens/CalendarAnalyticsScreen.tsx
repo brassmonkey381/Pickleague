@@ -2,6 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Calendar, DateData } from 'react-native-calendars';
 import { RouteProp } from '@react-navigation/native';
+import {
+  sbCall,
+  currentUserId as sessionUserId,
+  friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
@@ -27,17 +32,19 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState<string | null>(null);
 
+  // LOCAL session read — getUser() is a network call, so offline `uid` came back
+  // null and the calendar silently showed EVERYONE's matches instead of yours.
   const refresh = useRefresh(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const uid = userId ?? user?.id ?? null;
+    const uid = userId ?? (await sessionUserId(supabase));
     setCurrentUserId(uid);
     await loadMatches(uid);
   });
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      const uid = userId ?? user?.id ?? null;
+    sessionUserId(supabase).then((sessionUid) => {
+      const uid = userId ?? sessionUid;
       setCurrentUserId(uid);
       loadMatches(uid);
     });
@@ -51,7 +58,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
     return isOnTeam1(match, uid) ? match.winner_team === 'team1' : match.winner_team === 'team2';
   }
 
-  async function loadMatches(uid: string | null) {
+  function buildMatchQuery() {
     let query = supabase
       .from('matches')
       .select(`
@@ -60,10 +67,22 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
         player2:profiles!matches_player2_id_fkey(id, full_name)
       `)
       .order('played_at', { ascending: false });
-
     if (leagueId) query = query.eq('league_id', leagueId);
+    return query;
+  }
 
-    const { data } = await query;
+  async function loadMatches(uid: string | null) {
+    let data: Match[] | null;
+    try {
+      // Was `const { data } = await query` — a failed fetch rendered as "no
+      // matches on any day", which reads as a wiped history.
+      data = await sbCall(() => buildMatchQuery());
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load your match calendar."));
+      setLoading(false);
+      return;
+    }
     let matches: Match[] = data ?? [];
 
     if (uid) {
@@ -114,6 +133,20 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
   const selectedDayRecord = selectedDate ? dateMap[selectedDate] : null;
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && Object.keys(dateMap).length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load your calendar"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void loadMatches(currentUserId); }}
+        />
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={S.container} refreshControl={<AppRefreshControl {...refresh} />}>

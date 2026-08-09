@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'male',              label: 'Male' },
@@ -14,6 +16,8 @@ const GENDER_OPTIONS: { value: Gender; label: string }[] = [
 ];
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Register'> };
+
+const SIGN_UP_TIMEOUT_MS = 25_000;
 
 export default function RegisterScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
@@ -29,10 +33,21 @@ export default function RegisterScreen({ navigation }: Props) {
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  // The account survives this screen; the navigate is deferred so the user can
+  // read the confirm-your-email copy. Without a latch the button goes live again
+  // for those 3s and a second tap re-runs signUp, replacing the success message
+  // with "User already registered" for an account that WAS created.
+  const [created, setCreated] = useState(false);
+  const inFlight = useRef(false);
+  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
+
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
   const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   async function signUp() {
+    if (inFlight.current || created) return;
     setSuccessMessage('');
     setErrorMessage('');
 
@@ -56,19 +71,35 @@ export default function RegisterScreen({ navigation }: Props) {
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
     const username = `${firstName.trim().toLowerCase()}${lastName.trim().toLowerCase()}`.replace(/[^a-z0-9]/g, '');
 
+    inFlight.current = true;
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { username, full_name: fullName, gender } },
-    });
-    setLoading(false);
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { username, full_name: fullName, gender } },
+        }),
+        SIGN_UP_TIMEOUT_MS,
+      );
 
-    if (error) {
-      setErrorMessage(error.message);
-    } else {
-      setSuccessMessage('Account created! Please check your email to confirm, then sign in.');
-      setTimeout(() => navigation.navigate('Login'), 3000);
+      if (error) {
+        setErrorMessage(friendlySbMessage(error, error.message));
+      } else {
+        setCreated(true);
+        setSuccessMessage('Account created! Please check your email to confirm, then sign in.');
+        navTimer.current = setTimeout(() => navigation.navigate('Login'), 3000);
+      }
+    } catch (e) {
+      // A timeout here is ambiguous — the account may or may not exist — so send
+      // the user to sign-in rather than inviting a retry that would 400.
+      setErrorMessage(friendlySbMessage(
+        e,
+        'Could not reach the server. If you get a confirmation email, your account was created — just sign in.',
+      ));
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
     }
   }
 
@@ -144,8 +175,10 @@ export default function RegisterScreen({ navigation }: Props) {
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}
 
-        <TouchableOpacity style={S.button} onPress={signUp} disabled={loading}>
-          <Text style={S.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
+        <TouchableOpacity style={[S.button, (loading || created) && S.buttonDisabled]} onPress={signUp} disabled={loading || created}>
+          <Text style={S.buttonText}>
+            {loading ? 'Creating account...' : created ? 'Account created' : 'Create Account'}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -189,6 +222,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     errorText:    { color: c.danger, fontSize: 14, marginBottom: 12, textAlign: 'center' },
     successText:  { color: c.primary, fontSize: 14, marginBottom: 12, textAlign: 'center', fontWeight: '600' },
     button:       { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 8 },
+    buttonDisabled: { opacity: 0.5 },
     buttonText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
     link:         { textAlign: 'center', color: c.primary, marginTop: 20, fontSize: 15 },
   });

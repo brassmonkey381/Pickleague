@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, ActivityIndicator,
+  Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator,
   Platform, Pressable,
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
@@ -8,6 +8,9 @@ import { supabase } from '../lib/supabase';
 import {
   DateSlot, dateLabel, dateSubLabel, slotLabel,
 } from '../lib/drillTime';
+import StatusBanner from './StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -30,6 +33,10 @@ export default function DrillRequestModal({
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [lengthMinutes, setLengthMinutes] = useState<number>(60);
+  // Alert.alert renders nothing on react-native-web, so on the web build both
+  // "pick a time" and "failed to send" were invisible.
+  const status = useStatusMessage();
+  const inFlight = useRef(false);
 
   const LENGTH_OPTIONS = [30, 60, 90, 120];
 
@@ -53,31 +60,38 @@ export default function DrillRequestModal({
   }
 
   async function send() {
+    if (inFlight.current) return;
     if (picked.size === 0) {
-      Alert.alert('Pick at least one time', 'Tap one or more slots that work for you.');
+      status.error('Tap one or more slots that work for you.');
       return;
     }
+    inFlight.current = true;
     setSending(true);
+    status.clear();
     const proposed = Array.from(picked).map(k => {
       const [date, slot] = k.split('|');
       return { date, slot: Number(slot) };
     });
-    const { error } = await supabase.from('drill_requests').insert({
-      from_user_id: fromUserId,
-      to_user_id:   toUserId,
-      proposed_slots: proposed,
-      message: message.trim() || null,
-      length_minutes: lengthMinutes,
-    });
-    setSending(false);
-    if (error) {
-      Alert.alert('Failed to send', error.message);
-    } else {
+    try {
+      // Not retried: nothing dedupes drill_requests, so a retry after a lost
+      // reply sends the same person two invitations.
+      await sbCall(() => supabase.from('drill_requests').insert({
+        from_user_id: fromUserId,
+        to_user_id:   toUserId,
+        proposed_slots: proposed,
+        message: message.trim() || null,
+        length_minutes: lengthMinutes,
+      }), { retries: 0 });
       setPicked(new Set());
       setMessage('');
       setLengthMinutes(60);
       onSent();
       onClose();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Failed to send the request.'));
+    } finally {
+      inFlight.current = false;
+      setSending(false);
     }
   }
 
@@ -98,8 +112,8 @@ export default function DrillRequestModal({
   const content = (
     <View style={S.root}>
         <View style={S.header}>
-          <TouchableOpacity onPress={handleClose} style={S.headerBtn}>
-            <Text style={S.headerCancel}>Cancel</Text>
+          <TouchableOpacity onPress={handleClose} style={S.headerBtn} disabled={sending}>
+            <Text style={[S.headerCancel, sending && { opacity: 0.4 }]}>Cancel</Text>
           </TouchableOpacity>
           <Text style={S.headerTitle}>Drill with {toName}</Text>
           <TouchableOpacity onPress={send} style={S.headerBtn} disabled={sending}>
@@ -113,6 +127,8 @@ export default function DrillRequestModal({
           <Text style={S.intro}>
             Pick the times that work for you. {toName} can accept any one of them.
           </Text>
+
+          <StatusBanner status={status.value} />
 
           {Object.keys(groups).length === 0 ? (
             <View style={S.emptyBox}>

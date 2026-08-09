@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -12,6 +13,7 @@ import FlairName from '../components/FlairName';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'UnlockProgress'> };
 
@@ -53,6 +55,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [earnedBadgeNames, setEarnedBadgeNames] = useState<string[]>([]);
   const [badgeProgress, setBadgeProgress] = useState<Record<string, Progress>>({});
   // Map from badge name → the name-style shop item that unlocks with it.
@@ -66,12 +69,26 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    try {
+      await loadInner();
+      setLoadError(null);
+    } catch (e) {
+      // Every badge showing as un-earned is a bad way to say "network error".
+      setLoadError(friendlySbMessage(e, "Couldn't load your unlock progress."));
+    } finally {
+      // Always: the old happy-path-only setLoading(false) stranded the skeleton.
+      setLoading(false);
+    }
+  }
+
+  async function loadInner() {
+    // LOCAL session read (getUser() is a network call that fails offline).
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
 
     const [profileRes, badgesRes, rewardsRes, allBadgesRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', user.id).single(),
-      supabase.from('player_badges').select('badge:badges(name)').eq('user_id', user.id),
+      supabase.from('profiles').select('*').eq('id', uid).single(),
+      supabase.from('player_badges').select('badge:badges(name)').eq('user_id', uid),
       // All unlock-gated name-style items. We resolve badge id→name from a
       // separate fetch (next call) rather than embedding via PostgREST,
       // because the FK's auto-generated constraint name isn't guaranteed
@@ -84,6 +101,13 @@ export default function UnlockProgressScreen({ navigation }: Props) {
         .in('category', ['list_name_style', 'profile_name_style']),
       supabase.from('badges').select('id, name'),
     ]);
+
+    // A discarded error here rendered as "you've earned nothing" — fail loud
+    // so load()'s catch can offer a retry instead.
+    const firstError = [profileRes, badgesRes, rewardsRes, allBadgesRes]
+      .map(r => (r as { error?: unknown }).error)
+      .find(Boolean);
+    if (firstError) throw firstError;
 
     const names = ((badgesRes.data ?? []) as any[])
       .map(b => b.badge?.name)
@@ -115,7 +139,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
       // Badge-progress math lives in lib/unlockProgress so Home cards and the
       // post-match nudge share the same source of truth. Map its
       // BadgeProgress shape onto this screen's { text, pct, showBar } Progress.
-      const progressList = await computeBadgeProgress(user.id);
+      const progressList = await computeBadgeProgress(uid);
       const progressMap: Record<string, Progress> = {};
       for (const p of progressList) {
         progressMap[p.badge] = {
@@ -126,7 +150,6 @@ export default function UnlockProgressScreen({ navigation }: Props) {
       }
       setBadgeProgress(progressMap);
     }
-    setLoading(false);
   }
 
   // Renders the per-badge name-style reward row when the badge has a
@@ -167,6 +190,20 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && earnedBadgeNames.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load your progress"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   const lockedAvatars = AVATARS.filter(a => !!a.unlock);
   const lockedTags    = PLAY_TAGS.filter(t => !!t.unlock);

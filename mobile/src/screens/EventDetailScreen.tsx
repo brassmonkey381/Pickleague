@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Alert, Platform,
+  Platform,
 } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -20,6 +20,9 @@ import BookmarkButton from '../components/BookmarkButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
+import StatusBanner from '../components/StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
+import { sbCall, friendlySbMessage, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -77,12 +80,22 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   };
   const [eventMatches, setEventMatches] = useState<EventMatchRow[]>([]);
 
+  // Alert.alert is a no-op on react-native-web, so every write on this screen
+  // used to fail (and succeed) completely silently on pickleague.club.
+  const status = useStatusMessage();
+  // A vote toggle is a delete-or-insert pair; overlapping taps on two slots
+  // would race each other's reload and leave the UI showing the wrong state.
+  const voteInFlight = useRef(false);
+
   useFocusEffect(useCallback(() => { load(); }, []));
   const refresh = useRefresh(load);
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    setCurrentUserId(user?.id ?? null);
+    // LOCAL session read: getUser() is a network call that resolves null on a
+    // flaky connection, which made every slot render as "not voted" and let the
+    // user re-cast a vote they had already placed.
+    const uid = await localUserId(supabase);
+    setCurrentUserId(uid);
 
     const { data: ev } = await supabase.from('league_events').select('*').eq('id', eventId).single();
     if (!ev) return;
@@ -113,7 +126,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       return {
         ...s,
         vote_count: slotVotes.length,
-        my_vote: slotVotes.some((v) => v.user_id === user?.id),
+        my_vote: slotVotes.some((v) => v.user_id === uid),
         voters: slotVotes.map((v: any) => v.profile).filter(Boolean),
       };
     });
@@ -146,24 +159,39 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   }
 
   async function toggleVote(slot: EventSlot) {
+    if (voteInFlight.current) return;
     if (!currentUserId) return;
     const votingOpen = event && event.status === 'voting' && new Date(event.vote_ends_at) > new Date();
     if (!votingOpen) return;
 
+    voteInFlight.current = true;
     setVoting(slot.id);
-    if (slot.my_vote) {
-      await supabase
-        .from('event_slot_votes')
-        .delete()
-        .eq('slot_id', slot.id)
-        .eq('user_id', currentUserId);
-    } else {
-      await supabase
-        .from('event_slot_votes')
-        .insert({ slot_id: slot.id, user_id: currentUserId });
+    status.clear();
+    try {
+      // Both halves are keyed by (slot, user), so a retried attempt after a
+      // dropped socket lands on the same row — safe to let sbCall retry.
+      if (slot.my_vote) {
+        await sbCall(() => supabase
+          .from('event_slot_votes')
+          .delete()
+          .eq('slot_id', slot.id)
+          .eq('user_id', currentUserId));
+      } else {
+        await sbCall(() => supabase
+          .from('event_slot_votes')
+          .insert({ slot_id: slot.id, user_id: currentUserId }));
+      }
+      await load();
+    } catch (e) {
+      // The result was discarded before, so a dropped vote just silently didn't
+      // stick and the user had no idea their availability wasn't recorded.
+      status.error(friendlySbMessage(e, 'Could not save your vote. Tap the time again to retry.'));
+    } finally {
+      // In a finally: without it a thrown error left the slot disabled with its
+      // spinner up until the screen was left and re-entered.
+      voteInFlight.current = false;
+      setVoting(null);
     }
-    setVoting(null);
-    await load();
   }
 
   function closeVoting() {
@@ -173,15 +201,25 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     setCloseWinner(winner);
   }
   async function confirmCloseVoting() {
+    if (closing) return;
     if (!event || !closeWinner) return;
     setClosing(true);
-    await supabase
-      .from('league_events')
-      .update({ status: 'scheduled', confirmed_slot_id: closeWinner.id })
-      .eq('id', event.id);
-    setClosing(false);
-    setCloseWinner(null);
-    await load();
+    status.clear();
+    try {
+      // Idempotent: keyed by event id, writes the same winner every time.
+      await sbCall(() => supabase
+        .from('league_events')
+        .update({ status: 'scheduled', confirmed_slot_id: closeWinner.id })
+        .eq('id', event.id));
+      setCloseWinner(null);
+      status.success('Voting closed — the winning time is confirmed.');
+      await load();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not close voting. Please try again.'));
+    } finally {
+      // Keeps the confirm modal usable instead of stranding it mid-spin.
+      setClosing(false);
+    }
   }
 
   const countdown = useCountdown(event?.vote_ends_at ?? new Date().toISOString());
@@ -189,8 +227,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [canClose, setCanClose] = React.useState(false);
   React.useEffect(() => {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => {
-      setCanClose(isPrivileged(r));
-    });
+      // 'unknown' means the role read failed, not that the user lacks the role —
+      // demoting an admin because their WiFi blipped would hide "close voting"
+      // from the only person who can use it. Keep whatever we last knew.
+      if (r !== 'unknown') setCanClose(isPrivileged(r));
+    }).catch(() => { /* keep the last known privilege */ });
   }, [event?.league_id]);
 
   // Entry point for "Invite guests". Native has device contacts, so we open the
@@ -211,33 +252,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     );
   }
 
-  // Mints a shared guest invite and returns its token, or null (after alerting).
+  // Mints a shared guest invite and returns its token, or null (after reporting).
   // Catches a rejected rpc (network failure) too, so callers never throw.
   // invitedPhones is index-aligned with invitedNames so the server can attach a
   // phone to the guest who later picks their name from the roster.
   async function createGuestInvite(invitedNames: string[], invitedPhones: string[] = []): Promise<string | null> {
     if (!event) return null;
     try {
-      const { data, error } = await supabase.rpc('create_guest_invite', {
+      // Not retried: each call mints a new token, so a retry after a lost reply
+      // leaves a live invite nobody holds.
+      const data = await sbCall<unknown>(() => supabase.rpc('create_guest_invite', {
         p_league_id:      event.league_id,
         p_event_id:       eventId,
         p_invited_names:  invitedNames,
         p_invited_phones: invitedPhones,
-      });
+      }), { retries: 0 });
       const token = typeof data === 'string' ? data : (Array.isArray(data) ? data[0] : null);
-      if (error || !token) {
-        Alert.alert('Could not create invite', error?.message ?? 'Please try again.');
+      if (!token) {
+        status.error('Could not create invite. Please try again.');
         return null;
       }
       return token;
-    } catch (e: any) {
-      Alert.alert('Could not create invite', e?.message ?? 'Please try again.');
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not create invite. Please try again.'));
       return null;
     }
   }
 
   // Native: pick phone contacts → mint invite → group-text the link.
   async function sendGuestInvites(contacts: DeviceContact[]) {
+    if (invitingGuests) return;
     if (!event || contacts.length === 0) return;
     setInvitingGuests(true);
     try {
@@ -266,7 +310,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         message: buildGuestMessage(token),
       });
       if (result.copied) {
-        Alert.alert('Invite copied', 'The invite link was copied — paste it into a group text to your guests.');
+        status.success('Invite link copied — paste it into a group text to your guests.');
       }
     } finally {
       setInvitingGuests(false);
@@ -320,6 +364,12 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           </Text>
         )}
       </View>
+
+      {status.value && (
+        <View style={S.bannerWrap}>
+          <StatusBanner status={status.value} />
+        </View>
+      )}
 
       {/* Confirmed slot banner */}
       {confirmedSlot && (
@@ -510,6 +560,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
+    bannerWrap: { paddingHorizontal: 16, paddingTop: 12 },
     header: { backgroundColor: c.surface, padding: 16, marginBottom: 8 },
     desc: { fontSize: 14, color: c.textSub, marginBottom: 8 },
     statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

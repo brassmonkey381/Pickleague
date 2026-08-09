@@ -16,6 +16,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { computeBadgeProgress } from '../lib/unlockProgress';
 import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
 import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
+import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -143,17 +144,29 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [courtTypeLocked, setCourtTypeLocked] = useState<'outdoor' | 'indoor' | null>(null);
   const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
+  // `matches` has no dedupe constraint and a match insert cascades into PLUPR,
+  // pickle ledgers and notifications — a duplicate row is not a cosmetic bug.
+  // The success path defers navigation by 1.5–2.5s so the user can read the
+  // banner, so the button must stay latched off for that whole window, not just
+  // while the request is in flight.
+  const [submitted, setSubmitted]   = useState(false);
+  const inFlight                    = useRef(false);
+  const navTimer                    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const status = useStatusMessage();
+
+  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
 
   useEffect(() => { loadLeagueData(); }, []);
 
   const [leagueHomeCourt, setLeagueHomeCourt] = useState<string | null>(null);
 
   async function loadLeagueData() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
+    // Local session read: the network getUser() resolved null offline, so the
+    // default paddle silently stopped being applied to recorded matches.
+    const uid = await currentUserId(supabase);
+    if (uid) {
       const { data: paddle } = await supabase.from('player_paddles')
-        .select('id').eq('user_id', user.id).eq('is_default', true).maybeSingle();
+        .select('id').eq('user_id', uid).eq('is_default', true).maybeSingle();
       if (paddle) setMyDefaultPaddleId(paddle.id);
     }
 
@@ -217,8 +230,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   // user's leagues), plus the user themselves. League/tournament candidates are
   // narrowed afterwards based on which players actually get picked.
   async function loadLeaguematesUnion() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setMembers([]); return; }
+    // Local read: an offline getUser() emptied the player picker entirely, so
+    // there was nobody to record a match against.
+    const uid = await currentUserId(supabase);
+    if (!uid) { setMembers([]); return; }
+    const user = { id: uid };
 
     // Leagues the current user belongs to.
     const { data: myLeaguesRows } = await supabase
@@ -469,6 +485,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   }
 
   async function submitMatch() {
+    // Checked here, not just via `disabled`: two taps in the same frame both
+    // enter this before React re-renders the button.
+    if (inFlight.current || submitted) return;
     status.clear();
 
     // Validation
@@ -515,96 +534,106 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const winnerTeam = t1GamesWon > t2GamesWon ? 'team1' : 'team2';
     const winnerId   = winnerTeam === 'team1' ? p1 : p2;
 
+    inFlight.current = true;
     setLoading(true);
-
-    // ── Tournament match: update the existing tournament_matches row ──
-    // The on_tournament_match_completed trigger fires when status flips to
-    // 'completed' and applies PLUPR to the right facet/scope automatically.
-    if (isTournamentMatch && tournamentMatchId) {
-      const { error: tmErr } = await supabase
-        .from('tournament_matches')
-        .update({
-          team1_score: s1,
-          team2_score: s2,
-          game_scores: gameScoresPayload,
-          winner_team: winnerTeam,
-          status:      'completed',
-          team1_player1_gender_override: genderOverrides.p1,
-          team1_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
-          team2_player1_gender_override: genderOverrides.p2,
-          team2_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
-        })
-        .eq('id', tournamentMatchId);
-      setLoading(false);
-      if (tmErr) {
-        setError(tmErr.message);
+    try {
+      // ── Tournament match: update the existing tournament_matches row ──
+      // The on_tournament_match_completed trigger fires when status flips to
+      // 'completed' and applies PLUPR to the right facet/scope automatically.
+      if (isTournamentMatch && tournamentMatchId) {
+        // Safe to retry: an update keyed by id writes the same values twice.
+        await sbCall(() => supabase
+          .from('tournament_matches')
+          .update({
+            team1_score: s1,
+            team2_score: s2,
+            game_scores: gameScoresPayload,
+            winner_team: winnerTeam,
+            status:      'completed',
+            team1_player1_gender_override: genderOverrides.p1,
+            team1_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
+            team2_player1_gender_override: genderOverrides.p2,
+            team2_player2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
+          })
+          .eq('id', tournamentMatchId));
+        setSubmitted(true);
+        status.success('Tournament match recorded. PLUPR updated.');
+        navTimer.current = setTimeout(() => navigation.goBack(), 1500);
         return;
       }
-      status.success('Tournament match recorded. PLUPR updated.');
-      setTimeout(() => navigation.goBack(), 1500);
-      return;
-    }
 
-    // ── League / casual match: insert into `matches` as pending (confirm flow) ──
-    // The entering user auto-confirms whichever team they're on — the OTHER
-    // team must confirm within 1 hour or the row is deleted (via the
-    // expire_pending_matches cron job).
-    //
-    // Godmode shortcut: insert as 'completed' with both team confirms set to
-    // the godmode user, so PLUPR applies immediately and no expiry is needed.
-    const { data: { user } } = await supabase.auth.getUser();
-    const enteringUid = user?.id ?? null;
-    const isOnTeam1 = enteringUid && (enteringUid === p1 || (matchType === 'doubles' && enteringUid === partner1));
-    const isOnTeam2 = enteringUid && (enteringUid === p2 || (matchType === 'doubles' && enteringUid === partner2));
-    const isGod = isGodmodeUserId(enteringUid);
-    const deadline = isGod ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      // ── League / casual match: insert into `matches` as pending (confirm flow) ──
+      // The entering user auto-confirms whichever team they're on — the OTHER
+      // team must confirm within 1 hour or the row is deleted (via the
+      // expire_pending_matches cron job).
+      //
+      // Godmode shortcut: insert as 'completed' with both team confirms set to
+      // the godmode user, so PLUPR applies immediately and no expiry is needed.
+      //
+      // LOCAL session read: getUser() is a network call that resolves
+      // { user: null } offline, so `user!.id` below used to throw a TypeError
+      // out of this handler and strand the button on "Saving...".
+      const enteringUid = await requireUserId(supabase, 'Please sign in again to record a match.');
+      const isOnTeam1 = enteringUid === p1 || (matchType === 'doubles' && enteringUid === partner1);
+      const isOnTeam2 = enteringUid === p2 || (matchType === 'doubles' && enteringUid === partner2);
+      const isGod = isGodmodeUserId(enteringUid);
+      const deadline = isGod ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    const { data, error } = await supabase.from('matches').insert({
-      league_id:     selectedLeagueId,
-      tournament_id: selectedTournamentId ?? null,
-      event_id:      eventId ?? null,
-      match_type:   matchType,
-      player1_id:   p1,
-      partner1_id:  matchType === 'doubles' ? partner1 : null,
-      player2_id:   p2,
-      partner2_id:  matchType === 'doubles' ? partner2 : null,
-      player1_score: s1,
-      player2_score: s2,
-      game_scores:   gameScoresPayload,
-      winner_id:      winnerId,
-      winner_team:    winnerTeam,
-      location_name:  location?.name ?? null,
-      location_lat:   location?.lat ?? null,
-      location_lng:   location?.lng ?? null,
-      was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
-      is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
-      is_outdoor:     isOutdoor,
-      status:             isGod ? 'completed' : 'pending',
-      confirm_deadline:   deadline,
-      team1_confirmed_by: isGod ? enteringUid : (isOnTeam1 ? enteringUid : null),
-      team2_confirmed_by: isGod ? enteringUid : (isOnTeam2 ? enteringUid : null),
-      player1_gender_override:  genderOverrides.p1,
-      partner1_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
-      player2_gender_override:  genderOverrides.p2,
-      partner2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
-    }).select('id').single();
-    setLoading(false);
+      // Deliberately NOT retried. A timeout can't distinguish "never landed"
+      // from "landed, reply lost", and a second `matches` row re-runs the whole
+      // PLUPR / pickle / notification cascade with no dedupe constraint to stop
+      // it. One bounded attempt; on a transport failure we tell the truth below.
+      const inserted = await sbCall(() => supabase.from('matches').insert({
+        league_id:     selectedLeagueId,
+        tournament_id: selectedTournamentId ?? null,
+        event_id:      eventId ?? null,
+        match_type:   matchType,
+        player1_id:   p1,
+        partner1_id:  matchType === 'doubles' ? partner1 : null,
+        player2_id:   p2,
+        partner2_id:  matchType === 'doubles' ? partner2 : null,
+        player1_score: s1,
+        player2_score: s2,
+        game_scores:   gameScoresPayload,
+        winner_id:      winnerId,
+        winner_team:    winnerTeam,
+        location_name:  location?.name ?? null,
+        location_lat:   location?.lat ?? null,
+        location_lng:   location?.lng ?? null,
+        was_home_court: !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
+        is_home_court:  !!(location?.name && leagueHomeCourt && location.name === leagueHomeCourt),
+        is_outdoor:     isOutdoor,
+        status:             isGod ? 'completed' : 'pending',
+        confirm_deadline:   deadline,
+        team1_confirmed_by: isGod ? enteringUid : (isOnTeam1 ? enteringUid : null),
+        team2_confirmed_by: isGod ? enteringUid : (isOnTeam2 ? enteringUid : null),
+        player1_gender_override:  genderOverrides.p1,
+        partner1_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
+        player2_gender_override:  genderOverrides.p2,
+        partner2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
+      }).select('id').single(), { retries: 0, timeoutMs: 30_000 }) as { id: string } | null;
 
-    if (error) {
-      setError(error.message);
-    } else {
+      // Latch before any follow-up work: the match exists, so nothing after this
+      // point may put the user back in a position to insert it again.
+      setSubmitted(true);
+
       // Record paddle usage for all players who have a default paddle
       // Can be edited within 72h of match
-      if (data && myDefaultPaddleId) {
-        const { data: { user } } = await supabase.auth.getUser();
+      if (inserted?.id && myDefaultPaddleId) {
         const canEditUntil = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
-        await supabase.from('match_paddle_usage').upsert({
-          match_id: (data as any).id,
-          user_id:  user!.id,
-          paddle_id: myDefaultPaddleId,
-          can_edit_until: canEditUntil,
-        });
+        try {
+          await sbCall(() => supabase.from('match_paddle_usage').upsert({
+            match_id: inserted.id,
+            user_id:  enteringUid,
+            paddle_id: myDefaultPaddleId,
+            can_edit_until: canEditUntil,
+          }));
+        } catch {
+          // Paddle attribution is editable for 72h — never fail (or re-offer) a
+          // match that is already recorded because this side note didn't land.
+        }
       }
+
       const baseMsg = isGod
         ? 'Match recorded and confirmed (godmode). PLUPR updated.'
         : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.';
@@ -614,15 +643,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // before the screen pops, upgrades the banner with a "keep going" line
       // when the entering user is 50–99% toward an unearned badge.
       status.success(baseMsg);
-      setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
-      if (enteringUid) {
-        computeBadgeProgress(enteringUid)
-          .then(progress => {
-            const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
-            if (close) status.success(`${baseMsg}\n\n🔥 ${close.label} — keep going to unlock ${close.badge}!`);
-          })
-          .catch(() => { /* nudge is best-effort */ });
-      }
+      navTimer.current = setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
+      computeBadgeProgress(enteringUid)
+        .then(progress => {
+          const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
+          if (close) status.success(`${baseMsg}\n\n🔥 ${close.label} — keep going to unlock ${close.badge}!`);
+        })
+        .catch(() => { /* nudge is best-effort */ });
+    } catch (e) {
+      setError(friendlySbMessage(e, 'Could not record the match.', {
+        network: 'Lost the connection, so we can\'t tell whether this match saved. Check Match History before recording it again.',
+      }));
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
     }
   }
 
@@ -936,11 +970,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       <StatusBanner status={status.value} />
 
       <TouchableOpacity
-        style={[S.button, loading && S.buttonDisabled]}
+        style={[S.button, (loading || submitted) && S.buttonDisabled]}
         onPress={submitMatch}
-        disabled={loading}
+        disabled={loading || submitted}
       >
-        <Text style={S.buttonText}>{loading ? 'Saving...' : 'Record Match'}</Text>
+        <Text style={S.buttonText}>{loading ? 'Saving...' : submitted ? 'Recorded' : 'Record Match'}</Text>
       </TouchableOpacity>
 
       {/* Home-launched league / tournament pickers. */}

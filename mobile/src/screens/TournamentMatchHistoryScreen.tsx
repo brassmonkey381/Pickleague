@@ -2,6 +2,11 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  sbCall,
+  currentUserId as sessionUserId,
+  friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { DoublesCategory, Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -62,6 +67,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const [matches, setMatches]             = useState<TMatch[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]             = useState(true);
+  const [loadError, setLoadError]         = useState<string | null>(null);
 
   const [showFilters, setShowFilters]     = useState(false);
   const [matchType, setMatchType]         = useState<TypeFilter>('all');
@@ -73,28 +79,35 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const refresh = useRefresh(load);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUserId(user?.id ?? null);
-    });
+    // LOCAL session read — getUser() is a network call, so offline the
+    // "my matches only" filter silently matched nothing.
+    sessionUserId(supabase).then(setCurrentUserId);
     load();
   }, []);
 
   async function load() {
-    const { data } = await supabase
-      .from('tournament_matches')
-      .select(`
-        *,
-        team1p1:profiles!tournament_matches_team1_player1_fkey(id, full_name, gender),
-        team1p2:profiles!tournament_matches_team1_player2_fkey(id, full_name, gender),
-        team2p1:profiles!tournament_matches_team2_player1_fkey(id, full_name, gender),
-        team2p2:profiles!tournament_matches_team2_player2_fkey(id, full_name, gender),
-        round:tournament_rounds(id, label, round_number)
-      `)
-      .eq('tournament_id', tournamentId)
-      .order('match_order');
+    try {
+      const data = await sbCall(() => supabase
+        .from('tournament_matches')
+        .select(`
+          *,
+          team1p1:profiles!tournament_matches_team1_player1_fkey(id, full_name, gender),
+          team1p2:profiles!tournament_matches_team1_player2_fkey(id, full_name, gender),
+          team2p1:profiles!tournament_matches_team2_player1_fkey(id, full_name, gender),
+          team2p2:profiles!tournament_matches_team2_player2_fkey(id, full_name, gender),
+          round:tournament_rounds(id, label, round_number)
+        `)
+        .eq('tournament_id', tournamentId)
+        .order('match_order'));
 
-    setMatches((data ?? []) as TMatch[]);
-    setLoading(false);
+      setMatches((data ?? []) as TMatch[]);
+      setLoadError(null);
+    } catch (e) {
+      // Was a discarded error rendering as "no matches played yet".
+      setLoadError(friendlySbMessage(e, "Couldn't load the match history."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   const involvesUser = (m: TMatch, uid: string) =>
@@ -254,6 +267,20 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     (doublesCategory !== 'all' ? 1 : 0);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && matches.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load match history"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={S.container}>

@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal, 
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundation/cache';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, Profile, RootStackParamList } from '../types';
 import { isoDate, slotRangeLabel } from '../lib/drillTime';
@@ -18,6 +20,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import EmptyState from '../components/EmptyState';
+import { SkeletonList } from '../components/Skeleton';
 import {
   claimDailyLoginStreak,
   hasStreakBeenShown,
@@ -37,62 +40,195 @@ const NAV_ITEMS: NavItem[] = [
   { icon: '🥒',                    label: 'About',       screen: 'About',       params: undefined },
 ];
 
+// Tournaments — registered (active) + open-registration the user could join.
+type TournamentRow = {
+  id: string; name: string;
+  start_time: string | null;
+  status: 'registration' | 'active' | 'completed' | 'cancelled' | string;
+  league_id: string | null;
+  my_status?: 'approved' | 'pending' | null;
+};
+
+// Upcoming league events (voting open, or scheduled and not yet started)
+// from leagues the user is a member of.
+type UpcomingEventRow = {
+  id: string;
+  title: string;
+  league_id: string;
+  status: 'voting' | 'scheduled';
+  vote_ends_at: string | null;
+  starts_at: string | null;
+};
+
+// Everything the home screen paints, fetched as one unit. Bundling it is what
+// lets the screen tell "still loading / couldn't reach the server" apart from
+// "you really have nothing going on" — and what stops a failed pull-to-refresh
+// from reporting a balance of 0 pickles as fact.
+type HomeData = {
+  profile: Profile | null;
+  unreadCount: number;
+  inLeague: boolean;
+  drillsToday: (DrillSession & { partner_name: string })[];
+  myTournaments: TournamentRow[];
+  openTournaments: TournamentRow[];
+  upcomingEvents: UpcomingEventRow[];
+};
+
+const EMPTY_HOME: HomeData = {
+  profile: null, unreadCount: 0, inLeague: false, drillsToday: [],
+  myTournaments: [], openTournaments: [], upcomingEvents: [],
+};
+
+const HOME_KEY = 'home:overview';
+
+// One pass over everything the home screen shows. The old version fired
+// supabase.auth.getUser() five times per focus (a network round trip each) and
+// ran the events lookup as four strictly serial requests; on a weak connection
+// that was enough for the whole screen to fall back to a signed-out-looking
+// blank. Identity is now a local session read, and only the genuinely dependent
+// steps (events need my league ids, slots need the event rows) stay sequential.
+async function loadHome(): Promise<HomeData> {
+  const uid = await currentUserId(supabase);
+  if (!uid) return EMPTY_HOME;
+
+  const today = isoDate(new Date());
+  const [profile, unreadRes, memberRows, drillRows, regRows, openRows] = await Promise.all([
+    sbCall(() => supabase.from('profiles').select('*').eq('id', uid).single()),
+    supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
+    // Mirrors FtueChecklistCard's membership check, and doubles as the league
+    // filter for upcoming events (it used to be fetched twice).
+    sbCall(() => supabase.from('league_members').select('league_id').eq('user_id', uid)),
+    sbCall(() => supabase
+      .from('drill_sessions')
+      .select(`
+        *,
+        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
+        p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
+      `)
+      .eq('session_date', today)
+      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+      .order('session_slot')),
+    // Tournaments I'm registered for (still active or in registration).
+    sbCall(() => supabase
+      .from('tournament_registrations')
+      .select('status, tournament:tournaments(id, name, start_time, status, league_id)')
+      .eq('user_id', uid)
+      .in('status', ['approved', 'pending'])),
+    sbCall(() => supabase
+      .from('tournaments')
+      .select('id, name, start_time, status, league_id')
+      .eq('status', 'registration')
+      .order('start_time', { ascending: true, nullsFirst: false })
+      .limit(25)),
+  ]);
+
+  // Hide drill sessions I've already dismissed today.
+  const drillsToday = ((drillRows ?? []) as any[])
+    .filter(r => !(r.reminder_dismissed_by ?? []).includes(uid))
+    .map(r => ({
+      ...r,
+      partner_name: r.player1_id === uid ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
+    }));
+
+  const myTournaments: TournamentRow[] = [];
+  for (const r of ((regRows ?? []) as any[])) {
+    const t = r.tournament as TournamentRow | null;
+    if (!t || t.status === 'completed' || t.status === 'cancelled') continue;
+    myTournaments.push({ ...t, my_status: r.status });
+  }
+  myTournaments.sort((a, b) => {
+    const ams = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+    const bms = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+    return ams - bms;
+  });
+
+  // Open-registration tournaments I haven't joined yet.
+  const myIds = new Set(myTournaments.map(t => t.id));
+  const openTournaments = ((openRows ?? []) as TournamentRow[]).filter(t => !myIds.has(t.id));
+
+  const leagueIds = ((memberRows ?? []) as { league_id: string }[]).map(r => r.league_id);
+  const upcomingEvents = leagueIds.length > 0 ? await loadUpcomingEvents(leagueIds) : [];
+
+  return {
+    profile: (profile ?? null) as Profile | null,
+    unreadCount: unreadRes.count ?? 0,
+    inLeague: leagueIds.length > 0,
+    drillsToday,
+    myTournaments,
+    openTournaments,
+    upcomingEvents,
+  };
+}
+
+async function loadUpcomingEvents(leagueIds: string[]): Promise<UpcomingEventRow[]> {
+  const nowIso = new Date().toISOString();
+  const rows = ((await sbCall(() => supabase
+    .from('league_events')
+    .select(`id, title, league_id, status, vote_ends_at, confirmed_slot_id`)
+    .in('league_id', leagueIds)
+    .in('status', ['voting', 'scheduled'])
+    .order('vote_ends_at', { ascending: true }))) ?? []) as any[];
+
+  // For scheduled events, look up the confirmed slot's start time.
+  const confirmedSlotIds = rows
+    .filter(r => r.status === 'scheduled' && r.confirmed_slot_id)
+    .map(r => r.confirmed_slot_id);
+  const slotMap = new Map<string, string>();
+  if (confirmedSlotIds.length) {
+    const slotRows = await sbCall(() => supabase
+      .from('event_slots')
+      .select('id, starts_at')
+      .in('id', confirmedSlotIds));
+    for (const s of ((slotRows ?? []) as any[])) slotMap.set(s.id, s.starts_at);
+  }
+
+  const upcoming: UpcomingEventRow[] = [];
+  for (const r of rows) {
+    if (r.status === 'voting') {
+      if (!r.vote_ends_at || r.vote_ends_at < nowIso) continue;
+      upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'voting', vote_ends_at: r.vote_ends_at, starts_at: null });
+    } else {
+      const starts = r.confirmed_slot_id ? slotMap.get(r.confirmed_slot_id) ?? null : null;
+      if (!starts || starts < nowIso) continue;
+      upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'scheduled', vote_ends_at: null, starts_at: starts });
+    }
+  }
+  // Sort by the earliest relevant timestamp (vote_ends or starts_at).
+  upcoming.sort((a, b) => {
+    const at = a.starts_at ?? a.vote_ends_at ?? '';
+    const bt = b.starts_at ?? b.vote_ends_at ?? '';
+    return at.localeCompare(bt);
+  });
+  return upcoming;
+}
+
 export default function HomeScreen({ navigation }: Props) {
   const { colors } = useTheme();
-  const [profile, setProfile]         = useState<Profile | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [welcomeBalance, setWelcomeBalance] = useState(0);
   const [streakOpen, setStreakOpen] = useState(false);
   const [streakResult, setStreakResult] = useState<StreakResult | null>(null);
-  // Whether the current user belongs to any league — gates the Record-a-Match card.
-  const [inLeague, setInLeague] = useState(false);
 
-  // Drill sessions today (player1 or player2 = me). Used for the morning-of banner.
-  const [drillsToday, setDrillsToday] = useState<(DrillSession & { partner_name: string })[]>([]);
-
-  // Tournaments — registered (active) + open-registration the user could join.
-  type TournamentRow = {
-    id: string; name: string;
-    start_time: string | null;
-    status: 'registration' | 'active' | 'completed' | 'cancelled' | string;
-    league_id: string | null;
-    my_status?: 'approved' | 'pending' | null;
-  };
-  const [myTournaments,   setMyTournaments]   = useState<TournamentRow[]>([]);
-  const [openTournaments, setOpenTournaments] = useState<TournamentRow[]>([]);
-
-  // Upcoming league events (voting open, or scheduled and not yet started)
-  // from leagues the user is a member of.
-  type UpcomingEventRow = {
-    id: string;
-    title: string;
-    league_id: string;
-    status: 'voting' | 'scheduled';
-    vote_ends_at: string | null;
-    starts_at: string | null;
-  };
-  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEventRow[]>([]);
-
-  useFocusEffect(useCallback(() => {
-    loadProfile();
-    loadUnread();
-    loadDrillsToday();
-    loadTournaments();
-    loadInLeague();
-    loadUpcomingEvents();
-  }, []));
-
-  const refresh = useRefresh(async () => {
-    await Promise.all([
-      loadProfile(),
-      loadUnread(),
-      loadDrillsToday(),
-      loadTournaments(),
-      loadInLeague(),
-      loadUpcomingEvents(),
-    ]);
+  const query = useCachedQuery<HomeData>(HOME_KEY, loadHome, {
+    ttlMs: 30_000,
+    persistMs: 24 * 60 * 60 * 1000,
   });
+  const {
+    profile, unreadCount, inLeague, drillsToday,
+    myTournaments, openTournaments, upcomingEvents,
+  } = query.data ?? EMPTY_HOME;
+  const loadFailed = query.error != null && query.data === undefined;
+
+  const reload = useCallback(() => query.refresh(), [query.refresh]);
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+
+  const refresh = useRefresh(reload);
+
+  // Local patches (welcome pickles, FTUE claim, dismissed drill reminder) write
+  // through the cache so the next revalidation doesn't clobber them mid-flight.
+  function patchHome(fn: (d: HomeData) => HomeData) {
+    setQueryData(HOME_KEY, fn(query.data ?? EMPTY_HOME));
+  }
 
   // Claim welcome pickles once per account, on first home visit after signup.
   useEffect(() => { claimWelcomePicklesOnce(); }, []);
@@ -111,158 +247,19 @@ export default function HomeScreen({ navigation }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [welcomeOpen]);
 
-  async function loadProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    setProfile(data);
-  }
-
-  // Mirror FtueChecklistCard's membership check (league_members, limit 1).
-  async function loadInLeague() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setInLeague(false); return; }
-    const { data } = await supabase
-      .from('league_members')
-      .select('league_id')
-      .eq('user_id', user.id)
-      .limit(1);
-    setInLeague((data ?? []).length > 0);
-  }
-
-  async function loadUnread() {
-    const { count } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_read', false);
-    setUnreadCount(count ?? 0);
-  }
-
-  async function loadDrillsToday() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setDrillsToday([]); return; }
-    const today = isoDate(new Date());
-    const { data } = await supabase
-      .from('drill_sessions')
-      .select(`
-        *,
-        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
-        p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
-      `)
-      .eq('session_date', today)
-      .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
-      .order('session_slot');
-    const rows = (data ?? []) as any[];
-    // Hide dismissed-by-me sessions.
-    const visible = rows
-      .filter(r => !(r.reminder_dismissed_by ?? []).includes(user.id))
-      .map(r => ({
-        ...r,
-        partner_name: r.player1_id === user.id ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
-      }));
-    setDrillsToday(visible);
-  }
-
-  async function loadTournaments() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setMyTournaments([]); setOpenTournaments([]); return; }
-
-    // Tournaments I'm registered for (still active or in registration).
-    const regsRes = await supabase
-      .from('tournament_registrations')
-      .select('status, tournament:tournaments(id, name, start_time, status, league_id)')
-      .eq('user_id', user.id)
-      .in('status', ['approved', 'pending']);
-
-    const mine: TournamentRow[] = [];
-    for (const r of ((regsRes.data ?? []) as any[])) {
-      const t = r.tournament as TournamentRow | null;
-      if (!t || t.status === 'completed' || t.status === 'cancelled') continue;
-      mine.push({ ...t, my_status: r.status });
-    }
-    mine.sort((a, b) => {
-      const ams = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-      const bms = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-      return ams - bms;
-    });
-
-    // Open-registration tournaments I haven't joined yet.
-    const myIds = new Set(mine.map(t => t.id));
-    const openRes = await supabase
-      .from('tournaments')
-      .select('id, name, start_time, status, league_id')
-      .eq('status', 'registration')
-      .order('start_time', { ascending: true, nullsFirst: false })
-      .limit(25);
-    const open = ((openRes.data ?? []) as TournamentRow[]).filter(t => !myIds.has(t.id));
-
-    setMyTournaments(mine);
-    setOpenTournaments(open);
-  }
-
-  async function loadUpcomingEvents() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setUpcomingEvents([]); return; }
-
-    // Leagues I'm a member of (events.leagues filtered to these).
-    const memberRes = await supabase
-      .from('league_members')
-      .select('league_id')
-      .eq('user_id', user.id);
-    const leagueIds = ((memberRes.data ?? []) as { league_id: string }[]).map(r => r.league_id);
-    if (leagueIds.length === 0) { setUpcomingEvents([]); return; }
-
-    const nowIso = new Date().toISOString();
-    const eventsRes = await supabase
-      .from('league_events')
-      .select(`id, title, league_id, status, vote_ends_at, confirmed_slot_id`)
-      .in('league_id', leagueIds)
-      .in('status', ['voting', 'scheduled'])
-      .order('vote_ends_at', { ascending: true });
-
-    const rows = (eventsRes.data ?? []) as any[];
-    // For scheduled events, look up the confirmed slot's start time.
-    const confirmedSlotIds = rows
-      .filter(r => r.status === 'scheduled' && r.confirmed_slot_id)
-      .map(r => r.confirmed_slot_id);
-    let slotMap = new Map<string, string>();
-    if (confirmedSlotIds.length) {
-      const slotsRes = await supabase
-        .from('event_slots')
-        .select('id, starts_at')
-        .in('id', confirmedSlotIds);
-      for (const s of ((slotsRes.data ?? []) as any[])) slotMap.set(s.id, s.starts_at);
-    }
-
-    const upcoming: UpcomingEventRow[] = [];
-    for (const r of rows) {
-      if (r.status === 'voting') {
-        if (!r.vote_ends_at || r.vote_ends_at < nowIso) continue;
-        upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'voting', vote_ends_at: r.vote_ends_at, starts_at: null });
-      } else {
-        const starts = r.confirmed_slot_id ? slotMap.get(r.confirmed_slot_id) ?? null : null;
-        if (!starts || starts < nowIso) continue;
-        upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'scheduled', vote_ends_at: null, starts_at: starts });
-      }
-    }
-    // Sort by the earliest relevant timestamp (vote_ends or starts_at).
-    upcoming.sort((a, b) => {
-      const at = a.starts_at ?? a.vote_ends_at ?? '';
-      const bt = b.starts_at ?? b.vote_ends_at ?? '';
-      return at.localeCompare(bt);
-    });
-    setUpcomingEvents(upcoming);
-  }
-
   async function dismissDrillReminder(session: DrillSession) {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const next = Array.from(new Set([...(session.reminder_dismissed_by ?? []), user.id]));
-    setDrillsToday(prev => prev.filter(s => s.id !== session.id));
-    await supabase
-      .from('drill_sessions')
-      .update({ reminder_dismissed_by: next })
-      .eq('id', session.id);
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    const next = Array.from(new Set([...(session.reminder_dismissed_by ?? []), uid]));
+    patchHome(d => ({ ...d, drillsToday: d.drillsToday.filter(s => s.id !== session.id) }));
+    try {
+      await sbCall(() => supabase
+        .from('drill_sessions')
+        .update({ reminder_dismissed_by: next })
+        .eq('id', session.id));
+    } catch {
+      // Couldn't persist the dismissal — the banner returns on the next load.
+    }
   }
 
   async function claimWelcomePicklesOnce() {
@@ -273,20 +270,20 @@ export default function HomeScreen({ navigation }: Props) {
       setWelcomeBalance(row.new_balance ?? 1000);
       setWelcomeOpen(true);
       // Refresh profile so the home pickle balance reflects the new total
-      loadProfile();
+      void reload();
     }
   }
 
   async function showStreakOncePerSession() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    if (hasStreakBeenShown(user.id)) return;
-    markStreakShown(user.id);
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    if (hasStreakBeenShown(uid)) return;
+    markStreakShown(uid);
     const result = await claimDailyLoginStreak();
     if (!result) return;
     setStreakResult(result);
     setStreakOpen(true);
-    if (result.claimed_today) loadProfile();
+    if (result.claimed_today) void reload();
   }
 
   // Wide layouts (web / tablet) lay the 4 PLUPR tiles in a single row; phones
@@ -366,7 +363,9 @@ export default function HomeScreen({ navigation }: Props) {
           <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
             <View style={s.pickleTopRow}>
               <Text style={s.pickleEmoji}>🥒</Text>
-              <Text style={s.pickleValue}>{profile?.pickles ?? 0}</Text>
+              {/* Until the profile actually lands, the balance is unknown — "0"
+                  would be a claim we can't back up (and one users act on). */}
+              <Text style={s.pickleValue}>{profile ? profile.pickles ?? 0 : '—'}</Text>
             </View>
             <Text style={s.pickleLabel}>pickles · tap to shop</Text>
           </TouchableOpacity>
@@ -385,7 +384,10 @@ export default function HomeScreen({ navigation }: Props) {
       <FtueChecklistCard
         profile={profile}
         navigation={navigation}
-        onClaimed={(newBalance) => setProfile(prev => prev ? { ...prev, pickles: newBalance } : prev)}
+        onClaimed={(newBalance) => patchHome(d => ({
+          ...d,
+          profile: d.profile ? { ...d.profile, pickles: newBalance } : d.profile,
+        }))}
       />
 
       {/* ── Upcoming (tournaments + events + drill sessions) ── */}
@@ -402,7 +404,19 @@ export default function HomeScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {myTournaments.length === 0 && openTournaments.length === 0 && upcomingEvents.length === 0 && drillsToday.length === 0 ? (
+        {/* "No upcoming events" is only true once a fetch has succeeded —
+            otherwise the section says so plainly and offers a retry. */}
+        {loadFailed ? (
+          <EmptyState
+            icon="📡"
+            title="Couldn't load your schedule"
+            subtitle={friendlySbMessage(query.error)}
+            actionLabel="Retry"
+            onAction={() => { void reload(); }}
+          />
+        ) : query.loading ? (
+          <SkeletonList rows={3} />
+        ) : myTournaments.length === 0 && openTournaments.length === 0 && upcomingEvents.length === 0 && drillsToday.length === 0 ? (
           <EmptyState icon="📅" title="No upcoming events" subtitle="Tournaments, league events, and drill sessions you join will show up here." />
         ) : (
           <>

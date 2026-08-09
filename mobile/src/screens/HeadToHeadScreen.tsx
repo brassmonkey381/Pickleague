@@ -1,7 +1,9 @@
 import React, { useState, useCallback } from 'react';
-import { View, Text, ScrollView, Image, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { RemoteImage } from '@just-messin-around/expo-foundation/ui';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -43,35 +45,57 @@ export default function HeadToHeadScreen({ route }: Props) {
   const [opp, setOpp] = useState<MiniProfile | null>(null);
   const [h2h, setH2h] = useState<HeadToHead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useRefresh(load);
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
+    // LOCAL session read — getUser() is a network call, so offline this bailed
+    // before even trying and the screen sat on "Couldn't load head-to-head."
+    const uid = await currentUserId(supabase);
+    if (!uid) { setLoading(false); return; }
 
-    const [meRes, oppRes, matchRes] = await Promise.all([
-      supabase.from('profiles').select(PROFILE_COLS).eq('id', user.id).single(),
-      supabase.from('profiles').select(PROFILE_COLS).eq('id', opponentId).single(),
-      // Matches where BOTH players appear (two AND-ed or-groups). Covers
-      // opposite-team meetings and same-team partnerships in one query.
-      supabase.from('matches')
-        .select('id, match_type, player1_id, partner1_id, player2_id, partner2_id, player1_score, player2_score, winner_team, status, played_at')
-        .or(`player1_id.eq.${user.id},partner1_id.eq.${user.id},player2_id.eq.${user.id},partner2_id.eq.${user.id}`)
-        .or(`player1_id.eq.${opponentId},partner1_id.eq.${opponentId},player2_id.eq.${opponentId},partner2_id.eq.${opponentId}`)
-        .order('played_at', { ascending: false })
-        .limit(1000),
-    ]);
+    try {
+      const [meRow, oppRow, matchRows] = await Promise.all([
+        sbCall(() => supabase.from('profiles').select(PROFILE_COLS).eq('id', uid).single()),
+        sbCall(() => supabase.from('profiles').select(PROFILE_COLS).eq('id', opponentId).single()),
+        // Matches where BOTH players appear (two AND-ed or-groups). Covers
+        // opposite-team meetings and same-team partnerships in one query.
+        sbCall(() => supabase.from('matches')
+          .select('id, match_type, player1_id, partner1_id, player2_id, partner2_id, player1_score, player2_score, winner_team, status, played_at')
+          .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
+          .or(`player1_id.eq.${opponentId},partner1_id.eq.${opponentId},player2_id.eq.${opponentId},partner2_id.eq.${opponentId}`)
+          .order('played_at', { ascending: false })
+          .limit(1000)),
+      ]);
 
-    setMe(meRes.data as MiniProfile);
-    setOpp(oppRes.data as MiniProfile);
-    setH2h(computeHeadToHead(user.id, opponentId, (matchRes.data ?? []) as H2HMatchRow[]));
-    setLoading(false);
+      setMe(meRow as MiniProfile);
+      setOpp(oppRow as MiniProfile);
+      setH2h(computeHeadToHead(uid, opponentId, (matchRows ?? []) as H2HMatchRow[]));
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load head-to-head."));
+    } finally {
+      // Always: a throw above used to leave the skeleton up forever.
+      setLoading(false);
+    }
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  if (!me || !opp || !h2h) return <Text style={S.error}>Couldn't load head-to-head.</Text>;
+  if (!me || !opp || !h2h) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load head-to-head"
+          subtitle={loadError ?? 'Try again in a moment.'}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   const o = h2h.opponents;
   const oppFirst = firstName(opp.full_name);
@@ -203,7 +227,19 @@ function PlayerColumn({ p, label, S, c }: { p: MiniProfile; label: string; S: an
   return (
     <View style={S.playerCol}>
       {p.avatar_url ? (
-        <Image source={{ uri: p.avatar_url }} style={S.avatarPhoto} />
+        // RemoteImage, not a bare <Image>: an uploaded avatar that fails to
+        // load rendered as a blank hole in the VS header with no fallback.
+        <RemoteImage
+          uri={p.avatar_url}
+          containerStyle={S.avatarPhoto}
+          hideSpinner
+          accessibilityLabel={`${firstName(p.full_name)} avatar`}
+          fallback={
+            <View style={[S.avatar, { backgroundColor: av.bgColor }]}>
+              <Text style={S.avatarEmoji}>{av.emoji}</Text>
+            </View>
+          }
+        />
       ) : (
         <View style={[S.avatar, { backgroundColor: av.bgColor }]}>
           <Text style={S.avatarEmoji}>{av.emoji}</Text>

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -40,6 +41,8 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   const S = makeStyles(c);
 
   const [loading, setLoading]       = useState(true);
+  // A failed read must not render as "no eligible players".
+  const [loadError, setLoadError]   = useState<string | null>(null);
   const [busy, setBusy]             = useState<string | null>(null);
   const [query, setQuery]           = useState('');
   const [tournamentAvg, setTournamentAvg] = useState<number>(3.25);
@@ -52,14 +55,24 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
 
   async function load() {
     setLoading(true);
+    try {
+      await loadInner();
+      setLoadError(null);
+    } catch (e) {
+      // Critically, a failed registration read would leave `excluded` empty and
+      // list players who are ALREADY registered as invitable.
+      setLoadError(friendlySbMessage(e, "Couldn't load suggested players."));
+    } finally {
+      setLoading(false);
+    }
+  }
 
+  async function loadInner() {
     // 1. Existing tournament registrations (any status) — exclude these.
-    const regsRes = await supabase
+    const regs = ((await sbCall(() => supabase
       .from('tournament_registrations')
       .select('user_id, status, profile:profiles!tournament_registrations_user_id_fkey(rating)')
-      .eq('tournament_id', tournamentId);
-
-    const regs = (regsRes.data ?? []) as any[];
+      .eq('tournament_id', tournamentId))) ?? []) as any[];
     const excludeIds = new Set<string>(regs.map(r => r.user_id));
     setExcluded(excludeIds);
 
@@ -74,13 +87,13 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
 
     // 3. Pull all profiles in a wide rating band around the tournament avg
     //    (+/- 1.5 PLUPR) so the recommendation list isn't huge.
-    const { data: profs } = await supabase
+    const profs = await sbCall(() => supabase
       .from('profiles')
       .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color')
       .gte('rating', avg - 1.5)
       .lte('rating', avg + 1.5)
       .order('full_name')
-      .limit(500);
+      .limit(500));
 
     const list: Candidate[] = ((profs ?? []) as any[])
       .filter(p => !excludeIds.has(p.id))
@@ -100,7 +113,6 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       .sort((a, b) => a.ratingDiff - b.ratingDiff);
 
     setCandidates(list);
-    setLoading(false);
   }
 
   async function invite(c: Candidate) {
@@ -108,25 +120,32 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     // Clear any prior error on this row before retrying.
     setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: null } : p));
 
-    const { data, error } = await supabase.rpc('tournament_invite_player', {
-      p_tournament_id: tournamentId,
-      p_user_id:       c.id,
-    });
-    setBusy(null);
-
-    // Surface the failure inline next to the row instead of via Alert —
-    // Alert.alert occasionally collapses silently on web in some focus states.
-    if (error) {
+    let data: unknown;
+    try {
+      // No auto-retry: inviting charges an ante, and a retried call that
+      // already landed would charge twice.
+      data = await sbCall(
+        () => supabase.rpc('tournament_invite_player', {
+          p_tournament_id: tournamentId,
+          p_user_id:       c.id,
+        }),
+        { retries: 0 },
+      );
+    } catch (e: any) {
+      // Surface the failure inline next to the row instead of via Alert —
+      // Alert.alert occasionally collapses silently on web in some focus states.
       // eslint-disable-next-line no-console
-      console.warn('[tournament_invite_player]', error);
-      const msg = error.message ?? 'Unknown error';
+      console.warn('[tournament_invite_player]', e);
+      const msg = e?.message ?? '';
       const friendlier = /only.*has.*🥒|ante is/i.test(msg)
         ? 'They don\'t have enough 🥒 for the entry ante.'
-        : msg;
+        : friendlySbMessage(e, 'Could not invite.');
       setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: friendlier } : p));
       return;
+    } finally {
+      setBusy(null);
     }
-    const row = Array.isArray(data) ? data[0] : data;
+    const row = Array.isArray(data) ? data[0] : (data as any);
     if (!row?.success) {
       setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: row?.message ?? 'Could not invite.' } : p));
       return;
@@ -146,6 +165,20 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
         <SkeletonList rows={6} />
+      </View>
+    );
+  }
+
+  if (loadError && candidates.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load players"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={load}
+        />
       </View>
     );
   }

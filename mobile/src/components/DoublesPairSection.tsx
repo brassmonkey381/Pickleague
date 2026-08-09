@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, Modal, TextInput, Pressable, Platform,
+  Modal, TextInput, Pressable, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -10,6 +10,9 @@ import { DoublesPair, DoublesPairJoinRequest, TournamentRegistration } from '../
 import UserPickerModal, { PickedUser } from './UserPickerModal';
 import ConfirmModal from './ConfirmModal';
 import EmptyState from './EmptyState';
+import StatusBanner from './StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   tournamentId: string;
@@ -37,6 +40,12 @@ export default function DoublesPairSection({
   const [profileMap, setProfileMap]     = useState<Record<string, ProfileLite>>({});
   const [loading, setLoading]           = useState(true);
   const [busy, setBusy]                 = useState(false);
+  // Alert.alert is a no-op under react-native-web, so on pickleague.club every
+  // one of these actions succeeded and failed completely silently.
+  const status                          = useStatusMessage();
+  // `busy` is only visible to the buttons on the next render; the guard that
+  // actually stops a double tap has to be a ref read at the top of the handler.
+  const busyRef                         = useRef(false);
 
   const [showCreate, setShowCreate]     = useState(false);
   const [newPairName, setNewPairName]   = useState('');
@@ -127,50 +136,74 @@ export default function DoublesPairSection({
 
   // ── Actions ─────────────────────────────────────────────────────────
   async function createPair() {
+    if (busyRef.current) return;
     setCreateError(null);
     const name = newPairName.trim();
     if (!name) { setCreateError('Pick a pair name first.'); return; }
+    busyRef.current = true;
     setBusy(true);
-    const { error } = await supabase.rpc('create_doubles_pair', {
-      p_tournament_id: tournamentId,
-      p_name: name,
-    });
-    setBusy(false);
-    if (error) {
-      const hint = error.message?.toLowerCase().includes('does not exist')
+    try {
+      // Not retried: a retry after a lost reply creates a second pair with the
+      // same name and no captain slot left to fill.
+      await sbCall(() => supabase.rpc('create_doubles_pair', {
+        p_tournament_id: tournamentId,
+        p_name: name,
+      }), { retries: 0 });
+      setShowCreate(false);
+      setNewPairName('');
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      const msg = friendlySbMessage(e, 'Could not create the pair.');
+      const hint = /does not exist/i.test(msg)
         ? '\n\nRun supabase/migration_add_doubles_pairs.sql in the SQL Editor.'
         : '';
-      setCreateError(`${error.message ?? 'Unknown error'}${hint}`);
-      return;
+      setCreateError(`${msg}${hint}`);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    setShowCreate(false);
-    setNewPairName('');
-    await load();
-    onPairsChanged?.();
   }
 
   async function requestJoin(pairId: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    status.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('pair_request_join', {
-      p_pair_id: pairId,
-      p_message: null,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Request sent', 'The captain will see your request.');
-    await load();
+    try {
+      await sbCall(() => supabase.rpc('pair_request_join', {
+        p_pair_id: pairId,
+        p_message: null,
+      }));
+      status.success('Request sent — the captain will see it.');
+      await load();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not send the request.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function respondToRequest(reqId: string, accept: boolean) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    status.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('pair_respond_to_join', {
-      p_request_id: reqId,
-      p_accept: accept,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onPairsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('pair_respond_to_join', {
+        p_request_id: reqId,
+        p_accept: accept,
+      }));
+      status.success(accept ? 'Request accepted — player added to your pair.' : 'Request declined.');
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not respond to the request.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   function pickInvitee(pairId: string, u: PickedUser) {
@@ -181,62 +214,106 @@ export default function DoublesPairSection({
   }
 
   async function confirmInvite() {
+    if (busyRef.current) return;
     if (!pendingInvite) return;
+    busyRef.current = true;
     setInviteError(null);
     setBusy(true);
-    const { error } = await supabase.rpc('pair_invite', {
-      p_pair_id: pendingInvite.pairId,
-      p_user_id: pendingInvite.user.id,
-      p_message: null,
-    });
-    setBusy(false);
-    if (error) { setInviteError(error.message ?? 'Unknown error'); return; }
-    setPendingInvite(null);
-    await load();
+    try {
+      await sbCall(() => supabase.rpc('pair_invite', {
+        p_pair_id: pendingInvite.pairId,
+        p_user_id: pendingInvite.user.id,
+        p_message: null,
+      }));
+      setPendingInvite(null);
+      await load();
+    } catch (e) {
+      setInviteError(friendlySbMessage(e, 'Could not send the invite.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function clearSlot(pairId: string, slot: Slot) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    status.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('pair_set_slot', {
-      p_pair_id: pairId, p_slot: slot, p_user_id: null,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onPairsChanged?.();
+    try {
+      // Idempotent: writes a fixed slot value, so a retry lands on the same row.
+      await sbCall(() => supabase.rpc('pair_set_slot', {
+        p_pair_id: pairId, p_slot: slot, p_user_id: null,
+      }));
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not clear that slot.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function lockPair(pairId: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    status.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('pair_lock_pair', { p_pair_id: pairId });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onPairsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('pair_lock_pair', { p_pair_id: pairId }));
+      status.success('Pair locked.');
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not lock the pair.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function generateRandomPairs(mode: 'random' | 'snake') {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    status.clear();
     setBusy(true);
-    const { data, error } = await supabase.rpc('generate_random_pairs', {
-      p_tournament_id: tournamentId, p_mode: mode,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Pairs generated', `${data ?? 0} pair${data === 1 ? '' : 's'} created.`);
-    await load();
-    onPairsChanged?.();
+    try {
+      // Not retried: this creates pair rows, and a retry after a lost reply
+      // would pair the free players a second time.
+      const data = await sbCall(() => supabase.rpc('generate_random_pairs', {
+        p_tournament_id: tournamentId, p_mode: mode,
+      }), { retries: 0 }) as number | null;
+      status.success(`${data ?? 0} pair${data === 1 ? '' : 's'} created.`);
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not generate pairs.', {
+        network: 'Lost the connection — reload and check whether pairs were created before trying again.',
+      }));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function confirmLeavePair() {
+    if (busyRef.current) return;
     if (!leaveConfirm) return;
+    busyRef.current = true;
     setLeaveError(null);
     setBusy(true);
-    const { error } = await supabase.rpc('pair_leave_pair', { p_pair_id: leaveConfirm.pairId });
-    setBusy(false);
-    if (error) { setLeaveError(error.message ?? 'Failed to leave pair.'); return; }
-    setLeaveConfirm(null);
-    await load();
-    onPairsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('pair_leave_pair', { p_pair_id: leaveConfirm.pairId }));
+      setLeaveConfirm(null);
+      await load();
+      onPairsChanged?.();
+    } catch (e) {
+      setLeaveError(friendlySbMessage(e, 'Failed to leave pair.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -245,6 +322,7 @@ export default function DoublesPairSection({
   return (
     <View style={S.root}>
       <Text style={S.title}>🤝 Doubles Partners</Text>
+      <StatusBanner status={status.value} />
       {/* Recruitment pitch only makes sense while pairing is still possible —
           once the bracket is locked (active/completed) just show the teams. */}
       {tournamentStatus === 'registration' && (

@@ -5,6 +5,12 @@ import {
 } from 'react-native';
 import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  sbCall,
+  currentUserId,
+  friendlySbMessage,
+  signOutSafely,
+} from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from '../components/ConfirmModal';
@@ -13,10 +19,10 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
-import { registerForPushNotificationsAsync, unregisterPushTokenAsync } from '../lib/push';
+import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
-  loadUserPreferences,
+  loadUserPreferencesResult,
   saveUserPreferences,
   type Prefs,
   type MatchType,
@@ -32,6 +38,11 @@ export default function SettingsScreen({ navigation }: Props) {
   const styles = makeStyles(colors);
   const GREEN = colors.primary;
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
+  // Prefs are stored as one blob, so showing DEFAULT_PREFS after a failed read
+  // and then saving would overwrite everything the user had. Until a read
+  // lands, the controls are read-only rather than lying about the saved state.
+  const [prefsReady, setPrefsReady]   = useState(false);
+  const [pushBusy, setPushBusy]       = useState(false);
   const [badgesPublic, setBadgesPublic] = useState(true);
   const [isGuest, setIsGuest]           = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -57,14 +68,29 @@ export default function SettingsScreen({ navigation }: Props) {
   }, []);
 
   async function loadPrefs() {
-    const loaded = await loadUserPreferences();
-    setPrefs(loaded);
+    const result = await loadUserPreferencesResult();
+    if (result.status === 'ok') {
+      setPrefs(result.prefs);
+      setPrefsReady(true);
+      return;
+    }
+    if (result.status === 'failed') {
+      status.error(
+        `${friendlySbMessage(result.error, "Couldn't load your notification settings.")} Pull to retry before changing them.`,
+      );
+    }
   }
 
   async function savePrefs(next: Prefs) {
+    const previous = prefs;
     setPrefs(next);
     const { error } = await saveUserPreferences(next);
-    if (error) status.error(`Couldn't save preferences: ${error}`);
+    if (error) {
+      // Put the switch back — leaving it flipped tells the user a setting is
+      // saved that isn't, and the next toggle would build on the wrong blob.
+      setPrefs(previous);
+      status.error(`Couldn't save preferences: ${error}`);
+    }
   }
 
   // Master push toggle (opt-in). Turning it on triggers the OS permission
@@ -76,46 +102,70 @@ export default function SettingsScreen({ navigation }: Props) {
       await savePrefs({ ...prefs, pushEnabled: false });
       return;
     }
-    const token = await registerForPushNotificationsAsync();
-    if (token) {
-      await savePrefs({ ...prefs, pushEnabled: true });
-    } else {
-      await savePrefs({ ...prefs, pushEnabled: false });
-      status.error('Enable notifications for Pickleague in your device settings to receive push.');
+    setPushBusy(true);
+    try {
+      const outcome = await enablePushNotifications();
+      if (outcome.status === 'registered') {
+        await savePrefs({ ...prefs, pushEnabled: true });
+      } else if (outcome.status === 'failed') {
+        // Nothing is wrong with their permissions — we just couldn't reach the
+        // server. Sending them to iOS Settings to fix a granted permission is
+        // a dead end, and writing pushEnabled:false would lose their choice.
+        status.error(
+          friendlySbMessage(outcome.error, "Couldn't turn on push just now — try again."),
+        );
+      } else {
+        await savePrefs({ ...prefs, pushEnabled: false });
+        status.error('Enable notifications for Pickleague in your device settings to receive push.');
+      }
+    } finally {
+      setPushBusy(false);
     }
   }
 
   async function loadProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
-    setEmail(user.email ?? '');
-    const { data } = await supabase
-      .from('profiles')
-      .select('full_name, badges_public, is_guest')
-      .eq('id', user.id)
-      .single();
-    if (data) {
-      setDisplayName(data.full_name ?? '');
-      setSavedName(data.full_name ?? '');
-      setBadgesPublic(data.badges_public ?? true);
-      setIsGuest(!!data.is_guest);
+    // LOCAL session read — getUser() is a network call, so offline this bailed
+    // and Settings rendered with a blank name/email and no godmode section.
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    setUserId(uid);
+    try {
+      const data = await sbCall(() =>
+        supabase
+          .from('profiles')
+          .select('full_name, badges_public, is_guest')
+          .eq('id', uid)
+          .single(),
+      );
+      if (data) {
+        setDisplayName(data.full_name ?? '');
+        setSavedName(data.full_name ?? '');
+        setBadgesPublic(data.badges_public ?? true);
+        setIsGuest(!!data.is_guest);
+      }
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't load your profile."));
     }
+    // Email lives on the auth user, not profiles. getSession is local, so this
+    // still fills in offline.
+    const { data: sessionData } = await supabase.auth.getSession();
+    setEmail(sessionData.session?.user.email ?? '');
   }
 
   async function updateDisplayName() {
     if (!userId || !displayName.trim() || displayName.trim() === savedName) return;
     setSavingName(true);
-    const { error } = await supabase
-      .from('profiles')
-      .update({ full_name: displayName.trim() })
-      .eq('id', userId);
-    setSavingName(false);
-    if (error) {
-      status.error(error.message);
-    } else {
+    try {
+      await sbCall(() =>
+        supabase.from('profiles').update({ full_name: displayName.trim() }).eq('id', userId),
+      );
       setSavedName(displayName.trim());
       status.success('Display name updated.');
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't update your display name."));
+    } finally {
+      // Always: the old early-return path left the Save button spinning.
+      setSavingName(false);
     }
   }
 
@@ -131,9 +181,15 @@ export default function SettingsScreen({ navigation }: Props) {
   }
 
   async function toggleBadgesPublic(val: boolean) {
+    if (!userId) return;
     setBadgesPublic(val);
-    if (userId) {
-      await supabase.from('profiles').update({ badges_public: val }).eq('id', userId);
+    try {
+      await sbCall(() => supabase.from('profiles').update({ badges_public: val }).eq('id', userId));
+    } catch (e) {
+      // A privacy switch that silently didn't save is worse than one that
+      // visibly refused — snap it back and say so.
+      setBadgesPublic(!val);
+      status.error(friendlySbMessage(e, "Couldn't change badge visibility."));
     }
   }
 
@@ -147,7 +203,11 @@ export default function SettingsScreen({ navigation }: Props) {
       // Remove this device's push token first — the RLS delete policy needs the
       // session, so it must happen before signOut() clears auth.
       await unregisterPushTokenAsync();
-      await supabase.auth.signOut();
+      // signOutSafely, not auth.signOut: the client refuses session removal
+      // while offline (so a captive portal can't log anyone out), and a
+      // deliberate sign-out has to mark itself to get through that guard.
+      // It also falls back to a local sign-out when the server can't be reached.
+      await signOutSafely(supabase);
     } finally {
       setSigningOut(false);
       setSignOutOpen(false);
@@ -199,8 +259,9 @@ export default function SettingsScreen({ navigation }: Props) {
       }
 
       // auth.users row is gone — the existing session is invalid. Sign out
-      // locally so the navigator flips back to Login.
-      await supabase.auth.signOut();
+      // locally so the navigator flips back to Login. signOutSafely marks this
+      // as deliberate, so the offline session guard doesn't refuse the removal.
+      await signOutSafely(supabase, { scope: 'local' });
     } catch (e: any) {
       setDeleteError(e?.message ?? String(e));
     } finally {
@@ -218,11 +279,11 @@ export default function SettingsScreen({ navigation }: Props) {
     return <View style={styles.divider} />;
   }
 
-  function ToggleRow({ label, desc, value, onChange }: {
-    label: string; desc?: string; value: boolean; onChange: (v: boolean) => void;
+  function ToggleRow({ label, desc, value, onChange, disabled }: {
+    label: string; desc?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean;
   }) {
     return (
-      <View style={styles.row}>
+      <View style={[styles.row, disabled && { opacity: 0.5 }]}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <Text style={styles.rowLabel}>{label}</Text>
           {desc ? <Text style={styles.rowDesc}>{desc}</Text> : null}
@@ -230,6 +291,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <Switch
           value={value}
           onValueChange={onChange}
+          disabled={disabled}
           trackColor={{ false: colors.border, true: GREEN }}
           thumbColor="#fff"
         />
@@ -252,14 +314,15 @@ export default function SettingsScreen({ navigation }: Props) {
     );
   }
 
-  function SegmentRow<T extends string | number>({ label, options, value, onSelect }: {
+  function SegmentRow<T extends string | number>({ label, options, value, onSelect, disabled }: {
     label: string;
     options: { label: string; value: T }[];
     value: T;
     onSelect: (v: T) => void;
+    disabled?: boolean;
   }) {
     return (
-      <View style={styles.segmentRow}>
+      <View style={[styles.segmentRow, disabled && { opacity: 0.5 }]}>
         <Text style={styles.rowLabel}>{label}</Text>
         <View style={styles.segmentGroup}>
           {options.map((o) => (
@@ -267,6 +330,7 @@ export default function SettingsScreen({ navigation }: Props) {
               key={String(o.value)}
               style={[styles.segmentBtn, value === o.value && [styles.segmentBtnActive, { backgroundColor: GREEN }]]}
               onPress={() => onSelect(o.value)}
+              disabled={disabled}
             >
               <Text style={[styles.segmentText, value === o.value && styles.segmentTextActive]}>
                 {o.label}
@@ -342,11 +406,24 @@ export default function SettingsScreen({ navigation }: Props) {
       {/* ── Notifications ────────────────────── */}
       <SectionHeader title="Push Notifications" />
       <View style={styles.card}>
+        {!prefsReady && (
+          <>
+            {/* Without a successful read these switches would show defaults, and
+                saving one would overwrite every other setting with them. */}
+            <ActionRow
+              label="Settings not loaded"
+              desc="Tap to try again — switches stay locked until they load"
+              onPress={loadPrefs}
+            />
+            <Divider />
+          </>
+        )}
         <ToggleRow
           label="Push notifications"
           desc="Get these on your phone. Turning a type off keeps it in the in-app bell — it just won't push."
           value={prefs.pushEnabled}
           onChange={togglePush}
+          disabled={!prefsReady || pushBusy}
         />
         <Divider />
         <ToggleRow
@@ -354,6 +431,7 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="When a match you played is recorded"
           value={prefs.notifyMatchResults}
           onChange={(v) => savePrefs({ ...prefs, notifyMatchResults: v })}
+          disabled={!prefsReady}
         />
         <Divider />
         <ToggleRow
@@ -361,6 +439,7 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Before a league event starts, and before a scheduling vote closes"
           value={prefs.notifyEventReminders}
           onChange={(v) => savePrefs({ ...prefs, notifyEventReminders: v })}
+          disabled={!prefsReady}
         />
         <Divider />
         <ToggleRow
@@ -368,6 +447,7 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Admin posts and league news"
           value={prefs.notifyLeagueUpdates}
           onChange={(v) => savePrefs({ ...prefs, notifyLeagueUpdates: v })}
+          disabled={!prefsReady}
         />
         <Divider />
         <ToggleRow
@@ -375,6 +455,7 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Bracket results and schedule changes"
           value={prefs.notifyTournamentUpdates}
           onChange={(v) => savePrefs({ ...prefs, notifyTournamentUpdates: v })}
+          disabled={!prefsReady}
         />
         <Divider />
         <ToggleRow
@@ -382,6 +463,7 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="When someone challenges you to a match"
           value={prefs.notifyChallenges}
           onChange={(v) => savePrefs({ ...prefs, notifyChallenges: v })}
+          disabled={!prefsReady}
         />
       </View>
 
@@ -396,6 +478,7 @@ export default function SettingsScreen({ navigation }: Props) {
           ]}
           value={prefs.defaultMatchType}
           onSelect={(v) => savePrefs({ ...prefs, defaultMatchType: v })}
+          disabled={!prefsReady}
         />
         <Divider />
         <SegmentRow<ScoreLimit>
@@ -407,6 +490,7 @@ export default function SettingsScreen({ navigation }: Props) {
           ]}
           value={prefs.defaultScoreLimit}
           onSelect={(v) => savePrefs({ ...prefs, defaultScoreLimit: v })}
+          disabled={!prefsReady}
         />
       </View>
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet,
@@ -6,6 +6,8 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundation/cache';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
@@ -55,40 +57,68 @@ function extractInviteCode(body: string): string | null {
   return m ? m[1] : null;
 }
 
+const NOTIFICATIONS_KEY = 'notifications:list';
+
 export default function NotificationsScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading]             = useState(true);
   const status = useStatusMessage();
 
-  const refresh = useRefresh(load);
-
-  useFocusEffect(useCallback(() => { load(); }, []));
-
-  async function load() {
-    const { data } = await supabase
+  const query = useCachedQuery<Notification[]>(
+    NOTIFICATIONS_KEY,
+    () => sbCall(() => supabase
       .from('notifications')
       .select('*')
-      .order('created_at', { ascending: false });
-    setNotifications((data ?? []) as Notification[]);
-    setLoading(false);
+      .order('created_at', { ascending: false })) as Promise<Notification[]>,
+    { ttlMs: 30_000, persistMs: 24 * 60 * 60 * 1000 },
+  );
+  const notifications = query.data ?? [];
+  // "All quiet here!" is only honest once a fetch actually succeeded — a dead
+  // connection with nothing cached gets a retry affordance instead.
+  const loadFailed = query.error != null && query.data === undefined;
+
+  const reload = useCallback(() => query.refresh(), [query.refresh]);
+  const refresh = useRefresh(reload);
+
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+
+  // The list lives in the query cache, so local edits write through it rather
+  // than to component state (which the next revalidation would overwrite).
+  function patchList(fn: (list: Notification[]) => Notification[]) {
+    setQueryData(NOTIFICATIONS_KEY, fn(notifications));
   }
 
   async function markRead(id: string) {
-    await supabase.from('notifications').update({ is_read: true }).eq('id', id);
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+    patchList(list => list.map(n => n.id === id ? { ...n, is_read: true } : n));
+    try {
+      await sbCall(() => supabase.from('notifications').update({ is_read: true }).eq('id', id));
+    } catch {
+      // Roll the optimistic read-state back so the badge count stays truthful.
+      patchList(list => list.map(n => n.id === id ? { ...n, is_read: false } : n));
+    }
   }
 
   async function markAllRead() {
-    await supabase.from('notifications').update({ is_read: true }).eq('is_read', false);
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    const previous = notifications;
+    patchList(list => list.map(n => ({ ...n, is_read: true })));
+    try {
+      await sbCall(() => supabase.from('notifications').update({ is_read: true }).eq('is_read', false));
+    } catch (e) {
+      setQueryData(NOTIFICATIONS_KEY, previous);
+      status.error(friendlySbMessage(e, "Couldn't mark them read."));
+    }
   }
 
   async function deleteNotification(id: string) {
-    await supabase.from('notifications').delete().eq('id', id);
-    setNotifications(prev => prev.filter(n => n.id !== id));
+    const previous = notifications;
+    patchList(list => list.filter(n => n.id !== id));
+    try {
+      await sbCall(() => supabase.from('notifications').delete().eq('id', id));
+    } catch (e) {
+      setQueryData(NOTIFICATIONS_KEY, previous);
+      status.error(friendlySbMessage(e, "Couldn't delete that notification."));
+    }
   }
 
   // League/tournament invite notifications embed a code in their body. Tapping
@@ -170,7 +200,9 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  if (query.loading && !loadFailed) {
+    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  }
 
   return (
     <View style={S.container}>
@@ -211,11 +243,19 @@ export default function NotificationsScreen({ navigation }: Props) {
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <EmptyState
-            icon="🔔"
-            title="All quiet here!"
-            subtitle="You'll be notified when brackets are set, invites arrive, and more."
-          />
+          loadFailed
+            ? <EmptyState
+                icon="📡"
+                title="Couldn't load notifications"
+                subtitle={friendlySbMessage(query.error)}
+                actionLabel="Retry"
+                onAction={() => { void reload(); }}
+              />
+            : <EmptyState
+                icon="🔔"
+                title="All quiet here!"
+                subtitle="You'll be notified when brackets are set, invites arrive, and more."
+              />
         }
       />
     </View>

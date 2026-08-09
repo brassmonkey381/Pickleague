@@ -15,7 +15,9 @@ import {
   configurePushNotificationHandler,
   createPushTokenLifecycle,
   wirePushResponseRouting,
+  withRetry,
 } from '@just-messin-around/expo-foundation/platform';
+import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { navigateWhenReady } from './navigationRef';
 import { RootStackParamList } from '../types';
@@ -37,19 +39,35 @@ const pushTokens = createPushTokenLifecycle({
   register: async (token, platform) => {
     // Throwing (rather than returning) keeps the kit from remembering a token it
     // never actually persisted, so a later attempt isn't deduped into a no-op.
+    // supabase-js RETURNS API/RLS/HTTP failures instead of throwing them, so a
+    // bare `await ...upsert()` here reported success for a token that never
+    // reached the table — the lifecycle then deduped every later attempt this
+    // session and the device silently received nothing while Settings showed
+    // the toggle on. sbCall throws (and retries transient network faults).
     if (!pendingUserId) throw new Error('push: no authenticated user');
-    await supabase.from('push_tokens').upsert(
-      {
-        user_id: pendingUserId,
-        token,
-        platform,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'token' },
+    const userId = pendingUserId;
+    await sbCall(() =>
+      supabase.from('push_tokens').upsert(
+        {
+          user_id: userId,
+          token,
+          platform,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'token' },
+      ),
+      // One inner retry only — ensurePushRegistration retries the whole attempt
+      // on top of this, and the two multiplying would hammer the API.
+      { retries: 1 },
     );
   },
   unregister: async (token) => {
-    await supabase.from('push_tokens').delete().eq('token', token);
+    // Bounded hard: this runs on the sign-out path, where a slow network must
+    // not hold the user on a screen they're leaving.
+    await sbCall(() => supabase.from('push_tokens').delete().eq('token', token), {
+      retries: 1,
+      timeoutMs: 5_000,
+    });
   },
   // MUST stay 'default': existing installs already have this channel, and
   // Android channel settings are immutable once created.
@@ -57,36 +75,122 @@ const pushTokens = createPushTokenLifecycle({
 });
 
 /**
- * Requests notification permission, fetches the Expo push token, and upserts it
- * into public.push_tokens for the signed-in user. Returns the token, or null if
- * unavailable (web, simulator, permission denied, or no session).
+ * Why registration didn't produce a token. `unavailable` means push can't work
+ * here at all (web, simulator, OS permission denied, or no session) — the user
+ * has to change something. `failed` means we couldn't complete the round trip
+ * (offline, timeout, RLS/API error); the same attempt may well succeed later,
+ * so callers must NOT tell the user to go fix a permission.
  */
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
+export type PushRegistrationOutcome =
+  | { status: 'registered'; token: string }
+  | { status: 'unavailable' }
+  | { status: 'failed'; error: unknown };
+
+async function attemptRegistration(): Promise<PushRegistrationOutcome> {
+  if (Platform.OS === 'web') return { status: 'unavailable' };
+  // LOCAL session read — getUser() is a network round trip, so on flaky WiFi it
+  // returned no user and startup registration gave up as if signed out.
+  const userId = await currentUserId(supabase);
+  if (!userId) return { status: 'unavailable' };
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
     // Signed in as someone else on this device (e.g. a sign-out that couldn't
     // run the RLS delete): forget the remembered token so the row is re-upserted
     // under the new user_id rather than skipped as "already registered".
-    if (lastUserId && lastUserId !== user.id) await pushTokens.unregister();
-    pendingUserId = user.id;
+    if (lastUserId && lastUserId !== userId) {
+      // A failed cleanup of the OLD row must not block registering the new one.
+      await pushTokens.unregister().catch(() => {});
+    }
+    pendingUserId = userId;
     const token = await pushTokens.register();
-    lastUserId = token ? user.id : null;
-    return token;
-  } catch {
-    return null;
+    // The kit returns null only for "push can't work here" (no device, no
+    // permission, no token); every failure path throws.
+    if (!token) {
+      lastUserId = null;
+      return { status: 'unavailable' };
+    }
+    lastUserId = userId;
+    return { status: 'registered', token };
+  } catch (error) {
+    lastUserId = null;
+    return { status: 'failed', error };
   }
+}
+
+/** Transient enough to be worth another attempt (vs. a rejection that will keep rejecting). */
+function isRetryableRegistrationError(e: unknown): boolean {
+  const kind = classifySbError(e);
+  return kind === 'network' || kind === 'server' || kind === 'unknown';
+}
+
+/**
+ * Register this device, retrying transient failures. `waitForReconnectMs` lets
+ * a launch that begins offline wait for the connection instead of burning the
+ * only attempt of the session.
+ */
+async function ensurePushRegistration(
+  opts: { retries: number; waitForReconnectMs?: number },
+): Promise<PushRegistrationOutcome> {
+  try {
+    return await withRetry(
+      async () => {
+        const outcome = await attemptRegistration();
+        // Only `failed` is worth another pass; throwing is how withRetry sees it.
+        if (outcome.status === 'failed') throw outcome.error;
+        return outcome;
+      },
+      {
+        retries: opts.retries,
+        waitForReconnectMs: opts.waitForReconnectMs,
+        retryOn: isRetryableRegistrationError,
+        // attemptRegistration already bounds its own network calls; an outer
+        // timeout here would cut off a legitimately slow OS permission prompt.
+        timeoutMs: null,
+      },
+    );
+  } catch (error) {
+    return { status: 'failed', error };
+  }
+}
+
+/**
+ * Requests notification permission, fetches the Expo push token, and upserts it
+ * into public.push_tokens for the signed-in user. Returns the token, or null if
+ * it couldn't be registered.
+ *
+ * Startup shape: this is fire-and-forget and runs once per session, so a single
+ * bad moment at launch used to cost the whole session's pushes. It now retries,
+ * and waits out a launch that begins with no connection.
+ */
+export async function registerForPushNotificationsAsync(): Promise<string | null> {
+  const outcome = await ensurePushRegistration({ retries: 3, waitForReconnectMs: 20_000 });
+  return outcome.status === 'registered' ? outcome.token : null;
+}
+
+/**
+ * Interactive variant for the Settings toggle: same registration, but the
+ * caller learns WHY it didn't work so it can tell "your OS denied this" apart
+ * from "we couldn't reach the server" — telling a user to fix a permission that
+ * was granted is worse than saying nothing.
+ */
+export async function enablePushNotifications(): Promise<PushRegistrationOutcome> {
+  return ensurePushRegistration({ retries: 2 });
 }
 
 /**
  * Removes this device's push token so a signed-out (or switched) account stops
  * receiving pushes here. MUST be called while still authenticated — the RLS
  * delete policy requires auth.uid() = user_id.
+ *
+ * Never throws: this runs immediately before sign-out, and a stale token row is
+ * a far smaller problem than a sign-out that appears to hang or fail.
  */
 export async function unregisterPushTokenAsync(): Promise<void> {
   lastUserId = null;
-  await pushTokens.unregister();
+  try {
+    await pushTokens.unregister();
+  } catch {
+    // Swallowed deliberately — see above.
+  }
 }
 
 type PushData = {

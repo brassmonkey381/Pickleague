@@ -6,12 +6,13 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { REGIONS, getRegionName, inRegion } from '../lib/regions';
 import { displayCourtName } from '../lib/courtNickname';
 import { TONE_COLORS } from '../lib/activityTone';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
-import { checkGodmode, countActiveAdminLeagues } from '../lib/godmode';
+import { isGodmodeUserId, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
 import { gs } from '../lib/globalStyles';
@@ -125,6 +126,9 @@ export default function LeaguesScreen({ navigation, route }: Props) {
 
   const [allLeagues, setAllLeagues]   = useState<LeagueWithStats[]>([]);
   const [loading, setLoading]         = useState(true);
+  // Set when a load fails. "No leagues yet — create one!" is a lie to a user
+  // who has five and is just on bad WiFi.
+  const [loadError, setLoadError]     = useState<unknown>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters]         = useState<Filters>(DEFAULT_FILTERS);
 
@@ -166,61 +170,75 @@ export default function LeaguesScreen({ navigation, route }: Props) {
   }, [route.params?.prefillInviteCode]);
 
   async function loadLeagues() {
-    setLoading(true);
-
-    const [{ data: leagueRows }, { data: { user } }, godmodeResult] = await Promise.all([
-      supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false }),
-      supabase.auth.getUser(),
-      checkGodmode(),
-    ]);
-    setGodmode(godmodeResult);
-    if (user?.id) {
-      setActiveAdminLeagueCount(await countActiveAdminLeagues(user.id));
+    try {
+      await loadLeaguesInner();
+      setLoadError(null);
+    } catch (e) {
+      // Keep the list that's already rendered — a refresh that dies in a dead
+      // zone must not empty the leagues the user was browsing.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
     }
+  }
 
-    if (!leagueRows) { setLoading(false); return; }
+  async function loadLeaguesInner() {
+    // Identity is a LOCAL session read now, and godmode a local id check, so
+    // neither costs a round trip. The admin-league count no longer waits on the
+    // league list either — it only ever needed the user id.
+    const uid = await currentUserId(supabase);
+    setGodmode(isGodmodeUserId(uid));
 
-    const ids = leagueRows.map((l) => l.id);
-    const uid = user?.id ?? null;
+    const [leagueRows, adminLeagueCount] = await Promise.all([
+      sbCall(() => supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false })),
+      // Non-fatal on its own: countActiveAdminLeagues throws by design, but a
+      // failed create-limit count must not blank the whole league list. Keep
+      // the last known count instead.
+      uid ? countActiveAdminLeagues(uid).catch(() => null) : Promise.resolve(0),
+    ]);
+    if (adminLeagueCount != null) setActiveAdminLeagueCount(adminLeagueCount);
+
+    const ids = (leagueRows ?? []).map((l) => l.id);
+    if (ids.length === 0) { setAllLeagues([]); return; }
 
     // All parallel fetches
     const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes, adminRes, eventRes] = await Promise.all([
-      supabase.from('league_members').select('league_id').in('league_id', ids),
-      supabase.from('matches').select('league_id, played_at').in('league_id', ids),
+      sbCall(() => supabase.from('league_members').select('league_id').in('league_id', ids)),
+      sbCall(() => supabase.from('matches').select('league_id, played_at').in('league_id', ids)),
       uid
-        ? supabase.from('league_members').select('league_id, role').eq('user_id', uid).in('league_id', ids)
-        : Promise.resolve({ data: [] }),
+        ? sbCall(() => supabase.from('league_members').select('league_id, role').eq('user_id', uid).in('league_id', ids))
+        : Promise.resolve([]),
       uid
-        ? supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids)
-        : Promise.resolve({ data: [] }),
-      supabase.from('league_seasons')
+        ? sbCall(() => supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids))
+        : Promise.resolve([]),
+      sbCall(() => supabase.from('league_seasons')
         .select('league_id, status, baseline_plupr, start_date, end_date')
         .in('league_id', ids)
-        .in('status', ['active', 'upcoming']),
-      supabase.from('tournaments')
+        .in('status', ['active', 'upcoming'])),
+      sbCall(() => supabase.from('tournaments')
         .select('league_id, status, start_time')
         .in('league_id', ids)
-        .in('status', ['registration', 'active']),
+        .in('status', ['registration', 'active'])),
       // League admins (creator is backfilled as admin) — for the clickable admin link.
-      supabase.from('league_members')
+      sbCall(() => supabase.from('league_members')
         .select('league_id, user_id, profile:profiles(id, full_name)')
         .eq('role', 'admin')
-        .in('league_id', ids),
+        .in('league_id', ids)),
       // Open votes + scheduled events (we resolve scheduled slots' times below).
-      supabase.from('league_events')
+      sbCall(() => supabase.from('league_events')
         .select('id, league_id, status, vote_ends_at, confirmed_slot_id')
         .in('league_id', ids)
-        .in('status', ['voting', 'scheduled']),
+        .in('status', ['voting', 'scheduled'])),
     ]);
 
-    const memberRows     = memberRes.data ?? [];
-    const matchRows      = matchRes.data ?? [];
-    const myMembers      = (myMemberRes as any).data ?? [];
-    const myRequests     = (myRequestRes as any).data ?? [];
-    const seasonRows     = (seasonRes.data ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
-    const tournamentRows = (tournamentRes.data ?? []) as { league_id: string; status: string; start_time: string | null }[];
-    const adminRows      = (adminRes.data ?? []) as any[];
-    const eventRows      = (eventRes.data ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
+    const memberRows     = (memberRes ?? []) as any[];
+    const matchRows      = (matchRes ?? []) as any[];
+    const myMembers      = (myMemberRes ?? []) as any[];
+    const myRequests     = (myRequestRes ?? []) as any[];
+    const seasonRows     = (seasonRes ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
+    const tournamentRows = (tournamentRes ?? []) as { league_id: string; status: string; start_time: string | null }[];
+    const adminRows      = (adminRes ?? []) as any[];
+    const eventRows      = (eventRes ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
 
     // One admin per league (first admin row). supabase may type the joined
     // profile as an array; handle either shape.
@@ -236,12 +254,12 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     const slotIds = eventRows.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
     const slotStartsById = new Map<string, string>();
     if (slotIds.length > 0) {
-      const { data: slotRows } = await supabase.from('event_slots').select('id, starts_at').in('id', slotIds);
+      const slotRows = await sbCall(() => supabase.from('event_slots').select('id, starts_at').in('id', slotIds));
       (slotRows ?? []).forEach((s: any) => slotStartsById.set(s.id, s.starts_at));
     }
     const nowMs = Date.now();
 
-    const leagues: LeagueWithStats[] = leagueRows.map((l) => {
+    const leagues: LeagueWithStats[] = (leagueRows ?? []).map((l) => {
       const members    = memberRows.filter((m) => m.league_id === l.id);
       const lMatches   = matchRows.filter((m) => m.league_id === l.id);
       const myMembership = myMembers.find((m: any) => m.league_id === l.id);
@@ -307,7 +325,6 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     });
 
     setAllLeagues(leagues);
-    setLoading(false);
   }
 
   async function createLeague() {
@@ -318,47 +335,62 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     }
     if (!name.trim()) { setCreateError('Please enter a league name.'); return; }
     setCreating(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    const { data: newLeague, error } = await supabase.from('leagues').insert({
-      name: name.trim(),
-      description: description.trim() || null,
-      created_by: user!.id,
-      is_open: isOpen,
-      home_court:     homeCourt?.name ?? null,
-      home_court_lat: homeCourt?.lat ?? null,
-      home_court_lng: homeCourt?.lng ?? null,
-    }).select().single();
-    setCreating(false);
-    if (error || !newLeague) { setCreateError(error?.message ?? 'Failed to create league.'); return; }
+    try {
+      // `user!.id` used to throw a raw TypeError here when the getUser() round
+      // trip came back empty, stranding the "Creating…" flag.
+      const uid = await currentUserId(supabase);
+      if (!uid) { setCreateError('Please sign in again.'); return; }
+      const newLeague = await sbCall(() => supabase.from('leagues').insert({
+        name: name.trim(),
+        description: description.trim() || null,
+        created_by: uid,
+        is_open: isOpen,
+        home_court:     homeCourt?.name ?? null,
+        home_court_lat: homeCourt?.lat ?? null,
+        home_court_lng: homeCourt?.lng ?? null,
+      }).select().single()) as { id: string };
 
-    // Auto-add creator as admin member
-    await supabase.from('league_members').insert({
-      league_id: newLeague.id,
-      user_id: user!.id,
-      role: 'admin',
-    });
+      // Auto-add creator as admin member
+      await sbCall(() => supabase.from('league_members').insert({
+        league_id: newLeague.id,
+        user_id: uid,
+        role: 'admin',
+      }));
 
-    setShowCreate(false);
-    setName(''); setDescription(''); setIsOpen(true); setHomeCourt(null); setCreateError('');
-    loadLeagues();
+      setShowCreate(false);
+      setName(''); setDescription(''); setIsOpen(true); setHomeCourt(null); setCreateError('');
+      loadLeagues();
+    } catch (e) {
+      setCreateError(friendlySbMessage(e, 'Failed to create league.'));
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function joinLeague(leagueId: string) {
-    const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from('league_members').upsert({ league_id: leagueId, user_id: user!.id, role: 'member' });
-    loadLeagues();
+    status.clear();
+    try {
+      const uid = await currentUserId(supabase);
+      if (!uid) { status.error('Please sign in again.'); return; }
+      await sbCall(() => supabase.from('league_members').upsert({ league_id: leagueId, user_id: uid, role: 'member' }));
+      loadLeagues();
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't join the league."));
+    }
   }
 
   async function requestCode(leagueId: string, leagueName: string) {
     status.clear();
-    const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
-      .from('league_join_requests')
-      .upsert({ league_id: leagueId, user_id: user!.id, status: 'pending' });
-    if (error) status.error(error.message);
-    else {
+    try {
+      const uid = await currentUserId(supabase);
+      if (!uid) { status.error('Please sign in again.'); return; }
+      await sbCall(() => supabase
+        .from('league_join_requests')
+        .upsert({ league_id: leagueId, user_id: uid, status: 'pending' }));
       loadLeagues(); // refreshes hasRequested flag
       status.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't send the request."));
     }
   }
 
@@ -589,7 +621,12 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     );
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  // A failed first load falls through to the list so pull-to-refresh and the
+  // Retry button stay reachable.
+  const loadFailed = loadError != null && allLeagues.length === 0;
+  if (loading && !loadFailed) {
+    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  }
 
   return (
     <View style={S.container}>
@@ -717,7 +754,15 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           status.value ? <StatusBanner status={status.value} style={{ marginBottom: 8 }} /> : null
         }
         ListEmptyComponent={
-          allLeagues.length === 0 ? (
+          loadFailed ? (
+            <EmptyState
+              icon="📡"
+              title="Couldn't load leagues"
+              subtitle={friendlySbMessage(loadError)}
+              actionLabel="Retry"
+              onAction={() => { setLoading(true); void loadLeagues(); }}
+            />
+          ) : allLeagues.length === 0 ? (
             <EmptyState icon="🏆" title="No leagues yet" subtitle="Create one to get started!" />
           ) : (
             <EmptyState icon="🔍" title="No matches" subtitle="No leagues match your filters." />

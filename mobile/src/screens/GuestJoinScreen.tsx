@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ActivityIndicator, ScrollView,
@@ -10,6 +10,8 @@ import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { navigateWhenReady } from '../lib/navigationRef';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
+import { sbCall, friendlySbMessage, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'GuestJoin'>;
@@ -48,62 +50,90 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase.rpc('get_guest_invite_preview', { p_token: token });
-      const row = (Array.isArray(data) ? data[0] : data) as Preview | undefined;
-      if (error || !row?.valid) {
+      // Shared invite links are opened on whatever connection the guest happens
+      // to have; an unbounded preview call leaves the link spinning forever with
+      // nothing on screen. Bounded + retried, then always resolve to a state.
+      try {
+        const data = await sbCall(
+          () => supabase.rpc('get_guest_invite_preview', { p_token: token }),
+        ) as Preview[] | Preview | null;
+        const row = (Array.isArray(data) ? data[0] : data) as Preview | undefined;
+        if (!row?.valid) {
+          setPreview({ valid: false, league_name: null, event_id: null, event_title: null, invited_names: null, expires_at: null });
+          setLoading(false);
+          return;
+        }
+        setPreview(row);
+
+        // If they're already signed in, don't run the guest flow (it would
+        // overwrite a real account's name / mark it a guest) — just open the event
+        // as themselves. Events are publicly viewable and voting only needs a
+        // session, so a non-member can still participate.
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && row.event_id) {
+          navigation.replace('EventDetail', { eventId: row.event_id, title: row.event_title ?? 'Event' });
+          return;
+        }
+        setLoading(false);
+      } catch {
         setPreview({ valid: false, league_name: null, event_id: null, event_title: null, invited_names: null, expires_at: null });
         setLoading(false);
-        return;
       }
-      setPreview(row);
-
-      // If they're already signed in, don't run the guest flow (it would
-      // overwrite a real account's name / mark it a guest) — just open the event
-      // as themselves. Events are publicly viewable and voting only needs a
-      // session, so a non-member can still participate.
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && row.event_id) {
-        navigation.replace('EventDetail', { eventId: row.event_id, title: row.event_title ?? 'Event' });
-        return;
-      }
-      setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // Reached from the CTA *and* from the keyboard's Return key, which bypasses
+  // the button's `disabled` entirely. Without a flag checked here, a second
+  // Return mints a SECOND anonymous account and redeems the invite again.
+  const inFlight = useRef(false);
+
   async function continueAsGuest() {
+    if (inFlight.current) return;
     const trimmed = name.trim();
     if (!trimmed) { setError('Enter your name to continue.'); return; }
+    inFlight.current = true;
     setSubmitting(true);
     setError(null);
 
-    // Signing in swaps the navigator to the logged-in stack and unmounts this
-    // screen, so we can't navigate from here directly. redeem returns the event
-    // id; we hand it to navigateWhenReady, which delivers once the logged-in
-    // stack (and EventDetail) has mounted.
-    const { error: authErr } = await supabase.auth.signInAnonymously({
-      options: { data: { full_name: trimmed } },
-    });
-    if (authErr) {
-      setSubmitting(false);
-      setError(authErr.message ?? 'Could not start your guest session.');
-      return;
-    }
+    let signedIn = false;
+    let navigated = false;
+    try {
+      // Signing in swaps the navigator to the logged-in stack and unmounts this
+      // screen, so we can't navigate from here directly. redeem returns the event
+      // id; we hand it to navigateWhenReady, which delivers once the logged-in
+      // stack (and EventDetail) has mounted.
+      // Not retried: a retry that lands twice creates two anon accounts.
+      const { error: authErr } = await withTimeout(
+        supabase.auth.signInAnonymously({ options: { data: { full_name: trimmed } } }),
+        20_000,
+      );
+      if (authErr) throw authErr;
+      signedIn = true;
 
-    const { data, error: redeemErr } = await supabase.rpc('redeem_guest_invite', {
-      p_token: token,
-      p_name:  trimmed,
-    });
-    const row = Array.isArray(data) ? data[0] : data;
-    if (redeemErr || !row) {
-      // Roll back the throwaway anon session so they're not left stranded.
-      await supabase.auth.signOut();
-      setSubmitting(false);
-      setError(redeemErr?.message ?? 'This guest invite is no longer valid.');
-      return;
-    }
+      const data = await sbCall<any>(
+        () => supabase.rpc('redeem_guest_invite', { p_token: token, p_name: trimmed }),
+        { retries: 2 },
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) throw new Error('This guest invite is no longer valid.');
 
-    navigateWhenReady('EventDetail', { eventId: row.event_id, title: row.event_title });
+      navigated = true;
+      navigateWhenReady('EventDetail', { eventId: row.event_id, title: row.event_title });
+    } catch (e) {
+      // Roll back the throwaway anon session so they're not left stranded
+      // half-signed-in, and so a retry starts from a clean slate.
+      // signOutSafely: the client refuses session removal while offline, so a
+      // deliberate rollback has to identify itself or the throwaway anon session
+      // would linger and the retry would start dirty.
+      if (signedIn) { try { await signOutSafely(supabase); } catch { /* already gone */ } }
+      setError(friendlySbMessage(e, 'Could not start your guest session.'));
+    } finally {
+      inFlight.current = false;
+      // On success this screen is being torn down — leave the spinner up rather
+      // than flashing the CTA back to life mid-navigation.
+      if (!navigated) setSubmitting(false);
+    }
   }
 
   if (loading) {

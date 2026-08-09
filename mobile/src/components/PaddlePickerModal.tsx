@@ -4,6 +4,7 @@ import {
   FlatList, StyleSheet, Pressable, ActivityIndicator,
   Platform, useWindowDimensions,
 } from 'react-native';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -53,6 +54,8 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
   const [customThickness, setCustomThickness] = useState('');
   const [brandSearch, setBrandSearch] = useState('');
   const [loading, setLoading]         = useState(true);
+  // A failed catalog read must not render as "there are no brands/models".
+  const [loadError, setLoadError]     = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
@@ -76,20 +79,36 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
 
   async function loadBrands() {
     setLoading(true);
-    const { data } = await supabase.from('paddle_brands').select('id, name').order('sort_order');
-    setBrands((data ?? []) as Brand[]);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const data = await sbCall(() =>
+        supabase.from('paddle_brands').select('id, name').order('sort_order'),
+      );
+      setBrands((data ?? []) as Brand[]);
+    } catch (e) {
+      // An empty brand list looks like the catalog is empty, and there's no
+      // way past step one — surface it so the user can retry.
+      setLoadError(friendlySbMessage(e, "Couldn't load paddle brands."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadModels(brandId: string) {
     setLoadingModels(true);
-    const { data } = await supabase
-      .from('paddle_models')
-      .select('id, name, thickness_mm, notes')
-      .eq('brand_id', brandId)
-      .order('sort_order');
-    setDbModels((data ?? []) as DBModel[]);
-    setLoadingModels(false);
+    setLoadError(null);
+    try {
+      const data = await sbCall(() => supabase
+        .from('paddle_models')
+        .select('id, name, thickness_mm, notes')
+        .eq('brand_id', brandId)
+        .order('sort_order'));
+      setDbModels((data ?? []) as DBModel[]);
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load models for that brand."));
+    } finally {
+      setLoadingModels(false);
+    }
   }
 
   function reset() {
@@ -178,7 +197,11 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
           {/* ── BRAND ── */}
           {step === 'brand' && (
             <>
-              {loading ? <ActivityIndicator style={{ margin: 24 }} color={c.primary} /> : (
+              {loading ? <ActivityIndicator style={{ margin: 24 }} color={c.primary} /> : loadError ? (
+                <TouchableOpacity style={{ padding: 24 }} onPress={loadBrands} accessibilityRole="button">
+                  <Text style={styles.noModels}>{loadError}{'\n'}Tap to retry.</Text>
+                </TouchableOpacity>
+              ) : (
                 <>
                   <TextInput
                     style={styles.searchInput}
@@ -245,6 +268,12 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                     )}
                   />
                 </>
+              ) : loadError ? (
+                // Distinct from "no models" — one is a fact about the catalog,
+                // the other is a fact about the network.
+                <TouchableOpacity onPress={() => selectedBrand && loadModels(selectedBrand.id)} accessibilityRole="button">
+                  <Text style={styles.noModels}>{loadError} Tap to retry — or just type your model above.</Text>
+                </TouchableOpacity>
               ) : (
                 <Text style={styles.noModels}>No models found — type your model name above.</Text>
               )}

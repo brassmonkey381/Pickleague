@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import {
@@ -40,46 +42,41 @@ type Candidate = {
 
 type SortMode = 'overlap' | 'shots' | 'elo';
 
+type Me = { id: string; rating: number; avail: boolean[]; shots: string[]; partner: string[] };
+
 export default function DrillSearchScreen({}: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
 
-  const [me, setMe] = useState<{
-    id: string; rating: number;
-    avail: boolean[]; shots: string[]; partner: string[];
-  } | null>(null);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
   const [sort, setSort]       = useState<SortMode>('overlap');
   const [requestTarget, setRequestTarget] = useState<Candidate | null>(null);
 
-  const refresh = useRefresh(load);
+  const load = useCallback(async (): Promise<{ me: Me; candidates: Candidate[] }> => {
+    // Local session read. The old getUser() round trip returned null on a dead
+    // connection and the loader bailed WITHOUT clearing `loading`, leaving the
+    // screen shimmering forever with no refresh control mounted to escape it.
+    const uid = await currentUserId(supabase);
+    if (!uid) throw new Error('Not signed in.');
 
-  useEffect(() => { load(); }, []);
-
-  async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const myProfileRes = await supabase
+    const myProfile = await sbCall(() => supabase
       .from('profiles')
       .select('rating, drill_availability, drill_shot_prefs, drill_partner_prefs')
-      .eq('id', user.id)
-      .single();
+      .eq('id', uid)
+      .single()) as any;
 
-    const myWeekly  = toWeeklyTemplate(myProfileRes.data?.drill_availability ?? []);
-    const myShots   = (myProfileRes.data?.drill_shot_prefs ?? []) as string[];
-    const myPartner = (myProfileRes.data?.drill_partner_prefs ?? []) as string[];
-    const myRating  = myProfileRes.data?.rating ?? 3.25;
-    setMe({ id: user.id, rating: myRating, avail: myWeekly, shots: myShots, partner: myPartner });
+    const myWeekly  = toWeeklyTemplate(myProfile?.drill_availability ?? []);
+    const myShots   = (myProfile?.drill_shot_prefs ?? []) as string[];
+    const myPartner = (myProfile?.drill_partner_prefs ?? []) as string[];
+    const myRating  = myProfile?.rating ?? 3.25;
+    const me: Me = { id: uid, rating: myRating, avail: myWeekly, shots: myShots, partner: myPartner };
 
-    const { data: others } = await supabase
+    const others = await sbCall(() => supabase
       .from('profiles')
       .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
       .eq('drilling_enabled', true)
-      .neq('id', user.id)
-      .limit(100);
+      .neq('id', uid)
+      .limit(100)) as any[];
 
     const dates   = rollingDates();
     const myDated = expandWeeklyToDates(myWeekly, dates);
@@ -106,9 +103,19 @@ export default function DrillSearchScreen({}: Props) {
       };
     });
 
-    setCandidates(list);
-    setLoading(false);
-  }
+    return { me, candidates: list };
+  }, []);
+
+  const query = useCachedQuery('drill:search', load, {
+    ttlMs: 60_000,
+    persistMs: 12 * 60 * 60 * 1000,
+  });
+  const me         = query.data?.me ?? null;
+  const candidates = query.data?.candidates ?? [];
+  const loadFailed = query.error != null && query.data === undefined;
+
+  const reload = useCallback(() => query.refresh(), [query.refresh]);
+  const refresh = useRefresh(reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -130,7 +137,11 @@ export default function DrillSearchScreen({}: Props) {
     return sorted;
   }, [candidates, search, sort, me]);
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  // Only gate on the very first load, and never when it failed — the failure
+  // path has to fall through to the list so its pull-to-refresh stays mounted.
+  if (query.loading && !loadFailed) {
+    return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  }
 
   return (
     <View style={S.container}>
@@ -178,11 +189,19 @@ export default function DrillSearchScreen({}: Props) {
         contentContainerStyle={{ padding: 16 }}
         refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
-          <EmptyState
-            icon="🔍"
-            title="No drillers found"
-            subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
-          />
+          loadFailed
+            ? <EmptyState
+                icon="📡"
+                title="Couldn't load drillers"
+                subtitle={friendlySbMessage(query.error)}
+                actionLabel="Retry"
+                onAction={() => { void reload(); }}
+              />
+            : <EmptyState
+                icon="🔍"
+                title="No drillers found"
+                subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
+              />
         }
         renderItem={({ item }) => {
           const avatar = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];

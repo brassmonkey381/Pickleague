@@ -3,6 +3,9 @@ import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'r
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
+// Aliased: this screen already has a `currentUserId` state variable, which would
+// otherwise shadow the helper.
+import { sbCall, currentUserId as readCurrentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { REGIONS, inRegion } from '../lib/regions';
 import { Match, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -198,6 +201,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   const [matches, setMatches]       = useState<Match[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
+  // Set when a fetch fails. Distinguishes "no matches recorded yet" from
+  // "couldn't reach the server" — the same empty view used to serve both.
+  const [loadError, setLoadError]   = useState<unknown>(null);
   // Open filter drawer by default when arriving with pre-applied filters so
   // the user can see what's been narrowed for them.
   const [showFilters, setShowFilters] = useState(!!(initialMatchType || initialDoublesCategory || initialMyMatchesOnly));
@@ -265,39 +271,48 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   }
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setCurrentUserId(user?.id ?? null);
-    });
+    // Local session read — the old getUser() round trip silently resolved to
+    // null offline, which flipped every card to the "not my match" perspective.
+    readCurrentUserId(supabase).then(setCurrentUserId).catch(() => setCurrentUserId(null));
     loadMatches();
   }, []);
 
   async function loadMatches() {
-    let query = supabase
-      .from('matches')
-      .select(`
-        *,
-        player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id),
-        partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id),
-        player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id),
-        partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id)
-      `)
-      .order('played_at', { ascending: false });
+    try {
+      const data = await sbCall(() => {
+        let query = supabase
+          .from('matches')
+          .select(`
+            *,
+            player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id),
+            partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id),
+            player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id),
+            partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id)
+          `)
+          .order('played_at', { ascending: false });
+        if (leagueId) query = query.eq('league_id', leagueId);
+        return query;
+      });
 
-    if (leagueId) query = query.eq('league_id', leagueId);
+      let results = (data ?? []) as Match[];
 
-    const { data, error } = await query;
-    let results = data ?? [];
+      // Filter to only matches involving the target player (including as a doubles partner)
+      if (userId) {
+        results = results.filter((m) =>
+          m.player1_id === userId || m.player2_id === userId ||
+          m.partner1_id === userId || m.partner2_id === userId
+        );
+      }
 
-    // Filter to only matches involving the target player (including as a doubles partner)
-    if (userId) {
-      results = results.filter((m) =>
-        m.player1_id === userId || m.player2_id === userId ||
-        m.partner1_id === userId || m.partner2_id === userId
-      );
+      setMatches(results);
+      setLoadError(null);
+    } catch (e) {
+      // Leave `matches` alone: a refresh that dies in a dead zone must not
+      // empty the history the user was reading.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
     }
-
-    setMatches(results);
-    setLoading(false);
   }
 
   function isOnTeam1(match: Match, uid: string) {
@@ -695,7 +710,12 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     (indoorOutdoor !== 'all' ? 1 : 0) +
     (doublesCategory !== 'all' ? 1 : 0);
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  // A failed first load falls through to the list so its pull-to-refresh (and
+  // the Retry button below) stay mounted.
+  const loadFailed = loadError != null && matches.length === 0;
+  if (loading && !loadFailed) {
+    return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  }
 
   return (
     <View style={S.container}>
@@ -850,7 +870,15 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
           }, 120);
         }}
         ListEmptyComponent={
-          upcoming.length === 0
+          loadFailed
+            ? <EmptyState
+                icon="📡"
+                title="Couldn't load match history"
+                subtitle={friendlySbMessage(loadError)}
+                actionLabel="Retry"
+                onAction={() => { setLoading(true); void loadMatches(); }}
+              />
+            : upcoming.length === 0
             ? <EmptyState icon="🏓" title="No matches yet" subtitle="No matches recorded yet." />
             : null
         }

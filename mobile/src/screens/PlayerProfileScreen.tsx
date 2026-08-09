@@ -6,6 +6,9 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import {
+  sbCall, currentUserId, classifySbError, friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
@@ -19,6 +22,7 @@ import ClaimAccountButton from '../components/ClaimAccountButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
+import EmptyState from '../components/EmptyState';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'PlayerProfile'>;
@@ -39,6 +43,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [matchCount, setMatchCount]       = useState(0);
   const [loading, setLoading]             = useState(true);
+  // Distinguishes "this player really doesn't exist" from "we couldn't ask".
+  // A .single() that fails on bad WiFi used to render "Player not found."
+  const [loadError, setLoadError]         = useState<unknown>(null);
   const [meId, setMeId]                   = useState<string | null>(null);
   const [myChemistry, setMyChemistry]     = useState<ReturnType<typeof computeChemistry> | null>(null);
 
@@ -47,58 +54,87 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    setMeId(user?.id ?? null);
-    const [profileRes, badgesRes, locRes, matchRes, purchasesRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', userId).single(),
-      supabase.from('player_badges')
-        .select('*, badge:badges(*), league:leagues(name)')
-        .eq('user_id', userId)
-        .eq('is_hidden', false)   // only show public badges
-        .order('earned_at'),
-      supabase.from('player_location_ratings')
-        .select('*').eq('user_id', userId)
-        .order('rating', { ascending: false })
-        .limit(6),
-      supabase.from('matches')
-        .select('id', { count: 'exact', head: true })
-        .or(`player1_id.eq.${userId},player2_id.eq.${userId},partner1_id.eq.${userId},partner2_id.eq.${userId}`),
-      supabase.from('player_shop_purchases')
-        .select('id, shop_item_id, purchased_at, gifted_by_user_id, gift_message, item:shop_items(category, name, description, icon)')
-        .eq('user_id', userId)
-        .eq('is_hidden', false)
-        .order('purchased_at', { ascending: false }),
-    ]);
+    try {
+      const uid = await currentUserId(supabase);   // local session read, no round trip
+      setMeId(uid);
+      const [profileRow, badgeRows, locRows, matchCountRes, purchaseRows] = await Promise.all([
+        sbCall(() => supabase.from('profiles').select('*').eq('id', userId).single()),
+        sbCall(() => supabase.from('player_badges')
+          .select('*, badge:badges(*), league:leagues(name)')
+          .eq('user_id', userId)
+          .eq('is_hidden', false)   // only show public badges
+          .order('earned_at')),
+        sbCall(() => supabase.from('player_location_ratings')
+          .select('*').eq('user_id', userId)
+          .order('rating', { ascending: false })
+          .limit(6)),
+        supabase.from('matches')
+          .select('id', { count: 'exact', head: true })
+          .or(`player1_id.eq.${userId},player2_id.eq.${userId},partner1_id.eq.${userId},partner2_id.eq.${userId}`),
+        sbCall(() => supabase.from('player_shop_purchases')
+          .select('id, shop_item_id, purchased_at, gifted_by_user_id, gift_message, item:shop_items(category, name, description, icon)')
+          .eq('user_id', userId)
+          .eq('is_hidden', false)
+          .order('purchased_at', { ascending: false })),
+      ]);
 
-    setProfile(profileRes.data as Profile);
-    setBadges((badgesRes.data ?? []) as BadgeItem[]);
-    setLocationRatings((locRes.data ?? []) as PlayerLocationRating[]);
-    setMatchCount(matchRes.count ?? 0);
-    setCosmeticPurchases(
-      ((purchasesRes.data ?? []) as any[])
-        .filter(r => r.item && r.item.category === 'cosmetic_badge')
-    );
-    setLoading(false);
+      setProfile(profileRow as Profile);
+      setBadges((badgeRows ?? []) as BadgeItem[]);
+      setLocationRatings((locRows ?? []) as PlayerLocationRating[]);
+      setMatchCount(matchCountRes.count ?? 0);
+      setCosmeticPurchases(
+        ((purchaseRows ?? []) as any[])
+          .filter(r => r.item && r.item.category === 'cosmetic_badge')
+      );
+      setLoadError(null);
 
-    // Load mutual chemistry in background
-    if (user) loadMutualChemistry(user.id);
+      // Load mutual chemistry in background
+      if (uid) loadMutualChemistry(uid);
+    } catch (e) {
+      // Keep whatever is already on screen; the error only decides which
+      // fallback the "no profile yet" branch renders.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadMutualChemistry(myId: string) {
     if (myId === userId) return; // viewing own profile
-    const { data } = await supabase
-      .from('matches')
-      .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, player1_rating_before, player2_rating_before')
-      .eq('match_type', 'doubles')
-      .or(`player1_id.eq.${myId},partner1_id.eq.${myId},player2_id.eq.${myId},partner2_id.eq.${myId}`)
-      .limit(500);
+    // Best-effort enrichment — a failure here must not disturb the profile.
+    let data: DoublesMatch[] | null = null;
+    try {
+      data = await sbCall(() => supabase
+        .from('matches')
+        .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, player1_rating_before, player2_rating_before')
+        .eq('match_type', 'doubles')
+        .or(`player1_id.eq.${myId},partner1_id.eq.${myId},player2_id.eq.${myId},partner2_id.eq.${myId}`)
+        .limit(500)) as DoublesMatch[];
+    } catch {
+      return;
+    }
     if (!data || data.length === 0) return;
-    const result = computeChemistry(myId, userId, data as DoublesMatch[]);
+    const result = computeChemistry(myId, userId, data);
     if (result.matchesTogether > 0) setMyChemistry(result);
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
-  if (!profile) return <Text style={styles.error}>Player not found.</Text>;
+  if (!profile) {
+    // Keep a scroll view + pull-to-refresh mounted either way: the old bare
+    // <Text> was a dead end that could only be escaped by leaving the screen.
+    const missing = loadError == null || classifySbError(loadError) === 'notFound';
+    return (
+      <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
+        <EmptyState
+          icon={missing ? '🔍' : '📡'}
+          title={missing ? 'Player not found.' : "Couldn't load this player"}
+          subtitle={missing ? undefined : friendlySbMessage(loadError)}
+          actionLabel="Retry"
+          onAction={() => { void load(); }}
+        />
+      </ScrollView>
+    );
+  }
 
   const reliability   = computeReliability(profile.total_matches_played ?? 0, profile.last_match_at ?? null);
 

@@ -6,6 +6,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import {
+  sbCall, classifySbError, friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
+import {
   LeagueSeason, SeasonSnapshot, SeasonFinalStanding, RootStackParamList,
 } from '../types';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
@@ -240,6 +243,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const [finals, setFinals]           = useState<SeasonFinalStanding[]>([]);
   const [myRole, setMyRole]           = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
+  // Separates "this season row is gone" from "we couldn't ask" — the bare
+  // "Season not found." was shown for both, with no way back but leaving.
+  const [loadError, setLoadError]     = useState<unknown>(null);
   const [locking, setLocking]         = useState(false);
   const [completing, setCompleting]   = useState(false);
   // null until first load completes — load() seeds it to the live period (or Final if completed).
@@ -278,36 +284,54 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const [seasonRes, snapshotsRes, finalsRes, role, membersRes, matchesRes] = await Promise.all([
-      supabase.from('league_seasons').select('*').eq('id', seasonId).single(),
-      supabase.from('season_snapshots')
+    try {
+      await loadInner();
+      setLoadError(null);
+    } catch (e) {
+      // Keep the standings already on screen; the error only changes what the
+      // "no season yet" branch renders.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadInner() {
+    const [seasonRow, snapshotRows, finalRows, role, memberRows, matchRows, wagerRows] = await Promise.all([
+      sbCall(() => supabase.from('league_seasons').select('*').eq('id', seasonId).single()),
+      sbCall(() => supabase.from('season_snapshots')
         .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
         .eq('season_id', seasonId)
-        .order('period_number').order('rank_at_snapshot'),
-      supabase.from('season_final_standings')
+        .order('period_number').order('rank_at_snapshot')),
+      sbCall(() => supabase.from('season_final_standings')
         .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
         .eq('season_id', seasonId)
-        .order('final_rank'),
-      getLeagueRole(leagueId),
-      supabase.from('league_members')
+        .order('final_rank')),
+      // A failed role read must not strip an admin's lock/complete controls.
+      getLeagueRole(leagueId).catch(() => 'unknown' as const),
+      sbCall(() => supabase.from('league_members')
         .select('user_id, profile:profiles(full_name, rating, avatar_id, avatar_url, total_matches_played, name_color, list_name_style_id)')
-        .eq('league_id', leagueId),
+        .eq('league_id', leagueId)),
       // Pull every in-league match (date + winner + per-team PLUPR deltas).
       // We re-filter client-side per-period and for the live tab. The
       // rating_before/after columns drive the per-player season PLUPR.
-      supabase.from('matches')
+      sbCall(() => supabase.from('matches')
         .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
               + ' player1_rating_before, player1_rating_after,'
               + ' player2_rating_before, player2_rating_after')
-        .eq('league_id', leagueId),
+        .eq('league_id', leagueId)),
+      // Public "pickles wagered on this player" totals, scoped to this season.
+      // Independent of everything above, so it rides along in the same batch
+      // rather than adding a round trip after it.
+      sbCall(() => supabase.rpc('get_season_wager_totals', { p_season_id: seasonId })),
     ]);
 
-    const s = seasonRes.data as LeagueSeason;
+    const s = seasonRow as LeagueSeason;
     setSeason(s);
-    setMyRole(role);
+    if (role !== 'unknown') setMyRole(role);
 
-    const members = (membersRes.data ?? []) as any[];
-    const allMatches = (matchesRes.data ?? []) as any[];
+    const members = (memberRows ?? []) as any[];
+    const allMatches = (matchRows ?? []) as any[];
 
     // Baseline PLUPR — soft-reset target everyone snaps to at period end.
     const baseline = Number((s as any)?.baseline_plupr ?? 3.5);
@@ -318,17 +342,15 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       full_name: m.profile?.full_name ?? 'Unknown',
     })));
 
-    // Public "pickles wagered on this player" totals, scoped to this season.
-    const { data: wTotals } = await supabase.rpc('get_season_wager_totals', { p_season_id: seasonId });
     const wMap: Record<string, number> = {};
-    (wTotals ?? []).forEach((t: any) => { if (t.user_id) wMap[t.user_id] = t.total; });
+    ((wagerRows ?? []) as any[]).forEach((t: any) => { if (t.user_id) wMap[t.user_id] = t.total; });
     setWagerTotals(wMap);
 
     const todayIsoDate = new Date().toISOString().slice(0, 10);
 
     // Group locked snapshots by period
     const lockedByPeriod = new Map<number, SeasonSnapshot[]>();
-    for (const row of (snapshotsRes.data ?? []) as SeasonSnapshot[]) {
+    for (const row of (snapshotRows ?? []) as SeasonSnapshot[]) {
       if (!lockedByPeriod.has(row.period_number)) lockedByPeriod.set(row.period_number, []);
       lockedByPeriod.get(row.period_number)!.push(row);
     }
@@ -377,7 +399,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
     // Final standings: prefer the locked rows if they exist; otherwise compute
     // median rank across all periods (locked + computed).
-    const storedFinals = (finalsRes.data ?? []) as SeasonFinalStanding[];
+    const storedFinals = (finalRows ?? []) as SeasonFinalStanding[];
     if (storedFinals.length > 0) {
       setFinals(storedFinals);
     } else if (allPeriods.length > 0) {
@@ -399,8 +421,6 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
       }
       return s?.total_periods ?? 1;
     });
-
-    setLoading(false);
   }
 
   // ── Admin actions ─────────────────────────────────────────────
@@ -596,7 +616,22 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // ── Render sections ───────────────────────────────────────────
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
-  if (!season) return <EmptyState title="Season not found." />;
+  if (!season) {
+    // Always leave a scroll view + pull-to-refresh mounted here: the bare
+    // EmptyState was a dead end that could only be escaped by backing out.
+    const missing = loadError == null || classifySbError(loadError) === 'notFound';
+    return (
+      <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+        <EmptyState
+          icon={missing ? '🔍' : '📡'}
+          title={missing ? 'Season not found.' : "Couldn't load this season"}
+          subtitle={missing ? undefined : friendlySbMessage(loadError)}
+          actionLabel="Retry"
+          onAction={() => { void load(); }}
+        />
+      </ScrollView>
+    );
+  }
 
   const lockedCount    = periods.filter(p => p.locked).length;
   const totalPeriods   = season.total_periods;

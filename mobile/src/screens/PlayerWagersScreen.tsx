@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
@@ -71,32 +72,57 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
   const [wagers, setWagers] = useState<WagerOnPlayer[]>([]);
   const [name, setName]     = useState(userName ?? '');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); /* eslint-disable-next-line */ }, []));
 
   async function load() {
-    // The notification route only carries the user id — look up the name.
-    if (!name) {
-      const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle();
-      if (prof?.full_name) { setName(prof.full_name); navigation.setOptions({ title: `Wagers on ${prof.full_name}` }); }
-    } else {
-      navigation.setOptions({ title: `Wagers on ${name}` });
-    }
+    try {
+      // The notification route only carries the user id — look up the name.
+      if (!name) {
+        const prof = await sbCall(() =>
+          supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle(),
+        );
+        if (prof?.full_name) { setName(prof.full_name); navigation.setOptions({ title: `Wagers on ${prof.full_name}` }); }
+      } else {
+        navigation.setOptions({ title: `Wagers on ${name}` });
+      }
 
-    const { data } = await supabase.rpc('get_wagers_on_player', {
-      p_user_id:    userId,
-      p_scope_type: scopeType ?? null,
-      p_scope_id:   scopeId ?? null,
-    });
-    setWagers((data ?? []) as WagerOnPlayer[]);
-    setLoading(false);
+      const data = await sbCall(() => supabase.rpc('get_wagers_on_player', {
+        p_user_id:    userId,
+        p_scope_type: scopeType ?? null,
+        p_scope_id:   scopeId ?? null,
+      }));
+      setWagers((data ?? []) as WagerOnPlayer[]);
+      setLoadError(null);
+    } catch (e) {
+      // "🥒 0 wagered" from a failed read is a claim about other people's
+      // money — never present it as fact.
+      setLoadError(friendlySbMessage(e, "Couldn't load wagers."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   const total = wagers.reduce((sum, w) => sum + w.stake, 0);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && wagers.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load wagers"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   return (
     <FlatList

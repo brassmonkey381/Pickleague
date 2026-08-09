@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal, Pressable, View, Text, TextInput, TouchableOpacity,
   ActivityIndicator, StyleSheet, Platform,
@@ -8,6 +8,7 @@ import { useEscapeKey } from '../lib/useEscapeKey';
 import {
   WagerSubject, fetchOdds, placeWager, subjectLabel,
 } from '../lib/wager';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   visible: boolean;
@@ -34,8 +35,16 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
   const [placing, setPlacing]       = useState(false);
   const [errMsg, setErrMsg]         = useState<string | null>(null);
   const [okMsg, setOkMsg]           = useState<string | null>(null);
+  // A wager stakes real pickles and the dismiss is deferred 700ms, so the
+  // button is live after the stake is already gone. Latched until the modal
+  // reopens with a fresh subject.
+  const [placed, setPlaced]         = useState(false);
+  const inFlight                    = useRef(false);
+  const dismissTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEscapeKey(() => { if (!placing) onClose(); }, visible);
+
+  useEffect(() => () => { if (dismissTimer.current) clearTimeout(dismissTimer.current); }, []);
 
   // Reset state every time the modal opens with a fresh subject.
   useEffect(() => {
@@ -45,6 +54,7 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
     setStakeText('');
     setErrMsg(null);
     setOkMsg(null);
+    setPlaced(false);
     setOddsLoading(true);
     let cancelled = false;
     (async () => {
@@ -70,28 +80,41 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
     return Math.floor(stake * odds);
   }, [odds, stake]);
 
-  const canPlace = !placing && !oddsLoading && stake > 0 && odds != null;
+  const canPlace = !placing && !placed && !oddsLoading && stake > 0 && odds != null;
 
   const onPlace = useCallback(async () => {
+    if (inFlight.current) return;
     if (!subject || !canPlace) return;
+    inFlight.current = true;
     setErrMsg(null);
     setOkMsg(null);
     setPlacing(true);
-    const result = await placeWager(subject, stake);
-    setPlacing(false);
-    if (!result.success) {
-      setErrMsg(result.message || 'Could not place wager.');
-      return;
+    try {
+      const result = await placeWager(subject, stake);
+      if (!result.success) {
+        // placeWager hands back the raw library string on a transport failure;
+        // route it through the same classifier so "Failed to fetch" reads as
+        // "no connection" instead of leaking fetch internals to the user.
+        setErrMsg(friendlySbMessage(new Error(result.message || ''), 'Could not place wager.'));
+        return;
+      }
+      setPlaced(true);
+      setOkMsg(result.message || 'Wager placed.');
+      onPlaced?.({
+        wager_id: result.wager_id!,
+        odds: result.odds ?? 0,
+        potential_payout: result.potential_payout ?? 0,
+        balance: result.balance ?? 0,
+      });
+      // Brief flash, then dismiss.
+      dismissTimer.current = setTimeout(() => onClose(), 700);
+    } catch (e) {
+      setErrMsg(friendlySbMessage(e, 'Could not place wager.'));
+    } finally {
+      // Without this a throw left the button on its spinner forever.
+      inFlight.current = false;
+      setPlacing(false);
     }
-    setOkMsg(result.message || 'Wager placed.');
-    onPlaced?.({
-      wager_id: result.wager_id!,
-      odds: result.odds ?? 0,
-      potential_payout: result.potential_payout ?? 0,
-      balance: result.balance ?? 0,
-    });
-    // Brief flash, then dismiss.
-    setTimeout(() => onClose(), 700);
   }, [subject, canPlace, stake, onPlaced, onClose]);
 
   if (!subject) return null;

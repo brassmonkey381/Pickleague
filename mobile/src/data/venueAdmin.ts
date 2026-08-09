@@ -3,12 +3,20 @@
 // Mirrors Doggle's dogPlaceAdmin.ts. Confirmation is admin-driven; there is no
 // auto-threshold (affirmation_count is display-only).
 
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 
-/** True if the caller qualifies for godmode (the app-admin allow-list). */
+/**
+ * True if the caller qualifies for godmode (the app-admin allow-list).
+ * Retried — a network blip answering "not an admin" locks the admin out of the
+ * screen entirely, and the denial looks like a permissions problem.
+ */
 export async function amIGodmode(): Promise<boolean> {
-  const { data, error } = await supabase.rpc('is_godmode_user');
-  return !error && data === true;
+  try {
+    return (await sbCall(() => supabase.rpc('is_godmode_user'))) === true;
+  } catch {
+    return false;
+  }
 }
 
 export type VenueReview = {
@@ -28,11 +36,14 @@ export type VenueReview = {
   affirmation_count: number;
 };
 
-/** The unconfirmed-venue review queue (godmode only). */
+/**
+ * The unconfirmed-venue review queue (godmode only). THROWS on failure — the
+ * caller already surfaces the message, and an empty queue from a swallowed
+ * error means submitted courts sit unreviewed because nobody knew they existed.
+ */
 export async function listAdminVenueReviews(): Promise<VenueReview[]> {
-  const { data, error } = await supabase.rpc('list_admin_venue_reviews');
-  if (error || !data) return [];
-  return data as VenueReview[];
+  const data = await sbCall(() => supabase.rpc('list_admin_venue_reviews'));
+  return (data ?? []) as VenueReview[];
 }
 
 export type VenueReviewAction = 'save' | 'confirm' | 'reject';

@@ -31,6 +31,7 @@ import FtueChecklistCard from '../components/FtueChecklistCard';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 // Shared progress row used inside the Unlockable Rewards card
 function UnlockProgressRow({
@@ -324,6 +325,9 @@ export default function ProfileScreen({ navigation }: Props) {
   const [availability, setAvailability]   = useState<boolean[]>(Array(TOTAL_CELLS).fill(false));
   const [avSaveStatus, setAvSaveStatus]   = useState<'idle' | 'saving' | 'saved' | 'error' | 'needs-migration'>('idle');
   const avSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Serialises the paddle writes: they read-modify-write the same is_default
+  // flag across rows, so two overlapping saves can leave zero (or two) defaults.
+  const paddleSaving = useRef(false);
   const [chemistryResults, setChemistryResults] = useState<ChemistryResult[]>([]);
   const [eloHistory, setEloHistory] = useState<EloMatchRow[]>([]);
   const [premiumAvatars, setPremiumAvatars]   = useState<PremiumAvatar[]>([]);
@@ -356,9 +360,13 @@ export default function ProfileScreen({ navigation }: Props) {
   useEffect(() => { loadProfile(); }, []);
 
   async function loadProfile() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
+    // Local session read. getUser() is a round trip that resolves null offline,
+    // and this function then returned early — so the whole Profile screen
+    // rendered blank on bad WiFi with no error and no retry.
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    setUserId(uid);
+    const user = { id: uid };
 
     const [profileRes, locRes, badgesRes, paddleRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', user.id).single(),
@@ -688,24 +696,51 @@ export default function ProfileScreen({ navigation }: Props) {
   }
 
   async function saveDefaultPaddle(sel: PaddleSelection) {
+    if (paddleSaving.current) return;
     if (!userId) return;
+    paddleSaving.current = true;
     setShowPaddlePicker(false);
-    await supabase.from('player_paddles').update({ is_default: false }).eq('user_id', userId);
-    const { data, error } = await supabase.from('player_paddles').upsert({
-      user_id:      userId,
-      brand_id:     sel.brandId,
-      model_name:   sel.modelName,
-      thickness_mm: sel.thicknessMm,
-      is_default:   true,
-    }, { onConflict: 'user_id,brand_id,model_name' }).select('id').single();
-    if (error) { status.error(error.message); return; }
-    setDefaultPaddle({ ...sel, paddleId: data.id });
+    try {
+      // Claim the new default FIRST, then demote the others. The old order
+      // cleared is_default on every paddle before the upsert and ignored its
+      // result, so a failed upsert left the user with no default at all while
+      // the UI still showed the old one.
+      const row = await sbCall(() => supabase.from('player_paddles').upsert({
+        user_id:      userId,
+        brand_id:     sel.brandId,
+        model_name:   sel.modelName,
+        thickness_mm: sel.thicknessMm,
+        is_default:   true,
+      }, { onConflict: 'user_id,brand_id,model_name' }).select('id').single()) as { id: string };
+      setDefaultPaddle({ ...sel, paddleId: row.id });
+
+      // Worst case here is two paddles flagged default — recoverable, and the
+      // next save fixes it — so it can't take the success above down with it.
+      await sbCall(() => supabase.from('player_paddles')
+        .update({ is_default: false })
+        .eq('user_id', userId)
+        .neq('id', row.id));
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not save your default paddle.'));
+    } finally {
+      paddleSaving.current = false;
+    }
   }
 
   async function removePaddle() {
+    if (paddleSaving.current) return;
     if (!userId || !defaultPaddle) return;
-    await supabase.from('player_paddles').update({ is_default: false }).eq('id', defaultPaddle.paddleId);
-    setDefaultPaddle(null);
+    paddleSaving.current = true;
+    try {
+      await sbCall(() => supabase.from('player_paddles').update({ is_default: false }).eq('id', defaultPaddle.paddleId));
+      setDefaultPaddle(null);
+    } catch (e) {
+      // Only clear the local copy once the row actually changed, or the paddle
+      // silently reappears on the next load.
+      status.error(friendlySbMessage(e, 'Could not remove your default paddle.'));
+    } finally {
+      paddleSaving.current = false;
+    }
   }
 
   async function toggleBadgeVisibility(playerBadgeIds: string[], hidden: boolean) {

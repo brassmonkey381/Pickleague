@@ -2,7 +2,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { RootStackParamList } from '../types';
@@ -33,9 +35,14 @@ const TYPE_ORDER: BookmarkTargetType[] = ['tournament', 'league', 'event', 'dril
 export default function BookmarksScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const S = gs(c);
+  const toast = useToast();
 
   const [loading, setLoading] = useState(true);
   const [items, setItems]     = useState<EnrichedBookmark[]>([]);
+  // A failed load must not render as "No bookmarks yet" — that reads as data
+  // loss to someone who saved a dozen things.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loaded, setLoaded]       = useState(false);
 
   const refresh = useRefresh(load);
 
@@ -43,15 +50,31 @@ export default function BookmarksScreen({ navigation }: Props) {
 
   async function load() {
     setLoading(true);
-    const rows = await listBookmarks();
-    const enriched = await enrich(rows);
-    setItems(enriched);
-    setLoading(false);
+    try {
+      const rows = await listBookmarks();
+      const enriched = await enrich(rows);
+      setItems(enriched);
+      setLoaded(true);
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load your bookmarks."));
+    } finally {
+      // Always: an early return on the error path left the skeleton spinning.
+      setLoading(false);
+    }
   }
 
   async function handleRemove(b: EnrichedBookmark) {
     setItems(prev => prev.filter(x => !(x.target_type === b.target_type && x.target_id === b.target_id)));
-    await removeBookmark(b.target_type, b.target_id);
+    const ok = await removeBookmark(b.target_type, b.target_id);
+    // The row is still there — put it back rather than let the list lie until
+    // the next load quietly resurrects it.
+    if (!ok) {
+      setItems(prev => (prev.some(x => x.target_type === b.target_type && x.target_id === b.target_id)
+        ? prev
+        : [...prev, b]));
+      toast.error("Couldn't remove that bookmark — check your connection.");
+    }
   }
 
   function handleTap(b: EnrichedBookmark) {
@@ -87,6 +110,20 @@ export default function BookmarksScreen({ navigation }: Props) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
         <SkeletonList rows={6} />
+      </View>
+    );
+  }
+
+  if (loadError && !loaded) {
+    return (
+      <View style={S.screen}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load your bookmarks"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={load}
+        />
       </View>
     );
   }
@@ -150,29 +187,33 @@ async function enrich(rows: Bookmark[]): Promise<EnrichedBookmark[]> {
   };
   for (const r of rows) byType[r.target_type].push(r.target_id);
 
+  // sbCall (throws) rather than a discarded `error`: a failed lookup used to
+  // come back as an empty list, and every bookmark in that section then
+  // rendered as "(deleted …)" — the worst possible lie about a failed fetch.
+  // The throw propagates to load(), which shows a retry.
   const [tRes, lRes, eRes, dRes, pRes] = await Promise.all([
     byType.tournament.length
-      ? supabase.from('tournaments').select('id, name, start_time, status').in('id', byType.tournament)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sbCall(() => supabase.from('tournaments').select('id, name, start_time, status').in('id', byType.tournament))
+      : Promise.resolve([] as any[]),
     byType.league.length
-      ? supabase.from('leagues').select('id, name, home_court').in('id', byType.league)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sbCall(() => supabase.from('leagues').select('id, name, home_court').in('id', byType.league))
+      : Promise.resolve([] as any[]),
     byType.event.length
-      ? supabase.from('league_events').select('id, title, status, vote_ends_at').in('id', byType.event)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sbCall(() => supabase.from('league_events').select('id, title, status, vote_ends_at').in('id', byType.event))
+      : Promise.resolve([] as any[]),
     byType.drill_session.length
-      ? supabase.from('drill_sessions').select('id, session_date, session_slot, length_minutes').in('id', byType.drill_session)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sbCall(() => supabase.from('drill_sessions').select('id, session_date, session_slot, length_minutes').in('id', byType.drill_session))
+      : Promise.resolve([] as any[]),
     byType.profile.length
-      ? supabase.from('profiles').select('id, full_name, tagline').in('id', byType.profile)
-      : Promise.resolve({ data: [] as any[] }),
+      ? sbCall(() => supabase.from('profiles').select('id, full_name, tagline').in('id', byType.profile))
+      : Promise.resolve([] as any[]),
   ]);
 
-  const tMap = new Map<string, any>(((tRes.data ?? []) as any[]).map(r => [r.id, r]));
-  const lMap = new Map<string, any>(((lRes.data ?? []) as any[]).map(r => [r.id, r]));
-  const eMap = new Map<string, any>(((eRes.data ?? []) as any[]).map(r => [r.id, r]));
-  const dMap = new Map<string, any>(((dRes.data ?? []) as any[]).map(r => [r.id, r]));
-  const pMap = new Map<string, any>(((pRes.data ?? []) as any[]).map(r => [r.id, r]));
+  const tMap = new Map<string, any>(((tRes ?? []) as any[]).map(r => [r.id, r]));
+  const lMap = new Map<string, any>(((lRes ?? []) as any[]).map(r => [r.id, r]));
+  const eMap = new Map<string, any>(((eRes ?? []) as any[]).map(r => [r.id, r]));
+  const dMap = new Map<string, any>(((dRes ?? []) as any[]).map(r => [r.id, r]));
+  const pMap = new Map<string, any>(((pRes ?? []) as any[]).map(r => [r.id, r]));
 
   return rows.map(b => {
     switch (b.target_type) {

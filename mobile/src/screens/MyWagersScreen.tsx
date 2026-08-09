@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList, Wager, LeagueSeason } from '../types';
@@ -310,8 +311,9 @@ export default function MyWagersScreen({ navigation }: Props) {
   }
 
   async function fetchMarkets() {
-    const { data: { user } } = await supabase.auth.getUser();
-    const uid = user?.id ?? null;
+    // LOCAL session read — getUser() is a network call, so offline the user's
+    // own leagues dropped out of the markets list entirely.
+    const uid = await currentUserId(supabase);
 
     const nowIso = new Date().toISOString();
 

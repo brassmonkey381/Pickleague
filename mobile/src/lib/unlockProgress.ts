@@ -1,3 +1,4 @@
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
 // One badge's progress toward being earned. `perLeague` badges have no global
@@ -67,25 +68,28 @@ const PER_LEAGUE_BADGES = [
  *
  * Sorted so the badges closest to being earned come first: not-yet-earned,
  * non-perLeague badges by descending pct, then everything else.
+ *
+ * THROWS if any read fails. Swallowing the errors produced a full progress
+ * report of zeroes — a user who has played 80 matches shown as having played
+ * none — which callers had no way to tell apart from the real thing.
  */
 export async function computeBadgeProgress(userId: string): Promise<BadgeProgress[]> {
-  const [profileRes, badgesRes, matchesRes] = await Promise.all([
-    supabase.from('profiles').select('rating, created_at').eq('id', userId).single(),
-    supabase.from('player_badges').select('badge:badges(name)').eq('user_id', userId),
-    supabase
+  const [prof, badgeRows, matchRows] = await Promise.all([
+    sbCall(() => supabase.from('profiles').select('rating, created_at').eq('id', userId).single()),
+    sbCall(() => supabase.from('player_badges').select('badge:badges(name)').eq('user_id', userId)),
+    sbCall(() => supabase
       .from('matches')
       .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
       .or(`player1_id.eq.${userId},partner1_id.eq.${userId},player2_id.eq.${userId},partner2_id.eq.${userId}`)
       .order('played_at', { ascending: false })
-      .limit(200),
+      .limit(200)),
   ]);
 
   const earnedNames = new Set(
-    ((badgesRes.data ?? []) as any[]).map(b => b.badge?.name).filter(Boolean) as string[],
+    ((badgeRows ?? []) as any[]).map(b => b.badge?.name).filter(Boolean) as string[],
   );
 
-  const prof = profileRes.data as { rating: number | null; created_at: string } | null;
-  const mx = (matchesRes.data ?? []) as any[];
+  const mx = (matchRows ?? []) as any[];
 
   const didWin = (m: any) => {
     const t1 = m.player1_id === userId || m.partner1_id === userId;

@@ -6,8 +6,11 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import {
+  sbCall, currentUserId, classifySbError, friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
 import { getLeagueRole, isPrivileged, LeagueRole, roleLabel, roleBadgeColor } from '../lib/leagueRole';
-import { checkGodmode } from '../lib/godmode';
+import { isGodmodeUserId } from '../lib/godmode';
 import { getRegionName } from '../lib/regions';
 import { TONE_COLORS, tournamentTone, ActivityTone } from '../lib/activityTone';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
@@ -85,8 +88,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const recordAnchor = useRef<any>(null);
 
   const [myRole, setMyRole]   = useState<LeagueRole>(null);
+  // False until a role read actually succeeded. A failed read must not be
+  // mistaken for "not a member" — that showed existing members a "Join this
+  // league" card and quietly dropped every admin control.
+  const [roleKnown, setRoleKnown] = useState(false);
   const [league, setLeague]   = useState<League | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<unknown>(null);
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);
   const [pastSeasons, setPastSeasons]   = useState<LeagueSeason[]>([]);
   const [godmode, setGodmode]           = useState(false);
@@ -137,34 +145,44 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const refresh = useRefresh(load);
 
   async function load() {
-    const [role, leagueRes, seasonRes, completedRes, godmodeResult] = await Promise.all([
-      getLeagueRole(leagueId),
-      supabase.from('leagues').select('*').eq('id', leagueId).single(),
-      supabase.from('league_seasons')
-        .select('*')
-        .eq('league_id', leagueId)
-        .in('status', ['upcoming', 'active'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase.from('league_seasons')
-        .select('*')
-        .eq('league_id', leagueId)
-        .eq('status', 'completed')
-        .order('end_date', { ascending: false }),
-      checkGodmode(),
-    ]);
-    setMyRole(role);
-    setLeague(leagueRes.data as League);
-    setActiveSeason((seasonRes.data as LeagueSeason) ?? null);
-    setPastSeasons((completedRes.data ?? []) as LeagueSeason[]);
-    setGodmode(godmodeResult);
-    setLoading(false);
+    try {
+      const [role, uid, leagueRow, seasonRow, completedRows] = await Promise.all([
+        // A failed role read reports "unknown", never "not a member".
+        getLeagueRole(leagueId).catch(() => 'unknown' as const),
+        // Local session read instead of checkGodmode()'s getUser() round trip.
+        currentUserId(supabase),
+        sbCall(() => supabase.from('leagues').select('*').eq('id', leagueId).single()),
+        sbCall(() => supabase.from('league_seasons')
+          .select('*')
+          .eq('league_id', leagueId)
+          .in('status', ['upcoming', 'active'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()),
+        sbCall(() => supabase.from('league_seasons')
+          .select('*')
+          .eq('league_id', leagueId)
+          .eq('status', 'completed')
+          .order('end_date', { ascending: false })),
+      ]);
+      if (role !== 'unknown') { setMyRole(role); setRoleKnown(true); }
+      setLeague(leagueRow as League);
+      setActiveSeason((seasonRow as LeagueSeason) ?? null);
+      setPastSeasons((completedRows ?? []) as LeagueSeason[]);
+      setGodmode(isGodmodeUserId(uid));
+      setLoadError(null);
 
-    // Fire the league-recap + coming-up loaders in parallel after the main
-    // render. Errors here are non-fatal — the cards just won't render.
-    void loadLatestChampion();
-    void loadComingUp();
+      // Fire the league-recap + coming-up loaders in parallel after the main
+      // render. Errors here are non-fatal — the cards just won't render.
+      void loadLatestChampion();
+      void loadComingUp();
+    } catch (e) {
+      // Keep whatever's already rendered; the error only decides what the
+      // "no league loaded" branch shows.
+      setLoadError(e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Join / request-to-join (prospective members) ──────────────
@@ -174,27 +192,35 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   async function joinOpenLeague() {
     setJoining(true);
     joinStatus.clear();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setJoining(false); return; }
-    const { error } = await supabase
-      .from('league_members')
-      .upsert({ league_id: leagueId, user_id: user.id, role: 'member' });
-    setJoining(false);
-    if (error) { joinStatus.error(error.message); return; }
-    await load();
+    try {
+      const uid = await currentUserId(supabase);
+      if (!uid) { joinStatus.error('Please sign in again.'); return; }
+      await sbCall(() => supabase
+        .from('league_members')
+        .upsert({ league_id: leagueId, user_id: uid, role: 'member' }));
+      await load();
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, "Couldn't join the league."));
+    } finally {
+      setJoining(false);
+    }
   }
 
   async function requestToJoin() {
     setJoining(true);
     joinStatus.clear();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setJoining(false); return; }
-    const { error } = await supabase
-      .from('league_join_requests')
-      .upsert({ league_id: leagueId, user_id: user.id, status: 'pending' });
-    setJoining(false);
-    if (error) { joinStatus.error(error.message); return; }
-    joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+    try {
+      const uid = await currentUserId(supabase);
+      if (!uid) { joinStatus.error('Please sign in again.'); return; }
+      await sbCall(() => supabase
+        .from('league_join_requests')
+        .upsert({ league_id: leagueId, user_id: uid, status: 'pending' }));
+      joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, "Couldn't send the request."));
+    } finally {
+      setJoining(false);
+    }
   }
 
   async function loadLatestChampion() {
@@ -550,8 +576,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       return;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const uid = await currentUserId(supabase);
+    if (!uid) { seasonStatus.error('Please sign in again.'); return; }
 
     setCreatingSeasonFlag(true);
     const startStr = seasonStart.toISOString().split('T')[0];
@@ -568,7 +594,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       lock_frequency_weeks: effectiveLock,
       baseline_plupr:       baselineN,
       status:               new Date() >= seasonStart ? 'active' : 'upcoming',
-      created_by:           user.id,
+      created_by:           uid,
     });
     setCreatingSeasonFlag(false);
     if (error) { seasonStatus.error(error.message); return; }
@@ -579,6 +605,22 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   // ── Data ──────────────────────────────────────────────────────
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  if (!league) {
+    // Without the league row the page is a shell of "Not set" placeholders —
+    // say what actually happened and keep pull-to-refresh mounted.
+    const missing = loadError == null || classifySbError(loadError) === 'notFound';
+    return (
+      <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+        <EmptyState
+          icon={missing ? '🔍' : '📡'}
+          title={missing ? 'League not found.' : "Couldn't load this league"}
+          subtitle={missing ? undefined : friendlySbMessage(loadError)}
+          actionLabel="Retry"
+          onAction={() => { void load(); }}
+        />
+      </ScrollView>
+    );
+  }
 
   const privileged = isPrivileged(myRole);
   const isAdmin    = myRole === 'admin';
@@ -674,7 +716,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       </View>
 
       {/* ── Role badge ─────────────────────────────────────────── */}
-      {myRole && (
+      {/* 'unknown' (role read failed) renders nothing rather than "Your role: —". */}
+      {myRole && myRole !== 'unknown' && (
         <View style={[S.roleBanner, { backgroundColor: roleBadgeColor(myRole) + '18', borderColor: roleBadgeColor(myRole) + '44' }]}>
           <Text style={[S.roleText, { color: roleBadgeColor(myRole) }]}>
             Your role: {roleLabel(myRole)}
@@ -875,7 +918,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
       {/* ── Join block for prospective members ─────────────────── */}
       {/* TODO: smoke-test in browser — Join League / Request to Join block shows only for non-members */}
-      {!myRole && (
+      {/* Only offer to join once we KNOW the viewer isn't a member — an
+          unreadable role must not hand an existing member a Join button. */}
+      {roleKnown && !myRole && (
         <View style={S.joinCard}>
           <Text style={S.joinCardTitle}>
             {league?.is_open ? 'Join this league' : 'Want in?'}

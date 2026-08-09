@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillRequest, DrillRequestMessage, DrillSession, RootStackParamList } from '../types';
@@ -36,6 +37,8 @@ export default function DrillRequestsScreen({}: Props) {
   const [userId, setUserId] = useState<string | null>(null);
   const [requests, setRequests] = useState<DrillRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed read must not render as "no drill requests".
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Per-request slot selection for the incoming Accept flow.
   // Key = request.id, value = index into proposed_slots that the receiver picked.
@@ -66,39 +69,55 @@ export default function DrillRequestsScreen({}: Props) {
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
+    // LOCAL session read (getUser() is a network call that fails offline).
+    const uid = await currentUserId(supabase);
+    if (!uid) { setLoading(false); return; }
+    setUserId(uid);
 
     const fkField = tab === 'incoming'
       ? 'from_profile:profiles!drill_requests_from_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played, name_color, list_name_style_id)'
       : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played, name_color, list_name_style_id)';
 
-    const { data } = await supabase
-      .from('drill_requests')
-      .select(`*, ${fkField}`)
-      .eq(tab === 'incoming' ? 'to_user_id' : 'from_user_id', user.id)
-      .order('created_at', { ascending: false });
+    try {
+      const data = await sbCall(() => supabase
+        .from('drill_requests')
+        .select(`*, ${fkField}`)
+        .eq(tab === 'incoming' ? 'to_user_id' : 'from_user_id', uid)
+        .order('created_at', { ascending: false }));
 
-    setRequests((data ?? []) as unknown as DrillRequest[]);
-    setLoading(false);
+      setRequests((data ?? []) as unknown as DrillRequest[]);
+      setLoadError(null);
+    } catch (e) {
+      // A pending drill invite hidden behind "no requests" gets ignored and
+      // expires — say the read failed instead.
+      setLoadError(friendlySbMessage(e, "Couldn't load your drill requests."));
+    } finally {
+      // Always: the old early return + happy-path-only flag stranded the skeleton.
+      setLoading(false);
+    }
 
-    loadReviewable(user.id);
+    void loadReviewable(uid);
   }
 
   // Find started drill sessions the current user is a participant of and hasn't
   // reviewed yet, so we can offer the self-review + pickle bonus.
   async function loadReviewable(uid: string) {
-    const { data } = await supabase
-      .from('drill_sessions')
-      .select(`
-        *,
-        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
-        p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
-        drill_session_reviews(user_id)
-      `)
-      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
-      .order('starts_at', { ascending: false, nullsFirst: false });
+    let data: any[] | null;
+    try {
+      data = await sbCall(() => supabase
+        .from('drill_sessions')
+        .select(`
+          *,
+          p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
+          p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
+          drill_session_reviews(user_id)
+        `)
+        .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+        .order('starts_at', { ascending: false, nullsFirst: false }));
+    } catch {
+      // Secondary list — keep whatever we last had rather than clearing it.
+      return;
+    }
 
     const now = Date.now();
     const rows = (data ?? []) as any[];
@@ -131,12 +150,11 @@ export default function DrillRequestsScreen({}: Props) {
     };
     if (acceptedSlot) updates.accepted_slot = acceptedSlot;
 
-    const { error } = await supabase
-      .from('drill_requests')
-      .update(updates)
-      .eq('id', req.id);
-    if (error) {
-      status.error(error.message);
+    try {
+      // Idempotent status write, so retrying a dropped request is safe.
+      await sbCall(() => supabase.from('drill_requests').update(updates).eq('id', req.id));
+    } catch (e) {
+      status.error(friendlySbMessage(e, `Couldn't ${action} that request.`));
       return false;
     }
     load();
@@ -163,23 +181,33 @@ export default function DrillRequestsScreen({}: Props) {
     setLocationPickerReq(req);
     if (courts.length === 0) {
       setCourtsLoading(true);
-      const { data } = await supabase
-        .from('court_locations')
-        .select('id, name, nickname, address')
-        .order('name');
-      setCourts((data ?? []) as CourtRow[]);
-      setCourtsLoading(false);
+      try {
+        const data = await sbCall(() => supabase
+          .from('court_locations')
+          .select('id, name, nickname, address')
+          .order('name'));
+        setCourts((data ?? []) as CourtRow[]);
+      } catch (e) {
+        // An empty picker reads as "no courts exist" — say what happened.
+        status.error(friendlySbMessage(e, "Couldn't load the court list."));
+      } finally {
+        setCourtsLoading(false);
+      }
     }
   }
 
   async function saveLocation(req: DrillRequest, court: CourtRow) {
     setLocationPickerReq(null);
     const label = court.nickname ? `${court.nickname} (${court.name})` : court.name;
-    const { error } = await supabase
-      .from('drill_requests')
-      .update({ location_name: label, location_id: court.id })
-      .eq('id', req.id);
-    if (error) { status.error(error.message); return; }
+    try {
+      await sbCall(() => supabase
+        .from('drill_requests')
+        .update({ location_name: label, location_id: court.id })
+        .eq('id', req.id));
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't save that location."));
+      return;
+    }
     setRequests(prev => prev.map(r =>
       r.id === req.id ? { ...r, location_name: label, location_id: court.id } : r
     ));
@@ -191,13 +219,36 @@ export default function DrillRequestsScreen({}: Props) {
   async function confirmCancelRequest() {
     if (!cancelTarget) return;
     setCancelling(true);
-    await supabase.from('drill_requests').update({ status: 'cancelled' }).eq('id', cancelTarget.id);
-    setCancelling(false);
-    setCancelTarget(null);
-    load();
+    try {
+      // Was fire-and-forget: a failed cancel closed the modal and the request
+      // reappeared on the next load with no explanation.
+      await sbCall(() =>
+        supabase.from('drill_requests').update({ status: 'cancelled' }).eq('id', cancelTarget.id),
+      );
+      setCancelTarget(null);
+      load();
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't cancel that request."));
+    } finally {
+      setCancelling(false);
+    }
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && requests.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load drill requests"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={S.container}>
@@ -477,15 +528,21 @@ function DrillChatModal({
     setSendError(null);
     (async () => {
       setLoadingMsgs(true);
-      const { data } = await supabase
-        .from('drill_request_messages')
-        .select('*')
-        .eq('request_id', request.id)
-        .order('created_at');
-      if (!cancelled) {
+      try {
+        const data = await sbCall(() => supabase
+          .from('drill_request_messages')
+          .select('*')
+          .eq('request_id', request.id)
+          .order('created_at'));
+        if (cancelled) return;
         setMessages((data ?? []) as DrillRequestMessage[]);
-        setLoadingMsgs(false);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 50);
+      } catch (e) {
+        // An empty thread is indistinguishable from a failed fetch, and this
+        // is where the pair agrees where to play.
+        if (!cancelled) setSendError(friendlySbMessage(e, "Couldn't load messages."));
+      } finally {
+        if (!cancelled) setLoadingMsgs(false);
       }
     })();
     return () => { cancelled = true; };
@@ -497,31 +554,42 @@ function DrillChatModal({
     if (!body) return;
     setSending(true);
     setSendError(null);
-    const { data, error } = await supabase
-      .from('drill_request_messages')
-      .insert({ request_id: request.id, sender_id: currentUserId, body })
-      .select()
-      .single();
-    setSending(false);
-    if (error) {
-      setSendError(`Send failed: ${error.message}`);
-      return;
+    try {
+      // No auto-retry: a retried insert that actually landed posts the message
+      // twice. Bounded so the composer can't hang on a dead socket.
+      const data = await sbCall(
+        () => supabase
+          .from('drill_request_messages')
+          .insert({ request_id: request.id, sender_id: currentUserId, body })
+          .select()
+          .single(),
+        { retries: 0 },
+      );
+      setMessages(prev => [...prev, data as DrillRequestMessage]);
+      setDraft('');
+      setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+    } catch (e) {
+      setSendError(`Send failed: ${friendlySbMessage(e)}`);
+    } finally {
+      setSending(false);
     }
-    setMessages(prev => [...prev, data as DrillRequestMessage]);
-    setDraft('');
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
   }
 
   async function openLocationPicker(mode: 'confirm' | 'propose') {
     setLocationPickerMode(mode);
     if (courts.length === 0) {
       setCourtsLoading(true);
-      const { data } = await supabase
-        .from('court_locations')
-        .select('id, name, nickname, address')
-        .order('name');
-      setCourts((data ?? []) as CourtRow[]);
-      setCourtsLoading(false);
+      try {
+        const data = await sbCall(() => supabase
+          .from('court_locations')
+          .select('id, name, nickname, address')
+          .order('name'));
+        setCourts((data ?? []) as CourtRow[]);
+      } catch (e) {
+        setSendError(friendlySbMessage(e, "Couldn't load the court list."));
+      } finally {
+        setCourtsLoading(false);
+      }
     }
   }
 

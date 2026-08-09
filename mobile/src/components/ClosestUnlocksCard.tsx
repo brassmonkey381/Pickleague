@@ -40,12 +40,18 @@ export default function ClosestUnlocksCard({ userId, navigation }: Props) {
     let cancelled = false;
     if (!userId) { setRows([]); return; }
     (async () => {
-      const all = await computeBadgeProgress(userId);
-      if (cancelled) return;
-      // Nearest not-yet-earned badges with a real global threshold. The lib
-      // already sorts closest-first, so take the top 2.
-      const closest = all.filter(p => !p.earned && !p.perLeague).slice(0, 2);
-      setRows(closest);
+      try {
+        const all = await computeBadgeProgress(userId);
+        if (cancelled) return;
+        // Nearest not-yet-earned badges with a real global threshold. The lib
+        // already sorts closest-first, so take the top 2.
+        const closest = all.filter(p => !p.earned && !p.perLeague).slice(0, 2);
+        setRows(closest);
+      } catch {
+        // computeBadgeProgress now throws rather than reporting zero progress.
+        // This is one card among many on Home, so it stays hidden (rows [])
+        // instead of claiming the user has made no progress at all.
+      }
     })();
     return () => { cancelled = true; };
   }, [userId]);

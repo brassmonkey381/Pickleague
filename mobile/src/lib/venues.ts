@@ -4,6 +4,7 @@
 // dual-run: our data first, external fills any gaps. Flip the picker to
 // externalSearch="none" once coverage is trusted (P6 in the pipeline doc).
 
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import type { VenueResult } from '@just-messin-around/expo-foundation/ui';
 
@@ -29,7 +30,14 @@ type SearchVenueRow = {
   distance_meters: number | null;
 };
 
-/** Search the venue catalog, ranked by name match + proximity. */
+/**
+ * Search the venue catalog, ranked by name match + proximity.
+ *
+ * THROWS when the search fails. VenuePicker distinguishes "no matches" from
+ * "couldn't search" and offers a retry, but only if this rejects — returning
+ * `[]` on error (the old behavior) told users on weak WiFi that their home
+ * court isn't in the app, with no way to tell otherwise.
+ */
 export async function searchVenues(
   query: string,
   coords: Coords,
@@ -38,14 +46,16 @@ export async function searchVenues(
 ): Promise<VenueResult[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  const { data, error } = await supabase.rpc('search_venues', {
-    p_query: q,
-    p_lat: coords?.lat ?? null,
-    p_lng: coords?.lng ?? null,
-    p_sports: sports.length ? sports : null,
-    p_limit: limit,
-  });
-  if (error || !data) return [];
+  const data = await sbCall(() =>
+    supabase.rpc('search_venues', {
+      p_query: q,
+      p_lat: coords?.lat ?? null,
+      p_lng: coords?.lng ?? null,
+      p_sports: sports.length ? sports : null,
+      p_limit: limit,
+    }),
+  );
+  if (!data) return [];
   return (data as SearchVenueRow[]).map((r) => ({
     name: r.name,
     address: r.address || r.city || '',

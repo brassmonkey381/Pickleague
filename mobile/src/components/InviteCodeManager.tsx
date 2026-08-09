@@ -4,6 +4,7 @@ import {
   ActivityIndicator, ScrollView, Alert,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { setClipboard } from '../lib/clipboard';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -78,18 +79,26 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
   async function load() {
     setLoading(true);
-    const { data } = await supabase
-      .from('invite_codes')
-      .select('*')
-      .eq('scope_type', scopeType)
-      .eq('scope_id', scopeId)
-      .eq('is_active', true)
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setInvite((data as InviteCode) ?? null);
-    setLoading(false);
+    try {
+      const data = await sbCall(() => supabase
+        .from('invite_codes')
+        .select('*')
+        .eq('scope_type', scopeType)
+        .eq('scope_id', scopeId)
+        .eq('is_active', true)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle());
+      setInvite((data as InviteCode) ?? null);
+    } catch (e) {
+      // Don't clear `invite`: a failed read used to show "no active code",
+      // and the admin would create a second one that supersedes the code
+      // they'd already sent everybody.
+      status.error(friendlySbMessage(e, "Couldn't check for an active invite code."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openCreate() {
@@ -120,22 +129,28 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
       return;
     }
     setCreating(true);
-    const { data, error } = await supabase.rpc('create_invite_code', {
-      p_scope_type:     scopeType,
-      p_scope_id:       scopeId,
-      p_max_uses:       maxUses,
-      p_expires_days:   7,
-      p_pickle_subsidy: subsidy,
-    });
-    setCreating(false);
-    if (error) {
-      setCreateError(error.message ?? 'Failed to create code.');
-      return;
+    try {
+      // No auto-retry: each call mints a NEW code, so a retried request that
+      // already landed would leave two live codes for the same scope.
+      const data = await sbCall(
+        () => supabase.rpc('create_invite_code', {
+          p_scope_type:     scopeType,
+          p_scope_id:       scopeId,
+          p_max_uses:       maxUses,
+          p_expires_days:   7,
+          p_pickle_subsidy: subsidy,
+        }),
+        { retries: 0 },
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      setInvite(row as InviteCode);
+      setShowCreate(false);
+      status.success('Invite code created.');
+    } catch (e) {
+      setCreateError(friendlySbMessage(e, 'Failed to create code.'));
+    } finally {
+      setCreating(false);
     }
-    const row = Array.isArray(data) ? data[0] : data;
-    setInvite(row as InviteCode);
-    setShowCreate(false);
-    status.success('Invite code created.');
   }
 
   function revokeInvite() {
@@ -145,15 +160,19 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
   async function confirmRevoke() {
     if (!invite) return;
     setRevoking(true);
-    const { error } = await supabase.rpc('revoke_invite_code', { p_code_id: invite.id });
-    setRevoking(false);
-    setShowRevokeConfirm(false);
-    if (error) {
-      status.error(error.message ?? 'Failed to revoke.');
-      return;
+    try {
+      // Idempotent (revoking an already-revoked code is a no-op), so retrying
+      // through a flaky connection is safe — and leaving a code the admin
+      // believes is dead still live is the failure that matters here.
+      await sbCall(() => supabase.rpc('revoke_invite_code', { p_code_id: invite.id }));
+      status.success('Code revoked.');
+      setInvite(null);
+      setShowRevokeConfirm(false);
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Failed to revoke.'));
+    } finally {
+      setRevoking(false);
     }
-    status.success('Code revoked.');
-    setInvite(null);
   }
 
   // Builds the friendly multi-line invite message (code + subsidy + join link)
@@ -190,16 +209,20 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     if (!invite) return;
     // Fetch existing scope members so they don't appear in the picker.
     const ids: string[] = [];
-    const { data: me } = await supabase.auth.getUser();
-    if (me?.user?.id) ids.push(me.user.id);
-    if (scopeType === 'league') {
-      const { data } = await supabase.from('league_members')
-        .select('user_id').eq('league_id', scopeId);
-      (data ?? []).forEach((r: any) => ids.push(r.user_id));
-    } else {
-      const { data } = await supabase.from('tournament_registrations')
-        .select('user_id').eq('tournament_id', scopeId).eq('status', 'approved');
-      (data ?? []).forEach((r: any) => ids.push(r.user_id));
+    // LOCAL session read (getUser() is a network call that fails offline).
+    const uid = await currentUserId(supabase);
+    if (uid) ids.push(uid);
+    try {
+      // A discarded error here left the exclusion list empty, so the picker
+      // offered to re-invite everyone who is already in the league.
+      const rows = scopeType === 'league'
+        ? await sbCall(() => supabase.from('league_members').select('user_id').eq('league_id', scopeId))
+        : await sbCall(() => supabase.from('tournament_registrations')
+            .select('user_id').eq('tournament_id', scopeId).eq('status', 'approved'));
+      ((rows ?? []) as any[]).forEach((r: any) => ids.push(r.user_id));
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't load the current roster — try again."));
+      return;
     }
     setExistingMemberIds(ids);
     setShowBroadcast(true);
@@ -208,22 +231,28 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
   async function sendBroadcast(users: MultiPickedUser[]) {
     if (!invite || users.length === 0) return;
     setBroadcasting(true);
-    const { data, error } = await supabase.rpc('send_invite_code_to_users', {
-      p_code_id:  invite.id,
-      p_user_ids: users.map(u => u.id),
-    });
-    setBroadcasting(false);
-    if (error) {
-      status.error(error.message ?? 'Failed to send.');
-      return;
+    try {
+      // No auto-retry: each call sends notifications, and a retried request
+      // that already landed double-notifies everyone picked.
+      const data = await sbCall(
+        () => supabase.rpc('send_invite_code_to_users', {
+          p_code_id:  invite.id,
+          p_user_ids: users.map(u => u.id),
+        }),
+        { retries: 0 },
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) {
+        status.error(row?.message ?? 'Failed to send.');
+        return;
+      }
+      setShowBroadcast(false);
+      status.success(row.message ?? 'Invites sent.');
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Failed to send.'));
+    } finally {
+      setBroadcasting(false);
     }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) {
-      status.error(row?.message ?? 'Failed to send.');
-      return;
-    }
-    setShowBroadcast(false);
-    status.success(row.message ?? 'Invites sent.');
   }
 
   async function share() {

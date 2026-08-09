@@ -1,18 +1,41 @@
+import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
-export type TournamentRole = 'admin' | 'co-admin' | 'member' | null;
+/**
+ * The signed-in user's standing in a tournament. Mirrors LeagueRole: `null` is
+ * "definitely not registered", `'unknown'` is "the read failed" — collapsing
+ * the two stripped a director's controls whenever the network hiccuped.
+ */
+export type TournamentRole = 'admin' | 'co-admin' | 'member' | 'unknown' | null;
 
 export async function getTournamentRole(tournamentId: string): Promise<TournamentRole> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('tournament_registrations')
-    .select('role')
-    .eq('tournament_id', tournamentId)
-    .eq('user_id', user.id)
-    .eq('status', 'approved')
-    .maybeSingle();
-  return (data?.role ?? null) as TournamentRole;
+  // LOCAL session read (see leagueRole) — getUser() fails offline.
+  const userId = await currentUserId(supabase);
+  if (!userId) return null;
+  try {
+    const data = await sbCall(() =>
+      supabase
+        .from('tournament_registrations')
+        .select('role')
+        .eq('tournament_id', tournamentId)
+        .eq('user_id', userId)
+        .eq('status', 'approved')
+        .maybeSingle(),
+    );
+    return (data?.role ?? null) as TournamentRole;
+  } catch {
+    return 'unknown';
+  }
+}
+
+/** True only for a role we actually determined (i.e. safe to act on). */
+export function isTournamentRoleKnown(role: TournamentRole): boolean {
+  return role !== 'unknown';
+}
+
+/** True when the user is definitely registered. `'unknown'` is not. */
+export function isTournamentMember(role: TournamentRole): boolean {
+  return role === 'admin' || role === 'co-admin' || role === 'member';
 }
 
 export function isTournamentPrivileged(role: TournamentRole): boolean {
@@ -22,6 +45,7 @@ export function isTournamentPrivileged(role: TournamentRole): boolean {
 export function tournamentRoleLabel(role: TournamentRole): string {
   if (role === 'admin')    return 'Admin';
   if (role === 'co-admin') return 'Co-Admin';
+  if (role === 'unknown')  return '—';
   return 'Member';
 }
 

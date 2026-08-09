@@ -1,12 +1,18 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
+
+/** Sign-in is a single round trip; if the socket hangs, an unbounded await
+ * leaves the button on "Signing in..." with force-quit as the only escape. */
+const SIGN_IN_TIMEOUT_MS = 20_000;
 
 export default function LoginScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
@@ -17,19 +23,34 @@ export default function LoginScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
+  // `disabled` on the button is not a guard — a keyboard submit or a double tap
+  // in the same frame can both enter this before React re-renders.
+  const inFlight = useRef(false);
+
   async function signIn() {
+    if (inFlight.current) return;
     setErrorMessage('');
     if (!email.trim() || !password) {
       setErrorMessage('Please enter your email and password.');
       return;
     }
+    inFlight.current = true;
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) {
-      setErrorMessage(error.message);
+    try {
+      const { error } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        SIGN_IN_TIMEOUT_MS,
+      );
+      // On success, AppNavigator detects the new session and switches to Home automatically
+      if (error) setErrorMessage(friendlySbMessage(error, error.message));
+    } catch (e) {
+      // Thrown (not returned) means transport: timeout, DNS, dropped socket.
+      // The raw library string is useless here — say what the user can do.
+      setErrorMessage(friendlySbMessage(e, 'Could not sign in. Please try again.'));
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
     }
-    // On success, AppNavigator detects the new session and switches to Home automatically
   }
 
   const content = (

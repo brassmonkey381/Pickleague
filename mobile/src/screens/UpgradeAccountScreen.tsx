@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -42,13 +43,12 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
   // Pre-fill from the guest profile (name split best-effort; phone if captured).
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from('profiles')
-        .select('full_name, phone, gender')
-        .eq('id', user.id)
-        .maybeSingle();
+      // LOCAL session read (getUser() is a network call that fails offline).
+      const uid = await currentUserId(supabase);
+      if (!uid) return;
+      const data = await sbCall(() =>
+        supabase.from('profiles').select('full_name, phone, gender').eq('id', uid).maybeSingle(),
+      ).catch(() => null); // Pre-fill is a nicety; the form still works empty.
       if (!data) return;
       const parts = (data.full_name ?? '').trim().split(/\s+/);
       if (parts[0]) setFirstName(parts[0]);
@@ -91,8 +91,10 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
       //    attempt already set the email (the RPC below failed and they're
       //    retrying), skip this — re-setting the same email would error — and go
       //    straight to finalizing the profile.
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user?.email) {
+      // getSession is LOCAL. getUser() here was a network call whose offline
+      // { user: null } made this look like "no email set yet" on every retry.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session?.user.email) {
         const { error: authErr } = await supabase.auth.updateUser({
           email,
           password,

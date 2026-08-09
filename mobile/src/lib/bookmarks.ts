@@ -1,4 +1,9 @@
+import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+
+// Identity here comes from currentUserId (a LOCAL session read). getUser() is a
+// network round trip, so on flaky WiFi every function below decided the user was
+// signed out and quietly reported "no bookmarks" / "not bookmarked".
 
 export type BookmarkTargetType =
   | 'tournament'
@@ -14,49 +19,75 @@ export type Bookmark = {
   created_at: string;
 };
 
+/** True only when the row is definitely stored — callers revert their optimistic toggle on false. */
 export async function addBookmark(targetType: BookmarkTargetType, targetId: string): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { error } = await supabase
-    .from('bookmarks')
-    .insert({ user_id: user.id, target_type: targetType, target_id: targetId });
-  // 23505 = unique violation (already bookmarked) — treat as success.
-  if (error && error.code !== '23505') return false;
-  return true;
+  const userId = await currentUserId(supabase);
+  if (!userId) return false;
+  try {
+    await sbCall(() =>
+      supabase
+        .from('bookmarks')
+        .insert({ user_id: userId, target_type: targetType, target_id: targetId }),
+    );
+    return true;
+  } catch (e: any) {
+    // 23505 = unique violation (already bookmarked) — the desired end state.
+    return e?.code === '23505';
+  }
 }
 
+/** True only when the row is definitely gone. */
 export async function removeBookmark(targetType: BookmarkTargetType, targetId: string): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { error } = await supabase
-    .from('bookmarks')
-    .delete()
-    .eq('user_id', user.id)
-    .eq('target_type', targetType)
-    .eq('target_id', targetId);
-  return !error;
+  const userId = await currentUserId(supabase);
+  if (!userId) return false;
+  try {
+    await sbCall(() =>
+      supabase
+        .from('bookmarks')
+        .delete()
+        .eq('user_id', userId)
+        .eq('target_type', targetType)
+        .eq('target_id', targetId),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
+/**
+ * Throws when the state can't be read. A bookmarked item rendering as
+ * un-bookmarked invites the user to "re-add" it, so callers must show an
+ * indeterminate icon rather than guess false.
+ */
 export async function isBookmarked(targetType: BookmarkTargetType, targetId: string): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return false;
-  const { data } = await supabase
-    .from('bookmarks')
-    .select('user_id')
-    .eq('user_id', user.id)
-    .eq('target_type', targetType)
-    .eq('target_id', targetId)
-    .maybeSingle();
+  const userId = await currentUserId(supabase);
+  if (!userId) return false;
+  const data = await sbCall(() =>
+    supabase
+      .from('bookmarks')
+      .select('user_id')
+      .eq('user_id', userId)
+      .eq('target_type', targetType)
+      .eq('target_id', targetId)
+      .maybeSingle(),
+  );
   return !!data;
 }
 
+/**
+ * Throws when the list can't be read — "the fetch failed" must not render as
+ * "you have no bookmarks", which is what swallowing the error produced.
+ */
 export async function listBookmarks(): Promise<Bookmark[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-  const { data } = await supabase
-    .from('bookmarks')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+  const userId = await currentUserId(supabase);
+  if (!userId) return [];
+  const data = await sbCall(() =>
+    supabase
+      .from('bookmarks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false }),
+  );
   return (data ?? []) as Bookmark[];
 }

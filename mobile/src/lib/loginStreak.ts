@@ -1,3 +1,4 @@
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
 export type StreakResult = {
@@ -29,11 +30,20 @@ export function resetStreakShown(): void {
   shownForUserId = null;
 }
 
+/**
+ * Claims today's streak. Retried on transient network failures — the RPC is
+ * day-idempotent (a second call returns claimed_today), so a request that
+ * actually landed can't double-credit, and losing a streak because the WiFi
+ * blipped on app open is a real user-visible loss.
+ */
 export async function claimDailyLoginStreak(): Promise<StreakResult | null> {
-  const { data, error } = await supabase.rpc('claim_daily_login_streak');
-  if (error) return null;
-  const row = Array.isArray(data) ? data[0] : data;
-  return row ?? null;
+  try {
+    const data = await sbCall(() => supabase.rpc('claim_daily_login_streak'));
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function daysToNextMilestone(streak: number): { next: number | null; in: number | null } {

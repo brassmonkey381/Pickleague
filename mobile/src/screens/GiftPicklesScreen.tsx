@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -34,13 +35,20 @@ export default function GiftPicklesScreen({ navigation }: Props) {
   const status = useStatusMessage();
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    const uid = user?.id ?? null;
+    // LOCAL session read: getUser() is a network call, and offline it made the
+    // godmode account fail its own access check and see "Godmode only".
+    const uid = await currentUserId(supabase);
     setMyUserId(uid);
     setAuthorized(isGodmodeUserId(uid));
-    if (uid) {
-      const { data } = await supabase.from('profiles').select('pickles').eq('id', uid).single();
+    if (!uid) return;
+    try {
+      const data = await sbCall(() =>
+        supabase.from('profiles').select('pickles').eq('id', uid).single(),
+      );
       setMyBalance(data?.pickles ?? 0);
+    } catch (e) {
+      // A balance of 0 would disable the send button with no explanation.
+      status.error(friendlySbMessage(e, "Couldn't load your pickle balance."));
     }
   }, []);
   const refresh = useRefresh(load);
@@ -54,22 +62,34 @@ export default function GiftPicklesScreen({ navigation }: Props) {
     if (!valid || !recipient) return;
     status.clear();
     setSending(true);
-    const { data, error } = await supabase.rpc('godmode_gift_pickles', {
-      p_recipient: recipient.id,
-      p_amount:    n,
-      p_reason:    reason.trim() || '',
-    });
-    setSending(false);
-    if (error) { status.error(error.message); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { status.error(row?.message ?? 'Could not send.'); return; }
-    setMyBalance(row.new_caller_balance ?? myBalance - n);
-    status.success(
-      `${n.toLocaleString()} 🥒 sent to ${recipient.full_name}. Their new balance: ${row.new_recipient_balance?.toLocaleString() ?? '—'} 🥒`,
-    );
-    setRecipient(null);
-    setAmount('');
-    setReason('');
+    try {
+      // No auto-retry: this transfers currency and the RPC isn't idempotent, so
+      // a retried request that actually landed would gift twice. Bounded
+      // instead, so a dead socket surfaces rather than freezing the button.
+      const data = await sbCall(
+        () =>
+          supabase.rpc('godmode_gift_pickles', {
+            p_recipient: recipient.id,
+            p_amount:    n,
+            p_reason:    reason.trim() || '',
+          }),
+        { retries: 0 },
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) { status.error(row?.message ?? 'Could not send.'); return; }
+      setMyBalance(row.new_caller_balance ?? myBalance - n);
+      status.success(
+        `${n.toLocaleString()} 🥒 sent to ${recipient.full_name}. Their new balance: ${row.new_recipient_balance?.toLocaleString() ?? '—'} 🥒`,
+      );
+      setRecipient(null);
+      setAmount('');
+      setReason('');
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not send.'));
+    } finally {
+      // Always: every early return above used to leave the button spinning.
+      setSending(false);
+    }
   }
 
   if (authorized === null) {

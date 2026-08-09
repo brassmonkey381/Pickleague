@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { League, LeagueSeason, RootStackParamList, Tournament } from '../types';
 import { FORMAT_META } from '../lib/tournament';
@@ -25,26 +26,47 @@ export default function LeagueInfoScreen({ route }: Props) {
   const [memberCount, setMemberCount] = useState(0);
   const [matchCount, setMatchCount]   = useState(0);
   const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [lRes, sRes, tRes, mCount, mtCount] = await Promise.all([
-      supabase.from('leagues').select('*').eq('id', leagueId).single(),
-      supabase.from('league_seasons').select('*').eq('league_id', leagueId).order('start_date', { ascending: false }),
-      supabase.from('tournaments').select('*').eq('league_id', leagueId).order('created_at', { ascending: false }),
-      supabase.from('league_members').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
-      supabase.from('matches').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
-    ]);
-    setLeague(lRes.data as League);
-    setSeasons((sRes.data ?? []) as LeagueSeason[]);
-    setTournaments((tRes.data ?? []) as Tournament[]);
-    setMemberCount(mCount.count ?? 0);
-    setMatchCount(mtCount.count ?? 0);
-    setLoading(false);
+    try {
+      const [league, seasonRows, tournamentRows, mCount, mtCount] = await Promise.all([
+        sbCall(() => supabase.from('leagues').select('*').eq('id', leagueId).single()),
+        sbCall(() => supabase.from('league_seasons').select('*').eq('league_id', leagueId).order('start_date', { ascending: false })),
+        sbCall(() => supabase.from('tournaments').select('*').eq('league_id', leagueId).order('created_at', { ascending: false })),
+        supabase.from('league_members').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
+        supabase.from('matches').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
+      ]);
+      setLeague(league as League);
+      setSeasons((seasonRows ?? []) as LeagueSeason[]);
+      setTournaments((tournamentRows ?? []) as Tournament[]);
+      // Counts are decorative here; a failed count shows 0 rather than blocking.
+      setMemberCount(mCount.count ?? 0);
+      setMatchCount(mtCount.count ?? 0);
+      setLoadError(null);
+    } catch (e) {
+      // Was a discarded error rendering as "League not found." — which reads
+      // as "your league was deleted".
+      setLoadError(friendlySbMessage(e, "Couldn't load this league."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading) return <LoadingState label="Loading…" />;
+  if (loadError && !league) {
+    return (
+      <EmptyState
+        icon="📡"
+        title="Couldn't load this league"
+        subtitle={loadError}
+        actionLabel="Try again"
+        onAction={() => { setLoading(true); void load(); }}
+      />
+    );
+  }
   if (!league) return <EmptyState title="League not found." />;
 
   const activeSeason = seasons.find(s => s.status === 'active' || s.status === 'upcoming');

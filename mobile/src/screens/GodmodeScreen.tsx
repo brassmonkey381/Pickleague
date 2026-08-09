@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
@@ -109,8 +110,10 @@ export default function GodmodeScreen({ navigation }: Props) {
 
   useFocusEffect(useCallback(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      const ok = isGodmodeUserId(user?.id);
+      // LOCAL session read: getUser() is a network call, so offline the
+      // godmode account failed its own access check and saw the denial screen.
+      const uid = await currentUserId(supabase);
+      const ok = isGodmodeUserId(uid);
       setAuthorized(ok);
       if (ok) loadInvites();
     })();
@@ -118,10 +121,14 @@ export default function GodmodeScreen({ navigation }: Props) {
 
   async function loadInvites() {
     setLoadingInvites(true);
-    const { data, error } = await supabase.rpc('godmode_list_active_invites');
-    setLoadingInvites(false);
-    if (error) { status.error(`Couldn't load invites: ${error.message}`); return; }
-    setInvites((data ?? []) as ActiveInvite[]);
+    try {
+      const data = await sbCall(() => supabase.rpc('godmode_list_active_invites'));
+      setInvites((data ?? []) as ActiveInvite[]);
+    } catch (e) {
+      status.error(`Couldn't load invites: ${friendlySbMessage(e)}`);
+    } finally {
+      setLoadingInvites(false);
+    }
   }
 
   async function acceptInvite(invite: ActiveInvite): Promise<{ ok: boolean; message: string }> {

@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, Modal, TextInput, ScrollView, Pressable, Platform,
+  Modal, TextInput, ScrollView, Pressable, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -13,6 +13,7 @@ import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import EmptyState from './EmptyState';
 import { isGodmodeUserId } from '../lib/godmode';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   tournamentId: string;
@@ -49,6 +50,10 @@ export default function MlpTeamSection({
   const [profileMap, setProfileMap]     = useState<Record<string, ProfileLite>>({});
   const [loading, setLoading]           = useState(true);
   const [busy, setBusy]                 = useState(false);
+  // `busy` only reaches the buttons on the next render; these handlers are
+  // reachable from several places at once (rows, modals, godmode tools), so the
+  // guard has to be a ref read at the top of each one.
+  const busyRef                         = useRef(false);
 
   // Create team modal
   const [showCreate, setShowCreate]     = useState(false);
@@ -151,12 +156,14 @@ export default function MlpTeamSection({
 
   // ── Actions ─────────────────────────────────────────────────────────
   async function createTeam() {
+    if (busyRef.current) return;
     setCreateError(null);
     const trimmed = newTeamName.trim();
     if (!trimmed) {
       setCreateError('Pick a team name first.');
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     try {
       const { data, error } = await supabase.rpc('create_mlp_team', {
@@ -181,40 +188,53 @@ export default function MlpTeamSection({
     } catch (e: any) {
       // eslint-disable-next-line no-console
       console.error('[MLP create_mlp_team] threw', e);
-      setCreateError(e?.message ?? String(e));
+      setCreateError(friendlySbMessage(e, 'Could not create the team.'));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   async function requestJoin(teamId: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_request_join', {
-      p_team_id: teamId,
-      p_message: null,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    Alert.alert('Request sent', 'The captain will see your request.');
-    await load();
+    try {
+      await sbCall(() => supabase.rpc('mlp_request_join', {
+        p_team_id: teamId,
+        p_message: null,
+      }));
+      adminStatus.success('Request sent — the captain will see it.');
+      await load();
+    } catch (e) {
+      adminStatus.error(friendlySbMessage(e, 'Could not send the request.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function respondToRequest(reqId: string, accept: boolean) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_respond_to_join', {
-      p_request_id: reqId,
-      p_accept:     accept,
-    });
-    setBusy(false);
-    if (error) {
-      console.warn('[mlp] mlp_respond_to_join', error);
-      adminStatus.error(error.message ?? 'Could not respond to the request.');
-      return;
+    try {
+      await sbCall(() => supabase.rpc('mlp_respond_to_join', {
+        p_request_id: reqId,
+        p_accept:     accept,
+      }));
+      adminStatus.success(accept ? 'Request accepted — player added to your team.' : 'Request declined.');
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
+      console.warn('[mlp] mlp_respond_to_join', e);
+      adminStatus.error(friendlySbMessage(e, 'Could not respond to the request.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    adminStatus.success(accept ? 'Request accepted — player added to your team.' : 'Request declined.');
-    await load();
-    onTeamsChanged?.();
   }
 
   // Step 1 of invite flow: user picked from UserPickerModal → stash and
@@ -228,7 +248,9 @@ export default function MlpTeamSection({
 
   // Step 2: user confirms in the dialog → fire the RPC.
   async function confirmInvite() {
+    if (busyRef.current) return;
     if (!pendingInvite) return;
+    busyRef.current = true;
     setInviteError(null);
     setBusy(true);
     try {
@@ -246,54 +268,82 @@ export default function MlpTeamSection({
       setPendingInvite(null);
       await load();
     } catch (e: any) {
-      setInviteError(e?.message ?? String(e));
+      setInviteError(friendlySbMessage(e, 'Could not send the invite.'));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   async function clearSlot(teamId: string, slot: MlpTeamSlot) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_set_slot', {
-      p_team_id: teamId,
-      p_slot:    slot,
-      p_user_id: null,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onTeamsChanged?.();
+    try {
+      // Idempotent: sets the slot to a fixed value, so a retry is a no-op.
+      await sbCall(() => supabase.rpc('mlp_set_slot', {
+        p_team_id: teamId,
+        p_slot:    slot,
+        p_user_id: null,
+      }));
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
+      adminStatus.error(friendlySbMessage(e, 'Could not clear that slot.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function setDreambreaker(teamId: string, userId: string | null) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_set_dreambreaker', {
-      p_team_id: teamId,
-      p_user_id: userId,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onTeamsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('mlp_set_dreambreaker', {
+        p_team_id: teamId,
+        p_user_id: userId,
+      }));
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
+      adminStatus.error(friendlySbMessage(e, 'Could not set the Dreambreaker player.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function lockTeam(teamId: string) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_lock_team', { p_team_id: teamId });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onTeamsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('mlp_lock_team', { p_team_id: teamId }));
+      adminStatus.success('Team locked.');
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
+      adminStatus.error(friendlySbMessage(e, 'Could not lock the team.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   // Captain re-slots themselves into their own team after clearing their slot.
   // Auto-routes by gender (male/other → male_1 then male_2, female → female_1 then female_2).
   async function captainJoinOwnTeam(team: MlpTeam) {
+    if (busyRef.current) return;
     if (!currentUserId) return;
     const me = profileMap[currentUserId];
     const gender = me?.gender;
     if (!gender || gender === 'prefer-not-to-say') {
-      Alert.alert('Set your gender', 'Open your profile and set your gender (male/female/other) before joining a team slot.');
+      adminStatus.error('Open your profile and set your gender (male/female/other) before joining a team slot.');
       return;
     }
 
@@ -306,24 +356,33 @@ export default function MlpTeamSection({
       else if (team.male_2_id == null) slot = 'male_2';
     }
     if (!slot) {
-      Alert.alert('No open slot', `Both ${gender === 'female' ? 'female' : 'male'} slots are filled. Clear one first.`);
+      adminStatus.error(`Both ${gender === 'female' ? 'female' : 'male'} slots are filled. Clear one first.`);
       return;
     }
 
+    busyRef.current = true;
+    adminStatus.clear();
     setBusy(true);
-    const { error } = await supabase.rpc('mlp_set_slot', {
-      p_team_id: team.id,
-      p_slot:    slot,
-      p_user_id: currentUserId,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    await load();
-    onTeamsChanged?.();
+    try {
+      await sbCall(() => supabase.rpc('mlp_set_slot', {
+        p_team_id: team.id,
+        p_slot:    slot,
+        p_user_id: currentUserId,
+      }));
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
+      adminStatus.error(friendlySbMessage(e, 'Could not join that slot.'));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   async function confirmLeaveTeam() {
+    if (busyRef.current) return;
     if (!leaveConfirm) return;
+    busyRef.current = true;
     setLeaveError(null);
     setBusy(true);
     try {
@@ -336,46 +395,58 @@ export default function MlpTeamSection({
       await load();
       onTeamsChanged?.();
     } catch (e: any) {
-      setLeaveError(e?.message ?? String(e));
+      setLeaveError(friendlySbMessage(e, 'Failed to leave team.'));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
+  // Both generators below WRITE bracket rows and nothing dedupes them, so the
+  // ref guard is the thing standing between an impatient second tap and a
+  // doubled bracket. Deliberately not retried for the same reason.
   async function generateRandomTeams(mode: 'random' | 'snake') {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setBusy(true);
-    const { data, error } = await supabase.rpc('generate_random_mlp_teams', {
-      p_tournament_id: tournamentId,
-      p_mode:          mode,
-    });
-    setBusy(false);
-    if (error) {
+    try {
+      const data = await sbCall(() => supabase.rpc('generate_random_mlp_teams', {
+        p_tournament_id: tournamentId,
+        p_mode:          mode,
+      }), { retries: 0 }) as number | null;
+      adminStatus.success(`Generated ${data} team${data === 1 ? '' : 's'}.`);
+      await load();
+      onTeamsChanged?.();
+    } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn('[mlp] generate_random_mlp_teams', error);
-      adminStatus.errorFromRpc(error, 'supabase/migration_add_mlp_teams.sql');
-      return;
+      console.warn('[mlp] generate_random_mlp_teams', e);
+      adminStatus.errorFromRpc(e as { message?: string }, 'supabase/migration_add_mlp_teams.sql');
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    adminStatus.success(`Generated ${data} team${data === 1 ? '' : 's'}.`);
-    await load();
-    onTeamsChanged?.();
   }
 
   async function generateBracket() {
+    if (busyRef.current) return;
+    busyRef.current = true;
     adminStatus.clear();
     setBusy(true);
-    const { data, error } = await supabase.rpc('generate_mlp_bracket', {
-      p_tournament_id: tournamentId,
-    });
-    setBusy(false);
-    if (error) {
+    try {
+      const data = await sbCall(() => supabase.rpc('generate_mlp_bracket', {
+        p_tournament_id: tournamentId,
+      }), { retries: 0 }) as number | null;
+      adminStatus.success(`Generated ${data} sub-matches across team-vs-team rounds.`);
+      onTeamsChanged?.();
+    } catch (e) {
       // eslint-disable-next-line no-console
-      console.warn('[mlp] generate_mlp_bracket', error);
-      adminStatus.errorFromRpc(error, 'supabase/migration_add_mlp_teams.sql');
-      return;
+      console.warn('[mlp] generate_mlp_bracket', e);
+      adminStatus.errorFromRpc(e as { message?: string }, 'supabase/migration_add_mlp_teams.sql');
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
     }
-    adminStatus.success(`Generated ${data} sub-matches across team-vs-team rounds.`);
-    onTeamsChanged?.();
   }
 
   // ── Godmode helpers (MLP / Fixed Teams setup shortcuts) ─────────────

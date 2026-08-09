@@ -2,7 +2,9 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import {
   getTournamentRole, TournamentRole,
@@ -25,7 +27,10 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   const { tournamentId } = route.params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const toast = useToast();
   const [members, setMembers]   = useState<TournamentRegistration[]>([]);
+  // A failed read must not render as "0 approved members".
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [myRole, setMyRole]     = useState<TournamentRole>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [loading, setLoading]   = useState(true);
@@ -37,28 +42,44 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const [{ data: { user } }, role] = await Promise.all([
-      supabase.auth.getUser(),
-      getTournamentRole(tournamentId),
-    ]);
-    setMyUserId(user?.id ?? null);
-    setMyRole(role);
+    try {
+      // LOCAL session read (getUser() is a network call that fails offline).
+      const [uid, role] = await Promise.all([
+        currentUserId(supabase),
+        getTournamentRole(tournamentId),
+      ]);
+      setMyUserId(uid);
+      // 'unknown' = the role read failed; keep the last known one so a director
+      // doesn't lose their manage actions to one bad request.
+      if (role !== 'unknown') setMyRole(role);
 
-    const { data } = await supabase
-      .from('tournament_registrations')
-      .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played)')
-      .eq('tournament_id', tournamentId)
-      .eq('status', 'approved')
-      .order('role');
-    setMembers((data ?? []) as TournamentRegistration[]);
+      const rows = await sbCall(() => supabase
+        .from('tournament_registrations')
+        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played)')
+        .eq('tournament_id', tournamentId)
+        .eq('status', 'approved')
+        .order('role'));
+      setMembers((rows ?? []) as TournamentRegistration[]);
+      setLoadError(null);
 
-    // Public "pickles wagered on this player" totals, scoped to this tournament.
-    const { data: totals } = await supabase.rpc('get_tournament_wager_totals', { p_tournament_id: tournamentId });
-    const map: Record<string, number> = {};
-    (totals ?? []).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
-    setWagerTotals(map);
-
-    setLoading(false);
+      // Public "pickles wagered on this player" totals, scoped to this
+      // tournament. Decorative — never let it blank the roster.
+      try {
+        const totals = await sbCall(() =>
+          supabase.rpc('get_tournament_wager_totals', { p_tournament_id: tournamentId }),
+        );
+        const map: Record<string, number> = {};
+        ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
+        setWagerTotals(map);
+      } catch {
+        // Keep the previous totals.
+      }
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load the roster."));
+    } finally {
+      // Always: a throw used to leave the skeleton up for good.
+      setLoading(false);
+    }
   }
 
   function canManage(target: TournamentRegistration): boolean {
@@ -74,12 +95,18 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   }
 
   async function handleAction(member: TournamentRegistration, action: string) {
-    if (action === 'Promote to Co-Admin') {
-      await supabase.from('tournament_registrations').update({ role: 'co-admin' }).eq('id', member.id);
-    } else if (action === 'Demote to Member') {
-      await supabase.from('tournament_registrations').update({ role: 'member' }).eq('id', member.id);
-    } else if (action === 'Remove from Tournament') {
-      await supabase.from('tournament_registrations').update({ status: 'rejected' }).eq('id', member.id);
+    try {
+      // Each of these discarded its error, so a failed remove/promote looked
+      // exactly like a successful one until the reload silently undid it.
+      if (action === 'Promote to Co-Admin') {
+        await sbCall(() => supabase.from('tournament_registrations').update({ role: 'co-admin' }).eq('id', member.id));
+      } else if (action === 'Demote to Member') {
+        await sbCall(() => supabase.from('tournament_registrations').update({ role: 'member' }).eq('id', member.id));
+      } else if (action === 'Remove from Tournament') {
+        await sbCall(() => supabase.from('tournament_registrations').update({ status: 'rejected' }).eq('id', member.id));
+      }
+    } catch (e) {
+      toast.error(friendlySbMessage(e, `Couldn't ${action.toLowerCase()}.`));
     }
     load();
   }
@@ -94,6 +121,20 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && members.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load the roster"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   return (
     <>

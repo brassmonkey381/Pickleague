@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView,
@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import AppDateTimePicker from '../components/AppDateTimePicker';
 import { useTheme } from '../lib/ThemeContext';
+import { sbCall, requireUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateEvent'>;
@@ -64,7 +65,18 @@ export default function CreateEventScreen({ navigation, route }: Props) {
   const [activePicker, setActivePicker] = useState<ActivePicker | null>(null);
 
   const [loading, setLoading] = useState(false);
+  const [created, setCreated] = useState(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; isError: boolean } | null>(null);
+
+  const inFlight = useRef(false);
+  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // An event whose slots insert failed is live with voting open and ZERO time
+  // options, and league_events has no delete policy — it can't be rolled back.
+  // Remembering it means a retry finishes THAT event instead of orphaning it
+  // and creating another.
+  const createdEventId = useRef<string | null>(null);
+
+  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
 
   const voteEndsAt = customDeadline ?? addHours(deadlinePreset);
 
@@ -114,6 +126,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
   }
 
   async function submit() {
+    if (inFlight.current || created) return;
     setStatusMsg(null);
 
     if (!title.trim()) {
@@ -131,44 +144,65 @@ export default function CreateEventScreen({ navigation, route }: Props) {
       return;
     }
 
+    inFlight.current = true;
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      // LOCAL session read — getUser() is a network call that hands back
+      // { user: null } offline, and `user!.id` then threw out of this handler
+      // with the button frozen on "Creating...".
+      const uid = await requireUserId(supabase, 'Please sign in again to create an event.');
 
-    const { data: event, error: eventErr } = await supabase
-      .from('league_events')
-      .insert({
-        league_id: leagueId,
-        title: title.trim(),
-        description: description.trim() || null,
-        created_by: user!.id,
-        vote_ends_at: voteEndsAt.toISOString(),
-      })
-      .select()
-      .single();
+      // Not retried: nothing dedupes league_events, and a retry after a lost
+      // reply would leave two events voting against each other.
+      let eventId = createdEventId.current;
+      if (!eventId) {
+        const event = await sbCall(() => supabase
+          .from('league_events')
+          .insert({
+            league_id: leagueId,
+            title: title.trim(),
+            description: description.trim() || null,
+            created_by: uid,
+            vote_ends_at: voteEndsAt.toISOString(),
+          })
+          .select()
+          .single(), { retries: 0, timeoutMs: 30_000 }) as { id: string };
+        eventId = event.id;
+        createdEventId.current = eventId;
+      }
 
-    if (eventErr || !event) {
-      setStatusMsg({ text: eventErr?.message ?? 'Failed to create event. Please try again.', isError: true });
+      // The event is already votable at this point, so the slots are the half
+      // that must not be lost — and must not be doubled. Check first: on a retry
+      // (or a lost reply) the rows may already be there.
+      const existing = await sbCall(() => supabase
+        .from('event_slots').select('id').eq('event_id', eventId)) as { id: string }[] | null;
+      if (!existing || existing.length === 0) {
+        await sbCall(() => supabase.from('event_slots').insert(
+          slots.map((s) => ({
+            event_id: eventId,
+            starts_at: s.startsAt.toISOString(),
+            ends_at: s.endsAt.toISOString(),
+          }))
+        ), { retries: 0, timeoutMs: 30_000 });
+      }
+
+      setCreated(true);
+      setStatusMsg({ text: 'Event created! Voting is now open.', isError: false });
+      navTimer.current = setTimeout(() => navigation.goBack(), 1200);
+    } catch (e) {
+      const base = friendlySbMessage(e, 'Failed to create event. Please try again.');
+      setStatusMsg({
+        text: createdEventId.current
+          // Be explicit: the event exists but has no time options yet, and the
+          // only way to give it any is to finish this same submit.
+          ? `${base}\n\nThe event was created but has no time options yet — tap Create again to finish it.`
+          : base,
+        isError: true,
+      });
+    } finally {
+      inFlight.current = false;
       setLoading(false);
-      return;
     }
-
-    const { error: slotsErr } = await supabase.from('event_slots').insert(
-      slots.map((s) => ({
-        event_id: event.id,
-        starts_at: s.startsAt.toISOString(),
-        ends_at: s.endsAt.toISOString(),
-      }))
-    );
-
-    setLoading(false);
-
-    if (slotsErr) {
-      setStatusMsg({ text: slotsErr.message, isError: true });
-      return;
-    }
-
-    setStatusMsg({ text: 'Event created! Voting is now open.', isError: false });
-    setTimeout(() => navigation.goBack(), 1200);
   }
 
   return (
@@ -273,12 +307,12 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         )}
 
         <TouchableOpacity
-          style={[S.submitBtn, loading && S.submitBtnDisabled]}
+          style={[S.submitBtn, (loading || created) && S.submitBtnDisabled]}
           onPress={submit}
-          disabled={loading}
+          disabled={loading || created}
         >
           <Text style={S.submitText}>
-            {loading ? 'Creating...' : 'Create Event & Open Voting'}
+            {loading ? 'Creating...' : created ? 'Created' : 'Create Event & Open Voting'}
           </Text>
         </TouchableOpacity>
       </ScrollView>

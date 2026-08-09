@@ -3,20 +3,43 @@ import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet } from 'r
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { isAvailableAt, TOTAL_CELLS } from '../lib/availability';
-import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
+import { isGodmodeUserId, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import ConfirmModal from '../components/ConfirmModal';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Tournaments'>;
   route: RouteProp<RootStackParamList, 'Tournaments'>;
+};
+
+type MyReg = { status: 'pending' | 'approved' | 'rejected' | 'waitlisted'; role: string | null; invited_by: string | null };
+
+// Everything one load() used to spray across six useStates. Bundling it lets the
+// screen ride on useCachedQuery, which keeps the last good list on screen when a
+// refresh fails instead of blanking to "No tournaments yet".
+type TournamentsData = {
+  tournaments: Tournament[];
+  playerCounts: Record<string, number>;
+  approvedCounts: Record<string, number>;
+  myRegs: Record<string, MyReg>;
+  myAvailability: boolean[];
+  godmode: boolean;
+  activeOwnedTournamentCount: number;
+};
+
+const EMPTY_DATA: TournamentsData = {
+  tournaments: [], playerCounts: {}, approvedCounts: {}, myRegs: {},
+  myAvailability: [], godmode: false, activeOwnedTournamentCount: 0,
 };
 
 const STATUS_META: Record<Tournament['status'], { label: string; color: string }> = {
@@ -31,48 +54,37 @@ export default function TournamentsScreen({ navigation, route }: Props) {
   const S = makeStyles(c);
 
   const { leagueId, leagueName } = route.params ?? {};
-  const [tournaments, setTournaments] = React.useState<Tournament[]>([]);
-  const [playerCounts, setPlayerCounts] = React.useState<Record<string, number>>({});
-  // approved-only counts drive the full/waitlist CTA (invites don't hold a slot)
-  const [approvedCounts, setApprovedCounts] = React.useState<Record<string, number>>({});
-  // tournamentId → my registration metadata for the role pill
-  const [myRegs, setMyRegs] = React.useState<
-    Record<string, { status: 'pending' | 'approved' | 'rejected' | 'waitlisted'; role: string | null; invited_by: string | null }>
-  >({});
-  const [myAvailability, setMyAvailability] = React.useState<boolean[]>([]);
   const [filterByAvail, setFilterByAvail] = React.useState(false);
   const [showEnded, setShowEnded]         = React.useState(false);
   const [searchQuery, setSearchQuery]     = React.useState('');
-  const [godmode, setGodmode]                             = React.useState(false);
-  const [activeOwnedTournamentCount, setActiveOwnedTournamentCount] = React.useState(0);
   const [showLimitModal, setShowLimitModal] = React.useState(false);
-  const atTournamentLimit = !godmode && activeOwnedTournamentCount >= 1;
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  const load = useCallback(async (): Promise<TournamentsData> => {
+    // Local session read. getUser() is a network round trip that resolves to
+    // null on bad WiFi — which used to demote a signed-in user to the
+    // signed-out path and blank out their registrations.
+    const uid = await currentUserId(supabase);
 
-  const refresh = useRefresh(load);
-
-  async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-
-    let q = supabase.from('tournaments').select('*').order('created_at', { ascending: false });
-    if (leagueId) q = q.eq('league_id', leagueId);
-
-    const [{ data: tData }, profileRes, godmodeResult] = await Promise.all([
-      q,
-      user
-        ? supabase.from('profiles').select('availability').eq('id', user.id).single()
-        : Promise.resolve({ data: null }),
-      checkGodmode(),
+    const [tData, profileRow, ownedCount] = await Promise.all([
+      sbCall(() => {
+        let q = supabase.from('tournaments').select('*').order('created_at', { ascending: false });
+        if (leagueId) q = q.eq('league_id', leagueId);
+        return q;
+      }),
+      uid
+        ? sbCall(() => supabase.from('profiles').select('availability').eq('id', uid).single())
+        : Promise.resolve(null),
+      // Non-fatal on its own: countActiveOwnedTournaments throws by design, but
+      // a failed create-limit count must not blank the whole tournament list.
+      uid ? countActiveOwnedTournaments(uid).catch(() => 0) : Promise.resolve(0),
     ]);
-    setGodmode(godmodeResult);
-    if (user?.id) setActiveOwnedTournamentCount(await countActiveOwnedTournaments(user.id));
 
     const t = (tData ?? []) as Tournament[];
-    setTournaments(t);
+    const av = (profileRow as any)?.availability;
 
-    const av = (profileRes as any)?.data?.availability;
-    setMyAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : []);
+    const counts: Record<string, number> = {};
+    const approvedOnly: Record<string, number> = {};
+    const mine: Record<string, MyReg> = {};
 
     if (t.length > 0) {
       const ids = t.map(x => x.id);
@@ -80,23 +92,21 @@ export default function TournamentsScreen({ navigation, route }: Props) {
       // an inviter set) — both occupy a slot on the public roster.
       // Also pull THIS user's own row per tournament so the card can show
       // their role pill.
-      const [{ data: regs }, mineRes] = await Promise.all([
-        supabase
+      const [regs, mineRows] = await Promise.all([
+        sbCall(() => supabase
           .from('tournament_registrations')
           .select('tournament_id, status, invited_by')
           .in('tournament_id', ids)
-          .in('status', ['approved', 'pending']),
-        user
-          ? supabase
+          .in('status', ['approved', 'pending'])),
+        uid
+          ? sbCall(() => supabase
               .from('tournament_registrations')
               .select('tournament_id, status, role, invited_by')
               .in('tournament_id', ids)
-              .eq('user_id', user.id)
-          : Promise.resolve({ data: null } as any),
+              .eq('user_id', uid))
+          : Promise.resolve([] as any[]),
       ]);
-      const counts: Record<string, number> = {};
-      const approvedOnly: Record<string, number> = {};
-      (regs ?? []).forEach(r => {
+      (regs ?? []).forEach((r: any) => {
         if (r.status === 'approved' || (r.status === 'pending' && r.invited_by != null)) {
           counts[r.tournament_id] = (counts[r.tournament_id] ?? 0) + 1;
         }
@@ -106,16 +116,41 @@ export default function TournamentsScreen({ navigation, route }: Props) {
           approvedOnly[r.tournament_id] = (approvedOnly[r.tournament_id] ?? 0) + 1;
         }
       });
-      setPlayerCounts(counts);
-      setApprovedCounts(approvedOnly);
-
-      const mine: typeof myRegs = {};
-      (mineRes?.data ?? []).forEach((r: any) => {
+      (mineRows ?? []).forEach((r: any) => {
         mine[r.tournament_id] = { status: r.status, role: r.role ?? null, invited_by: r.invited_by ?? null };
       });
-      setMyRegs(mine);
     }
-  }
+
+    return {
+      tournaments: t,
+      playerCounts: counts,
+      approvedCounts: approvedOnly,
+      myRegs: mine,
+      myAvailability: Array.isArray(av) && av.length === TOTAL_CELLS ? av : [],
+      // Local id check instead of checkGodmode()'s getUser() round trip.
+      godmode: isGodmodeUserId(uid),
+      activeOwnedTournamentCount: ownedCount,
+    };
+  }, [leagueId]);
+
+  const query = useCachedQuery<TournamentsData>(
+    `tournaments:list:${leagueId ?? 'all'}`,
+    load,
+    { ttlMs: 30_000, persistMs: 24 * 60 * 60 * 1000 },
+  );
+  const {
+    tournaments, playerCounts, approvedCounts, myRegs, myAvailability,
+    godmode, activeOwnedTournamentCount,
+  } = query.data ?? EMPTY_DATA;
+  // Only a first load with nothing cached is a hard failure — otherwise the
+  // cache keeps serving the last good list and the user reads on.
+  const loadFailed = query.error != null && query.data === undefined;
+  const atTournamentLimit = !godmode && activeOwnedTournamentCount >= 1;
+
+  const reload = useCallback(() => query.refresh(), [query.refresh]);
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+
+  const refresh = useRefresh(reload);
 
   function rolePillFor(tournamentId: string): { label: string; color: string } {
     const reg = myRegs[tournamentId];
@@ -324,7 +359,18 @@ export default function TournamentsScreen({ navigation, route }: Props) {
         contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
         refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
-          showEnded && trimmedQuery
+          // A failed fetch must never read as "you have no tournaments".
+          loadFailed
+            ? <EmptyState
+                icon="📡"
+                title="Couldn't load tournaments"
+                subtitle={friendlySbMessage(query.error)}
+                actionLabel="Retry"
+                onAction={() => { void reload(); }}
+              />
+            : query.loading
+            ? <SkeletonList rows={4} />
+            : showEnded && trimmedQuery
             ? <EmptyState icon="🔍" title="No matches" subtitle={`No tournaments match "${searchQuery.trim()}".`} />
             : filterByAvail
             ? <EmptyState icon="📅" title="No matching tournaments" subtitle="No tournaments match your availability. Try removing the filter." />

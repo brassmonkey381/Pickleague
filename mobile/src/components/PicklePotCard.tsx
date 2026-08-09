@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, TextInput, ScrollView,
-  StyleSheet, Alert, ActivityIndicator, Pressable, Platform,
+  StyleSheet, ActivityIndicator, Pressable, Platform,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import StatusBanner from './StatusBanner';
+import { useStatusMessage } from '../lib/useStatusMessage';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 export type ScopeType = 'tournament' | 'season' | 'league';
 
@@ -34,6 +37,12 @@ export default function PicklePotCard(props: PicklePotCardProps) {
   const [showAward, setShowAward]           = useState(false);
   const [showDistribute, setShowDistribute] = useState(false);
 
+  // These move REAL in-app currency, and Alert.alert renders nothing at all on
+  // react-native-web — so on pickleague.club both the failure and the success
+  // were invisible, and the natural "did that work?" retry double-spent.
+  // Successes land here (the modal is gone by then); errors stay in the modal.
+  const status = useStatusMessage();
+
   const ladder = ['🥇', '🥈', '🥉', '4th', '5th'];
 
   return (
@@ -61,6 +70,8 @@ export default function PicklePotCard(props: PicklePotCardProps) {
       {ante != null && ante > 0 && scopeType === 'tournament' && (
         <Text style={S.hint}>Ante is auto-charged when registration is approved and added to the pot.</Text>
       )}
+
+      <StatusBanner status={status.value} />
 
       {isAdmin && (
         <View style={S.btnRow}>
@@ -93,7 +104,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeId={scopeId}
         scopeLabel={scopeLabel}
         myBalance={myPickleBalance}
-        onDone={() => { setShowContribute(false); onChange(); }}
+        onDone={(msg) => { setShowContribute(false); status.success(msg); onChange(); }}
         S={S}
       />
 
@@ -105,7 +116,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeLabel={scopeLabel}
         members={members}
         pool={pool}
-        onDone={() => { setShowAward(false); onChange(); }}
+        onDone={(msg) => { setShowAward(false); status.success(msg); onChange(); }}
         S={S}
       />
 
@@ -116,7 +127,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeLabel={scopeLabel}
         pool={pool}
         structure={structure}
-        onDone={() => { setShowDistribute(false); onChange(); }}
+        onDone={(msg) => { setShowDistribute(false); status.success(msg); onChange(); }}
         S={S}
       />
     </View>
@@ -132,11 +143,13 @@ function ContributeModal({
 }: {
   visible: boolean; onClose: () => void;
   scopeType: ScopeType; scopeId: string; scopeLabel: string;
-  myBalance?: number; onDone: () => void;
+  myBalance?: number; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
   const [amount, setAmount] = useState('');
   const [busy, setBusy]     = useState(false);
+  const inFlight            = useRef(false);
+  const status              = useStatusMessage();
 
   const n = parseInt(amount, 10);
   const valid = Number.isFinite(n) && n > 0 && (myBalance == null || n <= myBalance);
@@ -151,20 +164,31 @@ function ContributeModal({
   }, [visible, onClose]);
 
   async function submit() {
+    if (inFlight.current) return;
     if (!valid) return;
+    inFlight.current = true;
     setBusy(true);
-    const { data, error } = await supabase.rpc('contribute_pickles_to_pool', {
-      p_scope_type: scopeType,
-      p_scope_id:   scopeId,
-      p_amount:     n,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not contribute', row?.message ?? 'Unknown error'); return; }
-    setAmount('');
-    Alert.alert('Contributed', row.message ?? 'Done');
-    onDone();
+    status.clear();
+    try {
+      // Not retried: this debits the admin's balance, and a retry after a lost
+      // reply would contribute twice.
+      const data = await sbCall<any>(() => supabase.rpc('contribute_pickles_to_pool', {
+        p_scope_type: scopeType,
+        p_scope_id:   scopeId,
+        p_amount:     n,
+      }), { retries: 0 });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) { status.error(row?.message ?? 'Could not contribute.'); return; }
+      setAmount('');
+      onDone(row.message ?? `Contributed ${n} 🥒 to the ${scopeLabel.toLowerCase()} pot.`);
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not contribute.', {
+        network: 'Lost the connection — check the pot balance before contributing again, in case it went through.',
+      }));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
 
   return (
@@ -200,6 +224,8 @@ function ContributeModal({
             <Text style={S.errorText}>You only have {myBalance} 🥒.</Text>
           )}
 
+          <StatusBanner status={status.value} />
+
           <View style={S.modalBtnRow}>
             <TouchableOpacity style={[S.modalBtn, S.btnSecondary]} onPress={onClose} disabled={busy}>
               <Text style={S.btnSecondaryText}>Cancel</Text>
@@ -230,13 +256,15 @@ function AwardModal({
   visible: boolean; onClose: () => void;
   scopeType: ScopeType; scopeId: string; scopeLabel: string;
   members: Array<{ id: string; full_name: string }>;
-  pool: number; onDone: () => void;
+  pool: number; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
   const [recipientId, setRecipientId] = useState<string | null>(null);
   const [amount, setAmount]           = useState('');
   const [reason, setReason]           = useState('');
   const [busy, setBusy]               = useState(false);
+  const inFlight                      = useRef(false);
+  const status                        = useStatusMessage();
 
   const n = parseInt(amount, 10);
   const valid = !!recipientId && Number.isFinite(n) && n > 0 && n <= pool;
@@ -249,22 +277,32 @@ function AwardModal({
   }, [visible, onClose]);
 
   async function submit() {
+    if (inFlight.current) return;
     if (!valid) return;
+    inFlight.current = true;
     setBusy(true);
-    const { data, error } = await supabase.rpc('award_pickles_from_pool', {
-      p_scope_type: scopeType,
-      p_scope_id:   scopeId,
-      p_recipient:  recipientId,
-      p_amount:     n,
-      p_reason:     reason.trim() || `${scopeLabel} reward`,
-    });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not award', row?.message ?? 'Unknown error'); return; }
-    setRecipientId(null); setAmount(''); setReason('');
-    Alert.alert('Awarded', `${n} 🥒 sent.`);
-    onDone();
+    status.clear();
+    try {
+      // Not retried: each call pays the recipient again.
+      const data = await sbCall<any>(() => supabase.rpc('award_pickles_from_pool', {
+        p_scope_type: scopeType,
+        p_scope_id:   scopeId,
+        p_recipient:  recipientId,
+        p_amount:     n,
+        p_reason:     reason.trim() || `${scopeLabel} reward`,
+      }), { retries: 0 });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) { status.error(row?.message ?? 'Could not award.'); return; }
+      setRecipientId(null); setAmount(''); setReason('');
+      onDone(`${n} 🥒 sent.`);
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not award.', {
+        network: 'Lost the connection — check the pot balance before awarding again, in case it went through.',
+      }));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
 
   return (
@@ -299,6 +337,8 @@ function AwardModal({
 
           <Text style={S.label}>Reason (optional)</Text>
           <TextInput style={S.input} placeholder="e.g. Period 2 winner" value={reason} onChangeText={setReason} />
+
+          <StatusBanner status={status.value} />
 
           <View style={S.modalBtnRow}>
             <TouchableOpacity style={[S.modalBtn, S.btnSecondary]} onPress={onClose} disabled={busy}>
@@ -338,10 +378,12 @@ function DistributeModal({
 }: {
   visible: boolean; onClose: () => void;
   scopeId: string; scopeLabel: string;
-  pool: number; structure: number[]; onDone: () => void;
+  pool: number; structure: number[]; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
   const [busy, setBusy] = useState(false);
+  const inFlight        = useRef(false);
+  const status          = useStatusMessage();
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !visible) return;
@@ -351,14 +393,27 @@ function DistributeModal({
   }, [visible, onClose]);
 
   async function submit() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
-    const { data, error } = await supabase.rpc('distribute_season_pool', { p_season_id: scopeId });
-    setBusy(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { Alert.alert('Could not distribute', row?.message ?? 'Unknown error'); return; }
-    Alert.alert('Distributed', row.message ?? `${row.distributed} 🥒 paid out.`);
-    onDone();
+    status.clear();
+    try {
+      // Not retried: a second payout would pay the podium twice.
+      const data = await sbCall<any>(
+        () => supabase.rpc('distribute_season_pool', { p_season_id: scopeId }),
+        { retries: 0 },
+      );
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.success) { status.error(row?.message ?? 'Could not distribute.'); return; }
+      onDone(row.message ?? `${row.distributed} 🥒 paid out.`);
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not distribute.', {
+        network: 'Lost the connection — check the pot balance before distributing again, in case it went through.',
+      }));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
 
   return (
@@ -372,6 +427,8 @@ function DistributeModal({
             Will pay top finishers from the locked-in <Text style={S.modalBold}>final standings</Text>
             {' '}using the configured payout structure. Make sure the season has been completed first.
           </Text>
+
+          <StatusBanner status={status.value} />
 
           <View style={S.modalBtnRow}>
             <TouchableOpacity style={[S.modalBtn, S.btnSecondary]} onPress={onClose} disabled={busy}>

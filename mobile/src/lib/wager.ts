@@ -1,3 +1,4 @@
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
 /**
@@ -102,15 +103,20 @@ export function genericSubjectLabel(
 
 export type OddsResult = { probability: number; odds: number };
 
+/** Read-only and side-effect free, so it retries; null means "odds unknown". */
 export async function fetchOdds(s: WagerSubject): Promise<OddsResult | null> {
   const t = toSubjectTuple(s);
-  const { data, error } = await supabase.rpc('calculate_wager_odds', {
-    p_subject_type: t.subject_type,
-    p_subject_id:   t.subject_id,
-    p_predicate:    t.predicate,
-  });
-  if (error) return null;
-  const row = Array.isArray(data) ? data[0] : data;
+  let data: unknown;
+  try {
+    data = await sbCall(() => supabase.rpc('calculate_wager_odds', {
+      p_subject_type: t.subject_type,
+      p_subject_id:   t.subject_id,
+      p_predicate:    t.predicate,
+    }));
+  } catch {
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : (data as any);
   if (!row) return null;
   const probability = Number(row.probability);
   const odds        = Number(row.odds);
@@ -127,18 +133,33 @@ export type PlaceWagerResult = {
   message: string;
 };
 
+/**
+ * Deliberately NOT retried: place_wager isn't idempotent, so a retried request
+ * that actually landed would stake the user's pickles twice. It is bounded, so
+ * a dead socket surfaces as a message instead of a permanent spinner.
+ */
 export async function placeWager(s: WagerSubject, stake: number): Promise<PlaceWagerResult> {
   const t = toSubjectTuple(s);
-  const { data, error } = await supabase.rpc('place_wager', {
-    p_subject_type: t.subject_type,
-    p_subject_id:   t.subject_id,
-    p_predicate:    t.predicate,
-    p_stake:        stake,
-  });
-  if (error) {
-    return { success: false, wager_id: null, odds: null, potential_payout: null, balance: null, message: error.message };
+  let data: unknown;
+  try {
+    data = await sbCall(
+      () => supabase.rpc('place_wager', {
+        p_subject_type: t.subject_type,
+        p_subject_id:   t.subject_id,
+        p_predicate:    t.predicate,
+        p_stake:        stake,
+      }),
+      { retries: 0 },
+    );
+  } catch (e) {
+    return {
+      success: false, wager_id: null, odds: null, potential_payout: null, balance: null,
+      // Raw error.message here was "Network request failed" — unhelpful next to
+      // a stake the user isn't sure was taken.
+      message: friendlySbMessage(e, 'Could not place that wager.'),
+    };
   }
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = Array.isArray(data) ? data[0] : (data as any);
   return {
     success: !!row?.success,
     wager_id: row?.wager_id ?? null,
@@ -156,12 +177,15 @@ export type CancelWagerResult = {
   message: string;
 };
 
+/** Same no-retry rule as placeWager — a double refund is as wrong as a double stake. */
 export async function cancelWager(wagerId: string): Promise<CancelWagerResult> {
-  const { data, error } = await supabase.rpc('cancel_wager', { p_wager_id: wagerId });
-  if (error) {
-    return { success: false, refunded: 0, balance: null, message: error.message };
+  let data: unknown;
+  try {
+    data = await sbCall(() => supabase.rpc('cancel_wager', { p_wager_id: wagerId }), { retries: 0 });
+  } catch (e) {
+    return { success: false, refunded: 0, balance: null, message: friendlySbMessage(e, 'Could not cancel that wager.') };
   }
-  const row = Array.isArray(data) ? data[0] : data;
+  const row = Array.isArray(data) ? data[0] : (data as any);
   return {
     success: !!row?.success,
     refunded: row?.refunded ?? 0,

@@ -11,6 +11,7 @@
 // render. If the cache hasn't loaded yet, it returns the raw name — once
 // the fetch resolves a re-render will show the nickname.
 
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 
 let cache: Map<string, string> | null = null;
@@ -21,22 +22,35 @@ function notify() {
   for (const cb of subscribers) cb();
 }
 
+/**
+ * Loads the nickname map once. Only a SUCCESSFUL load is cached: caching the
+ * empty map after a failure (and never clearing loadPromise) turned one bad
+ * request at launch into court nicknames being gone app-wide for the rest of
+ * the process, since `if (cache) return` made every later call a no-op.
+ */
 export async function ensureCourtNicknamesLoaded(): Promise<void> {
   if (cache) return;
   if (!loadPromise) {
     loadPromise = (async () => {
-      const { data, error } = await supabase
-        .from('court_locations')
-        .select('name, nickname')
-        .not('nickname', 'is', null);
-      const map = new Map<string, string>();
-      if (!error) {
+      try {
+        const data = await sbCall(() =>
+          supabase.from('court_locations').select('name, nickname').not('nickname', 'is', null),
+        );
+        const map = new Map<string, string>();
         for (const row of (data ?? []) as { name: string; nickname: string | null }[]) {
           if (row.nickname) map.set(row.name, row.nickname);
         }
+        cache = map;
+        notify();
+      } catch {
+        // Nicknames are cosmetic — callers fire this without a catch and render
+        // the canonical name meanwhile, so a failure stays silent (but is now
+        // retryable, which is the part that was broken).
+      } finally {
+        // Cleared either way, so a failed load can be retried by the next
+        // caller (mount, refresh) instead of being permanently deduped.
+        loadPromise = null;
       }
-      cache = map;
-      notify();
     })();
   }
   return loadPromise;

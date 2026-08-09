@@ -4,6 +4,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -90,12 +91,17 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
   useEffect(() => { loadMembers(); }, []);
 
   async function loadMembers() {
-    const { data } = await supabase
-      .from('league_members')
-      .select('profile:profiles(*)')
-      .eq('league_id', leagueId);
-    const profiles = (data ?? []).map((m: any) => m.profile).filter(Boolean);
-    setMembers(profiles);
+    try {
+      const data = await sbCall(() => supabase
+        .from('league_members')
+        .select('profile:profiles(*)')
+        .eq('league_id', leagueId));
+      const profiles = ((data ?? []) as any[]).map((m: any) => m.profile).filter(Boolean);
+      setMembers(profiles);
+    } catch (e) {
+      // An empty member list makes both pickers unusable with no explanation.
+      status.error(friendlySbMessage(e, "Couldn't load league members — pull down to retry."));
+    }
   }
 
   function onDateChange(_event: DateTimePickerEvent, date?: Date) {
@@ -128,19 +134,27 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.from('matches').insert({
-      league_id: leagueId,
-      player1_id: player1Id,
-      player2_id: player2Id,
-      status: 'scheduled',
-      scheduled_at: scheduledAt.toISOString(),
-    });
-    setLoading(false);
-    if (error) {
-      status.error(error.message);
-    } else {
+    try {
+      // No auto-retry: nothing dedupes scheduled matches, so a retried insert
+      // that already landed would double-book the court.
+      await sbCall(
+        () => supabase.from('matches').insert({
+          league_id: leagueId,
+          player1_id: player1Id,
+          player2_id: player2Id,
+          status: 'scheduled',
+          scheduled_at: scheduledAt.toISOString(),
+        }),
+        { retries: 0 },
+      );
       status.success('Match has been added to the calendar.');
       setTimeout(() => navigation.goBack(), 1200);
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not schedule the match.', {
+        network: "Lost the connection, so we can't tell whether this saved. Check the calendar before scheduling it again.",
+      }));
+    } finally {
+      setLoading(false);
     }
   }
 

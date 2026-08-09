@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
-  StyleSheet, ActivityIndicator, FlatList, TextInput, Alert,
+  StyleSheet, ActivityIndicator, FlatList, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -38,6 +38,7 @@ import WagerProposeModal from '../components/WagerProposeModal';
 import BookmarkButton from '../components/BookmarkButton';
 import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -95,7 +96,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // Fixed doubles pairs (non-MLP doubles formats). Loaded alongside regs.
   const [doublesPairs, setDoublesPairs]   = useState<{ partner_1_id: string | null; partner_2_id: string | null }[]>([]);
   const [locking, setLocking]             = useState(false);
+  // Lock-in writes six things in a row with no transaction behind it. Two
+  // concurrent runs (confirm modal + godmode shortcut, or a double tap) would
+  // interleave those writes, so the guard is a ref checked at the top.
+  const lockingRef                        = useRef(false);
   const [generatingPlayoff, setGeneratingPlayoff] = useState(false);
+  // Same reason as lockingRef: this RPC writes playoff rounds + matches and
+  // nothing dedupes them, so the guard can't be a state read.
+  const playoffGenRef = useRef(false);
   const [showLockInConfirm, setShowLockInConfirm] = useState(false);
   const [lockInError, setLockInError]     = useState<string | null>(null);
   const [savedMatches, setSavedMatches]   = useState<any[]>([]);
@@ -203,8 +211,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }, [tournamentId, tournament?.format, tournament?.mlp_play_format, tournament?.status, savedMatches.length]);
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    const uid = user?.id ?? null;
+    // Local session read: the old getUser() was a network round trip that
+    // resolves to null offline, which made the viewer look like a stranger to
+    // their own tournament (no admin controls, no "you're registered" state).
+    const uid = await currentUserId(supabase);
     setMyUserId(uid);
 
     const [tRes, regRes, role, godmodeResult] = await Promise.all([
@@ -220,7 +230,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
     const t = tRes.data as Tournament;
     setTournament(t);
-    setMyRole(role);
+    // 'unknown' means the role read failed — keep the last known role rather
+    // than stripping an organizer's controls over a network blip.
+    if (role !== 'unknown') setMyRole(role);
 
     const regs = (regRes.data ?? []) as TournamentRegistration[];
     setRegistrations(regs);
@@ -793,6 +805,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   async function doLockIn(matchesArg?: MatchPairing[]) {
+    if (lockingRef.current) return;
     // matchesArg lets callers (e.g. the godmode setup shortcut) pass freshly
     // generated matches directly, bypassing React state-flush timing.
     // Defensive: ignore non-array values — e.g., a TouchableOpacity
@@ -808,9 +821,21 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       setShowLockInConfirm(false);
       return;
     }
+    lockingRef.current = true;
     setLocking(true);
 
     try {
+      // Lock-in is six sequential writes with no transaction behind it, and
+      // neither tournament_rounds nor tournament_matches has a unique
+      // constraint — so a connection that dropped halfway used to leave a
+      // partial bracket that a retry then DUPLICATED. Everything below reads
+      // what is already there and writes only what is missing, which makes
+      // "just try again" the correct recovery instead of a second bug.
+      const existingRounds = await sbCall(() => supabase
+        .from('tournament_rounds')
+        .select('id, round_number')
+        .eq('tournament_id', tournament.id)) as { id: string; round_number: number }[] | null;
+
       // 0. Persist any novel doubles pairs used in the bracket preview.
       //    Non-MLP doubles tournaments may have included random pairings of
       //    previously-unpaired approved players — those rows weren't written
@@ -842,11 +867,12 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           }
         }
         if (novelPairs.length > 0) {
-          const { error: pairErr } = await supabase.rpc('persist_random_doubles_pairs', {
-            p_tournament_id: tournament.id,
-            p_pairs: novelPairs,
-          });
-          if (pairErr) {
+          try {
+            await sbCall(() => supabase.rpc('persist_random_doubles_pairs', {
+              p_tournament_id: tournament.id,
+              p_pairs: novelPairs,
+            }), { retries: 0 });
+          } catch (pairErr) {
             // Non-fatal — bracket lock-in can still proceed.
             // eslint-disable-next-line no-console
             console.warn('[lock-in] failed to persist novel doubles pairs', pairErr);
@@ -872,33 +898,50 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       const roundIdByPool = new Map<number, string>();
       let defaultRoundId: string | null = null;
 
+      // round_number is what identifies a round within a tournament here, so a
+      // round left behind by a failed attempt is reused rather than re-created.
+      const roundByNumber = new Map((existingRounds ?? []).map(r => [r.round_number, r.id]));
+
       if (isPoolPlay && poolCountFromMatches > 0) {
         for (let pi = 0; pi < poolCountFromMatches; pi++) {
           const letter = String.fromCharCode(65 + pi);
-          const { data: poolRound, error: prErr } = await supabase
-            .from('tournament_rounds')
-            .insert({
-              tournament_id: tournament.id,
-              round_number: pi + 1,
-              label:        `Pool ${letter}`,
-              round_type:   'pool',
-            })
-            .select().single();
-          if (prErr) throw new Error(`Could not create Pool ${letter} round: ${prErr.message}`);
-          roundIdByPool.set(pi, poolRound.id);
+          const already = roundByNumber.get(pi + 1);
+          if (already) { roundIdByPool.set(pi, already); continue; }
+          try {
+            const poolRound = await sbCall(() => supabase
+              .from('tournament_rounds')
+              .insert({
+                tournament_id: tournament.id,
+                round_number: pi + 1,
+                label:        `Pool ${letter}`,
+                round_type:   'pool',
+              })
+              .select().single(), { retries: 0 }) as { id: string };
+            roundIdByPool.set(pi, poolRound.id);
+          } catch (prErr) {
+            throw new Error(`Could not create Pool ${letter} round: ${friendlySbMessage(prErr, 'unknown error')}`);
+          }
         }
       } else {
-        const { data: round, error: rErr } = await supabase
-          .from('tournament_rounds')
-          .insert({
-            tournament_id: tournament.id,
-            round_number: 1,
-            label:        FORMAT_META[tournament.format].label + ' Schedule',
-            round_type:   roundType,
-          })
-          .select().single();
-        if (rErr) throw new Error('Could not create round: ' + rErr.message);
-        defaultRoundId = round.id;
+        const already = roundByNumber.get(1);
+        if (already) {
+          defaultRoundId = already;
+        } else {
+          try {
+            const round = await sbCall(() => supabase
+              .from('tournament_rounds')
+              .insert({
+                tournament_id: tournament.id,
+                round_number: 1,
+                label:        FORMAT_META[tournament.format].label + ' Schedule',
+                round_type:   roundType,
+              })
+              .select().single(), { retries: 0 }) as { id: string };
+            defaultRoundId = round.id;
+          } catch (rErr) {
+            throw new Error('Could not create round: ' + friendlySbMessage(rErr, 'unknown error'));
+          }
+        }
       }
 
       // 2. Save all matches — rotating_partners is always doubles regardless of setting
@@ -921,41 +964,84 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         };
       });
 
-      // Insert in batches of 20 to avoid request size issues
-      for (let i = 0; i < matchRows.length; i += 20) {
-        const { error: mErr } = await supabase.from('tournament_matches').insert(matchRows.slice(i, i + 20));
-        if (mErr) throw new Error('Could not save matches: ' + mErr.message);
+      // (round_id, match_order) identifies a match within the draw, so rows a
+      // previous attempt already wrote are skipped rather than duplicated.
+      const existingMatches = await sbCall(() => supabase
+        .from('tournament_matches')
+        .select('round_id, match_order')
+        .eq('tournament_id', tournament.id)) as { round_id: string; match_order: number }[] | null;
+      const writtenKeys = new Set((existingMatches ?? []).map(m => `${m.round_id}|${m.match_order}`));
+      const pendingRows = matchRows.filter(r => !writtenKeys.has(`${r.round_id}|${r.match_order}`));
+
+      // Insert in batches of 20 to avoid request size issues. Not retried: a
+      // retry that lands after a lost reply would duplicate the batch, and the
+      // re-read above is the safe way to resume instead.
+      for (let i = 0; i < pendingRows.length; i += 20) {
+        try {
+          await sbCall(() => supabase.from('tournament_matches').insert(pendingRows.slice(i, i + 20)), { retries: 0 });
+        } catch (mErr) {
+          throw new Error(
+            `Could not save matches (${i} of ${pendingRows.length} written): ${friendlySbMessage(mErr, 'unknown error')}. `
+            + 'Run Lock In again once you have a connection — it resumes where it stopped.',
+          );
+        }
       }
 
       // 3. Update tournament status
-      const { error: sErr } = await supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id);
-      if (sErr) throw new Error('Could not update status: ' + sErr.message);
+      try {
+        await sbCall(() => supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id));
+      } catch (sErr) {
+        throw new Error('Could not update status: ' + friendlySbMessage(sErr, 'unknown error'));
+      }
 
       // 3b. Persist the draw order as registration seeds — the advancement
       // triggers order registrations by seed to reconstruct round-1 slots.
-      if (seededOrderRef.current) {
-        for (let i = 0; i < seededOrderRef.current.length; i++) {
-          await supabase.from('tournament_registrations')
-            .update({ seed: i + 1 })
-            .eq('tournament_id', tournament.id)
-            .eq('user_id', seededOrderRef.current[i]);
+      // This is the one step that must never fail quietly: a half-written seed
+      // order still looks like a valid order to those triggers, so they advance
+      // the WRONG players and nothing about the bracket looks broken.
+      const seedOrder = seededOrderRef.current;
+      if (seedOrder) {
+        let seedFailures = 0;
+        for (let i = 0; i < seedOrder.length; i++) {
+          try {
+            // Idempotent: a fixed seed keyed by (tournament, user).
+            await sbCall(() => supabase.from('tournament_registrations')
+              .update({ seed: i + 1 })
+              .eq('tournament_id', tournament.id)
+              .eq('user_id', seedOrder[i]));
+          } catch {
+            seedFailures++;
+          }
+        }
+        if (seedFailures > 0) {
+          throw new Error(
+            `Seeds only partially saved (${seedFailures} of ${seedOrder.length} failed). `
+            + 'Advancement rebuilds round 1 from seed order, so leaving it like this would advance the wrong players. '
+            + 'Run Lock In again once you have a connection — it is safe to repeat and nothing will be duplicated.',
+          );
         }
       }
 
       // 4. Notify each member individually to avoid RLS batch-check timeouts
       const approvedRegs = registrations.filter(r => r.status === 'approved');
       const memberIds = approvedRegs.map(r => r.user_id);
+      // Announcements are the only step left that is safe to repeat but not
+      // idempotent — a re-run re-announces. That's noise, never corruption, so
+      // it stays unconditional rather than gating the bracket on it.
       let notifsFailed = 0;
       for (const uid of memberIds) {
-        const { error: nErr } = await supabase.from('notifications').insert({
-          user_id:     uid,
-          title:       `🏆 Bracket Set — ${tournament.name}`,
-          body:        `The draw has been finalized! ${matches.length} matches scheduled. Open the tournament to see your matches.`,
-          type:        'tournament',
-          entity_id:   tournament.id,
-          entity_type: 'tournament',
-        });
-        if (nErr) notifsFailed++;
+        try {
+          await sbCall(() => supabase.from('notifications').insert({
+            user_id:     uid,
+            title:       `🏆 Bracket Set — ${tournament.name}`,
+            body:        `The draw has been finalized! ${matches.length} matches scheduled. Open the tournament to see your matches.`,
+            type:        'tournament',
+            entity_id:   tournament.id,
+            entity_type: 'tournament',
+          }), { retries: 0 });
+        } catch {
+          notifsFailed++;
+        }
       }
 
       setGeneratedMatches(null);
@@ -964,16 +1050,21 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       load();
 
       const notified = memberIds.length - notifsFailed;
+      const resumed = pendingRows.length < matchRows.length;
       status.success(
         `✓ Bracket locked! Schedule saved — ${notified}/${memberIds.length} members notified.` +
-          (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '')
+          (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '') +
+          // Say so plainly when this run only finished someone else's half-write.
+          (resumed ? ` (resumed a previous attempt: ${matchRows.length - pendingRows.length} matches were already saved)` : '')
       );
     } catch (err: any) {
-      setLockInError(err?.message ?? 'Unknown error. Please try again.');
+      const msg = friendlySbMessage(err, 'Unknown error. Please try again.');
+      setLockInError(msg);
       // Also toast it — callers outside the confirm modal (godmode lock
       // button) never render lockInError.
-      status.error(`Lock-in failed: ${err?.message ?? 'Unknown error'}`);
+      status.error(`Lock-in failed: ${msg}`);
     } finally {
+      lockingRef.current = false;
       setLocking(false);
     }
   }
@@ -2130,17 +2221,26 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
               tournament.playoff_format;
 
             async function onGenerate() {
-              if (!ready || generatingPlayoff) return;
+              if (playoffGenRef.current) return;
+              if (!ready) return;
+              playoffGenRef.current = true;
+              status.clear();
               setGeneratingPlayoff(true);
-              const { error } = await supabase.rpc('generate_playoff_bracket', {
-                p_tournament_id: tournamentId,
-              });
-              setGeneratingPlayoff(false);
-              if (error) {
-                Alert.alert('Playoff generation failed', error.message);
-                return;
+              try {
+                // Not retried: a second run would write a second playoff bracket.
+                await sbCall(() => supabase.rpc('generate_playoff_bracket', {
+                  p_tournament_id: tournamentId,
+                }), { retries: 0 });
+                await load();
+                status.success('Playoff bracket generated.');
+              } catch (e) {
+                // Alert.alert renders nothing on react-native-web, so this
+                // failure was completely invisible on the web build.
+                status.error(`Playoff generation failed: ${friendlySbMessage(e, 'unknown error')}`);
+              } finally {
+                playoffGenRef.current = false;
+                setGeneratingPlayoff(false);
               }
-              await load();
             }
 
             return (

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Switch, Alert,
+  StyleSheet, Switch,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -12,6 +12,7 @@ import AppDateTimePicker from '../components/AppDateTimePicker';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
+import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateTournament'>;
@@ -134,6 +135,13 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState('');
   const [success, setSuccess]         = useState(false);
+  // `tournaments` has no dedupe key and each creation burns the one-active
+  // allowance, so the handler must be un-re-enterable from the first tap until
+  // the deferred navigate — `disabled` alone loses that race.
+  const inFlight                      = useRef(false);
+  const navTimer                      = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
 
   // Fetch the league name + home court when a leagueId is passed in, so we
   // can both use the name as the auto-name prefix AND pre-fill the location
@@ -164,12 +172,14 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
     } else {
       setLeagueName(null);
       // No league context — pre-fill from the user's most recent tournament.
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        if (cancelled || !user) return;
+      // Local session read — getUser() was a round trip that returns null
+      // offline, silently dropping the location prefill.
+      currentUserId(supabase).then((uid) => {
+        if (cancelled || !uid) return;
         supabase
           .from('tournaments')
           .select('location_name, location_lat, location_lng')
-          .eq('created_by', user.id)
+          .eq('created_by', uid)
           .not('location_name', 'is', null)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -238,6 +248,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
   }
 
   async function submit() {
+    if (inFlight.current || success) return;
     setError('');
     if (!name.trim()) { setError('Please enter a tournament name.'); return; }
     const anteNum = parseInt(ante, 10);
@@ -261,112 +272,140 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       setError('Min players can\'t be greater than max players.'); return;
     }
 
+    inFlight.current = true;
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      // LOCAL session read. getUser() is a network call that resolves
+      // { user: null } offline, so the `user!.id` below threw a TypeError out of
+      // this handler and left the button stuck on "Creating…" with no recovery.
+      const uid = await requireUserId(supabase, 'Please sign in again to create a tournament.');
 
-    // Per-account active-tournament limit (godmode bypasses)
-    if (user?.id) {
-      const [godmode, activeCount] = await Promise.all([
-        checkGodmode(),
-        countActiveOwnedTournaments(user.id),
-      ]);
-      if (!godmode && activeCount >= 1) {
-        setLoading(false);
-        setError("You're already running an active tournament. Wait for it to end (or cancel it) before starting another.");
+      // Per-account active-tournament limit (godmode bypasses)
+      {
+        const [godmode, activeCount] = await Promise.all([
+          checkGodmode(),
+          countActiveOwnedTournaments(uid),
+        ]);
+        if (!godmode && activeCount >= 1) {
+          setError("You're already running an active tournament. Wait for it to end (or cancel it) before starting another.");
+          return;
+        }
+      }
+
+      // UI → DB translation. MLP is selected via matchType='mlp' in the UI, but
+      // the DB still stores 'mlp' / 'mlp_random' as the `format` value and
+      // 'doubles' as the underlying match_type. Only include MLP-specific
+      // columns when the tournament is actually MLP.
+      const isMlp = matchType === 'mlp';
+      const dbFormat: TournamentFormat = isMlp
+        ? (teamCreation === 'random' ? 'mlp_random' : 'mlp')
+        : format;
+      const dbMatchType: 'singles' | 'doubles' = isMlp ? 'doubles' : matchType;
+
+      // Final safety net mirroring the DB `tournaments_format_match_type_check`
+      // constraint: mlp / mlp_random / rotating_partners are doubles-only. The UI
+      // already steers away from this (Singles pill is disabled for doubles-only
+      // formats, MLP forces doubles), but those corrections run on re-render, so
+      // guard here too rather than let the DB reject the insert with a raw 23514.
+      if (dbMatchType === 'singles' &&
+          (dbFormat === 'mlp' || dbFormat === 'mlp_random' || dbFormat === 'rotating_partners')) {
+        setError('This format requires doubles. Switch Team Type to Doubles (or MLP) and try again.');
         return;
       }
-    }
 
-    // UI → DB translation. MLP is selected via matchType='mlp' in the UI, but
-    // the DB still stores 'mlp' / 'mlp_random' as the `format` value and
-    // 'doubles' as the underlying match_type. Only include MLP-specific
-    // columns when the tournament is actually MLP.
-    const isMlp = matchType === 'mlp';
-    const dbFormat: TournamentFormat = isMlp
-      ? (teamCreation === 'random' ? 'mlp_random' : 'mlp')
-      : format;
-    const dbMatchType: 'singles' | 'doubles' = isMlp ? 'doubles' : matchType;
+      const insertPayload: Record<string, any> = {
+        league_id:         leagueId ?? null,
+        name:              name.trim(),
+        description:       description.trim() || null,
+        created_by:        uid,
+        format:            dbFormat,
+        match_type:        dbMatchType,
+        seeding,
+        pool_count:        dbFormat === 'pool_play' ? poolCount : 1,
+        partner_rotation:  dbFormat === 'rotating_partners' ? partnerRotation : null,
+        // Captures Fixed vs Random for both Doubles and MLP. Singles ignores it.
+        team_creation:     (matchType === 'doubles' || matchType === 'mlp') ? teamCreation : 'fixed',
+        registration_mode: inviteOnly ? 'invite_only' : 'request',
+        registration_closes_at: regCloses?.toISOString() ?? null,
+        min_players:       minPlayersN,
+        max_players:       maxPlayersN,
+        start_time:        startTime?.toISOString() ?? null,
+        expected_length_hours: durationNum,
+        location_name:     location?.name ?? null,
+        location_lat:      location?.lat ?? null,
+        location_lng:      location?.lng ?? null,
+        pickle_ante:       anteNum,
+        payout_structure:  structure,
+      };
+      if (isMlp) {
+        // Derive the legacy MLP-specific columns from the unified Format +
+        // Playoff Format pickers. mlp_play_format encodes the combination:
+        //   format=round_robin + playoff=none   → round_robin
+        //   format=round_robin + playoff=top_X  → round_robin_playoff (with mlp_playoff_teams=X)
+        //   format=pool_play   + playoff=none   → pool_play
+        //   format=pool_play   + playoff=top_X  → pool_play_playoff
+        const hasPlayoff = playoffFormat !== 'none';
+        const mlpPlayFormat =
+          format === 'pool_play'
+            ? (hasPlayoff ? 'pool_play_playoff' : 'pool_play')
+            : (hasPlayoff ? 'round_robin_playoff' : 'round_robin');
+        const mlpPlayoffTeams =
+          playoffFormat === 'top_2' ? 2 :
+          playoffFormat === 'top_8' ? 8 : 4;
+        insertPayload.mlp_play_format   = mlpPlayFormat;
+        insertPayload.mlp_pool_count    = format === 'pool_play' ? poolCount : 2;
+        insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
+      } else if (format === 'round_robin' || format === 'pool_play') {
+        insertPayload.playoff_format = playoffFormat;
+        // 3PM toggle only meaningful for top_4 / top_8; safe to send false otherwise.
+        insertPayload.playoff_third_place =
+          (playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
+      }
 
-    // Final safety net mirroring the DB `tournaments_format_match_type_check`
-    // constraint: mlp / mlp_random / rotating_partners are doubles-only. The UI
-    // already steers away from this (Singles pill is disabled for doubles-only
-    // formats, MLP forces doubles), but those corrections run on re-render, so
-    // guard here too rather than let the DB reject the insert with a raw 23514.
-    if (dbMatchType === 'singles' &&
-        (dbFormat === 'mlp' || dbFormat === 'mlp_random' || dbFormat === 'rotating_partners')) {
+      // Not retried: nothing dedupes tournaments, so a retry after a lost reply
+      // would leave two and immediately trip the one-active limit.
+      const t = await sbCall(() => supabase
+        .from('tournaments')
+        .insert(insertPayload)
+        .select()
+        .single(), { retries: 0, timeoutMs: 30_000 }) as { id: string; name: string };
+
+      // Auto-register creator as approved admin. This is NOT optional bookkeeping:
+      // without it the creator can't administer the tournament they just made, and
+      // the orphan still counts against the one-active limit so they can't make a
+      // replacement either. Upsert (there's a unique(tournament_id,user_id)) so a
+      // retry after a lost reply is a no-op rather than a 23505.
+      try {
+        await sbCall(() => supabase.from('tournament_registrations').upsert({
+          tournament_id: t.id,
+          user_id:       uid,
+          status:        'approved',
+          role:          'admin',
+        }, { onConflict: 'tournament_id,user_id' }));
+      } catch (regErr) {
+        // Cancel the half-built tournament so it stops consuming the allowance —
+        // the creator-update policy permits this, delete is godmode-only.
+        let rolledBack = false;
+        try {
+          await sbCall(() => supabase.from('tournaments').update({ status: 'cancelled' }).eq('id', t.id));
+          rolledBack = true;
+        } catch { /* reported below */ }
+        setError(rolledBack
+          ? `${friendlySbMessage(regErr, 'Could not finish setting up the tournament.')} It was cancelled — nothing was left half-created. Please try again.`
+          : `${friendlySbMessage(regErr, 'Could not finish setting up the tournament.')} "${t.name}" was created but you are not registered as its admin — reconnect and cancel it from the tournament page before creating another.`);
+        return;
+      }
+
+      setSuccess(true);
+      navTimer.current = setTimeout(() => navigation.replace('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }), 800);
+    } catch (e) {
+      setError(friendlySbMessage(e, 'Could not create the tournament.', {
+        network: 'Lost the connection. Check the Tournaments list before trying again — it may have been created.',
+      }));
+    } finally {
+      inFlight.current = false;
       setLoading(false);
-      setError('This format requires doubles. Switch Team Type to Doubles (or MLP) and try again.');
-      return;
     }
-
-    const insertPayload: Record<string, any> = {
-      league_id:         leagueId ?? null,
-      name:              name.trim(),
-      description:       description.trim() || null,
-      created_by:        user!.id,
-      format:            dbFormat,
-      match_type:        dbMatchType,
-      seeding,
-      pool_count:        dbFormat === 'pool_play' ? poolCount : 1,
-      partner_rotation:  dbFormat === 'rotating_partners' ? partnerRotation : null,
-      // Captures Fixed vs Random for both Doubles and MLP. Singles ignores it.
-      team_creation:     (matchType === 'doubles' || matchType === 'mlp') ? teamCreation : 'fixed',
-      registration_mode: inviteOnly ? 'invite_only' : 'request',
-      registration_closes_at: regCloses?.toISOString() ?? null,
-      min_players:       minPlayersN,
-      max_players:       maxPlayersN,
-      start_time:        startTime?.toISOString() ?? null,
-      expected_length_hours: durationNum,
-      location_name:     location?.name ?? null,
-      location_lat:      location?.lat ?? null,
-      location_lng:      location?.lng ?? null,
-      pickle_ante:       anteNum,
-      payout_structure:  structure,
-    };
-    if (isMlp) {
-      // Derive the legacy MLP-specific columns from the unified Format +
-      // Playoff Format pickers. mlp_play_format encodes the combination:
-      //   format=round_robin + playoff=none   → round_robin
-      //   format=round_robin + playoff=top_X  → round_robin_playoff (with mlp_playoff_teams=X)
-      //   format=pool_play   + playoff=none   → pool_play
-      //   format=pool_play   + playoff=top_X  → pool_play_playoff
-      const hasPlayoff = playoffFormat !== 'none';
-      const mlpPlayFormat =
-        format === 'pool_play'
-          ? (hasPlayoff ? 'pool_play_playoff' : 'pool_play')
-          : (hasPlayoff ? 'round_robin_playoff' : 'round_robin');
-      const mlpPlayoffTeams =
-        playoffFormat === 'top_2' ? 2 :
-        playoffFormat === 'top_8' ? 8 : 4;
-      insertPayload.mlp_play_format   = mlpPlayFormat;
-      insertPayload.mlp_pool_count    = format === 'pool_play' ? poolCount : 2;
-      insertPayload.mlp_playoff_teams = mlpPlayoffTeams;
-    } else if (format === 'round_robin' || format === 'pool_play') {
-      insertPayload.playoff_format = playoffFormat;
-      // 3PM toggle only meaningful for top_4 / top_8; safe to send false otherwise.
-      insertPayload.playoff_third_place =
-        (playoffFormat === 'top_4' || playoffFormat === 'top_8') && playoffThirdPlace;
-    }
-
-    const { data: t, error: err } = await supabase
-      .from('tournaments')
-      .insert(insertPayload)
-      .select()
-      .single();
-
-    setLoading(false);
-    if (err) { setError(err.message); return; }
-
-    // Auto-register creator as approved admin
-    await supabase.from('tournament_registrations').insert({
-      tournament_id: t.id,
-      user_id:       user!.id,
-      status:        'approved',
-      role:          'admin',
-    });
-
-    setSuccess(true);
-    setTimeout(() => navigation.replace('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }), 800);
   }
 
   const fmt = FORMAT_META[format];
@@ -646,11 +685,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         ) : null}
 
         <TouchableOpacity
-          style={[S.submitBtn, loading && S.submitBtnDisabled]}
+          style={[S.submitBtn, (loading || success) && S.submitBtnDisabled]}
           onPress={submit}
           disabled={loading || success}
         >
-          <Text style={S.submitText}>{loading ? 'Creating…' : 'Create Tournament'}</Text>
+          <Text style={S.submitText}>{loading ? 'Creating…' : success ? 'Created' : 'Create Tournament'}</Text>
         </TouchableOpacity>
       </ScrollView>
 

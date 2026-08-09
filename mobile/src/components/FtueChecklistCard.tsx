@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
 import { Profile } from '../types';
@@ -43,6 +45,7 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
   const { colors } = useTheme();
   const s = makeStyles(colors);
   const { armTour } = useTour();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(true);
   const [inLeague, setInLeague] = useState(false);
@@ -51,15 +54,22 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
   const [claiming, setClaiming] = useState<Set<StepId>>(new Set());
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const [memberRes, grantsRes] = await Promise.all([
-      supabase.from('league_members').select('league_id').eq('user_id', user.id).limit(1),
-      supabase.from('ftue_grants').select('step').eq('user_id', user.id),
-    ]);
-    setInLeague((memberRes.data ?? []).length > 0);
-    setClaimed(new Set(((grantsRes.data ?? []) as { step: StepId }[]).map(r => r.step)));
-    setLoading(false);
+    // LOCAL session read (getUser() is a network call that fails offline).
+    const uid = await currentUserId(supabase);
+    if (!uid) { setLoading(false); return; }
+    try {
+      const [memberRows, grantRows] = await Promise.all([
+        sbCall(() => supabase.from('league_members').select('league_id').eq('user_id', uid).limit(1)),
+        sbCall(() => supabase.from('ftue_grants').select('step').eq('user_id', uid)),
+      ]);
+      setInLeague(((memberRows ?? []) as unknown[]).length > 0);
+      setClaimed(new Set(((grantRows ?? []) as { step: StepId }[]).map(r => r.step)));
+    } catch {
+      // A failed read would otherwise re-show already-claimed steps as
+      // claimable; leave the last known state and let the next load correct it.
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -90,16 +100,24 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
   async function claim(step: StepId) {
     if (claiming.has(step) || claimed.has(step)) return;
     setClaiming(prev => new Set(prev).add(step));
-    const { data, error } = await supabase.rpc('claim_ftue_step', { p_step: step });
-    setClaiming(prev => { const next = new Set(prev); next.delete(step); return next; });
-    if (error) return;
-    const row = Array.isArray(data) ? data[0] : data;
-    if (row?.success) {
-      setClaimed(prev => new Set(prev).add(step));
-      if (typeof row.new_balance === 'number') onClaimed?.(row.new_balance);
-    } else if (row?.message === 'Already claimed') {
-      // Server says it's already granted — reconcile local state.
-      setClaimed(prev => new Set(prev).add(step));
+    try {
+      // The RPC is idempotent ("Already claimed"), so retrying a dropped
+      // request can't double-grant pickles.
+      const data = await sbCall(() => supabase.rpc('claim_ftue_step', { p_step: step }));
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.success) {
+        setClaimed(prev => new Set(prev).add(step));
+        if (typeof row.new_balance === 'number') onClaimed?.(row.new_balance);
+      } else if (row?.message === 'Already claimed') {
+        // Server says it's already granted — reconcile local state.
+        setClaimed(prev => new Set(prev).add(step));
+      }
+    } catch (e) {
+      // Tapping "Claim" and seeing nothing at all reads as the reward being
+      // taken; say what happened so the user knows to try again.
+      toast.error(friendlySbMessage(e, "Couldn't claim that just now."));
+    } finally {
+      setClaiming(prev => { const next = new Set(prev); next.delete(step); return next; });
     }
   }
 

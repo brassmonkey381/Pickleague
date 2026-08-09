@@ -11,16 +11,30 @@ type Props = {
 };
 
 export default function BookmarkButton({ targetType, targetId, size = 22, style, textStyle }: Props) {
+  // null = we don't know yet (loading, or the read failed). Never guessed as
+  // `false`: showing an un-bookmarked icon for a saved item makes the user
+  // "re-add" it and wonder why nothing happens.
   const [on, setOn] = useState<boolean | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    isBookmarked(targetType, targetId).then(b => { if (!cancelled) setOn(b); });
+    isBookmarked(targetType, targetId)
+      .then(b => { if (!cancelled) setOn(b); })
+      .catch(() => { if (!cancelled) setOn(null); });
     return () => { cancelled = true; };
   }, [targetType, targetId]);
 
   async function toggle() {
-    if (on === null) return;
+    // Unknown state: a tap re-attempts the read rather than doing nothing
+    // forever after one failed load.
+    if (on === null) {
+      try {
+        setOn(await isBookmarked(targetType, targetId));
+      } catch {
+        // Still unreachable — leave it indeterminate.
+      }
+      return;
+    }
     const next = !on;
     setOn(next);
     const ok = next

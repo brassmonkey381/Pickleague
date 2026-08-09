@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
@@ -111,20 +112,39 @@ export default function TournamentInfoScreen({ route }: Props) {
   const [t, setT]         = useState<Tournament | null>(null);
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [tRes, mRes] = await Promise.all([
-      supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
-      supabase.from('tournament_registrations').select('id', { count: 'exact', head: true }).eq('tournament_id', tournamentId).eq('status', 'approved'),
-    ]);
-    setT(tRes.data as Tournament);
-    setMemberCount(mRes.count ?? 0);
-    setLoading(false);
+    try {
+      const [tournament, mRes] = await Promise.all([
+        sbCall(() => supabase.from('tournaments').select('*').eq('id', tournamentId).single()),
+        supabase.from('tournament_registrations').select('id', { count: 'exact', head: true }).eq('tournament_id', tournamentId).eq('status', 'approved'),
+      ]);
+      setT(tournament as Tournament);
+      setMemberCount(mRes.count ?? 0);
+      setLoadError(null);
+    } catch (e) {
+      // Was a discarded error rendering as "Tournament not found."
+      setLoadError(friendlySbMessage(e, "Couldn't load this tournament."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading) return <LoadingState label="Loading…" />;
+  if (loadError && !t) {
+    return (
+      <EmptyState
+        icon="📡"
+        title="Couldn't load this tournament"
+        subtitle={loadError}
+        actionLabel="Try again"
+        onAction={() => { setLoading(true); void load(); }}
+      />
+    );
+  }
   if (!t) return <EmptyState title="Tournament not found." />;
 
   const meta = FORMAT_META[t.format];

@@ -8,9 +8,23 @@ import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from './ConfirmModal';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 const COLS = 5;
 const WEB_CARD_MAX = 560;
+
+/** Avatars render at ~100px; anything bigger is bandwidth the user pays for. */
+const AVATAR_MAX_DIM = 512;
+/** Matches the native picker's `quality: 0.8`. */
+const AVATAR_JPEG_QUALITY = 0.8;
+/** Refuse before decoding — a 40MP phone photo can OOM the canvas step. */
+const WEB_MAX_INPUT_BYTES = 20 * 1024 * 1024;
+/**
+ * Uploads are legitimately slow on a phone connection, so this is deliberately
+ * generous — it exists only so a dead socket eventually surfaces instead of
+ * spinning until the OS TCP timeout.
+ */
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 export type PremiumAvatar = {
   slug: string;
@@ -30,6 +44,44 @@ type Props = {
   onSave: (avatarId: number, photoUrl: string | null, premium: PremiumAvatar | null) => void;
   onClose: () => void;
 };
+
+/**
+ * Downscale + re-encode a picked file to a small JPEG so the web path costs
+ * roughly what the native path does. Web-only: the sole caller is the
+ * <input type="file"> handler, which only exists under react-native-web.
+ * Resolves null when the image can't be decoded so the caller can fall back to
+ * the original rather than blocking the user.
+ */
+function shrinkImageForWeb(file: File): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, AVATAR_MAX_DIM / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(null); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((b) => resolve(b), 'image/jpeg', AVATAR_JPEG_QUALITY);
+        } catch {
+          resolve(null);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    } catch {
+      resolve(null);
+    }
+  });
+}
 
 export default function AvatarPickerModal({
   visible, currentAvatarId, currentPhotoUrl, currentPremium, earnedBadgeNames, userId,
@@ -52,35 +104,59 @@ export default function AvatarPickerModal({
   const [errorModal, setErrorModal]                 = useState<{ title: string; body: string } | null>(null);
 
   const fileInputRef = useRef<any>(null);
+  const uploadInFlight = useRef(false);
+  // Bumped when the user walks away from a slow upload. The request can't be
+  // aborted, so instead every upload carries a token and only the current one
+  // is allowed to touch state — otherwise an abandoned upload landing late
+  // would clobber the photo (or the spinner) of the one that replaced it.
+  const uploadToken = useRef(0);
 
   const isUnlocked = (av: AvatarDef) =>
     !av.unlock || earnedBadgeNames.includes(av.unlock.badge);
 
   useEffect(() => {
     if (!isWeb || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    // Escape must not dismiss mid-upload — the outcome would have nowhere to go.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !uploadInFlight.current) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [visible, onClose, isWeb]);
 
+  function cancelUpload() {
+    uploadToken.current += 1;
+    uploadInFlight.current = false;
+    setUploading(false);
+  }
+
   async function uploadBlob(blob: Blob, rawExt: string) {
+    if (uploadInFlight.current) return;
+    const token = ++uploadToken.current;
+    uploadInFlight.current = true;
     setUploading(true);
     try {
       const ext = (rawExt || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
       const fileName = `${userId}/avatar.${ext}`;
-      const { error: uploadErr } = await supabase.storage
+      // upsert:true makes the object path idempotent, so a retry after a dropped
+      // socket overwrites rather than duplicating. Bounded generously — see
+      // UPLOAD_TIMEOUT_MS — so a dead connection can't spin forever.
+      await sbCall(() => supabase.storage
         .from('avatars')
-        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` });
-      if (uploadErr) throw uploadErr;
+        .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` }),
+        { retries: 1, timeoutMs: UPLOAD_TIMEOUT_MS });
+      if (uploadToken.current !== token) return;
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
       setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`);
-    } catch (e: any) {
+    } catch (e) {
+      if (uploadToken.current !== token) return;
       setErrorModal({
         title: 'Upload failed',
-        body: e?.message ?? 'Check that the "avatars" storage bucket exists in Supabase.',
+        body: friendlySbMessage(e, 'Check that the "avatars" storage bucket exists in Supabase.'),
       });
     } finally {
-      setUploading(false);
+      if (uploadToken.current === token) {
+        uploadInFlight.current = false;
+        setUploading(false);
+      }
     }
   }
 
@@ -113,6 +189,7 @@ export default function AvatarPickerModal({
   }
 
   function pickPhoto() {
+    if (uploadInFlight.current) return;
     if (isWeb) fileInputRef.current?.click?.();
     else pickPhotoNative();
   }
@@ -122,6 +199,20 @@ export default function AvatarPickerModal({
     // Reset so picking the same file twice still fires onChange.
     try { e.target.value = ''; } catch {}
     if (!file) return;
+    // The native picker downsizes and re-encodes at quality 0.8; the web <input>
+    // handed the raw file straight to storage, so a 12MP phone photo was
+    // uploaded whole over whatever connection the user had.
+    if (file.size > WEB_MAX_INPUT_BYTES) {
+      setErrorModal({
+        title: 'Image too large',
+        body: `That file is ${(file.size / 1024 / 1024).toFixed(0)}MB. Please pick one under ${WEB_MAX_INPUT_BYTES / 1024 / 1024}MB.`,
+      });
+      return;
+    }
+    const shrunk = await shrinkImageForWeb(file);
+    if (shrunk) { await uploadBlob(shrunk, 'jpg'); return; }
+    // Decode failed (exotic format, canvas blocked) — fall back to the original
+    // rather than refusing to let the user set a photo at all.
     const ext = file.name.split('.').pop() || file.type.split('/')[1] || 'jpg';
     await uploadBlob(file, ext);
   }
@@ -166,12 +257,19 @@ export default function AvatarPickerModal({
   const body = (
     <>
       <View style={S.header}>
-        <TouchableOpacity onPress={onClose} style={S.headerBtn}>
-          <Text style={S.headerBtnText}>Cancel</Text>
+        {/* Dismissing mid-upload left the outcome with nowhere to be reported,
+            so Cancel stops waiting on the upload instead of closing the modal —
+            the user is never trapped, and never silently left without a photo. */}
+        <TouchableOpacity onPress={uploading ? cancelUpload : onClose} style={S.headerBtn}>
+          <Text style={S.headerBtnText}>{uploading ? 'Cancel upload' : 'Cancel'}</Text>
         </TouchableOpacity>
         <Text style={S.headerTitle}>Choose Avatar</Text>
-        <TouchableOpacity onPress={() => onSave(selectedId, photoUrl, photoUrl ? null : selectedPremium)} style={S.headerBtn}>
-          <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
+        <TouchableOpacity
+          onPress={() => onSave(selectedId, photoUrl, photoUrl ? null : selectedPremium)}
+          style={S.headerBtn}
+          disabled={uploading}
+        >
+          <Text style={[S.headerBtnText, { color: uploading ? colors.textMuted : colors.primary, fontWeight: '700' }]}>Done</Text>
         </TouchableOpacity>
       </View>
 
@@ -190,12 +288,15 @@ export default function AvatarPickerModal({
         <View style={S.photoRow}>
           <TouchableOpacity style={S.photoBtn} onPress={pickPhoto} disabled={uploading}>
             {uploading ? (
-              <ActivityIndicator size="small" color={colors.primary} />
+              <View style={S.uploadingRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={S.photoBtnText}>Uploading…</Text>
+              </View>
             ) : (
               <Text style={S.photoBtnText}>📷  Upload a Photo</Text>
             )}
           </TouchableOpacity>
-          {photoUrl && (
+          {photoUrl && !uploading && (
             <TouchableOpacity style={S.removePhotoBtn} onPress={removePhoto}>
               <Text style={S.removePhotoBtnText}>Remove</Text>
             </TouchableOpacity>
@@ -289,12 +390,12 @@ export default function AvatarPickerModal({
       animationType={isWeb ? 'fade' : 'slide'}
       transparent={isWeb}
       presentationStyle={isWeb ? undefined : 'pageSheet'}
-      onRequestClose={onClose}
+      onRequestClose={() => { if (!uploading) onClose(); }}
     >
       {isWeb ? (
         <Pressable
           style={S.backdrop}
-          onPress={(e: any) => { if (e.target === e.currentTarget) onClose(); }}
+          onPress={(e: any) => { if (e.target === e.currentTarget && !uploading) onClose(); }}
         >
           <View style={S.card}>{body}</View>
         </Pressable>
@@ -337,6 +438,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number)
     photoRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
     photoBtn:     { flex: 1, borderWidth: 1.5, borderColor: c.primary, borderRadius: 10, padding: 12, alignItems: 'center' },
     photoBtnText: { fontSize: 15, color: c.primary, fontWeight: '600' },
+    uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     removePhotoBtn:  { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: c.danger },
     removePhotoBtnText: { fontSize: 13, color: c.danger, fontWeight: '600' },
 

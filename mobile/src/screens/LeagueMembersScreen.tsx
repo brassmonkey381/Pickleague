@@ -5,6 +5,12 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
+import {
+  sbCall,
+  currentUserId,
+  requireUserId,
+  friendlySbMessage,
+} from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { getLeagueRole, isPrivileged, roleBadgeColor, roleLabel, LeagueRole } from '../lib/leagueRole';
@@ -52,6 +58,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [isOpen, setIsOpen]     = useState(true);
   const [loading, setLoading]   = useState(true);
+  // A failed roster read must not render as an empty league.
+  const [loadError, setLoadError]           = useState<string | null>(null);
   const [showSuggest, setShowSuggest]       = useState(false);
   const [suggestions, setSuggestions]       = useState<SuggestedPlayer[]>([]);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
@@ -64,56 +72,82 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   async function load() {
-    const [{ data: { user } }, role, leagueRes] = await Promise.all([
-      supabase.auth.getUser(),
-      getLeagueRole(leagueId),
-      supabase.from('leagues').select('is_open').eq('id', leagueId).single(),
-    ]);
-    setMyUserId(user?.id ?? null);
-    setMyRole(role);
-    setIsOpen(leagueRes.data?.is_open ?? true);
+    try {
+      // LOCAL session read — getUser() over the network made every member look
+      // like a stranger offline (no "you", no admin controls).
+      const [uid, role, league] = await Promise.all([
+        currentUserId(supabase),
+        getLeagueRole(leagueId),
+        sbCall(() => supabase.from('leagues').select('is_open').eq('id', leagueId).single()),
+      ]);
+      setMyUserId(uid);
+      // 'unknown' means the role read failed — keep whatever we last knew
+      // rather than demoting an admin because of one bad request.
+      if (role !== 'unknown') setMyRole(role);
+      setIsOpen(league?.is_open ?? true);
 
-    const [membersRes, requestsRes] = await Promise.all([
-      supabase
-        .from('league_members')
-        .select('*, profile:profiles(id, full_name, rating, total_matches_played, name_color, list_name_style_id)')
-        .eq('league_id', leagueId)
-        .order('role'),
-      isPrivileged(role)
-        ? supabase
-            .from('league_join_requests')
-            .select('*, profile:profiles(id, full_name, name_color, list_name_style_id)')
-            .eq('league_id', leagueId)
-            .eq('status', 'pending')
-            .order('created_at')
-        : Promise.resolve({ data: [] }),
-    ]);
+      const [memberRows, requestRows] = await Promise.all([
+        sbCall(() => supabase
+          .from('league_members')
+          .select('*, profile:profiles(id, full_name, rating, total_matches_played, name_color, list_name_style_id)')
+          .eq('league_id', leagueId)
+          .order('role')),
+        isPrivileged(role)
+          ? sbCall(() => supabase
+              .from('league_join_requests')
+              .select('*, profile:profiles(id, full_name, name_color, list_name_style_id)')
+              .eq('league_id', leagueId)
+              .eq('status', 'pending')
+              .order('created_at'))
+          : Promise.resolve([]),
+      ]);
 
-    setMembers((membersRes.data ?? []) as LeagueMember[]);
-    setRequests(((requestsRes as any).data ?? []) as LeagueJoinRequest[]);
+      setMembers((memberRows ?? []) as LeagueMember[]);
+      setRequests((requestRows ?? []) as LeagueJoinRequest[]);
+      setLoadError(null);
 
-    // Public "pickles wagered on this player" totals, scoped to this league.
-    const { data: totals } = await supabase.rpc('get_league_wager_totals', { p_league_id: leagueId });
-    const map: Record<string, number> = {};
-    (totals ?? []).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
-    setWagerTotals(map);
-
-    setLoading(false);
+      // Public "pickles wagered on this player" totals, scoped to this league.
+      // Decorative — a failure here must not blank the roster.
+      try {
+        const totals = await sbCall(() =>
+          supabase.rpc('get_league_wager_totals', { p_league_id: leagueId }),
+        );
+        const map: Record<string, number> = {};
+        ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
+        setWagerTotals(map);
+      } catch {
+        // Leave the previous totals in place.
+      }
+    } catch (e) {
+      setLoadError(friendlySbMessage(e, "Couldn't load the roster."));
+    } finally {
+      // Always: any throw above used to leave the skeleton on screen forever.
+      setLoading(false);
+    }
   }
 
   async function loadSuggestions() {
     setLoadingSuggest(true);
+    try {
+      await loadSuggestionsInner();
+    } catch (e) {
+      // An empty suggestion list reads as "nobody matches you" — say otherwise.
+      joinStatus.error(friendlySbMessage(e, "Couldn't load suggested players."));
+      setSuggestions([]);
+    } finally {
+      setLoadingSuggest(false);
+    }
+  }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoadingSuggest(false); return; }
+  async function loadSuggestionsInner() {
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
 
-    const myProfileRes = await supabase
-      .from('profiles')
-      .select('rating, availability')
-      .eq('id', user.id)
-      .single();
-    const myRating = myProfileRes.data?.rating ?? 3.25;
-    const myAv: boolean[] = myProfileRes.data?.availability ?? [];
+    const myProfile = await sbCall(() =>
+      supabase.from('profiles').select('rating, availability').eq('id', uid).single(),
+    );
+    const myRating = myProfile?.rating ?? 3.25;
+    const myAv: boolean[] = myProfile?.availability ?? [];
 
     const memberIds = members.map(m => m.user_id);
     const memberRatings = members.map(m => m.profile?.rating ?? 3.25);
@@ -121,13 +155,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       ? memberRatings.reduce((a, b) => a + b, 0) / memberRatings.length
       : myRating;
 
-    const { data: candidates } = await supabase
+    const candidates = await sbCall(() => supabase
       .from('profiles')
       .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')
       .not('id', 'in', `(${memberIds.join(',')})`)
       .gte('rating', avgElo - 1.75)
       .lte('rating', avgElo + 1.75)
-      .limit(50);
+      .limit(50));
 
     const scored: SuggestedPlayer[] = (candidates ?? []).map((p: any) => {
       const av: boolean[] = Array.isArray(p.availability) && p.availability.length === TOTAL_CELLS
@@ -155,7 +189,6 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     );
 
     setSuggestions(scored.slice(0, 20));
-    setLoadingSuggest(false);
   }
 
   function openSuggest() {
@@ -176,12 +209,18 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   }
 
   async function handleAction(member: LeagueMember, action: string) {
-    if (action === 'Promote to Co-Admin') {
-      await supabase.from('league_members').update({ role: 'co-admin' }).eq('id', member.id);
-    } else if (action === 'Demote to Member') {
-      await supabase.from('league_members').update({ role: 'member' }).eq('id', member.id);
-    } else if (action === 'Remove from League') {
-      await supabase.from('league_members').delete().eq('id', member.id);
+    try {
+      // These all discarded their error, so a failed promote/remove looked
+      // identical to a successful one until the next reload undid it.
+      if (action === 'Promote to Co-Admin') {
+        await sbCall(() => supabase.from('league_members').update({ role: 'co-admin' }).eq('id', member.id));
+      } else if (action === 'Demote to Member') {
+        await sbCall(() => supabase.from('league_members').update({ role: 'member' }).eq('id', member.id));
+      } else if (action === 'Remove from League') {
+        await sbCall(() => supabase.from('league_members').delete().eq('id', member.id));
+      }
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, `Couldn't ${action.toLowerCase()}.`));
     }
     load();
   }
@@ -195,7 +234,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   }
 
   async function denyRequest(request: LeagueJoinRequest) {
-    await supabase.from('league_join_requests').update({ status: 'denied' }).eq('id', request.id);
+    try {
+      await sbCall(() =>
+        supabase.from('league_join_requests').update({ status: 'denied' }).eq('id', request.id),
+      );
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, "Couldn't deny that request."));
+    }
     load();
   }
 
@@ -203,30 +248,53 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   async function joinOpenLeague() {
     setJoining(true);
     joinStatus.clear();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setJoining(false); return; }
-    const { error } = await supabase
-      .from('league_members')
-      .upsert({ league_id: leagueId, user_id: user.id, role: 'member' });
-    setJoining(false);
-    if (error) { joinStatus.error(error.message); return; }
-    await load();
+    try {
+      // requireUserId reads the stored session locally, so this works on a
+      // connection too flaky for getUser()'s round trip.
+      const uid = await requireUserId(supabase, 'Please sign in again to join.');
+      // Upsert on (league_id, user_id) — safe to retry.
+      await sbCall(() =>
+        supabase.from('league_members').upsert({ league_id: leagueId, user_id: uid, role: 'member' }),
+      );
+      await load();
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, "Couldn't join this league."));
+    } finally {
+      setJoining(false);
+    }
   }
 
   async function requestToJoin() {
     setJoining(true);
     joinStatus.clear();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setJoining(false); return; }
-    const { error } = await supabase
-      .from('league_join_requests')
-      .upsert({ league_id: leagueId, user_id: user.id, status: 'pending' });
-    setJoining(false);
-    if (error) { joinStatus.error(error.message); return; }
-    joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+    try {
+      const uid = await requireUserId(supabase, 'Please sign in again to request access.');
+      await sbCall(() =>
+        supabase.from('league_join_requests').upsert({ league_id: leagueId, user_id: uid, status: 'pending' }),
+      );
+      joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
+    } catch (e) {
+      joinStatus.error(friendlySbMessage(e, "Couldn't send your request."));
+    } finally {
+      setJoining(false);
+    }
   }
 
   if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+
+  if (loadError && members.length === 0) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load the roster"
+          subtitle={loadError}
+          actionLabel="Try again"
+          onAction={() => { setLoading(true); void load(); }}
+        />
+      </View>
+    );
+  }
 
   const avgLeagueElo = members.length
     ? +(members.reduce((s, m) => s + (m.profile?.rating ?? 3.25), 0) / members.length).toFixed(2)

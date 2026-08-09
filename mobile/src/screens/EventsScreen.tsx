@@ -3,11 +3,14 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView } from '
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { LeagueEvent, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 
 type Props = {
@@ -99,40 +102,54 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
 export default function EventsScreen({ navigation, route }: Props) {
   const { leagueId } = route.params;
-  const [events, setEvents] = useState<LeagueEvent[]>([]);
-  const [confirmedSlots, setConfirmedSlots] = useState<Record<string, ConfirmedSlot>>({});
   const [myRole, setMyRole] = useState<LeagueRole>(null);
   const [enabled, setEnabled] = useState<Set<Category>>(new Set(DEFAULT_ENABLED));
   const { colors } = useTheme();
   const S = makeStyles(colors);
-  const refresh = useRefresh(async () => {
-    await Promise.all([loadEvents(), getLeagueRole(leagueId).then(setMyRole)]);
-  });
 
-  useFocusEffect(useCallback(() => {
-    loadEvents();
-    getLeagueRole(leagueId).then(setMyRole);
-  }, []));
-
-  async function loadEvents() {
-    const { data } = await supabase
+  const loadEvents = useCallback(async () => {
+    const evs = ((await sbCall(() => supabase
       .from('league_events')
       .select('*')
       .eq('league_id', leagueId)
-      .order('created_at', { ascending: false });
-    const evs = (data ?? []) as LeagueEvent[];
-    setEvents(evs);
+      .order('created_at', { ascending: false }))) ?? []) as LeagueEvent[];
 
     const slotIds = evs.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
-    if (slotIds.length === 0) { setConfirmedSlots({}); return; }
-    const { data: slots } = await supabase
-      .from('event_slots')
-      .select('id, starts_at, ends_at')
-      .in('id', slotIds);
-    const lookup: Record<string, ConfirmedSlot> = {};
-    (slots ?? []).forEach((s: any) => { lookup[s.id] = s; });
-    setConfirmedSlots(lookup);
-  }
+    const slots: Record<string, ConfirmedSlot> = {};
+    if (slotIds.length > 0) {
+      const rows = await sbCall(() => supabase
+        .from('event_slots')
+        .select('id, starts_at, ends_at')
+        .in('id', slotIds));
+      (rows ?? []).forEach((s: any) => { slots[s.id] = s; });
+    }
+    return { events: evs, confirmedSlots: slots };
+  }, [leagueId]);
+
+  const query = useCachedQuery(`league:${leagueId}:events`, loadEvents, {
+    ttlMs: 30_000,
+    persistMs: 24 * 60 * 60 * 1000,
+  });
+  const events: LeagueEvent[] = query.data?.events ?? [];
+  const confirmedSlots: Record<string, ConfirmedSlot> = query.data?.confirmedSlots ?? {};
+  // Nothing cached AND the fetch failed — the one case where we genuinely have
+  // nothing to show. Anything cached keeps rendering instead of blanking.
+  const loadFailed = query.error != null && query.data === undefined;
+
+  // A failed role read must not strip the admin's "+ New Event" FAB, so an
+  // unknown/errored outcome leaves the last known role in place.
+  const loadMyRole = useCallback(async () => {
+    const role = await getLeagueRole(leagueId).catch(() => 'unknown' as const);
+    if (role !== 'unknown') setMyRole(role);
+  }, [leagueId]);
+
+  const reload = useCallback(
+    () => Promise.all([query.refresh(), loadMyRole()]),
+    [query.refresh, loadMyRole],
+  );
+  const refresh = useRefresh(reload);
+
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 
   // Annotate every event with its category once, so filter & render share the result.
   const categorized = useMemo(() => {
@@ -234,7 +251,17 @@ export default function EventsScreen({ navigation, route }: Props) {
           );
         }}
         ListEmptyComponent={
-          categorized.length === 0
+          loadFailed
+            ? <EmptyState
+                icon="📡"
+                title="Couldn't load events"
+                subtitle={friendlySbMessage(query.error)}
+                actionLabel="Retry"
+                onAction={() => { void reload(); }}
+              />
+            : query.loading
+            ? <SkeletonList rows={4} />
+            : categorized.length === 0
             ? <EmptyState icon="📅" title="No events yet" subtitle="Create one to start scheduling league play." />
             : <EmptyState icon="🔍" title="No events match your filters" subtitle="Try enabling more categories above." />
         }
