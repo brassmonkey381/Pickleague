@@ -48,7 +48,9 @@ param(
   [double] $PauseSec = 2,
   # Force a specific Overpass endpoint. Blank = probe the mirror list below and
   # use the first one that answers.
-  [string] $OverpassUrl = ''
+  [string] $OverpassUrl = '',
+  # Walk tiles in raw west-to-east order instead of nearest-metro-first.
+  [switch] $NoPrioritize
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -196,6 +198,33 @@ function Get-Tiles($box, $deg) {
   return $tiles
 }
 
+# Population centres, used only to ORDER tiles — nothing is skipped because of
+# this list. A region's bounding box starts at its southwest corner, so a plain
+# west-to-east sweep of California opens with about fourteen tiles of open
+# Pacific: ten minutes of "empty" before the first court. Working outward from
+# the metros instead means the tiles that actually hold venues are done first,
+# and the time budget only ever cuts off the empty margins.
+$CA_METROS = @(
+  @(37.77, -122.42), @(37.34, -121.89), @(37.96, -121.29), @(38.58, -121.49),
+  @(38.44, -122.71), @(36.60, -121.89), @(36.74, -119.79), @(36.33, -119.29),
+  @(35.37, -119.02), @(35.28, -120.66), @(34.42, -119.70), @(34.05, -118.24),
+  @(33.70, -117.83), @(33.95, -117.40), @(33.83, -116.55), @(32.72, -117.16),
+  @(37.64, -120.99), @(39.73, -121.84), @(40.59, -122.39), @(40.80, -124.16)
+)
+
+function Get-MetroDistanceKm($lat, $lon) {
+  $best = [double]::MaxValue
+  foreach ($m in $CA_METROS) {
+    # Equirectangular approximation: plenty for ranking tiles, and far cheaper
+    # than haversine across 420 tiles x 20 centres.
+    $dLat = ($lat - $m[0]) * 111.0
+    $dLon = ($lon - $m[1]) * 111.0 * [Math]::Cos($lat * [Math]::PI / 180.0)
+    $d = [Math]::Sqrt($dLat * $dLat + $dLon * $dLon)
+    if ($d -lt $best) { $best = $d }
+  }
+  return $best
+}
+
 $stateDir = Join-Path $PSScriptRoot '.enrich-state'
 if (-not (Test-Path $stateDir)) { [void](New-Item -ItemType Directory -Path $stateDir) }
 
@@ -235,6 +264,12 @@ foreach ($r in $regionList) {
   # @() because PowerShell unrolls a returned collection — a one-tile region
   # would otherwise come back as a bare object with no .Count.
   $tiles = @(Get-Tiles $meta.Box $TileDeg)
+  # Nearest-metro-first. Ordering only; every tile is still visited.
+  if (-not $NoPrioritize -and $tiles.Count -gt 1) {
+    $tiles = @($tiles | Sort-Object @{ Expression = {
+      Get-MetroDistanceKm (($_.S + $_.N) / 2) (($_.W + $_.E) / 2)
+    } })
+  }
   $state = Get-State $r
   $todo = @($tiles | Where-Object { $state.done -notcontains $_.Id })
 
