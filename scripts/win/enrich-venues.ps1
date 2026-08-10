@@ -540,6 +540,29 @@ foreach ($r in $regionList) {
 
 Remove-Item $tmpOut, $tmpErr -ErrorAction SilentlyContinue
 
+# ── Backfill city ─────────────────────────────────────────────────────────────
+# load-osm-venues.mjs deliberately never writes `city` (see its comment: the
+# column is owned by the offline geocoder so re-running an ingest can't clobber a
+# geocoded value). Nothing was re-running that geocoder afterwards, though, so
+# every ingest quietly grew the null-city count — 319 rows by the time anyone
+# looked, and city is what venue search displays. The function is idempotent and
+# only touches `city is null`, so running it after each ingest is free.
+if (-not $DryRun -and -not $SqlOut -and $grandTotal -gt 0) {
+  Step "Backfilling city from coordinates"
+  try {
+    $hdr = @{ apikey = $env:SUPABASE_SERVICE_ROLE_KEY
+              Authorization = "Bearer $($env:SUPABASE_SERVICE_ROLE_KEY)"
+              'Content-Type' = 'application/json' }
+    $n = Invoke-RestMethod -Method Post -Uri "$($env:SUPABASE_URL)/rest/v1/rpc/backfill_venue_cities" `
+      -Headers $hdr -Body '{}' -TimeoutSec 120
+    Info "$n venues given a city"
+  } catch {
+    # Never fatal: the venues are already ingested, and the backfill is safe to
+    # re-run by hand or on the next pass.
+    Warn "city backfill failed (venues are still saved): $($_.Exception.Message)"
+  }
+}
+
 Step "Summary"
 Info ("{0} venues seen across this session" -f $grandTotal)
 if ($DryRun) { Warn "DRY RUN — nothing was written" }

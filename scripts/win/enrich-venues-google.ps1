@@ -98,6 +98,22 @@ foreach ($r in $regionList) {
   if ($LASTEXITCODE -ne 0) { Fail "region '$r' failed" $LASTEXITCODE }
 }
 
+# The Google path doesn't write `city` either — same offline-geocoder ownership
+# as the OSM loader — so a real run leaves new rows null until this runs.
+if ($Execute) {
+  Step "Backfilling city from coordinates"
+  try {
+    $hdr = @{ apikey = $env:SUPABASE_SERVICE_ROLE_KEY
+              Authorization = "Bearer $($env:SUPABASE_SERVICE_ROLE_KEY)"
+              'Content-Type' = 'application/json' }
+    $n = Invoke-RestMethod -Method Post -Uri "$($env:SUPABASE_URL)/rest/v1/rpc/backfill_venue_cities" `
+      -Headers $hdr -Body '{}' -TimeoutSec 120
+    Info "$n venues given a city"
+  } catch {
+    Warn "city backfill failed (venues are still saved): $($_.Exception.Message)"
+  }
+}
+
 Step "Summary"
 if (-not $Execute) {
   Info "that was an estimate only. Re-run with -Execute (and ideally one -Region at a time)."
