@@ -254,6 +254,15 @@ function Save-State($region, $state) {
   # A dry run writes nothing to the database, so it must not claim tiles as done
   # either — otherwise the next REAL run skips every tile you previewed.
   if ($DryRun) { return }
+  # A tile that later succeeded must not stay on the failed list. Pruning here
+  # rather than at each call site because the empty-tile path forgot to, which
+  # left 72 California tiles counted as both and made the run look far worse
+  # than it was.
+  if ($state.done.Count -gt 0 -and $state.failed.Count -gt 0) {
+    $doneLookup = [System.Collections.Generic.HashSet[string]]::new([string[]]@($state.done))
+    $stillFailed = @($state.failed | Where-Object { -not $doneLookup.Contains($_) })
+    $state.failed = [System.Collections.ArrayList]@($stillFailed)
+  }
   $f = Join-Path $stateDir "venues-$region.json"
   [pscustomobject]@{ done = @($state.done); failed = @($state.failed); updatedAt = (Get-Date).ToString('o') } |
     ConvertTo-Json -Depth 4 | Set-Content -Path $f -Encoding utf8
