@@ -23,7 +23,7 @@ Source: `public.venues`. Total rows: **4,041**.
 | --- | ---: | ---: |
 | name | 4,041 | 100.0% |
 | address | 2,233 | 55.3% |
-| city | 2,218 | 54.9% |
+| city | 4,041 | 100.0% |
 | region_slug | 0 | 0.0% |
 | surface | 596 | 14.7% |
 | indoor | 108 | 2.7% |
@@ -43,4 +43,4 @@ Source: `public.venues`. Total rows: **4,041**.
 | Geofence | Venues | Coverage |
 | --- | ---: | ---: |
 | polygon boundary | 1,869 | 46.3% |
-| radius fallback | 2,088 | 51.7% |
+| radius fallback | 4,041 | 100.0% |

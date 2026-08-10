@@ -41,3 +41,6 @@ out/
 # DUPR roster dumps (--out from scripts/import-dupr-club.mjs) — real member PII
 scripts/*dupr*.json
 scripts/alameda.json
+
+# Local tile progress for scripts/win/enrich-venues.ps1 (resume markers, not data)
+scripts/win/.enrich-state/
