@@ -159,19 +159,54 @@ $DEFAULT_MIRRORS = @(
   'https://overpass.private.coffee/api/interpreter'
 )
 
-function Test-OverpassEndpoint($url) {
+# How long to wait for a mirror's status page. Deliberately generous: under load
+# these took 20-22s to answer a *status* page while serving real queries fine, so
+# a 15s probe declared all three dead and the script exited rather than working.
+# A slow mirror is still a working mirror; the ranking below handles preferring
+# the quick one.
+$PROBE_TIMEOUT_SEC = 45
+
+# Returns response time in ms, or -1 when the endpoint is not usable.
+function Measure-OverpassEndpoint($url) {
   $statusUrl = $url -replace '/api/interpreter/?$', '/api/status'
   # Two attempts: these are volunteer-run mirrors that blink in and out, and a
   # single timeout was enough to write off one that was healthy seconds later.
   for ($attempt = 1; $attempt -le 2; $attempt++) {
     try {
-      $resp = Invoke-WebRequest -Uri $statusUrl -TimeoutSec 15 -UseBasicParsing -ErrorAction Stop
-      if ($resp.StatusCode -eq 200) { return $true }
+      $sw = [System.Diagnostics.Stopwatch]::StartNew()
+      $resp = Invoke-WebRequest -Uri $statusUrl -TimeoutSec $PROBE_TIMEOUT_SEC -UseBasicParsing -ErrorAction Stop
+      $sw.Stop()
+      if ($resp.StatusCode -eq 200) { return [int]$sw.ElapsedMilliseconds }
     } catch {
       if ($attempt -lt 2) { Start-Sleep -Seconds 3 }
     }
   }
-  return $false
+  return -1
+}
+
+function Test-OverpassEndpoint($url) { return ((Measure-OverpassEndpoint $url) -ge 0) }
+
+# Rank the mirrors by how quickly they answer, fastest first, and drop the dead
+# ones. Worth doing: on the same dense tile one mirror answered in 30s and
+# another took 182s for identical data, and the old "first that responds" rule
+# had no way to prefer the quick one.
+function Initialize-OverpassRanking {
+  $healthy = @()
+  foreach ($m in $script:Mirrors) {
+    $ms = Measure-OverpassEndpoint $m
+    if ($ms -ge 0) {
+      Info ("{0,6} ms  {1}" -f $ms, $m)
+      $healthy += [pscustomobject]@{ Url = $m; Ms = $ms }
+    } else {
+      Warn "no answer: $m"
+    }
+  }
+  if ($healthy.Count -eq 0) { return $false }
+  $script:Mirrors = @($healthy | Sort-Object Ms | ForEach-Object { $_.Url })
+  $script:MirrorIndex = 0
+  $env:OVERPASS_URL = $script:Mirrors[0]
+  Info "using $($script:Mirrors[0])"
+  return $true
 }
 
 if ($OverpassUrl) {
@@ -207,7 +242,7 @@ function Select-NextOverpass {
 }
 
 Step "Choosing an Overpass endpoint"
-if (-not (Select-NextOverpass)) {
+if (-not (Initialize-OverpassRanking)) {
   Fail "no reachable Overpass endpoint (tried $($script:Mirrors.Count)). Check your connection, or pass -OverpassUrl" 7
 }
 

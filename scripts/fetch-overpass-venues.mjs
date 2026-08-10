@@ -22,10 +22,17 @@ const OVERPASS = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interp
 // with the osmium tags-filter in ingest-osm-venues.sh.
 const SPORTS = 'basketball|pickleball|tennis|soccer|volleyball|beach_volleyball|baseball|softball|skateboard|disc_golf|bocce';
 
+// Server-side budget for the query. Measured against a dense Los Angeles tile: a
+// healthy mirror answered the full union in 193s, so the old 180s bbox budget was
+// killing responses that were merely slow, not too expensive — the server reports
+// that as a 504 and it reads exactly like an overload. Raise with OVERPASS_TIMEOUT
+// if you hit genuinely huge tiles.
+const QUERY_TIMEOUT = Number(process.env.OVERPASS_TIMEOUT) || 300;
+
 function buildQuery({ scope, area }) {
   const header = area
-    ? `[out:json][timeout:300];\narea["ISO3166-2"="${area}"]->.a;`
-    : `[out:json][timeout:180];`;
+    ? `[out:json][timeout:${QUERY_TIMEOUT}];\narea["ISO3166-2"="${area}"]->.a;`
+    : `[out:json][timeout:${QUERY_TIMEOUT}];`;
   const s = area ? '(area.a)' : scope;
   return `${header}
 (
@@ -58,8 +65,15 @@ async function overpass(ql) {
     });
     if (res.ok) return res.json();
     if (res.status === 429 || res.status >= 500) {
-      const wait = 5000 * (attempt + 1);
-      process.stderr.write(`Overpass ${res.status}; retrying in ${wait / 1000}s…\n`);
+      // Overpass frees rate-limit slots on a scale of minutes, so 5/10/15/20s
+      // just burned the four attempts inside one busy patch. Exponential, and
+      // Retry-After wins when the server tells us what it wants.
+      const retryAfter = Number(res.headers.get('retry-after'));
+      const backoff = 15000 * 2 ** attempt; // 15s, 30s, 60s
+      const wait = Number.isFinite(retryAfter) && retryAfter > 0
+        ? Math.min(retryAfter * 1000, 180000)
+        : backoff;
+      process.stderr.write(`Overpass ${res.status}; retrying in ${Math.round(wait / 1000)}s…\n`);
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
