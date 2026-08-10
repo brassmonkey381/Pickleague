@@ -50,7 +50,13 @@ param(
   # use the first one that answers.
   [string] $OverpassUrl = '',
   # Walk tiles in raw west-to-east order instead of nearest-metro-first.
-  [switch] $NoPrioritize
+  [switch] $NoPrioritize,
+  # Skip tiles further than this many km from any population centre. 0 = visit
+  # every tile. California is mostly ocean, desert and national forest: at 120
+  # this drops roughly half the state's tiles, none of which hold a court.
+  # Skipped tiles are NOT recorded as done, so raising the radius later picks
+  # them up.
+  [double] $MaxMetroKm = 0
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -157,7 +163,13 @@ if ($OverpassUrl) {
 $script:MirrorIndex = -1
 
 function Select-NextOverpass {
-  for ($i = $script:MirrorIndex + 1; $i -lt $script:Mirrors.Count; $i++) {
+  # Wraps around the list rather than walking off the end. A mirror that was
+  # refusing traffic ten minutes ago is usually serving again, so exhausting the
+  # list once is not a reason to give up — only a full cycle with nothing
+  # healthy is.
+  $n = $script:Mirrors.Count
+  for ($step = 1; $step -le $n; $step++) {
+    $i = ($script:MirrorIndex + $step) % $n
     $candidate = $script:Mirrors[$i]
     Info "probing $candidate"
     if (Test-OverpassEndpoint $candidate) {
@@ -253,10 +265,18 @@ $tmpOut = Join-Path $env:TEMP "pl-venues-$PID.geojsonseq"
 $tmpErr = Join-Path $env:TEMP "pl-venues-$PID.err"
 $grandTotal = 0
 $stopped = $false
-# Rotate endpoints after a short run of failures rather than burning the rest of
-# the ladder against a server that has stopped answering.
-$consecutiveFetchFails = 0
-$FAILS_BEFORE_ROTATE = 3
+# Endpoint health is judged on a ROLLING WINDOW, not a consecutive streak.
+# The consecutive-failure test was wrong in practice: an overloaded mirror fails
+# most tiles but still lets the occasional one through, and every success reset
+# the counter — so a run recorded 402 failures out of 447 tiles without ever
+# rotating once. Half the recent window failing is the signal that matters.
+$recentResults = New-Object System.Collections.ArrayList
+$WINDOW = 10
+$WINDOW_FAIL_TRIP = 5
+# Escalating cool-off after a failure: hammering a struggling mirror at the
+# normal cadence is what turns a busy patch into a wall of 504s.
+$failStreak = 0
+$rotationsSinceProgress = 0
 
 foreach ($r in $regionList) {
   if ($stopped) { break }
@@ -270,11 +290,23 @@ foreach ($r in $regionList) {
       Get-MetroDistanceKm (($_.S + $_.N) / 2) (($_.W + $_.E) / 2)
     } })
   }
+  $skippedFar = 0
+  if ($MaxMetroKm -gt 0 -and $tiles.Count -gt 1) {
+    $before = $tiles.Count
+    $tiles = @($tiles | Where-Object {
+      (Get-MetroDistanceKm (($_.S + $_.N) / 2) (($_.W + $_.E) / 2)) -le $MaxMetroKm
+    })
+    $skippedFar = $before - $tiles.Count
+  }
   $state = Get-State $r
   $todo = @($tiles | Where-Object { $state.done -notcontains $_.Id })
 
   Step "$($meta.Label)  [$r]"
   Info ("{0} tiles at {1} deg — {2} already done, {3} to go" -f $tiles.Count, $TileDeg, $state.done.Count, $todo.Count)
+  if ($skippedFar -gt 0) {
+    # Not recorded as done: raising -MaxMetroKm later picks these up.
+    Info ("{0} tiles skipped as further than {1} km from any population centre" -f $skippedFar, $MaxMetroKm)
+  }
   if ($todo.Count -eq 0) { Info "nothing left for this region"; continue }
 
   $i = 0
@@ -304,19 +336,32 @@ foreach ($r in $regionList) {
       if ($state.failed -notcontains $t.Id) { [void]$state.failed.Add($t.Id) }
       Save-State $r $state
 
-      $consecutiveFetchFails++
-      if ($consecutiveFetchFails -ge $FAILS_BEFORE_ROTATE) {
-        Warn "$consecutiveFetchFails failures in a row — trying the next Overpass mirror"
+      [void]$recentResults.Add($false)
+      while ($recentResults.Count -gt $WINDOW) { $recentResults.RemoveAt(0) }
+      $failStreak++
+
+      $recentFails = @($recentResults | Where-Object { -not $_ }).Count
+      if ($recentResults.Count -ge $WINDOW -and $recentFails -ge $WINDOW_FAIL_TRIP) {
+        Warn "$recentFails of the last $($recentResults.Count) tiles failed — rotating Overpass mirror"
         if (Select-NextOverpass) {
-          $consecutiveFetchFails = 0
+          $recentResults.Clear()
+          $rotationsSinceProgress++
+          if ($rotationsSinceProgress -ge ($script:Mirrors.Count * 2)) {
+            Fail "every mirror is failing. Progress is saved — re-run later; failed tiles retry automatically." 7
+          }
         } else {
-          Fail "every Overpass endpoint stopped answering. Progress is saved — re-run later." 7
+          Fail "no Overpass endpoint is answering. Progress is saved — re-run later." 7
         }
       }
-      Start-Sleep -Seconds ([Math]::Max(5, $PauseSec * 3))
+      # Back off harder the longer the failures persist (5s, 15s, 30s, 60s cap).
+      $cool = [Math]::Min(60, 5 * [Math]::Pow(2, [Math]::Min(4, $failStreak - 1)))
+      Start-Sleep -Seconds $cool
       continue
     }
-    $consecutiveFetchFails = 0
+    [void]$recentResults.Add($true)
+    while ($recentResults.Count -gt $WINDOW) { $recentResults.RemoveAt(0) }
+    $failStreak = 0
+    $rotationsSinceProgress = 0
 
     $size = 0
     if (Test-Path $tmpOut) { $size = (Get-Item $tmpOut).Length }
