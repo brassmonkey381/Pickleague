@@ -26,6 +26,9 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GKEY = process.env.GOOGLE_PLACES_KEY || process.env.EXPO_PUBLIC_GOOGLE_PLACES_KEY;
 const DRY = flag('--dry-run');
 const PURGE = flag('--purge-expired');
+// Keep results that fall outside --bbox. Off by default: search circles overshoot
+// the box by many km, so a small region would otherwise ingest its whole metro.
+const ALLOW_OVERSHOOT = flag('--allow-overshoot');
 const WITH_CONTACT = flag('--with-contact'); // add website/phone → Enterprise SKU (pricier, smaller free cap)
 // Greater Bay Area default bbox (south west north east).
 const BBOX = (opt('--bbox', '37.2 -122.6 38.1 -121.6') || '').split(/\s+/).map(Number);
@@ -146,10 +149,19 @@ async function main() {
     if (!res.ok) throw new Error(`upsert ${res.status}: ${await res.text()}`);
   }
 
+  /** Which of these venue ids already exist. Quoted because ids contain a colon. */
+  async function existingRowIds(ids) {
+    if (!ids.length) return new Set();
+    const list = ids.map((i) => `"${i}"`).join(',');
+    const res = await fetch(`${REST}/venues?select=id&id=in.(${encodeURIComponent(list)})`, { headers: H });
+    if (!res.ok) throw new Error(`id lookup ${res.status}: ${await res.text()}`);
+    return new Set((await res.json()).map((r) => r.id));
+  }
+
   const expires = new Date(Date.now() + TTL_DAYS * 864e5).toISOString();
   const now = new Date().toISOString();
   const seen = new Set(); // place ids added this run
-  let added = 0, skipped = 0, calls = 0;
+  let inserted = 0, refreshed = 0, skipped = 0, outside = 0, calls = 0;
 
   for (const tile of grid) {
     for (const sport of SPORTS) {
@@ -164,6 +176,13 @@ async function main() {
           const lat = p.location?.latitude, lng = p.location?.longitude;
           if (!p.id || !name || lat == null) continue;
           if (seen.has(p.id)) continue;
+          // Google searches by CIRCLE, so an 8 km radius spills well past the
+          // bbox: an Alameda run pulled in Berkeley, Montclair and even San
+          // Francisco, up to 16 km out. Worse, the dedup set below is loaded
+          // only for the bbox, so those outsiders were never dedup candidates —
+          // they upserted over existing rows and were reported as new. Clip to
+          // what was actually asked for; --allow-overshoot keeps the spill.
+          if (!ALLOW_OVERSHOOT && (lat < s || lat > n || lng < w || lng > e)) { outside++; continue; }
           // Physical dedup: skip within 100 m of any existing venue.
           if (existing.some((x) => x.lat != null && kmMeters(lat, lng, x.lat, x.lng) < 100)) { skipped++; continue; }
           seen.add(p.id);
@@ -190,13 +209,22 @@ async function main() {
         pages++;
         if (token) await sleep(1500);
       } while (token && pages < MAX_PAGES);
-      if (batch.length) await upsert(batch);
-      added += batch.length;
+      if (batch.length) {
+        // Which of these already exist? An upsert can't tell you afterwards, and
+        // conflating a refresh with an insert overstated a real run 4x (163
+        // "added" against 41 rows actually created) — which is exactly the
+        // number you'd use to judge whether the spend was worth it.
+        const known = await existingRowIds(batch.map((r) => r.id));
+        const newOnes = batch.filter((r) => !known.has(r.id)).length;
+        await upsert(batch);
+        inserted += newOnes;
+        refreshed += batch.length - newOnes;
+      }
     }
-    process.stdout.write(`\rTiles done: ${grid.indexOf(tile) + 1}/${grid.length} · added ${added} · ${calls} calls`);
+    process.stdout.write(`\rTiles done: ${grid.indexOf(tile) + 1}/${grid.length} · ${inserted} new, ${refreshed} refreshed · ${calls} calls`);
   }
   const overage = Math.max(0, calls - FREE_CAP);
-  console.log(`\nDone. Added ${added} google venues, skipped ${skipped} dupes. ${calls} Text Search ${TIER} calls (${FREE_CAP.toLocaleString()} free/mo${overage ? `; ~${overage} over ≈ $${((overage * PER_1K) / 1000).toFixed(2)}` : ' — free'}).`);
+  console.log(`\nDone. ${inserted} new google venues, ${refreshed} refreshed, ${skipped} skipped as dupes${ALLOW_OVERSHOOT ? '' : `, ${outside} outside the bbox`}. ${calls} Text Search ${TIER} calls (${FREE_CAP.toLocaleString()} free/mo${overage ? `; ~${overage} over ≈ $${((overage * PER_1K) / 1000).toFixed(2)}` : ' — free'}).`);
 }
 
 main().catch((err) => { console.error('\n' + (err.message?.includes('401') ? '401 — check keys' : err.message)); process.exitCode = 1; });
