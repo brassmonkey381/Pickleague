@@ -56,7 +56,12 @@ param(
   # this drops roughly half the state's tiles, none of which hold a court.
   # Skipped tiles are NOT recorded as done, so raising the radius later picks
   # them up.
-  [double] $MaxMetroKm = 0
+  [double] $MaxMetroKm = 0,
+  # How many times a failing tile may be quartered and retried. Overpass answers
+  # 504 when a query is too expensive for it, which is what a dense metro tile
+  # is — four smaller queries usually all succeed where the whole tile could not.
+  # 0 disables splitting.
+  [int] $SplitDepth = 1
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -118,7 +123,25 @@ if ($StatusOnly) {
       $f = Join-Path $stateDir "venues-$r.json"
       if (Test-Path $f) {
         $st = Get-Content $f -Raw | ConvertFrom-Json
-        Info ("{0,-16} {1} tiles done, {2} failed" -f $r, @($st.done).Count, @($st.failed).Count)
+        $doneN = @($st.done).Count
+        $total = @(Get-Tiles $REGIONS[$r].Box $TileDeg).Count
+        # Yield, not just progress: "194 tiles done" says nothing about whether
+        # the state actually holds courts. Tiles fetched before counts existed
+        # are reported separately rather than being silently counted as zero.
+        $withCounts = 0; $venues = 0; $productive = 0
+        if ($st.PSObject.Properties.Name -contains 'counts' -and $st.counts) {
+          foreach ($p in $st.counts.PSObject.Properties) {
+            $withCounts++; $venues += [int]$p.Value
+            if ([int]$p.Value -gt 0) { $productive++ }
+          }
+        }
+        Info ("{0,-16} {1}/{2} tiles done, {3} failed" -f $r, $doneN, $total, @($st.failed).Count)
+        if ($withCounts -gt 0) {
+          Info ("{0,-16}   {1} venues from {2} productive of {3} measured tiles" -f '', $venues, $productive, $withCounts)
+        }
+        if ($doneN -gt $withCounts) {
+          Info ("{0,-16}   {1} tiles done before yields were recorded" -f '', ($doneN - $withCounts))
+        }
       }
     }
   }
@@ -246,9 +269,23 @@ function Get-State($region) {
   $f = Join-Path $stateDir "venues-$region.json"
   if ((Test-Path $f) -and -not $Restart -and -not $DryRun) {
     $raw = Get-Content $f -Raw | ConvertFrom-Json
-    return @{ done = [System.Collections.ArrayList]@($raw.done); failed = [System.Collections.ArrayList]@($raw.failed) }
+    # `counts` post-dates the first state files, so its absence is normal — those
+    # tiles simply have no recorded yield until they are fetched again.
+    $counts = @{}
+    if ($raw.PSObject.Properties.Name -contains 'counts' -and $raw.counts) {
+      foreach ($p in $raw.counts.PSObject.Properties) { $counts[$p.Name] = [int]$p.Value }
+    }
+    return @{
+      done   = [System.Collections.ArrayList]@($raw.done)
+      failed = [System.Collections.ArrayList]@($raw.failed)
+      counts = $counts
+    }
   }
-  return @{ done = (New-Object System.Collections.ArrayList); failed = (New-Object System.Collections.ArrayList) }
+  return @{
+    done   = (New-Object System.Collections.ArrayList)
+    failed = (New-Object System.Collections.ArrayList)
+    counts = @{}
+  }
 }
 function Save-State($region, $state) {
   # A dry run writes nothing to the database, so it must not claim tiles as done
@@ -264,8 +301,81 @@ function Save-State($region, $state) {
     $state.failed = [System.Collections.ArrayList]@($stillFailed)
   }
   $f = Join-Path $stateDir "venues-$region.json"
-  [pscustomobject]@{ done = @($state.done); failed = @($state.failed); updatedAt = (Get-Date).ToString('o') } |
-    ConvertTo-Json -Depth 4 | Set-Content -Path $f -Encoding utf8
+  [pscustomobject]@{
+    done      = @($state.done)
+    failed    = @($state.failed)
+    counts    = $state.counts
+    updatedAt = (Get-Date).ToString('o')
+  } | ConvertTo-Json -Depth 4 | Set-Content -Path $f -Encoding utf8
+}
+
+# ── One bounding box, fetched and loaded ──────────────────────────────────────
+# Returns @{ Ok; Venues; Empty; Summary; Error }. Split out of the tile loop so
+# a failing box can be quartered and retried through the same path.
+function Invoke-Bbox($s, $w, $n, $e) {
+  # Start-Process, not a PowerShell pipe: PS 5.1 re-encodes native stdout, which
+  # both mangles UTF-8 and is very slow on large payloads. Redirecting to a file
+  # keeps the bytes exactly as node wrote them.
+  $fetchArgs = @('scripts/fetch-overpass-venues.mjs', $s, $w, $n, $e)
+  $p = Start-Process -FilePath 'node' -ArgumentList $fetchArgs -NoNewWindow -Wait -PassThru `
+    -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
+  if ($p.ExitCode -ne 0) {
+    $msg = ''
+    if (Test-Path $tmpErr) { $msg = (Get-Content $tmpErr -Raw) -replace '\s+', ' ' }
+    return @{ Ok = $false; Venues = 0; Empty = $false; Error = $msg }
+  }
+
+  $size = 0
+  if (Test-Path $tmpOut) { $size = (Get-Item $tmpOut).Length }
+  if ($size -eq 0) { return @{ Ok = $true; Venues = 0; Empty = $true; Summary = 'empty' } }
+
+  if ($DryRun) { $env:DRY_RUN = '1' } else { Remove-Item env:DRY_RUN -ErrorAction SilentlyContinue }
+  if ($SqlOut) { $env:SQL_OUT = $SqlOut } else { Remove-Item env:SQL_OUT -ErrorAction SilentlyContinue }
+
+  $loadOut = & node scripts/load-osm-venues.mjs $tmpOut 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    return @{ Ok = $false; Venues = 0; Empty = $false; Error = (($loadOut | Out-String) -replace '\s+', ' ') }
+  }
+
+  # Match the totals line by shape, not by position: the loader prints a
+  # per-sport breakdown after it, so -Last 1 grabbed the wrong line.
+  $lines = @($loadOut | ForEach-Object { "$_" })
+  $summary = $lines | Where-Object { $_ -match '\d+\s+venues' } | Select-Object -Last 1
+  if (-not $summary) { $summary = $lines | Select-Object -Last 1 }
+  $summary = "$summary" -replace '^\s+', ''
+  $venues = 0
+  if ($summary -match '(\d+)\s+venues') { $venues = [int]$Matches[1] }
+  return @{ Ok = $true; Venues = $venues; Empty = ($venues -eq 0); Summary = $summary }
+}
+
+# Quarter a failing box and retry the pieces. A 504 means the gateway gave up on
+# the query's cost, not that the data is unreachable — so the same area asked for
+# in four cheaper questions typically answers fine. Sub-tiles are transient: only
+# the parent tile id is ever recorded, so this cannot fragment the resume state.
+function Invoke-BboxWithSplit($s, $w, $n, $e, $depth) {
+  $res = Invoke-Bbox $s $w $n $e
+  if ($res.Ok -or $depth -le 0) { return $res }
+
+  Write-Host ""
+  Warn ("    too expensive — splitting {0},{1} -> {2},{3} into 4" -f $s, $w, $n, $e)
+  $midLat = ($s + $n) / 2
+  $midLon = ($w + $e) / 2
+  $quads = @(
+    @($s, $w, $midLat, $midLon), @($s, $midLon, $midLat, $e),
+    @($midLat, $w, $n, $midLon), @($midLat, $midLon, $n, $e)
+  )
+  $total = 0
+  foreach ($q in $quads) {
+    Start-Sleep -Seconds $PauseSec
+    $sub = Invoke-BboxWithSplit $q[0] $q[1] $q[2] $q[3] ($depth - 1)
+    if (-not $sub.Ok) {
+      # Partial success is still a failed tile: the parent is retried whole next
+      # run. Re-fetching a quadrant is cheap and venues upsert by OSM id.
+      return @{ Ok = $false; Venues = $total; Empty = $false; Error = $sub.Error }
+    }
+    $total += $sub.Venues
+  }
+  return @{ Ok = $true; Venues = $total; Empty = ($total -eq 0); Summary = "$total venues (split)" }
 }
 
 # ── Run ───────────────────────────────────────────────────────────────────────
@@ -306,6 +416,13 @@ foreach ($r in $regionList) {
       (Get-MetroDistanceKm (($_.S + $_.N) / 2) (($_.W + $_.E) / 2)) -le $MaxMetroKm
     })
     $skippedFar = $before - $tiles.Count
+    if ($tiles.Count -eq 0) {
+      # Loudly, not silently. The metro list is California-only, so pointing this
+      # at another state with -MaxMetroKm set would filter away every tile and
+      # report a clean "nothing to do" — success-looking output for a run that
+      # did nothing at all.
+      Fail ("-MaxMetroKm $MaxMetroKm removed all $before tiles in '$r'. The population-centre list only covers California; raise the radius or drop -MaxMetroKm.") 8
+    }
   }
   $state = Get-State $r
   $todo = @($tiles | Where-Object { $state.done -notcontains $_.Id })
@@ -329,16 +446,10 @@ foreach ($r in $regionList) {
     $label = "{0}/{1}  {2},{3} -> {4},{5}" -f $i, $todo.Count, $t.S, $t.W, $t.N, $t.E
     Write-Host ("  [{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $label) -NoNewline
 
-    # Start-Process, not a PowerShell pipe: PS 5.1 re-encodes native stdout, which
-    # both mangles UTF-8 and is very slow on large payloads. Redirecting to a file
-    # keeps the bytes exactly as node wrote them.
-    $fetchArgs = @('scripts/fetch-overpass-venues.mjs', $t.S, $t.W, $t.N, $t.E)
-    $p = Start-Process -FilePath 'node' -ArgumentList $fetchArgs -NoNewWindow -Wait -PassThru `
-      -RedirectStandardOutput $tmpOut -RedirectStandardError $tmpErr
-    if ($p.ExitCode -ne 0) {
-      $msg = ''
-      if (Test-Path $tmpErr) { $msg = (Get-Content $tmpErr -Raw) -replace '\s+', ' ' }
-      Write-Host "  FETCH FAILED" -ForegroundColor Yellow
+    $res = Invoke-BboxWithSplit $t.S $t.W $t.N $t.E $SplitDepth
+    if (-not $res.Ok) {
+      $msg = "$($res.Error)"
+      Write-Host "  FAILED" -ForegroundColor Yellow
       if ($msg) { Warn ($msg.Substring(0, [Math]::Min(200, $msg.Length))) }
       # Recorded, not fatal: Overpass refuses bursts, and the tile is retried on
       # the next run rather than taking the whole session down.
@@ -372,39 +483,18 @@ foreach ($r in $regionList) {
     $failStreak = 0
     $rotationsSinceProgress = 0
 
-    $size = 0
-    if (Test-Path $tmpOut) { $size = (Get-Item $tmpOut).Length }
-    if ($size -eq 0) {
+    if ($res.Empty) {
       Write-Host "  empty" -ForegroundColor DarkGray
-      [void]$state.done.Add($t.Id)
-      Save-State $r $state
-      Start-Sleep -Seconds $PauseSec
-      continue
+    } else {
+      Write-Host "  $($res.Summary)" -ForegroundColor Green
     }
-
-    if ($DryRun)      { $env:DRY_RUN = '1' } else { Remove-Item env:DRY_RUN -ErrorAction SilentlyContinue }
-    if ($SqlOut)      { $env:SQL_OUT = $SqlOut } else { Remove-Item env:SQL_OUT -ErrorAction SilentlyContinue }
-
-    $loadOut = & node scripts/load-osm-venues.mjs $tmpOut 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "  LOAD FAILED" -ForegroundColor Yellow
-      Warn (($loadOut | Out-String) -replace '\s+', ' ')
-      if ($state.failed -notcontains $t.Id) { [void]$state.failed.Add($t.Id) }
-      Save-State $r $state
-      Start-Sleep -Seconds $PauseSec
-      continue
-    }
-
-    # Match the totals line by shape, not by position: the loader prints a
-    # per-sport breakdown after it, so -Last 1 grabbed the wrong line.
-    $lines = @($loadOut | ForEach-Object { "$_" })
-    $summary = $lines | Where-Object { $_ -match '\d+\s+venues' } | Select-Object -Last 1
-    if (-not $summary) { $summary = $lines | Select-Object -Last 1 }
-    $summary = "$summary" -replace '^\s+', ''
-    Write-Host "  $summary" -ForegroundColor Green
-    if ($summary -match '(\d+)\s+venues') { $grandTotal += [int]$Matches[1] }
+    $grandTotal += $res.Venues
 
     [void]$state.done.Add($t.Id)
+    # Remember what the tile yielded, so a later run can tell "checked, genuinely
+    # empty" from "never successfully fetched" — the two were indistinguishable
+    # once a tile was marked done.
+    $state.counts[$t.Id] = $res.Venues
     if ($state.failed -contains $t.Id) { [void]$state.failed.Remove($t.Id) }
     Save-State $r $state
     Start-Sleep -Seconds $PauseSec
