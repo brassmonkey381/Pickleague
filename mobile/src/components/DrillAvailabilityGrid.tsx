@@ -37,6 +37,10 @@ export default function DrillAvailabilityGrid({
       availability={availability}
       onChange={onChange}
       onScrollLock={onScrollLock}
+      // Half-hour cells are a small target for a mouse, and a paint drag over
+      // them smears easily. Drawing a block and committing on release is both
+      // steadier and correctable before you let go.
+      dragSelect="rectangle"
       emptyLabel="No drill availability set"
       overlays={[
         { label: 'Drill', color: { light: '#f5c542', dark: '#caa028' }, slots: confirmedSlots ?? [] },
