@@ -75,6 +75,9 @@ export default function DrillSearchScreen({}: Props) {
       .from('profiles')
       .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
       .eq('drilling_enabled', true)
+      // Deletion also clears drilling_enabled, so this is belt and braces —
+      // but the exclusion should not depend on a side effect of the scrub.
+      .is('deleted_at', null)
       .neq('id', uid)
       .limit(100)) as any[];
 

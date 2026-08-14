@@ -90,6 +90,8 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     const profs = await sbCall(() => supabase
       .from('profiles')
       .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color')
+      // Never offer a deleted account as someone to invite.
+      .is('deleted_at', null)
       .gte('rating', avg - 1.5)
       .lte('rating', avg + 1.5)
       .order('full_name')

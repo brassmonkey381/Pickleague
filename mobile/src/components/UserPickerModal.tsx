@@ -40,6 +40,9 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
     supabase
       .from('profiles')
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
+      // Deleted accounts survive as [deleted account] tombstones so shared
+      // match history stays intact — they are not people you can pick.
+      .is('deleted_at', null)
       .order('full_name')
       .limit(500)
       .then(({ data }) => {

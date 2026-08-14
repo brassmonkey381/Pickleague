@@ -159,6 +159,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       .from('profiles')
       .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')
       .not('id', 'in', `(${memberIds.join(',')})`)
+      // Suggested players to invite — a tombstoned account is not one.
+      .is('deleted_at', null)
       .gte('rating', avgElo - 1.75)
       .lte('rating', avgElo + 1.75)
       .limit(50));
