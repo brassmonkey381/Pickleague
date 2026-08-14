@@ -184,6 +184,9 @@ export type LeagueEvent = {
   status: 'voting' | 'scheduled' | 'cancelled';
   vote_ends_at: string;
   confirmed_slot_id: string | null;
+  /** Voters that must agree on ONE slot for the event to happen. Null = no
+   *  minimum. Below it, the event is cancelled rather than scheduled. */
+  min_players: number | null;
   created_at: string;
   slots?: EventSlot[];
 };

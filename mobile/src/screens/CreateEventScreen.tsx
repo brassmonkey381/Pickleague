@@ -57,6 +57,9 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  // Blank = no minimum, which is the previous behaviour: whatever time wins,
+  // wins. Set it and the event cancels itself if the best time can't reach it.
+  const [minPlayers, setMinPlayers] = useState('');
   const [deadlinePreset, setDeadlinePreset] = useState<number>(24);
   const [customDeadline, setCustomDeadline] = useState<Date | null>(null);
   const [slots, setSlots] = useState<SlotDraft[]>([defaultSlot(1), defaultSlot(2)]);
@@ -143,6 +146,11 @@ export default function CreateEventScreen({ navigation, route }: Props) {
       setStatusMsg({ text: 'Vote deadline must be in the future.', isError: true });
       return;
     }
+    const minPlayersValue = minPlayers.trim() ? Number(minPlayers.trim()) : null;
+    if (minPlayersValue !== null && (!Number.isInteger(minPlayersValue) || minPlayersValue < 1)) {
+      setStatusMsg({ text: 'Minimum players must be a whole number of 1 or more.', isError: true });
+      return;
+    }
 
     inFlight.current = true;
     setLoading(true);
@@ -164,6 +172,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
             description: description.trim() || null,
             created_by: uid,
             vote_ends_at: voteEndsAt.toISOString(),
+            min_players: minPlayersValue,
           })
           .select()
           .single(), { retries: 0, timeoutMs: 30_000 }) as { id: string };
@@ -226,6 +235,21 @@ export default function CreateEventScreen({ navigation, route }: Props) {
           value={description}
           onChangeText={setDescription}
           multiline
+        />
+
+        <Text style={S.label}>Minimum players (optional)</Text>
+        <Text style={S.hint}>
+          If no single time option gets at least this many players, the event is
+          cancelled when voting closes. Leave blank for no minimum.
+        </Text>
+        <TextInput
+          style={S.input}
+          placeholder="e.g. 4"
+          placeholderTextColor={colors.textMuted}
+          value={minPlayers}
+          onChangeText={(t) => setMinPlayers(t.replace(/[^0-9]/g, ''))}
+          keyboardType="number-pad"
+          maxLength={3}
         />
 
         {/* Vote deadline */}

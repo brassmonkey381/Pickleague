@@ -65,6 +65,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [confirmedAttendees, setConfirmedAttendees] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState<string | null>(null); // slot id being toggled
+  // "Can't make it" — informational only. It lives in its own table, so it can
+  // never be picked as the winning slot no matter how many people choose it.
+  const [decliners, setDecliners] = useState<Profile[]>([]);
+  const [iDeclined, setIDeclined] = useState(false);
   type EventMatchRow = {
     id: string;
     match_type: 'singles' | 'doubles';
@@ -132,6 +136,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     });
     setSlots(enriched);
 
+    const { data: declineRows } = await supabase
+      .from('event_declines')
+      .select('user_id, profile:profiles(id, full_name, avatar_emoji, avatar_bg_color)')
+      .eq('event_id', eventId);
+    setDecliners((declineRows ?? []).map((d: any) => d.profile).filter(Boolean));
+    setIDeclined((declineRows ?? []).some((d: any) => d.user_id === uid));
+
     // Confirmed attendees (if voting is closed)
     if (ev.confirmed_slot_id) {
       const { data: winnerVotes } = await supabase
@@ -194,6 +205,38 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  // "I can't make any of these." Mutually exclusive with slot votes — a DB
+  // trigger clears the other side either way, so this only has to write one row.
+  async function toggleDecline() {
+    if (voteInFlight.current) return;
+    if (!currentUserId) return;
+    const votingOpen = event && event.status === 'voting' && new Date(event.vote_ends_at) > new Date();
+    if (!votingOpen) return;
+
+    voteInFlight.current = true;
+    setVoting('decline');
+    status.clear();
+    try {
+      if (iDeclined) {
+        await sbCall(() => supabase
+          .from('event_declines')
+          .delete()
+          .eq('event_id', eventId)
+          .eq('user_id', currentUserId));
+      } else {
+        await sbCall(() => supabase
+          .from('event_declines')
+          .insert({ event_id: eventId, user_id: currentUserId }));
+      }
+      await load();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not save that. Tap again to retry.'));
+    } finally {
+      voteInFlight.current = false;
+      setVoting(null);
+    }
+  }
+
   function closeVoting() {
     if (!event) return;
     const winner = [...slots].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))[0];
@@ -206,13 +249,18 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     setClosing(true);
     status.clear();
     try {
-      // Idempotent: keyed by event id, writes the same winner every time.
-      await sbCall(() => supabase
-        .from('league_events')
-        .update({ status: 'scheduled', confirmed_slot_id: closeWinner.id })
-        .eq('id', event.id));
+      // Via the RPC rather than a direct update so closing early applies the
+      // same min_players rule the scheduled finalizer does — otherwise pressing
+      // this button would schedule an event that letting the clock run out
+      // would have cancelled. Idempotent: it no-ops unless status is 'voting'.
+      const outcome = await sbCall(() => supabase
+        .rpc('close_event_vote', { p_event_id: event.id })) as unknown as string | null;
       setCloseWinner(null);
-      status.success('Voting closed — the winning time is confirmed.');
+      status.success(
+        outcome === 'cancelled'
+          ? `Voting closed — cancelled, as no time reached ${event.min_players} players.`
+          : 'Voting closed — the winning time is confirmed.',
+      );
       await load();
     } catch (e) {
       status.error(friendlySbMessage(e, 'Could not close voting. Please try again.'));
@@ -508,6 +556,48 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         );
       })}
 
+      {/* "Can't make it" — deliberately outside the slot list. It is not a time
+          option and can never win; it just tells the organiser who is out. */}
+      <TouchableOpacity
+        style={[S.declineCard, iDeclined && S.declineCardActive]}
+        onPress={toggleDecline}
+        disabled={!votingIsOpen || voting === 'decline'}
+        activeOpacity={0.8}
+      >
+        <Text style={[S.declineTitle, iDeclined && S.declineTitleActive]}>
+          {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
+        </Text>
+        <Text style={S.declineSub}>
+          {decliners.length > 0
+            ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
+            : 'None of these times work for you?'}
+        </Text>
+
+        {decliners.length > 0 && (
+          <View style={S.voterWrap}>
+            {decliners.map((dp) => {
+              const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
+              return (
+                <View key={dp.id} style={S.voterChip}>
+                  <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
+                    <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
+                  </View>
+                  <Text style={S.voterName}>{first}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* What the threshold means, while it can still change the outcome. */}
+      {event.min_players != null && votingIsOpen && (
+        <Text style={S.minPlayersNote}>
+          Needs {event.min_players} players on one time — otherwise this event is
+          cancelled when voting closes.
+        </Text>
+      )}
+
       {/* Creator actions */}
       {canClose && votingIsOpen && (
         <TouchableOpacity style={S.closeVoteBtn} onPress={closeVoting}>
@@ -613,6 +703,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     voterAvatar:     { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight },
     voterAvatarText: { fontSize: 11, fontWeight: '700', color: c.primary },
     voterName:       { fontSize: 12, color: c.textSub, maxWidth: 90 },
+    declineCard:      { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
+    declineCardActive:{ borderColor: c.danger, backgroundColor: c.surfaceAlt },
+    declineTitle:     { fontSize: 15, fontWeight: '800', color: c.textSub },
+    declineTitleActive:{ color: c.danger },
+    declineSub:       { fontSize: 12, color: c.textMuted, marginTop: 3 },
+    minPlayersNote:   { marginHorizontal: 12, marginTop: 8, fontSize: 12, color: c.textMuted, textAlign: 'center', lineHeight: 17 },
     closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 12, padding: 16, alignItems: 'center' },
     doneBtn:      { marginHorizontal: 12, marginTop: 12, marginBottom: 4, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
     doneBtnText:  { color: '#fff', fontWeight: '700', fontSize: 15 },
