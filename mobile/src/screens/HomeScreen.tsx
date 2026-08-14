@@ -262,6 +262,33 @@ export default function HomeScreen({ navigation }: Props) {
     }
   }
 
+  // Both grants below fire on mount, while loadHome's very first request is
+  // still in flight — and cachedFetch dedupes a concurrent refresh onto that
+  // already-running request instead of starting a new one (queryCache.ts:
+  // `const running = inflight.get(key); if (running) return running`). That
+  // check sits above the TTL logic, so refresh()'s ttlMs:0 cannot bypass it.
+  //
+  // A single reload() here therefore resolved with the PRE-grant profile and
+  // cached it, which is why a brand-new account showed 🥒 0 in the header until
+  // some other screen forced its own fetch. Drain the in-flight request first,
+  // then force a genuinely fresh one.
+  //
+  // Deliberately a refetch rather than patching the balance in from the RPC's
+  // return value: the streak RPC reports what it granted, not the new total, so
+  // patching means adding to a balance that may already include the grant.
+  // Refetching cannot double-count.
+  const reloadAfterGrant = useCallback(async () => {
+    try { await reload(); } catch { /* joins the in-flight fetch; the retry covers it */ }
+    try { await reload(); } catch { /* offline — focus revalidation catches up */ }
+  }, [reload]);
+
+  // Revalidate as the pop-ups go away too. The grant's own refetch above should
+  // already have landed, but dismissing is the moment the header becomes visible
+  // and worth being right — and this is the fallback if that refetch was still
+  // in flight or the device was offline when it ran.
+  const closeWelcome = useCallback(() => { setWelcomeOpen(false); void reload(); }, [reload]);
+  const closeStreak = useCallback(() => { setStreakOpen(false); void reload(); }, [reload]);
+
   async function claimWelcomePicklesOnce() {
     const { data, error } = await supabase.rpc('claim_welcome_pickles');
     if (error) return;
@@ -269,8 +296,7 @@ export default function HomeScreen({ navigation }: Props) {
     if (row?.granted) {
       setWelcomeBalance(row.new_balance ?? 1000);
       setWelcomeOpen(true);
-      // Refresh profile so the home pickle balance reflects the new total
-      void reload();
+      void reloadAfterGrant();
     }
   }
 
@@ -283,7 +309,7 @@ export default function HomeScreen({ navigation }: Props) {
     if (!result) return;
     setStreakResult(result);
     setStreakOpen(true);
-    if (result.claimed_today) void reload();
+    if (result.claimed_today) void reloadAfterGrant();
   }
 
   // Wide layouts (web / tablet) lay the 4 PLUPR tiles in a single row; phones
@@ -567,10 +593,10 @@ export default function HomeScreen({ navigation }: Props) {
       <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
 
       {/* ── Welcome pickles modal ────────────────────────── */}
-      <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={() => setWelcomeOpen(false)}>
+      <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={closeWelcome}>
         <Pressable
           style={s.welcomeBackdrop}
-          onPress={(e) => { if (e.target === e.currentTarget) setWelcomeOpen(false); }}
+          onPress={(e) => { if (e.target === e.currentTarget) closeWelcome(); }}
         >
           <View style={s.welcomeCard}>
             <Text style={s.welcomeEmoji}>🥒</Text>
@@ -585,13 +611,13 @@ export default function HomeScreen({ navigation }: Props) {
             <View style={s.welcomeBtnRow}>
               <TouchableOpacity
                 style={[s.welcomeBtn, s.welcomeBtnSecondary]}
-                onPress={() => setWelcomeOpen(false)}
+                onPress={closeWelcome}
               >
                 <Text style={s.welcomeBtnSecondaryText}>Later</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={s.welcomeBtn}
-                onPress={() => { setWelcomeOpen(false); navigation.navigate('Shop'); }}
+                onPress={() => { closeWelcome(); navigation.navigate('Shop'); }}
               >
                 <Text style={s.welcomeBtnText}>Visit Shop</Text>
               </TouchableOpacity>
@@ -604,7 +630,7 @@ export default function HomeScreen({ navigation }: Props) {
       <StreakModal
         visible={streakOpen}
         result={streakResult}
-        onClose={() => setStreakOpen(false)}
+        onClose={closeStreak}
       />
     </ScrollView>
   );
