@@ -12,7 +12,8 @@ import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import ContactPickerModal from '../components/ContactPickerModal';
-import { sendSmsInvite } from '../lib/sms';
+import { sendSmsInvite, shareViaWhatsApp } from '../lib/sms';
+import { buildNudgeMessage, loadInvitedPhones, pickNudgeKind } from '../lib/eventNudge';
 import { shareInvite } from '../lib/share';
 import { addToCalendar } from '../lib/calendar';
 import { DeviceContact } from '../lib/contacts';
@@ -69,6 +70,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   // never be picked as the winning slot no matter how many people choose it.
   const [decliners, setDecliners] = useState<Profile[]>([]);
   const [iDeclined, setIDeclined] = useState(false);
+  const [nudging, setNudging] = useState(false);
   type EventMatchRow = {
     id: string;
     match_type: 'singles' | 'doubles';
@@ -237,6 +239,48 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  // Follow-up nudge to the group that was already texted. The app writes the
+  // message and supplies the recipients; the user still taps send, because the
+  // text going out from their own number is the thing that makes it convert.
+  async function sendNudge(via: 'sms' | 'whatsapp') {
+    if (!event || nudging) return;
+    const confirmedSlot = slots.find(s => s.id === event.confirmed_slot_id) ?? null;
+    const kind = pickNudgeKind(event, confirmedSlot);
+    if (!kind) return;
+
+    setNudging(true);
+    status.clear();
+    try {
+      const voterIds = new Set<string>();
+      for (const s of slots) for (const v of s.voters ?? []) voterIds.add(v.id);
+
+      const message = buildNudgeMessage({
+        kind,
+        event,
+        slots,
+        confirmedSlot,
+        voterCount: voterIds.size,
+        attendeeNames: confirmedAttendees.map(a => a.full_name).filter(Boolean) as string[],
+      });
+
+      // WhatsApp takes no recipient list: its chat picker is the point, because
+      // it can post into the group the friends already use.
+      const res = via === 'sms'
+        ? await sendSmsInvite({ message, recipients: await loadInvitedPhones(eventId) })
+        : await shareViaWhatsApp({ message });
+
+      if (res.copied) {
+        status.success('Message copied — paste it into your group chat.');
+      } else if (!res.sent) {
+        status.error('Could not open a messaging app. Try the other button.');
+      }
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not build the message. Please try again.'));
+    } finally {
+      setNudging(false);
+    }
+  }
+
   function closeVoting() {
     if (!event) return;
     const winner = [...slots].sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))[0];
@@ -272,6 +316,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
   const countdown = useCountdown(event?.vote_ends_at ?? new Date().toISOString());
   const votingIsOpen = event?.status === 'voting' && new Date(event.vote_ends_at) > new Date();
+  const nudgeKind = event
+    ? pickNudgeKind(event, slots.find(s => s.id === event.confirmed_slot_id) ?? null)
+    : null;
   const [canClose, setCanClose] = React.useState(false);
   React.useEffect(() => {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => {
@@ -598,6 +645,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         </Text>
       )}
 
+      {/* Nudge the group. Creator only — they are the one who has the thread. */}
+      {canClose && nudgeKind && (
+        <View style={S.nudgeCard}>
+          <Text style={S.nudgeTitle}>
+            {nudgeKind === 'vote' ? '📣 Chase the stragglers'
+              : nudgeKind === 'today' ? '📣 Remind them it’s today'
+              : '📣 Tell them it’s locked in'}
+          </Text>
+          <Text style={S.nudgeSub}>
+            Opens your messaging app with the group and the message ready — you tap send.
+          </Text>
+          <View style={S.nudgeBtnRow}>
+            <TouchableOpacity
+              style={[S.nudgeBtn, S.nudgeBtnSms]}
+              onPress={() => sendNudge('sms')}
+              disabled={nudging}
+            >
+              <Text style={S.nudgeBtnText}>{nudging ? '…' : '💬 Text'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.nudgeBtn, S.nudgeBtnWa]}
+              onPress={() => sendNudge('whatsapp')}
+              disabled={nudging}
+            >
+              <Text style={S.nudgeBtnText}>{nudging ? '…' : '🟢 WhatsApp'}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {/* Creator actions */}
       {canClose && votingIsOpen && (
         <TouchableOpacity style={S.closeVoteBtn} onPress={closeVoting}>
@@ -703,6 +780,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     voterAvatar:     { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight },
     voterAvatarText: { fontSize: 11, fontWeight: '700', color: c.primary },
     voterName:       { fontSize: 12, color: c.textSub, maxWidth: 90 },
+    nudgeCard:       { marginHorizontal: 12, marginTop: 12, padding: 14, borderRadius: 12, backgroundColor: c.primaryLight },
+    nudgeTitle:      { fontSize: 15, fontWeight: '800', color: c.primary },
+    nudgeSub:        { fontSize: 12, color: c.textSub, marginTop: 3, lineHeight: 17 },
+    nudgeBtnRow:     { flexDirection: 'row', gap: 10, marginTop: 12 },
+    nudgeBtn:        { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
+    nudgeBtnSms:     { backgroundColor: c.primary },
+    nudgeBtnWa:      { backgroundColor: '#25D366' },
+    nudgeBtnText:    { color: '#fff', fontWeight: '800', fontSize: 13 },
     declineCard:      { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
     declineCardActive:{ borderColor: c.danger, backgroundColor: c.surfaceAlt },
     declineTitle:     { fontSize: 15, fontWeight: '800', color: c.textSub },
