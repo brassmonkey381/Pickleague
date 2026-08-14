@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -110,6 +111,7 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
       );
       if (authErr) throw authErr;
       signedIn = true;
+      track('auth.login', { via: 'guest_invite' });
 
       const data = await sbCall<any>(
         () => supabase.rpc('redeem_guest_invite', { p_token: token, p_name: trimmed }),

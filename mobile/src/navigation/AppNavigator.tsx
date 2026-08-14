@@ -12,6 +12,7 @@ import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
 import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
+import { endSession, resetSessionUser, trackScreen } from '../lib/analytics';
 import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
 import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
@@ -169,9 +170,20 @@ export default function AppNavigator() {
 
   useEffect(() => {
     // Session state itself is owned by useBootstrapSession; this subscription is
-    // only for the sign-out side effect.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT') resetStreakShown();
+    // for side effects only. Analytics identity: INITIAL_SESSION settles the auth bootstrap (a
+    // null session is a real anonymous visitor, recorded as such through the anon-role RLS);
+    // SIGNED_IN mid-session claims the live anonymous session row (the QR-scan → signup join);
+    // SIGNED_OUT drops the session so the next event starts a fresh anonymous one. Everything
+    // resetSessionUser triggers is fire-and-forget — nothing awaits a supabase.auth call inside
+    // this callback (deadlock).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'SIGNED_OUT') {
+        resetStreakShown();
+        endSession();
+        resetSessionUser(null);
+        return;
+      }
+      resetSessionUser(s?.user ?? null);
     });
     // Warm the court-nickname cache so display helpers across screens have
     // data on first render.
@@ -238,7 +250,19 @@ export default function AppNavigator() {
       {phase === 'error' && <StartupRetryScreen onRetry={retry} />}
       {phase === 'ready' && (
         <WebMaxWidth background={colors.bg}>
-          <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking} fallback={<View />} onReady={flushPendingNavigation}>
+          <NavigationContainer
+            ref={navigationRef}
+            theme={navTheme}
+            linking={linking}
+            fallback={<View />}
+            onReady={() => {
+              flushPendingNavigation();
+              // First-party analytics: the landing screen (also records the session's
+              // landing_route, campaign query included).
+              trackScreen(navigationRef.getCurrentRoute()?.name);
+            }}
+            onStateChange={() => trackScreen(navigationRef.getCurrentRoute()?.name)}
+          >
             <ErrorBoundary>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (

@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -43,6 +44,7 @@ export default function LoginScreen({ navigation }: Props) {
       );
       // On success, AppNavigator detects the new session and switches to Home automatically
       if (error) setErrorMessage(friendlySbMessage(error, error.message));
+      else track('auth.login', { via: 'email' });
     } catch (e) {
       // Thrown (not returned) means transport: timeout, DNS, dropped socket.
       // The raw library string is useless here — say what the user can do.

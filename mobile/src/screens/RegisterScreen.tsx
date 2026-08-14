@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -87,6 +88,9 @@ export default function RegisterScreen({ navigation }: Props) {
         setErrorMessage(friendlySbMessage(error, error.message));
       } else {
         setCreated(true);
+        // The signup moment. The emitter merges the landing campaign code into props centrally,
+        // so a QR-scanned flyer that produced this account is attributable.
+        track('account.created', { via: 'email' });
         setSuccessMessage('Account created! Please check your email to confirm, then sign in.');
         navTimer.current = setTimeout(() => navigation.navigate('Login'), 3000);
       }
