@@ -7,6 +7,17 @@
   "rewrites": [
     { "source": "/privacy", "destination": "/privacy.html" },
     { "source": "/landing", "destination": "/landing.html" },
+    {
+      "source": "/events/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+        }
+      ],
+      "destination": "/api/event-og?id=:id"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

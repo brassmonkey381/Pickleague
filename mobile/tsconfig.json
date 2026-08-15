@@ -2,5 +2,7 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  "//": "api/ holds Vercel edge functions, not app code. They target the web/DOM lib and use React-DOM-style JSX, so type-checking them against expo's React Native config reports errors that do not exist. Vercel builds them with api/tsconfig.json.",
+  "exclude": ["api"]
 }

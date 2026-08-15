@@ -1,0 +1,15 @@
+{
+  "//": "These are Vercel edge functions, not Expo app code. The root tsconfig excludes this directory because expo/tsconfig.base targets React Native, which makes DOM globals (Request, Response, fetch) and react-jsx look like errors here. Check with: npx tsc -p api --noEmit",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}
