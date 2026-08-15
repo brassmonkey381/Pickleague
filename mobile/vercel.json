@@ -16,7 +16,29 @@
           "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
         }
       ],
-      "destination": "/api/event-og?id=:id"
+      "destination": "/api/og?type=event&id=:id"
+    },
+    {
+      "source": "/leagues/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+        }
+      ],
+      "destination": "/api/og?type=league&id=:id"
+    },
+    {
+      "source": "/tournaments/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+        }
+      ],
+      "destination": "/api/og?type=tournament&id=:id"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
