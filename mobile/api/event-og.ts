@@ -17,7 +17,24 @@
  */
 export const config = { runtime: 'edge' };
 
-const SITE = 'https://pickleague.club';
+const SITE = 'https://www.pickleague.club';
+
+/**
+ * The host that actually served this request.
+ *
+ * Hardcoding the apex was wrong: pickleague.club 307s to www, so og:image
+ * pointed at a redirect. Crawlers are far less forgiving about redirects on
+ * the IMAGE than on the page — several fetch it without following — and the
+ * hop returned 15 bytes of text/plain instead of a PNG, so the card rendered
+ * with no picture. Emitting the same host we were reached on keeps every URL
+ * on one origin whichever domain the link used.
+ */
+function originOf(req: Request): string {
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  if (!host) return SITE;
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+  return `${proto}://${host}`;
+}
 
 type EventRow = {
   id: string;
@@ -133,8 +150,14 @@ export default async function handler(req: Request): Promise<Response> {
 
   const title = card?.title ?? 'Pickleague';
   const description = card?.description ?? 'Pick a time, play some pickleball.';
-  const canonical = looksLikeUuid ? `${SITE}/events/${id}` : SITE;
-  const image = looksLikeUuid ? `${SITE}/api/event-og-image?id=${encodeURIComponent(id)}` : `${SITE}/icon.png`;
+  const site = originOf(req);
+  const canonical = looksLikeUuid ? `${site}/events/${id}` : site;
+  // Falls back to the same route without an id, which renders the generic card.
+  // A static asset would be a second thing to keep in sync, and the web export
+  // ships only favicon.ico — /icon.png would have 404'd.
+  const image = looksLikeUuid
+    ? `${site}/api/event-og-image?id=${encodeURIComponent(id)}`
+    : `${site}/api/event-og-image`;
 
   const html = `<!doctype html>
 <html lang="en">
