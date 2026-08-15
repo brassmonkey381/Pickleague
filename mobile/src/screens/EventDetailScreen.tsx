@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Platform,
+  Platform, TextInput,
 } from 'react-native';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,6 +13,7 @@ import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import ContactPickerModal from '../components/ContactPickerModal';
 import { sendSmsInvite, shareViaWhatsApp } from '../lib/sms';
+import { postToChatWebhook, isLikelyChatWebhookUrl } from '@just-messin-around/expo-foundation/platform';
 import { buildNudgeMessage, loadInvitedPhones, pickNudgeKind } from '../lib/eventNudge';
 import { shareInvite } from '../lib/share';
 import { addToCalendar } from '../lib/calendar';
@@ -71,6 +72,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [decliners, setDecliners] = useState<Profile[]>([]);
   const [iDeclined, setIDeclined] = useState(false);
   const [nudging, setNudging] = useState(false);
+  // League chat webhook (Discord/Slack). Null when unset OR unreadable — RLS
+  // only lets the league creator see it.
+  const [chatWebhookUrl, setChatWebhookUrl] = useState<string | null>(null);
+  const [isLeagueCreator, setIsLeagueCreator] = useState(false);
+  const [webhookSetupOpen, setWebhookSetupOpen] = useState(false);
+  const [webhookInput, setWebhookInput] = useState('');
+  const [webhookSaving, setWebhookSaving] = useState(false);
   type EventMatchRow = {
     id: string;
     match_type: 'singles' | 'doubles';
@@ -113,8 +121,19 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       .eq('league_id', ev.league_id);
     setMemberCount(count ?? 0);
 
-    const { data: lg } = await supabase.from('leagues').select('name').eq('id', ev.league_id).single();
+    const { data: lg } = await supabase.from('leagues').select('name, created_by').eq('id', ev.league_id).single();
     setLeagueName(lg?.name ?? '');
+    setIsLeagueCreator(!!uid && lg?.created_by === uid);
+
+    // League chat webhook. RLS is league-creator-only, so for anyone else this
+    // simply returns nothing and the chat button never renders — the URL is a
+    // capability secret and must not reach non-creators.
+    const { data: hook } = await supabase
+      .from('league_chat_webhooks')
+      .select('url')
+      .eq('league_id', ev.league_id)
+      .maybeSingle();
+    setChatWebhookUrl(hook?.url ?? null);
 
     const { data: slotRows } = await supabase
       .from('event_slots')
@@ -242,7 +261,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   // Follow-up nudge to the group that was already texted. The app writes the
   // message and supplies the recipients; the user still taps send, because the
   // text going out from their own number is the thing that makes it convert.
-  async function sendNudge(via: 'sms' | 'whatsapp') {
+  async function sendNudge(via: 'sms' | 'whatsapp' | 'chat') {
     if (!event || nudging) return;
     const confirmedSlot = slots.find(s => s.id === event.confirmed_slot_id) ?? null;
     const kind = pickNudgeKind(event, confirmedSlot);
@@ -263,6 +282,19 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         attendeeNames: confirmedAttendees.map(a => a.full_name).filter(Boolean) as string[],
       });
 
+      if (via === 'chat') {
+        // The one no-tap channel: posts straight into the league's Discord or
+        // Slack via its incoming webhook. Foundation shapes the payload.
+        if (!chatWebhookUrl) return;
+        const r = await postToChatWebhook({ url: chatWebhookUrl, text: message });
+        if (r.ok) {
+          status.success(r.confirmed ? 'Posted to the league chat.' : 'Sent to the league chat (delivery unconfirmed).');
+        } else {
+          status.error(`Chat post failed${r.status ? ` (HTTP ${r.status})` : ''} — check the webhook URL.`);
+        }
+        return;
+      }
+
       // WhatsApp takes no recipient list: its chat picker is the point, because
       // it can post into the group the friends already use.
       const res = via === 'sms'
@@ -278,6 +310,30 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       status.error(friendlySbMessage(e, 'Could not build the message. Please try again.'));
     } finally {
       setNudging(false);
+    }
+  }
+
+  async function saveChatWebhook() {
+    if (!event || webhookSaving) return;
+    const url = webhookInput.trim();
+    if (!isLikelyChatWebhookUrl(url)) {
+      status.error('That does not look like an https webhook URL.');
+      return;
+    }
+    setWebhookSaving(true);
+    try {
+      // Keyed by league_id, so retries land on the same row.
+      await sbCall(() => supabase
+        .from('league_chat_webhooks')
+        .upsert({ league_id: event.league_id, url, updated_by: currentUserId }));
+      setChatWebhookUrl(url);
+      setWebhookSetupOpen(false);
+      setWebhookInput('');
+      status.success('League chat connected — nudges can now post there directly.');
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not save the webhook.'));
+    } finally {
+      setWebhookSaving(false);
     }
   }
 
@@ -671,7 +727,59 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             >
               <Text style={S.nudgeBtnText}>{nudging ? '…' : '🟢 WhatsApp'}</Text>
             </TouchableOpacity>
+            {chatWebhookUrl && (
+              <TouchableOpacity
+                style={[S.nudgeBtn, S.nudgeBtnChat]}
+                onPress={() => sendNudge('chat')}
+                disabled={nudging}
+              >
+                <Text style={S.nudgeBtnText}>{nudging ? '…' : '📢 League chat'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
+          {/* Setup is offered only to the league creator: RLS would reject the
+              write (and hide the row) for anyone else. */}
+          {!chatWebhookUrl && isLeagueCreator && !webhookSetupOpen && (
+            <TouchableOpacity onPress={() => setWebhookSetupOpen(true)}>
+              <Text style={S.webhookSetupLink}>
+                Connect a Discord/Slack webhook to post nudges with one tap →
+              </Text>
+            </TouchableOpacity>
+          )}
+          {webhookSetupOpen && (
+            <View style={S.webhookSetupBox}>
+              <Text style={S.webhookSetupHint}>
+                Discord: channel → Edit → Integrations → Webhooks → Copy URL.
+                Anyone with this URL can post to the channel, so it stays
+                visible only to you.
+              </Text>
+              <TextInput
+                style={S.webhookInput}
+                placeholder="https://discord.com/api/webhooks/…"
+                placeholderTextColor={c.textMuted}
+                value={webhookInput}
+                onChangeText={setWebhookInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <View style={S.nudgeBtnRow}>
+                <TouchableOpacity
+                  style={[S.nudgeBtn, S.nudgeBtnChat]}
+                  onPress={saveChatWebhook}
+                  disabled={webhookSaving}
+                >
+                  <Text style={S.nudgeBtnText}>{webhookSaving ? 'Saving…' : 'Save'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[S.nudgeBtn, S.nudgeBtnCancel]}
+                  onPress={() => setWebhookSetupOpen(false)}
+                  disabled={webhookSaving}
+                >
+                  <Text style={[S.nudgeBtnText, { color: c.textSub }]}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       )}
 
@@ -787,7 +895,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     nudgeBtn:        { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
     nudgeBtnSms:     { backgroundColor: c.primary },
     nudgeBtnWa:      { backgroundColor: '#25D366' },
+    nudgeBtnChat:    { backgroundColor: '#5865F2' },
+    nudgeBtnCancel:  { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
     nudgeBtnText:    { color: '#fff', fontWeight: '800', fontSize: 13 },
+    webhookSetupLink:{ fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 10 },
+    webhookSetupBox: { marginTop: 10 },
+    webhookSetupHint:{ fontSize: 11, color: c.textMuted, lineHeight: 16, marginBottom: 8 },
+    webhookInput:    { borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: c.text, backgroundColor: c.surface, marginBottom: 10 },
     declineCard:      { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
     declineCardActive:{ borderColor: c.danger, backgroundColor: c.surfaceAlt },
     declineTitle:     { fontSize: 15, fontWeight: '800', color: c.textSub },
