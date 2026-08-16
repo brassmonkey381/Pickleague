@@ -40,6 +40,17 @@
       ],
       "destination": "/api/og?type=tournament&id=:id"
     },
+    {
+      "source": "/seasons/:id/standings",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+        }
+      ],
+      "destination": "/api/og?type=season&id=:id"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

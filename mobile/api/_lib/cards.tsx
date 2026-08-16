@@ -21,7 +21,11 @@ import {
   type OgPalette,
 } from './og-kit';
 
-export type CardType = 'event' | 'league' | 'tournament';
+export type CardType = 'event' | 'league' | 'tournament' | 'season';
+
+export function parseCardType(raw: string | null): CardType {
+  return raw === 'league' || raw === 'tournament' || raw === 'season' ? raw : 'event';
+}
 
 export const BRAND = 'PICKLEAGUE';
 export const SITE_LABEL = 'pickleague.club';
@@ -47,6 +51,12 @@ const DAY_TIME: Intl.DateTimeFormatOptions =
   { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
 /** "Sat, Aug 15 · 9:00 AM" — date and time always together. A weekday alone
  *  ("Fri") is ambiguous the moment a link outlives the week it was shared. */
+/** Date-ONLY strings ('2026-05-01') must not go through the TZ formatter —
+ *  they parse as UTC midnight, which is the previous day in Pacific. */
+const fmtDateOnly = (d: string) => {
+  const [y, m, dd] = d.split('-').map(Number);
+  return new Date(y, m - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
 const dayDotTime = (iso: string) =>
   `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmt(iso, { hour: 'numeric', minute: '2-digit' })}`;
 
@@ -72,6 +82,7 @@ export async function loadCard(type: CardType, id: string): Promise<Card | null>
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   if (type === 'event') return eventCard(id);
   if (type === 'league') return leagueCard(id);
+  if (type === 'season') return seasonCard(id);
   return tournamentCard(id);
 }
 
@@ -314,6 +325,73 @@ async function leagueCard(id: string): Promise<Card | null> {
   };
 }
 
+// ── Season ────────────────────────────────────────────────────
+
+async function seasonCard(id: string): Promise<Card | null> {
+  const sid = encodeURIComponent(id);
+  const s = (await rest(
+    `league_seasons?id=eq.${sid}`
+    + `&select=id,name,league_id,status,start_date,end_date,total_periods,prize_pool&limit=1`,
+  ))[0];
+  if (!s) return null;
+
+  const [league, podium] = await Promise.all([
+    rest(`leagues?id=eq.${encodeURIComponent(s.league_id)}&select=name&limit=1`).then(r => r[0]),
+    // Final standings exist only once the season completes; empty until then.
+    rest(`season_final_standings?season_id=eq.${sid}&order=final_rank.asc&limit=3`
+      + `&select=final_rank,user_id,profile:profiles(full_name)`),
+  ]);
+
+  const dates = s.start_date && s.end_date
+    ? `${fmtDateOnly(s.start_date)} – ${fmtDateOnly(s.end_date)}`
+    : '';
+  const complete = s.status === 'completed' || podium.length > 0;
+  const statusLine = complete ? 'Season complete' : 'Season underway';
+  const names = podium.map((p: any) => firstName(p.profile?.full_name));
+
+  return {
+    title: `${league?.name ?? 'League'} — ${s.name}`,
+    description: `${statusLine}${dates ? ` · ${dates}` : ''}`
+      + (names.length ? ` · Champion: ${names[0]}` : '')
+      + (s.prize_pool ? ` · ${s.prize_pool} pickle prize pool` : '')
+      + '. Tap for the standings.',
+    fingerprint: JSON.stringify({ st: s.status, podium: names }),
+    body: (
+      <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
+        <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, justifyContent: 'center' }}>
+          <div style={{ display: 'flex', fontSize: 26, fontWeight: 700, color: PALETTE.accent, letterSpacing: 1 }}>
+            {statusLine.toUpperCase()}
+          </div>
+          <div style={{ display: 'flex', fontSize: 46, fontWeight: 800, color: PALETTE.text, marginTop: 8 }}>
+            {`${league?.name ?? 'League'} — ${s.name}`}
+          </div>
+          <div style={{ display: 'flex', marginTop: 24 }}>
+            {dates ? <OgStat label="DATES" value={dates} colors={PALETTE} /> : null}
+            {s.total_periods ? <OgStat label="PERIODS" value={String(s.total_periods)} colors={PALETTE} /> : null}
+            {s.prize_pool ? <OgStat label="PRIZE POOL" value={`${s.prize_pool} pickles`} colors={PALETTE} /> : null}
+          </div>
+          {names.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', marginTop: 26 }}>
+              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>PODIUM</div>
+              <div style={{ display: 'flex', marginTop: 8 }}>
+                {names.map((n: string, i: number) => (
+                  <div key={n + i} style={{
+                    display: 'flex', backgroundColor: PALETTE.panel, borderRadius: 12,
+                    padding: '10px 18px', marginRight: 12, fontSize: 24,
+                    color: i === 0 ? PALETTE.accent : PALETTE.text, fontWeight: i === 0 ? 800 : 400,
+                  }}>
+                    {`${i + 1}. ${n}`}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </OgChrome>
+    ),
+  };
+}
+
 // ── Tournament ────────────────────────────────────────────────
 
 const FORMAT_LABEL: Record<string, string> = {
@@ -329,48 +407,135 @@ async function tournamentCard(id: string): Promise<Card | null> {
   ))[0];
   if (!t) return null;
 
-  const regs = await rest(
-    `tournament_registrations?tournament_id=eq.${tid}&status=eq.approved`
-    + `&select=user_id,profile:profiles(full_name,deleted_at)`,
-  );
-  const players = regs
-    .filter((r: any) => r.profile && !r.profile.deleted_at)
-    .map((r: any) => firstName(r.profile.full_name));
+  const [regs, matches, teams] = await Promise.all([
+    // The embed MUST name its FK: tournament_registrations has two FKs to
+    // profiles (user_id, invited_by), and an ambiguous embed is a PostgREST
+    // error that our fetcher surfaces as [] — the roster silently vanished
+    // from the first version of this card.
+    rest(`tournament_registrations?tournament_id=eq.${tid}&status=eq.approved`
+      + `&select=user_id,profile:profiles!tournament_registrations_user_id_fkey(full_name,deleted_at)`),
+    rest(`tournament_matches?tournament_id=eq.${tid}`
+      + `&select=team1_player1,team1_player2,team2_player1,team2_player2,winner_team`),
+    rest(`mlp_teams?tournament_id=eq.${tid}&select=id,name,captain_id,male_1_id,male_2_id,female_1_id,female_2_id`),
+  ]);
+
+  const nameById = new Map<string, string>();
+  const players: string[] = [];
+  for (const r of regs) {
+    if (!r.profile || r.profile.deleted_at) continue;
+    nameById.set(r.user_id, firstName(r.profile.full_name));
+    players.push(firstName(r.profile.full_name));
+  }
+
+  // ── Standings, computed from the matches themselves ────────────
+  // tournament_matches carries only player slots, so team standings come from
+  // mapping winners back onto MLP rosters; without teams it is a player
+  // leaderboard. Same computation serves 'active' (live) and 'completed'.
+  const done = matches.filter((m: any) => m.winner_team);
+  let standings: { name: string; wins: number }[] = [];
+  if (teams.length) {
+    const teamOf = new Map<string, string>();
+    for (const tm of teams) {
+      for (const uid of [tm.captain_id, tm.male_1_id, tm.male_2_id, tm.female_1_id, tm.female_2_id]) {
+        if (uid) teamOf.set(uid, tm.name);
+      }
+    }
+    const wins = new Map<string, number>();
+    for (const tm of teams) wins.set(tm.name, 0);
+    for (const m of done) {
+      const side = m.winner_team === 'team1' ? [m.team1_player1, m.team1_player2] : [m.team2_player1, m.team2_player2];
+      const team = teamOf.get(side.find(Boolean));
+      if (team) wins.set(team, (wins.get(team) ?? 0) + 1);
+    }
+    standings = [...wins.entries()].map(([name, w]) => ({ name, wins: w }));
+  } else if (done.length) {
+    const wins = new Map<string, number>();
+    for (const m of done) {
+      const side = m.winner_team === 'team1' ? [m.team1_player1, m.team1_player2] : [m.team2_player1, m.team2_player2];
+      for (const uid of side) {
+        if (uid) wins.set(uid, (wins.get(uid) ?? 0) + 1);
+      }
+    }
+    standings = [...wins.entries()].map(([uid, w]) => ({ name: nameById.get(uid) ?? '?', wins: w }));
+  }
+  standings.sort((a, b) => b.wins - a.wins);
+  const top = standings.slice(0, 3);
 
   const format = FORMAT_LABEL[t.format] ?? t.format ?? '—';
   const matchType = t.match_type ? String(t.match_type)[0].toUpperCase() + String(t.match_type).slice(1) : '—';
   const when = t.start_time ? fmt(t.start_time, DAY_TIME) : 'TBD';
+  // What "n/m" means depends on the format: MLP fields teams, everything else
+  // fields players.
+  const fieldCount = teams.length ? `${teams.length}` : `${players.length}`;
+  const fieldMax = t.max_players ? `/${t.max_players}` : '';
+  const fieldLabel = teams.length ? 'TEAMS' : 'PLAYERS';
 
   const statusLine =
     t.status === 'registration'
-      ? `Registration open — ${players.length}${t.max_players ? ` of ${t.max_players}` : ''} in`
-      : t.status === 'active' ? 'In progress'
+      ? `Registration open — ${fieldCount}${fieldMax} ${teams.length ? 'teams' : 'players'} in`
+      : t.status === 'active'
+        ? `In progress — ${done.length} of ${matches.length} matches played`
       : t.status === 'completed' ? 'Finished'
       : t.status === 'cancelled' ? 'Cancelled' : t.status;
+
+  const leaderText = top.length && done.length
+    ? (t.status === 'completed'
+        ? `Champions: ${top[0].name} (${top[0].wins}W)`
+        : `Leading: ${top.map(s => `${s.name} ${s.wins}W`).join(', ')}`)
+    : '';
 
   return {
     title: t.status === 'registration' ? `${t.name} — registration open` : t.name,
     description: `${statusLine} · ${format} ${matchType.toLowerCase()} · ${when}`
-      + (t.location_name ? ` · ${t.location_name}` : ''),
+      + (t.location_name ? ` · ${t.location_name}` : '')
+      + (leaderText ? ` · ${leaderText}` : ''),
+    fingerprint: JSON.stringify({ st: t.status, d: done.length, s: standings, p: players.length }),
     body: (
       <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
         <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, justifyContent: 'center' }}>
           <div style={{ display: 'flex', fontSize: 26, fontWeight: 700, color: PALETTE.accent, letterSpacing: 1 }}>
             {statusLine.toUpperCase()}
           </div>
-          <div style={{ display: 'flex', fontSize: t.name.length > 26 ? 44 : 56, fontWeight: 800, color: PALETTE.text, marginTop: 10 }}>
+          <div style={{ display: 'flex', fontSize: t.name.length > 26 ? 40 : 52, fontWeight: 800, color: PALETTE.text, marginTop: 8 }}>
             {t.name}
           </div>
-          <div style={{ display: 'flex', marginTop: 30 }}>
+          <div style={{ display: 'flex', marginTop: 24 }}>
             <OgStat label="WHEN" value={when} colors={PALETTE} />
             <OgStat label="FORMAT" value={`${format} · ${matchType}`} colors={PALETTE} />
-            {t.location_name ? <OgStat label="WHERE" value={String(t.location_name).slice(0, 24)} colors={PALETTE} /> : null}
+            <OgStat label={fieldLabel} value={`${fieldCount}${fieldMax}`} colors={PALETTE} />
+            {t.location_name ? <OgStat label="WHERE" value={String(t.location_name).slice(0, 20)} colors={PALETTE} /> : null}
           </div>
-          <div style={{ display: 'flex', fontSize: 25, color: PALETTE.muted, marginTop: 28 }}>
-            {players.length
-              ? `Playing (${players.length}${t.max_players ? `/${t.max_players}` : ''}): ${clampNames(players, 7)}`
-              : t.status === 'registration' ? 'No one has registered yet — be first.' : ''}
-          </div>
+
+          {/* Live standings — the reason to tap a card for a running event. */}
+          {top.length > 0 && done.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', marginTop: 26 }}>
+              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>
+                {t.status === 'completed' ? 'FINAL STANDINGS' : 'STANDINGS'}
+              </div>
+              <div style={{ display: 'flex', marginTop: 8 }}>
+                {top.map((s, i) => (
+                  <div key={s.name} style={{
+                    display: 'flex', backgroundColor: PALETTE.panel, borderRadius: 12,
+                    padding: '10px 18px', marginRight: 12, fontSize: 24,
+                    color: i === 0 ? PALETTE.accent : PALETTE.text, fontWeight: i === 0 ? 800 : 400,
+                  }}>
+                    {`${i + 1}. ${s.name}`}
+                    <div style={{ display: 'flex', marginLeft: 10, fontWeight: 700, color: PALETTE.muted }}>
+                      {`${s.wins}W`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(top.length === 0 || done.length === 0) && (
+            <div style={{ display: 'flex', fontSize: 24, color: PALETTE.muted, marginTop: 24 }}>
+              {players.length
+                ? `Playing (${players.length}${fieldMax}): ${clampNames(players, 7)}`
+                : t.status === 'registration' ? 'No one has registered yet — be first.' : ''}
+            </div>
+          )}
         </div>
       </OgChrome>
     ),

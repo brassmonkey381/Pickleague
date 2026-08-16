@@ -6,15 +6,14 @@
  */
 import { ImageResponse } from '@vercel/og';
 import { OG_CACHE_CONTROL } from './_lib/og-kit';
-import { loadCard, GENERIC_CARD, type CardType } from './_lib/cards';
+import { loadCard, parseCardType, GENERIC_CARD } from './_lib/cards';
 
 export const config = { runtime: 'edge' };
 
 export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const id = url.searchParams.get('id') ?? '';
-  const typeParam = url.searchParams.get('type') ?? 'event';
-  const type: CardType = typeParam === 'league' || typeParam === 'tournament' ? typeParam : 'event';
+  const type = parseCardType(url.searchParams.get('type'));
 
   let card = null;
   try {

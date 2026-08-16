@@ -7,19 +7,18 @@
  * through to the SPA catch-all, so the app path is untouched.
  */
 import { ogPageHtml, requestOrigin, shortHash, OG_CACHE_CONTROL } from './_lib/og-kit';
-import { loadCard, GENERIC_CARD, FALLBACK_ORIGIN, type CardType } from './_lib/cards';
+import { loadCard, parseCardType, GENERIC_CARD, FALLBACK_ORIGIN, type CardType } from './_lib/cards';
 
 export const config = { runtime: 'edge' };
 
 const PATHS: Record<CardType, string> = {
-  event: 'events', league: 'leagues', tournament: 'tournaments',
+  event: 'events', league: 'leagues', tournament: 'tournaments', season: 'seasons',
 };
 
 export default async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const id = url.searchParams.get('id') ?? '';
-  const typeParam = url.searchParams.get('type') ?? 'event';
-  const type: CardType = typeParam === 'league' || typeParam === 'tournament' ? typeParam : 'event';
+  const type = parseCardType(url.searchParams.get('type'));
 
   let card = null;
   try {
@@ -30,7 +29,10 @@ export default async function handler(req: Request): Promise<Response> {
   const c = card ?? GENERIC_CARD;
 
   const site = requestOrigin(req.headers, FALLBACK_ORIGIN);
-  const canonical = card ? `${site}/${PATHS[type]}/${id}` : site;
+  // Seasons live at /seasons/:id/standings; the other types at /<plural>/:id.
+  const canonical = card
+    ? `${site}/${PATHS[type]}/${id}${type === 'season' ? '/standings' : ''}`
+    : site;
   // `v` fingerprints the card content. Discord (and friends) proxy-cache the
   // image BY URL far longer than the page, so without this a card whose tally
   // moved kept its old picture even after a re-share refreshed the text — any
