@@ -5,7 +5,7 @@
  * the picture and the words can never disagree.
  */
 import { ImageResponse } from '@vercel/og';
-import { OG_CACHE_CONTROL } from '@just-messin-around/expo-foundation/og';
+import { OG_CACHE_CONTROL } from './_lib/og-kit';
 import { loadCard, GENERIC_CARD, type CardType } from './_lib/cards';
 
 export const config = { runtime: 'edge' };

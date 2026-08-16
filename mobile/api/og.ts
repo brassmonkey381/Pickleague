@@ -6,7 +6,7 @@
  * vercel.json cannot import it, so the list is duplicated there). Humans fall
  * through to the SPA catch-all, so the app path is untouched.
  */
-import { ogPageHtml, requestOrigin, OG_CACHE_CONTROL } from '@just-messin-around/expo-foundation/og';
+import { ogPageHtml, requestOrigin, OG_CACHE_CONTROL } from './_lib/og-kit';
 import { loadCard, GENERIC_CARD, FALLBACK_ORIGIN, type CardType } from './_lib/cards';
 
 export const config = { runtime: 'edge' };

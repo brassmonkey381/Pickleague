@@ -12,11 +12,14 @@
  * visitor. Names are first names only.
  */
 import React from 'react';
+// og-kit is a documented vendored copy of the foundation's /og module —
+// Vercel's edge bundler refuses TypeScript inside node_modules, so the
+// package subpath cannot be imported here. See og-kit.tsx's header.
 import {
   createRestFetcher, firstName, clampNames,
   OgChrome, OgSimpleCard, OgBarRow, OgStat,
   type OgPalette,
-} from '@just-messin-around/expo-foundation/og';
+} from './og-kit';
 
 export type CardType = 'event' | 'league' | 'tournament';
 
