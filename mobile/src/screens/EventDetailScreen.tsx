@@ -20,6 +20,7 @@ import { addToCalendar } from '../lib/calendar';
 import { DeviceContact } from '../lib/contacts';
 import BookmarkButton from '../components/BookmarkButton';
 import ShareLinkButton from '../components/ShareLinkButton';
+import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -80,10 +81,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [webhookSetupOpen, setWebhookSetupOpen] = useState(false);
   const [webhookInput, setWebhookInput] = useState('');
   const [webhookSaving, setWebhookSaving] = useState(false);
-  // Creator-only edit of the vote's location + description.
+  // Creator-only edit of the vote's location + description. Location goes
+  // through the standard venue picker, same as event creation and tournaments.
   const [detailsEditOpen, setDetailsEditOpen] = useState(false);
   const [editDesc, setEditDesc] = useState('');
-  const [editLoc, setEditLoc] = useState('');
+  const [editLoc, setEditLoc] = useState<CourtResult | null>(null);
   const [detailsSaving, setDetailsSaving] = useState(false);
   type EventMatchRow = {
     id: string;
@@ -322,7 +324,18 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   function openDetailsEdit() {
     if (!event) return;
     setEditDesc(event.description ?? '');
-    setEditLoc(event.location_name ?? '');
+    // Rebuild a picker value from the stored fields. Legacy hand-typed
+    // locations have a name and no coords — 0/0 keeps them selectable and
+    // clearable; picking a real venue replaces them with true coordinates.
+    setEditLoc(event.location_name
+      ? {
+          name: event.location_name,
+          address: '',
+          lat: event.location_lat ?? 0,
+          lng: event.location_lng ?? 0,
+          placeId: `existing-${event.id}`,
+        }
+      : null);
     setDetailsEditOpen(true);
   }
 
@@ -336,7 +349,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         .from('league_events')
         .update({
           description: editDesc.trim() || null,
-          location_name: editLoc.trim() || null,
+          location_name: editLoc?.name ?? null,
+          location_lat:  editLoc && editLoc.lat !== 0 ? editLoc.lat : null,
+          location_lng:  editLoc && editLoc.lng !== 0 ? editLoc.lng : null,
         })
         .eq('id', event.id));
       setDetailsEditOpen(false);
@@ -570,12 +585,12 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       {detailsEditOpen && (
         <View style={S.detailsEditBox}>
           <Text style={S.detailsEditLabel}>Location</Text>
-          <TextInput
-            style={S.webhookInput}
-            placeholder="e.g. The HUB Alameda"
-            placeholderTextColor={c.textMuted}
+          <CourtPicker
             value={editLoc}
-            onChangeText={setEditLoc}
+            onSelect={setEditLoc}
+            active={detailsEditOpen}
+            showNoneOption
+            placeholder="Search for a court or venue…"
           />
           <Text style={S.detailsEditLabel}>Description</Text>
           <TextInput

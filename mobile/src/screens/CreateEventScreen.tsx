@@ -8,6 +8,7 @@ import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import AppDateTimePicker from '../components/AppDateTimePicker';
+import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useTheme } from '../lib/ThemeContext';
 import { sbCall, requireUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
@@ -57,7 +58,9 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [locationName, setLocationName] = useState('');
+  // Via the standard venue picker (our catalog + GPS), same as tournaments —
+  // not a freeform text field, so events get coordinates too.
+  const [location, setLocation] = useState<CourtResult | null>(null);
   // Blank = no minimum, which is the previous behaviour: whatever time wins,
   // wins. Set it and the event cancels itself if the best time can't reach it.
   const [minPlayers, setMinPlayers] = useState('');
@@ -171,7 +174,9 @@ export default function CreateEventScreen({ navigation, route }: Props) {
             league_id: leagueId,
             title: title.trim(),
             description: description.trim() || null,
-            location_name: locationName.trim() || null,
+            location_name: location?.name ?? null,
+            location_lat:  location?.lat ?? null,
+            location_lng:  location?.lng ?? null,
             created_by: uid,
             vote_ends_at: voteEndsAt.toISOString(),
             min_players: minPlayersValue,
@@ -230,12 +235,12 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         />
 
         <Text style={S.label}>Location (optional)</Text>
-        <TextInput
-          style={S.input}
-          placeholder="e.g. The HUB Alameda"
-          placeholderTextColor={colors.textMuted}
-          value={locationName}
-          onChangeText={setLocationName}
+        <CourtPicker
+          value={location}
+          onSelect={setLocation}
+          active
+          showNoneOption
+          placeholder="Search for a court or venue…"
         />
 
         <Text style={S.label}>Description (optional)</Text>
