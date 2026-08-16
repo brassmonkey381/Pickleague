@@ -205,6 +205,42 @@ export function OgBarRow(props: {
   );
 }
 
+/**
+ * Full-width bar with its caption UNDERNEATH — the layout that survives long
+ * labels. OgBarRow's fixed side columns wrap badly in satori when the label
+ * outgrows its column (text spills over neighbours instead of clipping);
+ * stacking gives the label the whole card width. `frac` is 0..1 of the
+ * leading option.
+ */
+export function OgBarBlock(props: {
+  label: string;
+  caption: string;
+  frac: number;
+  emphasized?: boolean;
+  empty?: boolean;
+  colors?: OgPalette;
+}) {
+  const c = props.colors ?? OG_DARK;
+  const fill = props.empty ? c.barBg : props.emphasized ? c.accent : c.bar;
+  return (
+    <div style={row({
+      flexDirection: 'column', backgroundColor: c.panel, borderRadius: 14,
+      marginBottom: 12, padding: '14px 22px 12px',
+    })}>
+      <div style={row({ width: '100%', height: 18, backgroundColor: c.barBg, borderRadius: 9 })}>
+        <div style={row({
+          width: `${Math.round(Math.max(0.05, props.frac) * 100)}%`,
+          height: 18, backgroundColor: fill, borderRadius: 9,
+        })} />
+      </div>
+      <div style={row({ justifyContent: 'space-between', alignItems: 'center', marginTop: 8 })}>
+        <div style={row({ fontSize: 25, fontWeight: 700, color: c.text })}>{props.label}</div>
+        <div style={row({ fontSize: 22, color: props.emphasized ? c.accent : c.muted })}>{props.caption}</div>
+      </div>
+    </div>
+  );
+}
+
 /** Label/value stat, for "Format · Round robin" style facts. */
 export function OgStat(props: { label: string; value: string; colors?: OgPalette }) {
   const c = props.colors ?? OG_DARK;

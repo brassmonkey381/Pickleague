@@ -17,7 +17,7 @@ import React from 'react';
 // package subpath cannot be imported here. See og-kit.tsx's header.
 import {
   createRestFetcher, firstName, clampNames,
-  OgChrome, OgSimpleCard, OgBarRow, OgStat,
+  OgChrome, OgSimpleCard, OgBarBlock, OgStat,
   type OgPalette,
 } from './og-kit';
 
@@ -45,6 +45,10 @@ const fmt = (iso: string, o: Intl.DateTimeFormatOptions) =>
   new Date(iso).toLocaleString('en-US', { ...o, timeZone: TZ });
 const DAY_TIME: Intl.DateTimeFormatOptions =
   { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+/** "Sat, Aug 15 · 9:00 AM" — date and time always together. A weekday alone
+ *  ("Fri") is ambiguous the moment a link outlives the week it was shared. */
+const dayDotTime = (iso: string) =>
+  `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmt(iso, { hour: 'numeric', minute: '2-digit' })}`;
 
 export type Card = { title: string; description: string; body: React.ReactElement };
 
@@ -139,7 +143,6 @@ async function eventCard(id: string): Promise<Card | null> {
   // Voting open — the snapshot tally is the whole point of the card.
   const most = Math.max(1, ...slots.map((s: any) => s.voters.length));
   const closed = new Date(ev.vote_ends_at) <= new Date();
-  const rowH = slots.length <= 3 ? 74 : slots.length <= 4 ? 64 : 52;
   const leader = [...slots].sort(
     (a: any, b: any) => b.voters.length - a.voters.length
       || new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
@@ -147,46 +150,58 @@ async function eventCard(id: string): Promise<Card | null> {
 
   const parts = [`${voterIds.size} ${voterIds.size === 1 ? 'person has' : 'people have'} voted`];
   if (leader && leader.voters.length > 0) {
-    parts.push(`${fmt(leader.starts_at, { weekday: 'short', hour: 'numeric', minute: '2-digit' })} leading (${leader.voters.length})`);
+    parts.push(`${dayDotTime(leader.starts_at)} leading (${leader.voters.length})`);
   }
   if (ev.min_players != null) parts.push(`needs ${ev.min_players} on one time`);
-  parts.push(closed ? 'voting closed' : `closes ${fmt(ev.vote_ends_at, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`);
+  parts.push(closed ? 'voting closed' : `closes ${dayDotTime(ev.vote_ends_at)}`);
+  if (nonResponders?.length) parts.push(`waiting on ${clampNames(nonResponders, 4)}`);
+
+  // The header carries the deadline and the threshold; the footer carries the
+  // people. More than 4 slots shrinks the header a little to keep 630px.
+  const many = slots.length > 4;
 
   return {
     title: `Vote: ${ev.title}`,
     description: parts.join(' · '),
     body: (
       <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
-        <div style={{ display: 'flex', alignItems: 'baseline', marginTop: 18 }}>
-          <div style={{ display: 'flex', fontSize: ev.title.length > 26 ? 40 : 50, fontWeight: 800, color: PALETTE.text }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: many ? 8 : 16 }}>
+          <div style={{ display: 'flex', fontSize: ev.title.length > 26 ? 36 : many ? 40 : 48, fontWeight: 800, color: PALETTE.text }}>
             {ev.title}
           </div>
-          <div style={{ display: 'flex', fontSize: 26, color: PALETTE.muted, marginLeft: 20 }}>
-            {closed ? 'voting closed' : `voting closes ${fmt(ev.vote_ends_at, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}`}
+          <div style={{ display: 'flex', fontSize: 24, color: PALETTE.muted }}>
+            {closed ? 'voting closed' : `voting closes ${dayDotTime(ev.vote_ends_at)}`}
+            {ev.min_players != null ? ` · needs ${ev.min_players} on one time` : ''}
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', marginTop: 22, flexGrow: 1 }}>
-          {slots.slice(0, 6).map((s: any) => (
-            <OgBarRow
-              key={s.id}
-              label={fmt(s.starts_at, DAY_TIME)}
-              count={s.voters.length}
-              frac={s.voters.length / most}
-              detail={s.voters.length ? clampNames(s.voters, 4) : 'no votes yet'}
-              emphasized={ev.min_players != null && s.voters.length >= ev.min_players}
-              height={rowH}
-              colors={PALETTE}
-            />
-          ))}
+
+        <div style={{ display: 'flex', flexDirection: 'column', marginTop: many ? 12 : 18, flexGrow: 1 }}>
+          {slots.slice(0, 6).map((s: any) => {
+            const n = s.voters.length;
+            const hit = ev.min_players != null && n >= ev.min_players;
+            return (
+              <OgBarBlock
+                key={s.id}
+                label={dayDotTime(s.starts_at)}
+                caption={n === 0 ? 'no votes yet'
+                  : `${n} ${n === 1 ? 'vote' : 'votes'}${hit ? ' — enough to play' : ''} · ${clampNames(s.voters, 5)}`}
+                frac={n / most}
+                emphasized={hit}
+                empty={n === 0}
+                colors={PALETTE}
+              />
+            );
+          })}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
           <div style={{ display: 'flex', fontSize: 22, color: decliners.length ? PALETTE.danger : PALETTE.faint }}>
             {decliners.length ? `Can't make it: ${clampNames(decliners, 5)}` : ''}
           </div>
           <div style={{ display: 'flex', fontSize: 22, color: PALETTE.faint }}>
-            {nonResponders && nonResponders.length
-              ? `Waiting on: ${clampNames(nonResponders, 5)}`
-              : ev.min_players != null ? `needs ${ev.min_players} on one time` : ''}
+            {nonResponders === null ? ''
+              : nonResponders.length ? `Waiting on: ${clampNames(nonResponders, 6)}`
+              : 'Everyone has replied'}
           </div>
         </div>
       </OgChrome>
