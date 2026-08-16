@@ -331,56 +331,126 @@ async function seasonCard(id: string): Promise<Card | null> {
   const sid = encodeURIComponent(id);
   const s = (await rest(
     `league_seasons?id=eq.${sid}`
-    + `&select=id,name,league_id,status,start_date,end_date,total_periods,prize_pool&limit=1`,
+    + `&select=id,name,league_id,status,start_date,end_date,total_periods,lock_frequency_weeks,prize_pool&limit=1`,
   ))[0];
   if (!s) return null;
 
-  const [league, podium] = await Promise.all([
+  const [league, podium, snapshots] = await Promise.all([
     rest(`leagues?id=eq.${encodeURIComponent(s.league_id)}&select=name&limit=1`).then(r => r[0]),
     // Final standings exist only once the season completes; empty until then.
     rest(`season_final_standings?season_id=eq.${sid}&order=final_rank.asc&limit=3`
       + `&select=final_rank,user_id,profile:profiles(full_name)`),
+    // One row per player per LOCKED period; nothing for the period underway.
+    rest(`season_snapshots?season_id=eq.${sid}`
+      + `&select=period_number,rank_at_snapshot,wins_in_season,losses_in_season,user_id,profile:profiles(full_name)`
+      + `&order=period_number.asc,rank_at_snapshot.asc`),
   ]);
 
   const dates = s.start_date && s.end_date
     ? `${fmtDateOnly(s.start_date)} – ${fmtDateOnly(s.end_date)}`
     : '';
   const complete = s.status === 'completed' || podium.length > 0;
-  const statusLine = complete ? 'Season complete' : 'Season underway';
-  const names = podium.map((p: any) => firstName(p.profile?.full_name));
+
+  // Current period from the calendar (mirrors SeasonStandingsScreen's math):
+  // period N covers [start + (N-1)·freq weeks, start + N·freq weeks).
+  let currentPeriod: number | null = null;
+  if (!complete && s.start_date && s.lock_frequency_weeks) {
+    const [y, m, d] = String(s.start_date).split('-').map(Number);
+    const elapsedDays = Math.floor((Date.now() - new Date(y, m - 1, d).getTime()) / 86_400_000);
+    currentPeriod = Math.min(
+      s.total_periods ?? 99,
+      Math.max(1, Math.floor(elapsedDays / (s.lock_frequency_weeks * 7)) + 1),
+    );
+  }
+
+  // Each period's rank 1 is that period's winner; the LAST locked period's
+  // rows are the current standings ("after period N").
+  const periodWinners: { period: number; name: string }[] = [];
+  let lastLocked = 0;
+  for (const row of snapshots) {
+    if (row.period_number > lastLocked) lastLocked = row.period_number;
+    if (row.rank_at_snapshot === 1) {
+      periodWinners.push({ period: row.period_number, name: firstName(row.profile?.full_name) });
+    }
+  }
+  const standings = snapshots
+    .filter((r: any) => r.period_number === lastLocked)
+    .slice(0, 3)
+    .map((r: any) => ({
+      name: firstName(r.profile?.full_name),
+      record: `${r.wins_in_season}-${r.losses_in_season}`,
+    }));
+
+  const statusLine = complete
+    ? 'Season complete'
+    : currentPeriod
+      ? `Season underway — period ${currentPeriod}${s.total_periods ? ` of ${s.total_periods}` : ''}`
+      : 'Season underway';
+  const podiumNames = podium.map((p: any) => firstName(p.profile?.full_name));
+
+  const descBits = [statusLine];
+  if (dates) descBits.push(dates);
+  if (complete && podiumNames.length) descBits.push(`Champion: ${podiumNames[0]}`);
+  if (!complete && standings.length) {
+    descBits.push(`Leading after period ${lastLocked}: ${standings.map(x => `${x.name} (${x.record})`).slice(0, 2).join(', ')}`);
+  }
+  if (s.prize_pool) descBits.push(`${s.prize_pool} pickle prize pool`);
+
+  // Completed seasons put the podium in the strip; active ones the standings.
+  const strip = complete
+    ? podiumNames.map((n: string, i: number) => ({ label: `${i + 1}. ${n}`, sub: '' }))
+    : standings.map((x, i) => ({ label: `${i + 1}. ${x.name}`, sub: x.record }));
+  const stripTitle = complete ? 'PODIUM' : lastLocked ? `STANDINGS AFTER PERIOD ${lastLocked}` : '';
 
   return {
     title: `${league?.name ?? 'League'} — ${s.name}`,
-    description: `${statusLine}${dates ? ` · ${dates}` : ''}`
-      + (names.length ? ` · Champion: ${names[0]}` : '')
-      + (s.prize_pool ? ` · ${s.prize_pool} pickle prize pool` : '')
-      + '. Tap for the standings.',
-    fingerprint: JSON.stringify({ st: s.status, podium: names }),
+    description: descBits.join(' · ') + '. Tap for the standings.',
+    fingerprint: JSON.stringify({ st: s.status, p: currentPeriod, w: periodWinners, s: standings, f: podiumNames }),
     body: (
       <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
         <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, justifyContent: 'center' }}>
           <div style={{ display: 'flex', fontSize: 26, fontWeight: 700, color: PALETTE.accent, letterSpacing: 1 }}>
             {statusLine.toUpperCase()}
           </div>
-          <div style={{ display: 'flex', fontSize: 46, fontWeight: 800, color: PALETTE.text, marginTop: 8 }}>
+          <div style={{ display: 'flex', fontSize: 44, fontWeight: 800, color: PALETTE.text, marginTop: 8 }}>
             {`${league?.name ?? 'League'} — ${s.name}`}
           </div>
-          <div style={{ display: 'flex', marginTop: 24 }}>
+          <div style={{ display: 'flex', marginTop: 22 }}>
             {dates ? <OgStat label="DATES" value={dates} colors={PALETTE} /> : null}
-            {s.total_periods ? <OgStat label="PERIODS" value={String(s.total_periods)} colors={PALETTE} /> : null}
             {s.prize_pool ? <OgStat label="PRIZE POOL" value={`${s.prize_pool} pickles`} colors={PALETTE} /> : null}
           </div>
-          {names.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', marginTop: 26 }}>
-              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>PODIUM</div>
+
+          {strip.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', marginTop: 22 }}>
+              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>{stripTitle}</div>
               <div style={{ display: 'flex', marginTop: 8 }}>
-                {names.map((n: string, i: number) => (
-                  <div key={n + i} style={{
+                {strip.map((x, i) => (
+                  <div key={x.label} style={{
                     display: 'flex', backgroundColor: PALETTE.panel, borderRadius: 12,
                     padding: '10px 18px', marginRight: 12, fontSize: 24,
                     color: i === 0 ? PALETTE.accent : PALETTE.text, fontWeight: i === 0 ? 800 : 400,
                   }}>
-                    {`${i + 1}. ${n}`}
+                    {x.label}
+                    {x.sub ? (
+                      <div style={{ display: 'flex', marginLeft: 10, fontWeight: 700, color: PALETTE.muted }}>{x.sub}</div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {periodWinners.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', marginTop: 20 }}>
+              <div style={{ display: 'flex', fontSize: 20, color: PALETTE.faint, letterSpacing: 1 }}>PERIOD WINNERS</div>
+              <div style={{ display: 'flex', marginTop: 8 }}>
+                {periodWinners.slice(-6).map((w) => (
+                  <div key={w.period} style={{
+                    display: 'flex', backgroundColor: PALETTE.panel, borderRadius: 10,
+                    padding: '7px 14px', marginRight: 10, fontSize: 20, color: PALETTE.muted,
+                  }}>
+                    {`P${w.period}`}
+                    <div style={{ display: 'flex', marginLeft: 8, color: PALETTE.text, fontWeight: 700 }}>{w.name}</div>
                   </div>
                 ))}
               </div>
