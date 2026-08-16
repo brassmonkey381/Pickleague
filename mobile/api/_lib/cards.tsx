@@ -278,22 +278,30 @@ async function leagueCard(id: string): Promise<Card | null> {
   const lg = (await rest(`leagues?id=eq.${lid}&select=id,name,description&limit=1`))[0];
   if (!lg) return null;
 
-  const members = await rest(
-    `league_members?league_id=eq.${lid}&select=user_id,profile:profiles(full_name,rating,total_matches_played,deleted_at)`,
-  );
+  const [members, matchRows] = await Promise.all([
+    rest(`league_members?league_id=eq.${lid}&select=user_id,profile:profiles(full_name,rating,deleted_at)`),
+    // Matches played IN THIS LEAGUE. The first version summed the members'
+    // profiles.total_matches_played, which is each player's LIFETIME count
+    // across every league — a brand-new league with one veteran member
+    // claimed his whole career as its own history.
+    rest(`matches?league_id=eq.${lid}&select=id&limit=1000`),
+  ]);
   const active = members.filter((m: any) => m.profile && !m.profile.deleted_at);
   const top = [...active]
     .sort((a: any, b: any) => (b.profile.rating ?? 0) - (a.profile.rating ?? 0))
     .slice(0, 4);
-  const matches = active.reduce((n: number, m: any) => n + (m.profile.total_matches_played ?? 0), 0);
+  // PostgREST caps at 1000 rows; at the cap the true count is unknown upward.
+  const matches = matchRows.length;
+  const matchesLabel = matches >= 1000 ? '1000+' : String(matches);
 
   const description = `${active.length} ${active.length === 1 ? 'player' : 'players'}`
-    + (matches ? ` · ${matches} matches played` : '')
+    + (matches ? ` · ${matchesLabel} matches played` : '')
     + '. Tap to join or see standings.';
 
   return {
     title: lg.name,
     description,
+    fingerprint: JSON.stringify({ n: active.length, m: matches, t: top.map((x: any) => x.profile.rating) }),
     body: (
       <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
         <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, justifyContent: 'center' }}>
@@ -307,7 +315,7 @@ async function leagueCard(id: string): Promise<Card | null> {
           ) : null}
           <div style={{ display: 'flex', marginTop: 34 }}>
             <OgStat label="PLAYERS" value={String(active.length)} colors={PALETTE} />
-            {matches > 0 && <OgStat label="MATCHES" value={String(matches)} colors={PALETTE} />}
+            {matches > 0 && <OgStat label="MATCHES" value={matchesLabel} colors={PALETTE} />}
           </div>
           {top.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', marginTop: 30 }}>
