@@ -36,6 +36,7 @@ import StatusBanner from '../components/StatusBanner';
 import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
 import BookmarkButton from '../components/BookmarkButton';
+import ShareLinkButton from '../components/ShareLinkButton';
 import type { WagerSubject } from '../lib/wager';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -1514,6 +1515,15 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           >
             <Text style={S.quickActionText}>ℹ️ How this works</Text>
           </TouchableOpacity>
+          {/* Tournament URL unfurls into the status/roster OG card. */}
+          <ShareLinkButton
+            url={`https://www.pickleague.club/tournaments/${tournamentId}`}
+            title={tournament.name}
+            message={tournament.status === 'registration'
+              ? `Registration is open for "${tournament.name}" on Pickleague`
+              : `"${tournament.name}" on Pickleague`}
+            onCopied={() => status.success('Tournament link copied.')}
+          />
           <BookmarkButton targetType="tournament" targetId={tournamentId} style={S.quickActionBtn} />
           {isAdmin && (godmode || (tournament.status !== 'completed' && tournament.status !== 'cancelled')) && (
             <TouchableOpacity

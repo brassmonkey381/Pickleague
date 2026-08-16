@@ -23,6 +23,7 @@ import EmptyState from '../components/EmptyState';
 import { displayCourtName } from '../lib/courtNickname';
 import StatusBanner from '../components/StatusBanner';
 import BookmarkButton from '../components/BookmarkButton';
+import ShareLinkButton from '../components/ShareLinkButton';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -711,6 +712,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           >
             <Text style={S.howItWorksText}>ℹ️ How this league works →</Text>
           </TouchableOpacity>
+          {/* League URL unfurls into the roster/top-players OG card. */}
+          <ShareLinkButton
+            url={`https://www.pickleague.club/leagues/${leagueId}`}
+            title={leagueName}
+            message={`Join "${leagueName}" on Pickleague`}
+            onCopied={() => joinStatus.success('League link copied.')}
+          />
           <BookmarkButton targetType="league" targetId={leagueId} />
         </View>
       </View>

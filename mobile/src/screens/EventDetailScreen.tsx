@@ -19,6 +19,7 @@ import { shareInvite } from '../lib/share';
 import { addToCalendar } from '../lib/calendar';
 import { DeviceContact } from '../lib/contacts';
 import BookmarkButton from '../components/BookmarkButton';
+import ShareLinkButton from '../components/ShareLinkButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -482,7 +483,15 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
       {/* Header */}
       <View style={S.header}>
-        <View style={{ position: 'absolute', top: 8, right: 12 }}>
+        <View style={{ position: 'absolute', top: 8, right: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {/* The event URL serves a live OG snapshot card, so wherever this
+              lands — Discord, WhatsApp, iMessage — it unfurls into the poll. */}
+          <ShareLinkButton
+            url={`https://www.pickleague.club/events/${eventId}`}
+            title={event.title}
+            message={votingIsOpen ? `Vote on a time for "${event.title}"` : `"${event.title}" on Pickleague`}
+            onCopied={() => status.success('Link copied — paste it anywhere; it unfurls into the vote card.')}
+          />
           <BookmarkButton targetType="event" targetId={eventId} />
         </View>
         {event.description ? <Text style={S.desc}>{event.description}</Text> : null}
