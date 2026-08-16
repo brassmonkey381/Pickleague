@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import { Platform, Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
+import { setClipboard } from '@just-messin-around/expo-foundation/platform';
 import { shareInvite } from '../lib/share';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -35,10 +36,18 @@ export default function ShareLinkButton({
     if (busy) return;
     setBusy(true);
     try {
-      const res = await shareInvite({ title, message, url });
-      if (res.copied) onCopied?.();
+      if (Platform.OS === 'web') {
+        // Deliberately NOT the Web Share API: on web this button just copies
+        // the URL — bare, no message text — so it pastes clean into Discord /
+        // WhatsApp where the link unfurls into the card by itself.
+        await setClipboard(url);
+        onCopied?.();
+      } else {
+        const res = await shareInvite({ title, message, url });
+        if (res.copied) onCopied?.();
+      }
     } catch {
-      // Share sheet dismissed or unavailable — nothing to clean up.
+      // Share sheet dismissed or clipboard blocked — nothing to clean up.
     } finally {
       setBusy(false);
     }
@@ -51,7 +60,9 @@ export default function ShareLinkButton({
       disabled={busy}
       accessibilityLabel="Share link"
     >
-      <Text style={[S.text, { color: colors.textSub }]}>{busy ? '…' : '↗ Share'}</Text>
+      <Text style={[S.text, { color: colors.textSub }]}>
+        {busy ? '…' : Platform.OS === 'web' ? '🔗 Copy link' : '↗ Share'}
+      </Text>
     </TouchableOpacity>
   );
 }

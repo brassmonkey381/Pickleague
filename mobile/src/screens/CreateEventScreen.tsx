@@ -57,6 +57,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [locationName, setLocationName] = useState('');
   // Blank = no minimum, which is the previous behaviour: whatever time wins,
   // wins. Set it and the event cancels itself if the best time can't reach it.
   const [minPlayers, setMinPlayers] = useState('');
@@ -170,6 +171,7 @@ export default function CreateEventScreen({ navigation, route }: Props) {
             league_id: leagueId,
             title: title.trim(),
             description: description.trim() || null,
+            location_name: locationName.trim() || null,
             created_by: uid,
             vote_ends_at: voteEndsAt.toISOString(),
             min_players: minPlayersValue,
@@ -227,10 +229,19 @@ export default function CreateEventScreen({ navigation, route }: Props) {
           onChangeText={setTitle}
         />
 
+        <Text style={S.label}>Location (optional)</Text>
+        <TextInput
+          style={S.input}
+          placeholder="e.g. The HUB Alameda"
+          placeholderTextColor={colors.textMuted}
+          value={locationName}
+          onChangeText={setLocationName}
+        />
+
         <Text style={S.label}>Description (optional)</Text>
         <TextInput
           style={[S.input, S.multiline]}
-          placeholder="Location, notes..."
+          placeholder="Notes, what to bring..."
           placeholderTextColor={colors.textMuted}
           value={description}
           onChangeText={setDescription}

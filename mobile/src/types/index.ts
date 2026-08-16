@@ -187,6 +187,8 @@ export type LeagueEvent = {
   /** Voters that must agree on ONE slot for the event to happen. Null = no
    *  minimum. Below it, the event is cancelled rather than scheduled. */
   min_players: number | null;
+  /** Freeform venue label ("The HUB Alameda"). Null = no location set. */
+  location_name: string | null;
   created_at: string;
   slots?: EventSlot[];
 };

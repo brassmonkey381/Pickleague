@@ -91,7 +91,7 @@ export async function loadCard(type: CardType, id: string): Promise<Card | null>
 async function eventCard(id: string): Promise<Card | null> {
   const eid = encodeURIComponent(id);
   const ev = (await rest(
-    `league_events?id=eq.${eid}&select=id,title,status,vote_ends_at,confirmed_slot_id,min_players,league_id&limit=1`,
+    `league_events?id=eq.${eid}&select=id,title,status,vote_ends_at,confirmed_slot_id,min_players,league_id,location_name&limit=1`,
   ))[0];
   if (!ev) return null;
 
@@ -138,7 +138,8 @@ async function eventCard(id: string): Promise<Card | null> {
     const going: string[] = slot?.voters ?? [];
     return {
       title: `${ev.title} — it's on`,
-      description: `${when} · ${going.length} ${going.length === 1 ? 'player' : 'players'} in. Tap for details.`,
+      description: `${when}${ev.location_name ? ` at ${ev.location_name}` : ''}`
+        + ` · ${going.length} ${going.length === 1 ? 'player' : 'players'} in. Tap for details.`,
       body: (
         <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', flexGrow: 1 }}>
@@ -149,6 +150,11 @@ async function eventCard(id: string): Promise<Card | null> {
               {ev.title}
             </div>
             <div style={{ display: 'flex', fontSize: 40, color: PALETTE.text, marginTop: 22 }}>{when}</div>
+            {ev.location_name ? (
+              <div style={{ display: 'flex', fontSize: 28, color: PALETTE.accent, marginTop: 10 }}>
+                {`at ${ev.location_name}`}
+              </div>
+            ) : null}
             <div style={{ display: 'flex', fontSize: 27, color: PALETTE.muted, marginTop: 18 }}>
               {going.length ? `Playing (${going.length}): ${clampNames(going, 8)}` : 'Tap for the roster'}
             </div>
@@ -174,6 +180,7 @@ async function eventCard(id: string): Promise<Card | null> {
   const parts = [
     votedNames.length ? `Voted: ${clampNames(votedNames, 4)}` : 'No votes yet',
   ];
+  if (ev.location_name) parts.push(`at ${ev.location_name}`);
   if (leader && leader.voters.length > 0) {
     parts.push(`${dayDotTime(leader.starts_at)} leading (${leader.voters.length})`);
   }
@@ -203,6 +210,7 @@ async function eventCard(id: string): Promise<Card | null> {
             {ev.title}
           </div>
           <div style={{ display: 'flex', fontSize: 24, color: PALETTE.muted }}>
+            {ev.location_name ? `at ${ev.location_name} · ` : ''}
             {closed ? 'voting closed' : `voting closes ${dayDotTime(ev.vote_ends_at)}`}
             {ev.min_players != null ? ` · needs ${ev.min_players} on one time` : ''}
           </div>

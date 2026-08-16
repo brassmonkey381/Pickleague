@@ -45,7 +45,7 @@ export function pickNudgeKind(
 
 export function buildNudgeMessage(input: {
   kind: NudgeKind;
-  event: Pick<LeagueEvent, 'id' | 'title' | 'vote_ends_at' | 'min_players'>;
+  event: Pick<LeagueEvent, 'id' | 'title' | 'vote_ends_at' | 'min_players' | 'location_name'>;
   slots: EventSlot[];
   confirmedSlot: EventSlot | null;
   /** Distinct people who have voted for at least one slot. */
@@ -76,20 +76,21 @@ export function buildNudgeMessage(input: {
   }
 
   const when = confirmedSlot ? `${timeLabel(confirmedSlot.starts_at)}` : '';
+  const where = event.location_name ? ` at ${event.location_name}` : '';
   const who = attendeeNames.length
     ? `${attendeeNames.slice(0, 6).join(', ')}${attendeeNames.length > 6 ? ` +${attendeeNames.length - 6} more` : ''}`
     : '';
 
   if (kind === 'today') {
     return [
-      `🥒 "${event.title}" is TODAY at ${when}`,
+      `🥒 "${event.title}" is TODAY at ${when}${where}`,
       who ? `Playing: ${who}` : '',
       `Details: ${link}`,
     ].filter(Boolean).join('\n');
   }
 
   return [
-    `📅 "${event.title}" is locked in — ${confirmedSlot ? dayLabel(confirmedSlot.starts_at) : 'soon'} at ${when}`,
+    `📅 "${event.title}" is locked in — ${confirmedSlot ? dayLabel(confirmedSlot.starts_at) : 'soon'} at ${when}${where}`,
     who ? `Playing: ${who}` : '',
     `Add it to your calendar: ${link}`,
   ].filter(Boolean).join('\n');

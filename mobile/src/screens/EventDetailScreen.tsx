@@ -80,6 +80,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [webhookSetupOpen, setWebhookSetupOpen] = useState(false);
   const [webhookInput, setWebhookInput] = useState('');
   const [webhookSaving, setWebhookSaving] = useState(false);
+  // Creator-only edit of the vote's location + description.
+  const [detailsEditOpen, setDetailsEditOpen] = useState(false);
+  const [editDesc, setEditDesc] = useState('');
+  const [editLoc, setEditLoc] = useState('');
+  const [detailsSaving, setDetailsSaving] = useState(false);
   type EventMatchRow = {
     id: string;
     match_type: 'singles' | 'doubles';
@@ -314,6 +319,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  function openDetailsEdit() {
+    if (!event) return;
+    setEditDesc(event.description ?? '');
+    setEditLoc(event.location_name ?? '');
+    setDetailsEditOpen(true);
+  }
+
+  async function saveDetails() {
+    if (!event || detailsSaving) return;
+    setDetailsSaving(true);
+    status.clear();
+    try {
+      // Idempotent write keyed by event id; RLS limits it to the creator.
+      await sbCall(() => supabase
+        .from('league_events')
+        .update({
+          description: editDesc.trim() || null,
+          location_name: editLoc.trim() || null,
+        })
+        .eq('id', event.id));
+      setDetailsEditOpen(false);
+      status.success('Event details updated.');
+      await load();
+    } catch (e) {
+      status.error(friendlySbMessage(e, 'Could not save the changes.'));
+    } finally {
+      setDetailsSaving(false);
+    }
+  }
+
   async function saveChatWebhook() {
     if (!event || webhookSaving) return;
     const url = webhookInput.trim();
@@ -494,7 +529,14 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           />
           <BookmarkButton targetType="event" targetId={eventId} />
         </View>
+        {event.location_name ? <Text style={S.locationLine}>📍 {event.location_name}</Text> : null}
         {event.description ? <Text style={S.desc}>{event.description}</Text> : null}
+        {/* Only the creator may edit — matches RLS ("Event creator can update"). */}
+        {canClose && (
+          <TouchableOpacity onPress={openDetailsEdit}>
+            <Text style={S.editDetailsLink}>✏️ Edit location & description</Text>
+          </TouchableOpacity>
+        )}
         <View style={S.statusRow}>
           {votingIsOpen ? (
             <>
@@ -524,6 +566,44 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           </Text>
         )}
       </View>
+
+      {detailsEditOpen && (
+        <View style={S.detailsEditBox}>
+          <Text style={S.detailsEditLabel}>Location</Text>
+          <TextInput
+            style={S.webhookInput}
+            placeholder="e.g. The HUB Alameda"
+            placeholderTextColor={c.textMuted}
+            value={editLoc}
+            onChangeText={setEditLoc}
+          />
+          <Text style={S.detailsEditLabel}>Description</Text>
+          <TextInput
+            style={[S.webhookInput, { minHeight: 70, textAlignVertical: 'top' }]}
+            placeholder="Notes, what to bring..."
+            placeholderTextColor={c.textMuted}
+            value={editDesc}
+            onChangeText={setEditDesc}
+            multiline
+          />
+          <View style={S.nudgeBtnRow}>
+            <TouchableOpacity
+              style={[S.nudgeBtn, S.nudgeBtnSms]}
+              onPress={saveDetails}
+              disabled={detailsSaving}
+            >
+              <Text style={S.nudgeBtnText}>{detailsSaving ? 'Saving…' : 'Save'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.nudgeBtn, S.nudgeBtnCancel]}
+              onPress={() => setDetailsEditOpen(false)}
+              disabled={detailsSaving}
+            >
+              <Text style={[S.nudgeBtnText, { color: c.textSub }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {status.value && (
         <View style={S.bannerWrap}>
@@ -909,6 +989,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     nudgeBtnText:    { color: '#fff', fontWeight: '800', fontSize: 13 },
     webhookSetupLink:{ fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 10 },
     webhookSetupBox: { marginTop: 10 },
+    locationLine:    { fontSize: 14, fontWeight: '600', color: c.textSub, marginTop: 6 },
+    editDetailsLink: { fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 8 },
+    detailsEditBox:  { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
+    detailsEditLabel:{ fontSize: 12, fontWeight: '700', color: c.textSub, marginBottom: 6 },
     webhookSetupHint:{ fontSize: 11, color: c.textMuted, lineHeight: 16, marginBottom: 8 },
     webhookInput:    { borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: c.text, backgroundColor: c.surface, marginBottom: 10 },
     declineCard:      { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
