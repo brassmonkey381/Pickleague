@@ -51,6 +51,17 @@
       ],
       "destination": "/api/og?type=season&id=:id"
     },
+    {
+      "source": "/players/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(facebookexternalhit|Facebot|WhatsApp|Twitterbot|Slackbot|Discordbot|LinkedInBot|TelegramBot|Applebot|SkypeUriPreview|redditbot|Googlebot|bingbot|Iframely|Embedly).*"
+        }
+      ],
+      "destination": "/api/og?type=player&id=:id"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

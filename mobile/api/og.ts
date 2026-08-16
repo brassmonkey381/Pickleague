@@ -12,7 +12,7 @@ import { loadCard, parseCardType, GENERIC_CARD, FALLBACK_ORIGIN, type CardType }
 export const config = { runtime: 'edge' };
 
 const PATHS: Record<CardType, string> = {
-  event: 'events', league: 'leagues', tournament: 'tournaments', season: 'seasons',
+  event: 'events', league: 'leagues', tournament: 'tournaments', season: 'seasons', player: 'players',
 };
 
 export default async function handler(req: Request): Promise<Response> {

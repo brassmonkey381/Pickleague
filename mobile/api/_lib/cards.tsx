@@ -21,10 +21,11 @@ import {
   type OgPalette,
 } from './og-kit';
 
-export type CardType = 'event' | 'league' | 'tournament' | 'season';
+export type CardType = 'event' | 'league' | 'tournament' | 'season' | 'player';
 
 export function parseCardType(raw: string | null): CardType {
-  return raw === 'league' || raw === 'tournament' || raw === 'season' ? raw : 'event';
+  return raw === 'league' || raw === 'tournament' || raw === 'season' || raw === 'player'
+    ? raw : 'event';
 }
 
 export const BRAND = 'PICKLEAGUE';
@@ -83,7 +84,77 @@ export async function loadCard(type: CardType, id: string): Promise<Card | null>
   if (type === 'event') return eventCard(id);
   if (type === 'league') return leagueCard(id);
   if (type === 'season') return seasonCard(id);
+  if (type === 'player') return playerCard(id);
   return tournamentCard(id);
+}
+
+// ── Player profile ────────────────────────────────────────────
+
+/**
+ * Mirrors EXACTLY what PlayerProfileScreen shows any signed-out viewer, and
+ * nothing more. Pickleague's per-user privacy controls are badges_public
+ * (whole-badge-case toggle) and player_badges.is_hidden (per badge) — name,
+ * PLUPR ratings, and match count are public by app design and existing RLS.
+ * The card honours both settings, and a deleted account gets no card at all.
+ */
+async function playerCard(id: string): Promise<Card | null> {
+  const uid = encodeURIComponent(id);
+  const p = (await rest(
+    `profiles?id=eq.${uid}`
+    + `&select=id,full_name,tagline,rating,singles_rating,doubles_rating,total_matches_played,badges_public,is_guest,deleted_at&limit=1`,
+  ))[0];
+  // Tombstones are kept only so shared match history stays intact — they are
+  // not a person to present, so no card (crawlers get the generic fallback).
+  if (!p || p.deleted_at) return null;
+
+  // Count badges ONLY when the player shows them publicly, and only the ones
+  // they have not individually hidden. When badges_public is off we do not
+  // even query — the count must not leak through a "0 badges" vs no-line tell.
+  let badgeCount = 0;
+  if (p.badges_public !== false) {
+    const badges = await rest(`player_badges?user_id=eq.${uid}&is_hidden=eq.false&select=id`);
+    badgeCount = badges.length;
+  }
+
+  const plupr = (n: any) => (n == null ? '—' : Number(n).toFixed(2));
+  const bits = [`PLUPR ${plupr(p.rating)}`, `${p.total_matches_played ?? 0} matches`];
+  if (p.badges_public !== false && badgeCount > 0) bits.push(`${badgeCount} ${badgeCount === 1 ? 'badge' : 'badges'}`);
+
+  return {
+    title: p.full_name,
+    description: `${bits.join(' · ')}. Tap for the full profile.`,
+    fingerprint: JSON.stringify({ r: p.rating, s: p.singles_rating, d: p.doubles_rating, m: p.total_matches_played, b: badgeCount }),
+    body: (
+      <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
+        <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, justifyContent: 'center' }}>
+          {p.is_guest ? (
+            <div style={{ display: 'flex', fontSize: 24, fontWeight: 700, color: PALETTE.faint, letterSpacing: 1 }}>
+              GUEST PLAYER
+            </div>
+          ) : null}
+          <div style={{ display: 'flex', fontSize: String(p.full_name).length > 22 ? 48 : 60, fontWeight: 800, color: PALETTE.text, marginTop: 6 }}>
+            {p.full_name}
+          </div>
+          {p.tagline ? (
+            <div style={{ display: 'flex', fontSize: 26, color: PALETTE.muted, marginTop: 10 }}>
+              {String(p.tagline).slice(0, 80)}
+            </div>
+          ) : null}
+          <div style={{ display: 'flex', marginTop: 32 }}>
+            <OgStat label="PLUPR" value={plupr(p.rating)} colors={PALETTE} />
+            <OgStat label="SINGLES" value={plupr(p.singles_rating)} colors={PALETTE} />
+            <OgStat label="DOUBLES" value={plupr(p.doubles_rating)} colors={PALETTE} />
+            <OgStat label="MATCHES" value={String(p.total_matches_played ?? 0)} colors={PALETTE} />
+          </div>
+          {p.badges_public !== false && badgeCount > 0 ? (
+            <div style={{ display: 'flex', fontSize: 24, color: PALETTE.accent, marginTop: 26 }}>
+              {`${badgeCount} ${badgeCount === 1 ? 'badge' : 'badges'} earned`}
+            </div>
+          ) : null}
+        </div>
+      </OgChrome>
+    ),
+  };
 }
 
 // ── Event ─────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import BookmarkButton from '../components/BookmarkButton';
+import ShareLinkButton from '../components/ShareLinkButton';
 import ClaimAccountButton from '../components/ClaimAccountButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -196,7 +197,14 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={{ position: 'absolute', top: 12, right: 16 }}>
+        <View style={{ position: 'absolute', top: 12, right: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {/* The player URL unfurls into their OG card, which mirrors this
+              screen's public view and honours badges_public / hidden badges. */}
+          <ShareLinkButton
+            url={`https://www.pickleague.club/players/${userId}`}
+            title={profile.full_name}
+            message={`${profile.full_name} on Pickleague`}
+          />
           <BookmarkButton targetType="profile" targetId={userId} />
         </View>
         {profile.avatar_url ? (
