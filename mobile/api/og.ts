@@ -6,7 +6,7 @@
  * vercel.json cannot import it, so the list is duplicated there). Humans fall
  * through to the SPA catch-all, so the app path is untouched.
  */
-import { ogPageHtml, requestOrigin, OG_CACHE_CONTROL } from './_lib/og-kit';
+import { ogPageHtml, requestOrigin, shortHash, OG_CACHE_CONTROL } from './_lib/og-kit';
 import { loadCard, GENERIC_CARD, FALLBACK_ORIGIN, type CardType } from './_lib/cards';
 
 export const config = { runtime: 'edge' };
@@ -31,7 +31,12 @@ export default async function handler(req: Request): Promise<Response> {
 
   const site = requestOrigin(req.headers, FALLBACK_ORIGIN);
   const canonical = card ? `${site}/${PATHS[type]}/${id}` : site;
-  const image = `${site}/api/og-image?type=${type}&id=${encodeURIComponent(id)}`;
+  // `v` fingerprints the card content. Discord (and friends) proxy-cache the
+  // image BY URL far longer than the page, so without this a card whose tally
+  // moved kept its old picture even after a re-share refreshed the text — any
+  // data change now mints a new image URL the proxy must actually fetch.
+  const v = shortHash(`${c.title}|${c.description}|${c.fingerprint ?? ''}`);
+  const image = `${site}/api/og-image?type=${type}&id=${encodeURIComponent(id)}&v=${v}`;
 
   return new Response(
     ogPageHtml({

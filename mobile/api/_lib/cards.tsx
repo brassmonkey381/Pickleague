@@ -50,7 +50,15 @@ const DAY_TIME: Intl.DateTimeFormatOptions =
 const dayDotTime = (iso: string) =>
   `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmt(iso, { hour: 'numeric', minute: '2-digit' })}`;
 
-export type Card = { title: string; description: string; body: React.ReactElement };
+export type Card = {
+  title: string;
+  description: string;
+  body: React.ReactElement;
+  /** Everything the IMAGE renders that the description may not mention (e.g.
+   *  decliners in a fully-replied league). og.ts hashes this into the image
+   *  URL so any visual change forces chat proxies to refetch the picture. */
+  fingerprint?: string;
+};
 
 const simple = (title: string, sub: string): Card => ({
   title,
@@ -88,10 +96,14 @@ async function eventCard(id: string): Promise<Card | null> {
   ]);
 
   const perSlot = new Map<string, string[]>();
+  const nameOf = new Map<string, string>();
   for (const v of votes) {
+    nameOf.set(v.user_id, firstName(v.profile?.full_name));
     perSlot.set(v.slot_id, [...(perSlot.get(v.slot_id) ?? []), firstName(v.profile?.full_name)]);
   }
   const voterIds = new Set(votes.map((v: any) => v.user_id));
+  // One name per distinct person, however many slots they marked.
+  const votedNames = [...voterIds].map((id) => nameOf.get(id as string) ?? '?');
   const declinerIds = new Set(declines.map((d: any) => d.user_id));
   const decliners = declines.map((d: any) => firstName(d.profile?.full_name));
   const slots = slotRows.map((s: any) => ({ ...s, voters: perSlot.get(s.id) ?? [] }));
@@ -148,7 +160,9 @@ async function eventCard(id: string): Promise<Card | null> {
       || new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
   )[0];
 
-  const parts = [`${voterIds.size} ${voterIds.size === 1 ? 'person has' : 'people have'} voted`];
+  const parts = [
+    votedNames.length ? `Voted: ${clampNames(votedNames, 4)}` : 'No votes yet',
+  ];
   if (leader && leader.voters.length > 0) {
     parts.push(`${dayDotTime(leader.starts_at)} leading (${leader.voters.length})`);
   }
@@ -156,13 +170,21 @@ async function eventCard(id: string): Promise<Card | null> {
   parts.push(closed ? 'voting closed' : `closes ${dayDotTime(ev.vote_ends_at)}`);
   if (nonResponders?.length) parts.push(`waiting on ${clampNames(nonResponders, 4)}`);
 
-  // The header carries the deadline and the threshold; the footer carries the
-  // people. More than 4 slots shrinks the header a little to keep 630px.
+  // The header carries the deadline and threshold; the roll-call under the
+  // bars carries the people. 5+ slots switches to compact bars and a one-line
+  // roll-call — satori clips at the canvas edge, so overflow loses rows.
   const many = slots.length > 4;
 
   return {
     title: `Vote: ${ev.title}`,
     description: parts.join(' · '),
+    fingerprint: JSON.stringify({
+      s: slots.map((s: any) => s.voters),
+      d: decliners,
+      w: nonResponders,
+      e: ev.vote_ends_at,
+      m: ev.min_players,
+    }),
     body: (
       <OgChrome brand={BRAND} site={SITE_LABEL} colors={PALETTE}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: many ? 8 : 16 }}>
@@ -175,7 +197,7 @@ async function eventCard(id: string): Promise<Card | null> {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', marginTop: many ? 12 : 18, flexGrow: 1 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', marginTop: many ? 10 : 18, flexGrow: 1 }}>
           {slots.slice(0, 6).map((s: any) => {
             const n = s.voters.length;
             const hit = ev.min_players != null && n >= ev.min_players;
@@ -184,26 +206,47 @@ async function eventCard(id: string): Promise<Card | null> {
                 key={s.id}
                 label={dayDotTime(s.starts_at)}
                 caption={n === 0 ? 'no votes yet'
-                  : `${n} ${n === 1 ? 'vote' : 'votes'}${hit ? ' — enough to play' : ''} · ${clampNames(s.voters, 5)}`}
+                  : `${n} ${n === 1 ? 'vote' : 'votes'}${hit ? ' — enough to play' : ''} · ${clampNames(s.voters, many ? 3 : 5)}`}
                 frac={n / most}
                 emphasized={hit}
                 empty={n === 0}
+                compact={many}
                 colors={PALETTE}
               />
             );
           })}
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-          <div style={{ display: 'flex', fontSize: 22, color: decliners.length ? PALETTE.danger : PALETTE.faint }}>
-            {decliners.length ? `Can't make it: ${clampNames(decliners, 5)}` : ''}
+        {/* Roll-call: who is in, who is out, who has not answered. */}
+        {many ? (
+          <div style={{ display: 'flex', fontSize: 20, color: PALETTE.muted, marginTop: 2 }}>
+            {[
+              nonResponders === null ? '' : nonResponders.length
+                ? `Waiting on: ${clampNames(nonResponders, 5)}` : 'Everyone has replied',
+              decliners.length ? `Out: ${clampNames(decliners, 4)}` : '',
+            ].filter(Boolean).join('   ·   ')}
           </div>
-          <div style={{ display: 'flex', fontSize: 22, color: PALETTE.faint }}>
-            {nonResponders === null ? ''
-              : nonResponders.length ? `Waiting on: ${clampNames(nonResponders, 6)}`
-              : 'Everyone has replied'}
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', marginTop: 2 }}>
+            <div style={{ display: 'flex', fontSize: 22, color: PALETTE.text }}>
+              {votedNames.length
+                ? `Voted (${votedNames.length}): ${clampNames(votedNames, 7)}`
+                : 'Nobody has voted yet'}
+            </div>
+            {nonResponders !== null && (
+              <div style={{ display: 'flex', fontSize: 22, color: PALETTE.faint, marginTop: 6 }}>
+                {nonResponders.length
+                  ? `Waiting on (${nonResponders.length}): ${clampNames(nonResponders, 7)}`
+                  : 'Everyone has replied'}
+              </div>
+            )}
+            {decliners.length > 0 && (
+              <div style={{ display: 'flex', fontSize: 22, color: PALETTE.danger, marginTop: 6 }}>
+                {`Can't make it (${decliners.length}): ${clampNames(decliners, 6)}`}
+              </div>
+            )}
           </div>
-        </div>
+        )}
       </OgChrome>
     ),
   };

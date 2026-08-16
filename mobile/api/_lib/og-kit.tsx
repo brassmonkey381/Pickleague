@@ -218,27 +218,47 @@ export function OgBarBlock(props: {
   frac: number;
   emphasized?: boolean;
   empty?: boolean;
+  /** Tighter metrics for cards that must fit many rows in the 630px canvas —
+   *  satori clips at the canvas edge, so overflow means silently lost rows. */
+  compact?: boolean;
   colors?: OgPalette;
 }) {
   const c = props.colors ?? OG_DARK;
   const fill = props.empty ? c.barBg : props.emphasized ? c.accent : c.bar;
+  const k = props.compact
+    ? { pad: '9px 18px 8px', bar: 12, label: 21, caption: 19, gap: 6, mb: 8 }
+    : { pad: '14px 22px 12px', bar: 18, label: 25, caption: 22, gap: 8, mb: 12 };
   return (
     <div style={row({
       flexDirection: 'column', backgroundColor: c.panel, borderRadius: 14,
-      marginBottom: 12, padding: '14px 22px 12px',
+      marginBottom: k.mb, padding: k.pad,
     })}>
-      <div style={row({ width: '100%', height: 18, backgroundColor: c.barBg, borderRadius: 9 })}>
+      <div style={row({ width: '100%', height: k.bar, backgroundColor: c.barBg, borderRadius: k.bar / 2 })}>
         <div style={row({
           width: `${Math.round(Math.max(0.05, props.frac) * 100)}%`,
-          height: 18, backgroundColor: fill, borderRadius: 9,
+          height: k.bar, backgroundColor: fill, borderRadius: k.bar / 2,
         })} />
       </div>
-      <div style={row({ justifyContent: 'space-between', alignItems: 'center', marginTop: 8 })}>
-        <div style={row({ fontSize: 25, fontWeight: 700, color: c.text })}>{props.label}</div>
-        <div style={row({ fontSize: 22, color: props.emphasized ? c.accent : c.muted })}>{props.caption}</div>
+      <div style={row({ justifyContent: 'space-between', alignItems: 'center', marginTop: k.gap })}>
+        <div style={row({ fontSize: k.label, fontWeight: 700, color: c.text })}>{props.label}</div>
+        <div style={row({ fontSize: k.caption, color: props.emphasized ? c.accent : c.muted })}>{props.caption}</div>
       </div>
     </div>
   );
+}
+
+/**
+ * Tiny stable fingerprint (FNV-1a, base36) for cache-busting og:image URLs —
+ * chat platforms cache the proxied image by URL far longer than the page, so
+ * key the image URL to the card content and any data change forces a refetch.
+ */
+export function shortHash(s: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
 }
 
 /** Label/value stat, for "Format · Round robin" style facts. */
