@@ -44,3 +44,6 @@ scripts/alameda.json
 
 # Local tile progress for scripts/win/enrich-venues.ps1 (resume markers, not data)
 scripts/win/.enrich-state/
+
+# Local helper scripts / scratch state (per-machine, never committed)
+state/
