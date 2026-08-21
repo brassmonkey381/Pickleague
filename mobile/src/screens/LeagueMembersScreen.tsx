@@ -14,6 +14,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { getLeagueRole, isPrivileged, roleBadgeColor, roleLabel, LeagueRole } from '../lib/leagueRole';
+import { WAGERS_ENABLED } from '../lib/features';
 import { LeagueMember, LeagueJoinRequest, RootStackParamList } from '../types';
 import { availabilityOverlap, totalAvailableSlots, TOTAL_CELLS } from '../lib/availability';
 import { formatPlupr } from '../lib/plupr';
@@ -107,16 +108,21 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       setLoadError(null);
 
       // Public "pickles wagered on this player" totals, scoped to this league.
-      // Decorative — a failure here must not blank the roster.
-      try {
-        const totals = await sbCall(() =>
-          supabase.rpc('get_league_wager_totals', { p_league_id: leagueId }),
-        );
-        const map: Record<string, number> = {};
-        ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
-        setWagerTotals(map);
-      } catch {
-        // Leave the previous totals in place.
+      // Decorative — a failure here must not blank the roster. Skipped
+      // entirely while wagering is gated (lib/features.ts): the RPC does not
+      // exist in production, so calling it only burns a failing round-trip
+      // on every roster load.
+      if (WAGERS_ENABLED) {
+        try {
+          const totals = await sbCall(() =>
+            supabase.rpc('get_league_wager_totals', { p_league_id: leagueId }),
+          );
+          const map: Record<string, number> = {};
+          ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
+          setWagerTotals(map);
+        } catch {
+          // Leave the previous totals in place.
+        }
       }
     } catch (e) {
       setLoadError(friendlySbMessage(e, "Couldn't load the roster."));
@@ -394,7 +400,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         const role = item.role as LeagueRole;
         const badgeColor = roleBadgeColor(role);
         const manageable = canManage(item);
-        const wagered    = wagerTotals[item.user_id] ?? 0;
+        const wagered    = WAGERS_ENABLED ? (wagerTotals[item.user_id] ?? 0) : 0;
         return (
           <TouchableOpacity
             style={S.row}

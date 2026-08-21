@@ -6,6 +6,7 @@ import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/ex
 import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
+import { WAGERS_ENABLED } from '../lib/features';
 import {
   getTournamentRole, TournamentRole,
   tournamentRoleLabel, tournamentRoleBadgeColor,
@@ -63,16 +64,20 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       setLoadError(null);
 
       // Public "pickles wagered on this player" totals, scoped to this
-      // tournament. Decorative — never let it blank the roster.
-      try {
-        const totals = await sbCall(() =>
-          supabase.rpc('get_tournament_wager_totals', { p_tournament_id: tournamentId }),
-        );
-        const map: Record<string, number> = {};
-        ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
-        setWagerTotals(map);
-      } catch {
-        // Keep the previous totals.
+      // tournament. Decorative — never let it blank the roster. Skipped
+      // while wagering is gated (lib/features.ts): the RPC is absent in
+      // production, so this would just fail on every roster load.
+      if (WAGERS_ENABLED) {
+        try {
+          const totals = await sbCall(() =>
+            supabase.rpc('get_tournament_wager_totals', { p_tournament_id: tournamentId }),
+          );
+          const map: Record<string, number> = {};
+          ((totals ?? []) as any[]).forEach((t: any) => { if (t.user_id) map[t.user_id] = t.total; });
+          setWagerTotals(map);
+        } catch {
+          // Keep the previous totals.
+        }
       }
     } catch (e) {
       setLoadError(friendlySbMessage(e, "Couldn't load the roster."));
@@ -151,7 +156,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
         const role       = item.role as TournamentRole;
         const badgeColor = tournamentRoleBadgeColor(role);
         const manageable = canManage(item);
-        const wagered    = wagerTotals[item.user_id] ?? 0;
+        const wagered    = WAGERS_ENABLED ? (wagerTotals[item.user_id] ?? 0) : 0;
         return (
           <TouchableOpacity
             style={S.row}

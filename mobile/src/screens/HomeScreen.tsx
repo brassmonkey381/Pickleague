@@ -27,6 +27,7 @@ import {
   markStreakShown,
   StreakResult,
 } from '../lib/loginStreak';
+import { WAGERS_ENABLED } from '../lib/features';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -36,7 +37,12 @@ const NAV_ITEMS: NavItem[] = [
   { icon: <DumbbellIcon size={32} />, label: 'Drill',    screen: 'Drill',       params: undefined },
   { icon: '🛒',                    label: 'Pickle Shop', screen: 'Shop',        params: undefined },
   { icon: '😎',                    label: 'Profile',     screen: 'Profile',     params: {} },
-  { icon: '🎲',                    label: 'Wagers',      screen: 'MyWagers',    params: undefined },
+  // The Wagers tile is gated (see lib/features.ts) - the MyWagers screen is
+  // not registered while WAGERS_ENABLED is false, so leaving the tile in
+  // would navigate nowhere.
+  ...(WAGERS_ENABLED
+    ? [{ icon: '🎲', label: 'Wagers', screen: 'MyWagers', params: undefined } as NavItem]
+    : []),
   { icon: '🥒',                    label: 'About',       screen: 'About',       params: undefined },
 ];
 

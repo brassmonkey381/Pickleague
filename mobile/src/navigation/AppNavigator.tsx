@@ -64,6 +64,7 @@ import GodmodeScreen from '../screens/GodmodeScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
+import { WAGERS_ENABLED } from '../lib/features';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
 import SubmitVenueScreen from '../screens/SubmitVenueScreen';
@@ -137,7 +138,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       DrillSearch: 'drill/search',
       DrillRequests: 'drill/requests',
       Godmode: 'godmode',
-      MyWagers: 'wagers',
+      // Wager deep links are registered only while the feature is on - an
+      // unregistered path must not resolve to an unregistered screen.
+      ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),
       Bookmarks: 'bookmarks',
     },
   },
@@ -305,8 +308,15 @@ export default function AppNavigator() {
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
-                <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
-                <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
+                {/* Wager screens stay unregistered while WAGERS_ENABLED is
+                    false (lib/features.ts): their backend RPCs do not exist
+                    in production, so nothing may route here. */}
+                {WAGERS_ENABLED && (
+                  <>
+                    <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
+                    <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
+                  </>
+                )}
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />

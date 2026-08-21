@@ -22,6 +22,7 @@ import ConfirmModal from '../components/ConfirmModal';
 import FlairName from '../components/FlairName';
 // Resolves once Unit 1 (wager foundation) merges to master.
 import WagerProposeModal from '../components/WagerProposeModal';
+import { WAGERS_ENABLED } from '../lib/features';
 import type { WagerSubject } from '../lib/wager';
 import type { Profile } from '../types';
 
@@ -368,18 +369,20 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       <View key={item.id} style={[S.card, S.upcomingCard]}>
         <View style={S.pendingHeader}>
           <Text style={S.upcomingBadgeText}>🗓️ Upcoming</Text>
-          <TouchableOpacity
-            style={S.pendingMenuBtn}
-            accessibilityRole="button"
-            accessibilityLabel="Wager options"
-            onPress={() => openWagerSheet({
-              matchId: item.id,
-              team1Label: team1Name,
-              team2Label: team2Name,
-            })}
-          >
-            <Text style={S.upcomingMenuText}>⋯</Text>
-          </TouchableOpacity>
+          {WAGERS_ENABLED && (
+            <TouchableOpacity
+              style={S.pendingMenuBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Wager options"
+              onPress={() => openWagerSheet({
+                matchId: item.id,
+                team1Label: team1Name,
+                team2Label: team2Name,
+              })}
+            >
+              <Text style={S.upcomingMenuText}>⋯</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <Text style={S.upcomingMatchup} numberOfLines={1}>
           <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={S.upcomingMatchup} />
@@ -439,18 +442,20 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             <Text style={S.pendingBadgeText}>⏳ Pending confirmation</Text>
             <View style={S.pendingHeaderRight}>
               {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
-              <TouchableOpacity
-                style={S.pendingMenuBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Wager options"
-                onPress={() => openWagerSheet({
-                  matchId: item.id,
-                  team1Label: team1Name,
-                  team2Label: team2Name,
-                })}
-              >
-                <Text style={S.pendingMenuText}>⋯</Text>
-              </TouchableOpacity>
+              {WAGERS_ENABLED && (
+                <TouchableOpacity
+                  style={S.pendingMenuBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Wager options"
+                  onPress={() => openWagerSheet({
+                    matchId: item.id,
+                    team1Label: team1Name,
+                    team2Label: team2Name,
+                  })}
+                >
+                  <Text style={S.pendingMenuText}>⋯</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
           <Text style={S.pendingMatchup} numberOfLines={1}>
@@ -911,8 +916,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }
       />
 
+      {/* Every wager surface below is gated (lib/features.ts). The state and
+          handlers stay put so flipping WAGERS_ENABLED restores the flow. */}
       <ActionSheetModal
-        visible={wagerSheetOpen}
+        visible={WAGERS_ENABLED && wagerSheetOpen}
         title="Place a wager"
         subtitle={wagerCtx ? `${wagerCtx.team1Label} vs ${wagerCtx.team2Label}` : undefined}
         onClose={() => setWagerSheetOpen(false)}
@@ -924,7 +931,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       />
 
       <ConfirmModal
-        visible={scoreInput != null}
+        visible={WAGERS_ENABLED && scoreInput != null}
         title="Wager: exact score"
         body={wagerCtx ? `${wagerCtx.team1Label} vs ${wagerCtx.team2Label}` : undefined}
         primaryLabel="Continue"
@@ -960,7 +967,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       />
 
       <WagerProposeModal
-        visible={wagerSubject != null}
+        visible={WAGERS_ENABLED && wagerSubject != null}
         subject={wagerSubject}
         onClose={() => setWagerSubject(null)}
       />

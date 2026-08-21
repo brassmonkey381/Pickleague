@@ -19,6 +19,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
+import { WAGERS_ENABLED } from '../lib/features';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
@@ -395,12 +396,16 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="We'll email you a link to set a new password"
           onPress={sendPasswordReset}
         />
-        <Divider />
-        <ActionRow
-          label="🎲 My Wagers"
-          desc="View open, won, and lost pickle wagers"
-          onPress={() => navigation.navigate('MyWagers')}
-        />
+        {WAGERS_ENABLED && (
+          <>
+            <Divider />
+            <ActionRow
+              label="🎲 My Wagers"
+              desc="View open, won, and lost pickle wagers"
+              onPress={() => navigation.navigate('MyWagers')}
+            />
+          </>
+        )}
       </View>
 
       {/* ── Notifications ────────────────────── */}

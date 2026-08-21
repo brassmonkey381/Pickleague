@@ -20,6 +20,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import ActionSheetModal from '../components/ActionSheetModal';
 import WagerProposeModal from '../components/WagerProposeModal';
+import { WAGERS_ENABLED } from '../lib/features';
 import { WagerSubject } from '../lib/wager';
 import FlairName from '../components/FlairName';
 import { useRefresh } from '../lib/useRefresh';
@@ -533,6 +534,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // - Rows are pre-sorted by PLUPR desc, capped to MARKET_TOP_N unless
   //   the user has tapped "Show all".
   function renderWagerMarket(rows: MarketRow[], periodNumber: number | null) {
+    // Gated (lib/features.ts): the whole panel is a wagering surface, and
+    // its RPCs are absent in production.
+    if (!WAGERS_ENABLED) return null;
     if (rows.length === 0) return null;
     const scopeLabel = periodNumber === null
       ? 'Final season standings'
@@ -1136,7 +1140,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               userName: rowContext.fullName,
             }),
           },
-          {
+          // The wager action is gated (lib/features.ts); "View profile"
+          // keeps the long-press sheet useful on its own.
+          ...(WAGERS_ENABLED ? [{
             label: `🎲 Wager: ${rowContext.fullName} finishes #${rowContext.rank}`,
             onPress: () => openWagerForSubject(buildRankSubject({
               userId: rowContext.userId,
@@ -1144,12 +1150,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
               rank: rowContext.rank,
               periodNumber: rowContext.periodNumber,
             })),
-          },
+          }] : []),
         ] : []}
         onClose={() => setRowSheetOpen(false)}
       />
 
-      {wagerSubject !== null && (
+      {WAGERS_ENABLED && wagerSubject !== null && (
         <WagerProposeModal
           visible={wagerModalOpen}
           subject={wagerSubject}

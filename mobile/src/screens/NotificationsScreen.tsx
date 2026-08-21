@@ -11,6 +11,7 @@ import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundatio
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
+import { WAGERS_ENABLED } from '../lib/features';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
@@ -191,10 +192,15 @@ export default function NotificationsScreen({ navigation }: Props) {
       });
     } else if (n.entity_type === 'wager_on_me') {
       // entity_id is the recipient's own user_id — show the wagers on them.
-      if (n.entity_id) navigation.navigate('PlayerWagers', { userId: n.entity_id, userName: 'You' });
+      // Gated (lib/features.ts): the wager screens are not registered while
+      // wagering is off, so navigating would throw. A historical wager
+      // notification just stays inert rather than crashing the tap.
+      if (WAGERS_ENABLED && n.entity_id) {
+        navigation.navigate('PlayerWagers', { userId: n.entity_id, userName: 'You' });
+      }
     } else if (n.entity_type === 'wager') {
       // Settlement notifications (to the bettor) → their own wager list.
-      navigation.navigate('MyWagers');
+      if (WAGERS_ENABLED) navigation.navigate('MyWagers');
     }
   }
 

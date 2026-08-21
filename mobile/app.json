@@ -14,7 +14,7 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "club.pickleague.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching.",

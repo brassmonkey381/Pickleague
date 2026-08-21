@@ -38,6 +38,7 @@ import WagerProposeModal from '../components/WagerProposeModal';
 import BookmarkButton from '../components/BookmarkButton';
 import ShareLinkButton from '../components/ShareLinkButton';
 import type { WagerSubject } from '../lib/wager';
+import { WAGERS_ENABLED } from '../lib/features';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useRefresh } from '../lib/useRefresh';
@@ -1374,8 +1375,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           )}
           {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
 
-          {/* Wager Market — visible only while the tournament is still in play. */}
-          {tournamentLive && approved.length > 0 && (
+          {/* Wager Market — visible only while the tournament is still in
+              play, AND only when wagering is enabled (lib/features.ts). */}
+          {WAGERS_ENABLED && tournamentLive && approved.length > 0 && (
             <>
               <Pressable
                 style={({ pressed }) => [S.championWagerBtn, pressed && S.championWagerBtnPressed]}
@@ -2416,7 +2418,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                         prefillTeam2Player: m.team2_player1 ?? undefined,
                         prefillTeam2Partner:m.team2_player2 ?? undefined,
                       });
-                      const wagerable = !completed && !!m.team1_player1 && !!m.team2_player1;
+                      // Gated (lib/features.ts): with wagering off there is
+                      // nothing for a long-press to open.
+                      const wagerable = WAGERS_ENABLED && !completed && !!m.team1_player1 && !!m.team2_player1;
                       const Row: any = tappable || wagerable ? TouchableOpacity : View;
                       const rowProps: Record<string, any> = {};
                       if (tappable) { rowProps.onPress = handlePress; rowProps.activeOpacity = 0.6; }
@@ -2889,9 +2893,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onPaid={() => { setShowPayoutModal(false); load(); }}
       />
 
-      {/* ── Wager action sheet ── */}
+      {/* ── Wager action sheet ── (gated: lib/features.ts) */}
       <ActionSheetModal
-        visible={actionSheetOpen}
+        visible={WAGERS_ENABLED && actionSheetOpen}
         title="Propose wager"
         subtitle={
           wagerMatchPick
@@ -2972,7 +2976,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       {/* ── Wager propose modal (Unit 1) ── */}
       <WagerProposeModal
-        visible={wagerOpen}
+        visible={WAGERS_ENABLED && wagerOpen}
         subject={wagerSubject}
         onClose={() => {
           setWagerOpen(false);
