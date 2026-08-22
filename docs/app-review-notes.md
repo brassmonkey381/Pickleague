@@ -21,7 +21,7 @@ blocking controls, the account deletion flow, and every system permission prompt
 the app can present.
 
 2. DEVICES AND OS VERSIONS TESTED
-iPhone 13 mini (iOS 26.4.1).
+iPhone 13 mini (iOS 26.5.2).
 
 THIS APP DOES NOT SUPPORT IPAD. It is an iPhone-only app: the build sets
 supportsTablet = false, so it is not offered on the iPad App Store and its
