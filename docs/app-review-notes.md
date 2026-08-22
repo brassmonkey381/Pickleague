@@ -14,16 +14,16 @@ the notes at a `sim_player_*@pickleague.test` account: those live in a
 
 ```text
 1. SCREEN RECORDING
-A screen recording is attached to this reply. It was captured on a physical
-device running the latest iOS, begins at app launch, and covers registration,
+A screen recording is attached to this reply. It was captured on the physical
+device listed in section 2, begins at app launch, and covers registration,
 sign-in, the core league/match/tournament flows, the in-app reporting and
 blocking controls, the account deletion flow, and every system permission prompt
 the app can present.
 
 2. DEVICES AND OS VERSIONS TESTED
-<<FILL IN before sending - e.g. iPhone 15 Pro (iOS 18.6), iPhone 12 (iOS 18.5).
-List only what you actually tested on. iPhone ONLY - this build sets
-supportsTablet: false, so do not list an iPad.>>
+iPhone 13 mini (iOS 26.4.1).
+
+The app is iPhone-only; it does not claim iPad support.
 
 3. WHAT THE APP DOES, AND FOR WHOM
 Pickleague is a recreational pickleball league manager. Players create or join a
