@@ -565,6 +565,7 @@ export type RootStackParamList = {
   Profile: { userId?: string };
   UnlockProgress: undefined;
   Settings: undefined;
+  BlockedPlayers: undefined;
   UpgradeAccount: undefined;
   About: undefined;
   Drill: undefined;
@@ -574,6 +575,7 @@ export type RootStackParamList = {
   ScoringAlgo: undefined;
   GiftPickles: undefined;
   Godmode: undefined;
+  ModerationQueue: undefined;
   MyWagers: undefined;
   PlayerWagers: {
     userId: string;

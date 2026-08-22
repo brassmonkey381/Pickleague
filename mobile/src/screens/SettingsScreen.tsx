@@ -20,6 +20,7 @@ import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import { WAGERS_ENABLED } from '../lib/features';
+import { removeAvatarObjects } from '../data/moderationAdmin';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
@@ -250,6 +251,14 @@ export default function SettingsScreen({ navigation }: Props) {
         setDeleteError(verify.error.message ?? 'Password is incorrect.');
         setDeleting(false);
         return;
+      }
+
+      // The profile photo lives in storage, which SQL cannot delete from, so
+      // delete_my_account() can only clear the reference. Remove the object
+      // itself first, while the session that owns it still exists. Best-effort:
+      // a storage hiccup must not block the account deletion behind it.
+      if (userId) {
+        try { await removeAvatarObjects(userId); } catch { /* nothing renders it either way */ }
       }
 
       const { error: rpcError } = await supabase.rpc('delete_my_account');
@@ -514,6 +523,12 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Control what other players can see"
           onPress={() => navigation.navigate('Profile', {})}
         />
+        <Divider />
+        <ActionRow
+          label="Blocked players"
+          desc="Review or undo the players you've blocked"
+          onPress={() => navigation.navigate('BlockedPlayers')}
+        />
       </View>
 
       {/* ── About ────────────────────────────── */}
@@ -564,6 +579,12 @@ export default function SettingsScreen({ navigation }: Props) {
               label="Review Submitted Venues"
               desc="Confirm or reject user-added courts"
               onPress={() => navigation.navigate('AdminVenueReview')}
+            />
+            <Divider />
+            <ActionRow
+              label="Reported Content"
+              desc="Act on player reports within 24 hours"
+              onPress={() => navigation.navigate('ModerationQueue')}
             />
           </View>
         </>

@@ -17,6 +17,7 @@ import StatusBanner from '../components/StatusBanner';
 import FlairName from '../components/FlairName';
 import DrillReviewModal from '../components/DrillReviewModal';
 import EmptyState from '../components/EmptyState';
+import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import { SkeletonList } from '../components/Skeleton';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -332,6 +333,18 @@ export default function DrillRequestsScreen({}: Props) {
                     {formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR · {timeAgo(item.created_at)}
                   </Text>
                 </View>
+                {otherProfile?.id ? (
+                  <PlayerModerationMenu
+                    userId={otherProfile.id}
+                    userName={otherProfile.full_name ?? 'this player'}
+                    meId={userId}
+                    subjectType="message"
+                    subjectId={item.id}
+                    snapshot={{ request_message: item.message ?? null }}
+                    onChanged={() => { void load(); }}
+                    compact
+                  />
+                ) : null}
                 <View style={[
                   S.statusPill,
                   isAccepted && S.statusAccepted,
@@ -623,14 +636,31 @@ function DrillChatModal({
   }
 
   if (!request) return null;
+  const isMine    = currentUserId === request.from_user_id;
   const otherName =
-    (currentUserId === request.from_user_id ? request.to_profile : request.from_profile)?.full_name
+    (isMine ? request.to_profile : request.from_profile)?.full_name
     ?? 'Drill partner';
+  const otherId   = isMine ? request.to_user_id : request.from_user_id;
 
   const sheet = (
     <View style={S.sheet}>
       <View style={S.header}>
         <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
+        {/* Report or block from inside the thread — where an abusive message is
+            actually read. The last few messages ride along on the report so the
+            queue still has them if the sender deletes theirs. */}
+        <PlayerModerationMenu
+          userId={otherId}
+          userName={otherName}
+          meId={currentUserId}
+          subjectType="message"
+          subjectId={request.id}
+          snapshot={{
+            request_message: request.message ?? null,
+            recent: messages.slice(-5).map(m => ({ sender_id: m.sender_id, body: m.body, at: m.created_at })),
+          }}
+          compact
+        />
         <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close chat">
           <Text style={S.close}>✕</Text>
         </TouchableOpacity>

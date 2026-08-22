@@ -61,6 +61,8 @@ import ShopScreen from '../screens/ShopScreen';
 import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
+import BlockedPlayersScreen from '../screens/BlockedPlayersScreen';
+import ModerationQueueScreen from '../screens/ModerationQueueScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
@@ -138,6 +140,8 @@ const linking: LinkingOptions<RootStackParamList> = {
       DrillSearch: 'drill/search',
       DrillRequests: 'drill/requests',
       Godmode: 'godmode',
+      BlockedPlayers: 'blocked-players',
+      ModerationQueue: 'moderation',
       // Wager deep links are registered only while the feature is on - an
       // unregistered path must not resolve to an unregistered screen.
       ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),
@@ -307,6 +311,8 @@ export default function AppNavigator() {
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
+                <Stack.Screen name="BlockedPlayers" component={BlockedPlayersScreen} options={{ title: 'Blocked Players' }} />
+                <Stack.Screen name="ModerationQueue" component={ModerationQueueScreen} options={{ title: '🛡️ Reports' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
                 {/* Wager screens stay unregistered while WAGERS_ENABLED is
                     false (lib/features.ts): their backend RPCs do not exist

@@ -13,6 +13,7 @@ import {
   DateSlot, overlapSlots, rollingDates, expandWeeklyToDates, toWeeklyTemplate,
 } from '../lib/drillTime';
 import { findShotPref, findPartnerPref } from '../data/drillOptions';
+import { useBlockedIds } from '../lib/moderation';
 import { AVATARS } from '../data/profileCustomization';
 import DrillRequestModal from '../components/DrillRequestModal';
 import { formatPlupr } from '../lib/plupr';
@@ -120,9 +121,14 @@ export default function DrillSearchScreen({}: Props) {
   const reload = useCallback(() => query.refresh(), [query.refresh]);
   const refresh = useRefresh(reload);
 
+  // A blocked player must not come back as a drilling suggestion. The database
+  // already refuses the request itself; this keeps them out of the list that
+  // offers to send one.
+  const blockedIds = useBlockedIds();
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = candidates;
+    let list = blockedIds.size ? candidates.filter(c => !blockedIds.has(c.id)) : candidates;
     if (q) {
       list = list.filter(c =>
         c.full_name.toLowerCase().includes(q) ||
@@ -138,7 +144,7 @@ export default function DrillSearchScreen({}: Props) {
       sorted.sort((a, b) => Math.abs(a.rating - (me?.rating ?? 3.25)) - Math.abs(b.rating - (me?.rating ?? 3.25)));
     }
     return sorted;
-  }, [candidates, search, sort, me]);
+  }, [candidates, search, sort, me, blockedIds]);
 
   // Only gate on the very first load, and never when it failed — the failure
   // path has to fall through to the list so its pull-to-refresh stays mounted.

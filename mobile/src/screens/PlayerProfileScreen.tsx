@@ -19,6 +19,7 @@ import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import BookmarkButton from '../components/BookmarkButton';
 import ShareLinkButton from '../components/ShareLinkButton';
+import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import ClaimAccountButton from '../components/ClaimAccountButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -206,6 +207,20 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             message={`${profile.full_name} on Pickleague`}
           />
           <BookmarkButton targetType="profile" targetId={userId} />
+          {/* Report / block. Hides itself on your own profile. */}
+          <PlayerModerationMenu
+            userId={userId}
+            userName={profile.full_name}
+            meId={meId}
+            subjectType="profile"
+            snapshot={{
+              full_name:  profile.full_name,
+              username:   profile.username,
+              tagline:    profile.tagline ?? null,
+              avatar_url: profile.avatar_url ?? null,
+            }}
+            compact
+          />
         </View>
         {profile.avatar_url ? (
           <Image source={{ uri: profile.avatar_url }} style={styles.avatarPhoto} />
