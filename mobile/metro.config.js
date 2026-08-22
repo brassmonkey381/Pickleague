@@ -15,6 +15,41 @@ const config = getDefaultConfig(projectRoot);
 
 config.resolver.nodeModulesPaths = [path.resolve(projectRoot, 'node_modules')];
 
+// Keep Metro's file watcher out of `dist/`, our web build output.
+//
+// On Windows, Metro's native (single, recursive) watcher is macOS-only, so it
+// falls back to FallbackWatcher, which opens a separate fs.watch handle on
+// EVERY directory it walks — `dist/` included. That handle locks the folder,
+// and `expo export` (which starts by deleting dist) then dies with
+//   Error: EBUSY: resource busy or locked, rmdir '...\mobile\dist'
+// so `eas update` fails for as long as a dev server is running. Nothing should
+// ever resolve into build output anyway, so it has no business being watched.
+//
+// Two details this pattern depends on, both verified in metro 0.83.3:
+//   * the watcher tests POSIX paths — common.posixPathMatchesPattern swaps
+//     path.sep for '/' before matching — so a backslash-only pattern would
+//     silently never fire. Hence the separator-agnostic build below.
+//   * blockList entries are merged by createFileMap's combine(), which takes
+//     its flags from the FIRST regex in the array. An 'i' flag here would be
+//     dropped, so this relies on exact case instead (same source as the
+//     watch root, so the case always agrees).
+// Anchored at the project root on purpose: a bare /dist/ would also block
+// every node_modules package's own dist/ and break resolution wholesale.
+const separatorAgnostic = (p) =>
+  p
+    .split(/[\\/]/)
+    .map((segment) => segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[\\\\/]');
+
+config.resolver.blockList = [
+  ...(Array.isArray(config.resolver.blockList)
+    ? config.resolver.blockList
+    : config.resolver.blockList
+      ? [config.resolver.blockList]
+      : []),
+  new RegExp(`^${separatorAgnostic(path.resolve(projectRoot, 'dist'))}([\\\\/]|$)`),
+];
+
 config.resolver.extraNodeModules = {
   react: path.resolve(projectRoot, 'node_modules/react'),
   'react-native': path.resolve(projectRoot, 'node_modules/react-native'),
