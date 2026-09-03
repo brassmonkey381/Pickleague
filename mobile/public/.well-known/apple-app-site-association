@@ -26,6 +26,12 @@
           },
           {
             "/": "/*",
+            "?": { "utm_medium": "qr" },
+            "exclude": true,
+            "comment": "Scanned printed/landing QR codes stay in the browser. Two reasons, and the second is the load-bearing one: the landing card is captioned 'scan to open in browser', and campaign attribution in src/lib/analytics.ts reads window.location.search - it is web-only, so opening the app instead would silently drop the very attribution this QR exists to carry. Must stay ABOVE the catch-all below: components are evaluated in order and the first match wins."
+          },
+          {
+            "/": "/*",
             "comment": "Everything else is a real screen in the app - see the linking config in src/navigation/AppNavigator.tsx, which already maps these paths."
           }
         ]
