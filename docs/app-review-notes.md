@@ -23,10 +23,8 @@ the app can present.
 2. DEVICES AND OS VERSIONS TESTED
 iPhone 13 mini (iOS 26.5.2).
 
-THIS APP DOES NOT SUPPORT IPAD. It is an iPhone-only app: the build sets
-supportsTablet = false, so it is not offered on the iPad App Store and its
-layouts are not designed for that screen. Please review it on an iPhone rather
-than on an iPad or an iPad simulator.
+The app is built and tested for iPhone. It remains available on iPad, where it
+runs the iPhone layout; we have not tested it on that screen.
 
 3. WHAT THE APP DOES, AND FOR WHOM
 Pickleague is a recreational pickleball league manager. Players create or join a
@@ -189,7 +187,7 @@ PRIVACY POLICY
 https://pickleague.club/privacy
 
 OTHER NOTES
-- iPhone only. The app does not support iPad and is not submitted for it.
+- Designed and tested for iPhone. Available on iPad, running the iPhone layout.
 - No third-party advertising, no ad tracking, and no App Tracking Transparency
   prompt (we do not track across other companies' apps or sites).
 - The same product is available on the web at https://pickleague.club.
