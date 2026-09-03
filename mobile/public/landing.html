@@ -13,7 +13,7 @@
   frames, click-to-expand lightbox, full-bleed rows, max ~3s idle cuts) in
   Pickleague's green sport-club voice. All demos captured live at desktop
   width from [SIM]-seeded data with the sim branding stripped on camera.
-  No store mentions (production web app only). Open from dist/pickleague/.
+  Ships the App Store install band (iOS live 2026-09). Open from dist/pickleague/.
 -->
 <style>
   :root {
@@ -112,6 +112,59 @@
   .stat-label { color: var(--band-body); font-size: 14.5px; margin-top: 6px; line-height: 1.5; }
 
   .closing { margin-top: 96px; }
+
+  /* ── Install band ────────────────────────────────────────
+     Desktop -> phone handoff. The QR cards flank the copy so a visitor on a
+     laptop can move to their phone without typing a URL; the buttons below
+     serve everyone who is already on one. Green here rather than the
+     stats-band near-black so the two full-bleed panels stay distinct.        */
+  .install-band {
+    margin-top: 96px; background: var(--accent-deep); border-radius: 24px;
+    padding: 40px; display: grid; grid-template-columns: auto 1fr auto;
+    gap: 36px; align-items: center;
+  }
+  .install-copy { text-align: center; }
+  .install-band h2 { color: #FFFFFF; margin: 0 auto; max-width: 22ch; }
+  .install-sub { color: #C9E4CC; font-size: 15.5px; margin-top: 12px; }
+  .install-actions {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    justify-content: center; margin-top: 26px;
+  }
+
+  /* Store buttons: two-line lockup (small kicker over a large wordmark), the
+     shape everyone already reads as a store badge. Real <a> for the live
+     store, <span> for Google Play - nothing to link to yet, so it must not
+     look or behave like it goes somewhere. */
+  .store-btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    border-radius: 14px; padding: 10px 20px; text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, 0.45); color: #FFFFFF;
+    line-height: 1.15;
+  }
+  .store-btn:hover { background: rgba(255, 255, 255, 0.12); }
+  .store-btn .glyph { font-size: 26px; }
+  .store-kicker { display: block; font-size: 9.5px; letter-spacing: 0.9px; text-transform: uppercase; opacity: 0.85; font-weight: 700; }
+  .store-name { display: block; font-size: 18px; font-weight: 800; letter-spacing: -0.2px; }
+  .store-btn.is-soon { opacity: 0.6; }
+  .store-btn.is-soon:hover { background: none; }
+
+  .cta-web {
+    background: #FFFFFF; color: var(--accent-deep); border-radius: 999px;
+    padding: 14px 28px; font-weight: 800; font-size: 16px; text-decoration: none;
+    display: inline-flex; align-items: center;
+  }
+  .cta-web:hover { background: #EAF4EA; }
+
+  .qr-card {
+    background: #FFFFFF; border-radius: 16px; padding: 14px 14px 10px;
+    width: 152px; text-align: center;
+  }
+  .qr-card img { width: 124px; height: 124px; display: block; margin: 0 auto; }
+  .qr-card figcaption {
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.7px;
+    text-transform: uppercase; color: var(--accent-deep); margin-top: 9px;
+  }
+
   .footer { margin-top: 96px; border-top: 1px solid var(--hairline); padding-top: 28px; display: grid; gap: 10px; }
   .footer p { color: var(--ink-2); font-size: 12.5px; line-height: 1.5; max-width: 860px; }
 
@@ -135,6 +188,10 @@
 
   @media (max-width: 980px) {
     .hero, .wall, .value-row, .stats-band { grid-template-columns: 1fr; }
+    /* Stack the band and drop the QR cards: a phone cannot scan its own
+       screen, and the buttons right there do the same job better. */
+    .install-band { grid-template-columns: 1fr; padding: 36px 24px; }
+    .install-band .qr-card { display: none; }
     .wordmark { font-size: 28px; }
     .logo { font-size: 36px; }
     .shell { padding: 0 20px 56px; }
@@ -252,15 +309,63 @@
     </div>
     <div>
       <div class="stat-num">$0</div>
-      <p class="stat-label">no club membership, no entry fees, no download - the whole league runs free in the browser.</p>
+      <p class="stat-label">no club membership, no entry fees, no catch - free in the browser and on the App Store.</p>
     </div>
   </section>
 
-  <!-- ── Closing ──────────────────────────────────────────── -->
-  <section class="closing reveal">
-    <h2>Your league is already happening. Give it a home.</h2>
-    <p class="section-sub">Free at pickleague.club - create the league, invite the crew, play tonight.</p>
-    <div class="cta-row"><a class="cta cta-primary" href="/">Open Pickleague free</a></div>
+  <!-- ── Closing / install band ───────────────────────────────
+       The QR targets are deliberately different, and the split matters:
+         * left  -> the App Store listing. Direct install for the iPhone in
+                    the visitor's hand. iOS-only by nature, which is why it
+                    sits beside the App Store button rather than replacing it.
+         * right -> the canonical web origin, carrying utm_source/medium/
+                    campaign. Those three are on the strict allowlist in
+                    src/lib/analytics.ts (CAMPAIGN_PARAMS), so the scan is
+                    attributable - but that parsing reads
+                    window.location.search, so it is WEB-ONLY. A QR pointing
+                    straight at apps.apple.com records nothing and dead-ends
+                    every Android scan, which is why the general "get this on
+                    my phone" code must stay on this one.
+                    On an iPhone that already has the app, the universal-link
+                    association takes over and this opens the app instead -
+                    hence the neutral "Scan to open" caption. That path is not
+                    attributed, which is fine: it is by definition not an
+                    acquisition.
+       Both SVGs are generated offline into landing-assets/ rather than pulled
+       from a QR web service: no visitor IP leaks to a third party, and the
+       page cannot break because someone else's API went away.              -->
+  <section class="install-band breakout reveal">
+    <figure class="qr-card">
+      <img src="./landing-assets/qr-appstore.svg" alt="QR code linking to Pickleague on the App Store" />
+      <figcaption>Scan to install</figcaption>
+    </figure>
+
+    <div class="install-copy">
+      <h2>Your league is already happening. Give it a home.</h2>
+      <p class="install-sub">Free on the web and on iPhone - create the league, invite the crew, play tonight.</p>
+      <div class="install-actions">
+        <a class="cta-web" href="/">Start your league free</a>
+        <a class="store-btn" href="https://apps.apple.com/us/app/pickleague-club/id6796130870">
+          <span class="glyph" aria-hidden="true">&#63743;</span>
+          <span>
+            <span class="store-kicker">Download on the</span>
+            <span class="store-name">App Store</span>
+          </span>
+        </a>
+        <span class="store-btn is-soon">
+          <span class="glyph" aria-hidden="true">&#9654;</span>
+          <span>
+            <span class="store-kicker">Coming soon to</span>
+            <span class="store-name">Google Play</span>
+          </span>
+        </span>
+      </div>
+    </div>
+
+    <figure class="qr-card">
+      <img src="./landing-assets/qr-web.svg" alt="QR code linking to the Pickleague web app" />
+      <figcaption>Scan to open</figcaption>
+    </figure>
   </section>
 
   <footer class="footer">

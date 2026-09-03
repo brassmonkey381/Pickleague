@@ -185,8 +185,8 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
       : '';
     const target = scopeType === 'league' ? 'league' : 'tournament';
     const joinUrl = scopeType === 'league'
-      ? 'https://pickleague.club/leagues'
-      : 'https://pickleague.club/tournaments';
+      ? 'https://www.pickleague.club/leagues'
+      : 'https://www.pickleague.club/tournaments';
     return (
       `You're invited to join the ${target} "${scopeName}" on Pickleague! 🥒\n` +
       `Use invite code: ${code}${subsidyLine}\n\n` +

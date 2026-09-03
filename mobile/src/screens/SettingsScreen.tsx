@@ -549,7 +549,7 @@ export default function SettingsScreen({ navigation }: Props) {
         <ActionRow
           label="Privacy Policy"
           desc="What we collect, and what we don't"
-          onPress={() => Linking.openURL('https://pickleague.club/privacy')}
+          onPress={() => Linking.openURL('https://www.pickleague.club/privacy')}
         />
         <Divider />
         <View style={styles.row}>

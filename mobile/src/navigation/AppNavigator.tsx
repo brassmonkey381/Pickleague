@@ -96,7 +96,13 @@ function WebMaxWidth({
 }
 
 const linking: LinkingOptions<RootStackParamList> = {
-  prefixes: ['https://pickleague.club', 'pickleague://'],
+  // Both origins are live and both are shared: ShareLinkButton builds
+  // `https://www.pickleague.club/...` (so the Open Graph card unfurls from the
+  // canonical origin, api/_lib/cards.tsx FALLBACK_ORIGIN) while invite and
+  // guest-pass messages use the apex. A universal link that opens the app but
+  // matches no prefix lands on Home instead of the screen the sender meant, so
+  // both must be listed here AND in ios.associatedDomains.
+  prefixes: ['https://pickleague.club', 'https://www.pickleague.club', 'pickleague://'],
   config: {
     screens: {
       Login: 'login',

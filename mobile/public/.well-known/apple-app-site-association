@@ -1,0 +1,35 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["WJ7Y8W9WKC.club.pickleague.app"],
+        "components": [
+          {
+            "/": "/privacy*",
+            "exclude": true,
+            "comment": "Static policy page. Apple review and the App Store listing both link here and expect a readable web page, not an app launch."
+          },
+          {
+            "/": "/landing*",
+            "exclude": true,
+            "comment": "Marketing page whose whole job is to sell the install. Opening the app instead would hide it from the people it is for."
+          },
+          {
+            "/": "/api/*",
+            "exclude": true,
+            "comment": "Open Graph card endpoints - crawler surface, never a human destination."
+          },
+          {
+            "/": "/.well-known/*",
+            "exclude": true,
+            "comment": "This file and its neighbours."
+          },
+          {
+            "/": "/*",
+            "comment": "Everything else is a real screen in the app - see the linking config in src/navigation/AppNavigator.tsx, which already maps these paths."
+          }
+        ]
+      }
+    ]
+  }
+}

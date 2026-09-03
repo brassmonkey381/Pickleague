@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+
+    <!--
+      SMART APP BANNER - the iOS Safari strip offering the native app.
+
+      Why this file exists at all: Expo generates the web shell from its own
+      bundled template, and @expo/cli's getTemplateIndexHtmlAsync() reads
+      `public/index.html` from the project FIRST, falling back to that bundled
+      copy only when it is absent. So this file IS that template - it is not a
+      built artifact, and the two %PLACEHOLDER% tokens below are substituted by
+      the CLI at export time. Keep them, and keep the expo-reset style block:
+      react-native-web needs it to fill the viewport.
+
+      The export copies public/ into dist/ early and then writes the rendered
+      HTML over it, so the raw placeholders here never reach production.
+
+      Scope: Safari on iOS only. Not Chrome-on-iOS, not Android, not desktop -
+      those get the install paths on /landing instead. Deliberately no
+      `app-argument`: it would have to be the visitor's current URL, which a
+      static file cannot know, and the universal-link setup in
+      .well-known/apple-app-site-association already routes a tapped link to
+      the right screen. Without it the banner's OPEN button just launches the
+      app, which is the correct fallback.
+    -->
+    <meta name="apple-itunes-app" content="app-id=6796130870" />
+
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

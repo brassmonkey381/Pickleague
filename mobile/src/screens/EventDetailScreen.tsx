@@ -446,7 +446,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   }
 
   function buildGuestMessage(token: string): string {
-    const link = `https://pickleague.club/g/${token}`;
+    const link = `https://www.pickleague.club/g/${token}`;
     const where = leagueName ? ` in ${leagueName}` : '';
     return (
       `You're invited to vote on a time for "${event!.title}"${where} on Pickleague! 🥒\n` +

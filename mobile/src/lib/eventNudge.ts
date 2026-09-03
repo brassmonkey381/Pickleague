@@ -19,7 +19,7 @@ import { EventSlot, LeagueEvent } from '../types';
 
 export type NudgeKind = 'vote' | 'tomorrow' | 'today';
 
-const eventLink = (id: string) => `https://pickleague.club/events/${id}`;
+const eventLink = (id: string) => `https://www.pickleague.club/events/${id}`;
 
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
