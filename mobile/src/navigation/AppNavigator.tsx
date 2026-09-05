@@ -5,6 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
+import UpdateRequiredScreen from '../screens/UpdateRequiredScreen';
+import { isUpdateRequired } from '../lib/minVersion';
 import { useTheme } from '../lib/ThemeContext';
 import { TourProvider } from '../lib/TourContext';
 import SpotlightTour from '../components/SpotlightTour';
@@ -164,6 +166,21 @@ export default function AppNavigator() {
   const { session, phase, retry } = useBootstrapSession(supabase);
   const [splashDone, setSplashDone] = useState(false);
 
+  // Minimum-version gate. Starts false and only ever flips true, so startup is
+  // never held on this read — the app renders normally while the check is in
+  // flight, and swaps to the block screen only once the answer is a definite
+  // yes. lib/minVersion fails open on every error path, so an offline or slow
+  // read simply leaves this false forever, which is the outcome we want.
+  const [updateRequired, setUpdateRequired] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const required = await isUpdateRequired();
+      if (!cancelled && required) setUpdateRequired(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const navTheme = useMemo(() => {
     const base = isDark ? DarkTheme : DefaultTheme;
     return {
@@ -260,8 +277,12 @@ export default function AppNavigator() {
     <ErrorBoundary>
     <ToastProvider>
       <TourProvider>
-      {phase === 'error' && <StartupRetryScreen onRetry={retry} />}
-      {phase === 'ready' && (
+      {/* Hard stop: replaces the whole app, including the startup retry screen.
+          A build too old to talk to the backend should not be offering to retry
+          its way in. Nothing below this renders while it is true. */}
+      {updateRequired && <UpdateRequiredScreen />}
+      {!updateRequired && phase === 'error' && <StartupRetryScreen onRetry={retry} />}
+      {!updateRequired && phase === 'ready' && (
         <WebMaxWidth background={colors.bg}>
           <NavigationContainer
             ref={navigationRef}
