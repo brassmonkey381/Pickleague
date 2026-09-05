@@ -14,12 +14,16 @@ import { Platform } from 'react-native';
 import {
   configurePushNotificationHandler,
   createPushTokenLifecycle,
-  wirePushResponseRouting,
   withRetry,
 } from '@just-messin-around/expo-foundation/platform';
 import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { navigateWhenReady } from './navigationRef';
+import {
+  handleNotificationAction,
+  registerNotificationCategories,
+  type ActionPushData,
+} from './notificationActions';
 import { RootStackParamList } from '../types';
 
 // Show notifications while the app is foregrounded too (otherwise native only
@@ -252,9 +256,57 @@ export function routeNotification(data: PushData | undefined | null): void {
 }
 
 /**
- * Wires up tap handling: live taps while the app runs, plus the cold-start case
- * where a tap launched the app. Returns an unsubscribe function. No-op on web.
+ * Wires up notification responses: action-button presses, plain taps while the
+ * app runs, and the cold-start case where a tap launched the app. Returns an
+ * unsubscribe function. No-op on web.
+ *
+ * Why this uses expo-notifications directly instead of the foundation's
+ * `wirePushResponseRouting`: that helper hands the callback only
+ * `notification.request.content.data` and drops `response.actionIdentifier`,
+ * which is precisely the field that distinguishes "pressed Can't make it" from
+ * "tapped the notification". Both cannot be wired at once either — two
+ * listeners would each fire, so pressing a button would ALSO deep-link, which
+ * is the one behaviour action buttons exist to avoid.
+ *
+ * The right long-term home for exposing actionIdentifier is the foundation
+ * (per the foundation-first rule in CLAUDE.md), and it should be hoisted there
+ * when the 1.15.1 -> 1.27.x bump happens. Doing it now would drag twelve minor
+ * versions of unrelated change into an over-the-air update, which is a bad
+ * trade for one extra field.
  */
 export function setupNotificationTapHandling(): () => void {
-  return wirePushResponseRouting((data) => routeNotification(data as PushData));
+  if (Platform.OS === 'web') return () => {};
+
+  let Notifications: typeof import('expo-notifications');
+  try {
+    Notifications = require('expo-notifications');
+  } catch {
+    return () => {};
+  }
+
+  // Categories must be registered before a push arrives, or it renders with no
+  // buttons and no error. Fire-and-forget at startup.
+  void registerNotificationCategories();
+
+  const handle = (response: {
+    actionIdentifier: string;
+    notification: { request: { content: { data: unknown } } };
+  }) => {
+    const data = (response.notification.request.content.data ?? {}) as PushData & ActionPushData;
+    void (async () => {
+      // An action press must never also navigate — handled returns true so the
+      // deep link is skipped.
+      const handled = await handleNotificationAction(response.actionIdentifier, data);
+      if (!handled) routeNotification(data);
+    })();
+  };
+
+  const sub = Notifications.addNotificationResponseReceivedListener(handle);
+
+  // Cold start: a tap (or a button press) launched the app.
+  Notifications.getLastNotificationResponseAsync()
+    .then((response) => { if (response) handle(response); })
+    .catch(() => {});
+
+  return () => sub.remove();
 }

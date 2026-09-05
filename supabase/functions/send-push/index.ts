@@ -120,18 +120,55 @@ serve(async (req) => {
   const tokens = (tokenRows ?? []).map((r: { token: string }) => r.token);
   if (tokens.length === 0) return json({ skipped: 'no tokens' });
 
+  // ── Action buttons ─────────────────────────────────────────────────────
+  // `categoryId` tells iOS/Android which button set to draw. The identifiers
+  // MUST match the ones registered by the app in
+  // mobile/src/lib/notificationActions.ts — there is no shared module across
+  // this boundary, so renaming one means grepping for the other.
+  //
+  // Resolved here rather than stored on the row so the existing generators stay
+  // untouched, and so the buttons always reflect the event's CURRENT state: a
+  // reminder queued while voting was open should not still offer "I'm in" for a
+  // slot that voting has since discarded.
+  let categoryId: string | undefined;
+  let confirmedSlotId: string | null = null;
+
+  if (record.entity_type === 'event' && record.entity_id) {
+    const { data: ev } = await admin
+      .from('league_events')
+      .select('status, confirmed_slot_id')
+      .eq('id', record.entity_id)
+      .maybeSingle();
+
+    if (ev?.status === 'voting') {
+      // Several slots are still in play, so a single tap cannot say WHICH time
+      // the user means. Only the decline is unambiguous; picking a time opens
+      // the app, which the plain tap already does.
+      categoryId = 'event_vote';
+    } else if (ev?.confirmed_slot_id) {
+      // Exactly one time survives finalisation, so "I'm in" is unambiguous.
+      categoryId = 'event_confirmed';
+      confirmedSlotId = ev.confirmed_slot_id;
+    }
+    // Cancelled or finished: no buttons. Nothing useful is left to answer.
+  }
+
   // ── Deliver to Expo ────────────────────────────────────────────────────
   const messages = tokens.map((to) => ({
     to,
     sound: 'default',
     title: record.title,
     body: record.body,
+    ...(categoryId ? { categoryId } : {}),
     data: {
       notification_id: record.id,
       type: record.type,
       entity_type: record.entity_type,
       entity_id: record.entity_id,
       title: record.title,
+      // The buttons run with no app open and no chance to query, so whatever
+      // they need has to travel with the push.
+      confirmed_slot_id: confirmedSlotId,
     },
   }));
 
