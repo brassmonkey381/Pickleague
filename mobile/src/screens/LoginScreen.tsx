@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GetTheAppButton from '../components/GetTheAppButton';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
@@ -90,6 +91,12 @@ export default function LoginScreen({ navigation }: Props) {
         <TouchableOpacity onPress={() => navigation.navigate('Register')}>
           <Text style={S.link}>Don't have an account? Sign up</Text>
         </TouchableOpacity>
+
+        {/* Web only (the component no-ops on native). This is the site root for
+            every signed-out visitor, which is where our printed QR codes land —
+            so it is the one screen that must carry a visible store link rather
+            than relying on the iOS-Safari-only Smart App Banner. */}
+        <GetTheAppButton from="login" />
       </View>
     </>
   );
