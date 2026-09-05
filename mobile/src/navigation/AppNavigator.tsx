@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
+import ContinueInAppBanner from '../components/ContinueInAppBanner';
 import UpdateRequiredScreen from '../screens/UpdateRequiredScreen';
 import { isUpdateRequired } from '../lib/minVersion';
 import { useTheme } from '../lib/ThemeContext';
@@ -284,6 +285,8 @@ export default function AppNavigator() {
       {!updateRequired && phase === 'error' && <StartupRetryScreen onRetry={retry} />}
       {!updateRequired && phase === 'ready' && (
         <WebMaxWidth background={colors.bg}>
+          {/* Web-only; renders null on native and when nothing is pending. */}
+          <ContinueInAppBanner />
           <NavigationContainer
             ref={navigationRef}
             theme={navTheme}

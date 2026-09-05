@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Switch,
-  TextInput, TouchableOpacity, ActivityIndicator, Linking,
+  TextInput, TouchableOpacity, ActivityIndicator, Linking, Platform,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +21,7 @@ import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import { WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
+import { APP_STORE_URL } from '../lib/appStore';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import {
   DEFAULT_PREFS,
@@ -551,6 +552,20 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="What we collect, and what we don't"
           onPress={() => Linking.openURL('https://www.pickleague.club/privacy')}
         />
+        {Platform.OS === 'ios' && (
+          <>
+            <Divider />
+            {/* The dependable route to the store listing. The in-app prompt
+                (lib/rating) is capped by iOS at 3 per year and gives no signal
+                as to whether it appeared, so it can never be the only way for
+                someone who WANTS to leave a review to do it. */}
+            <ActionRow
+              label="Rate Pickleague"
+              desc="Leave a review on the App Store"
+              onPress={() => Linking.openURL(`${APP_STORE_URL}?action=write-review`)}
+            />
+          </>
+        )}
         <Divider />
         <View style={styles.row}>
           <Text style={styles.rowLabel}>Version</Text>

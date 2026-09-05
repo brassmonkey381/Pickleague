@@ -14,6 +14,7 @@ import { isGodmodeUserId } from '../lib/godmode';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { computeBadgeProgress } from '../lib/unlockProgress';
+import { maybeAskForReview, notePositiveMoment } from '../lib/rating';
 import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
 import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
 import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -558,7 +559,14 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
           .eq('id', tournamentMatchId));
         setSubmitted(true);
         status.success('Tournament match recorded. PLUPR updated.');
-        navTimer.current = setTimeout(() => navigation.goBack(), 1500);
+        // Count the moment now (a manual back-tap would cancel the timer below
+        // and we would lose it); ask only after the screen has popped, so the
+        // rating sheet never lands mid-transition.
+        void notePositiveMoment();
+        navTimer.current = setTimeout(() => {
+          navigation.goBack();
+          void maybeAskForReview();
+        }, 1500);
         return;
       }
 
@@ -643,7 +651,11 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // before the screen pops, upgrades the banner with a "keep going" line
       // when the entering user is 50–99% toward an unearned badge.
       status.success(baseMsg);
-      navTimer.current = setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
+      void notePositiveMoment();
+      navTimer.current = setTimeout(() => {
+        navigation.goBack();
+        void maybeAskForReview();
+      }, isGod ? 1500 : 2500);
       computeBadgeProgress(enteringUid)
         .then(progress => {
           const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
