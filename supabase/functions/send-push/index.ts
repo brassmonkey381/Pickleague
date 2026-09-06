@@ -53,6 +53,11 @@ const TYPE_TO_PREF: Record<string, string | null> = {
 // category value silently disabling delivery.
 const KNOWN_PREF_KEYS = new Set([
   'notifyMatchResults',
+  // Separate from results on purpose. A result is an FYI; a confirm request is
+  // a time-boxed action — one hour, after which expire_pending_matches()
+  // deletes the match. Gating it behind notifyMatchResults meant muting results
+  // silently cost you real matches. See migration_match_confirm_notify_category.
+  'notifyMatchConfirms',
   'notifyEventReminders',
   'notifyLeagueUpdates',
   'notifyTournamentUpdates',
