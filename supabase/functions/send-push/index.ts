@@ -153,6 +153,38 @@ serve(async (req) => {
     // Cancelled or finished: no buttons. Nothing useful is left to answer.
   }
 
+  if (record.entity_type === 'match' && record.entity_id) {
+    // Only the "needs your team to confirm" push earns a button, and only for a
+    // recipient who can actually still act. Every condition below is a real
+    // rejection inside confirm_match(), so offering the button without checking
+    // would mean a Confirm that errors instead of working:
+    //   - status must still be 'pending'
+    //   - confirm_deadline must not have passed (expire_pending_matches deletes
+    //     lapsed rows every minute, so this goes stale fast)
+    //   - the recipient must be a player on the match
+    // Plus one that is not an error but is noise: their team has already
+    // confirmed, so there is nothing left for them to do.
+    const { data: m } = await admin
+      .from('matches')
+      .select(
+        'status, confirm_deadline, player1_id, partner1_id, player2_id, partner2_id, team1_confirmed_by, team2_confirmed_by',
+      )
+      .eq('id', record.entity_id)
+      .maybeSingle();
+
+    if (m && m.status === 'pending') {
+      const live = !m.confirm_deadline || new Date(m.confirm_deadline) > new Date();
+      const onTeam1 = record.user_id === m.player1_id || record.user_id === m.partner1_id;
+      const onTeam2 = record.user_id === m.player2_id || record.user_id === m.partner2_id;
+      const alreadyConfirmed =
+        (onTeam1 && m.team1_confirmed_by) || (onTeam2 && m.team2_confirmed_by);
+
+      if (live && (onTeam1 || onTeam2) && !alreadyConfirmed) {
+        categoryId = 'match_confirm';
+      }
+    }
+  }
+
   // ── Deliver to Expo ────────────────────────────────────────────────────
   const messages = tokens.map((to) => ({
     to,

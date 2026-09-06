@@ -23,9 +23,11 @@ import { supabase } from './supabase';
 // ── Identifiers ────────────────────────────────────────────────────────────
 export const CATEGORY_EVENT_VOTE = 'event_vote';
 export const CATEGORY_EVENT_CONFIRMED = 'event_confirmed';
+export const CATEGORY_MATCH_CONFIRM = 'match_confirm';
 
 export const ACTION_EVENT_ACCEPT = 'event_accept';
 export const ACTION_EVENT_DECLINE = 'event_decline';
+export const ACTION_MATCH_CONFIRM = 'match_confirm';
 
 /**
  * Register every action category with the OS.
@@ -61,6 +63,16 @@ export async function registerNotificationCategories(): Promise<void> {
       {
         identifier: ACTION_EVENT_DECLINE,
         buttonTitle: "Can't make it",
+        options: { opensAppToForeground: false },
+      },
+    ]);
+    // Confirm only. There is no reject RPC — the decline path is simply
+    // letting it lapse, after which expire_pending_matches() deletes the row.
+    // A "Dispute" button would have nothing to call.
+    await Notifications.setNotificationCategoryAsync(CATEGORY_MATCH_CONFIRM, [
+      {
+        identifier: ACTION_MATCH_CONFIRM,
+        buttonTitle: 'Confirm',
         options: { opensAppToForeground: false },
       },
     ]);
@@ -138,6 +150,39 @@ async function acceptEvent(data: ActionPushData, userId: string): Promise<void> 
   );
 }
 
+/**
+ * Confirm a pending match.
+ *
+ * Unlike the event writes this is an RPC, and it raises rather than returning
+ * an error code — 'Match is no longer pending', 'Confirmation window has
+ * expired', 'Match not found'. Those are all REACHABLE from a notification that
+ * has been sitting in the shade: the confirm window is an hour, and
+ * expire_pending_matches() deletes lapsed rows every minute. So the message is
+ * surfaced verbatim rather than swallowed — "that match expired" is genuinely
+ * what the user needs to know, and inventing a friendlier lie would leave them
+ * thinking a match got recorded when it did not.
+ */
+async function confirmMatch(data: ActionPushData, _userId: string): Promise<void> {
+  const matchId = data.entity_id;
+  if (!matchId) {
+    await reportFailure('Open Pickleague to confirm this match.');
+    return;
+  }
+  try {
+    await sbCall(() => supabase.rpc('confirm_match', { p_match_id: matchId }), {
+      retries: 1,
+      timeoutMs: ACTION_TIMEOUT_MS,
+    });
+  } catch (e) {
+    const raw = (e as { message?: string })?.message ?? '';
+    if (/no longer pending|expired|not found/i.test(raw)) {
+      await reportFailure('That match is no longer waiting on you.');
+      return;
+    }
+    throw e;
+  }
+}
+
 async function declineEvent(data: ActionPushData, userId: string): Promise<void> {
   const eventId = data.entity_id;
   if (!eventId) {
@@ -166,7 +211,8 @@ export async function handleNotificationAction(
 ): Promise<boolean> {
   if (
     actionIdentifier !== ACTION_EVENT_ACCEPT &&
-    actionIdentifier !== ACTION_EVENT_DECLINE
+    actionIdentifier !== ACTION_EVENT_DECLINE &&
+    actionIdentifier !== ACTION_MATCH_CONFIRM
   ) {
     return false;
   }
@@ -181,6 +227,7 @@ export async function handleNotificationAction(
     }
 
     if (actionIdentifier === ACTION_EVENT_ACCEPT) await acceptEvent(data, userId);
+    else if (actionIdentifier === ACTION_MATCH_CONFIRM) await confirmMatch(data, userId);
     else await declineEvent(data, userId);
   } catch {
     await reportFailure('Tap to open Pickleague and try again.');
