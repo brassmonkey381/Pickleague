@@ -43,6 +43,12 @@ const NAV_ITEMS: NavItem[] = [
   ...(WAGERS_ENABLED
     ? [{ icon: '🎲', label: 'Wagers', screen: 'MyWagers', params: undefined } as NavItem]
     : []),
+  // Defaults to this user's own matches, matching where a tapped match push
+  // lands (resolvePushTarget in lib/push) — the tile and the notification
+  // should not disagree about what "match history" means.
+  { icon: '📋', label: 'Match History', screen: 'MatchHistory',
+    params: { title: 'Match History', initialMyMatchesOnly: true } },
+  // About stays last: it is the reference tile, not somewhere you go to act.
   { icon: '🥒',                    label: 'About',       screen: 'About',       params: undefined },
 ];
 
