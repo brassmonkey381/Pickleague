@@ -448,6 +448,18 @@ export default function SettingsScreen({ navigation }: Props) {
           disabled={!prefsReady}
         />
         <Divider />
+        {/* Its own switch, not folded into "Match results", because the
+            consequence of muting it is different in kind: unconfirmed matches
+            are deleted after an hour, so a missed confirm request loses a game
+            you actually played. The copy says so plainly. */}
+        <ToggleRow
+          label="Match confirmations"
+          desc="When your team must confirm a score — unconfirmed matches are dropped after an hour"
+          value={prefs.notifyMatchConfirms}
+          onChange={(v) => savePrefs({ ...prefs, notifyMatchConfirms: v })}
+          disabled={!prefsReady}
+        />
+        <Divider />
         <ToggleRow
           label="Event reminders"
           desc="Before a league event starts, and before a scheduling vote closes"

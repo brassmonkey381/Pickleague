@@ -25,6 +25,9 @@ export type Prefs = {
    *  unaffected — they always appear in the bell/list regardless. */
   pushEnabled:              boolean;
   notifyMatchResults:       boolean;
+  /** "Your team needs to confirm" — an action with a 1-hour deadline,
+   *  deliberately not folded into notifyMatchResults. */
+  notifyMatchConfirms:      boolean;
   notifyEventReminders:     boolean;
   notifyLeagueUpdates:      boolean;
   notifyTournamentUpdates:  boolean;
@@ -36,6 +39,7 @@ export type Prefs = {
 export const DEFAULT_PREFS: Prefs = {
   pushEnabled:              false,
   notifyMatchResults:       true,
+  notifyMatchConfirms:      true,
   notifyEventReminders:     true,
   notifyLeagueUpdates:      true,
   notifyTournamentUpdates:  true,
