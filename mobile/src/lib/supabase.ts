@@ -6,7 +6,7 @@
 // This module is imported by every screen, so configuring here guarantees the
 // cache and queue are ready before the first `cachedFetch` runs.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createSupabase, bindQueryCacheToAuth } from '@just-messin-around/expo-foundation/supabase';
+import { createSupabase, bindQueryCacheToAuth, readSessionHint } from '@just-messin-around/expo-foundation/supabase';
 import {
   configureQueryCachePersistence,
   configureMutationQueue,
@@ -26,8 +26,21 @@ export const supabase = createSupabase(
     // session, logging the user out on the very network that's failing — with
     // no way to sign back in. See the foundation's offlineSessionGuard.
     guardOfflineSignOut: true,
+    // Transport backstop (foundation 1.20+): every request is aborted after this,
+    // so a stalled connection can't hang a screen forever. The default is 60 s;
+    // 120 s matches AvatarPickerModal's UPLOAD_TIMEOUT_MS, the one request that
+    // can legitimately take that long on a slow link. Screens have tighter
+    // budgets of their own (useCachedQuery settles at 20 s).
+    requestTimeoutMs: 120_000,
   },
 );
+
+// Read the local sign-in hint now, before the client's first auth event. The
+// cache binding (bindQueryCacheToAuth, below) checks it synchronously to tell a
+// real sign-out from a failed keychain read on a cold start; without it a
+// failed read falls back to purging the cache at once (foundation 1.17+).
+// AsyncStorage only, never throws, never blocks.
+void readSessionHint().catch(() => {});
 
 // On-device query cache. Without this the cache is memory-only, so an offline
 // cold start has nothing to show and every screen renders its empty state.

@@ -11,6 +11,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { RootStackParamList } from '../types';
 import EmptyState from '../components/EmptyState';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
 import { SkeletonList } from '../components/Skeleton';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useRefresh } from '../lib/useRefresh';
@@ -25,11 +26,16 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
   const [rows, setRows]       = useState<BlockedPlayer[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId]   = useState<string | null>(null);
+  // A failed load must not read as "No blocked players": that copy is a claim
+  // about the account, and offline it would be false.
+  const [loadError, setLoadError] = useState<unknown>(null);
 
   const load = useCallback(async (force = false) => {
     try {
       setRows(await loadBlockedPlayers(force));
+      setLoadError(null);
     } catch (e) {
+      setLoadError(e);
       toast.error(friendlySbMessage(e, "Couldn't load your blocked players."));
     } finally {
       setLoading(false);
@@ -71,11 +77,15 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
         ) : null
       }
       ListEmptyComponent={
+        loadError ? (
+          <ErrorState error={loadError} onRetry={() => { void load(true); }} />
+        ) : (
         <EmptyState
           icon="🛡️"
           title="No blocked players"
           subtitle={`Block someone from the "⋯" menu on their profile. To report content, use the same menu — we review reports within 24 hours (${SUPPORT_EMAIL}).`}
         />
+        )
       }
       renderItem={({ item }) => (
         <View style={S.row}>

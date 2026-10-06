@@ -206,13 +206,21 @@ export default function AppNavigator() {
     // SIGNED_OUT drops the session so the next event starts a fresh anonymous one. Everything
     // resetSessionUser triggers is fire-and-forget — nothing awaits a supabase.auth call inside
     // this callback (deadlock).
+    // Since foundation 1.17, SIGNED_OUT can re-fire every refresh tick (~30 s)
+    // while offline, because the offline guard keeps the dead session on disk.
+    // The sign-out side effects must run once per REAL sign-out: only when a
+    // user was signed in before this event.
+    let hadUser = false;
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'SIGNED_OUT') {
+        if (!hadUser) return;
+        hadUser = false;
         resetStreakShown();
         endSession();
         resetSessionUser(null);
         return;
       }
+      hadUser = !!s?.user;
       resetSessionUser(s?.user ?? null);
     });
     // Warm the court-nickname cache so display helpers across screens have

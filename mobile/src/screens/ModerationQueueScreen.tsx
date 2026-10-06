@@ -14,6 +14,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
 import ConfirmModal from '../components/ConfirmModal';
 import EmptyState from '../components/EmptyState';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
 import type { RootStackParamList } from '../types';
 import { amIGodmode } from '../data/venueAdmin';
 import { REPORT_REASONS } from '../lib/moderation';
@@ -37,18 +38,26 @@ export default function ModerationQueueScreen({ navigation }: Props) {
   const [actingId, setActingId]     = useState<string | null>(null);
   const [pending, setPending]       = useState<Pending | null>(null);
 
+  // A failed load must not read as "Nothing to review", and a failed godmode
+  // check must not leave the first-load spinner up forever (it used to sit
+  // outside the try, so a throw skipped setLoading(false)).
+  const [loadError, setLoadError] = useState<unknown>(null);
+
   const load = useCallback(async (all: boolean) => {
     setLoading(true);
-    const ok = await amIGodmode();
-    setAuthorized(ok);
-    if (ok) {
-      try {
+    try {
+      const ok = await amIGodmode();
+      setAuthorized(ok);
+      if (ok) {
         setReports(await listReports(all ? 'all' : 'open'));
-      } catch (e) {
-        status.error(friendlySbMessage(e, 'Could not load the report queue.'));
       }
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(e);
+      status.error(friendlySbMessage(e, 'Could not load the report queue.'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => { void load(showAll); }, [load, showAll]);
@@ -89,6 +98,13 @@ export default function ModerationQueueScreen({ navigation }: Props) {
   if (loading && authorized === null) {
     return <View style={S.center}><ActivityIndicator size="large" color={c.primary} /></View>;
   }
+  if (authorized === null && loadError) {
+    return (
+      <View style={S.center}>
+        <ErrorState error={loadError} onRetry={() => { void load(showAll); }} />
+      </View>
+    );
+  }
   if (authorized === false) {
     return (
       <View style={S.center}>
@@ -120,6 +136,8 @@ export default function ModerationQueueScreen({ navigation }: Props) {
 
       {loading ? (
         <ActivityIndicator style={{ marginTop: 24 }} color={c.primary} />
+      ) : reports.length === 0 && loadError ? (
+        <ErrorState error={loadError} onRetry={() => { void load(showAll); }} compact />
       ) : reports.length === 0 ? (
         <EmptyState
           icon="✅"
