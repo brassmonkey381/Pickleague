@@ -169,14 +169,25 @@ purchase, no cash-out, no staking, and no real money anywhere in the app.
 
 PERMISSIONS AND WHY THEY ARE REQUESTED
 - Location (when in use): to show pickleball courts near the player when they
-  search for a venue. Not used in the background; coordinates are not stored.
+  search for a venue, and to find the court they are at when they tap "Find my
+  court" to check in. Coordinates are not stored; a check-in stores only the
+  court.
+- Location (always), version 1.0.4+: ONLY if the player turns on Settings ->
+  Court Arrival Alerts (off by default). The app then asks iOS to watch up to
+  20 courts (their league home courts and courts they have checked in at) with
+  region monitoring. Arriving shows a notification with a "Check in" button;
+  the app never checks anyone in on its own. Leaving a court ends only a
+  check-in that came from that button. No continuous tracking, no route, no
+  coordinates stored. Turning the setting off stops all monitoring.
 - Contacts: only when the player opens the contact picker to invite someone to
   an event. The address book is read on-device and is never uploaded; only the
   name and phone number of contacts the player explicitly selects are sent, in
   order to create that invite.
 - Photo library: only to select a profile picture.
 - Notifications: optional, off by default. Used for match results, event
-  reminders, and tournament updates.
+  reminders, drill requests and tournament updates. Some notifications carry
+  buttons (for example "Can't make it", "Confirm", "Check in") that answer
+  without opening the app.
 Every permission is optional and the app remains usable if declined.
 
 ACCOUNT DELETION

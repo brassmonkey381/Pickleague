@@ -3,7 +3,7 @@
     "name": "Pickleague",
     "slug": "pickleague",
     "scheme": "pickleague",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,7 +24,11 @@
         "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching.",
         "NSContactsUsageDescription": "Pickleague uses your contacts so you can invite people you already play with to a league or match.",
         "NSPhotoLibraryUsageDescription": "Pickleague uses your photo library so you can choose a profile picture.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pickleague can tell you when you arrive at your home court or a court you play at, so you can check in with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+        "UIBackgroundModes": [
+          "location"
+        ]
       }
     },
     "android": {
@@ -38,7 +42,10 @@
       "permissions": [
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.READ_CONTACTS"
+        "android.permission.READ_CONTACTS",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
       "blockedPermissions": [
         "android.permission.WRITE_CONTACTS"
@@ -51,7 +58,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Pickleague uses your location to show nearby courts when searching."
+          "locationWhenInUsePermission": "Pickleague uses your location to show nearby courts when searching.",
+          "locationAlwaysAndWhenInUsePermission": "Pickleague can tell you when you arrive at your home court or a court you play at, so you can check in with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       "@react-native-community/datetimepicker",

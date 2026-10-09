@@ -23,6 +23,7 @@ import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
+import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
 import PlayIsland from '../components/PlayIsland';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
@@ -220,6 +221,7 @@ export default function AppNavigator() {
         resetStreakShown();
         void clearCheckinForSignOut();
         void clearPlayForSignOut();
+        void stopCourtGeofencesForSignOut();
         endSession();
         resetSessionUser(null);
         return;
@@ -255,6 +257,9 @@ export default function AppNavigator() {
     if (!session) return;
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
+    // Re-pick the fenced courts for arrival alerts (no-op unless turned on in
+    // Settings; never shows a permission sheet here).
+    void syncCourtGeofences();
     (async () => {
       // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
       // have lapsed, or if the profile is gone entirely (the hourly cleanup

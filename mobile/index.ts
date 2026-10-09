@@ -32,6 +32,16 @@ try {
     React.createElement(StartupErrorScreen, { error, phase: 'while loading the app bundle' });
 }
 
+// The OS can wake the app headless to deliver a court geofence event, so the
+// task must be defined at the entry's module scope, before anything renders.
+// Guarded: a failure here costs arrival alerts, never the app.
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  require('./src/lib/courtGeofence').defineCourtGeofenceTask();
+} catch {
+  // native module missing (web) or a load error: no arrival alerts
+}
+
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
 // It also ensures that whether you load the app in Expo Go or in a native build,
 // the environment is set up appropriately

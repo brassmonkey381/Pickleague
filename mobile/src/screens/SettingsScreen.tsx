@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Switch,
-  TextInput, TouchableOpacity, ActivityIndicator, Linking,
+  TextInput, TouchableOpacity, ActivityIndicator, Linking, Platform,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,6 +22,7 @@ import { isGodmodeUserId } from '../lib/godmode';
 import { WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
+import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
 import {
   DEFAULT_PREFS,
   loadUserPreferencesResult,
@@ -63,11 +64,35 @@ export default function SettingsScreen({ navigation }: Props) {
   const [deleting, setDeleting]         = useState(false);
 
   const status = useStatusMessage();
+  const [courtAlerts, setCourtAlerts] = useState(false);
+  const [courtAlertsBusy, setCourtAlertsBusy] = useState(false);
 
   useEffect(() => {
     loadPrefs();
     loadProfile();
+    void getCourtAlertsEnabled().then(setCourtAlerts);
   }, []);
+
+  // Court arrival alerts: device-level, needs "Always" location. Turning on
+  // shows the OS permission sheets; 0 fenced courts means it couldn't start.
+  async function toggleCourtAlerts(val: boolean) {
+    setCourtAlertsBusy(true);
+    try {
+      const n = await setCourtAlertsEnabled(val);
+      if (val && n === 0) {
+        await setCourtAlertsEnabled(false);
+        setCourtAlerts(false);
+        status.error(
+          'Arrival alerts need location set to "Always" and at least one court (a league home court or a court you checked in at).',
+        );
+        return;
+      }
+      setCourtAlerts(val);
+      if (val) status.success(`Watching ${n} court${n === 1 ? '' : 's'}.`);
+    } finally {
+      setCourtAlertsBusy(false);
+    }
+  }
 
   async function loadPrefs() {
     const result = await loadUserPreferencesResult();
@@ -500,6 +525,21 @@ export default function SettingsScreen({ navigation }: Props) {
           disabled={!prefsReady}
         />
       </View>
+
+      {Platform.OS !== 'web' && (
+        <>
+          <SectionHeader title="Court Arrival Alerts" />
+          <View style={styles.card}>
+            <ToggleRow
+              label="Ask me to check in at the courts"
+              desc="When you arrive at your home court or a court you play at, get a notification with a Check in button. Never checks you in on its own. Needs location set to Always."
+              value={courtAlerts}
+              onChange={toggleCourtAlerts}
+              disabled={courtAlertsBusy}
+            />
+          </View>
+        </>
+      )}
 
       {/* ── Match Defaults ───────────────────── */}
       <SectionHeader title="Match Defaults" />
