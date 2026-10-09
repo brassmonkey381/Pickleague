@@ -12,6 +12,7 @@ import { formatPlupr } from '../lib/plupr';
 import FlairName from '../components/FlairName';
 import StreakModal from '../components/StreakModal';
 import FtueChecklistCard from '../components/FtueChecklistCard';
+import CourtCheckinCard from '../components/CourtCheckinCard';
 import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
 import DuprImportBanner from '../components/DuprImportBanner';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
@@ -427,6 +428,9 @@ export default function HomeScreen({ navigation }: Props) {
           profile: d.profile ? { ...d.profile, pickles: newBalance } : d.profile,
         }))}
       />
+
+      {/* ── Court check-in + who's here now ── */}
+      <CourtCheckinCard />
 
       {/* ── Upcoming (tournaments + events + drill sessions) ── */}
       <View style={s.tournamentSection}>

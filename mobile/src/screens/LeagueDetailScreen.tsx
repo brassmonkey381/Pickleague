@@ -30,6 +30,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
 import { BallIcon } from '../components/PickleIcons';
 import FlairName from '../components/FlairName';
+import CourtPresenceLine from '../components/CourtPresenceLine';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
@@ -680,6 +681,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           <Text style={S.courtLabel}>Home Court</Text>
           <Text style={S.courtName} numberOfLines={1}>{league?.home_court ? displayCourtName(league.home_court) : 'Not set'}</Text>
           {region && <Text style={S.courtRegion}>{region}</Text>}
+          <CourtPresenceLine lat={league?.home_court_lat} lng={league?.home_court_lng} name={league?.home_court ? displayCourtName(league.home_court) : null} />
         </View>
       </View>
 

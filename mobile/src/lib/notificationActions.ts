@@ -55,6 +55,9 @@ export type ActionPushData = {
   confirmed_slot_id?: string | null;
   registration_id?: string | null;
   venue_id?: string | null;
+  venue_name?: string | null;
+  checkin_id?: string | null;
+  expires_at?: string | null;
   title?: string;
 };
 

@@ -25,6 +25,9 @@ import { supabase } from './supabase';
 import { navigateWhenReady } from './navigationRef';
 import { handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
 import { loadUserPreferencesResult } from './userPreferences';
+// Side effect: registers the check-in buttons' handlers and queued writes, so
+// they exist wherever responses are wired.
+import './courtCheckin';
 import { RootStackParamList } from '../types';
 
 // Show notifications while the app is foregrounded too.

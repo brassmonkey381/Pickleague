@@ -21,6 +21,7 @@ import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-fou
 import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { setupNotificationTapHandling } from '../lib/push';
+import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -215,6 +216,7 @@ export default function AppNavigator() {
         if (!hadUser) return;
         hadUser = false;
         resetStreakShown();
+        void clearCheckinForSignOut();
         endSession();
         resetSessionUser(null);
         return;

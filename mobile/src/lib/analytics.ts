@@ -73,7 +73,7 @@ let deviceId: string | null | undefined;
 
 /** A v4 UUID. crypto.randomUUID is absent on Hermes; fall back to getRandomValues, then
  *  Math.random — this is a coincidence key, not a security boundary. */
-function uuidv4(): string {
+export function uuidv4(): string {
   const c = globalThis.crypto as
     | { randomUUID?: () => string; getRandomValues?: (a: Uint8Array) => Uint8Array }
     | undefined;
