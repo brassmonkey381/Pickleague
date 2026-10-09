@@ -16,7 +16,7 @@
 // current schema. Ordinary JS bugs ship over the air without a store round trip.
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { getNativeBuild, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from './supabase';
 import { compareVersions } from './versionCompare';
 
@@ -37,7 +37,10 @@ export async function isUpdateRequired(): Promise<boolean> {
     // and there is no store page to send a browser to anyway.
     if (Platform.OS === 'web') return false;
 
-    const current = Constants.expoConfig?.version;
+    // The installed binary's own version (expo-application) first: that is what
+    // the store shipped. app.json's version is the fallback for a binary built
+    // before expo-application was linked (1.0.3 and earlier).
+    const current = getNativeBuild().version ?? Constants.expoConfig?.version;
     if (!current) return false;
 
     const { data, error } = await withTimeout(

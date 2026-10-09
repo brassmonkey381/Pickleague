@@ -5,7 +5,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
-import UpdateRequiredScreen from '../screens/UpdateRequiredScreen';
 import { isUpdateRequired } from '../lib/minVersion';
 import { useTheme } from '../lib/ThemeContext';
 import { TourProvider } from '../lib/TourContext';
@@ -18,8 +17,9 @@ import { endSession, resetSessionUser, trackScreen } from '../lib/analytics';
 import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
 import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
-import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
-import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
+import { getNativeBuild, startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
+import { OfflineBanner, UpdateReadyBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
+import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
@@ -175,6 +175,7 @@ export default function AppNavigator() {
   // yes. lib/minVersion fails open on every error path, so an offline or slow
   // read simply leaves this false forever, which is the outcome we want.
   const [updateRequired, setUpdateRequired] = useState(false);
+  const nativeVersion = getNativeBuild().version;
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -289,7 +290,16 @@ export default function AppNavigator() {
       {/* Hard stop: replaces the whole app, including the startup retry screen.
           A build too old to talk to the backend should not be offering to retry
           its way in. Nothing below this renders while it is true. */}
-      {updateRequired && <UpdateRequiredScreen />}
+      {updateRequired && (
+        <UpdateRequiredScreen
+          title="Time to update"
+          message="This version of Pickleague is too old to work with our servers. Grab the latest version and you will be right back where you left off. Nothing is lost."
+          buttonLabel="Update on the App Store"
+          // Android has no Play listing yet: copy only, no button that goes nowhere.
+          storeUrl={Platform.OS === 'ios' ? APP_STORE_URL : undefined}
+          footnote={nativeVersion ? `You have version ${nativeVersion}.` : undefined}
+        />
+      )}
       {!updateRequired && phase === 'error' && <StartupRetryScreen onRetry={retry} />}
       {!updateRequired && phase === 'ready' && (
         <WebMaxWidth background={colors.bg}>
@@ -385,6 +395,9 @@ export default function AppNavigator() {
       {/* Connectivity banner — renders null while online, so it can sit
           unconditionally next to the toast stack. */}
       <OfflineBanner />
+      {/* "Update ready, restart?" nudge: renders null until an over-the-air
+          bundle has downloaded (never on web or in dev). */}
+      <UpdateReadyBanner text="A Pickleague update is ready. Restart to get the latest." />
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {!splashDone && (
