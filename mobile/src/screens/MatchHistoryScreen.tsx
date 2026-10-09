@@ -25,6 +25,7 @@ import WagerProposeModal from '../components/WagerProposeModal';
 import { WAGERS_ENABLED } from '../lib/features';
 import type { WagerSubject } from '../lib/wager';
 import type { Profile } from '../types';
+import { noteGoodMoment } from '../lib/ratingPrompt';
 
 type HomeAwayFilter     = 'all' | 'home' | 'away';
 type TypeFilter         = 'all' | 'singles' | 'doubles';
@@ -327,6 +328,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       return;
     }
     status.success('Match confirmed.');
+    noteGoodMoment(); // a settled result is a good moment (rating prompt)
     loadMatches();
   }
 

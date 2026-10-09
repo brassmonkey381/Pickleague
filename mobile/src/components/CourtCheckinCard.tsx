@@ -22,6 +22,7 @@ import {
 } from '../lib/courtCheckin';
 import { resolveVenueAt, type NearbyVenue } from '../data/venueCheckins';
 import PlayersHereList from './PlayersHereList';
+import { noteGoodMoment } from '../lib/ratingPrompt';
 import { playSession, startPlay } from '../lib/playSession';
 
 const BOUND_MS = 10_000;
@@ -90,6 +91,7 @@ export default function CourtCheckinCard() {
         setNearby(null);
         setRosterKey((k) => k + 1);
         if (next.queued) setMessage('Saved offline. It syncs when you are back online.');
+        else noteGoodMoment(); // a check-in that went through (rating prompt)
       },
       "Couldn't check you in.",
     );
