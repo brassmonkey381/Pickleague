@@ -20,8 +20,7 @@ import StartupRetryScreen from '../components/StartupRetryScreen';
 import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
 import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
-import { registerForPushNotificationsAsync, setupNotificationTapHandling } from '../lib/push';
-import { loadUserPreferencesResult } from '../lib/userPreferences';
+import { setupNotificationTapHandling } from '../lib/push';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -226,7 +225,8 @@ export default function AppNavigator() {
     // Warm the court-nickname cache so display helpers across screens have
     // data on first render.
     ensureCourtNicknamesLoaded();
-    // Route taps on push notifications to the relevant screen (live + cold start).
+    // Route taps on push notifications to the relevant screen (live + cold start),
+    // and keep this device's push token bound to the signed-in user.
     const teardownTaps = setupNotificationTapHandling();
     // Track connectivity (feeds OfflineBanner + self-healing realtime channels).
     const stopNetworkMonitor = startNetworkMonitor();
@@ -243,11 +243,11 @@ export default function AppNavigator() {
   }, []);
 
   // On sign-in: deliver any deep-link queued across the auth-stack swap (e.g. the
-  // guest-join flow lands on the event vote), enforce guest-pass expiry, and
-  // register for push (respecting the saved master toggle).
+  // guest-join flow lands on the event vote) and enforce guest-pass expiry.
+  // Push registration is owned by lib/push's auth-bound token lifecycle
+  // (started in setupNotificationTapHandling), which re-runs on sign-in.
   useEffect(() => {
     if (!session) return;
-    let cancelled = false;
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
     (async () => {
@@ -268,17 +268,8 @@ export default function AppNavigator() {
         // removal while offline (so a captive portal can't log anyone out), and
         // a deliberate sign-out has to say so to get through that guard.
         await signOutSafely(supabase);
-        return;
-      }
-      // Only skip push registration on a prefs read we actually trust. A failed
-      // read used to fall back to DEFAULT_PREFS (pushEnabled: false), silently
-      // costing a push-enabled user their notifications for the whole session.
-      const prefs = await loadUserPreferencesResult();
-      if (!cancelled && prefs.status === 'ok' && prefs.prefs.pushEnabled) {
-        void registerForPushNotificationsAsync();
       }
     })();
-    return () => { cancelled = true; };
   }, [session]);
 
   return (

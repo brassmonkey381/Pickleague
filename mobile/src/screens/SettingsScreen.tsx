@@ -491,6 +491,14 @@ export default function SettingsScreen({ navigation }: Props) {
           onChange={(v) => savePrefs({ ...prefs, notifyChallenges: v })}
           disabled={!prefsReady}
         />
+        <Divider />
+        <ToggleRow
+          label="Drilling"
+          desc="Drill requests, answers and session reminders"
+          value={prefs.notifyDrillRequests}
+          onChange={(v) => savePrefs({ ...prefs, notifyDrillRequests: v })}
+          disabled={!prefsReady}
+        />
       </View>
 
       {/* ── Match Defaults ───────────────────── */}

@@ -1,0 +1,36 @@
+{
+  "event_vote": [
+    "event_decline"
+  ],
+  "event_confirmed": [
+    "event_accept",
+    "event_decline"
+  ],
+  "match_confirm": [
+    "match_confirm"
+  ],
+  "drill_request": [
+    "drill_accept",
+    "drill_decline"
+  ],
+  "drill_request_pick": [
+    "drill_decline"
+  ],
+  "drill_reminder": [
+    "drill_on_my_way",
+    "drill_cant_make_it"
+  ],
+  "tournament_invite": [
+    "tournament_accept"
+  ],
+  "checkin_extend": [
+    "checkin_extend",
+    "checkin_out"
+  ],
+  "court_checkin": [
+    "court_checkin"
+  ],
+  "play_start": [
+    "play_start"
+  ]
+}

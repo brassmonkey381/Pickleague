@@ -1,236 +1,197 @@
-// Notification action buttons — answering a push without opening the app.
+// Notification action buttons: answering a push without opening the app.
 //
-// Shape of the thing, end to end:
+// End to end:
 //   1. A `notifications` row is inserted (by a trigger or a generator).
-//   2. `send-push` resolves an ACTION CATEGORY for it and puts `categoryId` on
-//      the Expo message, plus whatever context the buttons will need in `data`.
-//   3. This module has registered that category id with the OS, so iOS/Android
-//      know which buttons to draw.
-//   4. Pressing one delivers a response carrying `actionIdentifier`, which
-//      `handleNotificationAction` below turns into a write.
+//   2. send-push resolves an ACTION CATEGORY for it at send time and puts
+//      `categoryId` on the Expo message, plus whatever the buttons need in `data`.
+//   3. This module registers every category from notificationCatalog.data.ts
+//      with the OS, so iOS/Android know which buttons to draw.
+//   4. A press arrives through the foundation's wireNotificationResponses (in
+//      lib/push.ts), which dedupes replays and hands it to
+//      handleNotificationAction below.
 //
-// All four steps must agree on the identifier strings, so they live here and
-// send-push mirrors them (there is no shared module across the DB/app boundary
-// — if you rename one, grep for it in supabase/functions/send-push).
+// Each write runs through the foundation's runNotificationAction: bounded at
+// 10 s and ending in exactly one local notice, because on the lock screen the
+// notification is the whole UI and silence reads as "nothing happened".
 //
-// This is entirely JS: categories are registered at runtime, so the whole
-// feature ships over the air with no native rebuild.
-import * as Notifications from 'expo-notifications';
+// Delivery is at-least-once, so every write is idempotent: plain inserts that
+// treat a duplicate as success, or RPCs that return 'already' on a replay.
+//
+// Runs on a background launch where nothing is mounted: no navigator, theme or
+// toast. It depends on Supabase and the LOCAL session only, and never throws.
 import { Platform } from 'react-native';
-import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import {
+  defineNotificationCatalog,
+  registerNotificationCategories as registerCategories,
+  runNotificationAction,
+  type NoticeCopy,
+  type ParsedNotificationResponse,
+} from '@just-messin-around/expo-foundation/platform/push';
+import { sbCall, currentUserId, insertIgnoringDuplicate } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
+import { CATALOG } from './notificationCatalog.data';
 
-// ── Identifiers ────────────────────────────────────────────────────────────
-export const CATEGORY_EVENT_VOTE = 'event_vote';
-export const CATEGORY_EVENT_CONFIRMED = 'event_confirmed';
-export const CATEGORY_MATCH_CONFIRM = 'match_confirm';
+export const catalog = defineNotificationCatalog(CATALOG);
+const ACTION_IDS = new Set<string>(Object.values(CATALOG).flatMap((c) => Object.keys(c.actions)));
 
-export const ACTION_EVENT_ACCEPT = 'event_accept';
-export const ACTION_EVENT_DECLINE = 'event_decline';
-export const ACTION_MATCH_CONFIRM = 'match_confirm';
+/** True for a button this app handles (anything else is treated as a plain tap). */
+export function isAppAction(actionId: string): boolean {
+  return ACTION_IDS.has(actionId);
+}
 
 /**
- * Register every action category with the OS.
- *
- * Safe and cheap to call on every launch — it overwrites by identifier rather
- * than accumulating. Must run BEFORE a push arrives, which is why it is fired
- * at startup rather than lazily: a notification naming an unregistered category
- * simply renders with no buttons, silently.
+ * Register every category with the OS. Cheap and idempotent; must run at
+ * startup, before a push arrives, or the push renders with no buttons.
  */
 export async function registerNotificationCategories(): Promise<void> {
   if (Platform.OS === 'web') return;
-  try {
-    await Notifications.setNotificationCategoryAsync(CATEGORY_EVENT_VOTE, [
-      {
-        identifier: ACTION_EVENT_DECLINE,
-        buttonTitle: "Can't make it",
-        // Handled in the background — the entire point is not to open the app.
-        options: { opensAppToForeground: false },
-      },
-    ]);
-
-    // A confirmed event has exactly one time (league_events.confirmed_slot_id),
-    // so "I'm in" is unambiguous here. During VOTING it is not — there are
-    // several proposed slots and no way to say which one a single tap means —
-    // which is why the voting category offers only the decline. Picking a time
-    // needs the screen, and the plain tap already goes there.
-    await Notifications.setNotificationCategoryAsync(CATEGORY_EVENT_CONFIRMED, [
-      {
-        identifier: ACTION_EVENT_ACCEPT,
-        buttonTitle: "I'm in",
-        options: { opensAppToForeground: false },
-      },
-      {
-        identifier: ACTION_EVENT_DECLINE,
-        buttonTitle: "Can't make it",
-        options: { opensAppToForeground: false },
-      },
-    ]);
-    // Confirm only. There is no reject RPC — the decline path is simply
-    // letting it lapse, after which expire_pending_matches() deletes the row.
-    // A "Dispute" button would have nothing to call.
-    await Notifications.setNotificationCategoryAsync(CATEGORY_MATCH_CONFIRM, [
-      {
-        identifier: ACTION_MATCH_CONFIRM,
-        buttonTitle: 'Confirm',
-        options: { opensAppToForeground: false },
-      },
-    ]);
-  } catch {
-    // Worst case the notifications arrive with no buttons. Never worth a crash.
-  }
+  await registerCategories(catalog.registrationMap);
 }
 
-// ── Handling ───────────────────────────────────────────────────────────────
-
+/** Fields send-push (or a local notice) puts on the push for the buttons. */
 export type ActionPushData = {
   entity_type?: string | null;
   entity_id?: string | null;
-  /** Sent by send-push for event pushes so "I'm in" knows which slot to vote for. */
   confirmed_slot_id?: string | null;
+  registration_id?: string | null;
+  venue_id?: string | null;
   title?: string;
 };
 
-/** How long a background action gets before we give up and tell the user. */
-const ACTION_TIMEOUT_MS = 10_000;
+/** A precondition the lock screen can't satisfy; the message is the notice body. */
+export class NeedsApp extends Error {}
 
-/**
- * Tell the user, on the notification shade, that their tap did NOT take effect.
- *
- * This matters more than it looks. A background action has no UI, so a failed
- * write is invisible — the user believes they declined an event they are still
- * on the roster for. Silence is the dangerous outcome here, not noise.
- */
-async function reportFailure(body: string): Promise<void> {
-  try {
-    await Notifications.scheduleNotificationAsync({
-      content: { title: "That didn't save", body, sound: 'default' },
-      trigger: null,
-    });
-  } catch {
-    /* if even this fails there is nothing left to try */
-  }
+const TIMED_OUT: NoticeCopy = { title: 'May not have saved', body: 'Open Pickleague to check.' };
+const FAILED: NoticeCopy = { title: "That didn't save", body: 'Tap to open Pickleague and try again.' };
+
+export async function requireUser(): Promise<string> {
+  // LOCAL session read: getUser() is a network round trip, and this may be a
+  // cold background launch on a slow connection.
+  const uid = await currentUserId(supabase);
+  if (!uid) throw new NeedsApp('Sign in to Pickleague to respond.');
+  return uid;
 }
 
-/**
- * Plain INSERT, treating a duplicate as success.
- *
- * NOT an upsert, deliberately — and this was verified against production, not
- * assumed. Neither event_slot_votes nor event_declines has an UPDATE policy
- * (only INSERT / SELECT / DELETE), so `ON CONFLICT DO UPDATE` fails with 42501
- * "new row violates row-level security policy" the moment the row already
- * exists. That is the COMMON case here: pressing the same button twice, or
- * responding again to a repeated reminder.
- *
- * A plain insert returns 23505 instead, which from the user's point of view is
- * not a failure at all — their answer is already recorded. Same reasoning, and
- * the same shape, as submitReport() in lib/moderation.
- */
-async function insertIgnoringDuplicate(
-  run: () => PromiseLike<{ data: unknown; error: { code?: string } | null }>,
-): Promise<void> {
-  try {
-    await sbCall(run, { retries: 1, timeoutMs: ACTION_TIMEOUT_MS });
-  } catch (e) {
-    if ((e as { code?: string })?.code === '23505') return;
-    throw e;
-  }
+function needs(id: string | null | undefined, msg: string): string {
+  if (!id) throw new NeedsApp(msg);
+  return id;
 }
 
-async function acceptEvent(data: ActionPushData, userId: string): Promise<void> {
-  const slotId = data.confirmed_slot_id;
-  if (!slotId) {
-    await reportFailure('Open Pickleague to pick a time for this event.');
-    return;
+/** Known server rejections become specific copy; everything else is FAILED. */
+function mapError(e: unknown): NoticeCopy | null {
+  if (e instanceof NeedsApp) return { title: "That didn't save", body: e.message };
+  const raw = (e as { message?: string })?.message ?? '';
+  if (/no longer pending|expired|not found|Invite already/i.test(raw)) {
+    return { title: 'Nothing to answer', body: 'That is no longer waiting on you.' };
   }
-  // Voting is all that is needed to undo a previous decline: a DB trigger
-  // clears the opposite side either way.
-  await insertIgnoringDuplicate(() =>
-    supabase.from('event_slot_votes').insert({ slot_id: slotId, user_id: userId }),
-  );
+  if (/Pick a time/i.test(raw)) return { title: 'Pick a time', body: 'Open Pickleague to choose a time.' };
+  return null;
 }
 
-/**
- * Confirm a pending match.
- *
- * Unlike the event writes this is an RPC, and it raises rather than returning
- * an error code — 'Match is no longer pending', 'Confirmation window has
- * expired', 'Match not found'. Those are all REACHABLE from a notification that
- * has been sitting in the shade: the confirm window is an hour, and
- * expire_pending_matches() deletes lapsed rows every minute. So the message is
- * surfaced verbatim rather than swallowed — "that match expired" is genuinely
- * what the user needs to know, and inventing a friendlier lie would leave them
- * thinking a match got recorded when it did not.
- */
-async function confirmMatch(data: ActionPushData, _userId: string): Promise<void> {
-  const matchId = data.entity_id;
-  if (!matchId) {
-    await reportFailure('Open Pickleague to confirm this match.');
-    return;
-  }
-  try {
-    await sbCall(() => supabase.rpc('confirm_match', { p_match_id: matchId }), {
-      retries: 1,
-      timeoutMs: ACTION_TIMEOUT_MS,
-    });
-  } catch (e) {
-    const raw = (e as { message?: string })?.message ?? '';
-    if (/no longer pending|expired|not found/i.test(raw)) {
-      await reportFailure('That match is no longer waiting on you.');
-      return;
-    }
-    throw e;
-  }
+const rpc = (fn: string, args: Record<string, unknown>) =>
+  sbCall(() => supabase.rpc(fn, args), { retries: 1, timeoutMs: 9_000 });
+
+export type ActionHandler = {
+  run: (d: ActionPushData, idempotencyKey: string) => Promise<unknown>;
+  success: NoticeCopy;
+  queued?: NoticeCopy;
+};
+
+const HANDLERS: Record<string, ActionHandler> = {
+  event_accept: {
+    success: { title: "You're in", body: 'See you there.' },
+    run: async (d) => {
+      const slotId = needs(d.confirmed_slot_id, 'Open Pickleague to pick a time for this event.');
+      const uid = await requireUser();
+      // Plain insert, not upsert: event_slot_votes has no UPDATE policy, so
+      // ON CONFLICT DO UPDATE fails with 42501 when the row exists. A duplicate
+      // (23505) means the answer is already recorded. A DB trigger clears an
+      // earlier decline.
+      await insertIgnoringDuplicate(supabase.from('event_slot_votes').insert({ slot_id: slotId, user_id: uid }));
+    },
+  },
+  event_decline: {
+    success: { title: 'Got it', body: "Marked you as can't make it." },
+    run: async (d) => {
+      const eventId = needs(d.entity_id, 'Open Pickleague to respond to this event.');
+      const uid = await requireUser();
+      await insertIgnoringDuplicate(supabase.from('event_declines').insert({ event_id: eventId, user_id: uid }));
+    },
+  },
+  match_confirm: {
+    success: { title: 'Match confirmed', body: 'Ratings update shortly.' },
+    // Raises (not an error code) for a match that lapsed or was already
+    // settled; mapError turns that into "no longer waiting on you" rather than
+    // pretending the match got recorded.
+    run: async (d) => {
+      const matchId = needs(d.entity_id, 'Open Pickleague to confirm this match.');
+      await requireUser();
+      await rpc('confirm_match', { p_match_id: matchId });
+    },
+  },
+  drill_accept: {
+    success: { title: 'Drill accepted', body: 'Open Pickleague to chat about where to play.' },
+    run: async (d) => {
+      const id = needs(d.entity_id, 'Open Pickleague to answer this request.');
+      await requireUser();
+      await rpc('respond_drill_request', { p_request: id, p_accept: true });
+    },
+  },
+  drill_decline: {
+    success: { title: 'Declined', body: 'We let them know.' },
+    run: async (d) => {
+      const id = needs(d.entity_id, 'Open Pickleague to answer this request.');
+      await requireUser();
+      await rpc('respond_drill_request', { p_request: id, p_accept: false });
+    },
+  },
+  drill_on_my_way: {
+    success: { title: 'Sent', body: 'Your partner knows you are on the way.' },
+    run: async (d) => {
+      const id = needs(d.entity_id, 'Open Pickleague to answer.');
+      await requireUser();
+      await rpc('rsvp_drill_session', { p_session: id, p_status: 'on_my_way' });
+    },
+  },
+  drill_cant_make_it: {
+    success: { title: 'Sent', body: "Your partner knows you can't make it." },
+    run: async (d) => {
+      const id = needs(d.entity_id, 'Open Pickleague to answer.');
+      await requireUser();
+      await rpc('rsvp_drill_session', { p_session: id, p_status: 'cant_make_it' });
+    },
+  },
+  tournament_accept: {
+    success: { title: "You're in", body: 'Invite accepted.' },
+    run: async (d) => {
+      const id = needs(d.registration_id, 'Open Pickleague to answer this invite.');
+      await requireUser();
+      try {
+        await rpc('tournament_respond_to_invite', { p_registration_id: id, p_accept: true });
+      } catch (e) {
+        // A replay after the first tap worked: the invite is already approved.
+        if (/Invite already approved/i.test((e as { message?: string })?.message ?? '')) return;
+        throw e;
+      }
+    },
+  },
+};
+
+/** Feature modules (court check-in, play session) add their buttons here. */
+export function registerActionHandler(actionId: string, h: ActionHandler): void {
+  HANDLERS[actionId] = h;
 }
 
-async function declineEvent(data: ActionPushData, userId: string): Promise<void> {
-  const eventId = data.entity_id;
-  if (!eventId) {
-    await reportFailure('Open Pickleague to respond to this event.');
-    return;
-  }
-  await insertIgnoringDuplicate(() =>
-    supabase.from('event_declines').insert({ event_id: eventId, user_id: userId }),
-  );
-}
-
-/**
- * Perform the write behind a pressed button.
- *
- * Returns true when the response was an action we handled, so the caller knows
- * NOT to also deep-link — a plain tap opens the screen, a button press must not.
- *
- * Runs in a background launch, where nothing is mounted and there is no
- * navigator, no theme and no toast. It must therefore depend on nothing but
- * Supabase, and it must never throw: an uncaught rejection here happens with no
- * one watching.
- */
-export async function handleNotificationAction(
-  actionIdentifier: string,
-  data: ActionPushData,
-): Promise<boolean> {
-  if (
-    actionIdentifier !== ACTION_EVENT_ACCEPT &&
-    actionIdentifier !== ACTION_EVENT_DECLINE &&
-    actionIdentifier !== ACTION_MATCH_CONFIRM
-  ) {
-    return false;
-  }
-
-  try {
-    // LOCAL session read. getUser() is a network round trip and this may be
-    // running on a cold background launch with a slow connection.
-    const userId = await currentUserId(supabase);
-    if (!userId) {
-      await reportFailure('Sign in to Pickleague to respond.');
-      return true;
-    }
-
-    if (actionIdentifier === ACTION_EVENT_ACCEPT) await acceptEvent(data, userId);
-    else if (actionIdentifier === ACTION_MATCH_CONFIRM) await confirmMatch(data, userId);
-    else await declineEvent(data, userId);
-  } catch {
-    await reportFailure('Tap to open Pickleague and try again.');
-  }
-  return true;
+/** Perform the write behind a pressed button. Never throws. */
+export async function handleNotificationAction(r: ParsedNotificationResponse): Promise<void> {
+  const h = r.action ? HANDLERS[r.action] : undefined;
+  if (!h) return;
+  await runNotificationAction((key) => h.run(r.data as ActionPushData, key), {
+    idempotencyKey: r.idempotencyKey,
+    success: h.success,
+    queued: h.queued,
+    timedOut: TIMED_OUT,
+    failure: FAILED,
+    mapError,
+  });
 }

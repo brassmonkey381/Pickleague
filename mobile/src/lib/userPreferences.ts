@@ -32,6 +32,8 @@ export type Prefs = {
   notifyLeagueUpdates:      boolean;
   notifyTournamentUpdates:  boolean;
   notifyChallenges:         boolean;
+  /** Drill requests, answers, session reminders and partner RSVPs. */
+  notifyDrillRequests:      boolean;
   defaultMatchType:         MatchType;
   defaultScoreLimit:        ScoreLimit;
 };
@@ -44,6 +46,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifyLeagueUpdates:      true,
   notifyTournamentUpdates:  true,
   notifyChallenges:         true,
+  notifyDrillRequests:      true,
   defaultMatchType:         'doubles',
   defaultScoreLimit:        11,
 };

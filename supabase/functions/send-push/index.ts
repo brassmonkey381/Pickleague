@@ -1,247 +1,193 @@
-// Edge function: send-push
+// Edge function: send-push — the push outbox dispatcher.
 //
-// Invoked by the AFTER INSERT trigger on public.notifications (see
-// migration_push_notifications.sql) for every notification row. It:
-//   1. verifies a shared secret (the function is deployed --no-verify-jwt),
-//   2. checks the recipient's push preferences (master + per-category),
-//   3. looks up their device push tokens, and
-//   4. delivers the same title/body to Expo's Push API, with deep-link data.
-// Dead tokens (DeviceNotRegistered) are pruned so we don't keep retrying them.
+// Built on the foundation server kit (vendored in ../_kit; re-vendor with
+// `node mobile/node_modules/@just-messin-around/expo-foundation/scripts/vendor-server-kit.mjs supabase/functions/_kit`).
+// Called with x-push-secret by:
+//   - the push_outbox INSERT webhook  {record:{id}}          (fast path)
+//   - the 2-minute drain              {processPending:true}  (catches anything the webhook missed)
+//   - the 30-minute receipt poll      {pollReceipts:true}
+// The kit never trusts the request body for content: it re-reads and CLAIMS
+// each outbox row (pending -> sending) before sending, resolves preferences and
+// the button category at send time, records each device's result in
+// push_deliveries (a retry sends only to devices that failed), skips expired
+// rows, and puts outboxId on every push so the app can dedupe a resend.
 //
 // Deploy:  supabase functions deploy send-push --no-verify-jwt
-// Secret:  supabase secrets set PUSH_SHARED_SECRET=<same value as app_config.send_push_secret>
+// Secrets: PUSH_SHARED_SECRET (= private.app_config.send_push_secret)
+//          PUSH_SECRET_MODE=enforce
 //
-// !! --no-verify-jwt IS NOT OPTIONAL. The platform default is verify_jwt=true,
-// and with it on the gateway rejects the trigger with 401
-// UNAUTHORIZED_NO_AUTH_HEADER before this file ever executes. The trigger sends
-// x-push-secret, never an Authorization header, and it swallows errors so the
-// insert can't roll back — so the failure is completely silent. This shipped
-// wrong and lost every push for months (fixed 2026-08-06). After any redeploy,
-// insert a notifications row and check net._http_response for {"sent":N}.
+// !! --no-verify-jwt IS NOT OPTIONAL. With the platform default (verify_jwt=true)
+// the gateway rejects every DB call with 401 before this file runs, silently.
+// That shipped wrong once and lost every push for months (fixed 2026-08-06).
+// After any redeploy: select status, count(*) from push_outbox
+//   where created_at > now() - interval '1 hour' group by 1;  -- nothing stuck in pending
 
-import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createOutboxDispatcher, type OutboxRow, type ServiceClient } from '../_kit/outboxDispatch.ts';
+import catalog from './catalog.json' with { type: 'json' };
 
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-type NotificationRow = {
-  id: string;
-  user_id: string;
-  title: string;
-  body: string;
-  type: string;
-  entity_id: string | null;
-  entity_type: string | null;
-  // Optional precise gate (e.g. 'notifyEventReminders'). When present it takes
-  // precedence over the coarse type map below. Set by the notification
-  // generators in migration_notification_generators.sql.
-  category: string | null;
-};
+// Category ids come from the generated catalog (mobile/src/lib/
+// notificationCatalog.data.ts -> scripts/push-catalog.mjs). A typo here fails
+// type-checking at deploy instead of silently rendering a push with no buttons.
+const CATEGORY = Object.fromEntries(Object.keys(catalog).map((k) => [k, k])) as Record<keyof typeof catalog, string>;
 
-// Coarse fallback for rows without an explicit `category`: maps a notification
-// `type` to the preference key that gates its push. `null` → no per-category
-// gate (still subject to the master pushEnabled).
+// Coarse fallback for rows without an explicit `category`: notification type ->
+// the preference key that gates its push. null = only the master pushEnabled.
 const TYPE_TO_PREF: Record<string, string | null> = {
-  match:      'notifyMatchResults',
-  league:     'notifyLeagueUpdates',
+  match: 'notifyMatchResults',
+  league: 'notifyLeagueUpdates',
   tournament: 'notifyTournamentUpdates',
-  drill:      null,
-  info:       null,
+  drill: 'notifyDrillRequests',
+  info: null,
 };
 
-// Preference keys we recognize as valid push gates. Guards against a stray
-// category value silently disabling delivery.
+// Preference keys recognized as push gates; guards against a stray category
+// value silently disabling delivery.
 const KNOWN_PREF_KEYS = new Set([
   'notifyMatchResults',
-  // Separate from results on purpose. A result is an FYI; a confirm request is
-  // a time-boxed action — one hour, after which expire_pending_matches()
-  // deletes the match. Gating it behind notifyMatchResults meant muting results
-  // silently cost you real matches. See migration_match_confirm_notify_category.
+  // Separate from results: a confirm request is a 1-hour action, and gating it
+  // behind results meant muting results silently cost real matches.
   'notifyMatchConfirms',
   'notifyEventReminders',
   'notifyLeagueUpdates',
   'notifyTournamentUpdates',
   'notifyChallenges',
+  'notifyDrillRequests',
 ]);
 
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+type Row = OutboxRow & {
+  category: string | null;
+  entity_type: string | null;
+  entity_id: string | null;
+  notification_id: string | null;
+};
 
-serve(async (req) => {
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+async function resolvePrefs(row: OutboxRow): Promise<boolean> {
+  const r = row as Row;
+  if (r.kind === 'test') return true;
+  const { data } = await admin.from('user_preferences').select('prefs').eq('user_id', r.recipient_id).maybeSingle();
+  const prefs = (data?.prefs ?? {}) as Record<string, unknown>;
+  // Push is opt-in: only an explicit true sends.
+  if (prefs.pushEnabled !== true) return false;
+  const key = r.category && KNOWN_PREF_KEYS.has(r.category) ? r.category : TYPE_TO_PREF[r.kind] ?? null;
+  return !(key && prefs[key] === false);
+}
 
-  // ── Auth: shared secret set by the DB trigger ──────────────────────────
-  const expected = Deno.env.get('PUSH_SHARED_SECRET') ?? '';
-  const provided = req.headers.get('x-push-secret') ?? '';
-  if (!expected || provided !== expected) {
-    return json({ error: 'Forbidden' }, 403);
-  }
+type Buttons = { category?: string; data: Record<string, unknown> };
 
-  let record: NotificationRow;
-  try {
-    const body = await req.json();
-    record = body.record;
-  } catch {
-    return json({ error: 'Bad payload' }, 400);
-  }
-  if (!record?.user_id) return json({ error: 'Missing user_id' }, 400);
+/**
+ * Which buttons this recipient gets, from the entity's CURRENT state (at send
+ * time, on every attempt): a reminder queued while voting was open must not
+ * offer "I'm in" for a slot voting has since discarded. Also returns the data
+ * the buttons need, because they run with no app open and no chance to query.
+ */
+const baseData = (row: Row): Record<string, unknown> => ({
+  notification_id: row.notification_id,
+  type: row.kind,
+  entity_type: row.entity_type,
+  entity_id: row.entity_id,
+  title: row.title,
+});
 
-  const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-  const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
+async function resolveButtons(row: Row): Promise<Buttons> {
+  const data = baseData(row);
+  const id = row.entity_id;
+  if (!id) return { data };
+  const me = row.recipient_id;
 
-  // ── Preference gate ────────────────────────────────────────────────────
-  const { data: prefRow } = await admin
-    .from('user_preferences')
-    .select('prefs')
-    .eq('user_id', record.user_id)
-    .maybeSingle();
-  const prefs = (prefRow?.prefs ?? {}) as Record<string, unknown>;
-
-  // Master toggle. Push is opt-in: deliver only when the user has explicitly
-  // enabled it. Missing/undefined/false all mean "not opted in" → skip. (A token
-  // only exists after opt-in anyway, but this is the authoritative gate.)
-  if (prefs.pushEnabled !== true) {
-    return json({ skipped: 'push not enabled' });
-  }
-  // Prefer the precise category gate when the row carries one; else fall back
-  // to the coarse type→pref map.
-  const prefKey =
-    record.category && KNOWN_PREF_KEYS.has(record.category)
-      ? record.category
-      : TYPE_TO_PREF[record.type] ?? null;
-  if (prefKey && prefs[prefKey] === false) {
-    return json({ skipped: `${prefKey} is false` });
-  }
-
-  // ── Tokens ─────────────────────────────────────────────────────────────
-  const { data: tokenRows } = await admin
-    .from('push_tokens')
-    .select('token')
-    .eq('user_id', record.user_id);
-  const tokens = (tokenRows ?? []).map((r: { token: string }) => r.token);
-  if (tokens.length === 0) return json({ skipped: 'no tokens' });
-
-  // ── Action buttons ─────────────────────────────────────────────────────
-  // `categoryId` tells iOS/Android which button set to draw. The identifiers
-  // MUST match the ones registered by the app in
-  // mobile/src/lib/notificationActions.ts — there is no shared module across
-  // this boundary, so renaming one means grepping for the other.
-  //
-  // Resolved here rather than stored on the row so the existing generators stay
-  // untouched, and so the buttons always reflect the event's CURRENT state: a
-  // reminder queued while voting was open should not still offer "I'm in" for a
-  // slot that voting has since discarded.
-  let categoryId: string | undefined;
-  let confirmedSlotId: string | null = null;
-
-  if (record.entity_type === 'event' && record.entity_id) {
-    const { data: ev } = await admin
-      .from('league_events')
-      .select('status, confirmed_slot_id')
-      .eq('id', record.entity_id)
-      .maybeSingle();
-
-    if (ev?.status === 'voting') {
-      // Several slots are still in play, so a single tap cannot say WHICH time
-      // the user means. Only the decline is unambiguous; picking a time opens
-      // the app, which the plain tap already does.
-      categoryId = 'event_vote';
-    } else if (ev?.confirmed_slot_id) {
-      // Exactly one time survives finalisation, so "I'm in" is unambiguous.
-      categoryId = 'event_confirmed';
-      confirmedSlotId = ev.confirmed_slot_id;
+  if (row.entity_type === 'event') {
+    const { data: ev } = await admin.from('league_events').select('status, confirmed_slot_id').eq('id', id).maybeSingle();
+    // Voting: several slots in play, so only the decline is unambiguous.
+    if (ev?.status === 'voting') return { category: CATEGORY.event_vote, data };
+    if (ev?.confirmed_slot_id) {
+      return { category: CATEGORY.event_confirmed, data: { ...data, confirmed_slot_id: ev.confirmed_slot_id } };
     }
-    // Cancelled or finished: no buttons. Nothing useful is left to answer.
+    return { data }; // cancelled or finished: nothing left to answer
   }
 
-  if (record.entity_type === 'match' && record.entity_id) {
-    // Only the "needs your team to confirm" push earns a button, and only for a
-    // recipient who can actually still act. Every condition below is a real
-    // rejection inside confirm_match(), so offering the button without checking
-    // would mean a Confirm that errors instead of working:
-    //   - status must still be 'pending'
-    //   - confirm_deadline must not have passed (expire_pending_matches deletes
-    //     lapsed rows every minute, so this goes stale fast)
-    //   - the recipient must be a player on the match
-    // Plus one that is not an error but is noise: their team has already
-    // confirmed, so there is nothing left for them to do.
+  if (row.entity_type === 'match') {
+    // Every condition is a real rejection inside confirm_match(), so offering
+    // the button without it would be a Confirm that errors.
     const { data: m } = await admin
       .from('matches')
-      .select(
-        'status, confirm_deadline, player1_id, partner1_id, player2_id, partner2_id, team1_confirmed_by, team2_confirmed_by',
-      )
-      .eq('id', record.entity_id)
+      .select('status, confirm_deadline, player1_id, partner1_id, player2_id, partner2_id, team1_confirmed_by, team2_confirmed_by')
+      .eq('id', id)
       .maybeSingle();
-
     if (m && m.status === 'pending') {
       const live = !m.confirm_deadline || new Date(m.confirm_deadline) > new Date();
-      const onTeam1 = record.user_id === m.player1_id || record.user_id === m.partner1_id;
-      const onTeam2 = record.user_id === m.player2_id || record.user_id === m.partner2_id;
-      const alreadyConfirmed =
-        (onTeam1 && m.team1_confirmed_by) || (onTeam2 && m.team2_confirmed_by);
-
-      if (live && (onTeam1 || onTeam2) && !alreadyConfirmed) {
-        categoryId = 'match_confirm';
-      }
+      const onTeam1 = me === m.player1_id || me === m.partner1_id;
+      const onTeam2 = me === m.player2_id || me === m.partner2_id;
+      const done = (onTeam1 && m.team1_confirmed_by) || (onTeam2 && m.team2_confirmed_by);
+      if (live && (onTeam1 || onTeam2) && !done) return { category: CATEGORY.match_confirm, data };
     }
+    return { data };
   }
 
-  // ── Deliver to Expo ────────────────────────────────────────────────────
-  const messages = tokens.map((to) => ({
-    to,
-    sound: 'default',
-    title: record.title,
-    body: record.body,
-    ...(categoryId ? { categoryId } : {}),
-    data: {
-      notification_id: record.id,
-      type: record.type,
-      entity_type: record.entity_type,
-      entity_id: record.entity_id,
-      title: record.title,
-      // The buttons run with no app open and no chance to query, so whatever
-      // they need has to travel with the push.
-      confirmed_slot_id: confirmedSlotId,
-    },
-  }));
-
-  const expoRes = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(messages),
-  });
-
-  // A non-2xx response means Expo didn't accept the batch (rate limit, outage,
-  // bad request). Surface it instead of falsely reporting success — and don't
-  // prune, since we have no per-token verdicts.
-  if (!expoRes.ok) {
-    const detail = await expoRes.text().catch(() => '');
-    return json({ error: 'expo push failed', status: expoRes.status, detail }, 502);
+  if (row.entity_type === 'drill') {
+    // entity_id is a drill request (request / response pushes) or a drill
+    // session (reminders, partner RSVPs).
+    const { data: req } = await admin
+      .from('drill_requests')
+      .select('status, to_user_id, proposed_slots')
+      .eq('id', id)
+      .maybeSingle();
+    if (req) {
+      if (req.status !== 'pending' || req.to_user_id !== me) return { data };
+      const slots = Array.isArray(req.proposed_slots) ? req.proposed_slots.length : 0;
+      return { category: slots === 1 ? CATEGORY.drill_request : CATEGORY.drill_request_pick, data };
+    }
+    const { data: ses } = await admin.from('drill_sessions').select('starts_at, player1_id, player2_id').eq('id', id).maybeSingle();
+    const upcoming = !!ses?.starts_at && new Date(ses.starts_at).getTime() > Date.now() - 30 * 60_000;
+    if (ses && upcoming && (me === ses.player1_id || me === ses.player2_id)) {
+      const { data: rsvp } = await admin.from('drill_session_rsvps').select('status').eq('session_id', id).eq('user_id', me).maybeSingle();
+      if (!rsvp) return { category: CATEGORY.drill_reminder, data };
+    }
+    return { data };
   }
 
-  const expoJson = await expoRes.json().catch(() => null);
-
-  // ── Prune dead tokens ──────────────────────────────────────────────────
-  // Expo returns one ticket per message, in the same order. A DeviceNotRegistered
-  // error means the token is permanently invalid → delete it. Only prune when
-  // the ticket count matches the tokens we sent, so a malformed/short response
-  // can never delete the wrong token.
-  const tickets: any[] = Array.isArray(expoJson?.data) ? expoJson.data : [];
-  const dead: string[] = [];
-  if (tickets.length === tokens.length) {
-    tickets.forEach((t, i) => {
-      if (t?.status === 'error' && t?.details?.error === 'DeviceNotRegistered') {
-        dead.push(tokens[i]);
-      }
-    });
-  }
-  if (dead.length > 0) {
-    await admin.from('push_tokens').delete().in('token', dead);
+  if (row.entity_type === 'tournament') {
+    // Any tournament push while the recipient holds a pending invite offers
+    // Accept: the button is accurate whichever push carries it.
+    const { data: reg } = await admin
+      .from('tournament_registrations')
+      .select('id')
+      .eq('tournament_id', id)
+      .eq('user_id', me)
+      .eq('status', 'pending')
+      .not('invited_by', 'is', null)
+      .maybeSingle();
+    if (reg) return { category: CATEGORY.tournament_invite, data: { ...data, registration_id: reg.id } };
+    return { data };
   }
 
-  return json({ sent: tokens.length - dead.length, pruned: dead.length });
-});
+  return { data };
+}
+
+// categoryFor and dataFor are both asked per row; resolve once per row.
+const resolved = new Map<string, Promise<Buttons>>();
+function buttonsFor(row: OutboxRow): Promise<Buttons> {
+  let p = resolved.get(row.id);
+  if (!p) {
+    // A failed lookup costs only the buttons, never the push.
+    p = resolveButtons(row as Row).catch(() => ({ data: baseData(row as Row) }));
+    resolved.set(row.id, p);
+    setTimeout(() => resolved.delete(row.id), 60_000);
+  }
+  return p;
+}
+
+Deno.serve(
+  createOutboxDispatcher({
+    supabase: admin as unknown as ServiceClient,
+    tables: { outbox: 'push_outbox', tokens: 'push_tokens', deliveries: 'push_deliveries' },
+    tokenColumns: { recipient: 'user_id', token: 'token' },
+    claimRpc: 'claim_pending_push',
+    releaseRpc: 'release_push_claims',
+    resolvePrefs,
+    categoryFor: async (row) => (await buttonsFor(row)).category,
+    dataFor: async (row) => (await buttonsFor(row)).data,
+    expoAccessToken: Deno.env.get('EXPO_ACCESS_TOKEN') || undefined,
+  }),
+);
