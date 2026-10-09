@@ -22,6 +22,7 @@ import {
 } from '../lib/courtCheckin';
 import { resolveVenueAt, type NearbyVenue } from '../data/venueCheckins';
 import PlayersHereList from './PlayersHereList';
+import { playSession, startPlay } from '../lib/playSession';
 
 const BOUND_MS = 10_000;
 
@@ -38,6 +39,7 @@ export default function CourtCheckinCard() {
   const [busy, setBusy] = useState<null | 'find' | 'checkin' | 'extend' | 'out'>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [rosterKey, setRosterKey] = useState(0);
+  const playing = playSession.useLiveSession().status !== 'idle';
 
   useEffect(() => {
     void peekCurrentCheckin().then(setCurrent);
@@ -139,6 +141,17 @@ export default function CourtCheckinCard() {
               style={S.flex}
             />
           </View>
+          {!playing && (
+            <Button
+              title="Start playing"
+              variant="success"
+              disabled={!!busy}
+              onPress={() =>
+                startPlay({ kind: 'open_play', sourceId: null, venueId: current.venueId, venueName: current.venueName })
+              }
+              style={S.top}
+            />
+          )}
           {!current.queued && <PlayersHereList key={`${current.venueId}:${rosterKey}`} venueId={current.venueId} />}
         </>
       ) : nearby ? (
@@ -162,6 +175,15 @@ export default function CourtCheckinCard() {
         <>
           <Text style={[t.bodySub, S.gapSm]}>Let other players know you're at the courts.</Text>
           <Button title="Find my court" loading={busy === 'find'} disabled={!!busy} onPress={findCourt} />
+          {!playing && (
+            <Button
+              title="Start a session without checking in"
+              variant="outline"
+              disabled={!!busy}
+              onPress={() => startPlay({ kind: 'open_play', sourceId: null, venueId: null, venueName: null })}
+              style={S.top}
+            />
+          )}
         </>
       )}
       {busy === 'find' && !nearby ? <ActivityIndicator style={S.gapSm} color={c.primary} /> : null}
@@ -184,6 +206,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     row: { flexDirection: 'row', gap: 10, marginTop: 12 },
     flex: { flex: 1 },
     strong: { fontWeight: '700' },
+    top: { marginTop: 10 },
     gapSm: { marginTop: 6, marginBottom: 4 },
   });
 }

@@ -1,6 +1,7 @@
 import 'react-native-gesture-handler';
 import React from 'react';
 import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from './src/lib/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import EmailConfirmedBanner from './src/components/EmailConfirmedBanner';
@@ -11,6 +12,8 @@ export default function App() {
   // Outermost so it also catches a throw from ThemeProvider itself.
   return (
     <AppErrorBoundary>
+      {/* Insets for the floating play island (foundation LiveStatusIsland). */}
+      <SafeAreaProvider>
       <ThemeProvider>
         <View style={{ flex: 1 }}>
           <AppNavigator />
@@ -18,6 +21,7 @@ export default function App() {
           <BadgeToast />
         </View>
       </ThemeProvider>
+      </SafeAreaProvider>
     </AppErrorBoundary>
   );
 }

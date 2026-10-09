@@ -22,6 +22,8 @@ import { startNetworkMonitor } from '@just-messin-around/expo-foundation/platfor
 import { OfflineBanner } from '@just-messin-around/expo-foundation/ui';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
+import { clearPlayForSignOut } from '../lib/playSession';
+import PlayIsland from '../components/PlayIsland';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -217,6 +219,7 @@ export default function AppNavigator() {
         hadUser = false;
         resetStreakShown();
         void clearCheckinForSignOut();
+        void clearPlayForSignOut();
         endSession();
         resetSessionUser(null);
         return;
@@ -377,6 +380,8 @@ export default function AppNavigator() {
       {/* Connectivity banner — renders null while online, so it can sit
           unconditionally next to the toast stack. */}
       <OfflineBanner />
+      {/* Floating play-session island (renders null when no session runs). */}
+      {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}
