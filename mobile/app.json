@@ -18,7 +18,8 @@
       "bundleIdentifier": "club.pickleague.app",
       "associatedDomains": [
         "applinks:pickleague.club",
-        "applinks:www.pickleague.club"
+        "applinks:www.pickleague.club",
+        "webcredentials:www.pickleague.club"
       ],
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching.",

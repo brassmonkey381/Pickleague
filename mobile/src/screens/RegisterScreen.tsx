@@ -119,6 +119,8 @@ export default function RegisterScreen({ navigation }: Props) {
             style={[S.input, S.nameInput]}
             placeholder="First Name"
             placeholderTextColor={c.textMuted}
+            autoComplete="given-name"
+            textContentType="givenName"
             value={firstName}
             onChangeText={setFirstName}
           />
@@ -126,6 +128,8 @@ export default function RegisterScreen({ navigation }: Props) {
             style={[S.input, S.nameInput]}
             placeholder="Last Name"
             placeholderTextColor={c.textMuted}
+            autoComplete="family-name"
+            textContentType="familyName"
             value={lastName}
             onChangeText={setLastName}
           />
@@ -137,6 +141,8 @@ export default function RegisterScreen({ navigation }: Props) {
           placeholderTextColor={c.textMuted}
           autoCapitalize="none"
           keyboardType="email-address"
+          autoComplete="email"
+          textContentType="username"
           value={email}
           onChangeText={setEmail}
         />
@@ -162,6 +168,8 @@ export default function RegisterScreen({ navigation }: Props) {
           placeholder="Password"
           placeholderTextColor={c.textMuted}
           secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
           value={password}
           onChangeText={setPassword}
         />
@@ -170,6 +178,8 @@ export default function RegisterScreen({ navigation }: Props) {
           placeholder="Confirm Password"
           placeholderTextColor={c.textMuted}
           secureTextEntry
+          autoComplete="new-password"
+          textContentType="newPassword"
           value={confirmPassword}
           onChangeText={setConfirmPassword}
         />
