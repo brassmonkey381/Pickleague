@@ -62,7 +62,12 @@ export const pushTokens = createAuthBoundPushTokens({
   // LOCAL session read, never getUser().
   getSessionUserId: () => currentUserId(supabase),
   onAuthChange: (fn) => {
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => fn(session?.user?.id ?? null));
+    // Deferred: the kit's sync reads the session, and an auth call made from
+    // inside this callback can deadlock supabase-js's auth lock.
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      const uid = session?.user?.id ?? null;
+      setTimeout(() => fn(uid), 0);
+    });
     return () => data.subscription.unsubscribe();
   },
   // Push is opt-in. Only register on a prefs read we trust: a failed read used
