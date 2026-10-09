@@ -26,6 +26,7 @@
 import Constants from 'expo-constants';
 import { AppState, type AppStateStatus, Platform } from 'react-native';
 
+import { getInstallTime, getNativeBuild } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from './supabase';
 
 /** lib/supabase asserts its env with `!`; mirror the check here so a missing .env means silent
@@ -282,8 +283,12 @@ async function ensureSession(): Promise<string | null> {
         return sessionId;
       }
 
-      // app_version is a nice-to-have; omit the key entirely when Constants doesn't expose it.
-      const appVersion = Constants.expoConfig?.version;
+      // app_version is a nice-to-have; omit the key entirely when nothing exposes it.
+      // The binary's own version/build (expo-application) beats app.json's, which
+      // never moves between builds under EAS auto-increment. Both null on web.
+      const native = getNativeBuild();
+      const appVersion = native.version ?? Constants.expoConfig?.version;
+      const installedAt = await getInstallTime();
       // user_id is deliberately NOT sent: it defaults to auth.uid() server-side, which is the
       // uid when signed in and null when anon — and the anon RLS forbids sending one anyway.
       // The row id is minted CLIENT-side, not returned by the insert. `.select('id')` would need
@@ -298,6 +303,10 @@ async function ensureSession(): Promise<string | null> {
         // Session-level, set on insert only (never on the reuse path — the row already has it).
         device_id: await getDeviceId(),
         ...(appVersion ? { app_version: appVersion } : {}),
+        // Which build, installed when (migration_analytics_build.sql): what the
+        // min-version gate needs to know before anyone raises the floor.
+        ...(native.build != null ? { app_build: native.build } : {}),
+        ...(installedAt ? { installed_at: installedAt.toISOString() } : {}),
       });
       if (error) return null;
       sessionId = sid;
