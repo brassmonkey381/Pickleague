@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  Image, ActivityIndicator, Platform, Pressable, useWindowDimensions,
+  Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Platform, Pressable, useWindowDimensions,
 } from 'react-native';
+import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
@@ -276,7 +276,7 @@ export default function AvatarPickerModal({
       <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
         <View style={S.previewSection}>
           {photoUrl ? (
-            <Image source={{ uri: photoUrl }} style={S.previewPhoto} />
+            <CachedImage source={{ uri: photoUrl }} style={S.previewPhoto} />
           ) : (
             <View style={[S.previewCircle, { backgroundColor: previewBg }]}>
               <Text style={S.previewEmoji}>{previewEmoji}</Text>

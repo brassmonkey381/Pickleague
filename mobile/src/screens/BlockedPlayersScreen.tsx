@@ -2,8 +2,9 @@
 // here, which is the half of blocking people actually go looking for.
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, FlatList, Image, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -95,7 +96,7 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
             onPress={() => navigation.navigate('PlayerProfile', { userId: item.user_id, userName: item.full_name })}
           >
             {item.avatar_url
-              ? <Image source={{ uri: item.avatar_url }} style={S.avatar} />
+              ? <CachedImage source={{ uri: item.avatar_url }} style={S.avatar} />
               : <View style={[S.avatar, S.avatarFallback]}><Text style={S.avatarGlyph}>🚫</Text></View>}
             <View style={{ flex: 1 }}>
               <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>

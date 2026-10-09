@@ -5,8 +5,9 @@
 // is not the boundary. Mirrors AdminVenueReviewScreen.
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
+import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -161,7 +162,7 @@ export default function ModerationQueueScreen({ navigation }: Props) {
                 onPress={() => navigation.navigate('PlayerProfile', { userId: r.subject_user_id, userName: r.subject?.full_name ?? 'Player' })}
               >
                 {r.subject?.avatar_url
-                  ? <Image source={{ uri: r.subject.avatar_url }} style={S.avatar} />
+                  ? <CachedImage source={{ uri: r.subject.avatar_url }} style={S.avatar} />
                   : <View style={[S.avatar, S.avatarFallback]}><Text>👤</Text></View>}
                 <View style={{ flex: 1 }}>
                   <Text style={S.subjectName}>{r.subject?.full_name ?? 'Unknown player'}</Text>

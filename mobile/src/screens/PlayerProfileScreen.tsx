@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet,
-  TouchableOpacity, Image,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
+import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -223,7 +223,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           />
         </View>
         {profile.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatarPhoto} />
+          <CachedImage source={{ uri: profile.avatar_url }} style={styles.avatarPhoto} />
         ) : (
           <View style={[styles.avatar, { backgroundColor: (AVATARS.find(a => a.id === (profile.avatar_id ?? 1)) ?? AVATARS[0]).bgColor }]}>
             <Text style={styles.avatarEmoji}>

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Image, useWindowDimensions,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions,
 } from 'react-native';
+import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -885,7 +885,7 @@ export default function ProfileScreen({ navigation }: Props) {
           accessibilityLabel="Edit profile photo"
         >
           {photoUrl ? (
-            <Image source={{ uri: photoUrl }} style={styles.avatarPhoto} />
+            <CachedImage source={{ uri: photoUrl }} style={styles.avatarPhoto} />
           ) : (
             <View style={[styles.avatarCircle, { backgroundColor: displayAvatar.bgColor }]}>
               <Text style={styles.avatarEmoji}>{displayAvatar.emoji}</Text>
