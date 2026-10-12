@@ -285,7 +285,9 @@ async function drillButtons(row: Row, data: Data, kind: string | null): Promise<
         : n === 2 ? CATEGORY.drill_request_pick2
         : n === 3 ? CATEGORY.drill_request_pick3
         : CATEGORY.drill_request_pick;
-      return { category, data: { ...data, slots } };
+      // Only the 1/2/3-time buttons read the slots; 4+ get Decline only, and
+      // an unbounded slot list could push the message past Expo's 4 KB limit.
+      return n <= 3 ? { category, data: { ...data, slots } } : { category, data };
     }
 
     // The requester hears back.

@@ -1909,9 +1909,10 @@ begin
   select full_name into v_sender_name from public.profiles where id = new.from_user_id;
 
   -- Numbered by time: the same order as the buttons (send-push) and as
-  -- accept_drill_slot's index.
+  -- accept_drill_slot's index. At most 5 are listed: nothing caps how many
+  -- times a request proposes, and Expo drops a whole push over 4 KB.
   select count(*),
-         string_agg(s.n::text || ') ' || s.label, E'\n' order by s.n),
+         string_agg(s.n::text || ') ' || s.label, E'\n' order by s.n) filter (where s.n <= 5),
          min(s.label) filter (where s.n = 1)
     into v_n, v_list, v_first
     from (
@@ -1926,6 +1927,7 @@ begin
     when v_n = 1 then v_first
     when v_n <= 3 then 'Which time works?' || E'\n' || v_list
     else 'Pick a time in the app:' || E'\n' || v_list
+         || case when v_n > 5 then E'\n' || '+' || (v_n - 5)::text || ' more, pick in the app' else '' end
   end;
   if v_msg is not null then
     v_body := v_body || E'\n' || '"' || left(v_msg, 80) || '"';
