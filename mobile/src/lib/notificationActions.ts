@@ -28,6 +28,7 @@ import {
   defineNotificationCatalog,
   registerNotificationCategories as registerCategories,
   runNotificationAction,
+  runOptionVoteAction,
   type NoticeCopy,
   type ParsedNotificationResponse,
 } from '@just-messin-around/expo-foundation/platform/push';
@@ -36,6 +37,7 @@ import { supabase } from './supabase';
 import { CATALOG } from './notificationCatalog.data';
 import { linkOf } from './pushLinks';
 import { redeemLeagueInvite } from '../data/leagueInvites';
+import { eventVote } from './eventVote';
 
 export const catalog = defineNotificationCatalog(CATALOG);
 const ACTION_IDS = new Set<string>(Object.values(CATALOG).flatMap((c) => Object.keys(c.actions)));
@@ -380,8 +382,44 @@ export function hasActionHandler(actionId: string): boolean {
   return actionId in HANDLERS;
 }
 
+// ── Event time votes (1st / 2nd / 3rd time, Both work) ──────────────────────
+/** vote_event_slots rejections; anything else falls through to mapError. */
+function voteError(e: unknown): NoticeCopy | null {
+  const raw = message(e);
+  if (/Voting has closed/i.test(raw)) {
+    return { title: 'Voting has closed', body: 'Your vote arrived after it closed. Tap to see the time that won.' };
+  }
+  if (/Not a member|guest pass has ended|Not signed in/i.test(raw)) {
+    return { title: 'Open Pickleague to vote', body: 'Tap to open the vote.' };
+  }
+  return mapError(e);
+}
+
+/** A press on a numbered vote button. False when the press is not one. Never throws. */
+function handleEventVote(r: ParsedNotificationResponse): Promise<boolean> {
+  const d = r.data as ActionPushData;
+  return runOptionVoteAction(r, eventVote, {
+    // Idempotent: vote_event_slots inserts ON CONFLICT DO NOTHING and returns
+    // 'already' when every pressed time was counted (a replay).
+    write: async ({ optionIds }) => {
+      const eventId = needs(d.entity_id, 'Open Pickleague to vote.');
+      await requireUser();
+      if (optionIds.length === 0) throw new NeedsApp('Open Pickleague to vote.');
+      return rpc('vote_event_slots', { p_event_id: eventId, p_slot_ids: optionIds });
+    },
+    timedOut: TIMED_OUT,
+    failure: FAILED,
+    mapError: voteError,
+    needsApp: { title: 'Open Pickleague to vote', body: 'Tap to pick your times.' },
+  });
+}
+
 /** Perform the write behind a pressed button. Never throws. */
 export async function handleNotificationAction(r: ParsedNotificationResponse): Promise<void> {
+  if (eventVote.isVoteAction(r.action)) {
+    await handleEventVote(r);
+    return;
+  }
   const h = r.action ? HANDLERS[r.action] : undefined;
   if (!h) return;
   const d = r.data as ActionPushData;

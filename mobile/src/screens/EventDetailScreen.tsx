@@ -26,6 +26,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { optionNumbers } from '../lib/eventVote';
 import { sbCall, friendlySbMessage, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
@@ -150,7 +151,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       .from('event_slots')
       .select('*')
       .eq('event_id', eventId)
-      .order('starts_at');
+      // The vote push numbers times in this order (starts_at, id): Option N here
+      // must be the Nth time in the push body and the Nth button.
+      .order('starts_at')
+      .order('id');
 
     const { data: voteRows } = await supabase
       .from('event_slot_votes')
@@ -718,6 +722,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Slot cards */}
       {slots.map((slot) => {
+        // Matches the numbered times (and 1st / 2nd / 3rd time buttons) in the vote push.
+        const optionNo = optionNumbers(slots).get(slot.id);
         const isWinner = slot.id === event.confirmed_slot_id;
         const pct = memberCount > 0 ? Math.min((slot.vote_count ?? 0) / memberCount, 1) : 0;
         const isMyVote = slot.my_vote ?? false;
@@ -733,6 +739,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           >
             <View style={S.slotTop}>
               <View style={S.slotDateBlock}>
+                {slots.length > 1 && optionNo ? <Text style={S.slotOption}>Option {optionNo}</Text> : null}
                 <Text style={S.slotDay}>
                   {new Date(slot.starts_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                 </Text>
@@ -994,6 +1001,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotCardWinner: { borderColor: '#1565c0', backgroundColor: '#e8eaf6' },
     slotTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
     slotDateBlock: {},
+    slotOption: { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
     slotDay: { fontSize: 15, fontWeight: '700', color: c.text },
     slotTime: { fontSize: 14, color: c.textSub, marginTop: 2 },
     slotRight: { alignItems: 'flex-end' },
