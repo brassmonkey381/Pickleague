@@ -6,12 +6,38 @@
     "event_accept",
     "event_decline"
   ],
+  "event_reminder": [
+    "event_decline"
+  ],
+  "event_record": [
+    "event_record_result"
+  ],
+  "event_organizer_vote": [
+    "event_text_group",
+    "event_close_vote"
+  ],
+  "event_organizer": [
+    "event_text_group"
+  ],
+  "event_cancelled_organizer": [
+    "event_pick_new_times"
+  ],
   "match_confirm": [
     "match_confirm"
   ],
   "drill_request": [
     "drill_accept",
     "drill_decline"
+  ],
+  "drill_request_pick2": [
+    "drill_slot_1",
+    "drill_slot_2",
+    "drill_decline"
+  ],
+  "drill_request_pick3": [
+    "drill_slot_1",
+    "drill_slot_2",
+    "drill_slot_3"
   ],
   "drill_request_pick": [
     "drill_decline"
@@ -20,8 +46,36 @@
     "drill_on_my_way",
     "drill_cant_make_it"
   ],
+  "drill_chat": [
+    "drill_reply"
+  ],
+  "drill_chat_pending": [
+    "drill_accept",
+    "drill_decline",
+    "drill_reply"
+  ],
+  "drill_chat_pick": [
+    "drill_decline",
+    "drill_reply"
+  ],
+  "drill_accepted": [
+    "drill_open_chat"
+  ],
+  "drill_declined": [
+    "drill_find_partner"
+  ],
+  "drill_partner_out": [
+    "drill_find_time"
+  ],
   "tournament_invite": [
-    "tournament_accept"
+    "tournament_accept",
+    "tournament_decline"
+  ],
+  "tournament_request": [
+    "tournament_request_join"
+  ],
+  "league_invite": [
+    "league_join"
   ],
   "checkin_extend": [
     "checkin_extend",

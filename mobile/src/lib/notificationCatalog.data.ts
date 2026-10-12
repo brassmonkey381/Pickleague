@@ -3,13 +3,18 @@
 // send-push attaches them (it reads the generated
 // supabase/functions/send-push/catalog.json), and local reminders use them.
 //
-// IMPORT-FREE on purpose: scripts/gen-push-catalog.mjs loads this file in plain
-// Node to regenerate catalog.json, and `node scripts/check-push-catalog.mjs`
+// IMPORT-FREE on purpose: scripts/push-catalog.mjs loads this file in plain
+// Node to regenerate catalog.json, and `node scripts/push-catalog.mjs --check`
 // fails when the two drift. Renaming an id strands every notification already
 // sitting in someone's shade, so don't.
 //
 // Android shows at most 3 buttons. Action ids are unique across categories
-// except where the same button means the same write (event_decline).
+// except where the same button means the same write (event_decline,
+// drill_accept, drill_decline, drill_reply) or the same link (event_text_group).
+//
+// `link: true` buttons navigate like a tap and write nothing (lib/pushLinks.ts
+// says where); they must be `opensApp: true`. Anything irreversible, that
+// costs pickles or that notifies a crowd opens the app instead of acting.
 export const CATALOG = {
   // During voting there are several proposed slots, so a single tap can't say
   // which time is meant: decline only. Picking a time needs the screen.
@@ -25,10 +30,46 @@ export const CATALOG = {
       event_decline: { buttonTitle: "Can't make it" },
     },
   },
+  // Confirmed event, and you already voted for its time (scheduled push,
+  // start reminders): "I'm in" would be a no-op.
+  event_reminder: {
+    actions: {
+      event_decline: { buttonTitle: "Can't make it" },
+    },
+  },
+  // "How did it go?" after the event: never I'm in / Can't make it here (a
+  // decline would delete the vote for the time that was played).
+  event_record: {
+    actions: {
+      event_record_result: { buttonTitle: 'Record result', opensApp: true, link: true },
+    },
+  },
+  // The organizer while voting closes soon. Close vote opens the event and its
+  // confirm dialog: closing can cancel the event and pushes every member.
+  event_organizer_vote: {
+    actions: {
+      event_text_group: { buttonTitle: 'Text group', opensApp: true, link: true },
+      event_close_vote: { buttonTitle: 'Close vote', opensApp: true, link: true },
+    },
+  },
+  // The organizer the day before / the day of. The app can't send the text
+  // itself (it goes from their own number), so this opens the composer.
+  event_organizer: {
+    actions: {
+      event_text_group: { buttonTitle: 'Text group', opensApp: true, link: true },
+    },
+  },
+  // The organizer, when the vote cancelled the event (not enough players).
+  event_cancelled_organizer: {
+    actions: {
+      event_pick_new_times: { buttonTitle: 'Pick new times', opensApp: true, link: true },
+    },
+  },
   // Confirm only: there is no reject RPC; letting it lapse is the decline.
+  // Needs unlock: it settles a score and moves ratings. The score is in the body.
   match_confirm: {
     actions: {
-      match_confirm: { buttonTitle: 'Confirm' },
+      match_confirm: { buttonTitle: 'Confirm', authenticationRequired: true },
     },
   },
   // A request proposing exactly one slot (send-push decides).
@@ -38,7 +79,22 @@ export const CATALOG = {
       drill_decline: { buttonTitle: 'Decline', destructive: true },
     },
   },
-  // Several proposed slots: the time has to be picked in the app.
+  // Two or three proposed slots, listed and numbered (by time) in the body.
+  drill_request_pick2: {
+    actions: {
+      drill_slot_1: { buttonTitle: '1st time' },
+      drill_slot_2: { buttonTitle: '2nd time' },
+      drill_decline: { buttonTitle: 'Decline', destructive: true },
+    },
+  },
+  drill_request_pick3: {
+    actions: {
+      drill_slot_1: { buttonTitle: '1st time' },
+      drill_slot_2: { buttonTitle: '2nd time' },
+      drill_slot_3: { buttonTitle: '3rd time' },
+    },
+  },
+  // Four or more slots: the time has to be picked in the app.
   drill_request_pick: {
     actions: {
       drill_decline: { buttonTitle: 'Decline', destructive: true },
@@ -50,9 +106,64 @@ export const CATALOG = {
       drill_cant_make_it: { buttonTitle: "Can't make it", destructive: true },
     },
   },
+  // Drill chat. A chat push and the request it belongs to share the entity
+  // drill/<request id>; push_data.kind tells them apart.
+  drill_chat: {
+    actions: {
+      drill_reply: { buttonTitle: 'Reply', textInput: { submitButtonTitle: 'Send', placeholder: 'Message' } },
+    },
+  },
+  // Chat on a pending one-slot request, to the invitee.
+  drill_chat_pending: {
+    actions: {
+      drill_accept: { buttonTitle: 'Accept' },
+      drill_decline: { buttonTitle: 'Decline', destructive: true },
+      drill_reply: { buttonTitle: 'Reply', textInput: { submitButtonTitle: 'Send', placeholder: 'Message' } },
+    },
+  },
+  // Chat on a pending request with several slots (the times aren't in a chat body).
+  drill_chat_pick: {
+    actions: {
+      drill_decline: { buttonTitle: 'Decline', destructive: true },
+      drill_reply: { buttonTitle: 'Reply', textInput: { submitButtonTitle: 'Send', placeholder: 'Message' } },
+    },
+  },
+  // To the requester: accepted (sort out where to play) / declined.
+  drill_accepted: {
+    actions: {
+      drill_open_chat: { buttonTitle: 'Open chat', opensApp: true, link: true },
+    },
+  },
+  drill_declined: {
+    actions: {
+      drill_find_partner: { buttonTitle: 'Find another partner', opensApp: true, link: true },
+    },
+  },
+  // "Your partner can't make it": find a new time with them.
+  drill_partner_out: {
+    actions: {
+      drill_find_time: { buttonTitle: 'Find a new time', opensApp: true, link: true },
+    },
+  },
+  // Accept approves the registration, which charges the entry fee (shown in
+  // the body when there is one), so it needs unlock.
   tournament_invite: {
     actions: {
-      tournament_accept: { buttonTitle: 'Accept' },
+      tournament_accept: { buttonTitle: 'Accept', authenticationRequired: true },
+      tournament_decline: { buttonTitle: 'Decline', destructive: true },
+    },
+  },
+  // New tournament / registration closing, to someone not registered. A
+  // request is reviewed by the admin; the fee is charged only on approval.
+  tournament_request: {
+    actions: {
+      tournament_request_join: { buttonTitle: 'Request to join', authenticationRequired: true },
+    },
+  },
+  // A league invite code. Joining makes you visible to the league.
+  league_invite: {
+    actions: {
+      league_join: { buttonTitle: 'Join', authenticationRequired: true },
     },
   },
   // Local reminder 5 minutes before a court check-in expires.
