@@ -54,7 +54,7 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   info:       '📣',
 };
 
-// Invite-broadcast bodies have the form "...use invite code TOKEN to join.".
+// Invite-broadcast bodies contain "...invite code TOKEN" (followed by "." or " to join.").
 // Server format lives in supabase/migration_invite_code_broadcast.sql.
 function extractInviteCode(body: string): string | null {
   const m = body.match(/invite code ([A-Z0-9-]+)/i);

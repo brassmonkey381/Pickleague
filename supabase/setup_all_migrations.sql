@@ -2407,8 +2407,13 @@ begin
       values (
         v_user_id,
         format('🎟️ Invite: %s', v_scope_name),
+        -- A tap on a league invite joins on 1.0.4 (lib/push.ts, the same
+        -- auto-join as the in-app list), so the body says so.
         format(
-          '%s invited you to the %s "%s".%s Tap to open it, or use invite code %s to join.',
+          case when v_code.scope_type = 'league'
+            then '%s invited you to the %s "%s".%s Tap to join, or use invite code %s.'
+            else '%s invited you to the %s "%s".%s Tap to open it, or use invite code %s to join.'
+          end,
           coalesce(v_inviter, 'An admin'),
           v_scope_label,
           v_scope_name,

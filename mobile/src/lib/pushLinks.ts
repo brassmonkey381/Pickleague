@@ -76,12 +76,6 @@ export function linkOf(data: Record<string, unknown> | null | undefined): string
   if (!data) return '';
   const type = str(data.entity_type);
   const base = str(data.deepLink) ?? (type ? `${type}/${str(data.entity_id) ?? NO_ID}` : '');
-  // A league invite: a tap opens Join-with-Code with the code filled in, and
-  // joining stays a deliberate press there (or on the lock-screen Join button,
-  // which needs unlock). Joining shows you to the league and can use up a
-  // single-use code, so a tap meant to look must not do it.
-  const code = str(data.invite_code);
-  if (data.kind === 'league_invite' && code && base.startsWith('league/')) return `invite_code/${code}`;
   const k = KIND_LINKS[str(data.kind) ?? ''];
   if (k && base.startsWith(k.from) && has(base.slice(k.from.length))) return k.to + base.slice(k.from.length);
   return base;
