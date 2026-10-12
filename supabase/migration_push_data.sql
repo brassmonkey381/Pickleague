@@ -48,6 +48,8 @@ create trigger trg_notifications_strip_client_push_data
   for each row execute function public._notifications_strip_client_push_data();
 
 -- Same as migration_push_outbox.sql, plus push_data and its deep_link override.
+-- Supersedes that definition: migration_push_outbox.sql skips its own copy once
+-- notifications.push_data exists, so re-running it cannot revert this one.
 create or replace function public.handle_notification_push()
 returns trigger
 language plpgsql

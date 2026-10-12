@@ -141,6 +141,21 @@ grant execute on function public.send_test_push() to authenticated;
 -- ── Enqueue: the notifications trigger now writes the outbox row ───────────
 -- Same transaction as the notification. Wrapped so a push problem can never
 -- roll back the in-app notification.
+--
+-- SUPERSEDED by migration_push_data.sql, which redefines this function to also
+-- copy push_data (kind, deep_link, button ids). Re-running this file after that
+-- one must not put this older body back (every outbox row would lose its kind
+-- and with it the per-push buttons), so it is only created while
+-- notifications.push_data does not exist yet.
+do $guard$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'notifications'
+                and column_name = 'push_data') then
+    raise notice 'handle_notification_push: kept the push_data version (migration_push_data.sql)';
+    return;
+  end if;
+  execute $create$
 create or replace function public.handle_notification_push()
 returns trigger
 language plpgsql
@@ -162,7 +177,9 @@ begin
     raise warning 'push outbox enqueue failed for notification %: %', new.id, sqlerrm;
   end;
   return new;
-end $$;
+end $$
+$create$;
+end $guard$;
 revoke all on function public.handle_notification_push() from public, anon, authenticated;
 -- trg_notification_push (AFTER INSERT ON notifications) already calls this.
 
