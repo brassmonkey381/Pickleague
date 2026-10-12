@@ -26,7 +26,6 @@ import { navigateWhenReady } from './navigationRef';
 import { catalog, handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
 import { linkForAction, linkOf, pushRoutes } from './pushLinks';
 import { WAGERS_ENABLED } from './features';
-import { redeemLeagueInvite } from '../data/leagueInvites';
 import { loadUserPreferencesResult } from './userPreferences';
 // Side effect: registers the check-in / play-session buttons' handlers and
 // queued writes, so
@@ -154,21 +153,6 @@ const go = (name: string, params?: Record<string, unknown>) =>
 // NotificationsScreen.handleTap, which routes through routeNotification too.
 const router = createDeepLinkRouter(pushRoutes({ wagersEnabled: WAGERS_ENABLED }), go);
 
-/** A league invite push: tapping it joins, the same auto-redeem as the in-app
- *  list. Anything short of a join opens Join-with-Code with the code filled in. */
-async function openLeagueInvite(code: string): Promise<void> {
-  try {
-    const res = await redeemLeagueInvite(code);
-    if (res.joined) {
-      go('LeagueDetail', { leagueId: res.leagueId, leagueName: res.leagueName ?? 'League' });
-      return;
-    }
-  } catch {
-    // offline or timed out: the manual page can retry
-  }
-  go('Leagues', { prefillInviteCode: code });
-}
-
 /** Route an in-app link ("<prefix><id>"); false when nothing matches. */
 export function routeLink(link: string): boolean {
   return router(link);
@@ -182,11 +166,8 @@ export function routeLink(link: string): boolean {
  */
 export function routeNotification(data: PushData | undefined | null): void {
   if (!data) return;
+  // A league invite opens Join-with-Code prefilled (linkOf); it never joins on a tap.
   const link = linkOf(data);
-  if (data.kind === 'league_invite' && typeof data.invite_code === 'string' && data.invite_code && link.startsWith('league/')) {
-    void openLeagueInvite(data.invite_code);
-    return;
-  }
   const routed = link ? router(link) : false;
   if (!routed) navigateWhenReady('Notifications');
 }

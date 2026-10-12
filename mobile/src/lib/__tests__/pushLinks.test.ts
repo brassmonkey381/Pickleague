@@ -56,6 +56,11 @@ describe('linkOf', () => {
     expect(linkOf({ deepLink: 'event/e1', kind: 'event_nudge_today' })).toBe('event_nudge/e1');
     // no id: leave it alone
     expect(linkOf({ deepLink: 'drill/-', kind: 'drill_chat' })).toBe('drill/-');
+    // a league invite tap opens Join-with-Code prefilled, never a silent join
+    expect(linkOf({ deepLink: 'league/l1', kind: 'league_invite', invite_code: 'ABC-123' })).toBe('invite_code/ABC-123');
+    expect(route(linkOf({ deepLink: 'league/l1', kind: 'league_invite', invite_code: 'ABC-123' })))
+      .toEqual(['Leagues', { prefillInviteCode: 'ABC-123' }]);
+    expect(linkOf({ deepLink: 'league/l1', kind: 'league_invite' })).toBe('league/l1');
     // a kind on another entity: leave it alone
     expect(linkOf({ deepLink: 'shop/-', kind: 'drill_chat' })).toBe('shop/-');
   });
