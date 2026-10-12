@@ -290,7 +290,9 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   // Reply from the lock screen. The idempotency key goes in client_key
-  // (unique), so a replayed press lands once.
+  // (unique), so a replayed press lands once. Foundation 1.38+ puts a hash of
+  // the typed text in the key, so a second, different reply from the same
+  // push (Android keeps it in the shade) is its own message, not a replay.
   drill_reply: {
     success: (res) => ({ title: 'Sent', body: typeof res === 'string' && res ? res : 'Your reply is in the chat.' }),
     link: (d) => (d.entity_id ? `drill_chat/${d.entity_id}` : null),
