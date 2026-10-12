@@ -89,7 +89,8 @@ function scheduleReminder(c: CurrentCheckin): Promise<boolean> {
     title: `Still at ${c.venueName}?`,
     body: 'Your check-in ends in 5 minutes.',
     categoryId: catalog.ids.checkin_extend.id,
-    data: { checkin_id: c.id, expires_at: c.expiresAt, venue_id: c.venueId, venue_name: c.venueName },
+    // A tap opens Home's court card (there is no court screen yet).
+    data: { checkin_id: c.id, expires_at: c.expiresAt, venue_id: c.venueId, venue_name: c.venueName, deepLink: 'home/-' },
   });
 }
 

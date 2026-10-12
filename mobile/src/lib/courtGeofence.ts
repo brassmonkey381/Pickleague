@@ -45,7 +45,8 @@ async function onEnter(venueId: string): Promise<void> {
   const name = names[venueId] ?? 'the courts';
   await postLocalNotice(`You're at ${name}`, 'Check in so other players know you are here.', {
     categoryId: catalog.ids.court_checkin.id,
-    data: { venue_id: venueId, venue_name: name },
+    // A tap opens Home's court card, where Check in lives.
+    data: { venue_id: venueId, venue_name: name, deepLink: 'home/-' },
   });
 }
 

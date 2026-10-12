@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ScrollView, Text, TouchableOpacity, StyleSheet,
   View, ActivityIndicator, Modal, TextInput,
@@ -79,7 +79,7 @@ function rosterSeparator(i: number, n: number): string {
 }
 
 export default function LeagueDetailScreen({ navigation, route }: Props) {
-  const { leagueId, leagueName } = route.params;
+  const { leagueId, leagueName: paramName } = route.params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const { registerAnchor } = useTour();
@@ -95,6 +95,12 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   // league" card and quietly dropped every admin control.
   const [roleKnown, setRoleKnown] = useState(false);
   const [league, setLeague]   = useState<League | null>(null);
+  // The loaded name wins over the param: a push used to pass its own title
+  // ("🎟️ Invite: ...") as the league name, header included.
+  const leagueName = league?.name || paramName;
+  useEffect(() => {
+    if (league?.name) navigation.setOptions({ title: league.name });
+  }, [league?.name, navigation]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);

@@ -52,7 +52,7 @@ function useCountdown(endsAt: string) {
 }
 
 export default function EventDetailScreen({ navigation, route }: Props) {
-  const { eventId } = route.params;
+  const { eventId, openNudge, openClose } = route.params;
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
@@ -122,6 +122,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     const { data: ev } = await supabase.from('league_events').select('*').eq('id', eventId).single();
     if (!ev) return;
     setEvent(ev);
+    // The header is the event's own title, never the push that opened it
+    // ('🗳️ New vote: ...' used to leak into it).
+    if (ev.title) navigation.setOptions({ title: ev.title });
 
     const { count } = await supabase
       .from('league_members')
@@ -426,6 +429,20 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const nudgeKind = event
     ? pickNudgeKind(event, slots.find(s => s.id === event.confirmed_slot_id) ?? null)
     : null;
+  // A push button opened this screen to do one thing: Text group (openNudge)
+  // opens the group-text composer, Close vote (openClose) opens the close
+  // confirm. Once per visit, after the event has loaded, and only for the
+  // organizer; the confirm dialog and the composer still need their own tap.
+  const pushIntentDone = useRef(false);
+  useEffect(() => {
+    if (pushIntentDone.current || loading || !event || !currentUserId) return;
+    if (!openNudge && !openClose) return;
+    pushIntentDone.current = true;
+    if (event.created_by !== currentUserId) return;
+    if (openClose && event.status === 'voting') closeVoting();
+    else if (openNudge && nudgeKind) void sendNudge('sms');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, event, currentUserId, openNudge, openClose, nudgeKind]);
   const [canClose, setCanClose] = React.useState(false);
   React.useEffect(() => {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => {

@@ -23,7 +23,10 @@ import { withRetry } from '@just-messin-around/expo-foundation/platform';
 import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { navigateWhenReady } from './navigationRef';
-import { handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
+import { catalog, handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
+import { linkForAction, linkOf, pushRoutes } from './pushLinks';
+import { WAGERS_ENABLED } from './features';
+import { redeemLeagueInvite } from '../data/leagueInvites';
 import { loadUserPreferencesResult } from './userPreferences';
 // Side effect: registers the check-in / play-session buttons' handlers and
 // queued writes, so
@@ -134,34 +137,41 @@ export async function unregisterPushTokenAsync(): Promise<void> {
   await pushTokens.beforeSignOut();
 }
 
-type PushData = {
+type PushData = Record<string, unknown> & {
   type?: string;
   entity_type?: string | null;
   entity_id?: string | null;
   title?: string;
   deepLink?: string;
+  kind?: string;
+  invite_code?: string;
 };
 
-type Route = [string, Record<string, unknown>?];
-const NO_ID = '-';
-const has = (id: string) => (id && id !== NO_ID ? id : undefined);
+const go = (name: string, params?: Record<string, unknown>) =>
+  navigateWhenReady(name as keyof RootStackParamList, params as never);
 
-// "<entity_type>/<entity_id or ->". Mirrors NotificationsScreen.handleTap
-// (minus invite auto-accept, which stays on the in-app list).
-function routesFor(title: string | undefined): Record<string, (id: string) => Route | null> {
-  return {
-    'tournament/': (id) =>
-      has(id) ? ['TournamentDetail', { tournamentId: id, tournamentName: (title ?? '').replace('🏆 ', '') || 'Tournament' }] : null,
-    'league/': (id) => (has(id) ? ['LeagueDetail', { leagueId: id, leagueName: title ?? 'League' }] : null),
-    'event/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: title ?? 'Event' }] : null),
-    'match/': (id) => ['MatchHistory', { title: 'Match History', initialMyMatchesOnly: true, highlightMatchId: has(id) }],
-    'drill/': () => ['DrillRequests'],
-    'shop/': () => ['Shop'],
-    'profile/': (id) => ['Profile', { userId: has(id) }],
-    'plupr_history/': (id) => ['CalendarAnalytics', { userId: has(id), title: 'My PLUPR History' }],
-    'wager_on_me/': (id) => (has(id) ? ['PlayerWagers', { userId: id, userName: 'You' }] : ['MyWagers']),
-    'wager/': () => ['MyWagers'],
-  };
+// The route table lives in lib/pushLinks.ts (pure, tested). Mirrors
+// NotificationsScreen.handleTap, which routes through routeNotification too.
+const router = createDeepLinkRouter(pushRoutes({ wagersEnabled: WAGERS_ENABLED }), go);
+
+/** A league invite push: tapping it joins, the same auto-redeem as the in-app
+ *  list. Anything short of a join opens Join-with-Code with the code filled in. */
+async function openLeagueInvite(code: string): Promise<void> {
+  try {
+    const res = await redeemLeagueInvite(code);
+    if (res.joined) {
+      go('LeagueDetail', { leagueId: res.leagueId, leagueName: res.leagueName ?? 'League' });
+      return;
+    }
+  } catch {
+    // offline or timed out: the manual page can retry
+  }
+  go('Leagues', { prefillInviteCode: code });
+}
+
+/** Route an in-app link ("<prefix><id>"); false when nothing matches. */
+export function routeLink(link: string): boolean {
+  return router(link);
 }
 
 /**
@@ -172,15 +182,12 @@ function routesFor(title: string | undefined): Record<string, (id: string) => Ro
  */
 export function routeNotification(data: PushData | undefined | null): void {
   if (!data) return;
-  const link =
-    typeof data.deepLink === 'string' && data.deepLink
-      ? data.deepLink
-      : data.entity_type
-        ? `${data.entity_type}/${data.entity_id || NO_ID}`
-        : '';
-  const go = (name: string, params?: Record<string, unknown>) =>
-    navigateWhenReady(name as keyof RootStackParamList, params as never);
-  const routed = link ? createDeepLinkRouter(routesFor(data.title), go)(link) : false;
+  const link = linkOf(data);
+  if (data.kind === 'league_invite' && typeof data.invite_code === 'string' && data.invite_code && link.startsWith('league/')) {
+    void openLeagueInvite(data.invite_code);
+    return;
+  }
+  const routed = link ? router(link) : false;
   if (!routed) navigateWhenReady('Notifications');
 }
 
@@ -197,6 +204,9 @@ export function setupNotificationTapHandling(): () => void {
   const stopTokens = pushTokens.start();
   const stopResponses = wireNotificationResponses({
     isAction: isAppAction,
+    // Link buttons (Record result, Text group, Open chat, ...) navigate like a
+    // tap and write nothing.
+    linkFor: (r) => (catalog.isLinkAction(r.action) ? linkForAction(r.action, r.data) : null),
     onAction: handleNotificationAction,
     onTap: (data) => routeNotification(data as PushData),
     storageKey: 'pickleague_push_handled_v1',

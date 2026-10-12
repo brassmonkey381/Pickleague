@@ -50,7 +50,8 @@ type SuggestedPlayer = {
 };
 
 export default function LeagueMembersScreen({ navigation, route }: Props) {
-  const { leagueId, leagueName } = route.params;
+  const { leagueId } = route.params;
+  const [leagueName, setLeagueName] = useState(route.params.leagueName);
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const [members, setMembers]   = useState<LeagueMember[]>([]);
@@ -79,13 +80,18 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       const [uid, role, league] = await Promise.all([
         currentUserId(supabase),
         getLeagueRole(leagueId),
-        sbCall(() => supabase.from('leagues').select('is_open').eq('id', leagueId).single()),
+        sbCall(() => supabase.from('leagues').select('is_open, name').eq('id', leagueId).single()),
       ]);
       setMyUserId(uid);
       // 'unknown' means the role read failed — keep whatever we last knew
       // rather than demoting an admin because of one bad request.
       if (role !== 'unknown') setMyRole(role);
       setIsOpen(league?.is_open ?? true);
+      // A push (join request) opens this screen without the league name.
+      if (league?.name) {
+        setLeagueName(league.name);
+        navigation.setOptions({ title: league.name + ' Members' });
+      }
 
       const [memberRows, requestRows] = await Promise.all([
         sbCall(() => supabase

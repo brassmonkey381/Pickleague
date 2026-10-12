@@ -11,7 +11,8 @@ import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundatio
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
-import { WAGERS_ENABLED } from '../lib/features';
+import { linkOf } from '../lib/pushLinks';
+import { routeLink } from '../lib/push';
 import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
@@ -31,6 +32,8 @@ type Notification = {
   entity_type: string | null;
   is_read: boolean;
   created_at: string;
+  /** Generator hints (migration_push_data.sql); kind refines where a tap goes. */
+  push_data?: { deep_link?: unknown; kind?: unknown } | null;
 };
 
 function timeAgo(iso: string): string {
@@ -153,55 +156,16 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   async function handleTap(n: Notification) {
     markRead(n.id);
-    if (n.entity_type === 'tournament') {
-      // Tournament invites carry an embedded code → auto-accept. Other
-      // tournament notifications (no code) fall through to TournamentDetail.
-      if (await tryAutoAcceptInvite(n)) return;
-      if (n.entity_id) {
-        navigation.navigate('TournamentDetail', { tournamentId: n.entity_id, tournamentName: n.title.replace('🏆 ', '') });
-      }
-    } else if (n.entity_type === 'league') {
-      // League invites carry an embedded code → auto-accept. Other league
-      // notifications (no code) fall through to LeagueDetail.
-      if (await tryAutoAcceptInvite(n)) return;
-      if (n.entity_id) {
-        navigation.navigate('LeagueDetail', { leagueId: n.entity_id, leagueName: n.title });
-      }
-    } else if (n.entity_type === 'event') {
-      // Event reminders deep-link to the event page (confirmed time + record button).
-      if (n.entity_id) navigation.navigate('EventDetail', { eventId: n.entity_id, title: n.title });
-    } else if (n.entity_type === 'match') {
-      // Deep-link to the exact match row so the user sees its inline
-      // Confirm/Reject controls right away.
-      navigation.navigate('MatchHistory', {
-        title: 'Match History',
-        initialMyMatchesOnly: true,
-        highlightMatchId: n.entity_id ?? undefined,
-      });
-    } else if (n.entity_type === 'drill') {
-      navigation.navigate('DrillRequests');
-    } else if (n.entity_type === 'shop') {
-      navigation.navigate('Shop');
-    } else if (n.entity_type === 'profile') {
-      // entity_id is the recipient's own user_id (self-targeting).
-      navigation.navigate('Profile', { userId: n.entity_id ?? undefined });
-    } else if (n.entity_type === 'plupr_history') {
-      navigation.navigate('CalendarAnalytics', {
-        userId: n.entity_id ?? undefined,
-        title: 'My PLUPR History',
-      });
-    } else if (n.entity_type === 'wager_on_me') {
-      // entity_id is the recipient's own user_id — show the wagers on them.
-      // Gated (lib/features.ts): the wager screens are not registered while
-      // wagering is off, so navigating would throw. A historical wager
-      // notification just stays inert rather than crashing the tap.
-      if (WAGERS_ENABLED && n.entity_id) {
-        navigation.navigate('PlayerWagers', { userId: n.entity_id, userName: 'You' });
-      }
-    } else if (n.entity_type === 'wager') {
-      // Settlement notifications (to the bettor) → their own wager list.
-      if (WAGERS_ENABLED) navigation.navigate('MyWagers');
-    }
+    // League/tournament invites carry an embedded code → auto-accept.
+    if ((n.entity_type === 'tournament' || n.entity_type === 'league') && (await tryAutoAcceptInvite(n))) return;
+    // Everything else goes where the same push would (lib/pushLinks.ts),
+    // refined by its kind: a drill chat opens its thread, a join request opens
+    // the members screen, an organizer nudge opens the text composer. The wager screens stay gated there
+    // (they are not registered while wagering is off). Unrouted: stay here.
+    const deepLink = typeof n.push_data?.deep_link === 'string' ? n.push_data.deep_link : undefined;
+    const kind = typeof n.push_data?.kind === 'string' ? n.push_data.kind : undefined;
+    const link = linkOf({ entity_type: n.entity_type, entity_id: n.entity_id, deepLink, kind });
+    if (link) routeLink(link);
   }
 
   const unreadCount = notifications.filter(n => !n.is_read).length;

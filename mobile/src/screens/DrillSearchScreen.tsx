@@ -1,9 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
@@ -22,7 +23,10 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'> };
+type Props = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'>;
+  route: RouteProp<RootStackParamList, 'DrillSearch'>;
+};
 
 type Candidate = {
   id: string;
@@ -45,13 +49,17 @@ type SortMode = 'overlap' | 'shots' | 'elo';
 
 type Me = { id: string; rating: number; avail: boolean[]; shots: string[]; partner: string[] };
 
-export default function DrillSearchScreen({}: Props) {
+export default function DrillSearchScreen({ route }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
 
   const [search, setSearch]   = useState('');
   const [sort, setSort]       = useState<SortMode>('overlap');
   const [requestTarget, setRequestTarget] = useState<Candidate | null>(null);
+  // "Find a new time" from a push: open the request form for that partner,
+  // once, as soon as they are in the list.
+  const partnerId = route.params?.partnerId;
+  const prefilledFor = useRef<string | null>(null);
 
   const load = useCallback(async (): Promise<{ me: Me; candidates: Candidate[] }> => {
     // Local session read. The old getUser() round trip returned null on a dead
@@ -119,6 +127,14 @@ export default function DrillSearchScreen({}: Props) {
   const loadFailed = query.error != null && query.data === undefined;
 
   const reload = useCallback(() => query.refresh(), [query.refresh]);
+
+  useEffect(() => {
+    if (!partnerId || prefilledFor.current === partnerId) return;
+    const match = candidates.find(c => c.id === partnerId);
+    if (!match) return;
+    prefilledFor.current = partnerId;
+    setRequestTarget(match);
+  }, [partnerId, candidates]);
   const refresh = useRefresh(reload);
 
   // A blocked player must not come back as a drilling suggestion. The database

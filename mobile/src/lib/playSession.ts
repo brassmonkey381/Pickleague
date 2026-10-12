@@ -143,7 +143,8 @@ export async function syncPlayStartReminders(): Promise<void> {
         title: `${u.title} starting now`,
         body: 'Tap Start session to time it and show it on your screen.',
         categoryId: catalog.ids.play_start.id,
-        data: { play_kind: u.kind, source_id: u.id, title: u.title },
+        // A tap opens the drill session or the match itself.
+        data: { play_kind: u.kind, source_id: u.id, title: u.title, deepLink: `${u.kind === 'match' ? 'match' : 'drill'}/${u.id}` },
       });
     }
     for (const old of await readScheduled()) if (!ids.includes(old)) await cancelLocalNotification(old);

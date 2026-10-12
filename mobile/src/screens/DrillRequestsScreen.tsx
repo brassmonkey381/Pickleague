@@ -4,7 +4,7 @@ import {
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
+import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -22,17 +22,26 @@ import { SkeletonList } from '../components/Skeleton';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import DrillUpcomingSessions from '../components/DrillUpcomingSessions';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'> };
+type Props = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'DrillRequests'>;
+  route: RouteProp<RootStackParamList, 'DrillRequests'>;
+};
 
 type Tab = 'incoming' | 'outgoing';
 
 // A past, not-yet-reviewed drill session the current user can review for pickles.
 type ReviewableSession = DrillSession & { partner_name: string };
 
-export default function DrillRequestsScreen({}: Props) {
+export default function DrillRequestsScreen({ route }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  // From a push: a drill request or session to show (and maybe open its chat).
+  const focusId = route.params?.focusId;
+  const openChat = !!route.params?.openChat;
+  const chatOpenedFor = useRef<string | null>(null);
+  const [sessionsKey, setSessionsKey] = useState(0);
 
   const [tab, setTab] = useState<Tab>('incoming');
   const [userId, setUserId] = useState<string | null>(null);
@@ -69,6 +78,37 @@ export default function DrillRequestsScreen({}: Props) {
 
   useFocusEffect(useCallback(() => { load(); }, [tab]));
 
+  // A push points at a request: show the tab it lives on (incoming if it was
+  // sent to me, outgoing if I sent it). A session id matches no request and
+  // is highlighted in the sessions section instead.
+  useEffect(() => {
+    if (!focusId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const uid = await currentUserId(supabase);
+        if (!uid || cancelled) return;
+        const row = await sbCall(
+          () => supabase.from('drill_requests').select('id, from_user_id').eq('id', focusId).maybeSingle(),
+          { retries: 1, timeoutMs: 8_000 },
+        ) as { id: string; from_user_id: string } | null;
+        if (!cancelled && row) setTab(row.from_user_id === uid ? 'outgoing' : 'incoming');
+      } catch {
+        // stay on the current tab
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [focusId]);
+
+  // "Open chat", or a tapped chat push: open the thread once the request is listed.
+  useEffect(() => {
+    if (!focusId || !openChat || chatOpenedFor.current === focusId) return;
+    const req = requests.find(r => r.id === focusId);
+    if (!req) return;
+    chatOpenedFor.current = focusId;
+    setChatRequest(req);
+  }, [focusId, openChat, requests]);
+
   async function load() {
     // LOCAL session read (getUser() is a network call that fails offline).
     const uid = await currentUserId(supabase);
@@ -98,6 +138,7 @@ export default function DrillRequestsScreen({}: Props) {
     }
 
     void loadReviewable(uid);
+    setSessionsKey(k => k + 1);
   }
 
   // Find started drill sessions the current user is a participant of and hasn't
@@ -269,12 +310,15 @@ export default function DrillRequestsScreen({}: Props) {
       </View>
 
       <FlatList
-        data={requests}
+        // The request a push pointed at goes first, highlighted.
+        data={focusId ? [...requests].sort((a, b) => (a.id === focusId ? -1 : b.id === focusId ? 1 : 0)) : requests}
         keyExtractor={r => r.id}
         contentContainerStyle={{ padding: 16 }}
         refreshControl={<AppRefreshControl {...refresh} />}
         ListHeaderComponent={
-          reviewable.length > 0 ? (
+          <>
+          <DrillUpcomingSessions userId={userId} focusId={focusId} refreshKey={sessionsKey} />
+          {reviewable.length > 0 ? (
             // TODO: smoke-test in browser — review-your-drills section + bonus modal
             <View style={S.reviewSection}>
               <Text style={S.reviewSectionTitle}>📝 Review your drills</Text>
@@ -295,7 +339,8 @@ export default function DrillRequestsScreen({}: Props) {
                 </View>
               ))}
             </View>
-          ) : null
+          ) : null}
+          </>
         }
         ListEmptyComponent={
           <EmptyState
@@ -315,7 +360,7 @@ export default function DrillRequestsScreen({}: Props) {
           const isCancelled = item.status === 'cancelled';
 
           return (
-            <View style={S.card}>
+            <View style={[S.card, focusId === item.id && S.cardFocused]}>
               <View style={S.cardTop}>
                 <View style={[S.avatar, { backgroundColor: avatar.bgColor }]}>
                   <Text style={S.avatarEmoji}>{avatar.emoji}</Text>
@@ -941,6 +986,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10,
       shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
     },
+    cardFocused: { borderWidth: 2, borderColor: c.primary },
     cardTop:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
     avatar:      { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: 22 },

@@ -520,7 +520,9 @@ export type RootStackParamList = {
   TournamentInvite: { tournamentId: string; tournamentName: string };
   Events: { leagueId: string; leagueName: string };
   CreateEvent: { leagueId: string };
-  EventDetail: { eventId: string; title: string };
+  // title: a placeholder header; the screen sets the real one from the event.
+  // openNudge / openClose: from a push button (Text group / Close vote).
+  EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean };
   // Screen exists but is not yet registered in AppNavigator.
   ScheduleMatch: { leagueId: string };
   MatchEntry: {
@@ -569,8 +571,10 @@ export type RootStackParamList = {
   UpgradeAccount: undefined;
   About: undefined;
   Drill: undefined;
-  DrillSearch: undefined;
-  DrillRequests: undefined;
+  // partnerId: "Find a new time" with this partner (opens the request form).
+  DrillSearch: { partnerId?: string } | undefined;
+  // focusId: a drill request or session id from a push; openChat opens its chat.
+  DrillRequests: { focusId?: string; openChat?: boolean } | undefined;
   Shop: undefined;
   ScoringAlgo: undefined;
   GiftPickles: undefined;

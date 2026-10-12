@@ -232,6 +232,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
     const t = tRes.data as Tournament;
     setTournament(t);
+    // The header is the tournament's own name, never the push that opened it.
+    if (t?.name) navigation.setOptions({ title: t.name });
     // 'unknown' means the role read failed — keep the last known role rather
     // than stripping an organizer's controls over a network blip.
     if (role !== 'unknown') setMyRole(role);

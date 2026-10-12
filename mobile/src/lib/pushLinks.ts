@@ -1,0 +1,119 @@
+// Where a push, a link button, or a confirmation notice takes you.
+//
+// PURE (no react-native, no expo): lib/push.ts feeds ROUTES to the
+// foundation's createDeepLinkRouter, and the tests exercise this file directly.
+//
+// Links are "<prefix><id>[/<rest>]". send-push puts the push's link in
+// data.deepLink: "<entity_type>/<entity_id>", or the generator's
+// push_data.deep_link override (migration_push_data.sql), e.g.
+// 'drill_chat/<request id>' to open the chat thread itself.
+//
+// Screen headers never come from a push title: EventDetail, TournamentDetail,
+// LeagueDetail and LeagueMembers set their header from the loaded record, so
+// the params below carry neutral placeholders.
+
+export type Route = [string, Record<string, unknown>?];
+export type Routes = Record<string, (id: string, rest: string) => Route | null>;
+
+const NO_ID = '-';
+const has = (id: string | undefined | null): string | undefined => (id && id !== NO_ID ? id : undefined);
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
+
+/** The route table. `wagersEnabled`: the wager screens exist only when the flag is on. */
+export function pushRoutes(opts: { wagersEnabled: boolean }): Routes {
+  const routes: Routes = {
+    'tournament/': (id) => (has(id) ? ['TournamentDetail', { tournamentId: id, tournamentName: 'Tournament' }] : null),
+    'league/': (id) => (has(id) ? ['LeagueDetail', { leagueId: id, leagueName: 'League' }] : null),
+    // A league's join requests (admins).
+    'league_members/': (id) => (has(id) ? ['LeagueMembers', { leagueId: id, leagueName: 'League' }] : null),
+    // "Pick new times" after a vote cancelled the event.
+    'league_new_event/': (id) => (has(id) ? ['CreateEvent', { leagueId: id }] : null),
+    // A league invite code that could not be redeemed from the push.
+    'invite_code/': (id) => (has(id) ? ['Leagues', { prefillInviteCode: id }] : null),
+    'event/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event' }] : null),
+    // Organizer: open the event with the group-text composer up.
+    'event_nudge/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event', openNudge: true }] : null),
+    // Organizer: open the event with the close-voting confirm up.
+    'event_close/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event', openClose: true }] : null),
+    // "Record result": MatchEntry tied to the event. Link: event_record/<event id>/<league id>.
+    'event_record/': (id, rest) => (has(id) ? ['MatchEntry', { eventId: id, leagueId: has(rest.split('/')[0]) }] : null),
+    'match/': (id) => ['MatchHistory', { title: 'Match History', initialMyMatchesOnly: true, highlightMatchId: has(id) }],
+    // A drill request or a drill session (the screen finds it in either list).
+    'drill/': (id) => ['DrillRequests', { focusId: has(id) }],
+    'drill_chat/': (id) => ['DrillRequests', { focusId: has(id), openChat: !!has(id) }],
+    'drill_search/': (id) => ['DrillSearch', { partnerId: has(id) }],
+    'shop/': () => ['Shop'],
+    // A gifted shop item.
+    'shop_item/': () => ['Shop'],
+    'profile/': (id) => ['Profile', { userId: has(id) }],
+    'plupr_history/': (id) => ['CalendarAnalytics', { userId: has(id), title: 'My PLUPR History' }],
+    // Court check-in reminder and arrival notice: Home's court card.
+    'home/': () => ['Home'],
+    'notifications/': () => ['Notifications'],
+  };
+  // The wager screens are not registered while wagering is off: a navigate to
+  // them lands nowhere, so leave those links unrouted (-> Notifications list).
+  if (opts.wagersEnabled) {
+    routes['wager_on_me/'] = (id) => (has(id) ? ['PlayerWagers', { userId: id, userName: 'You' }] : ['MyWagers']);
+    routes['wager/'] = () => ['MyWagers'];
+  }
+  return routes;
+}
+
+// Pushes whose tap goes somewhere more specific than their entity, picked by
+// push_data.kind. The server keeps the plain "<entity_type>/<id>" link so a
+// 1.0.3 phone (which knows none of these prefixes) still lands on the entity.
+const KIND_LINKS: Record<string, { from: string; to: string }> = {
+  drill_chat: { from: 'drill/', to: 'drill_chat/' },
+  league_join_request: { from: 'league/', to: 'league_members/' },
+  event_nudge_vote: { from: 'event/', to: 'event_nudge/' },
+  event_nudge_tomorrow: { from: 'event/', to: 'event_nudge/' },
+  event_nudge_today: { from: 'event/', to: 'event_nudge/' },
+};
+
+/** The push's own link (or one built from entity_type / entity_id), refined by its kind. */
+export function linkOf(data: Record<string, unknown> | null | undefined): string {
+  if (!data) return '';
+  const type = str(data.entity_type);
+  const base = str(data.deepLink) ?? (type ? `${type}/${str(data.entity_id) ?? NO_ID}` : '');
+  const k = KIND_LINKS[str(data.kind) ?? ''];
+  if (k && base.startsWith(k.from) && has(base.slice(k.from.length))) return k.to + base.slice(k.from.length);
+  return base;
+}
+
+/**
+ * Link buttons (catalog `link: true`): where each one goes. Falls back to the
+ * push's own link, so a link button never opens the app to nowhere. Null for
+ * anything that is not a link button (the press then goes to its handler).
+ */
+export function linkForAction(action: string | undefined, data: Record<string, unknown>): string | null {
+  const id = str(data.entity_id);
+  const leagueId = str(data.league_id);
+  let link: string | undefined;
+  switch (action) {
+    case 'event_record_result':
+      link = id ? `event_record/${id}/${leagueId ?? NO_ID}` : undefined;
+      break;
+    case 'event_text_group':
+      link = id ? `event_nudge/${id}` : undefined;
+      break;
+    case 'event_close_vote':
+      link = id ? `event_close/${id}` : undefined;
+      break;
+    case 'event_pick_new_times':
+      link = leagueId ? `league_new_event/${leagueId}` : undefined;
+      break;
+    case 'drill_open_chat':
+      link = id ? `drill_chat/${id}` : undefined;
+      break;
+    case 'drill_find_partner':
+      link = `drill_search/${NO_ID}`;
+      break;
+    case 'drill_find_time':
+      link = `drill_search/${str(data.partner_id) ?? NO_ID}`;
+      break;
+    default:
+      return null;
+  }
+  return link ?? (linkOf(data) || `notifications/${NO_ID}`);
+}

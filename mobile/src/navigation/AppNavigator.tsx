@@ -24,6 +24,7 @@ import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
 import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
+import { syncMyTimeZone } from '../data/timeZone';
 import PlayIsland from '../components/PlayIsland';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
@@ -261,6 +262,8 @@ export default function AppNavigator() {
     // Re-pick the fenced courts for arrival alerts (no-op unless turned on in
     // Settings; never shows a permission sheet here).
     void syncCourtGeofences();
+    // Times in push bodies and drill start times use the player's zone.
+    void syncMyTimeZone();
     (async () => {
       // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
       // have lapsed, or if the profile is gone entirely (the hourly cleanup
