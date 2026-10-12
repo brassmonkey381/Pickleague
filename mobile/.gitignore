@@ -39,3 +39,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Android push (FCM). Not committed: this repo is public, and the file carries
+# the Firebase project/sender identifiers. Supplied to builds as the EAS file
+# variable GOOGLE_SERVICES_JSON — see docs/android-fcm-setup.md.
+google-services.json

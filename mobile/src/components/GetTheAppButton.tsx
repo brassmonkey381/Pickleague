@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View, type TextProps, type ViewStyle } from 'react-native';
 import { track } from '../lib/analytics';
 import { APP_STORE_URL } from '../lib/appStore';
+import { rememberDestination } from '../lib/deferredLink';
 import { useTheme } from '../lib/ThemeContext';
 
 /**
@@ -60,7 +61,12 @@ export default function GetTheAppButton({
       <Text
         accessibilityRole="link"
         {...ANCHOR_PROPS}
-        onPress={() => track('appstore.click', { from })}
+        onPress={() => {
+          track('appstore.click', { from });
+          // Remember where they were so ContinueInAppBanner can offer it
+          // back on their next visit — our SDK-free deferred deep link.
+          rememberDestination();
+        }}
         style={S.btn}
       >
         <Text style={S.kicker}>DOWNLOAD ON THE{'\n'}</Text>
