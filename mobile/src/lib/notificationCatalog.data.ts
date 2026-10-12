@@ -10,17 +10,38 @@
 //
 // Android shows at most 3 buttons. Action ids are unique across categories
 // except where the same button means the same write (event_decline,
-// drill_accept, drill_decline, drill_reply) or the same link (event_text_group).
+// event_vote_1 / event_vote_2, drill_accept, drill_decline, drill_reply) or the
+// same link (event_text_group).
 //
 // `link: true` buttons navigate like a tap and write nothing (lib/pushLinks.ts
 // says where); they must be `opensApp: true`. Anything irreversible, that
 // costs pickles or that notifies a crowd opens the app instead of acting.
 export const CATALOG = {
-  // During voting there are several proposed slots, so a single tap can't say
-  // which time is meant: decline only. Picking a time needs the screen.
+  // Voting with 4+ times (or a push that lost its times): decline only.
+  // Picking a time needs the screen.
   event_vote: {
     actions: {
       event_decline: { buttonTitle: "Can't make it" },
+    },
+  },
+  // New vote / Vote closing soon with 2 or 3 times. The body lists the times,
+  // numbered by start time; each press approves one (Both work approves both)
+  // through vote_event_slots, and the confirmation notice offers the same set
+  // again. 4+ times stay on event_vote: buttons for only the first times would
+  // push lock-screen votes toward them. lib/eventVote.ts (the foundation vote
+  // kit) checks these ids and their order.
+  event_vote_pick2: {
+    actions: {
+      event_vote_1: { buttonTitle: '1st time' },
+      event_vote_2: { buttonTitle: '2nd time' },
+      event_vote_all: { buttonTitle: 'Both work' },
+    },
+  },
+  event_vote_pick3: {
+    actions: {
+      event_vote_1: { buttonTitle: '1st time' },
+      event_vote_2: { buttonTitle: '2nd time' },
+      event_vote_3: { buttonTitle: '3rd time' },
     },
   },
   // A confirmed event has exactly one time, so "I'm in" is unambiguous.

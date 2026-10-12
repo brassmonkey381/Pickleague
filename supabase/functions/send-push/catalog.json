@@ -2,6 +2,16 @@
   "event_vote": [
     "event_decline"
   ],
+  "event_vote_pick2": [
+    "event_vote_1",
+    "event_vote_2",
+    "event_vote_all"
+  ],
+  "event_vote_pick3": [
+    "event_vote_1",
+    "event_vote_2",
+    "event_vote_3"
+  ],
   "event_confirmed": [
     "event_accept",
     "event_decline"

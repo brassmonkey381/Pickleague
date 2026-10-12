@@ -27,6 +27,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { createOutboxDispatcher, type OutboxRow, type ServiceClient } from '../_kit/outboxDispatch.ts';
+import { defineOptionVote, optionVoteData } from '../_kit/optionVote.ts';
 import catalog from './catalog.json' with { type: 'json' };
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
@@ -116,6 +117,44 @@ const kindOf = (row: Row): string | null => {
 };
 
 // ── Events ──────────────────────────────────────────────────────────────────
+// Numbered time votes (foundation vote kit). The categories come from the
+// generated catalog, so a missing one fails type-checking at deploy.
+const eventVote = defineOptionVote({
+  actionPrefix: 'event_vote_',
+  pick2: CATEGORY.event_vote_pick2,
+  pick3: CATEGORY.event_vote_pick3,
+});
+
+const stringList = (v: unknown): string[] | null =>
+  Array.isArray(v) && v.length > 0 && v.length <= 10 && v.every((x) => typeof x === 'string' && x.length <= 80)
+    ? (v as string[])
+    : null;
+
+/**
+ * The 1st / 2nd / 3rd time buttons for a vote push, or null. The generator
+ * wrote the body and push_data.option_ids / option_labels together
+ * (migration_event_vote_buttons.sql); the buttons go on only while those are
+ * still the event's times in the same order (starts_at, id), so button N is
+ * always the Nth time in the body.
+ */
+async function voteButtons(row: Row, eventId: string, d: Data): Promise<Buttons | null> {
+  const pd = row.push_data && typeof row.push_data === 'object' ? row.push_data : {};
+  const ids = stringList(pd.option_ids);
+  const labels = stringList(pd.option_labels);
+  if (!ids || !labels || ids.length !== labels.length) return null;
+  const category = eventVote.categoryFor(ids.length);
+  if (!category) return null;
+  const { data: slots } = await admin
+    .from('event_slots')
+    .select('id')
+    .eq('event_id', eventId)
+    .order('starts_at')
+    .order('id');
+  const current = (slots ?? []).map((s: { id: string }) => s.id);
+  if (current.length !== ids.length || current.some((sid, i) => sid !== ids[i])) return null;
+  return { category, data: { ...d, ...optionVoteData(ids.map((sid, i) => ({ id: sid, label: labels[i] }))) } };
+}
+
 async function eventButtons(row: Row, data: Data, kind: string | null): Promise<Buttons> {
   const id = row.entity_id!;
   const me = row.recipient_id;
@@ -138,7 +177,12 @@ async function eventButtons(row: Row, data: Data, kind: string | null): Promise<
     // decline it): Text group, or Close vote, which opens the app to confirm.
     if (organizer) return { category: CATEGORY.event_organizer_vote, data: d };
     if (kind === 'event_nudge_vote') return { data: d };
-    // Several slots in play, so only the decline is unambiguous.
+    // New vote / Vote closing soon with 2 or 3 times: the numbered set.
+    if (kind === 'event_vote_opened' || kind === 'event_vote_closing') {
+      const vote = await voteButtons(row, id, d);
+      if (vote) return vote;
+    }
+    // 4+ times (or the times changed since the body was written): decline only.
     return { category: CATEGORY.event_vote, data: d };
   }
 
