@@ -8,7 +8,7 @@
 -- 'event' (tap -> EventDetail) and carry push_data.kind, which send-push uses
 -- to pick the buttons:
 --   event_vote_opened / event_vote_closing  -> Can't make it (numbered vote
---                                              buttons come in a later change)
+--                                              buttons: migration_event_vote_buttons.sql)
 --   event_scheduled                         -> I'm in / Can't make it
 --                                              (Can't make it only if you
 --                                              already voted for that time)
