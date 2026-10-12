@@ -1,4 +1,4 @@
-// Vendored from @just-messin-around/expo-foundation@1.34.0 (server kit). Edit upstream, then re-vendor.
+// Vendored from @just-messin-around/expo-foundation@1.37.0 (server kit). Edit upstream, then re-vendor.
 // Expo push sending with per-device results: one device's error never fails
 // the others, DeviceNotRegistered is reported for pruning, and every request
 // is bounded.

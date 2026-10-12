@@ -1,4 +1,4 @@
-// Vendored from @just-messin-around/expo-foundation@1.34.0 (server kit). Edit upstream, then re-vendor.
+// Vendored from @just-messin-around/expo-foundation@1.37.0 (server kit). Edit upstream, then re-vendor.
 // A push/email outbox dispatcher for a Supabase Edge Function. Generic: the app
 // passes table names, RPC names and its own resolvers. Extracted from a
 // production dispatcher; the guarantees it keeps:

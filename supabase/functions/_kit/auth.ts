@@ -1,4 +1,4 @@
-// Vendored from @just-messin-around/expo-foundation@1.34.0 (server kit). Edit upstream, then re-vendor.
+// Vendored from @just-messin-around/expo-foundation@1.37.0 (server kit). Edit upstream, then re-vendor.
 // Shared-secret gate for server-to-server Edge Function calls (a DB trigger, a
 // pg_cron job). Supports a three-step rollout so turning it on can never cut
 // off a caller you forgot: 'log' accepts and warns, 'enforce' answers 401.
