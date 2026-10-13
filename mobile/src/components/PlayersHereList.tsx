@@ -91,9 +91,11 @@ export function PlayersHereRoster({ players, maxRows }: { players: PlayerHere[];
  * "N here" / "No one else here yet", in a 44 tap box that shows or hides the
  * full roster (`onPress`). Flexes and truncates its caption; never wraps.
  *
- * FOUNDATION-TODO: AvatarPile inline / no-caption variant (or PresenceCard
- * variant='pile'): the foundation AvatarPile always renders a caption line
- * under the pile, so it can't sit on one 44px row next to buttons.
+ * Not AvatarPile `inline` (1.41): that spaces its avatars 6px apart (no
+ * overlap), adds its own "+N" chip beside this caption, and makes only the
+ * avatars the button, where this whole line (caption included) is one.
+ * FOUNDATION-TODO: AvatarPile `inline` overlap option (negative spacing with
+ * the surface-coloured ring) plus a trailing caption inside its button.
  */
 export function PlayersHerePile({
   players,

@@ -189,6 +189,9 @@ async function loadPage(chip: NotificationChip): Promise<NotificationPage> {
 const LONG_BODY_CHARS = 70;
 const isLongBody = (body: string) => body.length > LONG_BODY_CHARS || body.includes('\n');
 
+/** A row's screen-reader actions: the same delete as its visible ✕. */
+const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
+
 // Invite-broadcast bodies contain "...invite code TOKEN" (followed by "." or " to join.").
 // Server format lives in supabase/migration_invite_code_broadcast.sql.
 function extractInviteCode(body: string): string | null {
@@ -436,9 +439,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     // <button> (nested buttons are invalid HTML). So it gets no role and no
     // label either (aria-label is prohibited on a generic element); its text
     // and the "more" button read in order.
-    // FOUNDATION-TODO: ListCard should forward accessibilityActions +
-    // onAccessibilityAction, so the card could also offer "Delete" as a rotor
-    // action.
+    // The card also offers "Delete" as a rotor / TalkBack action (native only:
+    // RNW drops accessibility actions, so the visible ✕ stays).
     const webLong = long && Platform.OS === 'web';
     const a11yLabel = `${n.is_read ? '' : 'Unread: '}${n.title}, ${time}. ${n.body}${gone ? '. No longer available' : ''}`;
     return (
@@ -450,6 +452,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           onPress={() => { void handleTap(n); }}
           accessibilityRole={webLong ? undefined : 'button'}
           accessibilityLabel={webLong ? undefined : a11yLabel}
+          accessibilityActions={DELETE_ACTIONS}
+          onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'delete') void deleteNotification(n); }}
           leading={
             <View
               style={[styles.tile, { backgroundColor: tile.bg, borderColor: tile.border }, gone && styles.gone]}

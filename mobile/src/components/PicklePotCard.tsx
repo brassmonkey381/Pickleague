@@ -8,7 +8,7 @@ import { useTheme } from '../lib/ThemeContext';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 
 export type ScopeType = 'tournament' | 'season' | 'league';
@@ -216,7 +216,7 @@ function ContributeModal({
 
           <Text style={S.label}>Amount to contribute</Text>
           <TextInput
-            style={S.input}
+            style={[S.input, webInputFontFloor(S.input)]}
             keyboardType="number-pad"
             placeholder="100"
             value={amount}
@@ -344,10 +344,10 @@ function AwardModal({
           </ScrollView>
 
           <Text style={S.label}>Amount (max {pool})</Text>
-          <TextInput style={S.input} keyboardType="number-pad" placeholder="50" value={amount} onChangeText={setAmount} />
+          <TextInput style={[S.input, webInputFontFloor(S.input)]} keyboardType="number-pad" placeholder="50" value={amount} onChangeText={setAmount} />
 
           <Text style={S.label}>Reason (optional)</Text>
-          <TextInput style={S.input} placeholder="e.g. Period 2 winner" value={reason} onChangeText={setReason} />
+          <TextInput style={[S.input, webInputFontFloor(S.input)]} placeholder="e.g. Period 2 winner" value={reason} onChangeText={setReason} />
 
           <StatusBanner status={status.value} />
 

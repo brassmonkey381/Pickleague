@@ -17,7 +17,7 @@
 // The old region pills (lib/regions.ts, now deleted) are replaced by distance.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable, Platform,
+  View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable,
   type LayoutChangeEvent, type ListRenderItemInfo,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -34,7 +34,7 @@ import {
   type FilterSheetGroup,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { useCourtName } from '../lib/courtNickname';
@@ -80,7 +80,6 @@ import { usePlayFilterState } from '../components/play/usePlayFilterState';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import { usePlayTour } from '../components/play/usePlayTour';
 import { usePlayUserId } from '../components/play/usePlayUserId';
-import { afterModalClose } from '../components/play/afterModalClose';
 import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
 
 type Props = {
@@ -425,13 +424,22 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   // Notification tap (or deep-link) can pre-populate an invite code and pop the
   // Join modal automatically. Consume the param so navigating back here later
   // doesn't keep re-opening the modal. (Play passes its own param through.)
+  // With a sheet open, the Join modal opens from that sheet's onDismissed, once
+  // it has fully closed: iOS won't present a second Modal while the first is
+  // still animating out.
+  const joinAfterCloseRef = useRef(false);
+  const openJoinAfterClose = useCallback(() => {
+    if (!joinAfterCloseRef.current) return;
+    joinAfterCloseRef.current = false;
+    setShowJoinCode(true);
+  }, []);
   useEffect(() => {
     const code = route.params?.prefillInviteCode;
     if (!code) return;
     setInviteCode(code);
     const anyOpen = sheetOpen || plusOpen || sortOpen;
     setSheetOpen(false); setPlusOpen(false); setSortOpen(false);
-    if (anyOpen) afterModalClose(() => setShowJoinCode(true));
+    if (anyOpen) joinAfterCloseRef.current = true;
     else setShowJoinCode(true);
     navigation.setParams({ prefillInviteCode: undefined } as any);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -790,6 +798,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         values={filters.sheet}
         defaults={filters.sheetDefaults}
         onApply={filters.applySheet}
+        onDismissed={openJoinAfterClose}
       />
 
       <ActionSheetModal
@@ -797,6 +806,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         title="Sort leagues"
         actions={sortActions}
         onClose={() => setSortOpen(false)}
+        onDismissed={openJoinAfterClose}
       />
 
       <ActionSheetModal
@@ -807,6 +817,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
           const next = afterPlusRef.current;
           afterPlusRef.current = null;
           next?.();
+          openJoinAfterClose();
         }}
       />
 
@@ -855,7 +866,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
           <Text style={[t.sub, S.modalLabel]}>League Name</Text>
           <TextInput
-            style={S.input}
+            style={[S.input, webInputFontFloor(S.input)]}
             placeholder="e.g. Tuesday Night Rec"
             placeholderTextColor={c.textMuted}
             value={name}
@@ -864,7 +875,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
           <Text style={[t.sub, S.modalLabel]}>Description (optional)</Text>
           <TextInput
-            style={[S.input, S.multiline]}
+            style={[S.input, S.multiline, webInputFontFloor(S.input)]}
             placeholder="Skill level, location, notes..."
             placeholderTextColor={c.textMuted}
             value={description}
@@ -960,12 +971,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalLabel: { fontWeight: '600', marginBottom: SPACE.xs, marginTop: SPACE.lg },
     input: {
       borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md,
-      // iOS Safari zooms the page when an input under 16px gets focus (our
-      // viewport sets no maximum-scale), and it stays zoomed after the modal
-      // closes, so web keeps a 16 floor. A browser rule, not a type preset.
-      // FOUNDATION-TODO: export a web input-font floor (INPUT_MIN_FONT_WEB = 16)
-      // and apply it in FilterSearchField, whose 15px input zooms the same way.
-      padding: SPACE.md, fontSize: Platform.OS === 'web' ? 16 : FONT.size.lg, color: c.text, backgroundColor: c.surface,
+      // Web raises this to 16 at the input (webInputFontFloor): iOS Safari
+      // zooms the page when an input under 16px gets focus.
+      padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface,
     },
     multiline: { minHeight: 72, textAlignVertical: 'top' },
     codeInput: { fontSize: FONT.size.h2, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },

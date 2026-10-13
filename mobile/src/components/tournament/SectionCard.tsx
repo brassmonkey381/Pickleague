@@ -1,18 +1,7 @@
-// One TournamentDetail section: a Panel with a SectionHeader (label, count,
-// trailing text action) and the section's content. With `onToggle` it
-// collapses like CollapsibleSection, but it can also show a NODE while closed
-// (the Players section's AvatarPile), which CollapsibleSection can't.
-//
-// FOUNDATION-TODO: this forks CollapsibleSection, so the collapsible sections
-// here (Pairs/Teams, Playoff, Players, Pot, Wager) look unlike Manage on this
-// screen and the League/Event/Profile sections. Foundation 1.40 added
-// CollapsibleSection's `collapsedContent` (outside the toggle, so the pressable
-// AvatarPile is fine); what's still missing is a `count: number | string` (Pot
-// shows "🥒 N" in the count slot). Then move those five call sites to
-// `CollapsibleSection compact` (text summaries -> `summary`, the pile ->
-// `collapsedContent`) and drop onToggle/open/collapsedContent/keepMounted here,
-// keeping this only for the static sections (Schedule, Standings, Stages,
-// Playoff bracket).
+// One static TournamentDetail section (Schedule, Standings, Stages, Playoff
+// bracket): a Panel with a SectionHeader (label, count, trailing text action)
+// and the section's content. The collapsible sections (Pairs/Teams, Playoff,
+// Players, Pot, Wager) are `CollapsibleSection compact`, like Manage.
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Panel, SectionHeader, type SectionHeaderAction } from '@just-messin-around/expo-foundation/ui';
@@ -22,30 +11,16 @@ export type SectionCardProps = {
   title: string;
   count?: number | string;
   action?: SectionHeaderAction;
-  /** Collapsible when set; `open` is then the state. */
-  onToggle?: () => void;
-  open?: boolean;
-  /** Shown under the header while collapsed (requires onToggle). */
-  collapsedContent?: React.ReactNode;
-  /** Keep children mounted while collapsed (hidden), e.g. for an anchor. */
-  keepMounted?: boolean;
   children?: React.ReactNode;
 };
 
-export default function SectionCard({
-  title, count, action, onToggle, open = true, collapsedContent, keepMounted, children,
-}: SectionCardProps) {
-  const collapsible = !!onToggle;
-  const showBody = !collapsible || open;
+export default function SectionCard({ title, count, action, children }: SectionCardProps) {
   return (
     <Panel padded={false} radius={RADIUS.lg}>
       <View style={styles.header}>
-        <SectionHeader title={title} count={count} action={action} onToggle={onToggle} open={open} />
+        <SectionHeader title={title} count={count} action={action} />
       </View>
-      {collapsible && !open && collapsedContent ? <View style={styles.body}>{collapsedContent}</View> : null}
-      {showBody || keepMounted ? (
-        <View style={[styles.body, !showBody && styles.hidden]}>{children}</View>
-      ) : null}
+      <View style={styles.body}>{children}</View>
     </Panel>
   );
 }
@@ -53,5 +28,4 @@ export default function SectionCard({
 const styles = StyleSheet.create({
   header: { paddingHorizontal: SPACE.md },
   body: { paddingHorizontal: SPACE.md, paddingBottom: SPACE.md },
-  hidden: { display: 'none' },
 });

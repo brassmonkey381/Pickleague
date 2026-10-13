@@ -17,7 +17,7 @@ import {
   CollapsibleSection,
   SegmentedToggle,
 } from '@just-messin-around/expo-foundation/ui';
-import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -646,7 +646,7 @@ export default function SettingsScreen({ navigation }: Props) {
         primaryDisabled={!deletePassword}
         extraField={
           <TextInput
-            style={S.passwordInput}
+            style={[S.passwordInput, webInputFontFloor(S.passwordInput)]}
             value={deletePassword}
             onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
             placeholder="Current password"

@@ -12,7 +12,7 @@
 // is an RN Modal, and iOS presents only one Modal at a time unless the second
 // is a descendant of the first (then it is presented from it). A sibling
 // Modal opened over the sheet would silently never appear on iOS.
-import React, { useEffect, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import {
@@ -30,7 +30,6 @@ import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { DISTANCE_OPTIONS, distanceMiles, type LatLng } from '../../lib/playFilters';
-import { afterModalClose } from './afterModalClose';
 
 const RADIUS_OPTIONS = [
   { value: 'any', label: 'Any' },
@@ -57,19 +56,10 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
   const [noFix, setNoFix] = useState(false);
   const isWeb = Platform.OS === 'web';
 
-  // Web Escape with a confirm open: the sheet's BottomSheet listens for Escape
-  // on window keydown with no stacking, so it would close the whole sheet (and
-  // its draft) along with the confirm. Swallow keydown in the capture phase;
-  // RNW's Modal still closes only the topmost confirm on keyup.
-  // FOUNDATION-TODO: drop useEscapeKey from BottomSheet (RNW Modal's
-  // onRequestClose already handles Escape, topmost only), then remove this.
-  const nestedOpen = confirmOpen || blockedOpen;
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !nestedOpen) return;
-    const swallow = (e: KeyboardEvent) => { if (e.key === 'Escape') e.stopImmediatePropagation(); };
-    window.addEventListener('keydown', swallow, true);
-    return () => window.removeEventListener('keydown', swallow, true);
-  }, [nestedOpen]);
+  // Denied: the "Location is off" confirm opens once the use confirm has
+  // fully closed (its onDismissed), since iOS drops a Modal presented while
+  // another is still animating out.
+  const deniedNext = useRef(false);
 
   const allow = async () => {
     setBusy(true);
@@ -77,8 +67,8 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
     try {
       const granted = await requestForegroundLocationPermission();
       if (!granted) {
+        deniedNext.current = true;
         setConfirmOpen(false);
-        afterModalClose(() => setBlockedOpen(true));
         return;
       }
       const fix = await getCurrentCoords({ fallbackToLastKnown: true });
@@ -141,6 +131,11 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
         onAllow={() => { void allow(); }}
         onSkip={() => setConfirmOpen(false)}
         onClose={() => { if (!busy) setConfirmOpen(false); }}
+        onDismissed={() => {
+          if (!deniedNext.current) return;
+          deniedNext.current = false;
+          setBlockedOpen(true);
+        }}
       />
 
       {/* The foundation's denied modal (a ConfirmModal, so still an RN Modal:

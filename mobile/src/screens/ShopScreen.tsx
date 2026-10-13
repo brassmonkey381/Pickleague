@@ -13,14 +13,14 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  ActivityIndicator, Modal, TextInput, useWindowDimensions, Platform,
+  ActivityIndicator, Modal, TextInput, useWindowDimensions,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Panel, SegmentedToggle, ModalBackdrop } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
-import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -568,7 +568,7 @@ export default function ShopScreen({ navigation }: Props) {
 
                 <Text style={[t.fieldLabel, S.fieldLabel]}>Optional message</Text>
                 <TextInput
-                  style={S.giftMessage}
+                  style={[S.giftMessage, webInputFontFloor(S.giftMessage)]}
                   placeholder="Add a note (optional)…"
                   placeholderTextColor={c.textMuted}
                   value={giftMessage}
@@ -662,9 +662,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     fieldLabel:  { marginTop: SPACE.xs, marginBottom: SPACE.xs },
     giftMessage: {
       borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md,
-      // 16 on web: iOS Safari zooms the page on focus of an input under 16px
-      // (the viewport allows zoom) and stays zoomed after blur.
-      fontSize: Platform.OS === 'web' ? 16 : FONT.size.md,
+      // Web raises this to 16 at the input (webInputFontFloor): iOS Safari
+      // zooms the page on focus of an input under 16px.
+      fontSize: FONT.size.md,
       color: c.text, minHeight: 60, textAlignVertical: 'top',
     },
     giftBalance: { marginTop: SPACE.sm, marginBottom: SPACE.md },

@@ -18,27 +18,21 @@
 // form first). A picked photo is uploaded right away, but to its own new object,
 // so it only goes live when Save points avatar_url at it.
 //
-// Built on the foundation Modal pieces (ModalBackdrop; RNW's Modal routes Escape
-// to onRequestClose, so no useEscapeKey: a second handler double-fires) rather
-// than BottomSheet. Foundation 1.40's BottomSheet `keyboardShrink` +
-// `contentStyle` would cover the keyboard (the card shrinking above it), but
-// BottomSheet still adds its own useEscapeKey(onClose) on keydown next to RNW
-// Modal's keyup onRequestClose. Here onClose is handleDismiss, which on a
-// picker page only steps back to the form, so one Escape would step back
-// (keydown) AND then close the sheet, discarding the draft (keyup).
-// FOUNDATION-TODO: drop useEscapeKey from BottomSheet (same TODO as
-// play/DistanceFilterGroup); then this can be
-// <BottomSheet height="90%" keyboardShrink cardStyle={...}>.
+// Built on the foundation BottomSheet (no title: the sheet draws its own
+// Cancel / Save header). Its onClose is handleDismiss, which RNW's Modal
+// calls on Escape (top-most Modal only, once), Android back calls, and the
+// backdrop calls: on a picker page it only steps back to the form.
+// keyboardShrink keeps the header and Save above the keyboard on native.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Modal, View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet,
   Platform, useWindowDimensions,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { ModalBackdrop, FilterChipRow, StatusBanner } from '@just-messin-around/expo-foundation/ui';
+import { BottomSheet, FilterChipRow, StatusBanner } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
-import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
@@ -254,8 +248,9 @@ export default function EditProfileSheet({
     .map(slug => PLAY_TAGS.find(tag => tag.slug === slug)?.label)
     .filter((l): l is string => !!l);
 
-  // Definite height so the picker pages (flex:1 ScrollViews) have room, but
-  // flexShrink so the keyboard's padding can squeeze it (see the header note).
+  // Definite height so the picker pages (flex:1 ScrollViews) have room. In px:
+  // a '%' height has no definite parent to resolve against inside the sheet's
+  // backdrop. keyboardShrink caps it above the keyboard.
   const sheetHeight = Math.round(winH * 0.9);
 
   const formPage = (
@@ -322,7 +317,7 @@ export default function EditProfileSheet({
 
         <Text style={[t.fieldLabel, S.label]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Display name</Text>
         <TextInput
-          style={S.input}
+          style={[S.input, webInputFontFloor(S.input)]}
           value={draft.fullName}
           onChangeText={v => set('fullName', v.slice(0, NAME_MAX))}
           maxLength={NAME_MAX}
@@ -334,7 +329,7 @@ export default function EditProfileSheet({
 
         <Text style={[t.fieldLabel, S.label]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Username</Text>
         <TextInput
-          style={S.input}
+          style={[S.input, webInputFontFloor(S.input)]}
           value={draft.username}
           onChangeText={v => set('username', v)}
           autoCapitalize="none"
@@ -349,7 +344,7 @@ export default function EditProfileSheet({
 
         <Text style={[t.fieldLabel, S.label]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Tagline</Text>
         <TextInput
-          style={S.input}
+          style={[S.input, webInputFontFloor(S.input)]}
           value={draft.tagline}
           onChangeText={v => set('tagline', v.slice(0, TAGLINE_MAX))}
           maxLength={TAGLINE_MAX}
@@ -425,70 +420,67 @@ export default function EditProfileSheet({
   );
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleDismiss}>
-      <ModalBackdrop
-        onDismiss={handleDismiss}
-        backdropColor={c.backdrop}
-        style={S.backdropLayout}
-        contentStyle={S.backdropContent}
-      >
-        <View style={[S.card, { height: sheetHeight }]}>
-          {page === 'avatar' ? (
-            <AvatarPickerModal
-              presentation="page"
-              visible
-              userId={userId}
-              currentAvatarId={draft.avatarId}
-              currentPhotoUrl={draft.photoUrl}
-              currentPremium={draft.premium}
-              earnedBadgeNames={earnedBadgeNames}
-              purchasedAvatars={purchasedAvatars}
-              onChange={(id, url, premium) => setDraft(d => ({ ...d, avatarId: id, photoUrl: url, premium }))}
-              onUploadingChange={setUploading}
-              onSave={(id, url, premium) => {
-                setDraft(d => ({ ...d, avatarId: id, photoUrl: url, premium }));
-                setPage('form');
-              }}
-              onClose={() => setPage('form')}
-            />
-          ) : page === 'tags' ? (
-            <TagPickerModal
-              presentation="page"
-              visible
-              selectedTags={draft.selectedTags}
-              maxSlots={maxTagSlots}
-              earnedBadgeNames={earnedBadgeNames}
-              onChange={tags => set('selectedTags', tags)}
-              onSave={tags => { set('selectedTags', tags); setPage('form'); }}
-              onClose={() => setPage('form')}
-            />
-          ) : (
-            formPage
-          )}
-        </View>
-      </ModalBackdrop>
-    </Modal>
+    <BottomSheet
+      visible={visible}
+      onClose={handleDismiss}
+      height={sheetHeight}
+      keyboardShrink
+      cardStyle={S.card}
+      contentStyle={S.content}
+    >
+      {page === 'avatar' ? (
+        <AvatarPickerModal
+          presentation="page"
+          visible
+          userId={userId}
+          currentAvatarId={draft.avatarId}
+          currentPhotoUrl={draft.photoUrl}
+          currentPremium={draft.premium}
+          earnedBadgeNames={earnedBadgeNames}
+          purchasedAvatars={purchasedAvatars}
+          onChange={(id, url, premium) => setDraft(d => ({ ...d, avatarId: id, photoUrl: url, premium }))}
+          onUploadingChange={setUploading}
+          onSave={(id, url, premium) => {
+            setDraft(d => ({ ...d, avatarId: id, photoUrl: url, premium }));
+            setPage('form');
+          }}
+          onClose={() => setPage('form')}
+        />
+      ) : page === 'tags' ? (
+        <TagPickerModal
+          presentation="page"
+          visible
+          selectedTags={draft.selectedTags}
+          maxSlots={maxTagSlots}
+          earnedBadgeNames={earnedBadgeNames}
+          onChange={tags => set('selectedTags', tags)}
+          onSave={tags => { set('selectedTags', tags); setPage('form'); }}
+          onClose={() => setPage('form')}
+        />
+      ) : (
+        formPage
+      )}
+    </BottomSheet>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    // Bottom-anchored, edge to edge on phones; a centred column on wide web.
-    backdropLayout:  { justifyContent: 'flex-end', padding: 0 },
-    // flexShrink: when the keyboard pads the backdrop, the card gives way
-    // instead of pushing its header (and Save) off the top of the screen.
-    backdropContent: { alignItems: 'center', flexShrink: 1, minHeight: 0 },
+    // Over BottomSheet's card: edge to edge on phones, a centred column on
+    // wide web; no card padding (the header and pages bring their own).
     card: {
       width: '100%',
       maxWidth: SHEET_MAX_WIDTH,
-      flexShrink: 1,
-      minHeight: 0,
-      backgroundColor: c.surface,
+      alignSelf: 'center',
       borderTopLeftRadius: RADIUS.lg,
       borderTopRightRadius: RADIUS.lg,
       overflow: 'hidden',
+      paddingHorizontal: 0,
+      paddingTop: 0,
       paddingBottom: Platform.OS === 'ios' ? SPACE.xl : 0,
     },
+    // The page (form or picker) fills the card and shrinks with it.
+    content: { minHeight: 0 },
 
     header: {
       flexDirection: 'row',
@@ -533,11 +525,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderRadius: RADIUS.md,
       paddingHorizontal: SPACE.md,
       paddingVertical: SPACE.sm,
-      // iOS Safari zooms the page when a focused input's font is under 16px
-      // (the web build's viewport allows zoom), and the zoom stays after blur,
-      // pushing the sheet's Save off screen. 16 on web only; native stays on
-      // the 15 scale step.
-      fontSize: Platform.OS === 'web' ? 16 : FONT.size.lg,
+      // Web raises this to 16 at the input (webInputFontFloor): iOS Safari
+      // zooms the page when a focused input's font is under 16px, pushing the
+      // sheet's Save off screen.
+      fontSize: FONT.size.lg,
       color: c.text,
       backgroundColor: c.surfaceAlt,
     },

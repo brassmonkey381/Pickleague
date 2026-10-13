@@ -81,15 +81,6 @@ export type PlayFilterState = {
   clearChipsQuietly: () => void;
 };
 
-// Every mounted list on the same storageKey, so they share one value. The
-// Play tab's Leagues body and the standalone 'Leagues' route (an invite_code
-// push on top of Play) are both `play:leagues:<uid>`, and usePersistedState
-// keeps a separate in-memory copy per instance: without this, a chip set on
-// the pushed route was overwritten by Play's stale copy at its next toggle.
-// FOUNDATION-TODO: usePersistedState cross-instance sync (instances on the
-// same key share one value; setValue notifies peers without re-persisting).
-const peers = new Map<string, Set<(v: PlayPersisted) => void>>();
-
 export function usePlayFilterState(opts: {
   list: PlayListKind;
   /** `play:<list>:<userId>`; null = in memory only (no user yet, or a scoped list). */
@@ -103,10 +94,16 @@ export function usePlayFilterState(opts: {
   const { list, defaults, storageKey } = opts;
   const track = opts.track !== false;
   const merge = useMemo(() => mergePlayPersisted(defaults), [defaults]);
+  // `shared`: every mounted list on the same storageKey holds one value. The
+  // Play tab's Leagues body and the standalone 'Leagues' route (an invite_code
+  // push on top of Play) are both `play:leagues:<uid>`; with a copy each, a
+  // chip set on the pushed route was overwritten by Play's stale copy at its
+  // next toggle.
   const [saved, setSaved, meta] = usePersistedState<PlayPersisted>(storageKey, {
     version: PLAY_PERSIST_VERSION,
     defaults,
     merge,
+    shared: true,
   });
 
   // Route-param chips live only in memory, so they can never be written.
@@ -133,35 +130,24 @@ export function usePlayFilterState(opts: {
   const latest = useRef({ saved, routeChips, chips, sheet, tourCleared });
   latest.current = { saved, routeChips, chips, sheet, tourCleared };
 
-  // This instance's peer listener (see `peers`). A value from a peer is the
-  // user's newest choice, so it also ends a tour-clear override here.
-  const selfRef = useRef<((v: PlayPersisted) => void) | null>(null);
+  // A value another instance on this key wrote is the user's newest choice,
+  // so it also ends a tour-clear override here. This instance's own writes
+  // don't (setChips / clearFilters end it themselves), and neither does the
+  // key's load: the override must survive a late load (see tourCleared).
+  const ownWrite = useRef<PlayPersisted | null>(null);
+  const settledKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!storageKey) return;
-    const fn = (v: PlayPersisted) => { setTourCleared(false); setSaved(v); };
-    selfRef.current = fn;
-    let set = peers.get(storageKey);
-    if (!set) { set = new Set(); peers.set(storageKey, set); }
-    set.add(fn);
-    return () => {
-      set!.delete(fn);
-      if (set!.size === 0) peers.delete(storageKey);
-      if (selfRef.current === fn) selfRef.current = null;
-    };
-  }, [storageKey, setSaved]);
+    if (storageKey && settledKey.current === storageKey && saved !== ownWrite.current) setTourCleared(false);
+    settledKey.current = meta.ready ? storageKey : null;
+  }, [saved, meta.ready, storageKey]);
 
-  /** Every write goes through here: apply it, then hand the result to the
-   *  other mounted instances on this key. The foundation setter runs a
-   *  functional update synchronously, so `next` is the value it stored, built
-   *  on its latest value (two commits in one handler compose). */
+  /** Every write goes through here, so a peer's value can be told from this
+   *  instance's own. The foundation setter runs a functional update
+   *  synchronously, so `next` is the value it stored, built on its latest
+   *  value (two commits in one handler compose). */
   const commit = useCallback((fn: (p: PlayPersisted) => PlayPersisted) => {
-    // A holder, not two `let`s: TS can't see assignments made inside the updater.
-    const out: { prev?: PlayPersisted; next?: PlayPersisted } = {};
-    setSaved((p) => { out.prev = p; out.next = fn(p); return out.next; });
-    const value = out.next;
-    if (!value || value === out.prev || !storageKey) return;
-    peers.get(storageKey)?.forEach((f) => { if (f !== selfRef.current) f(value); });
-  }, [setSaved, storageKey]);
+    setSaved((p) => { const next = fn(p); ownWrite.current = next; return next; });
+  }, [setSaved]);
 
   const setChips = useCallback((next: string[]) => {
     const cur = latest.current;

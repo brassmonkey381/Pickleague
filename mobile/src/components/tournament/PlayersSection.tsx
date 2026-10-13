@@ -6,7 +6,7 @@
 // RosterSection (P5a).
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { AvatarPile, Chip } from '@just-messin-around/expo-foundation/ui';
+import { AvatarPile, Chip, CollapsibleSection } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -14,7 +14,6 @@ import { Tournament, TournamentRegistration } from '../../types';
 import { tournamentRoleLabel, type TournamentRole } from '../../lib/tournamentRole';
 import { formatPlupr } from '../../lib/plupr';
 import FlairName from '../FlairName';
-import SectionCard from './SectionCard';
 import type { TournamentDetailNavigation } from './useTournamentDetail';
 
 export default function PlayersSection({
@@ -60,7 +59,8 @@ export default function PlayersSection({
   );
 
   return (
-    <SectionCard
+    <CollapsibleSection
+      compact
       title="Players"
       count={count}
       open={open}
@@ -74,40 +74,45 @@ export default function PlayersSection({
     >
       {rosterShown.length === 0 ? (
         <Text style={[t.hint, styles.empty]}>No one has joined yet.</Text>
-      ) : rosterShown.map((r, i) => {
-        const role = r.role as TournamentRole;
-        const isInvitePending = r.status === 'pending';
-        const name = r.profile?.full_name ?? 'Player';
-        return (
-          <TouchableOpacity
-            key={r.id}
-            style={[styles.row, i > 0 && { borderTopWidth: HAIRLINE, borderTopColor: c.border }]}
-            onPress={() => navigation.navigate('PlayerProfile', { userId: r.user_id, userName: name })}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={`${name}${isInvitePending ? ', invited' : ''}. Open profile`}
-          >
-            <Text style={[t.meta, styles.seed]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{i + 1}</Text>
-            <FlairName
-              name={name}
-              nameColor={(r.profile as any)?.name_color}
-              styleId={(r.profile as any)?.list_name_style_id ?? null}
-              mode="list"
-              numberOfLines={1}
-              style={[t.title, styles.name, { color: isInvitePending ? c.textMuted : c.text }, isInvitePending && styles.italic]}
-            />
-            {isInvitePending ? (
-              <Chip size="sm" label="Invited" tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-            ) : role === 'admin' || role === 'co-admin' ? (
-              <Chip size="sm" label={tournamentRoleLabel(role)} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
-            ) : null}
-            <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              {formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </SectionCard>
+      ) : (
+        // One child, so the section body's gap doesn't split the hairline rows.
+        <View>
+          {rosterShown.map((r, i) => {
+            const role = r.role as TournamentRole;
+            const isInvitePending = r.status === 'pending';
+            const name = r.profile?.full_name ?? 'Player';
+            return (
+              <TouchableOpacity
+                key={r.id}
+                style={[styles.row, i > 0 && { borderTopWidth: HAIRLINE, borderTopColor: c.border }]}
+                onPress={() => navigation.navigate('PlayerProfile', { userId: r.user_id, userName: name })}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${name}${isInvitePending ? ', invited' : ''}. Open profile`}
+              >
+                <Text style={[t.meta, styles.seed]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{i + 1}</Text>
+                <FlairName
+                  name={name}
+                  nameColor={(r.profile as any)?.name_color}
+                  styleId={(r.profile as any)?.list_name_style_id ?? null}
+                  mode="list"
+                  numberOfLines={1}
+                  style={[t.title, styles.name, { color: isInvitePending ? c.textMuted : c.text }, isInvitePending && styles.italic]}
+                />
+                {isInvitePending ? (
+                  <Chip size="sm" label="Invited" tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+                ) : role === 'admin' || role === 'co-admin' ? (
+                  <Chip size="sm" label={tournamentRoleLabel(role)} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+                ) : null}
+                <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+    </CollapsibleSection>
   );
 }
 

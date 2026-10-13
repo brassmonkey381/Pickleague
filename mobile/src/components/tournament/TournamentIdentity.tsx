@@ -48,7 +48,13 @@ export type TournamentIdentityProps = {
  *  from the text width and fontScale (same estimate as LeagueIdentity) because
  *  RN-web never fires onTextLayout. The estimate errs toward showing "more": a
  *  "more" that expands to the same text costs nothing, clipped text with no
- *  "more" can't be read anywhere else (TournamentInfo doesn't show it). */
+ *  "more" can't be read anywhere else (TournamentInfo doesn't show it).
+ *
+ * FOUNDATION-TODO: foundation 1.41's ClampText measures overflow for real, but
+ * its text View has no flex, so "more" can only sit under the text (+44px when
+ * clamped) or in a fixed right inset that narrows every description. Add a
+ * `textContainerStyle` (or `toggleBeside`) option to ClampText, then use it here
+ * with a row containerStyle and drop this estimate. */
 const DESC_FONT_SIZE = 13; // t.sub
 const AVG_CHAR_EM = 0.55;
 const MORE_BOX = 44;

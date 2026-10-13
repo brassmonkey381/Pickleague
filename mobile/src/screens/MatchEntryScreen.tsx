@@ -9,7 +9,7 @@ import { RouteProp } from '@react-navigation/native';
 // @react-native-picker wheels (a doubles match stacked four ~216px wheels).
 // The picker package stays installed for any other caller; this screen no
 // longer imports it.
-import { Panel, Badge, FilterPill, SectionHeader, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
+import { Panel, Badge, FilterPill, SectionHeader, SegmentedToggle, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -104,14 +104,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const autoFilledCourtRef = useRef<string | null>(null);
   const [leaguePickerOpen, setLeaguePickerOpen] = useState(false);
   const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
-  // Which player slot's picker is open (one SingleSelectModal serves all four).
+  // Which player slot's picker is open (one SingleSelectModal serves all four;
+  // it clears its search on each open, so no slot inherits another's).
   const [pickerSlot, setPickerSlot] = useState<PlayerSlot | null>(null);
-  // Bumped on every open and used as the picker's key: the foundation modal
-  // keeps its search query in local state, so one shared instance would carry
-  // the last slot's search into the next. Bumping on open (not close) remounts
-  // it while hidden, so the close slide-out isn't cut.
-  const [pickerOpenSeq, setPickerOpenSeq] = useState(0);
-  const openPicker = (slot: PlayerSlot) => { setPickerOpenSeq((n) => n + 1); setPickerSlot(slot); };
+  const openPicker = (slot: PlayerSlot) => setPickerSlot(slot);
   const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'doubles');
   const [p1, setP1] = useState(prefillTeam1Player ?? '');
   const [partner1, setPartner1] = useState(prefillTeam1Partner ?? '');
@@ -765,31 +761,25 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         </Panel>
       )}
 
-      {/* Singles / Doubles toggle — locked in tournament mode. A form radio
-          group, not an in-screen tab, so it stays hand-rolled rather than a
-          SegmentedToggle. FOUNDATION-TODO: SegmentedToggle per-option disabled
-          (1.40's size='lg' already gives outline/solid a 44px box), then this
-          can adopt it. */}
-      <View style={S.toggleRow} accessibilityRole="radiogroup">
-        {(['singles', 'doubles'] as MatchType[]).map((t) => {
-          const isActive = matchType === t;
-          const disabled = isTournamentMatch && !isActive;
-          return (
-            <TouchableOpacity
-              key={t}
-              style={[S.toggleBtn, isActive && S.toggleBtnActive, disabled && S.dim]}
-              onPress={() => disabled ? null : resetOnTypeChange(t)}
-              disabled={disabled}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: isActive, disabled }}
-            >
-              <Text style={[S.toggleText, isActive && S.toggleTextActive]}>
-                {t === 'singles' ? 'Singles' : 'Doubles'}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      {/* Singles / Doubles toggle — locked in tournament mode (the other type
+          is disabled, the bracket's stays selected).
+          FOUNDATION-TODO: SegmentedToggle's segments only set
+          accessibilityState.selected, which RNW drops, so web screen readers
+          can't tell which type is chosen. Needs aria-pressed (or radio +
+          aria-checked) in the foundation's segmentA11y. */}
+      <SegmentedToggle<MatchType>
+        variant="solid"
+        size="lg"
+        fullWidth
+        options={(['singles', 'doubles'] as MatchType[]).map((t) => ({
+          value: t,
+          label: t === 'singles' ? 'Singles' : 'Doubles',
+          disabled: isTournamentMatch && t !== matchType,
+        }))}
+        value={matchType}
+        onChange={resetOnTypeChange}
+        style={S.typeToggle}
+      />
 
       {/* Players first: on a Home-launched match the league list below is
           narrowed to leagues every chosen player shares (and auto-picked when
@@ -1030,11 +1020,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
       {/* One player picker for the four slots. A Modal only ever opens from a
           tap on this screen, never on top of another one. */}
-      {/* FOUNDATION-TODO: SingleSelectModal should clear its search query when
-          visible goes true (and show emptyText when a search has no hits even
-          with noneLabel set); the key remounts it per open until then. */}
+      {/* FOUNDATION-TODO: SingleSelectModal should show emptyText when a
+          search has no hits even with noneLabel set (it always prepends the
+          none row); until then noneLabel is passed only when a slot is set. */}
       <SingleSelectModal
-        key={pickerOpenSeq}
         visible={pickerSlot != null}
         title={pickerSlot ? SLOT_LABEL[pickerSlot] : ''}
         items={pickerItems}
@@ -1096,11 +1085,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     tournamentBannerTitle: { ...t.title, marginBottom: SPACE.xxs },
     tournamentBannerBody:  t.sub,
 
-    toggleRow:        { flexDirection: 'row', borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, overflow: 'hidden', marginBottom: SPACE.md },
-    toggleBtn:        { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
-    toggleBtnActive:  { backgroundColor: c.primary },
-    toggleText:       { fontSize: FONT.size.lg, fontWeight: '600', color: c.textSub },
-    toggleTextActive: { color: c.textInverse },
+    typeToggle:       { marginBottom: SPACE.md },
 
     // Player / league fields: a 44 box, the 15px value, a chevron.
     teamRow:          { flexDirection: 'row', gap: SPACE.sm },

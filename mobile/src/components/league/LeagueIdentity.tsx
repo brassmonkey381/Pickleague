@@ -54,7 +54,13 @@ export type LeagueIdentityProps = {
  *  scales uncapped). RN-web never fires onTextLayout, so a measured line count
  *  isn't available on every platform. The estimate errs toward showing "more":
  *  a "more" that expands to the same text costs nothing, clipped text with no
- *  "more" can't be read anywhere else on the screen. */
+ *  "more" can't be read anywhere else on the screen.
+ *
+ * FOUNDATION-TODO: foundation 1.41's ClampText measures overflow for real, but
+ * its text View has no flex, so "more" can only sit under the text (+44px when
+ * clamped) or in a fixed right inset that narrows every description. Add a
+ * `textContainerStyle` (or `toggleBeside`) option to ClampText, then use it here
+ * with a row containerStyle and drop this estimate. */
 const DESC_FONT_SIZE = 13; // t.sub
 const AVG_CHAR_EM = 0.55;
 const MORE_BOX = 44;

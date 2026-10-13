@@ -1105,15 +1105,9 @@ export default function ProfileScreen({ navigation }: Props) {
           compact
           title="Availability"
           summary={availSummary}
-          onToggle={(open: boolean) => {
-            // The grid unmounts on collapse and has no unmount cleanup, so a
-            // collapse mid-Edit (the header stays tappable while the page
-            // scroll is locked) would leave the whole Profile unscrollable.
-            // FOUNDATION-TODO: AvailabilityGrid should call onScrollLock(false)
-            // in an unmount cleanup when it unmounts while editing.
-            if (!open) setGridScrollLocked(false);
-            onSectionToggle('availability')(open);
-          }}
+          // The grid unmounts on collapse; it releases the page scroll lock
+          // itself if that happens mid-Edit.
+          onToggle={onSectionToggle('availability')}
         >
           <View style={styles.availHead}>
             <Text style={[t.sub, styles.flexText]} numberOfLines={2}>

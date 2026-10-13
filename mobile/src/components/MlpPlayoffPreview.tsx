@@ -28,7 +28,7 @@ type Props = {
   isAdmin?: boolean;        // shows the manual "Generate playoff now" recovery button
   /**
    * Drop the title row (the subtitle stays), for a host that already names
-   * the section (TournamentDetail's "Playoff" SectionCard). Default false.
+   * the section (TournamentDetail's "Playoff" section). Default false.
    */
   bare?: boolean;
 };

@@ -9,6 +9,7 @@ import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/ex
 import {
   Panel,
   Badge,
+  ClampText,
   FilterPill,
   ListCard,
   SectionHeader,
@@ -16,7 +17,7 @@ import {
   CollapsibleSection,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -46,11 +47,6 @@ type Tab = 'incoming' | 'outgoing';
 
 // A past, not-yet-reviewed drill session the current user can review for pickles.
 type ReviewableSession = DrillSession & { partner_name: string };
-
-// A request message longer than this gets the 2-line clamp plus "more"
-// (content rule 1). A character count, because react-native-web has no
-// onTextLayout to tell us the rendered line count.
-const MESSAGE_CLAMP_CHARS = 90;
 
 type GroupKey = 'open' | 'accepted' | 'closed';
 const GROUP_ORDER: GroupKey[] = ['open', 'accepted', 'closed'];
@@ -97,8 +93,6 @@ export default function DrillRequestsScreen({ route }: Props) {
   // Per-request slot selection for the incoming Accept flow.
   // Key = request.id, value = index into proposed_slots that the receiver picked.
   const [selectedSlotIdx, setSelectedSlotIdx] = useState<Record<string, number>>({});
-  // Request ids whose long message is expanded past its 2-line clamp.
-  const [expandedMsgs, setExpandedMsgs] = useState<Record<string, boolean>>({});
   // Declined / cancelled requests sit in a collapsed "Closed" section, opened
   // for the visit when a push points at one of them.
   const [closedOpen, setClosedOpen] = useState(false);
@@ -465,8 +459,6 @@ export default function DrillRequestsScreen({ route }: Props) {
       );
     }
 
-    const long = !!item.message && item.message.length > MESSAGE_CLAMP_CHARS;
-    const expanded = !!expandedMsgs[item.id];
     const interactable = tab === 'incoming' && isPending;
     const slots = isAccepted && item.accepted_slot ? [item.accepted_slot] : item.proposed_slots;
 
@@ -476,17 +468,10 @@ export default function DrillRequestsScreen({ route }: Props) {
 
         {item.message ? (
           <View style={S.messageBox}>
-            <Text style={S.messageText} numberOfLines={long && !expanded ? 2 : undefined}>"{item.message}"</Text>
-            {long ? (
-              <Pressable
-                onPress={() => setExpandedMsgs(prev => ({ ...prev, [item.id]: !expanded }))}
-                style={S.linkBox}
-                accessibilityRole="button"
-                accessibilityLabel={expanded ? 'Show less of the message' : 'Show the whole message'}
-              >
-                <Text style={S.linkText}>{expanded ? 'less' : 'more'}</Text>
-              </Pressable>
-            ) : null}
+            {/* 2-line clamp plus "more" (content rule 1), shown only when it overflows. */}
+            <ClampText style={S.messageText} moreA11yLabel="Show the whole message" lessA11yLabel="Show less of the message">
+              {`"${item.message}"`}
+            </ClampText>
           </View>
         ) : null}
 
@@ -935,7 +920,7 @@ function DrillChatModal({
       )}
       <View style={S.composer}>
         <TextInput
-          style={S.input}
+          style={[S.input, webInputFontFloor(S.input)]}
           value={draft}
           onChangeText={(t) => { setDraft(t); if (sendError) setSendError(null); }}
           placeholder="Type a message…"

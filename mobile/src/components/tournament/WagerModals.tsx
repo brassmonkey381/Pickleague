@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput } from 'react-native';
+import { webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import ConfirmModal from '../ConfirmModal';
 import ActionSheetModal from '../ActionSheetModal';
 import WagerProposeModal from '../WagerProposeModal';
@@ -83,7 +84,7 @@ export default function WagerModals({
             <View style={{ flex: 1 }}>
               <Text style={S.scoreLabel}>{wagerMatchPick?.team1Label ?? 'Team 1'} score</Text>
               <TextInput
-                style={S.scoreInput}
+                style={[S.scoreInput, webInputFontFloor(S.scoreInput)]}
                 value={exactScoreT1}
                 onChangeText={setExactScoreT1}
                 placeholder="0"
@@ -95,7 +96,7 @@ export default function WagerModals({
             <View style={{ flex: 1 }}>
               <Text style={S.scoreLabel}>{wagerMatchPick?.team2Label ?? 'Team 2'} score</Text>
               <TextInput
-                style={S.scoreInput}
+                style={[S.scoreInput, webInputFontFloor(S.scoreInput)]}
                 value={exactScoreT2}
                 onChangeText={setExactScoreT2}
                 placeholder="0"

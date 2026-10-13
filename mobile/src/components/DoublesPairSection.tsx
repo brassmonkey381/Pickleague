@@ -13,6 +13,7 @@ import EmptyState from './EmptyState';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 
 type Props = {
   tournamentId: string;
@@ -23,7 +24,7 @@ type Props = {
   onPairsChanged?: () => void;
   /**
    * Drop the title row, for a host that already names the section
-   * (TournamentDetail's "Pairs" SectionCard). Default false.
+   * (TournamentDetail's "Pairs" section). Default false.
    */
   bare?: boolean;
 };
@@ -533,7 +534,7 @@ export default function DoublesPairSection({
               You'll become the captain. Pick a name now — you can invite your partner after.
             </Text>
             <TextInput
-              style={S.modalInput}
+              style={[S.modalInput, webInputFontFloor(S.modalInput)]}
               placeholder="Pair name"
               placeholderTextColor={c.textMuted}
               value={newPairName}

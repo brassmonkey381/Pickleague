@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, TextInput, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import AppDateTimePicker from '../AppDateTimePicker';
 import { useTournamentDetailStyles } from './styles';
@@ -43,7 +43,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Name</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editName}
           onChangeText={setEditName}
           placeholder="Tournament name"
@@ -53,7 +53,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Description</Text>
         <TextInput
-          style={[S.editInput, S.editInputMultiline]}
+          style={[S.editInput, S.editInputMultiline, webInputFontFloor(S.editInput)]}
           value={editDesc}
           onChangeText={setEditDesc}
           placeholder="What's this tournament about?"
@@ -88,7 +88,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Expected length (hours)</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editLengthHours}
           onChangeText={setEditLengthHours}
           placeholder="e.g. 3, 4.5"
@@ -99,7 +99,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Location</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editLocation}
           onChangeText={setEditLocation}
           placeholder="Where is it being held?"
@@ -109,7 +109,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Min players</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editMinPlayers}
           onChangeText={setEditMinPlayers}
           placeholder="No minimum"
@@ -120,7 +120,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Max players (raising it promotes the waitlist)</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editMaxPlayers}
           onChangeText={setEditMaxPlayers}
           placeholder="No cap"
@@ -131,7 +131,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Entry ante (🥒)</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editAnte}
           onChangeText={setEditAnte}
           placeholder="0"
@@ -142,7 +142,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Payout structure (% per place, sum 100)</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editPayout}
           onChangeText={setEditPayout}
           placeholder="60,25,15"
@@ -152,7 +152,7 @@ export default function EditTournamentModal({
 
         <Text style={S.editFieldLabel}>Prize pool override (🥒)</Text>
         <TextInput
-          style={S.editInput}
+          style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editPrizePool}
           onChangeText={setEditPrizePool}
           placeholder="Leave blank to keep current pool"

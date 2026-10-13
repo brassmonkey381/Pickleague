@@ -15,17 +15,17 @@
 // "Done" is a text link at the end that pops back to Home.
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Platform, TextInput, PixelRatio,
+  View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Platform, TextInput,
   type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  AvatarPile, Badge, Chip, CollapsibleSection, Panel, SectionHeader, StatusBanner,
+  AvatarPile, Badge, Chip, ClampText, CollapsibleSection, Panel, SectionHeader, StatusBanner,
   StickyActionBar, useBottomChromeInset,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
@@ -122,10 +122,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [editDesc, setEditDesc] = useState('');
   const [editLoc, setEditLoc] = useState<CourtResult | null>(null);
   const [detailsSaving, setDetailsSaving] = useState(false);
-  const [descExpanded, setDescExpanded] = useState(false);
-  // Native: whether the description needs more than its 2-line clamp, measured
-  // from an unclamped hidden twin (see the description block).
-  const [descOverflows, setDescOverflows] = useState(false);
   // Manage is controlled so a push (openNudge / openClose) can open it.
   const [manageOpen, setManageOpen] = useState(openNudge || openClose);
   type EventMatchRow = {
@@ -770,14 +766,6 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const showManage = !cancelled && (canInvite || canNudge || canCloseVote || canEdit || canSetupWebhook);
 
   const description = event.description?.trim() || '';
-  // Whether "more" shows. Native measures the real line count (descOverflows),
-  // so large text sizes, narrow phones and long URLs can't hide text behind the
-  // clamp with no "more". react-native-web has no onTextLayout, so web keeps a
-  // length check, scaled by the font scale (~50 characters a line at 1x).
-  // FOUNDATION-TODO: ClampText (measured N-line clamp with more/less; length + fontScale fallback on web)
-  const descLong = Platform.OS === 'web'
-    ? description.includes('\n') || description.length > Math.floor(90 / Math.max(1, PixelRatio.getFontScale()))
-    : descOverflows;
 
   // ── Sticky bar: repeats the time card's primary once it scrolls away ──
   const rsvpUnanswered = rsvpOpen && !iAmIn && !iDeclined;
@@ -862,29 +850,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           {place ? <Badge label={`📍 ${place}`} tone="neutral" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} /> : null}
         </View>
         {description ? (
-          <View style={S.descBlock}>
-            <Text style={t.sub} numberOfLines={descExpanded ? undefined : 2}>{description}</Text>
-            {Platform.OS !== 'web' && (
-              // Unclamped, invisible twin at the same width: a clamped Text
-              // reports its truncated line count, so measure this one instead.
-              <Text
-                style={[t.sub, S.measureTwin]}
-                onTextLayout={(e) => { const over = e.nativeEvent.lines.length > 2; setDescOverflows(prev => (prev === over ? prev : over)); }}
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                pointerEvents="none"
-              >
-                {description}
-              </Text>
-            )}
-            {descLong && (
-              <Pressable onPress={() => setDescExpanded(v => !v)} style={S.moreBox} accessibilityRole="button">
-                <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                  {descExpanded ? 'less' : 'more'}
-                </Text>
-              </Pressable>
-            )}
-          </View>
+          <ClampText style={t.sub} containerStyle={S.descBlock}>{description}</ClampText>
         ) : null}
 
         {status.value ? <StatusBanner status={status.value} style={S.banner} /> : null}
@@ -1096,7 +1062,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                       visible only to you.
                     </Text>
                     <TextInput
-                      style={S.input}
+                      style={[S.input, webInputFontFloor(S.input)]}
                       placeholder="https://discord.com/api/webhooks/…"
                       placeholderTextColor={c.textMuted}
                       value={webhookInput}
@@ -1142,7 +1108,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                     />
                     <Text style={t.fieldLabel}>Description</Text>
                     <TextInput
-                      style={[S.input, S.inputMulti]}
+                      style={[S.input, S.inputMulti, webInputFontFloor(S.input)]}
                       placeholder="Notes, what to bring..."
                       placeholderTextColor={c.textMuted}
                       value={editDesc}
@@ -1221,8 +1187,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     headerIconBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     chipRow:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, minHeight: 44 },
     descBlock:   { marginBottom: SPACE.sm },
-    measureTwin: { position: 'absolute', left: 0, right: 0, top: 0, opacity: 0 },
-    moreBox:     { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
     banner:      { marginTop: 0, marginBottom: SPACE.md },
     youCard:     { marginBottom: SPACE.md },
     youTitle:    { marginTop: SPACE.xxs },

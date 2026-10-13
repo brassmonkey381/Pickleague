@@ -14,6 +14,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import EmptyState from './EmptyState';
 import { isGodmodeUserId } from '../lib/godmode';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 
 type Props = {
   tournamentId: string;
@@ -28,7 +29,7 @@ type Props = {
   /**
    * Drop the title row (the subtitle stays: it explains the format), for a
    * host that already names the section (TournamentDetail's "Teams"
-   * SectionCard). Default false.
+   * section). Default false.
    */
   bare?: boolean;
 };
@@ -1007,7 +1008,7 @@ export default function MlpTeamSection({
             </Text>
             <Text style={S.modalLabel}>Team name</Text>
             <TextInput
-              style={S.modalInput}
+              style={[S.modalInput, webInputFontFloor(S.modalInput)]}
               placeholder="e.g. Dink Dynasty"
               placeholderTextColor={c.textMuted}
               value={newTeamName}

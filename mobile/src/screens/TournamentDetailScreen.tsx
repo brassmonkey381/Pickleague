@@ -6,7 +6,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useIsFocused } from '@react-navigation/native';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { Panel, StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
+import { CollapsibleSection, Panel, StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
@@ -715,14 +715,17 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'} formed`
     : `${td.doublesPairs.filter(p => p.partner_1_id && p.partner_2_id).length} pair(s) formed`;
   const teamsSection = hasTeams && status !== 'cancelled' ? (
-    <View ref={anchorRef('teams')} style={styles.block} onLayout={anchorLayout('teams')}>
-      <SectionCard
+    <View ref={anchorRef('teams')} onLayout={anchorLayout('teams')}>
+      <CollapsibleSection
+        compact
         title={isMlp ? 'Teams' : 'Pairs'}
         open={teamsOpen}
         onToggle={() => toggle('teams', !teamsOpen, setTeamsOpenChoice)}
-        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{teamsSummary}</Text>}
+        // collapsedContent, not `summary`: a summary sits inside the toggle,
+        // whose label replaces it for screen readers; this sibling is read.
+        collapsedContent={teamsSummary}
       >
-        {/* `bare`: the SectionCard header names the section, so the
+        {/* `bare`: the section header names the section, so the
             component's own title row is dropped. */}
         {needsPairs ? (
           <DoublesPairSection
@@ -748,95 +751,90 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
             onTeamsChanged={() => td.load()}
           />
         )}
-      </SectionCard>
+      </CollapsibleSection>
     </View>
   ) : null;
 
   const playoffSection = mlpPlayoff && status !== 'cancelled' ? (
-    <View style={styles.block}>
-      <SectionCard
-        title="Playoff"
-        open={playoffOpen}
-        onToggle={() => toggle('playoff', !playoffOpen, setPlayoffOpenChoice)}
-        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Top {tournament.mlp_playoff_teams ?? 4} teams advance</Text>}
-      >
-        {/* `bare`: the "Playoff" header replaces its own title row. */}
-        <MlpPlayoffPreview
-          bare
-          tournamentId={tournamentId}
-          tournamentName={tournament.name}
-          leagueId={tournament.league_id ?? ''}
-          mlpPlayFormat={tournament.mlp_play_format as 'round_robin_playoff' | 'pool_play_playoff'}
-          poolCount={tournament.mlp_pool_count ?? 2}
-          playoffTeams={tournament.mlp_playoff_teams ?? 4}
-          isAdmin={isPriv}
-        />
-      </SectionCard>
-    </View>
+    <CollapsibleSection
+      compact
+      title="Playoff"
+      open={playoffOpen}
+      onToggle={() => toggle('playoff', !playoffOpen, setPlayoffOpenChoice)}
+      collapsedContent={`Top ${tournament.mlp_playoff_teams ?? 4} teams advance`}
+    >
+      {/* `bare`: the "Playoff" header replaces its own title row. */}
+      <MlpPlayoffPreview
+        bare
+        tournamentId={tournamentId}
+        tournamentName={tournament.name}
+        leagueId={tournament.league_id ?? ''}
+        mlpPlayFormat={tournament.mlp_play_format as 'round_robin_playoff' | 'pool_play_playoff'}
+        poolCount={tournament.mlp_pool_count ?? 2}
+        playoffTeams={tournament.mlp_playoff_teams ?? 4}
+        isAdmin={isPriv}
+      />
+    </CollapsibleSection>
   ) : null;
 
   const playersSection = (
-    <View style={styles.block}>
-      <PlayersSection
-        navigation={navigation}
-        tournament={tournament}
-        tournamentId={tournamentId}
-        rosterShown={rosterShown}
-        isPriv={isPriv}
-        open={playersOpen}
-        onToggle={() => toggle('players', !playersOpen, setPlayersOpen)}
-      />
-    </View>
+    <PlayersSection
+      navigation={navigation}
+      tournament={tournament}
+      tournamentId={tournamentId}
+      rosterShown={rosterShown}
+      isPriv={isPriv}
+      open={playersOpen}
+      onToggle={() => toggle('players', !playersOpen, setPlayersOpen)}
+    />
   );
 
   const potSection = potShown ? (
-    <View style={styles.block}>
-      <SectionCard
-        title="Pot"
-        // PicklePotCard is `bare` (no title row, no pool pill), so the header
-        // carries the total while open; closed, the summary line has it.
-        count={potOpen ? `🥒 ${pool}` : undefined}
-        open={potOpen}
-        onToggle={() => toggle('pot', !potOpen, setPotOpen)}
-        collapsedContent={<Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{potSummary}</Text>}
-      >
-        <PicklePotCard
-          bare
-          scopeType="tournament"
-          scopeId={tournamentId}
-          scopeLabel="Tournament"
-          pool={pool}
-          ante={ante}
-          structure={structure}
-          isAdmin={isPriv}
-          canDistribute={status === 'completed'}
-          members={approved.map(r => ({ id: r.user_id, full_name: r.profile?.full_name ?? 'Player' }))}
-          onChange={() => td.load()}
-        />
-      </SectionCard>
-    </View>
+    <CollapsibleSection
+      compact
+      title="Pot"
+      // PicklePotCard is `bare` (no title row, no pool pill), so the header
+      // carries the total while open; closed, the summary line has it.
+      count={potOpen ? `🥒 ${pool}` : undefined}
+      open={potOpen}
+      onToggle={() => toggle('pot', !potOpen, setPotOpen)}
+      collapsedContent={<Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{potSummary}</Text>}
+    >
+      <PicklePotCard
+        bare
+        scopeType="tournament"
+        scopeId={tournamentId}
+        scopeLabel="Tournament"
+        pool={pool}
+        ante={ante}
+        structure={structure}
+        isAdmin={isPriv}
+        canDistribute={status === 'completed'}
+        members={approved.map(r => ({ id: r.user_id, full_name: r.profile?.full_name ?? 'Player' }))}
+        onChange={() => td.load()}
+      />
+    </CollapsibleSection>
   ) : null;
 
   const wagerSection = wagerShown ? (
-    <View style={styles.block}>
-      <SectionCard
-        title="Wager market"
-        open={td.wagerMarketOpen}
-        onToggle={() => toggle('wager', !td.wagerMarketOpen, td.setWagerMarketOpen)}
-        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Bet pickles on who finishes on the podium</Text>}
-      >
-        <WagerMarket
-          tournament={tournament}
-          tournamentId={tournamentId}
-          approved={approved}
-          wagerMarketShowAll={td.wagerMarketShowAll}
-          setWagerMarketShowAll={td.setWagerMarketShowAll}
-          wagerMarketSorted={td.wagerMarketSorted}
-          setWagerSubject={td.setWagerSubject}
-          setWagerOpen={td.setWagerOpen}
-        />
-      </SectionCard>
-    </View>
+    <CollapsibleSection
+      compact
+      title="Wager market"
+      open={td.wagerMarketOpen}
+      onToggle={() => toggle('wager', !td.wagerMarketOpen, td.setWagerMarketOpen)}
+      collapsedContent="Bet pickles on who finishes on the podium"
+    >
+      <WagerMarket
+        tournament={tournament}
+        tournamentId={tournamentId}
+        approved={approved}
+        wagerMarketShowAll={td.wagerMarketShowAll}
+        setWagerMarketShowAll={td.setWagerMarketShowAll}
+        wagerMarketSorted={td.wagerMarketSorted}
+        setWagerSubject={td.setWagerSubject}
+        setWagerOpen={td.setWagerOpen}
+      />
+    </CollapsibleSection>
   ) : null;
 
   return (
