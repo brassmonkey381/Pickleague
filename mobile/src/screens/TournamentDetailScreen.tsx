@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useIsFocused } from '@react-navigation/native';
+import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Panel, StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -102,6 +103,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>(EMPTY_SCHEDULE_FILTER);
   const [registering, setRegistering] = useState(false);
   const registeringRef = useRef(false);
+  const [responding, setResponding] = useState(false);
+  const respondingRef = useRef(false);
 
   // ── Scroll: anchors, the focus param, and the sticky bar ──
   // Each anchor is the onLayout y of a direct child of the scroll content
@@ -307,7 +310,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
 
   if (td.loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  if (!tournament) return <EmptyState title="Tournament not found." />;
+  if (!tournament) {
+    // Without the tournament row there is nothing to show: say what actually
+    // happened and keep pull-to-refresh + Retry mounted (LeagueDetail pattern).
+    const missing = td.loadError == null || classifySbError(td.loadError) === 'notFound';
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: c.bg }} refreshControl={<AppRefreshControl {...td.refresh} />}>
+        <EmptyState
+          icon={missing ? '🔍' : '📡'}
+          title={missing ? 'Tournament not found.' : "Couldn't load this tournament"}
+          subtitle={missing ? undefined : friendlySbMessage(td.loadError)}
+          actionLabel="Retry"
+          onAction={() => { void td.load(); }}
+        />
+      </ScrollView>
+    );
+  }
 
   // ── Registration facts ──
   const status = tournament.status;
@@ -386,6 +404,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     setRegistering(true);
     try { await td.register(); } finally { registeringRef.current = false; setRegistering(false); }
   }
+  // Accept / Decline: one call in flight, so a double tap (card or sticky
+  // bar) can't hit the RPC's "Invite already ..." and show a false failure.
+  async function respond(accept: boolean) {
+    if (!myReg || respondingRef.current) return;
+    respondingRef.current = true;
+    setResponding(true);
+    try { await td.respondToTournamentInvite(myReg.id, accept); } finally { respondingRef.current = false; setResponding(false); }
+  }
   const teamsDefaultOpen = status === 'registration' && (isPriv || myReg?.status === 'approved');
   const teamsOpen = teamsOpenChoice ?? teamsDefaultOpen;
   const playoffOpen = playoffOpenChoice ?? (status === 'active' || status === 'completed');
@@ -432,8 +458,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     register,
     registering,
     inviterName: myReg?.invited_by && td.profileNames[myReg.invited_by] ? td.profileNames[myReg.invited_by] : 'An organizer',
-    accept: () => { if (myReg) td.respondToTournamentInvite(myReg.id, true); },
-    decline: () => { if (myReg) td.respondToTournamentInvite(myReg.id, false); },
+    accept: () => respond(true),
+    decline: () => respond(false),
+    responding,
     waitlistPosition: myReg?.status === 'waitlisted'
       ? Math.max(1, waitlisted.findIndex(r => r.id === myReg.id) + 1)
       : null,
@@ -441,7 +468,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     needsPartner,
     findPartnerLabel,
     onFindPartner: openTeams,
-    releaseLine: bracketReleaseLabel(tournament.bracket_release_time) || 'The bracket release time isn\'t set yet.',
+    // No "not set yet" line for players (plan content rule 3); the organizer
+    // has the "Set the release time" step in Manage.
+    releaseLine: bracketReleaseLabel(tournament.bracket_release_time) || null,
     setupIndex: current.index,
     setupTotal: steps.length,
     setupLabel: current.step.label,
@@ -475,7 +504,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       }
     : kind === 'setup' && !setupWaitingOnAdmin ? { title: 'Open setup', onPress: openManage } : null;
   const stickySecondary = view?.secondary
-    ? { title: view.secondary.title, onPress: view.secondary.onPress, variant: 'outline' as const }
+    ? { title: view.secondary.title, onPress: view.secondary.onPress, variant: 'outline' as const, disabled: view.secondary.disabled }
     : undefined;
 
   // ── Pot ──
@@ -693,8 +722,11 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onToggle={() => toggle('teams', !teamsOpen, setTeamsOpenChoice)}
         collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{teamsSummary}</Text>}
       >
+        {/* `bare`: the SectionCard header names the section, so the
+            component's own title row is dropped. */}
         {needsPairs ? (
           <DoublesPairSection
+            bare
             tournamentId={tournamentId}
             tournamentStatus={status}
             isPriv={isPriv}
@@ -704,6 +736,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           />
         ) : (
           <MlpTeamSection
+            bare
             tournamentId={tournamentId}
             format={tournament.format as 'mlp' | 'mlp_random'}
             mlpPlayFormat={tournament.mlp_play_format}
@@ -727,7 +760,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         onToggle={() => toggle('playoff', !playoffOpen, setPlayoffOpenChoice)}
         collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Top {tournament.mlp_playoff_teams ?? 4} teams advance</Text>}
       >
+        {/* `bare`: the "Playoff" header replaces its own title row. */}
         <MlpPlayoffPreview
+          bare
           tournamentId={tournamentId}
           tournamentName={tournament.name}
           leagueId={tournament.league_id ?? ''}

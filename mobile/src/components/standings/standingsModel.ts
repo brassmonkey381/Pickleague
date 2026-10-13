@@ -3,30 +3,25 @@
 // React / React Native imports, so vitest can exercise it directly
 // (components/standings/__tests__).
 //
-// The table math moved here unchanged from the screen (P4 compaction); only the
-// presentation around it changed.
+// The period dates and the table math come from lib/seasonSummary.ts, the one
+// source of truth LeagueDetail's season strip also ranks with, so the strip's
+// "You #N" always equals this screen's rank. This file adds the screen-only
+// pieces on top (profile fields on each row, finals, lock gating, header).
 import type { LeagueSeason, SeasonSnapshot, SeasonFinalStanding } from '../../types';
+import { periodEndDate, periodStartDate as seasonPeriodStartDate, computeSeasonStandings } from '../../lib/seasonSummary';
 
 type SeasonDates = Pick<LeagueSeason, 'start_date' | 'lock_frequency_weeks'>;
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
 /** Local ISO date "YYYY-MM-DD" for a period N's snapshot/end date. */
 export function computePeriodDate(s: SeasonDates, periodNumber: number): string {
-  const d = new Date(s.start_date + 'T00:00:00');
-  d.setDate(d.getDate() + periodNumber * s.lock_frequency_weeks * 7);
-  return isoDay(d);
+  return periodEndDate(s, periodNumber);
 }
 
 /** Local ISO date "YYYY-MM-DD" for the first day of period N.
  *   Period 1 starts on the season's start_date.
  *   Period N (>1) starts the day after period N-1's snapshot/end date. */
 export function periodStartDate(s: SeasonDates, periodNumber: number): string {
-  if (periodNumber <= 1) return s.start_date;
-  const d = new Date(computePeriodDate(s, periodNumber - 1) + 'T00:00:00');
-  d.setDate(d.getDate() + 1);
-  return isoDay(d);
+  return seasonPeriodStartDate(s, periodNumber);
 }
 
 export type LiveRow = {
@@ -54,9 +49,12 @@ export type SnapshotPeriod = {
 // each player's per-match team deltas (player1_rating_after - _before for
 // team1 / player2_after - player2_before for team2). Partners on the same
 // team share the nominal player's delta. This ignores the player's global
-// PLUPR entirely — exactly the contract the user asked for.
+// PLUPR entirely — exactly the contract the user asked for. Each game of a
+// multi-game match counts as its own W/L.
 //
-// Sort: season PLUPR desc → (W-L) desc → W desc.
+// Sort: season PLUPR desc → (W-L) desc → W desc. The math and the sort are
+// seasonSummary's computeSeasonStandings; this only adds the profile fields
+// the table renders.
 export function computeStandings(
   members: any[],
   matches: any[],
@@ -64,66 +62,24 @@ export function computeStandings(
   startIso?: string,
   endIso?: string,
 ): LiveRow[] {
-  const inRange = matches.filter(m => {
-    if (!m.played_at) return false;
-    if (startIso && m.played_at < startIso) return false;
-    if (endIso   && m.played_at > endIso)   return false;
-    return true;
-  });
-  return members.map(m => {
-    const uid = m.user_id;
-    // Each game in a multi-game match counts independently. A best-of-3
-    // ending 2-1 produces 2 W + 1 L for the winning side. Single-game
-    // matches (game_scores null) keep the old 1 W or 1 L behavior.
-    let wins = 0;
-    let losses = 0;
-    for (const x of inRange) {
-      const onTeam1 = x.player1_id === uid || x.partner1_id === uid;
-      const onTeam2 = x.player2_id === uid || x.partner2_id === uid;
-      if (!onTeam1 && !onTeam2) continue;
-      const games = Array.isArray(x.game_scores) && x.game_scores.length > 0
-        ? x.game_scores
-        : null;
-      if (games) {
-        for (const g of games as { t1: number; t2: number }[]) {
-          if (onTeam1) { if (g.t1 > g.t2) wins++; else if (g.t2 > g.t1) losses++; }
-          else         { if (g.t2 > g.t1) wins++; else if (g.t1 > g.t2) losses++; }
-        }
-      } else {
-        if (onTeam1 && x.winner_team === 'team1') wins++;
-        else if (onTeam1 && x.winner_team === 'team2') losses++;
-        else if (onTeam2 && x.winner_team === 'team2') wins++;
-        else if (onTeam2 && x.winner_team === 'team1') losses++;
-      }
-    }
-    let seasonDelta = 0;
-    for (const x of inRange) {
-      const onTeam1 = x.player1_id === uid || x.partner1_id === uid;
-      const onTeam2 = x.player2_id === uid || x.partner2_id === uid;
-      if (onTeam1 && x.player1_rating_before != null && x.player1_rating_after != null) {
-        seasonDelta += x.player1_rating_after - x.player1_rating_before;
-      } else if (onTeam2 && x.player2_rating_before != null && x.player2_rating_after != null) {
-        seasonDelta += x.player2_rating_after - x.player2_rating_before;
-      }
-    }
+  const memberById = new Map<string, any>(members.map(m => [m.user_id, m]));
+  return computeSeasonStandings(members, matches, baseline, startIso, endIso).map(r => {
+    const profile = memberById.get(r.user_id)?.profile;
     return {
-      user_id: uid,
+      user_id: r.user_id,
       // '' rather than 'Unknown': the row renders a neutral "Player" fallback
       // (content rule 3, no "Unknown" to non-admins).
-      full_name: m.profile?.full_name ?? '',
-      rating: baseline + seasonDelta,
-      avatar_id: m.profile?.avatar_id ?? 1,
-      avatar_url: m.profile?.avatar_url ?? null,
-      name_color: m.profile?.name_color ?? null,
-      list_name_style_id: m.profile?.list_name_style_id ?? null,
-      wins, losses,
-      total_matches_played: m.profile?.total_matches_played ?? 0,
+      full_name: profile?.full_name ?? '',
+      rating: r.rating,
+      avatar_id: profile?.avatar_id ?? 1,
+      avatar_url: profile?.avatar_url ?? null,
+      name_color: profile?.name_color ?? null,
+      list_name_style_id: profile?.list_name_style_id ?? null,
+      wins: r.wins,
+      losses: r.losses,
+      total_matches_played: profile?.total_matches_played ?? 0,
     };
-  }).sort((a, b) =>
-    (b.rating - a.rating) ||
-    ((b.wins - b.losses) - (a.wins - a.losses)) ||
-    (b.wins - a.wins)
-  );
+  });
 }
 
 /** PLUPR rank bonuses for the end-of-period soft reset. Mirrors the SQL trigger. */

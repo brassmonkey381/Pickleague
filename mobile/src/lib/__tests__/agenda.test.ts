@@ -139,6 +139,13 @@ describe('tournamentAgendaItems', () => {
     expect(request).toMatchObject({ needsYou: false, deadline: null });
   });
 
+  it('a waitlisted registration is labelled waitlisted, with no button and nothing needed', () => {
+    const [t] = tournamentAgendaItems([{ id: 'w', name: 'Full Cup', ...base, myStatus: 'waitlisted' }], NOW);
+    expect(t.status).toBe('waitlisted');
+    expect(t.action).toBeNull();
+    expect(t.needsYou).toBe(false);
+  });
+
   it('an invite whose registration has closed no longer needs you (still listed)', () => {
     const [t] = tournamentAgendaItems([
       { id: 'a', name: 'A', ...base, myStatus: 'pending', invited: true, registrationClosesAt: at(-1, 12) },

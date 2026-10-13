@@ -90,22 +90,35 @@ function ToggleRow({ S, c, label, desc, value, onChange, disabled, inset = true 
   inset?: boolean;
 }) {
   return (
-    <View style={[S.row, !inset && S.rowFlush, disabled && S.dim]}>
+    // The whole row is the control: RNW's Switch is about 40x20, under the
+    // 44pt rule (and hitSlop doesn't apply on web).
+    <TouchableOpacity
+      style={[S.row, !inset && S.rowFlush, disabled && S.dim]}
+      onPress={() => onChange(!value)}
+      disabled={disabled}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled: !!disabled }}
+      accessibilityLabel={label}
+      accessibilityHint={desc}
+    >
       <View style={S.rowText}>
         <Text style={S.rowLabel}>{label}</Text>
         {/* Clamped at 2 lines with no "more": every desc passed here is written
             to fit 2 lines at phone width (~80 chars), so keep new ones that short. */}
         {desc ? <Text style={S.rowDesc} numberOfLines={2}>{desc}</Text> : null}
       </View>
-      <Switch
-        value={value}
-        onValueChange={onChange}
-        disabled={disabled}
-        trackColor={{ false: c.border, true: c.primary }}
-        thumbColor={c.textInverse}
-        accessibilityLabel={label}
-      />
-    </View>
+      {/* Visual only, so one tap toggles once (a live Switch would also fire
+          its own change) and a screen reader reads the row, not both. */}
+      <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+        <Switch
+          value={value}
+          disabled={disabled}
+          trackColor={{ false: c.border, true: c.primary }}
+          thumbColor={c.textInverse}
+        />
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -136,7 +149,6 @@ export default function SettingsScreen({ navigation }: Props) {
   // lands, the controls are read-only rather than lying about the saved state.
   const [prefsReady, setPrefsReady]   = useState(false);
   const [pushBusy, setPushBusy]       = useState(false);
-  const [badgesPublic, setBadgesPublic] = useState(true);
   const [isGuest, setIsGuest]           = useState(false);
   const [email, setEmail]             = useState('');
   const [resetSent, setResetSent]     = useState(false);
@@ -244,17 +256,17 @@ export default function SettingsScreen({ navigation }: Props) {
     if (!uid) return;
     setUserId(uid);
     try {
-      // The display name moved to Profile's Edit sheet (one Save for every
-      // profile field), so this screen no longer reads or writes full_name.
+      // The display name and badge visibility moved to Profile's Edit sheet
+      // (one Save for every profile field), so this screen no longer reads or
+      // writes full_name or badges_public.
       const data = await sbCall(() =>
         supabase
           .from('profiles')
-          .select('badges_public, is_guest')
+          .select('is_guest')
           .eq('id', uid)
           .single(),
       );
       if (data) {
-        setBadgesPublic(data.badges_public ?? true);
         setIsGuest(!!data.is_guest);
       }
     } catch (e) {
@@ -274,19 +286,6 @@ export default function SettingsScreen({ navigation }: Props) {
     } else {
       setResetSent(true);
       status.success(`Email sent — check ${email} for a password reset link.`);
-    }
-  }
-
-  async function toggleBadgesPublic(val: boolean) {
-    if (!userId) return;
-    setBadgesPublic(val);
-    try {
-      await sbCall(() => supabase.from('profiles').update({ badges_public: val }).eq('id', userId));
-    } catch (e) {
-      // A privacy switch that silently didn't save is worse than one that
-      // visibly refused — snap it back and say so.
-      setBadgesPublic(!val);
-      status.error(friendlySbMessage(e, "Couldn't change badge visibility."));
     }
   }
 
@@ -510,19 +509,12 @@ export default function SettingsScreen({ navigation }: Props) {
       {/* ── Privacy ──────────────────────────── */}
       <SectionHeader title="Privacy" />
       <Panel padded={false} style={S.card}>
-        <ToggleRow
-          S={S}
-          c={colors}
-          label="Show badges publicly"
-          desc="Other players can see your badges on your profile"
-          value={badgesPublic}
-          onChange={toggleBadgesPublic}
-        />
-        <Divider S={S} />
+        {/* Badge visibility lives in Profile's Edit sheet (one Save for every
+            profile field), like the display name. */}
         <ActionRow
           S={S}
           label="Manage profile visibility"
-          desc="Control what other players can see"
+          desc="Badge visibility and what other players can see"
           onPress={() => navigation.navigate('Profile', {})}
         />
         <Divider S={S} />

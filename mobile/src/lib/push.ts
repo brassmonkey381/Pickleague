@@ -22,7 +22,7 @@ import {
 import { withRetry } from '@just-messin-around/expo-foundation/platform';
 import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
-import { navigateWhenReady } from './navigationRef';
+import { navigationRef, navigateWhenReady } from './navigationRef';
 import { catalog, handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
 import { linkForAction, linkOf, pushRoutes } from './pushLinks';
 import { WAGERS_ENABLED } from './features';
@@ -147,8 +147,17 @@ type PushData = Record<string, unknown> & {
   invite_code?: string;
 };
 
-const go = (name: string, params?: Record<string, unknown>) =>
+const go = (name: string, params?: Record<string, unknown>) => {
+  // Home is always the bottom of the stack (first screen + linking
+  // initialRouteName). A plain navigate('Home') from another screen pushes a
+  // second Home under routers 7.x, so pop back to the existing one instead.
+  if (name === 'Home') {
+    if (navigationRef.isReady()) navigationRef.navigate('Home', undefined, { pop: true });
+    // Not ready = cold start: the navigator mounts on Home anyway.
+    return;
+  }
   navigateWhenReady(name as keyof RootStackParamList, params as never);
+};
 
 // The route table lives in lib/pushLinks.ts (pure, tested). Mirrors
 // NotificationsScreen.handleTap, which routes through routeNotification too.

@@ -4,7 +4,7 @@
 // actions in the same order with the same wording — a profile, a drill thread,
 // a search result. Renders nothing at all on your own row.
 import React, { useState } from 'react';
-import { TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import ActionSheetModal, { ActionSheetAction } from './ActionSheetModal';
 import ConfirmModal from './ConfirmModal';
@@ -105,14 +105,17 @@ export default function PlayerModerationMenu({
 
   return (
     <>
+      {/* The touchable itself is the 44 box (react-native-web ignores
+          hitSlop); the 34 circle, or the bare glyph in compact, sits inside. */}
       <TouchableOpacity
         onPress={() => setSheetOpen(true)}
-        style={[S.btn, compact && S.btnCompact]}
+        style={S.box}
         accessibilityLabel={`More options for ${userName}`}
         accessibilityRole="button"
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <Text style={[S.glyph, compact && S.glyphCompact]}>⋯</Text>
+        <View style={[S.btn, compact && S.btnCompact]}>
+          <Text style={[S.glyph, compact && S.glyphCompact]}>⋯</Text>
+        </View>
       </TouchableOpacity>
 
       <ActionSheetModal
@@ -154,9 +157,10 @@ export default function PlayerModerationMenu({
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    box:          { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     btn:          { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceAlt },
-    btnCompact:   { width: 28, height: 28, borderRadius: 14, backgroundColor: 'transparent' },
+    btnCompact:   { backgroundColor: 'transparent' },
     glyph:        { fontSize: 20, lineHeight: 22, fontWeight: '800', color: c.textSub },
-    glyphCompact: { fontSize: 18, lineHeight: 20, color: c.textMuted },
+    glyphCompact: { color: c.textMuted },
   });
 }

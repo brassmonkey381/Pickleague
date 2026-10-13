@@ -160,10 +160,10 @@ describe('joinRequestItems', () => {
 
   it('one row per league I run; one request names the player, several are counted', () => {
     const items = joinRequestItems([
-      { id: 'a', league_id: 'l1', created_at: iso(-2 * H), requester: { full_name: 'Ana Lee' } },
-      { id: 'b', league_id: 'l2', created_at: iso(-5 * H), requester: { full_name: 'Bo' } },
-      { id: 'c', league_id: 'l2', created_at: iso(-1 * H), requester: { full_name: 'Cy' } },
-      { id: 'x', league_id: 'not-mine', created_at: iso(-H) },
+      { id: 'a', league_id: 'l1', user_id: 'u-ana', created_at: iso(-2 * H), requester: { full_name: 'Ana Lee' } },
+      { id: 'b', league_id: 'l2', user_id: 'u-bo', created_at: iso(-5 * H), requester: { full_name: 'Bo' } },
+      { id: 'c', league_id: 'l2', user_id: 'u-cy', created_at: iso(-1 * H), requester: { full_name: 'Cy' } },
+      { id: 'x', league_id: 'not-mine', user_id: 'u-x', created_at: iso(-H) },
     ], leagues);
     expect(items.map((i) => [i.key, i.title, i.leagueName])).toEqual([
       ['join-l1', 'Ana wants to join', 'Dinks'],
@@ -230,7 +230,7 @@ describe('inboxAgendaItems + the bell', () => {
     const items = inboxAgendaItems({
       matches: [match({ id: 'm' })],
       drills: [{ id: 'r', status: 'pending', proposed_slots: [{ date: '2026-10-15', slot: 36 }], created_at: iso(-H) }],
-      joins: [{ id: 'j', league_id: 'l1', created_at: iso(-H) }],
+      joins: [{ id: 'j', league_id: 'l1', user_id: 'u-j', created_at: iso(-H) }],
     }, ME, [{ id: 'l1', name: 'Dinks' }], NOW);
     expect(items).toHaveLength(3);
     expect(needsYouCount(items, NOW)).toBe(3);

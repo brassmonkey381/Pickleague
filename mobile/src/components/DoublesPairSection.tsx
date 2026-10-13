@@ -21,6 +21,11 @@ type Props = {
   currentUserId: string | null;
   approvedRegistrations: TournamentRegistration[];
   onPairsChanged?: () => void;
+  /**
+   * Drop the title row, for a host that already names the section
+   * (TournamentDetail's "Pairs" SectionCard). Default false.
+   */
+  bare?: boolean;
 };
 
 type ProfileLite = { id: string; full_name: string };
@@ -30,7 +35,7 @@ type Slot = typeof SLOTS[number];
 
 export default function DoublesPairSection({
   tournamentId, tournamentStatus, isPriv, currentUserId,
-  approvedRegistrations, onPairsChanged,
+  approvedRegistrations, onPairsChanged, bare = false,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -321,7 +326,7 @@ export default function DoublesPairSection({
 
   return (
     <View style={S.root}>
-      <Text style={S.title}>🤝 Doubles Partners</Text>
+      {!bare && <Text style={S.title}>🤝 Doubles Partners</Text>}
       <StatusBanner status={status.value} />
       {/* Recruitment pitch only makes sense while pairing is still possible —
           once the bracket is locked (active/completed) just show the teams. */}

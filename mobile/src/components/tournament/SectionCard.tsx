@@ -3,9 +3,17 @@
 // collapses like CollapsibleSection, but it can also show a NODE while closed
 // (the Players section's AvatarPile), which CollapsibleSection can't.
 //
-// FOUNDATION-TODO: CollapsibleSection's `summary` takes a string only; accept
-// a ReactNode (or add a `collapsedContent` slot) so a collapsed section can
-// show an AvatarPile, then replace this adapter with it.
+// FOUNDATION-TODO: this forks CollapsibleSection, so the collapsible sections
+// here (Pairs/Teams, Playoff, Players, Pot, Wager) look unlike Manage on this
+// screen and the League/Event/Profile sections. Two additive foundation changes
+// close the gap: widen CollapsibleSection's `count` to `number | string` (Pot
+// shows "🥒 N"), and add a `collapsedContent?: ReactNode` slot rendered OUTSIDE
+// the toggle button while closed (the AvatarPile is pressable; nesting it in
+// the toggle would nest pressables). Then move those five call sites to
+// `CollapsibleSection compact` (text summaries -> `summary`, the pile ->
+// `collapsedContent`) and drop onToggle/open/collapsedContent/keepMounted here,
+// keeping this only for the static sections (Schedule, Standings, Stages,
+// Playoff bracket).
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Panel, SectionHeader, type SectionHeaderAction } from '@just-messin-around/expo-foundation/ui';

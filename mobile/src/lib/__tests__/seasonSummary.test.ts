@@ -185,6 +185,23 @@ describe('summarizeSeason + headline', () => {
     expect(seasonHeadline(s, fmt)).toBe('Fall · Wk 7 of 12 · Lock due');
   });
 
+  it('never shows members "Lock due": the live period lock date, or nothing when all are overdue', () => {
+    const s = summarizeSeason({
+      season: SEASON, lockedPeriods: [1, 2], members,
+      matches: [singles('me', 'a', 'team1', '2026-10-13T17:00:00+00:00', 0.2, -0.2)],
+      myUserId: 'me', today,
+    });
+    expect(s.lockDue).toBe(true);
+    expect(s.liveLockOn).toBe('2026-10-26');
+    expect(seasonHeadline(s, fmt, { privileged: false })).toBe('Fall · Wk 7 of 12 · You #1 · locks <2026-10-26>');
+    expect(seasonHeadline(s, fmt, { privileged: true })).toBe('Fall · Wk 7 of 12 · You #1 · Lock due');
+    // Past the end with P5 and P6 unlocked: the ranked period is overdue too.
+    const late = summarizeSeason({ season: SEASON, lockedPeriods: [1, 2, 3, 4], members, matches: [], myUserId: 'me', today: '2026-12-01' });
+    expect(late.lockDue).toBe(true);
+    expect(late.liveLockOn).toBeNull();
+    expect(seasonHeadline(late, fmt, { privileged: false })).toBe('Fall · Wk 12 of 12');
+  });
+
   it('a lock is due ON its snapshot date (local), the day SeasonStandings enables Lock', () => {
     // Next lock is period 4 on Oct 26; the windows still use the UTC `today`.
     const at = (lockToday: string) => summarizeSeason({

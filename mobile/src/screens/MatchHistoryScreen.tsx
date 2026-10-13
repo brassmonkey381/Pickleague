@@ -66,7 +66,8 @@ type HistoryMatch = Match & {
 //
 // Filter-pill convention: the league / tournament chip on each card ships with
 // the League and Tournament groups here. They replace the old Region pill
-// (5 hard-coded Bay Area boxes in lib/regions.ts), which no card displayed.
+// (5 hard-coded Bay Area boxes in the now-deleted lib/regions.ts), which no
+// card displayed.
 const FILTER_DEFAULTS: FilterValues = {
   player: null,
   recency: null,

@@ -84,6 +84,9 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
   const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
   const [loading, setLoading]             = useState(true);
+  // Last failed tournament read (null after a good one). The screen tells a
+  // real "not found" from a network failure with classifySbError.
+  const [loadError, setLoadError]         = useState<unknown>(null);
   // Settled finishing order (completed tournaments only; [] until it exists).
   // The You card's finish + podium and the final standings read it (P5b).
   const [finalRanks, setFinalRanks]       = useState<FinalRankRow[]>([]);
@@ -199,6 +202,17 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     ]);
     setGodmode(godmodeResult);
 
+    // A failed read (offline, flaky refocus) keeps the last loaded tournament
+    // and everything derived from it instead of wiping the screen to
+    // "not found". A missing row (.single() -> PGRST116) also lands here and
+    // classifies as notFound.
+    if (tRes.error) {
+      setLoadError(tRes.error);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
+
     const t = tRes.data as Tournament;
     setTournament(t);
     // The header is the tournament's own name, never the push that opened it.
@@ -207,8 +221,20 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     // than stripping an organizer's controls over a network blip.
     if (role !== 'unknown') setMyRole(role);
 
-    const regs = (regRes.data ?? []) as TournamentRegistration[];
-    setRegistrations(regs);
+    // Same for registrations: a failed read keeps the last list (and the
+    // names/ratings built from it) so the viewer doesn't look unregistered.
+    if (!regRes.error) {
+      const regs = (regRes.data ?? []) as TournamentRegistration[];
+      setRegistrations(regs);
+
+      const names: Record<string, string> = {};
+      const ratings: Record<string, number> = {};
+      regs.forEach(r => {
+        if (r.profile) { names[r.user_id] = r.profile.full_name; ratings[r.user_id] = (r.profile as any).rating ?? 3.25; }
+      });
+      setProfileNames(names);
+      setProfileRatings(ratings);
+    }
 
     // Doubles pair list (only relevant for non-MLP doubles formats — harmless
     // to load for others, returns empty).
@@ -217,14 +243,6 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       .select('partner_1_id, partner_2_id')
       .eq('tournament_id', tournamentId);
     setDoublesPairs((pairs ?? []) as any);
-
-    const names: Record<string, string> = {};
-    const ratings: Record<string, number> = {};
-    regs.forEach(r => {
-      if (r.profile) { names[r.user_id] = r.profile.full_name; ratings[r.user_id] = (r.profile as any).rating ?? 3.25; }
-    });
-    setProfileNames(names);
-    setProfileRatings(ratings);
 
     // Load saved matches + rounds if tournament is active OR completed
     if (t?.status === 'active' || t?.status === 'completed') {
@@ -238,8 +256,9 @@ export function useTournamentDetail({ navigation, tournamentId }: {
           .eq('tournament_id', tournamentId)
           .order('round_number'),
       ]);
-      setSavedMatches(smRes.data ?? []);
-      setSavedRounds(srRes.data ?? []);
+      // Keep the last schedule on a failed read rather than blanking it.
+      if (!smRes.error) setSavedMatches(smRes.data ?? []);
+      if (!srRes.error) setSavedRounds(srRes.data ?? []);
     }
 
     // Settled ranks: everyone can read tournament_final_ranks (RLS). A read
@@ -1166,7 +1185,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   }
 
   return {
-    status, refresh, load, loading,
+    status, refresh, load, loading, loadError,
     // Data
     tournament, registrations, myRole, myUserId, godmode,
     doublesPairs, savedMatches, savedRounds, mlpStandings,

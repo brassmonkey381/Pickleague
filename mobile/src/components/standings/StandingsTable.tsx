@@ -67,7 +67,10 @@ export default function StandingsTable({
         const last = i === rows.length - 1;
         return (
           <TouchableOpacity
-            key={row.userId}
+            // The viewer's position is in its key: RNW fires onLayout only on a
+            // resize, so a row that moves (a reload reorders, a member joins
+            // above) must remount to report its new y for "Jump to me".
+            key={mine ? `${row.userId}@${i}` : row.userId}
             style={[S.row, !last && S.divider, mine && S.mine]}
             onPress={() => onRowPress(row)}
             onLongPress={onRowLongPress ? () => onRowLongPress(row) : undefined}

@@ -6,7 +6,7 @@
 // It replaces three cards the screen used to stack (about 250-350px): the
 // home-court banner, the description/privacy card and the "Your role" banner.
 // The region label ("East Bay") those cards showed is gone: the court chip
-// names the actual court (lib/regions.ts is being retired, plan section 4).
+// names the actual court (lib/regions.ts was retired, plan section 4).
 //
 // Content rules: no "Not set" / "Unknown" / zero values for non-admins. A
 // league without a home court shows nothing there to members; an admin gets a

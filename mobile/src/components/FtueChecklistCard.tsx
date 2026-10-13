@@ -16,8 +16,9 @@ import { Profile } from '../types';
 // match), each worth pickles once (claim_ftue_step).
 //
 // Two surfaces share this file:
-//   - Profile → Unlockable Rewards renders the default export (alwaysShow +
-//     embedded), a progress tracker that stays visible when everything is done.
+//   - UnlockProgress → Getting started (UnlockProgressScreen) renders the
+//     default export (alwaysShow + embedded), a progress tracker that stays
+//     visible when everything is done. Profile links there from its status strip.
 //   - Home's Get started panel (components/home/GetStartedPanel) uses
 //     useFtueChecklist + FtueStepRow, so the steps sit as rows in one Panel next
 //     to the guest / DUPR offers (plan section 3).

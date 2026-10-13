@@ -62,6 +62,7 @@ export type YouCardFacts = {
   inviterName: string;
   accept: () => void;
   decline: () => void;
+  responding?: boolean;
   // Waitlisted
   waitlistPosition: number | null;
   // Approved
@@ -69,7 +70,7 @@ export type YouCardFacts = {
   needsPartner: boolean;
   findPartnerLabel: string;
   onFindPartner: () => void;
-  releaseLine: string;
+  releaseLine: string | null;
   // Organizer setup
   setupIndex: number;
   setupTotal: number;
@@ -118,8 +119,8 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
       return {
         title: `${f.inviterName} invited you`,
         lines: f.ante > 0 ? [`Entry is a 🥒 ${f.ante} ante, charged when you accept.`] : ['Accept to take your spot.'],
-        primary: { title: 'Accept', onPress: f.accept },
-        secondary: { title: 'Decline', onPress: f.decline, variant: 'outline' },
+        primary: { title: 'Accept', onPress: f.accept, loading: f.responding },
+        secondary: { title: 'Decline', onPress: f.decline, variant: 'outline', disabled: f.responding },
       };
     case 'requested':
       return { title: 'Request sent', lines: ['An organizer will review it.'] };

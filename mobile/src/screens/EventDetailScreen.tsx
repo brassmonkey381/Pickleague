@@ -542,6 +542,10 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     if (pushIntentDone.current || loading || !event || !currentUserId) return;
     if (!openNudge && !openClose) return;
     pushIntentDone.current = true;
+    // Clear the params too, so a web refresh (they're in the URL) doesn't
+    // reopen the confirm or the composer. Manage's open state and the scroll
+    // were seeded from them at mount, so nothing else re-reads them.
+    navigation.setParams({ openNudge: undefined, openClose: undefined });
     if (event.created_by !== currentUserId) return;
     if (openClose && event.status === 'voting') closeVoting();
     else if (openNudge && nudgeKind) void sendNudge('sms');
@@ -678,6 +682,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       const y = anchorY(target);
       if (y == null) continue;
       pendingScroll.current = null;
+      // Clear the param too, so a web refresh (the param is in the URL) or a
+      // shared link doesn't re-arm the scroll.
+      if (focus) navigation.setParams({ focus: undefined });
       // Next frame: the anchor's own layout pass may still be settling.
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - SPACE.sm), animated: true }));
       return;

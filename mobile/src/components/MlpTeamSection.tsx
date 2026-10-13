@@ -25,6 +25,12 @@ type Props = {
   approvedRegistrations: TournamentRegistration[];
   bracketAlreadyGenerated: boolean;
   onTeamsChanged?: () => void;
+  /**
+   * Drop the title row (the subtitle stays: it explains the format), for a
+   * host that already names the section (TournamentDetail's "Teams"
+   * SectionCard). Default false.
+   */
+  bare?: boolean;
 };
 
 type ProfileLite = { id: string; full_name: string; gender: string | null };
@@ -40,7 +46,7 @@ const SLOT_ORDER: MlpTeamSlot[] = ['male_1', 'male_2', 'female_1', 'female_2'];
 
 export default function MlpTeamSection({
   tournamentId, format, mlpPlayFormat = 'round_robin', tournamentStatus, isPriv, currentUserId,
-  approvedRegistrations, bracketAlreadyGenerated, onTeamsChanged,
+  approvedRegistrations, bracketAlreadyGenerated, onTeamsChanged, bare = false,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -541,7 +547,7 @@ export default function MlpTeamSection({
 
   return (
     <View style={S.root}>
-      <Text style={S.title}>{format === 'mlp_random' ? '🎲 MLP / Random Teams' : '🤝 MLP / Fixed Teams'}</Text>
+      {!bare && <Text style={S.title}>{format === 'mlp_random' ? '🎲 MLP / Random Teams' : '🤝 MLP / Fixed Teams'}</Text>}
       <Text style={S.subtitle}>
         Teams of 4 (2 men + 2 women). Each team-vs-team matchup is 4 doubles matches: men's, women's, and two mixed.
       </Text>

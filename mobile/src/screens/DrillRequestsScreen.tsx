@@ -67,6 +67,26 @@ export default function DrillRequestsScreen({ route }: Props) {
   const closedOpenedFor = useRef<string | null>(null);
   const [sessionsKey, setSessionsKey] = useState(0);
 
+  // focusId may be a drill_requests.id (a request row) or a drill_sessions.id
+  // (Home's drill rows, the reminder push): whichever row matches reports its
+  // node, measured against the scroll content (native and web), and the list
+  // scrolls there once per focusId so later reloads never jump the user.
+  const scrollRef = useRef<ScrollView>(null);
+  const focusedRequestRef = useRef<View>(null);
+  const scrolledFor = useRef<string | null>(null);
+  function scrollFocusedIntoView(node: View | null) {
+    if (!focusId || !node || scrolledFor.current === focusId) return;
+    const inner = (scrollRef.current as any)?.getInnerViewRef?.();
+    const target: any = node;
+    if (!inner || typeof target.measureLayout !== 'function') return;
+    try {
+      target.measureLayout(inner, (_x: number, y: number) => {
+        scrolledFor.current = focusId;
+        requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - SPACE.sm), animated: true }));
+      }, () => { /* not measurable yet; the next layout retries */ });
+    } catch { /* stay at the top */ }
+  }
+
   const [tab, setTab] = useState<Tab>('incoming');
   const [userId, setUserId] = useState<string | null>(null);
   const [requests, setRequests] = useState<DrillRequest[]>([]);
@@ -355,7 +375,24 @@ export default function DrillRequestsScreen({ route }: Props) {
   }
 
   // ── One request ─────────────────────────────────────────────────────────
+  // The request a link pointed at reports its node once laid out, so the list
+  // can scroll it into view (it sits below the sessions / review sections).
   function renderRequest(item: DrillRequest) {
+    const node = renderRequestBody(item);
+    if (item.id !== focusId) return node;
+    return (
+      <View
+        key={item.id}
+        ref={focusedRequestRef}
+        collapsable={false}
+        onLayout={() => scrollFocusedIntoView(focusedRequestRef.current)}
+      >
+        {node}
+      </View>
+    );
+  }
+
+  function renderRequestBody(item: DrillRequest) {
     const otherProfile = tab === 'incoming' ? item.from_profile : item.to_profile;
     const avatar = AVATARS.find(a => a.id === (otherProfile?.avatar_id ?? 1)) ?? AVATARS[0];
     const isPending  = item.status === 'pending';
@@ -558,10 +595,16 @@ export default function DrillRequestsScreen({ route }: Props) {
       />
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={S.listContent}
         refreshControl={<AppRefreshControl {...refresh} />}
       >
-        <DrillUpcomingSessions userId={userId} focusId={focusId} refreshKey={sessionsKey} />
+        <DrillUpcomingSessions
+          userId={userId}
+          focusId={focusId}
+          refreshKey={sessionsKey}
+          onFocusedLayout={scrollFocusedIntoView}
+        />
 
         {reviewable.length > 0 ? (
           // TODO: smoke-test in browser — review-your-drills section + bonus modal

@@ -205,6 +205,7 @@ export function drillRequestItems(rows: readonly DrillRequestRow[], now: number)
 export type JoinRequestRow = {
   id: string;
   league_id: string;
+  user_id: string;
   created_at: string | null;
   requester?: NameEmbed;
 };
@@ -586,6 +587,36 @@ const REQUEST_LIMIT = 20;
 const TEAM_TOURNAMENT = 'tournament:tournaments(id, name, status, registration_closes_at, start_time)';
 
 /**
+ * Pending join requests to the leagues I run, minus requesters who are
+ * already members. Nothing resolves a request when the requester joins
+ * another way (redeeming an invite code leaves the row 'pending' forever),
+ * so without this a stale request would sit in Up next and on the bell for
+ * good -- the same rule as LeagueDetailScreen.loadRequests. If the members
+ * read fails, keep the raw list.
+ */
+async function loadOpenJoinRequests(db: InboxDb, adminLeagueIds: readonly string[]): Promise<JoinRequestRow[]> {
+  if (!adminLeagueIds.length) return [];
+  const { client, call } = db;
+  const rows = await soft<JoinRequestRow[]>(call(() => client
+    .from('league_join_requests')
+    .select('id, league_id, user_id, created_at, requester:profiles(full_name)')
+    .in('league_id', [...adminLeagueIds])
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(50)) as unknown as Promise<JoinRequestRow[]>, []);
+  if (!rows.length) return rows;
+  type MemberKey = { league_id: string; user_id: string };
+  const members = await soft<MemberKey[] | null>(call(() => client
+    .from('league_members')
+    .select('league_id, user_id')
+    .in('league_id', [...new Set(rows.map((r) => r.league_id))])
+    .in('user_id', [...new Set(rows.map((r) => r.user_id))])) as unknown as Promise<MemberKey[]>, null);
+  if (!members) return rows;
+  const joined = new Set(members.map((m) => `${m.league_id}:${m.user_id}`));
+  return rows.filter((r) => !joined.has(`${r.league_id}:${r.user_id}`));
+}
+
+/**
  * The request rows for Up next. `adminLeagues`: active leagues where I'm admin
  * or co-admin (the only ones whose join requests RLS shows me anyway; passing
  * them keeps the query to those leagues).
@@ -620,15 +651,7 @@ export async function loadInboxRequests(
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(REQUEST_LIMIT)) as unknown as Promise<DrillRequestRow[]>, []),
-    adminLeagueIds.length
-      ? soft<JoinRequestRow[]>(call(() => client
-          .from('league_join_requests')
-          .select('id, league_id, created_at, requester:profiles(full_name)')
-          .in('league_id', [...adminLeagueIds])
-          .eq('status', 'pending')
-          .order('created_at', { ascending: true })
-          .limit(50)) as unknown as Promise<JoinRequestRow[]>, [])
-      : Promise.resolve([] as JoinRequestRow[]),
+    loadOpenJoinRequests(db, adminLeagueIds),
     // Pair / team invites to me. The pair (team) and its tournament ride
     // along so the mapper can drop locked or finished ones without another
     // round trip. Each table has a single FK to the next, so the embeds are

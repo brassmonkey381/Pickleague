@@ -2,7 +2,7 @@
 // players by PLUPR with a 🎲 cell per podium rank. Gated by WAGERS_ENABLED at
 // the call site (its RPCs are absent in production), so this only renders in
 // builds that turn wagering on. Moved out of the screen unchanged in behaviour:
-// top 12 by PLUPR, "Show all N" when there are more.
+// top 12 by PLUPR, "Show N more" when there are more.
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { CollapsibleSection } from '@just-messin-around/expo-foundation/ui';

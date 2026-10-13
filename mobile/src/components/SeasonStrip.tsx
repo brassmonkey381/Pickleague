@@ -20,7 +20,7 @@ import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, SPACE, SMALL_TEXT_MAX_SCALE, RADIUS } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
-import { seasonHeadline, type SeasonStandingRow, type SeasonSummary } from '../lib/seasonSummary';
+import { seasonHeadline, shortDate, type SeasonStandingRow, type SeasonSummary } from '../lib/seasonSummary';
 
 export type SeasonStripProps = {
   /** null = no active or upcoming season. */
@@ -56,7 +56,7 @@ export default function SeasonStrip({ summary, privileged, myUserId, onOpen, onS
     );
   }
 
-  const headline = seasonHeadline(summary);
+  const headline = seasonHeadline(summary, shortDate, { privileged });
   const rows: SeasonStandingRow[] = summary.me ? [...summary.top, summary.me] : summary.top;
 
   return (

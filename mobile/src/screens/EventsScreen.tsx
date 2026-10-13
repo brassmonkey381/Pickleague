@@ -3,18 +3,17 @@
 //   [📅] Thu play day   (Vote needed)       1d left
 //        3 times proposed · Lake Merritt
 //   ...sorted by event date: live, then upcoming soonest first, then ended newest first
-// Each row shows the viewer's own vote / RSVP state. "+ New Event" lives in the
-// header for admins and co-admins only (same gate as the old floating button).
+// Each row shows the viewer's own vote / RSVP state. The header "+" (new event)
+// is for admins and co-admins only (same gate as the old floating button).
 import React, { useState, useCallback, useMemo, useLayoutEffect } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
+import { View, FlatList, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
-import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { LeagueEvent, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -22,6 +21,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import HeaderPlusButton from '../components/play/HeaderPlusButton';
 import EntityRow, { type EntityRowChip } from '../components/EntityRow';
 import { joinFacts } from '../lib/entityGlyph';
 import { displayCourtName } from '../lib/courtNickname';
@@ -81,12 +81,11 @@ const fmtWhen = (iso: string) => new Date(iso).toLocaleString(undefined, {
 
 export default function EventsScreen({ navigation, route }: Props) {
   const { leagueId } = route.params;
-  // 'unknown' until the first role read lands: no "+ New Event" yet, and the
+  // 'unknown' until the first role read lands: no header "+" yet, and the
   // viewer's own vote state still shows (a member is the common case).
   const [myRole, setMyRole] = useState<LeagueRole>('unknown');
   const [filter, setFilter] = useState<EventListFilter>('all');
   const { colors } = useTheme();
-  const t = textStyles(colors);
   const S = makeStyles(colors);
 
   const loadEvents = useCallback(async (): Promise<EventsData> => {
@@ -146,7 +145,7 @@ export default function EventsScreen({ navigation, route }: Props) {
   // nothing to show. Anything cached keeps rendering instead of blanking.
   const loadFailed = query.error != null && query.data === undefined;
 
-  // A failed role read must not strip the admin's "+ New Event", so an
+  // A failed role read must not strip the admin's header "+", so an
   // unknown/errored outcome leaves the last known role in place. A cold web
   // URL (/leagues/:id/events) carries no league name: fetch it for the title.
   const hasRouteName = typeof route.params.leagueName === 'string' && route.params.leagueName !== 'undefined';
@@ -172,25 +171,12 @@ export default function EventsScreen({ navigation, route }: Props) {
   const privileged = isPrivileged(myRole);
   const openCreate = useCallback(() => navigation.navigate('CreateEvent', { leagueId }), [navigation, leagueId]);
 
-  // "+ New Event" in the header (was a floating button), admins/co-admins only.
+  // The header "+" (was a floating button), admins/co-admins only.
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: privileged
-        ? () => (
-            <Pressable
-              onPress={openCreate}
-              accessibilityRole="button"
-              accessibilityLabel="New event"
-              style={({ pressed }) => [S.headerBtn, pressed && S.pressed]}
-            >
-              <Text style={[t.title, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>+ New Event</Text>
-            </Pressable>
-          )
-        : undefined,
+      headerRight: privileged ? () => <HeaderPlusButton onPress={openCreate} accessibilityLabel="New event" /> : undefined,
     });
-    // S / t are rebuilt per render from the same colors.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation, privileged, openCreate, colors]);
+  }, [navigation, privileged, openCreate]);
 
   const rows: Row[] = useMemo(() => {
     const data = query.data;
@@ -318,7 +304,7 @@ export default function EventsScreen({ navigation, route }: Props) {
             ? privileged
               ? <EmptyState icon="📅" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
               : <EmptyState icon="📅" title="No events yet." subtitle="Your league admin schedules play days." />
-            : <EmptyState compact icon="🔍" title="Nothing here" actionLabel="Show all" onAction={() => setFilter('all')} />
+            : <EmptyState compact icon="🔍" title="Nothing here" actionLabel="Clear filters" onAction={() => setFilter('all')} />
         }
       />
     </View>
@@ -331,7 +317,5 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     // Fixed chrome outside the FlatList (no sticky headers under RNW).
     chipBar: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, backgroundColor: c.bg },
     list: { padding: SPACE.lg, paddingTop: SPACE.sm },
-    headerBtn: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.sm, alignItems: 'center', justifyContent: 'center' },
-    pressed: { opacity: 0.6 },
   });
 }

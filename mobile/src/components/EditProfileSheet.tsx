@@ -18,7 +18,8 @@
 // form first). A picked photo is uploaded right away, but to its own new object,
 // so it only goes live when Save points avatar_url at it.
 //
-// Built on the foundation Modal pieces (ModalBackdrop + useEscapeKey) rather
+// Built on the foundation Modal pieces (ModalBackdrop; RNW's Modal routes Escape
+// to onRequestClose, so no useEscapeKey: a second handler double-fires) rather
 // than BottomSheet: the form has text inputs, so the card must shrink when the
 // keyboard pushes the backdrop's KeyboardAvoidingView, and BottomSheet's card
 // sits in a content wrapper we can't make shrinkable.
@@ -33,7 +34,7 @@ import {
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { ModalBackdrop, FilterChipRow, StatusBanner } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { useEscapeKey, useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
+import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -189,7 +190,6 @@ export default function EditProfileSheet({
     }
     onClose();
   }, [page, uploading, saving, onClose]);
-  useEscapeKey(handleDismiss, visible);
 
   async function save() {
     if (saving) return;

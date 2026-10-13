@@ -276,12 +276,12 @@ export async function loadHome(): Promise<HomeData> {
       .eq('session_date', today)
       .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
       .order('session_slot')),
-    // Tournaments I'm registered for or invited to (still live).
+    // Tournaments I'm registered for, invited to or waitlisted on (still live).
     sbCall(() => supabase
       .from('tournament_registrations')
       .select('status, invited_by, tournament:tournaments(id, name, start_time, registration_closes_at, status, league_id, format, match_type, location_name)')
       .eq('user_id', uid)
-      .in('status', ['approved', 'pending'])),
+      .in('status', ['approved', 'pending', 'waitlisted'])),
     sbCall(() => supabase
       .from('tournaments')
       .select('id, name, start_time, status, league_id, format, match_type, location_name, location_lat, location_lng')

@@ -26,6 +26,11 @@ type Props = {
   poolCount: number;
   playoffTeams: number;     // 2 / 4 / 8
   isAdmin?: boolean;        // shows the manual "Generate playoff now" recovery button
+  /**
+   * Drop the title row (the subtitle stays), for a host that already names
+   * the section (TournamentDetail's "Playoff" SectionCard). Default false.
+   */
+  bare?: boolean;
 };
 
 type StandingsRow = {
@@ -76,7 +81,7 @@ const ROTATION_LABELS = ["Men's Doubles", "Women's Doubles", 'Mixed 1', 'Mixed 2
 
 export default function MlpPlayoffPreview({
   tournamentId, tournamentName, leagueId,
-  mlpPlayFormat, poolCount, playoffTeams, isAdmin,
+  mlpPlayFormat, poolCount, playoffTeams, isAdmin, bare = false,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -343,7 +348,7 @@ export default function MlpPlayoffPreview({
 
   return (
     <View style={S.root}>
-      <Text style={S.title}>🏆 Playoff Preview</Text>
+      {!bare && <Text style={S.title}>🏆 Playoff Preview</Text>}
       <Text style={S.subtitle}>
         {hasLivePlayoff
           ? 'Playoff bracket is live. Tap any rotation to enter scores.'

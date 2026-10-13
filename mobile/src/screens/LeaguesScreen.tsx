@@ -14,7 +14,7 @@
 // user (usePlayFilterState); search is not. The data rides on useCachedQuery
 // and refreshes on focus, so a league joined elsewhere (Home, LeagueDetail's
 // join card) is in MINE when you come back, without pull-to-refresh.
-// lib/regions.ts is no longer used here: distance replaces the region pills.
+// The old region pills (lib/regions.ts, now deleted) are replaced by distance.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable, Platform,

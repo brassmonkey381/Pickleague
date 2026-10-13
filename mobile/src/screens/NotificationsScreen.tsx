@@ -410,8 +410,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     // (they are not registered while wagering is off). Unrouted: stay here,
     // and show the whole text.
     const link = linkFor(n);
-    if (link) routeLink(link);
-    else toggleExpanded(n.id);
+    if (!link || !routeLink(link)) toggleExpanded(n.id);
   }
 
   const unreadTotal = page?.unreadTotal ?? 0;
@@ -515,6 +514,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
         value={chip}
         onChange={(v) => { setChip(v); setExpanded(new Set()); }}
         scrollToSelected
+        wrapAtWidth={600}
         style={styles.chips}
         trailing={unreadTotal > 0 ? (
           <TouchableOpacity

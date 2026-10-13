@@ -93,7 +93,7 @@ export default function WagerMarket({
           <Text style={S.wagerMarketToggleText}>
             {wagerMarketShowAll
               ? `Show top ${WAGER_MARKET_TOP_N}`
-              : `Show all (${wagerMarketSorted.length})`}
+              : `Show ${wagerMarketSorted.length - WAGER_MARKET_TOP_N} more`}
           </Text>
         </Pressable>
       )}

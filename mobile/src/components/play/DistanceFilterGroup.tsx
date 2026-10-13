@@ -12,7 +12,7 @@
 // is an RN Modal, and iOS presents only one Modal at a time unless the second
 // is a descendant of the first (then it is presented from it). A sibling
 // Modal opened over the sheet would silently never appear on iOS.
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ConfirmModal, FilterChipRow, LocationUseConfirmModal, type FilterSheetRenderContext } from '@just-messin-around/expo-foundation/ui';
@@ -51,6 +51,20 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [noFix, setNoFix] = useState(false);
   const isWeb = Platform.OS === 'web';
+
+  // Web Escape with a confirm open: the sheet's BottomSheet listens for Escape
+  // on window keydown with no stacking, so it would close the whole sheet (and
+  // its draft) along with the confirm. Swallow keydown in the capture phase;
+  // RNW's Modal still closes only the topmost confirm on keyup.
+  // FOUNDATION-TODO: drop useEscapeKey from BottomSheet (RNW Modal's
+  // onRequestClose already handles Escape, topmost only), then remove this.
+  const nestedOpen = confirmOpen || blockedOpen;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !nestedOpen) return;
+    const swallow = (e: KeyboardEvent) => { if (e.key === 'Escape') e.stopImmediatePropagation(); };
+    window.addEventListener('keydown', swallow, true);
+    return () => window.removeEventListener('keydown', swallow, true);
+  }, [nestedOpen]);
 
   const allow = async () => {
     setBusy(true);

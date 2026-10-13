@@ -674,6 +674,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
                 canDistribute={finals.length > 0}
                 members={potMembers}
                 onChange={() => load()}
+                // The section header already names the pot and shows its total.
+                bare
               />
             </CollapsibleSection>
           </View>

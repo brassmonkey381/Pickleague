@@ -127,7 +127,7 @@ export type AgendaTournamentInput = {
   /** tournaments.status */
   status: string;
   /** tournament_registrations.status */
-  myStatus: 'approved' | 'pending' | string;
+  myStatus: 'approved' | 'pending' | 'waitlisted' | string;
   /** The pending registration is an invite (invited_by set). */
   invited: boolean;
   /** tournaments.registration_closes_at: an invite's deadline (else the
@@ -230,7 +230,9 @@ export function tournamentAgendaItems(regs: readonly AgendaTournamentInput[], no
         ? 'invited'
         : r.myStatus === 'pending'
           ? 'requested'
-          : 'registered';
+          : r.myStatus === 'waitlisted'
+            ? 'waitlisted'
+            : 'registered';
     out.push({
       key: `tournament-${r.id}`,
       kind: 'tournament',

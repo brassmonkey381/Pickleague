@@ -73,7 +73,7 @@ const SHEET_DEFAULTS: SheetValues = { type: null, category: null };
 
 // TournamentMatchHistory, UI compaction P5b. Compact rows (56-72, one line of
 // meta under the title), an always-visible player search, quick chips
-// Mine / Played / Not played, a Round pill, and a Filters sheet for match type
+// Mine / To play / Done, a Round pill, and a Filters sheet for match type
 // and doubles category. The round label on each row ships with the Round pill
 // (the match-history filter-pill convention, plan section 9). Doubles rows
 // name their category only when it is known: "Unspecified" is never shown
@@ -272,10 +272,10 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     setStatusFilter('all'); setMyMatchesOnly(false); setPlayerSearch(''); setRoundId(null); setSheet(SHEET_DEFAULTS);
   }
 
-  // Quick chips: Mine (only when you played) and Played / Not played (exclusive).
+  // Quick chips: Mine (only when you played) and To play / Done (exclusive).
   const chipOptions: FilterChipOption<ChipKey>[] = [];
   if (myCount > 0) chipOptions.push({ value: 'mine', label: 'Mine', count: myCount });
-  chipOptions.push({ value: 'completed', label: 'Played' }, { value: 'pending', label: 'Not played' });
+  chipOptions.push({ value: 'pending', label: 'To play' }, { value: 'completed', label: 'Done' });
   const chipValues: ChipKey[] = [];
   if (myMatchesOnly) chipValues.push('mine');
   if (statusFilter !== 'all') chipValues.push(statusFilter);

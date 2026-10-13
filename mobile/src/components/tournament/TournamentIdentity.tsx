@@ -24,7 +24,7 @@
 // accessibilityRole / accessibilityLabel; add them upstream so these chips
 // announce as buttons (same note as LeagueIdentity).
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { Chip } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -45,9 +45,17 @@ export type TournamentIdentityProps = {
   onEdit?: () => void;
 };
 
-/** A description longer than this (or with a line break) likely passes 2 lines
- *  on a 390pt phone, so it gets "more". RN-web never fires onTextLayout. */
-const MORE_THRESHOLD = 90;
+/** Whether the description likely passes 2 lines, so it gets "more". Estimated
+ *  from the text width and fontScale (same estimate as LeagueIdentity) because
+ *  RN-web never fires onTextLayout. The estimate errs toward showing "more": a
+ *  "more" that expands to the same text costs nothing, clipped text with no
+ *  "more" can't be read anywhere else (TournamentInfo doesn't show it). */
+const DESC_FONT_SIZE = 13; // t.sub
+const AVG_CHAR_EM = 0.55;
+const MORE_BOX = 44;
+/** Web renders the app in a centred 720px column (AppNavigator's WebMaxWidth),
+ *  so the window width overstates the text width there. */
+const CONTENT_MAX_WIDTH = 720;
 
 export default function TournamentIdentity({
   tournament: t, approvedCount, isFull, regClosed, onOpenInfo, onEdit,
@@ -55,6 +63,7 @@ export default function TournamentIdentity({
   const { colors: c } = useTheme();
   const tx = textStyles(c);
   const [descOpen, setDescOpen] = useState(false);
+  const { width, fontScale } = useWindowDimensions();
   const fmt = FORMAT_META[t.format];
   const pill = statusPill({ status: t.status, regClosed, isFull });
   const chipProps = { size: 'sm' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE };
@@ -70,7 +79,11 @@ export default function TournamentIdentity({
   const court = displayCourtName(t.location_name);
   const players = t.max_players != null ? `${approvedCount}/${t.max_players}` : `${approvedCount}`;
   const desc = t.description?.trim() ?? '';
-  const longDesc = desc.length > MORE_THRESHOLD || desc.includes('\n');
+  // Text width beside the "more" box: the screen gutters (SPACE.lg each side),
+  // the row gap and the 44 box. Floored so a tiny window still gets a sane bar.
+  const textWidth = Math.max(120, Math.min(width, CONTENT_MAX_WIDTH) - 2 * SPACE.lg - SPACE.sm - MORE_BOX);
+  const charsPerLine = Math.max(1, Math.floor(textWidth / (DESC_FONT_SIZE * AVG_CHAR_EM * Math.max(1, fontScale))));
+  const longDesc = desc.length > 2 * charsPerLine || desc.includes('\n');
 
   return (
     <View style={styles.wrap}>

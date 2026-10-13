@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useState } from 'react';
 import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,7 +8,7 @@ import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { useTheme } from '../lib/ThemeContext';
 import EmptyState from '../components/EmptyState';
-import { LoadingState } from '@just-messin-around/expo-foundation/ui';
+import { LoadingState, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 
@@ -134,8 +134,8 @@ function playoffLines(t: Tournament): string[] {
   }
 }
 
-export default function TournamentInfoScreen({ route }: Props) {
-  const { tournamentId } = route.params;
+export default function TournamentInfoScreen({ navigation, route }: Props) {
+  const { tournamentId, tournamentName: paramName } = route.params;
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
@@ -143,6 +143,15 @@ export default function TournamentInfoScreen({ route }: Props) {
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // The navigator's title is built from the tournamentName param, which a
+  // clean web URL (/tournaments/:id/info) doesn't have ("How undefined
+  // works"). Use the loaded name, then the param, then a neutral title. The
+  // header carries the title; it isn't repeated in the page (as LeagueInfo).
+  const name = t?.name || paramName;
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: name ? `How ${name} works` : 'How this tournament works' });
+  }, [navigation, name]);
 
   useEffect(() => { load(); }, []);
 
@@ -188,11 +197,6 @@ export default function TournamentInfoScreen({ route }: Props) {
 
   return (
     <ScrollView style={S.container} contentContainerStyle={S.content}>
-      <Text style={S.pageTitle}>How {t.name} works</Text>
-      <Text style={S.pageSub}>
-        Specifics for this tournament's format and the rules that govern its bracket.
-      </Text>
-
       {/* ── Format headline ────────────────────────────────── */}
       <View style={S.headline}>
         <Text style={S.headlineIcon}>{meta.icon}</Text>
@@ -300,10 +304,12 @@ function statusLabel(s: Tournament['status']): string {
   return 'Cancelled';
 }
 
+// Section titles use the foundation SectionHeader (was a hand-rolled uppercase
+// label): it brings the header role and the small-text scale cap.
 function Section({ S, title, children }: { S: any; title: string; children: React.ReactNode }) {
   return (
     <View style={S.section}>
-      <Text style={S.sectionTitle}>{title}</Text>
+      <SectionHeader title={title} />
       <View style={S.sectionBody}>{children}</View>
     </View>
   );
@@ -337,14 +343,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container:    { flex: 1, backgroundColor: c.bg },
     content:      { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
-    pageTitle:    { fontSize: FONT.size.h2, fontWeight: FONT.weight.heavy, color: c.text, marginBottom: SPACE.xs },
-    pageSub:      { fontSize: FONT.size.md, color: c.textMuted, marginBottom: SPACE.lg },
     headline:     { backgroundColor: c.primaryLight, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderWidth: HAIRLINE, borderColor: c.primary },
     headlineIcon: { fontSize: FONT.size.display },
     headlineLabel:{ fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.primary },
     headlineDesc: { fontSize: FONT.size.base, color: c.text, marginTop: SPACE.xxs, lineHeight: FONT.line.tight },
     section:      { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.border },
-    sectionTitle: { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.primary, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: SPACE.md },
     sectionBody:  { gap: SPACE.sm },
     row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: SPACE.md, paddingVertical: SPACE.xs },
     rowLabel:     { fontSize: FONT.size.base, color: c.textMuted, fontWeight: FONT.weight.semibold },

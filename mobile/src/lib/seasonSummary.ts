@@ -8,9 +8,10 @@
 // The live-period standings here MUST rank exactly like SeasonStandingsScreen's
 // default tab (its `computeStandings` + "first non-locked period whose snapshot
 // date hasn't passed"), or the strip would say "You #2" and the screen it opens
-// would say #3. So the period helpers and the sort below mirror that screen line
-// for line; change both together. (SeasonStandings can import these instead of
-// its private copies; until then they are duplicates by design.)
+// would say #3. So this file is the one source of truth for the period dates
+// and the standings sort: SeasonStandings' model (components/standings/
+// standingsModel.ts) delegates its computePeriodDate / periodStartDate /
+// computeStandings here.
 //
 // Dates are ISO "YYYY-MM-DD" strings throughout, compared as strings, exactly as
 // SeasonStandings does. `today` is passed in (the caller uses the same UTC date
@@ -92,13 +93,13 @@ export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 }
 
-/** Period N's snapshot (lock) date. Mirrors SeasonStandings' computePeriodDate. */
+/** Period N's snapshot (lock) date (standingsModel's computePeriodDate). */
 export function periodEndDate(s: Pick<SeasonInput, 'start_date' | 'lock_frequency_weeks'>, n: number): string {
   return addDaysIso(s.start_date, n * s.lock_frequency_weeks * 7);
 }
 
 /** First day of period N: the season start for period 1, else the day after
- *  period N-1's snapshot date. Mirrors SeasonStandings' periodStartDate. */
+ *  period N-1's snapshot date (standingsModel's periodStartDate). */
 export function periodStartDate(s: Pick<SeasonInput, 'start_date' | 'lock_frequency_weeks'>, n: number): string {
   if (n <= 1) return s.start_date;
   return addDaysIso(periodEndDate(s, n - 1), 1);
@@ -143,7 +144,7 @@ export function livePeriodNumber(
  * [startIso, endIso] on played_at (string compare, as SeasonStandings does).
  * Rating = baseline + the player's summed per-match deltas; each game of a
  * multi-game match counts as its own W/L. Sort: rating desc, then (W-L) desc,
- * then W desc. A copy of SeasonStandings' computeStandings.
+ * then W desc. standingsModel's computeStandings wraps this.
  */
 export function computeSeasonStandings(
   members: ReadonlyArray<StandingsMember>,
@@ -232,6 +233,10 @@ export type SeasonSummary = {
   /** That lock's date has arrived and it still isn't locked: due ON the date
    *  itself (local), exactly when SeasonStandings enables its Lock button. */
   lockDue: boolean;
+  /** The ranked period's lock date while it hasn't passed (SeasonStandings'
+   *  findLivePeriod), else null. "Lock due" is admin information, so members
+   *  read this instead, as SeasonStandings' header does for them. */
+  liveLockOn: string | null;
   /** At least one match counted in the ranked period. Ranks show only then:
    *  before the first match everyone sits on the baseline and "#2" means nothing. */
   hasMatches: boolean;
@@ -279,6 +284,7 @@ export function summarizeSeason({
     totalPeriods: season.total_periods,
     nextLockOn: null,
     lockDue: false,
+    liveLockOn: null,
     hasMatches: false,
     myRank: null,
     top: [],
@@ -292,6 +298,7 @@ export function summarizeSeason({
   const next = nextUnlockedPeriod(season, locked);
   const nextLockOn = next != null ? periodEndDate(season, next) : null;
   const period = livePeriodNumber(season, locked, today);
+  const periodLockOn = period != null ? periodEndDate(season, period) : null;
   const summary: SeasonSummary = {
     ...base,
     week: seasonWeek(season, today),
@@ -299,6 +306,8 @@ export function summarizeSeason({
     nextLockOn,
     // >=, not >: due on the snapshot date itself, like isLockDue (now >= due).
     lockDue: nextLockOn != null && season.status !== 'completed' && (lockToday ?? today) >= nextLockOn,
+    // Null when livePeriodNumber fell back to an overdue last period.
+    liveLockOn: periodLockOn != null && today <= periodLockOn ? periodLockOn : null,
   };
   if (period == null) return summary;
 
@@ -327,16 +336,23 @@ export function shortDate(iso: string): string {
 /**
  * The strip's one line, e.g. "Fall · Wk 7 of 12 · You #2 · locks Oct 20".
  * Upcoming: "Fall · Starts Nov 3". `fmt` formats an ISO date (tests pass a
- * fixed one; the app uses the device locale).
+ * fixed one; the app uses the device locale). "Lock due" is an admin to-do:
+ * pass `privileged: false` for members, who get the live period's lock date
+ * instead (or no lock part when every unlocked period is overdue).
  */
-export function seasonHeadline(s: SeasonSummary, fmt: (iso: string) => string = shortDate): string {
+export function seasonHeadline(
+  s: SeasonSummary,
+  fmt: (iso: string) => string = shortDate,
+  opts: { privileged?: boolean } = {},
+): string {
   const parts: (string | null)[] = [s.seasonName];
   if (s.phase === 'upcoming') {
     parts.push(s.startsOn ? `Starts ${fmt(s.startsOn)}` : null);
   } else {
     parts.push(s.week != null ? `Wk ${s.week} of ${s.totalWeeks}` : null);
     parts.push(s.myRank != null ? `You #${s.myRank}` : null);
-    parts.push(s.lockDue ? 'Lock due' : s.nextLockOn ? `locks ${fmt(s.nextLockOn)}` : null);
+    const lockOn = s.lockDue ? s.liveLockOn : s.nextLockOn;
+    parts.push(s.lockDue && opts.privileged !== false ? 'Lock due' : lockOn ? `locks ${fmt(lockOn)}` : null);
   }
   return parts.filter((p): p is string => !!p && !!p.trim()).join(' · ');
 }

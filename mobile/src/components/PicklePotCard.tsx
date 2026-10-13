@@ -27,9 +27,9 @@ export type PicklePotCardProps = {
   onChange: () => void;      // refetch parent state after RPC succeeds
   /**
    * Render without the card chrome and the title row, for a host that already
-   * frames the pot (TournamentDetail's collapsed "Pot" section names it and
-   * shows the total in its header). Default false: the standalone card,
-   * as SeasonStandings uses it.
+   * frames the pot (TournamentDetail's and SeasonStandings' collapsed "Pot"
+   * sections name it and show the total in their header). Default false: the
+   * standalone card, as SeasonStandings' Manage section uses it.
    */
   bare?: boolean;
 };

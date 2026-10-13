@@ -52,6 +52,7 @@ import {
   tournamentAgendaItems,
   type AgendaItem,
   type AgendaTarget,
+  YOURS_CAP,
 } from '../lib/agenda';
 import { inboxAgendaItems } from '../lib/inboxRequests';
 import {
@@ -535,8 +536,13 @@ export default function HomeScreen({ navigation }: Props) {
             tap('yours', 'tournament', i);
             navigation.navigate('TournamentDetail', { tournamentId: tr.id, tournamentName: tr.name });
           }}
-          onFindMore={() => { tap('yours', 'find_more'); navigation.navigate('Play'); }}
-          onAllYours={() => { tap('yours', 'all_yours'); navigation.navigate('Play', { mine: true }); }}
+          onFindMore={() => { tap('yours', 'find_more'); navigation.navigate('Play', { initialTab: 'leagues' }); }}
+          // YOURS lists leagues first, so with fewer than YOURS_CAP leagues every
+          // hidden row is a tournament: open the tab that holds the overflow.
+          onAllYours={() => {
+            tap('yours', 'all_yours');
+            navigation.navigate('Play', { mine: true, initialTab: myLeagues.length >= YOURS_CAP ? 'leagues' : 'tournaments' });
+          }}
         />,
       );
     }
@@ -549,7 +555,7 @@ export default function HomeScreen({ navigation }: Props) {
           leagueJoin={leagueJoin}
           distanceById={joinDistances}
           onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
-          onBrowse={() => { tap('join', 'browse'); navigation.navigate('Play'); }}
+          onBrowse={() => { tap('join', 'browse'); navigation.navigate('Play', { initialTab: 'leagues' }); }}
           onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
           onJoinPressed={(kind, i) => tap('join', kind, i)}
         />,

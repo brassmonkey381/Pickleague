@@ -24,7 +24,7 @@
 // bookmark (header), join/request (LeagueJoinCard), and in Manage: edit league,
 // invite players, start a season, edit the baseline, lock periods / complete
 // season (SeasonStandings), join requests (LeagueMembers) and godmode delete.
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ScrollView, View, StyleSheet, Text,
   type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
@@ -98,7 +98,20 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   // Spotlight-tour anchor: the quick row's Record tile is the final step of
   // the 'leagues' tour. Registered on layout (the row only renders once the
   // screen has loaded). Harmless if the tour never reaches this step.
+  // Registered through a proxy that is the real tile only while this screen
+  // is focused: the engine has no unregister, and a LeagueDetail left
+  // mounted under the stack still measures on native (same as usePlayTour).
   const recordAnchor = useRef<any>(null);
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
+  const recordProxy = useMemo(() => ({
+    get current() { return focusedRef.current ? recordAnchor.current : null; },
+  }), []);
+  // Coming back on top (e.g. after another LeagueDetail was pushed and
+  // popped) re-claims the step; onLayout does not fire again.
+  useEffect(() => {
+    if (isFocused && recordAnchor.current) registerAnchor('leagues', 'record', recordProxy);
+  }, [isFocused, registerAnchor, recordProxy]);
 
   const [myRole, setMyRole]   = useState<LeagueRole>(null);
   // False until a role read actually succeeded. A failed read must not be
@@ -746,7 +759,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             showRecord={!nonMember}
             onRecord={goRecord}
             recordRef={recordAnchor}
-            onRecordLayout={() => registerAnchor('leagues', 'record', recordAnchor)}
+            onRecordLayout={() => registerAnchor('leagues', 'record', recordProxy)}
             onStandings={standingsSeasonId ? () => goStandings(standingsSeasonId) : null}
             onEvents={() => navigation.navigate('Events', { leagueId, leagueName })}
             onMembers={goMembers}
