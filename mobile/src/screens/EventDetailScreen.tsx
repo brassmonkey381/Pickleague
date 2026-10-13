@@ -27,7 +27,7 @@ import { SkeletonList } from '../components/Skeleton';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { optionNumbers } from '../lib/eventVote';
-import { sbCall, friendlySbMessage, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall, friendlySbMessage, insertIgnoringDuplicate, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
@@ -267,6 +267,42 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       await load();
     } catch (e) {
       status.error(friendlySbMessage(e, 'Could not save that. Tap again to retry.'));
+    } finally {
+      voteInFlight.current = false;
+      setVoting(null);
+    }
+  }
+
+  // RSVP once a time is confirmed. Same writes as the confirmed-event push
+  // buttons (event_accept / event_decline): a plain insert, never an upsert,
+  // because event_slot_votes has no UPDATE policy; 23505 means the answer is
+  // already recorded. The DB triggers keep the two sides exclusive (a vote
+  // clears a decline, a decline clears this user's votes), so each answer is
+  // one row, exactly as toggleVote / toggleDecline rely on.
+  async function respondToConfirmed(answer: 'in' | 'out') {
+    if (voteInFlight.current) return;
+    if (!currentUserId || !event?.confirmed_slot_id) return;
+    const slotId = event.confirmed_slot_id;
+
+    voteInFlight.current = true;
+    setVoting(answer === 'in' ? 'rsvp_in' : 'rsvp_out');
+    status.clear();
+    try {
+      if (answer === 'in') {
+        await insertIgnoringDuplicate(supabase
+          .from('event_slot_votes')
+          .insert({ slot_id: slotId, user_id: currentUserId }));
+      } else {
+        await insertIgnoringDuplicate(supabase
+          .from('event_declines')
+          .insert({ event_id: eventId, user_id: currentUserId }));
+      }
+      await load();
+    } catch (e) {
+      // The only RLS refusal for your own row is an expired guest pass.
+      status.error(friendlySbMessage(e, 'Could not save your RSVP. Tap again to retry.', {
+        permission: "Your guest pass has expired, so you can't RSVP. Ask the organizer for a new invite.",
+      }));
     } finally {
       voteInFlight.current = false;
       setVoting(null);
@@ -549,6 +585,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
   const slotStart = confirmedSlot ? new Date(confirmedSlot.starts_at).getTime() : null;
   const isLive = slotStart != null && Date.now() >= slotStart && Date.now() < slotStart + LIVE_WINDOW_MS;
+  // RSVP stays open from confirmation until the confirmed time ends. Not on a
+  // cancelled event, and not while the time vote itself is still running.
+  const rsvpOpen = !!confirmedSlot && !votingIsOpen && event.status !== 'cancelled'
+    && Date.now() < new Date(confirmedSlot.ends_at).getTime();
+  const iAmIn = confirmedSlot?.my_vote ?? false;
 
   return (
     <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
@@ -598,7 +639,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         </View>
         {votingIsOpen && (
           <Text style={S.voteDeadline}>
-            Deadline: {new Date(event.vote_ends_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            Deadline: {new Date(event.vote_ends_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
           </Text>
         )}
       </View>
@@ -655,11 +696,40 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             {new Date(confirmedSlot.starts_at).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
           </Text>
           <Text style={S.confirmedTime}>
-            {new Date(confirmedSlot.starts_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+            {new Date(confirmedSlot.starts_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
             {' – '}
-            {new Date(confirmedSlot.ends_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+            {new Date(confirmedSlot.ends_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
           </Text>
           <Text style={S.confirmedAttendeeCount}>{confirmedAttendees.length} player{confirmedAttendees.length !== 1 ? 's' : ''} confirmed</Text>
+          {rsvpOpen && (
+            <>
+              <Text style={S.rsvpState}>
+                {iAmIn ? "✅ You're in" : iDeclined ? "🚫 You can't make it" : 'Are you coming?'}
+              </Text>
+              <View style={S.rsvpRow}>
+                <TouchableOpacity
+                  style={[S.rsvpBtn, iAmIn && S.rsvpBtnActive]}
+                  activeOpacity={0.85}
+                  onPress={() => { if (!iAmIn) respondToConfirmed('in'); }}
+                  disabled={voting != null}
+                >
+                  <Text style={[S.rsvpBtnText, iAmIn && S.rsvpBtnTextActive]}>
+                    {voting === 'rsvp_in' ? 'Saving…' : "👍 I'm in"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[S.rsvpBtn, iDeclined && S.rsvpBtnActive]}
+                  activeOpacity={0.85}
+                  onPress={() => { if (!iDeclined) respondToConfirmed('out'); }}
+                  disabled={voting != null}
+                >
+                  <Text style={[S.rsvpBtnText, iDeclined && S.rsvpBtnTextDeclined]}>
+                    {voting === 'rsvp_out' ? 'Saving…' : "🚫 Can't make it"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
           <TouchableOpacity
             style={S.recordBtn}
             activeOpacity={0.85}
@@ -744,9 +814,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                   {new Date(slot.starts_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
                 </Text>
                 <Text style={S.slotTime}>
-                  {new Date(slot.starts_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(slot.starts_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                   {' – '}
-                  {new Date(slot.ends_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(slot.ends_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                 </Text>
               </View>
               <View style={S.slotRight}>
@@ -788,38 +858,63 @@ export default function EventDetailScreen({ navigation, route }: Props) {
       })}
 
       {/* "Can't make it" — deliberately outside the slot list. It is not a time
-          option and can never win; it just tells the organiser who is out. */}
-      <TouchableOpacity
-        style={[S.declineCard, iDeclined && S.declineCardActive]}
-        onPress={toggleDecline}
-        disabled={!votingIsOpen || voting === 'decline'}
-        activeOpacity={0.8}
-      >
-        <Text style={[S.declineTitle, iDeclined && S.declineTitleActive]}>
-          {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
-        </Text>
-        <Text style={S.declineSub}>
-          {decliners.length > 0
-            ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
-            : 'None of these times work for you?'}
-        </Text>
-
-        {decliners.length > 0 && (
-          <View style={S.voterWrap}>
-            {decliners.map((dp) => {
-              const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
-              return (
-                <View key={dp.id} style={S.voterChip}>
-                  <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
-                    <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
+          option and can never win; it just tells the organiser who is out.
+          Once a time is confirmed the RSVP row above is the one place to
+          answer, so this shrinks to a read-only list of who is out. */}
+      {confirmedSlot && !votingIsOpen ? (
+        decliners.length > 0 && (
+          <View style={S.declineCard}>
+            <Text style={S.declineSub}>
+              {`${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make it`}
+            </Text>
+            <View style={S.voterWrap}>
+              {decliners.map((dp) => {
+                const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
+                return (
+                  <View key={dp.id} style={S.voterChip}>
+                    <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
+                      <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
+                    </View>
+                    <Text style={S.voterName}>{first}</Text>
                   </View>
-                  <Text style={S.voterName}>{first}</Text>
-                </View>
-              );
-            })}
+                );
+              })}
+            </View>
           </View>
-        )}
-      </TouchableOpacity>
+        )
+      ) : (
+        <TouchableOpacity
+          style={[S.declineCard, iDeclined && S.declineCardActive]}
+          onPress={toggleDecline}
+          disabled={!votingIsOpen || voting === 'decline'}
+          activeOpacity={0.8}
+        >
+          <Text style={[S.declineTitle, iDeclined && S.declineTitleActive]}>
+            {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
+          </Text>
+          <Text style={S.declineSub}>
+            {decliners.length > 0
+              ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
+              : 'None of these times work for you?'}
+          </Text>
+
+          {decliners.length > 0 && (
+            <View style={S.voterWrap}>
+              {decliners.map((dp) => {
+                const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
+                return (
+                  <View key={dp.id} style={S.voterChip}>
+                    <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
+                      <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
+                    </View>
+                    <Text style={S.voterName}>{first}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
 
       {/* What the threshold means, while it can still change the outcome. */}
       {event.min_players != null && votingIsOpen && (
@@ -987,6 +1082,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     recordBtnText:  { color: '#fff', fontSize: 14, fontWeight: '700' },
     calBtn:         { marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
     calBtnText:     { color: '#fff', fontSize: 14, fontWeight: '700' },
+    rsvpState:      { marginTop: 12, fontSize: 14, fontWeight: '700', color: '#fff' },
+    rsvpRow:        { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 8 },
+    rsvpBtn:        { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
+    rsvpBtnActive:  { backgroundColor: '#fff', borderColor: '#fff' },
+    rsvpBtnText:    { color: '#fff', fontSize: 14, fontWeight: '700' },
+    rsvpBtnTextActive:   { color: '#1565c0' },
+    rsvpBtnTextDeclined: { color: c.danger },
 
     matchesSection:       { marginHorizontal: 12, marginTop: 4, marginBottom: 12, padding: 14, borderRadius: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
     matchesSectionTitle:  { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },

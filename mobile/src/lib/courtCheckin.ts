@@ -17,6 +17,7 @@ import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
+import { titleWith } from './pushSubject';
 import {
   checkinVenue,
   checkoutVenue,
@@ -186,7 +187,8 @@ export async function clearCheckinForSignOut(): Promise<void> {
 
 // ── Lock-screen buttons on the "5 minutes left" reminder ────────────────────
 registerActionHandler('checkin_extend', {
-  success: { title: 'Extended', body: 'Checked in for another hour.' },
+  // The reminder carries venue_name, so the notice names the court.
+  success: (_res, d) => ({ title: titleWith('Extended', d.venue_name), body: 'Checked in for another hour.' }),
   run: async (d) => {
     await requireUser();
     if (!d.checkin_id || !d.expires_at) throw new NeedsApp('Open Pickleague to extend your check-in.');
@@ -194,7 +196,7 @@ registerActionHandler('checkin_extend', {
   },
 });
 registerActionHandler('checkin_out', {
-  success: { title: 'Checked out', body: 'See you next time.' },
+  success: (_res, d) => ({ title: titleWith('Checked out', d.venue_name), body: 'See you next time.' }),
   queued: { title: 'Checked out', body: 'Saved. It syncs when you are back online.' },
   run: async (d) => {
     await requireUser();

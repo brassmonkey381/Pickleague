@@ -38,6 +38,7 @@ import { CATALOG } from './notificationCatalog.data';
 import { linkOf } from './pushLinks';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { eventVote } from './eventVote';
+import { pushSubject, titleWith } from './pushSubject';
 
 export const catalog = defineNotificationCatalog(CATALOG);
 const ACTION_IDS = new Set<string>(Object.values(CATALOG).flatMap((c) => Object.keys(c.actions)));
@@ -132,8 +133,13 @@ const rpc = (fn: string, args: Record<string, unknown>) =>
 
 const BOUND = { retries: 1, timeoutMs: 9_000 };
 
+/** What the pressed push was about ("Tuesday Doubles", "Sam"), read from its
+ *  title; null when unknown, and the notice keeps its generic copy. */
+const subjectOf = (d: ActionPushData): string | null => pushSubject(d.title);
+
 export type ActionHandler = {
   run: (d: ActionPushData, idempotencyKey: string, r: ParsedNotificationResponse) => Promise<unknown>;
+  /** A function sees the push data too, so the notice can name what was answered. */
   success: NoticeCopy | ((result: unknown, d: ActionPushData) => NoticeCopy);
   queued?: NoticeCopy;
   /** Where a tap on the success notice goes. Default: the pressed push's own link. */
@@ -145,10 +151,10 @@ export type ActionHandler = {
  *  rides along, so the server can refuse if the times changed since. */
 function acceptSlot(index: number): ActionHandler {
   return {
-    success: (res) =>
+    success: (res, d) =>
       res === 'already'
-        ? { title: 'Already accepted', body: 'This drill is on. Tap to open the chat.' }
-        : { title: 'Drill accepted', body: 'Tap to chat about where to play.' },
+        ? { title: titleWith('Already accepted', subjectOf(d)), body: 'This drill is on. Tap to open the chat.' }
+        : { title: titleWith('Drill accepted', subjectOf(d)), body: 'Tap to chat about where to play.' },
     link: (d) => (d.entity_id ? `drill_chat/${d.entity_id}` : null),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to answer this request.');
@@ -196,20 +202,24 @@ async function requestToJoin(tournamentId: string): Promise<RegStatus> {
   }
 }
 
-function requestNotice(res: unknown): NoticeCopy {
+function requestNotice(res: unknown, subject: string | null): NoticeCopy {
   const s = String(res);
+  const t = (prefix: string) => titleWith(prefix, subject);
   if (s === 'waitlisted' || s === 'already:waitlisted') {
-    return { title: "You're on the waitlist", body: 'The tournament is full. The admin reviews the waitlist.' };
+    return {
+      title: subject ? t('Waitlisted') : "You're on the waitlist",
+      body: 'The tournament is full. The admin reviews the waitlist.',
+    };
   }
-  if (s === 'already:approved' || s === 'approved') return { title: "You're in", body: 'You are already registered.' };
-  if (s === 'already:rejected') return { title: 'Not this time', body: 'The admin already turned this request down.' };
-  if (s.startsWith('already:')) return { title: 'Already requested', body: 'The admin will review your request.' };
-  return { title: 'Request sent', body: 'The admin will review it. The entry fee is charged only if you are approved.' };
+  if (s === 'already:approved' || s === 'approved') return { title: t("You're in"), body: 'You are already registered.' };
+  if (s === 'already:rejected') return { title: t('Not this time'), body: 'The admin already turned this request down.' };
+  if (s.startsWith('already:')) return { title: t('Already requested'), body: 'The admin will review your request.' };
+  return { title: t('Request sent'), body: 'The admin will review it. The entry fee is charged only if you are approved.' };
 }
 
 const HANDLERS: Record<string, ActionHandler> = {
   event_accept: {
-    success: { title: "You're in", body: 'See you there.' },
+    success: (_res, d) => ({ title: titleWith("You're in", subjectOf(d)), body: 'See you there.' }),
     run: async (d) => {
       const slotId = needs(d.confirmed_slot_id, 'Open Pickleague to pick a time for this event.');
       const uid = await requireUser();
@@ -221,7 +231,12 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   event_decline: {
-    success: { title: 'Got it', body: "Marked you as can't make it." },
+    success: (_res, d) => {
+      const s = subjectOf(d);
+      return s
+        ? { title: titleWith("Can't make it", s), body: 'Got it. We marked you as out.' }
+        : { title: 'Got it', body: "Marked you as can't make it." };
+    },
     run: async (d) => {
       const eventId = needs(d.entity_id, 'Open Pickleague to respond to this event.');
       const uid = await requireUser();
@@ -265,8 +280,10 @@ const HANDLERS: Record<string, ActionHandler> = {
   drill_slot_2: acceptSlot(1),
   drill_slot_3: acceptSlot(2),
   drill_decline: {
-    success: (res) =>
-      res === 'already' ? { title: 'Already declined', body: 'We let them know.' } : { title: 'Declined', body: 'We let them know.' },
+    success: (res, d) => ({
+      title: titleWith(res === 'already' ? 'Already declined' : 'Declined', subjectOf(d)),
+      body: 'We let them know.',
+    }),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to answer this request.');
       await requireUser();
@@ -274,7 +291,7 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   drill_on_my_way: {
-    success: { title: 'Sent', body: 'Your partner knows you are on the way.' },
+    success: (_res, d) => ({ title: 'Sent', body: `${subjectOf(d) ?? 'Your partner'} knows you are on the way.` }),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to answer.');
       await requireUser();
@@ -282,7 +299,7 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   drill_cant_make_it: {
-    success: { title: 'Sent', body: "Your partner knows you can't make it." },
+    success: (_res, d) => ({ title: 'Sent', body: `${subjectOf(d) ?? 'Your partner'} knows you can't make it.` }),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to answer.');
       await requireUser();
@@ -310,10 +327,10 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   tournament_accept: {
-    success: (res) =>
-      res === 'already'
-        ? { title: "You're in", body: 'You already accepted this invite.' }
-        : { title: "You're in", body: 'Invite accepted.' },
+    success: (res, d) => ({
+      title: titleWith("You're in", subjectOf(d)),
+      body: res === 'already' ? 'You already accepted this invite.' : 'Invite accepted.',
+    }),
     run: async (d) => {
       const id = needs(d.registration_id, 'Open Pickleague to answer this invite.');
       await requireUser();
@@ -328,10 +345,10 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   tournament_decline: {
-    success: (res) =>
-      res === 'already'
-        ? { title: 'Declined', body: 'You already declined this invite.' }
-        : { title: 'Declined', body: 'We let the organizer know.' },
+    success: (res, d) => ({
+      title: titleWith('Declined', subjectOf(d)),
+      body: res === 'already' ? 'You already declined this invite.' : 'We let the organizer know.',
+    }),
     run: async (d) => {
       const id = needs(d.registration_id, 'Open Pickleague to answer this invite.');
       await requireUser();
@@ -348,16 +365,18 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   tournament_request_join: {
-    success: (res) => requestNotice(res),
+    success: (res, d) => requestNotice(res, subjectOf(d)),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to request a spot.');
       return requestToJoin(id);
     },
   },
   league_join: {
-    success: (res) => {
+    success: (res, d) => {
       const r = res as { already?: boolean; leagueName?: string | null };
-      const name = r?.leagueName ? ` ${r.leagueName}` : ' the league';
+      // The push title ("🎟️ Invite: The League") when the result doesn't name it.
+      const league = r?.leagueName || subjectOf(d);
+      const name = league ? ` ${league}` : ' the league';
       return r?.already ? { title: 'Already a member', body: `You're in${name}.` } : { title: 'Joined', body: `Welcome to${name}!` };
     },
     link: (_d, res) => {
