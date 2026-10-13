@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { TOTAL_CELLS, cellIdx } from '@just-messin-around/expo-foundation/scheduling/availability';
 import {
-  availabilitySummary,
+  TOTAL_CELLS,
+  availabilityShortSummary as availabilitySummary,
+  cellIdx,
   hoursPerWeekLabel,
+} from '@just-messin-around/expo-foundation/scheduling/availability';
+import {
   nextUnlockTeaser,
   rewardForBadge,
   type UnlockProgressInput,

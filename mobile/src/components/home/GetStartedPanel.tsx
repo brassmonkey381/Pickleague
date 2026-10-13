@@ -16,7 +16,6 @@ import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
-import { useTheme } from '../../lib/ThemeContext';
 import { FtueStepRow, type FtueChecklist } from '../FtueChecklistCard';
 import { GuestUpgradeRow } from '../GuestUpgradeBanner';
 import { DuprImportRow, type DuprImportOffer } from '../DuprImportBanner';
@@ -35,7 +34,6 @@ type Props = {
 };
 
 export default function GetStartedPanel({ ftue, isGuest, dupr, defaultOpen, emphasis, onToggle, onTap }: Props) {
-  const { colors: c } = useTheme();
   // The user's own toggle wins; until then it follows defaultOpen, which can
   // flip once the profile (and so the account's age) arrives after mount.
   const [toggled, setToggled] = useState<boolean | null>(null);
@@ -79,10 +77,7 @@ export default function GetStartedPanel({ ftue, isGuest, dupr, defaultOpen, emph
   }
 
   return (
-    <Panel
-      padded={false}
-      style={emphasis ? [styles.emphasis, { borderLeftColor: c.primary }] : undefined}
-    >
+    <Panel padded={false} emphasis={emphasis}>
       <SectionHeader
         title="Get started"
         count={count || undefined}
@@ -100,9 +95,5 @@ export default function GetStartedPanel({ ftue, isGuest, dupr, defaultOpen, emph
 }
 
 const styles = StyleSheet.create({
-  // FOUNDATION-TODO: Panel should offer the Emphasis variant itself (an
-  // `emphasis` / `accentColor` prop: the 3px accent left edge), instead of
-  // GetStartedPanel, NowPanel and CourtCheckinCard each adding it.
-  emphasis: { borderLeftWidth: 3 },
   header: { paddingHorizontal: SPACE.md },
 });

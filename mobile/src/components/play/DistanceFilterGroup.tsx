@@ -15,7 +15,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { ConfirmModal, FilterChipRow, LocationUseConfirmModal, type FilterSheetRenderContext } from '@just-messin-around/expo-foundation/ui';
+import {
+  FilterChipRow,
+  LocationDeniedModal,
+  LocationUseConfirmModal,
+  type FilterSheetRenderContext,
+} from '@just-messin-around/expo-foundation/ui';
 import {
   getCurrentCoords,
   openLocationSettings,
@@ -138,10 +143,10 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
         onClose={() => { if (!busy) setConfirmOpen(false); }}
       />
 
-      {/* FOUNDATION-TODO: LocationDeniedModal should take title / body /
-          primaryLabel / cancelLabel. Its copy is Doggle's ("map your walk",
-          "Duration only"), so this is the same ConfirmModal with our copy. */}
-      <ConfirmModal
+      {/* The foundation's denied modal (a ConfirmModal, so still an RN Modal:
+          it stays in the sheet's tree, see the header) with our copy. On web
+          there is no settings screen to open, so its primary is just OK. */}
+      <LocationDeniedModal
         visible={blockedOpen}
         title="Location is off"
         body={isWeb
@@ -149,11 +154,11 @@ export default function DistanceFilterGroup({ ctx, coords, onCoords, noun }: Dis
           : `Turn on location for Pickleague in Settings to see ${noun} near you.`}
         primaryLabel={isWeb ? 'OK' : 'Open settings'}
         cancelLabel="Not now"
-        onConfirm={() => {
+        onOpenSettings={() => {
           setBlockedOpen(false);
           if (!isWeb) void openLocationSettings();
         }}
-        onCancel={() => setBlockedOpen(false)}
+        onContinueWithout={() => setBlockedOpen(false)}
         onClose={() => setBlockedOpen(false)}
       />
     </View>

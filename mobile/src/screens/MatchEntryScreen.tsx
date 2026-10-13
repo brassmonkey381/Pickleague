@@ -757,7 +757,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       {/* Tournament-match banner */}
       {isTournamentMatch && (
         // The screen's one Emphasis card: Panel + 3px accent edge.
-        <Panel style={S.tournamentBanner}>
+        <Panel emphasis style={S.tournamentBanner}>
           <Text style={S.tournamentBannerTitle}>🏆 Recording a tournament match</Text>
           <Text style={S.tournamentBannerBody} numberOfLines={3}>
             {tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.
@@ -768,7 +768,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       {/* Singles / Doubles toggle — locked in tournament mode. A form radio
           group, not an in-screen tab, so it stays hand-rolled rather than a
           SegmentedToggle. FOUNDATION-TODO: SegmentedToggle per-option disabled
-          + a 44px box on outline/solid, then this can adopt it. */}
+          (1.40's size='lg' already gives outline/solid a 44px box), then this
+          can adopt it. */}
       <View style={S.toggleRow} accessibilityRole="radiogroup">
         {(['singles', 'doubles'] as MatchType[]).map((t) => {
           const isActive = matchType === t;
@@ -1091,7 +1092,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     pressed:   { opacity: 0.6 },
 
     // Panel supplies the hairline border, surface fill, 12 padding and radius 14.
-    tournamentBanner:      { borderLeftWidth: 3, borderLeftColor: c.primary, marginBottom: SPACE.md },
+    tournamentBanner:      { marginBottom: SPACE.md },
     tournamentBannerTitle: { ...t.title, marginBottom: SPACE.xxs },
     tournamentBannerBody:  t.sub,
 

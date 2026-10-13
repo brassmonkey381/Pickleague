@@ -20,12 +20,15 @@
 //
 // Built on the foundation Modal pieces (ModalBackdrop; RNW's Modal routes Escape
 // to onRequestClose, so no useEscapeKey: a second handler double-fires) rather
-// than BottomSheet: the form has text inputs, so the card must shrink when the
-// keyboard pushes the backdrop's KeyboardAvoidingView, and BottomSheet's card
-// sits in a content wrapper we can't make shrinkable.
-// FOUNDATION-TODO: BottomSheet could take `contentStyle` (or a `keyboardShrink`
-// option) so a fixed-height form sheet stays on screen above the keyboard; this
-// file could then use it directly.
+// than BottomSheet. Foundation 1.40's BottomSheet `keyboardShrink` +
+// `contentStyle` would cover the keyboard (the card shrinking above it), but
+// BottomSheet still adds its own useEscapeKey(onClose) on keydown next to RNW
+// Modal's keyup onRequestClose. Here onClose is handleDismiss, which on a
+// picker page only steps back to the form, so one Escape would step back
+// (keydown) AND then close the sheet, discarding the draft (keyup).
+// FOUNDATION-TODO: drop useEscapeKey from BottomSheet (same TODO as
+// play/DistanceFilterGroup); then this can be
+// <BottomSheet height="90%" keyboardShrink cardStyle={...}>.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet,

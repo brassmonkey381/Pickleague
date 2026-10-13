@@ -25,7 +25,7 @@ import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-arou
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
@@ -51,7 +51,8 @@ import {
   ChemistryResult, DoublesMatch,
 } from '../lib/chemistry';
 import { computeBadgeProgress } from '../lib/unlockProgress';
-import { availabilitySummary, nextUnlockTeaser, NextUnlockResult } from '../lib/profileSummary';
+import { nextUnlockTeaser, NextUnlockResult } from '../lib/profileSummary';
+import { availabilityShortSummary } from '@just-messin-around/expo-foundation/scheduling/availability';
 import { trackSectionToggle } from '../lib/analytics';
 import { BallIcon } from '../components/PickleIcons';
 import { useRefresh } from '../lib/useRefresh';
@@ -390,9 +391,29 @@ export default function ProfileScreen({ navigation }: Props) {
   // TODO: smoke-test in browser — from FTUE "Set up your profile", the profile
   // tour should highlight the avatar, then the next-unlock strip, once per
   // user (clear AsyncStorage to re-trigger).
-  const { registerAnchor } = useTour();
+  // Held only while Profile is focused (same as LeagueDetail's 'record'): a
+  // Profile left mounted under the stack still measures on native, so blur or
+  // unmount drops both anchors (identity-guarded) and the steps can't
+  // spotlight a hidden element or start an armed tour behind another screen.
+  const { registerAnchor, unregisterAnchor } = useTour();
   const editAnchor = useRef<any>(null);
   const rewardsAnchor = useRef<any>(null);
+  const isFocused = useIsFocused();
+  const focusedRef = useRef(isFocused);
+  focusedRef.current = isFocused;
+  const anchorOnLayout = (stepKey: 'edit' | 'rewards', ref: typeof editAnchor) => () => {
+    if (focusedRef.current) registerAnchor('profile', stepKey, ref);
+  };
+  // Coming back on top re-claims the steps; onLayout does not fire again.
+  useEffect(() => {
+    if (!isFocused) return;
+    if (editAnchor.current) registerAnchor('profile', 'edit', editAnchor);
+    if (rewardsAnchor.current) registerAnchor('profile', 'rewards', rewardsAnchor);
+    return () => {
+      unregisterAnchor('profile', 'edit', editAnchor);
+      unregisterAnchor('profile', 'rewards', rewardsAnchor);
+    };
+  }, [isFocused, registerAnchor, unregisterAnchor]);
 
   const refresh = useRefresh(loadProfile);
 
@@ -878,7 +899,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const comingHidden = comingCount - shownTournaments.length - shownLeagues.length;
 
   // Reference-section summaries (one line each, shown while collapsed).
-  const availSummary = availabilitySummary(availability) ?? 'Not set';
+  const availSummary = availabilityShortSummary(availability) ?? 'Not set';
   const paddleSummary = defaultPaddle ? `${defaultPaddle.brandName} ${defaultPaddle.modelName}` : 'Not set';
   const chemRows = chemistryResults.filter(r => partnerNames[r.partnerId]);
   const bestChem = chemRows.length > 0
@@ -914,7 +935,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <View style={styles.identity}>
         <TouchableOpacity
           ref={editAnchor}
-          onLayout={() => registerAnchor('profile', 'edit', editAnchor)}
+          onLayout={anchorOnLayout('edit', editAnchor)}
           onPress={() => setEditOpen(true)}
           activeOpacity={0.8}
           accessibilityRole="button"
@@ -1004,7 +1025,7 @@ export default function ProfileScreen({ navigation }: Props) {
       <View
         ref={rewardsAnchor}
         collapsable={false}
-        onLayout={() => registerAnchor('profile', 'rewards', rewardsAnchor)}
+        onLayout={anchorOnLayout('rewards', rewardsAnchor)}
       >
         <TouchableOpacity
           style={styles.strip}

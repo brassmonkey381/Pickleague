@@ -13,11 +13,10 @@
 // "No home court" chip that opens Edit. A 0 or unknown member count is left out.
 //
 // Pressable chips use Chip's `hitBox` (a 28px pill centred in a real 44x44 box,
-// since react-native-web ignores hitSlop); plain chips are just pills.
-//
-// FOUNDATION-TODO: Chip's pressable (and hitBox) TouchableOpacity sets no
-// accessibilityRole / accessibilityLabel prop; add them upstream so these chips
-// announce as buttons. Until then a screen reader reads the label text only.
+// since react-native-web ignores hitSlop) and opt in to being announced as
+// buttons, named without their glyphs (none sits inside another button, so
+// the <button> RNW renders for them on web nests nothing); plain chips are
+// just pills.
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { Chip } from '@just-messin-around/expo-foundation/ui';
@@ -111,18 +110,40 @@ export default function LeagueIdentity({
               hitBox
               label={`📍 ${courtShort}${hereCount ? ` · ${hereCount} here` : ''} ${rosterOpen ? '▾' : '›'}`}
               onPress={() => setRosterOpen((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={`Home court: ${court}${hereCount ? `, ${hereCount} here` : ''}`}
+              accessibilityHint={rosterOpen ? "Hides who's here" : "Shows who's here"}
             />
           ) : (
             <Chip {...chipProps} label={`📍 ${courtShort}`} />
           )
         ) : privileged && onSetCourt ? (
-          <Chip {...chipProps} hitBox label="📍 No home court ›" tone="warning" variant="outline" onPress={onSetCourt} />
+          <Chip
+            {...chipProps}
+            hitBox
+            label="📍 No home court ›"
+            tone="warning"
+            variant="outline"
+            onPress={onSetCourt}
+            accessibilityRole="button"
+            accessibilityLabel="No home court"
+            accessibilityHint="Opens Edit league to set one"
+          />
         ) : null}
         {memberCount != null && memberCount > 0 ? (
           <Chip {...chipProps} label={`${memberCount} member${memberCount === 1 ? '' : 's'}`} />
         ) : null}
         {roleChip ? <Chip {...chipProps} label={`You: ${roleLabel(myRole)}`} tone={roleChip.tone} /> : null}
-        <Chip {...chipProps} hitBox label="ⓘ How it works" variant="outline" tone="brand" onPress={onOpenInfo} />
+        <Chip
+          {...chipProps}
+          hitBox
+          label="ⓘ How it works"
+          variant="outline"
+          tone="brand"
+          onPress={onOpenInfo}
+          accessibilityRole="button"
+          accessibilityLabel="How it works"
+        />
       </View>
 
       {rosterOpen && presence.venueId ? (

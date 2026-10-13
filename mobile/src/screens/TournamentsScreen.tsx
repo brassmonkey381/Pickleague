@@ -71,7 +71,6 @@ import { usePlayHeaderPlus } from '../components/play/HeaderPlusButton';
 import { usePlayFilterState } from '../components/play/usePlayFilterState';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import { usePlayUserId } from '../components/play/usePlayUserId';
-import { afterModalClose } from '../components/play/afterModalClose';
 import { fixtureTournaments, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
 
 type Props = {
@@ -623,11 +622,14 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
       onPress: () => filters.setSort(k),
     })), [coords, split.sort, filters.setSort]);
 
+  // The "+" action runs from the sheet's onDismissed, once the sheet has fully
+  // closed: iOS won't present the limit Modal while the sheet animates out.
+  const createAfterPlusRef = useRef(false);
   const plusActions: ActionSheetAction[] = [
     {
       label: atTournamentLimit ? 'New tournament (limit reached)' : 'New tournament',
       iconName: 'trophy',
-      onPress: () => afterModalClose(openCreate),
+      onPress: () => { createAfterPlusRef.current = true; },
     },
   ];
 
@@ -696,6 +698,11 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         visible={plusOpen}
         actions={plusActions}
         onClose={() => setPlusOpen(false)}
+        onDismissed={() => {
+          if (!createAfterPlusRef.current) return;
+          createAfterPlusRef.current = false;
+          openCreate();
+        }}
       />
 
       <ConfirmModal

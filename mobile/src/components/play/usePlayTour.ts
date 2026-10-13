@@ -10,22 +10,21 @@
 // instance registers when it becomes live, so the list the user is looking at
 // always owns the steps.
 //
-// The anchors registered are PROXIES whose `current` is the real element only
-// while this instance is live (null otherwise). The engine has no unregister,
-// and a proxy needs none: once this list is hidden or blurred, a step that
-// still points at it reads null and is skipped instead of spotlighting
-// nothing. Registering a dead ref instead would count as "an anchor exists"
-// and could start an armed tour on the wrong screen.
+// When the instance stops being live (blur, tab hidden, unmount) it
+// unregisters its anchors, so a step can't point at a hidden list: the step
+// is skipped, and a dead anchor never counts as "an anchor exists" that could
+// start an armed tour on the wrong screen. The unregister is identity-guarded:
+// it drops a step only while this instance still owns it, so a list that
+// blurs after another one went live leaves the new anchor alone.
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { FlatList, NativeScrollEvent, NativeSyntheticEvent, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { FilterSearchFieldHandle } from '@just-messin-around/expo-foundation/ui';
+import type { AnchorRef } from '@just-messin-around/expo-foundation/tour';
 import { useTour } from '../../lib/TourContext';
 
-type Measurable = { measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null;
-
 export function usePlayTour(visible: boolean) {
-  const { registerAnchor, registerScroll, getScroll } = useTour();
+  const { registerAnchor, unregisterAnchor, registerScroll, getScroll } = useTour();
   const isFocused = useIsFocused();
   const live = isFocused && visible;
   const liveRef = useRef(live);
@@ -36,12 +35,10 @@ export function usePlayTour(visible: boolean) {
   const listRef = useRef<FlatList<any>>(null);
   const offsetRef = useRef(0);
 
-  const searchProxy = useMemo(() => ({
-    get current(): Measurable { return liveRef.current ? (searchRef.current as Measurable) : null; },
-  }), []);
-  const joinProxy = useMemo(() => ({
-    get current(): Measurable { return liveRef.current ? (joinRef.current as unknown as Measurable) : null; },
-  }), []);
+  // The refs themselves are the anchors (the handle and the View both have
+  // measureInWindow); typed for the engine once.
+  const searchAnchor = searchRef as unknown as AnchorRef;
+  const joinAnchor = joinRef as unknown as AnchorRef;
 
   // The FlatList as the tour's scroll host: pinning MINE above DISCOVER can
   // push the first joinable row below the fold.
@@ -52,19 +49,22 @@ export function usePlayTour(visible: boolean) {
 
   useEffect(() => {
     if (!live) return;
-    registerAnchor('leagues', 'search', searchProxy);
+    registerAnchor('leagues', 'search', searchAnchor);
     // The [Join] row may have laid out while this tab was hidden.
-    if (joinRef.current) registerAnchor('leagues', 'join', joinProxy);
+    if (joinRef.current) registerAnchor('leagues', 'join', joinAnchor);
     registerScroll(host);
     return () => {
+      // Also drops a 'join' that registerJoin added while live.
+      unregisterAnchor('leagues', 'search', searchAnchor);
+      unregisterAnchor('leagues', 'join', joinAnchor);
       if (getScroll() === host) registerScroll(null);
     };
-  }, [live, registerAnchor, registerScroll, getScroll, searchProxy, joinProxy, host]);
+  }, [live, registerAnchor, unregisterAnchor, registerScroll, getScroll, searchAnchor, joinAnchor, host]);
 
   /** onLayout of the first joinable Discover row's [Join] wrapper. */
   const registerJoin = useCallback(() => {
-    if (liveRef.current) registerAnchor('leagues', 'join', joinProxy);
-  }, [registerAnchor, joinProxy]);
+    if (liveRef.current) registerAnchor('leagues', 'join', joinAnchor);
+  }, [registerAnchor, joinAnchor]);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     offsetRef.current = e.nativeEvent.contentOffset.y;

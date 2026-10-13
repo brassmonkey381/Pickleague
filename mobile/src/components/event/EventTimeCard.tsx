@@ -9,7 +9,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 
@@ -33,8 +33,6 @@ export type EventTimeCardProps = {
   onAddToCalendar: () => void;
 };
 
-const ACCENT_EDGE = 3;
-
 export default function EventTimeCard(p: EventTimeCardProps) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -44,7 +42,7 @@ export default function EventTimeCard(p: EventTimeCardProps) {
   const counts = [`${p.inCount} in`, p.outCount > 0 ? `${p.outCount} can't make it` : null].filter(Boolean).join(' · ');
 
   return (
-    <Panel style={[styles.card, { borderLeftColor: p.isLive ? c.danger : c.primary }]}>
+    <Panel emphasis accentColor={p.isLive ? c.danger : c.primary}>
       <Text style={[t.label, p.isLive && { color: c.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
         {p.isLive ? 'Live now' : 'Confirmed time'}
       </Text>
@@ -95,7 +93,6 @@ export default function EventTimeCard(p: EventTimeCardProps) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderLeftWidth: ACCENT_EDGE, borderRadius: RADIUS.lg },
   day: { marginTop: SPACE.xxs },
   counts: { marginTop: SPACE.xxs },
   rsvp: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: SPACE.sm, marginTop: SPACE.sm },

@@ -127,11 +127,19 @@ export default function EntityRow({
     );
   }
 
-  // FOUNDATION-TODO: ListCard should take accessibilityLabel / accessibilityRole
-  // ('button' when pressable) / accessibilityHint and pass them to its
-  // TouchableOpacity; until then a screen reader reads the row's texts in order.
+  // A pressable row names itself as one button ("Ladder night, Live, Wk 7/12").
+  // Not with an action: on web RNW renders a role=button as <button>, and the
+  // card would then hold the action's <button> (invalid nesting).
+  const a11y =
+    onPress && action == null
+      ? {
+          accessibilityRole: 'button' as const,
+          accessibilityLabel: [title, ...shownChips.map((x) => x.label), sub, trailingText].filter(Boolean).join(', '),
+        }
+      : null;
   return (
     <ListCard
+      {...a11y}
       leading={leading}
       title={titleNode}
       subtitle={sub}

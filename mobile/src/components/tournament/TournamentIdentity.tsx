@@ -20,9 +20,8 @@
 // date or location shows nothing there to players; an admin who can still
 // edit gets a "No date ›" / "No location ›" chip that opens Edit.
 //
-// FOUNDATION-TODO: Chip's pressable (and hitBox) TouchableOpacity sets no
-// accessibilityRole / accessibilityLabel; add them upstream so these chips
-// announce as buttons (same note as LeagueIdentity).
+// Pressable chips opt in to being announced as buttons, named without their
+// glyphs (same as LeagueIdentity; none sits inside another button).
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
 import { Chip } from '@just-messin-around/expo-foundation/ui';
@@ -93,18 +92,47 @@ export default function TournamentIdentity({
         {date ? (
           <Chip {...chipProps} label={`📅 ${date}`} />
         ) : onEdit ? (
-          <Chip {...chipProps} hitBox label="📅 No date ›" tone="warning" variant="outline" onPress={onEdit} />
+          <Chip
+            {...chipProps}
+            hitBox
+            label="📅 No date ›"
+            tone="warning"
+            variant="outline"
+            onPress={onEdit}
+            accessibilityRole="button"
+            accessibilityLabel="No date"
+            accessibilityHint="Opens Edit tournament to set one"
+          />
         ) : null}
         {court ? (
           <Chip {...chipProps} label={`📍 ${court}`} style={styles.courtChip} />
         ) : onEdit ? (
-          <Chip {...chipProps} hitBox label="📍 No location ›" tone="warning" variant="outline" onPress={onEdit} />
+          <Chip
+            {...chipProps}
+            hitBox
+            label="📍 No location ›"
+            tone="warning"
+            variant="outline"
+            onPress={onEdit}
+            accessibilityRole="button"
+            accessibilityLabel="No location"
+            accessibilityHint="Opens Edit tournament to set one"
+          />
         ) : null}
         {approvedCount > 0 || t.max_players != null ? (
           <Chip {...chipProps} label={`👥 ${players}`} />
         ) : null}
         {(t.pickle_ante ?? 0) > 0 ? <Chip {...chipProps} label={`🥒 ${t.pickle_ante} ante`} tone="success" /> : null}
-        <Chip {...chipProps} hitBox label="ⓘ How it works" variant="outline" tone="brand" onPress={onOpenInfo} />
+        <Chip
+          {...chipProps}
+          hitBox
+          label="ⓘ How it works"
+          variant="outline"
+          tone="brand"
+          onPress={onOpenInfo}
+          accessibilityRole="button"
+          accessibilityLabel="How it works"
+        />
       </View>
 
       {desc ? (

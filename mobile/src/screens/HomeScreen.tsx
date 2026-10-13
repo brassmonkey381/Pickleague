@@ -82,7 +82,6 @@ import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
 import StreakBonusModal from '../components/home/StreakBonusModal';
-import BellGlyph, { bellA11yLabel, bellBadge } from '../components/home/BellGlyph';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -616,11 +615,14 @@ export default function HomeScreen({ navigation }: Props) {
             onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
           },
           {
-            // No `badge` here: BellGlyph draws it so the label can say what
-            // the number means (see that file's FOUNDATION-TODO).
+            // The number is what needs you (votes, RSVPs, invites, requests,
+            // scores to confirm), so its label says so: "Notifications, 2
+            // need you". Plain unread is a dot ("Notifications, new").
             key: 'bell',
-            icon: <BellGlyph badge={bellBadge(needYou, data.unreadLive)} />,
-            a11yLabel: bellA11yLabel(needYou, data.unreadLive),
+            icon: 'bell',
+            badge: needYou > 0 ? needYou : data.unreadLive > 0 ? 'dot' : undefined,
+            a11yLabel: 'Notifications',
+            badgeA11yLabel: (n) => `Notifications, ${n} need${n === 1 ? 's' : ''} you`,
             onPress: () => { tap('top_bar', 'bell'); navigation.navigate('Notifications'); },
           },
           {

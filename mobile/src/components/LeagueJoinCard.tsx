@@ -15,7 +15,7 @@ import React from 'react';
 import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Panel, StatusBanner } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { useTheme } from '../lib/ThemeContext';
@@ -41,9 +41,6 @@ export type LeagueJoinCardProps = {
   onRequested?: () => void;
   style?: StyleProp<ViewStyle>;
 };
-
-/** Emphasis variant's accent edge (plan section 6). */
-const ACCENT_EDGE = 3;
 
 export default function LeagueJoinCard({
   leagueId,
@@ -77,7 +74,7 @@ export default function LeagueJoinCard({
     : 'This league is private — request to join and an admin will share an invite code.';
 
   return (
-    <Panel style={[styles.emphasis, { borderLeftColor: c.primary }, style]}>
+    <Panel emphasis style={style}>
       <View style={styles.row}>
         <View style={styles.text}>
           <Text style={t.title} numberOfLines={1} accessibilityRole="header">{title}</Text>
@@ -108,7 +105,6 @@ export default function LeagueJoinCard({
 }
 
 const styles = StyleSheet.create({
-  emphasis: { borderLeftWidth: ACCENT_EDGE, borderRadius: RADIUS.lg },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
   text: { flex: 1, minWidth: 0 },
   sub: { marginTop: SPACE.xxs },

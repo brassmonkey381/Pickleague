@@ -725,9 +725,13 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       onPress: () => filters.setSort(k),
     })), [coords, split.center, split.sort, filters.setSort]);
 
+  // A "+" action's follow-up Modal opens from the sheet's onDismissed, once
+  // the sheet has fully closed: iOS won't present a second Modal while the
+  // first is still animating out.
+  const afterPlusRef = useRef<(() => void) | null>(null);
   const plusActions: ActionSheetAction[] = [
-    { label: atLeagueLimit ? 'New league (limit reached)' : 'New league', iconName: 'plus', onPress: () => afterModalClose(openCreate) },
-    { label: 'Enter code', iconName: 'key', onPress: () => afterModalClose(() => setShowJoinCode(true)) },
+    { label: atLeagueLimit ? 'New league (limit reached)' : 'New league', iconName: 'plus', onPress: () => { afterPlusRef.current = openCreate; } },
+    { label: 'Enter code', iconName: 'key', onPress: () => { afterPlusRef.current = () => setShowJoinCode(true); } },
   ];
 
   const chipOptions = LEAGUE_CHIPS.map((k) => ({ value: k, label: LEAGUE_CHIP_LABELS[k], count: split.chipCounts[k] }));
@@ -799,6 +803,11 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         visible={plusOpen}
         actions={plusActions}
         onClose={() => setPlusOpen(false)}
+        onDismissed={() => {
+          const next = afterPlusRef.current;
+          afterPlusRef.current = null;
+          next?.();
+        }}
       />
 
       {/* Join with Code modal */}

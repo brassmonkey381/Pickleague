@@ -840,6 +840,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
               label={`${entityGlyph('league')} ${leagueName} ›`}
               size="sm"
               hitBox
+              accessibilityRole="button"
+              accessibilityLabel={`League: ${leagueName}`}
               maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
               onPress={() => {
                 // Back to the league, not a second copy of it. popTo matches by
@@ -892,7 +894,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         {(category === 'voting_open' || category === 'vote_closed') && (
           <>
             <View onLayout={heightLayout(youCardH)}>
-            <Panel style={[S.youCard, { borderLeftColor: c.primary }]}>
+            <Panel emphasis style={S.youCard}>
               <Text style={t.label} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Your vote</Text>
               <Text style={[t.title, S.youTitle]}>
                 {iDeclined ? "You can't make it"
@@ -1222,7 +1224,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     measureTwin: { position: 'absolute', left: 0, right: 0, top: 0, opacity: 0 },
     moreBox:     { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
     banner:      { marginTop: 0, marginBottom: SPACE.md },
-    youCard:     { borderLeftWidth: 3, borderRadius: RADIUS.lg, marginBottom: SPACE.md },
+    youCard:     { marginBottom: SPACE.md },
     youTitle:    { marginTop: SPACE.xxs },
     block:       { marginBottom: SPACE.md },
     declineCard: {

@@ -35,7 +35,7 @@
 // - A tap goes where the same push would (lib/pushLinks.ts linkOf + routeLink),
 //   and an invite with an embedded code auto-redeems first, as before.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, type RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -426,12 +426,21 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     const g = glyphFor(n.entity_type);
     const tile = entityTileColors(g.kind, c);
     const long = isLongBody(n.body);
+    const time = notificationTime(n.created_at, now);
     // The ✕ is a SIBLING of the card, not its `trailing`: ListCard is one
     // touchable (accessible by default), so iOS VoiceOver can't focus a button
     // nested in it, and a screen-reader user could not delete at all.
-    // FOUNDATION-TODO: ListCard should forward accessibilityLabel / Hint /
-    // accessibilityActions + onAccessibilityAction, so the card could also
-    // offer "Delete" as a rotor action.
+    // The card names itself once, with the whole body (the "more" toggle
+    // nested in it is a sighted-user affordance). On web a long row's card is
+    // not a role=button: it holds the "more" button, and RNW renders both as
+    // <button> (nested buttons are invalid HTML). So it gets no role and no
+    // label either (aria-label is prohibited on a generic element); its text
+    // and the "more" button read in order.
+    // FOUNDATION-TODO: ListCard should forward accessibilityActions +
+    // onAccessibilityAction, so the card could also offer "Delete" as a rotor
+    // action.
+    const webLong = long && Platform.OS === 'web';
+    const a11yLabel = `${n.is_read ? '' : 'Unread: '}${n.title}, ${time}. ${n.body}${gone ? '. No longer available' : ''}`;
     return (
       <View style={styles.rowWrap}>
         <ListCard
@@ -439,6 +448,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           align="top"
           style={styles.card}
           onPress={() => { void handleTap(n); }}
+          accessibilityRole={webLong ? undefined : 'button'}
+          accessibilityLabel={webLong ? undefined : a11yLabel}
           leading={
             <View
               style={[styles.tile, { backgroundColor: tile.bg, borderColor: tile.border }, gone && styles.gone]}
@@ -458,7 +469,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
                 {n.title}
               </Text>
               <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {notificationTime(n.created_at, now)}
+                {time}
               </Text>
             </View>
           }

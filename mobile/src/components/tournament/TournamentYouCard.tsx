@@ -19,7 +19,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { Button, type ButtonVariant } from '@just-messin-around/expo-foundation/forms';
-import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { ordinal, type YouCardKind } from './tournamentModel';
@@ -177,9 +177,6 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
   }
 }
 
-/** Emphasis variant's accent edge (plan section 6). */
-const ACCENT_EDGE = 3;
-
 export default function TournamentYouCard({ view }: { view: YouCardView }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -197,7 +194,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
   );
 
   return (
-    <Panel style={[styles.emphasis, { borderLeftColor: c.primary }]}>
+    <Panel emphasis style={styles.card}>
       {view.onPress ? (
         <TouchableOpacity
           onPress={view.onPress}
@@ -266,7 +263,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
 }
 
 const styles = StyleSheet.create({
-  emphasis: { borderLeftWidth: ACCENT_EDGE, borderRadius: RADIUS.lg, gap: SPACE.sm },
+  card: { gap: SPACE.sm },
   text: { flex: 1, minWidth: 0, gap: SPACE.xxs },
   pressRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },

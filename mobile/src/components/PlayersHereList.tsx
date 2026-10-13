@@ -67,11 +67,10 @@ export function PlayersHereRoster({ players, maxRows }: { players: PlayerHere[];
   return (
     <PresenceCard
       compact
+      bare
       maxRows={maxRows}
       meta={n > 0 ? `${n} here` : null}
       emptyText="No one else checked in yet."
-      // FOUNDATION-TODO: PresenceCard should take a `bare` / `embedded` option
-      // (no border, padding or surface) instead of this style override.
       style={S.presence}
       rows={players.map((p) => ({
         key: p.checkin_id,
@@ -198,7 +197,7 @@ const S = StyleSheet.create({
   top: { marginTop: SPACE.sm },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACE.xs, gap: SPACE.sm },
   name: { flex: 1 },
-  presence: { borderWidth: 0, padding: 0, paddingTop: SPACE.xs, backgroundColor: 'transparent' },
+  presence: { paddingTop: SPACE.xs },
   avatar: {
     width: AVATAR,
     height: AVATAR,

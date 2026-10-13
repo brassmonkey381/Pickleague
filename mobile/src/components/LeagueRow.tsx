@@ -126,7 +126,9 @@ export type LeagueJoinButtonProps = {
   /** Label for a private league. Default 'Request' (Play may pass 'Request code'). */
   requestLabel?: string;
   /** Spotlight-tour anchor (the 'leagues/join' step): a ref to a View wrapping
-   *  the button. The foundation Button doesn't forward refs. */
+   *  the button. A wrapper even though Button forwards its ref (foundation
+   *  1.40): it gives the onLayout that registers the anchor (Button takes no
+   *  onLayout) and stays the same element when [Join] turns into "Joined". */
   anchorRef?: Ref<View>;
   /** Fires on the wrapper's layout, e.g. to registerAnchor once it is measurable. */
   onAnchorLayout?: () => void;

@@ -34,7 +34,7 @@ export default function NowPanel({ session, liveEvents, now, emphasis, onEnterSc
   const t = textStyles(c);
   if (!session && liveEvents.length === 0) return null;
   return (
-    <Panel padded={false} style={emphasis ? [styles.emphasis, { borderLeftColor: c.primary }] : undefined}>
+    <Panel padded={false} emphasis={emphasis}>
       {session ? (
         <ListCard
           variant="row"
@@ -55,7 +55,5 @@ export default function NowPanel({ session, liveEvents, now, emphasis, onEnterSc
 }
 
 const styles = StyleSheet.create({
-  // FOUNDATION-TODO: Panel `emphasis` prop (see GetStartedPanel).
-  emphasis: { borderLeftWidth: 3 },
   actionRow: { paddingVertical: SPACE.xs },
 });

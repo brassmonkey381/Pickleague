@@ -5,11 +5,10 @@
 //
 // FOUNDATION-TODO: this forks CollapsibleSection, so the collapsible sections
 // here (Pairs/Teams, Playoff, Players, Pot, Wager) look unlike Manage on this
-// screen and the League/Event/Profile sections. Two additive foundation changes
-// close the gap: widen CollapsibleSection's `count` to `number | string` (Pot
-// shows "🥒 N"), and add a `collapsedContent?: ReactNode` slot rendered OUTSIDE
-// the toggle button while closed (the AvatarPile is pressable; nesting it in
-// the toggle would nest pressables). Then move those five call sites to
+// screen and the League/Event/Profile sections. Foundation 1.40 added
+// CollapsibleSection's `collapsedContent` (outside the toggle, so the pressable
+// AvatarPile is fine); what's still missing is a `count: number | string` (Pot
+// shows "🥒 N" in the count slot). Then move those five call sites to
 // `CollapsibleSection compact` (text summaries -> `summary`, the pile ->
 // `collapsedContent`) and drop onToggle/open/collapsedContent/keepMounted here,
 // keeping this only for the static sections (Schedule, Standings, Stages,

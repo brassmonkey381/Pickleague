@@ -23,8 +23,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { getCurrentCoords, getLastKnownCoords, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -284,8 +285,6 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     onTap?.(target);
     fn();
   };
-  const panelColors = { backgroundColor: c.surface, borderColor: c.border };
-  const emphasisColors = { ...panelColors, borderLeftColor: c.primary };
 
   // Outcome lines and the one-time offers render under either look.
   const footer = (
@@ -345,7 +344,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     // shows that same button then (one place per action). Check out stays: the
     // island's End stops the session, it doesn't check you out.
     return (
-      <View style={[S.panel, S.emphasis, emphasisColors]}>
+      <Panel padded={false} emphasis style={PANEL_INSET}>
         <View style={[S.line, S.titleRow]}>
           <Text style={[t.title, S.flex]} numberOfLines={1}>
             📍 {current.venueName}
@@ -388,13 +387,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           />
         </HereLine>
         {footer}
-      </View>
+      </Panel>
     );
   }
 
   if (nearby) {
     return (
-      <View style={[S.panel, S.emphasis, emphasisColors]}>
+      <Panel padded={false} emphasis style={PANEL_INSET}>
         <View style={S.line}>
           <Text style={t.title} numberOfLines={2}>
             📍 Check in at {nearby.name} for 2 hours?
@@ -419,14 +418,14 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           />
         </HereLine>
         {footer}
-      </View>
+      </Panel>
     );
   }
 
   // Idle: the 48px court row. "Just play" keeps the old "Start a session
   // without checking in" reachable; it hides while a session already runs.
   return (
-    <View style={[S.panel, panelColors]}>
+    <Panel padded={false} style={PANEL_INSET}>
       <View style={S.courtRow}>
         <Text style={[t.title, S.flex]} numberOfLines={1}>
           📍 At the courts?
@@ -462,22 +461,22 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         </TouchableOpacity>
       </View>
       {footer}
-    </View>
+    </Panel>
   );
 }
 
+// Panel's chrome (radius 14) with this card's own inset. A plain object, not a
+// StyleSheet entry: Panel sets `padding` inline, and on web an inline style
+// beats a compiled class whatever the array order, so a StyleSheet inset would
+// render as 0. As a plain object it merges into Panel's inline style, where
+// paddingHorizontal/Vertical override `padding` on web and native alike.
+// Checked in or offering a check-in it is the Emphasis variant (one per
+// screen; HomeScreen gives NOW's other panel none while this one shows).
+// FOUNDATION-TODO: Panel could omit `padding` when padded === false.
+const PANEL_INSET = { paddingHorizontal: SPACE.md, paddingVertical: SPACE.xxs } as const;
+
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    panel: {
-      borderWidth: 1,
-      borderRadius: RADIUS.lg,
-      paddingHorizontal: SPACE.md,
-      paddingVertical: SPACE.xxs,
-    },
-    // The Emphasis variant: Panel + a 3px accent left edge (one per screen;
-    // HomeScreen gives NOW's other panel none while this one shows).
-    // FOUNDATION-TODO: Panel `emphasis` prop (see home/GetStartedPanel).
-    emphasis: { borderLeftWidth: 3 },
     // The court row: 48 tall (44 tap boxes inside the 2px inset).
     courtRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
     line: { minHeight: 44, justifyContent: 'center' },

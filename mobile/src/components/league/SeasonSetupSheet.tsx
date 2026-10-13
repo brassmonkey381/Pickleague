@@ -138,6 +138,7 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
       selected={active}
       hitBox
       onPress={onPress}
+      accessibilityRole="button"
     />
   );
 

@@ -317,13 +317,14 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
   // The card's league / tournament chip. A tournament tag is the more specific
   // of the two, so it wins; on a league-scoped history every row would repeat
-  // the same league, so the league chip is left off there.
+  // the same league, so the league chip is left off there. `shrink`: a long
+  // name ellipsizes inside the chip's slot (metaChip) instead of overflowing it.
   function scopeChip(item: HistoryMatch) {
     if (item.tournament?.name) {
-      return <Badge label={`${entityGlyph('tournament')} ${item.tournament.name}`} tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
+      return <Badge shrink label={`${entityGlyph('tournament')} ${item.tournament.name}`} tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
     }
     if (!leagueId && item.league?.name) {
-      return <Badge label={`${entityGlyph('league')} ${item.league.name}`} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
+      return <Badge shrink label={`${entityGlyph('league')} ${item.league.name}`} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
     }
     return null;
   }

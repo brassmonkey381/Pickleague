@@ -1,85 +1,12 @@
 // One-line summaries for the compact Profile (plan section 5, "Profile"):
-//   - availabilitySummary: the collapsed Availability section's summary
-//     ("Weeknights · 9 hrs/wk"), so the 672px grid only mounts when opened;
 //   - nextUnlockTeaser: the status strip ("Next unlock: Ninja avatar 3/5 >")
 //     that replaced the ~900px Unlockable Rewards card (or "N more to earn in
 //     league play" / "Every unlock earned" once nothing measurable is left).
+// The collapsed Availability section's summary ("Weeknights · 9 hrs/wk") is
+// the foundation's availabilityShortSummary (/scheduling/availability).
 //
-// PURE (no react-native import) so both are unit-tested.
-import {
-  AVAIL_DAYS,
-  SLOTS_PER_DAY,
-  TOTAL_CELLS,
-  cellIdx,
-} from '@just-messin-around/expo-foundation/scheduling/availability';
+// PURE (no react-native import) so it is unit-tested.
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
-
-// ── Availability ─────────────────────────────────────────────────────────────
-
-// Half-hour slot boundaries (slot 10 = 5:00 AM, 24 = noon, 34 = 5:00 PM).
-const MORNING_START = 10;
-const AFTERNOON_START = 24;
-const EVENING_START = 34;
-
-/** A bucket must hold at least this share of the week's hours to be named. */
-const NAMED_SHARE = 0.25;
-
-/** "9 hrs/wk", "1 hr/wk", "2.5 hrs/wk". */
-export function hoursPerWeekLabel(slots: number): string {
-  const hrs = slots * 0.5;
-  const text = Number.isInteger(hrs) ? String(hrs) : hrs.toFixed(1);
-  return `${text} ${hrs === 1 ? 'hr' : 'hrs'}/wk`;
-}
-
-/**
- * FOUNDATION-TODO: this is generic weekly-template math; it belongs next to
- * formatAvailabilitySummary in fdn scheduling/availability (as e.g.
- * `availabilityShortSummary`) once a second app wants it.
- *
- * "Weeknights · 9 hrs/wk", "Weekends · 6 hrs/wk",
- * "Weeknights & weekends · 14 hrs/wk", "Mixed · 3 hrs/wk".
- * Null when nothing is set (or the array isn't the weekly 336-cell template),
- * so the caller can say "Not set" instead of "0 hrs/wk".
- *
- * Buckets: weekday mornings (5 AM-noon), weekday afternoons (noon-5 PM),
- * weeknights (5 PM-5 AM, late night folds in here), weekends (any time). The
- * up-to-two buckets holding at least a quarter of the hours are named, biggest
- * first; a spread-out week reads "Mixed".
- */
-export function availabilitySummary(av: readonly boolean[] | null | undefined): string | null {
-  if (!av || av.length !== TOTAL_CELLS) return null;
-  const buckets = { mornings: 0, afternoons: 0, nights: 0, weekends: 0 };
-  let total = 0;
-  for (let d = 0; d < AVAIL_DAYS.length; d++) {
-    const weekend = d >= 5; // Monday-start: 5 = Sat, 6 = Sun
-    for (let s = 0; s < SLOTS_PER_DAY; s++) {
-      if (!av[cellIdx(d, s)]) continue;
-      total += 1;
-      if (weekend) buckets.weekends += 1;
-      else if (s >= MORNING_START && s < AFTERNOON_START) buckets.mornings += 1;
-      else if (s >= AFTERNOON_START && s < EVENING_START) buckets.afternoons += 1;
-      else buckets.nights += 1;
-    }
-  }
-  if (total === 0) return null;
-
-  const names: Record<keyof typeof buckets, string> = {
-    nights: 'weeknights',
-    weekends: 'weekends',
-    mornings: 'weekday mornings',
-    afternoons: 'weekday afternoons',
-  };
-  // Stable order on ties: the order of `names` above.
-  const named = (Object.keys(names) as (keyof typeof buckets)[])
-    .map((k, order) => ({ k, share: buckets[k] / total, order }))
-    .filter(b => b.share >= NAMED_SHARE)
-    .sort((a, b) => b.share - a.share || a.order - b.order)
-    .slice(0, 2)
-    .map(b => names[b.k]);
-
-  const label = named.length === 0 ? 'mixed' : named.join(' & ');
-  return `${label.charAt(0).toUpperCase()}${label.slice(1)} · ${hoursPerWeekLabel(total)}`;
-}
 
 // ── Next unlock ──────────────────────────────────────────────────────────────
 
