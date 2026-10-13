@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
@@ -7,6 +7,12 @@ import {
   currentUserId as sessionUserId,
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
+import {
+  FilterChipRow, FilterPill, FilterSearchField, FilterSheet, SingleSelectModal,
+  type FilterChipOption, type FilterSheetGroup,
+} from '@just-messin-around/expo-foundation/ui';
+import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { DoublesCategory, Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -59,9 +65,23 @@ type Props = {
   route:      RouteProp<RootStackParamList, 'TournamentMatchHistory'>;
 };
 
+type ChipKey = 'mine' | 'completed' | 'pending';
+
+/** The sheet's applied values: rarer filters (match type, doubles category). */
+type SheetValues = { type: string | null; category: string | null };
+const SHEET_DEFAULTS: SheetValues = { type: null, category: null };
+
+// TournamentMatchHistory, UI compaction P5b. Compact rows (56-72, one line of
+// meta under the title), an always-visible player search, quick chips
+// Mine / Played / Not played, a Round pill, and a Filters sheet for match type
+// and doubles category. The round label on each row ships with the Round pill
+// (the match-history filter-pill convention, plan section 9). Doubles rows
+// name their category only when it is known: "Unspecified" is never shown
+// (plan section 6, content rules); the sheet calls that bucket "Other".
 export default function TournamentMatchHistoryScreen({ route }: Props) {
   const { tournamentId } = route.params;
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const S = makeStyles(c);
 
   const [matches, setMatches]             = useState<TMatch[]>([]);
@@ -69,12 +89,15 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   const [loading, setLoading]             = useState(true);
   const [loadError, setLoadError]         = useState<string | null>(null);
 
-  const [showFilters, setShowFilters]     = useState(false);
-  const [matchType, setMatchType]         = useState<TypeFilter>('all');
   const [statusFilter, setStatusFilter]   = useState<StatusFilter>('all');
   const [playerSearch, setPlayerSearch]   = useState('');
   const [myMatchesOnly, setMyMatchesOnly] = useState(false);
-  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>('all');
+  const [roundId, setRoundId]             = useState<string | null>(null);
+  const [roundPickerOpen, setRoundPickerOpen] = useState(false);
+  const [sheetOpen, setSheetOpen]         = useState(false);
+  const [sheet, setSheet]                 = useState<SheetValues>(SHEET_DEFAULTS);
+  const matchType = (sheet.type ?? 'all') as TypeFilter;
+  const doublesCategory = (sheet.category ?? 'all') as DoublesCategoryFilter;
 
   const refresh = useRefresh(load);
 
@@ -124,6 +147,24 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     return n1 ?? n2 ?? '—';
   }
 
+  // Rounds, in order, for the Round pill.
+  const rounds = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string; round_number: number }>();
+    for (const m of matches) if (m.round && !byId.has(m.round.id)) byId.set(m.round.id, m.round);
+    return [...byId.values()].sort((a, b) => a.round_number - b.round_number);
+  }, [matches]);
+  const selectedRound = roundId ? rounds.find(r => r.id === roundId) ?? null : null;
+
+  // A one-day tournament (every scheduled match on the same calendar day)
+  // shows the time alone: the date would repeat on every row, and the time is
+  // what tells players when they're on. Otherwise date and time.
+  const oneDay = useMemo(() => {
+    const days = new Set(matches
+      .filter(m => m.scheduled_at)
+      .map(m => new Date(m.scheduled_at!).toDateString()));
+    return days.size <= 1;
+  }, [matches]);
+
   function renderMatch({ item }: { item: TMatch }) {
     const isDoubles  = item.match_type === 'doubles';
     const team1Name  = teamName(item.team1p1, item.team1p2);
@@ -133,98 +174,57 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
     const cat: DoublesCategory | null = isDoubles
       ? classifyDoubles(item.team1p1, item.team1p2, item.team2p1, item.team2p2)
       : null;
-    const categoryBadge = cat ? (
-      <View style={[
-        S.catBadge,
-        cat === 'gendered' ? S.catGenderedBg :
-        cat === 'mixed'    ? S.catMixedBg    : S.catUnspecBg,
-      ]}>
-        <Text style={[
-          S.catText,
-          cat === 'gendered' ? S.catGenderedColor :
-          cat === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
-        ]}>
-          {cat === 'gendered' ? 'Gendered Doubles' :
-           cat === 'mixed'    ? 'Mixed Doubles'    : 'Unspecified Doubles'}
-        </Text>
-      </View>
-    ) : null;
+    // Content rule: an unknown category is left out, never shown as "Unspecified".
+    const typeLabel = isDoubles
+      ? (cat === 'gendered' ? 'Gendered doubles' : cat === 'mixed' ? 'Mixed doubles' : 'Doubles')
+      : 'Singles';
 
     const dateStr = item.scheduled_at
-      ? new Date(item.scheduled_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-      : null;
-    const timeStr = item.scheduled_at
-      ? new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      ? oneDay
+        ? new Date(item.scheduled_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+        : new Date(item.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
       : null;
 
     // Player-perspective view if logged-in user is in this match
     const viewAs = currentUserId && involvesUser(item, currentUserId) ? currentUserId : null;
 
+    let badge: { text: string; bg: string; fg: string };
+    let title: string;
+    let score: string;
+    let meta: (string | null | undefined)[];
     if (viewAs && completed) {
       const onTeam1  = isOnTeam1(item, viewAs);
       const won      = onTeam1 ? team1Won : !team1Won;
       const myScore  = onTeam1 ? item.team1_score : item.team2_score;
       const oppScore = onTeam1 ? item.team2_score : item.team1_score;
-      const oppName  = onTeam1 ? team2Name : team1Name;
       const myPartner = onTeam1
         ? item.team1p1?.id === viewAs ? item.team1p2 : item.team1p1
         : item.team2p1?.id === viewAs ? item.team2p2 : item.team2p1;
-
-      return (
-        <View style={[S.card, won ? S.win : S.loss]}>
-          <View style={S.cardHeader}>
-            <Text style={[S.result, won ? S.winText : S.lossText]}>{won ? 'W' : 'L'}</Text>
-            <View style={S.cardInfo}>
-              <Text style={S.opponent} numberOfLines={1}>vs {oppName}</Text>
-              {isDoubles && myPartner?.full_name && (
-                <Text style={S.partnerText}>🤝 {myPartner.full_name}</Text>
-              )}
-              {item.round?.label && <Text style={S.roundText}>{item.round.label}</Text>}
-              {dateStr && <Text style={S.dateText}>{dateStr}{timeStr ? ` at ${timeStr}` : ''}</Text>}
-            </View>
-            <View style={S.cardRight}>
-              <Text style={S.score}>{myScore} – {oppScore}</Text>
-              <Text style={S.typeTag}>{isDoubles ? 'Doubles' : 'Singles'}</Text>
-              {categoryBadge}
-            </View>
-          </View>
-        </View>
-      );
+      badge = won ? { text: 'W', bg: c.primary, fg: c.textInverse } : { text: 'L', bg: c.danger, fg: c.textInverse };
+      title = `vs ${onTeam1 ? team2Name : team1Name}`;
+      score = `${myScore} – ${oppScore}`;
+      meta = [item.round?.label, isDoubles && myPartner?.full_name ? `with ${myPartner.full_name}` : null, dateStr, typeLabel];
+    } else {
+      badge = completed
+        ? { text: team1Won ? 'W' : 'L', bg: team1Won ? c.primary : c.danger, fg: c.textInverse }
+        : { text: '·', bg: c.surfaceAlt, fg: c.textMuted };
+      title = `${team1Name} vs ${team2Name}`;
+      score = completed ? `${item.team1_score} – ${item.team2_score}` : 'Not played';
+      meta = [item.round?.label, dateStr, typeLabel];
     }
 
-    // Tournament-wide view (or pending matches)
     return (
-      <View style={[S.card, completed ? (team1Won ? S.win : S.loss) : S.pending]}>
-        <View style={S.leagueRow}>
-          {completed ? (
-            <View style={[S.resultMini, team1Won ? S.resultMiniWin : S.resultMiniLoss]}>
-              <Text style={S.resultMiniText}>{team1Won ? 'W' : 'L'}</Text>
-            </View>
-          ) : (
-            <View style={[S.resultMini, S.resultMiniPending]}>
-              <Text style={S.resultMiniText}>·</Text>
-            </View>
-          )}
-          <View style={{ flex: 1 }}>
-            <Text style={[S.matchup, completed && team1Won && S.matchupWinner]} numberOfLines={1}>
-              {team1Name}
-            </Text>
-            <Text style={[S.matchup, completed && !team1Won && S.matchupWinner]} numberOfLines={1}>
-              vs {team2Name}
-            </Text>
-          </View>
-          <View style={{ alignItems: 'flex-end', gap: 2 }}>
-            {completed ? (
-              <Text style={S.score}>{item.team1_score} – {item.team2_score}</Text>
-            ) : (
-              <Text style={S.pendingTag}>Not played</Text>
-            )}
-            <Text style={S.typeTag}>{isDoubles ? 'Doubles' : 'Singles'}</Text>
-            {categoryBadge}
-          </View>
+      <View style={S.card}>
+        <View style={[S.badge, { backgroundColor: badge.bg }]}>
+          <Text style={[S.badgeText, { color: badge.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{badge.text}</Text>
         </View>
-        {item.round?.label && <Text style={S.roundText}>{item.round.label}</Text>}
-        {dateStr && <Text style={S.dateText}>{dateStr}{timeStr ? ` at ${timeStr}` : ''}</Text>}
+        <View style={S.cardText}>
+          <Text style={t.title} numberOfLines={1}>{title}</Text>
+          <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {meta.filter(Boolean).join(' · ')}
+          </Text>
+        </View>
+        <Text style={[t.sub, completed ? S.score : S.pendingScore]} numberOfLines={1}>{score}</Text>
       </View>
     );
   }
@@ -238,11 +238,12 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
       if (statusFilter === 'pending'   && m.status === 'completed') return false;
 
       if (myMatchesOnly && currentUserId && !involvesUser(m, currentUserId)) return false;
+      if (roundId && m.round?.id !== roundId) return false;
 
       if (doublesCategory !== 'all') {
         if (m.match_type !== 'doubles') return false;
-        const c = classifyDoubles(m.team1p1, m.team1p2, m.team2p1, m.team2p2);
-        if (c !== doublesCategory) return false;
+        const cat = classifyDoubles(m.team1p1, m.team1p2, m.team2p1, m.team2p2);
+        if (cat !== doublesCategory) return false;
       }
 
       if (searchLower) {
@@ -257,14 +258,51 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
 
       return true;
     });
-  }, [matches, matchType, statusFilter, myMatchesOnly, currentUserId, playerSearch, doublesCategory]);
+  }, [matches, matchType, statusFilter, myMatchesOnly, currentUserId, playerSearch, doublesCategory, roundId]);
 
+  const myCount = currentUserId ? matches.filter(m => involvesUser(m, currentUserId)).length : 0;
+  const sheetCount = (sheet.type ? 1 : 0) + (sheet.category ? 1 : 0);
   const activeFilterCount =
-    (matchType !== 'all' ? 1 : 0) +
+    sheetCount +
     (statusFilter !== 'all' ? 1 : 0) +
     (myMatchesOnly ? 1 : 0) +
     (playerSearch.trim() ? 1 : 0) +
-    (doublesCategory !== 'all' ? 1 : 0);
+    (roundId ? 1 : 0);
+  function clearAll() {
+    setStatusFilter('all'); setMyMatchesOnly(false); setPlayerSearch(''); setRoundId(null); setSheet(SHEET_DEFAULTS);
+  }
+
+  // Quick chips: Mine (only when you played) and Played / Not played (exclusive).
+  const chipOptions: FilterChipOption<ChipKey>[] = [];
+  if (myCount > 0) chipOptions.push({ value: 'mine', label: 'Mine', count: myCount });
+  chipOptions.push({ value: 'completed', label: 'Played' }, { value: 'pending', label: 'Not played' });
+  const chipValues: ChipKey[] = [];
+  if (myMatchesOnly) chipValues.push('mine');
+  if (statusFilter !== 'all') chipValues.push(statusFilter);
+  function onChips(next: ChipKey[]) {
+    const added = next.find(v => !chipValues.includes(v));
+    setMyMatchesOnly(next.includes('mine'));
+    if (next.includes('completed') && next.includes('pending')) setStatusFilter(added === 'pending' ? 'pending' : 'completed');
+    else if (next.includes('completed')) setStatusFilter('completed');
+    else if (next.includes('pending')) setStatusFilter('pending');
+    else setStatusFilter('all');
+  }
+
+  const sheetGroups: FilterSheetGroup[] = [
+    {
+      key: 'type', title: 'Match type', kind: 'single',
+      options: [{ value: 'singles', label: 'Singles' }, { value: 'doubles', label: 'Doubles' }],
+    },
+    {
+      key: 'category', title: 'Doubles category', kind: 'single',
+      hint: 'From the players\' genders. "Other" is a match where one isn\'t set.',
+      options: [
+        { value: 'gendered', label: 'Gendered' },
+        { value: 'mixed', label: 'Mixed' },
+        { value: 'unspecified', label: 'Other' },
+      ],
+    },
+  ];
 
   if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
 
@@ -284,102 +322,89 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
 
   return (
     <View style={S.container}>
-      {/* Filter bar */}
+      {/* Filter bar: fixed chrome outside the list (no sticky headers on web) */}
       <View style={S.filterBar}>
-        <Text style={S.countText}>{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</Text>
-        <TouchableOpacity
-          style={[S.filterBtn, activeFilterCount > 0 && S.filterBtnActive]}
-          onPress={() => setShowFilters(v => !v)}
-        >
-          <Text style={[S.filterBtnText, activeFilterCount > 0 && S.filterBtnTextActive]}>
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+        <FilterSearchField
+          size="sm"
+          value={playerSearch}
+          onChangeText={setPlayerSearch}
+          placeholder="Search by player name"
+          autoCorrect={false}
+          autoCapitalize="words"
+          returnKeyType="search"
+          clearAccessibilityLabel="Clear player search"
+        />
+        <FilterChipRow
+          size="md"
+          multi
+          options={chipOptions}
+          values={chipValues}
+          onChangeValues={onChips}
+          wrapAtWidth={600}
+          trailing={
+            <View style={S.trailing}>
+              {rounds.length > 1 && (
+                <FilterPill
+                  label={selectedRound?.label ?? 'Round'}
+                  active={!!selectedRound}
+                  trailingIconName="chevron-down"
+                  onPress={() => setRoundPickerOpen(true)}
+                  accessibilityLabel={selectedRound ? `Round: ${selectedRound.label}. Change round` : 'Filter by round'}
+                />
+              )}
+              <FilterPill
+                label={sheetCount > 0 ? `Filters (${sheetCount})` : 'Filters'}
+                active={sheetCount > 0}
+                onPress={() => setSheetOpen(true)}
+              />
+            </View>
+          }
+        />
+        <View style={S.countRow}>
+          <Text style={[t.meta, { flex: 1 }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[S.filterBtn, myMatchesOnly && S.filterBtnActive]}
-          onPress={() => setMyMatchesOnly(v => !v)}
-        >
-          <Text style={[S.filterBtnText, myMatchesOnly && S.filterBtnTextActive]}>👤 Mine</Text>
-        </TouchableOpacity>
-        {activeFilterCount > 0 && (
-          <TouchableOpacity onPress={() => { setMatchType('all'); setStatusFilter('all'); setMyMatchesOnly(false); setPlayerSearch(''); setDoublesCategory('all'); }}>
-            <Text style={S.clearText}>Clear</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Filter panel */}
-      {showFilters && (
-        <View style={S.filterPanel}>
-          <Text style={S.filterLabel}>Player Name</Text>
-          <View style={S.searchRow}>
-            <TextInput
-              style={S.searchInput}
-              placeholder="Search by player name..."
-              placeholderTextColor={c.textMuted}
-              value={playerSearch}
-              onChangeText={setPlayerSearch}
-              autoCorrect={false}
-              autoCapitalize="words"
-              returnKeyType="search"
-            />
-            {playerSearch.length > 0 && (
-              <TouchableOpacity
-                style={S.clearSearch}
-                onPress={() => setPlayerSearch('')}
-                accessibilityRole="button"
-                accessibilityLabel="Clear player search"
-              >
-                <Text style={S.clearSearchText}>✕</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <Text style={S.filterLabel}>Status</Text>
-          <View style={S.pillRow}>
-            {(['all', 'completed', 'pending'] as StatusFilter[]).map((v) => (
-              <TouchableOpacity key={v} style={[S.pill, statusFilter === v && S.pillActive]} onPress={() => setStatusFilter(v)}>
-                <Text style={[S.pillText, statusFilter === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'completed' ? 'Completed' : 'Not played'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={S.filterLabel}>Match Type</Text>
-          <View style={S.pillRow}>
-            {(['all', 'singles', 'doubles'] as TypeFilter[]).map((v) => (
-              <TouchableOpacity key={v} style={[S.pill, matchType === v && S.pillActive]} onPress={() => setMatchType(v)}>
-                <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'singles' ? 'Singles' : 'Doubles'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <Text style={S.filterLabel}>Doubles Category</Text>
-          <View style={S.pillRow}>
-            {([
-              { v: 'all',         label: 'All' },
-              { v: 'gendered',    label: 'Gendered Doubles' },
-              { v: 'mixed',       label: 'Mixed Doubles' },
-              { v: 'unspecified', label: 'Unspecified Doubles' },
-            ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
-              <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
-                <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {activeFilterCount > 0 && (
+            <TouchableOpacity onPress={clearAll} style={S.clearBox} accessibilityRole="button" accessibilityLabel="Clear all filters">
+              <Text style={[t.meta, { color: c.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Clear</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
+      </View>
 
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={S.list}
         refreshControl={<AppRefreshControl {...refresh} />}
-        ListEmptyComponent={<EmptyState icon="🎾" title="No matches yet" subtitle="No tournament matches yet." />}
+        ListEmptyComponent={
+          activeFilterCount > 0
+            ? <EmptyState icon="🔍" title="No matches match these filters" actionLabel="Clear filters" onAction={clearAll} />
+            : <EmptyState icon="🎾" title="No matches yet" subtitle="No tournament matches yet." />
+        }
+      />
+
+      <SingleSelectModal
+        visible={roundPickerOpen}
+        title="Round"
+        items={rounds.map(r => ({ id: r.id, name: r.label ?? `Round ${r.round_number}` }))}
+        selectedId={roundId}
+        noneLabel="All rounds"
+        onPick={(id) => { setRoundId(id); setRoundPickerOpen(false); }}
+        onClose={() => setRoundPickerOpen(false)}
+      />
+
+      <FilterSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        groups={sheetGroups}
+        values={sheet}
+        defaults={SHEET_DEFAULTS}
+        onApply={(next) => setSheet({
+          type: (next.type as string | null) ?? null,
+          category: (next.category as string | null) ?? null,
+        })}
       />
     </View>
   );
@@ -388,63 +413,27 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
-    card: { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderLeftWidth: 4, borderLeftColor: c.border, elevation: 3, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6 },
-    win:  { borderLeftColor: c.primary },
-    loss: { borderLeftColor: c.danger },
-    pending: { borderLeftColor: c.border },
-    leagueRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    typeTag: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' },
-    cardHeader: { flexDirection: 'row', alignItems: 'center' },
-    result: { fontSize: 22, fontWeight: '800', width: 28 },
-    winText:  { color: c.primary },
-    lossText: { color: c.danger },
-    cardInfo: { flex: 1, marginLeft: 10 },
-    opponent: { fontSize: 15, fontWeight: '600', color: c.text },
-    dateText: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    roundText: { fontSize: 11, color: c.textSub, fontWeight: '600', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.5 },
-    partnerText: { fontSize: 12, color: c.primary, marginTop: 1 },
-    cardRight: { alignItems: 'flex-end' },
-    matchup: { fontSize: 14, fontWeight: '600', color: c.text },
-    matchupWinner: { fontWeight: '800', color: c.text },
-    score: { fontSize: 15, fontWeight: '700', color: c.textSub },
-    pendingTag: { fontSize: 12, color: c.textMuted, fontStyle: 'italic' },
-    resultMini: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-    resultMiniWin:     { backgroundColor: c.primary },
-    resultMiniLoss:    { backgroundColor: c.danger },
-    resultMiniPending: { backgroundColor: c.border },
-    resultMiniText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-
-    filterBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    countText: { flex: 1, fontSize: 13, color: c.textMuted },
-    filterBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
-    filterBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    filterBtnText: { fontSize: 13, fontWeight: '600', color: c.textSub },
-    filterBtnTextActive: { color: c.primary },
-    clearText: { fontSize: 13, color: c.danger, fontWeight: '600' },
-    filterPanel: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    filterLabel: { fontSize: 12, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
-    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-    pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    pillTextActive: { color: c.primary, fontWeight: '700' },
-    searchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    searchInput: {
-      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8,
-      paddingHorizontal: 12, paddingVertical: 8, fontSize: 14,
-      backgroundColor: c.surface, color: c.text,
+    filterBar: {
+      paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, gap: SPACE.xs,
+      backgroundColor: c.surface, borderBottomWidth: HAIRLINE, borderBottomColor: c.border,
     },
-    clearSearch: { paddingHorizontal: 10, paddingVertical: 8 },
-    clearSearchText: { fontSize: 14, color: c.textMuted, fontWeight: '600' },
-    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
-
-    catBadge:        { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, marginTop: 2 },
-    catGenderedBg:   { backgroundColor: c.primaryLight },
-    catMixedBg:      { backgroundColor: '#f3e5f5' },
-    catUnspecBg:     { backgroundColor: c.bg },
-    catText:         { fontSize: 11, fontWeight: '700' },
-    catGenderedColor:{ color: c.primary },
-    catMixedColor:   { color: '#8e24aa' },
-    catUnspecColor:  { color: c.textMuted },
+    trailing: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    countRow: { minHeight: 32, flexDirection: 'row', alignItems: 'center' },
+    clearBox: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center' },
+    list: { padding: SPACE.lg },
+    // The Compact variant (plan section 6): radius 10, padding 10/12 (the
+    // spec's own row padding, as in ListCard), margin 8, hairline border, no
+    // shadow, 56 min. One meta line keeps a card under the 72 cap at default
+    // text size; it is a minHeight, so large text grows the card, never clips.
+    card: {
+      minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: SPACE.md,
+      paddingVertical: 10, paddingHorizontal: SPACE.md, marginBottom: SPACE.sm,
+      borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surface,
+    },
+    badge: { width: 28, height: 28, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+    badgeText: { fontSize: FONT.size.sm, fontWeight: FONT.weight.heavy },
+    cardText: { flex: 1, minWidth: 0, gap: SPACE.xxs },
+    score: { fontWeight: FONT.weight.bold, color: c.textSub },
+    pendingScore: { fontStyle: 'italic', color: c.textMuted },
   });
 }

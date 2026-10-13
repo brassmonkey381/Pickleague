@@ -1,1198 +1,320 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  ScrollView, View, Text, TouchableOpacity, Modal, Pressable,
-  StyleSheet, ActivityIndicator, FlatList, TextInput,
+  LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text,
+  TouchableOpacity, View,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp, useFocusEffect } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
-import { Tournament, TournamentRegistration, Profile, RootStackParamList } from '../types';
-import {
-  getTournamentRole, isTournamentPrivileged, requiresPartner,
-  bracketReleaseLabel, tournamentRoleLabel, tournamentRoleBadgeColor,
-  TournamentRole,
-} from '../lib/tournamentRole';
-import {
-  FORMAT_META, seedPlayers, seedTeams,
-  generateRoundRobin, generatePoolPlay, generateSingleElim, generateDoubleElim,
-  generateRotatingPartners, generateMLPSchedule,
-  generateDoublesRoundRobin, generateDoublesSingleElim, generateDoublesDoubleElim, generateDoublesPoolPlay,
-  MatchPairing, validateDoublesTeams, validateMlpTeams, validatePools, MlpTeamShape,
-} from '../lib/tournament';
-import { checkGodmode } from '../lib/godmode';
-import { formatPlupr } from '../lib/plupr';
+import { RouteProp, useIsFocused } from '@react-navigation/native';
+import { Panel, StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { RootStackParamList } from '../types';
+import { isTournamentPrivileged, requiresPartner, bracketReleaseLabel } from '../lib/tournamentRole';
+import { FORMAT_META } from '../lib/tournament';
+import { WAGERS_ENABLED } from '../lib/features';
+import { trackSectionToggle } from '../lib/analytics';
+import { finalRankOf, podiumFromFinalRanks } from '../lib/tournamentStandings';
 import AppDateTimePicker from '../components/AppDateTimePicker';
-import TournamentBracket, { BracketSlot } from '../components/TournamentBracket';
-import TournamentFlowOverview, { FlowOverviewStage } from '../components/TournamentFlowOverview';
-import { predictFlow } from '../lib/tournamentFlow';
 import PicklePotCard from '../components/PicklePotCard';
-import MlpTeamSection from '../components/MlpTeamSection';
 import DoublesPairSection from '../components/DoublesPairSection';
+import MlpTeamSection from '../components/MlpTeamSection';
 import MlpPlayoffPreview from '../components/MlpPlayoffPreview';
+import TournamentFlowOverview from '../components/TournamentFlowOverview';
 import PayoutPreviewModal from '../components/PayoutPreviewModal';
 import ConfirmModal from '../components/ConfirmModal';
-import FlairName from '../components/FlairName';
 import StatusBanner from '../components/StatusBanner';
-import ActionSheetModal from '../components/ActionSheetModal';
-import WagerProposeModal from '../components/WagerProposeModal';
-import BookmarkButton from '../components/BookmarkButton';
-import ShareLinkButton from '../components/ShareLinkButton';
-import type { WagerSubject } from '../lib/wager';
-import { WAGERS_ENABLED } from '../lib/features';
-import { useStatusMessage } from '../lib/useStatusMessage';
-import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
-import { buildStandingsComparator, type TiebreakerMatch } from '../lib/tournamentTiebreakers';
+import { useTournamentDetail } from '../components/tournament/useTournamentDetail';
+import { buildFlowStages } from '../components/tournament/flowStages';
+import { buildStandings, myStanding } from '../components/tournament/standingsData';
+import {
+  canRecordMatch, currentSetupStep, doublesPairingDone, doublesPartnerOf, involves, mlpTeamOf, mlpTeamsDone,
+  nextMatchFor, opponentsOf, partnerOf, setupSteps, youCardKind,
+  EMPTY_SCHEDULE_FILTER, type ScheduleFilter, type ScheduleMatch,
+} from '../components/tournament/tournamentModel';
+import TournamentIdentity from '../components/tournament/TournamentIdentity';
+import TournamentHeaderActions from '../components/tournament/TournamentHeaderActions';
+import TournamentYouCard, { youCardView } from '../components/tournament/TournamentYouCard';
+import TournamentManageSection, { type ManageGroup, type ManageStep } from '../components/tournament/TournamentManageSection';
+import SectionCard from '../components/tournament/SectionCard';
+import StandingsSection from '../components/tournament/StandingsSection';
+import PlayersSection from '../components/tournament/PlayersSection';
+import { PendingRequestsSection, WaitlistSection } from '../components/tournament/RegistrationQueues';
+import PoolAssignmentsPreview from '../components/tournament/PoolAssignmentsPreview';
+import PoolPlayBracketSection from '../components/tournament/PoolPlayBracketSection';
+import GeneratePlayoffSection, { groupPlayPendingCount } from '../components/tournament/GeneratePlayoffSection';
+import MatchScheduleSection from '../components/tournament/MatchScheduleSection';
+import PreviewScheduleSection from '../components/tournament/PreviewScheduleSection';
+import WagerMarket from '../components/tournament/WagerMarket';
+import GodmodePanel from '../components/tournament/GodmodePanel';
+import EditTournamentModal from '../components/tournament/EditTournamentModal';
+import WagerModals from '../components/tournament/WagerModals';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentDetail'>;
   route: RouteProp<RootStackParamList, 'TournamentDetail'>;
 };
 
-type PartnerRequest = {
-  id: string;
-  requester_id: string;
-  requested_id: string;
-  status: 'pending' | 'accepted' | 'rejected';
-  requesterProfile?: Profile;
-  requestedProfile?: Profile;
-};
+/** Playoff round types (a playoff exists once one of these rounds does). */
+const PLAYOFF_ROUND_TYPES = ['quarterfinals', 'semifinals', 'finals', 'third_place_match'];
 
-// Wager Market table — top 3 finishing ranks, ordered as displayed.
-const WAGER_MARKET_RANKS: ReadonlyArray<{ rank: number; emoji: string }> = [
-  { rank: 1, emoji: '🥇' },
-  { rank: 2, emoji: '🥈' },
-  { rank: 3, emoji: '🥉' },
-];
-const WAGER_MARKET_TOP_N = 12;
+/** Section keys for section.toggle analytics and scroll anchors. */
+type SectionKey = 'you' | 'schedule' | 'teams' | 'players' | 'pot' | 'wager' | 'playoff' | 'manage';
+/** Scroll targets: the sections, plus the StatusBanner under the You card. */
+type AnchorKey = SectionKey | 'banner';
 
+// TournamentDetail, UI compaction P5b (plan section 5): ordered sections, no
+// in-screen tabs (decision 4). Every detail screen uses the same slots:
+//
+//   0  header: native title + [Share] [Bookmark]
+//   1  identity: status pill + chips (ante included) + 2-line description
+//   2  You: the one Emphasis card, by status x role (TournamentYouCard)
+//   3  status strip: the stage and how much is played (active / completed)
+//   4  registration: Teams/Pairs, Players (collapsed, AvatarPile), Pot, Manage
+//      active / completed: flow strip (doubles as the round filter),
+//      standings for every format, playoff, Schedule, then Teams, Players,
+//      Pot collapsed, Manage
+//
+// A StickyActionBar repeats the You card's primary action ("Record next
+// match", "Request to join", Accept / Decline) once the card scrolls off.
+// State, loading and every action still live in useTournamentDetail (P5a);
+// the decisions are pure functions in components/tournament/tournamentModel.
 export default function TournamentDetailScreen({ navigation, route }: Props) {
-  const { tournamentId } = route.params;
+  const { tournamentId, focus } = route.params;
   const { colors: c } = useTheme();
-  const S = makeStyles(c);
+  const t = textStyles(c);
+  const td = useTournamentDetail({ navigation, tournamentId });
+  const isFocused = useIsFocused();
+  const bottomInset = useBottomChromeInset(SPACE.xl);
 
-  // Page-level banner for info/error feedback (replaces Alert.alert, which
-  // collapses multi-button alerts and uses window.confirm on web). Modal
-  // scope keeps its own error so the user sees it without scrolling.
-  const status = useStatusMessage();
-  const [editError, setEditError] = useState<string | null>(null);
+  // ── Section open state (all hooks above the loading return) ──
+  const [manageOpen, setManageOpen] = useState(false);
+  const manageAutoOpened = useRef(false);
+  const [playersOpen, setPlayersOpen] = useState(false);
+  // null = the status/role default (open for approved players and organizers
+  // during registration, collapsed otherwise) until the user toggles it.
+  const [teamsOpenChoice, setTeamsOpenChoice] = useState<boolean | null>(null);
+  const [potOpen, setPotOpen] = useState(false);
+  const [playoffOpenChoice, setPlayoffOpenChoice] = useState<boolean | null>(null);
+  const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>(EMPTY_SCHEDULE_FILTER);
+  const [registering, setRegistering] = useState(false);
+  const registeringRef = useRef(false);
 
-  const [tournament, setTournament]       = useState<Tournament | null>(null);
-  const [registrations, setRegistrations] = useState<TournamentRegistration[]>([]);
-  const [myRole, setMyRole]               = useState<TournamentRole>(null);
-  const [myUserId, setMyUserId]           = useState<string | null>(null);
-  const [partnerRequests, setPartnerRequests] = useState<PartnerRequest[]>([]);
-  const [generatedMatches, setGeneratedMatches] = useState<MatchPairing[] | null>(null);
-  // Draw order captured at generation time (a ref so godmode's generate→lock
-  // in one tick sees it without a state flush). Persisted to
-  // tournament_registrations.seed at lock-in — the DB advancement triggers
-  // reconstruct round-1 bracket slots by ordering registrations on seed, so
-  // without this a random draw advanced the WRONG players.
-  const seededOrderRef = useRef<string[] | null>(null);
-  const [pools, setPools]                 = useState<string[][] | null>(null);
-  // Fixed doubles pairs (non-MLP doubles formats). Loaded alongside regs.
-  const [doublesPairs, setDoublesPairs]   = useState<{ partner_1_id: string | null; partner_2_id: string | null }[]>([]);
-  const [locking, setLocking]             = useState(false);
-  // Lock-in writes six things in a row with no transaction behind it. Two
-  // concurrent runs (confirm modal + godmode shortcut, or a double tap) would
-  // interleave those writes, so the guard is a ref checked at the top.
-  const lockingRef                        = useRef(false);
-  const [generatingPlayoff, setGeneratingPlayoff] = useState(false);
-  // Same reason as lockingRef: this RPC writes playoff rounds + matches and
-  // nothing dedupes them, so the guard can't be a state read.
-  const playoffGenRef = useRef(false);
-  const [showLockInConfirm, setShowLockInConfirm] = useState(false);
-  const [lockInError, setLockInError]     = useState<string | null>(null);
-  const [savedMatches, setSavedMatches]   = useState<any[]>([]);
-  const [savedRounds, setSavedRounds]     = useState<any[]>([]);
-  const [mlpStandings, setMlpStandings]   = useState<Array<{
-    team_id: string; team_name: string; seed: number | null;
-    pool_letter: string | null; sub_matches_won: number; sub_matches_lost: number;
-  }> | null>(null);
-  const [myMatchesOnly, setMyMatchesOnly] = useState(false);
-  const [profileNames, setProfileNames]   = useState<Record<string, string>>({});
-  const [profileRatings, setProfileRatings] = useState<Record<string, number>>({});
-  const [loading, setLoading]             = useState(true);
+  // ── Scroll: anchors, the focus param, and the sticky bar ──
+  // Each anchor is the onLayout y of a direct child of the scroll content
+  // (a content offset). `pendingScroll` is what this visit arrived for
+  // (Home's Up next: 'invite' / 'next_match'); it's consumed once, so the
+  // focus reloads that follow never jump the user again.
+  const scrollRef = useRef<ScrollView>(null);
+  const anchors = useRef<Partial<Record<SectionKey, number>>>({});
+  const pendingScroll = useRef<'invite' | 'next_match' | null>(
+    focus === 'invite' || focus === 'next_match' ? focus : null,
+  );
+  // A section the user asked to jump to ("Find a partner", "Setup"): opening
+  // it changes its size, so its own onLayout (fresh y, on web too) scrolls.
+  const pendingReveal = useRef<SectionKey | null>(null);
+  // Sticky bar threshold from SIZES only (identity + You card heights):
+  // react-native-web's onLayout comes from a ResizeObserver and doesn't fire
+  // when a View only MOVES, so a y would go stale when the identity grows.
+  const identityH = useRef<number | null>(null);
+  const youH = useRef<number | null>(null);
+  const pastYou = useRef(false);
+  const [stickyVisible, setStickyVisible] = useState(false);
 
-  // Bracket release time picker
-  const [showReleasePicker, setShowReleasePicker] = useState(false);
-
-  // Partner selection modal
-  const [showPartnerModal, setShowPartnerModal] = useState(false);
-
-  // Godmode (Brian Stockman superuser bypass)
-  const [godmode, setGodmode] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [cancelling, setCancelling]               = useState(false);
-  const [cancelError, setCancelError]             = useState<string | null>(null);
-  const [deleting, setDeleting]                   = useState(false);
-  const [simulating, setSimulating]               = useState(false);
-  const [deleteError, setDeleteError]             = useState<string | null>(null);
-  const [showPayoutModal, setShowPayoutModal]     = useState(false);
-  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
-  const [completing, setCompleting]               = useState(false);
-  const [completeError, setCompleteError]         = useState<string | null>(null);
-
-  // Wagering — match outcome / exact-score / champion. wagerMatchPick must
-  // outlive the action sheet so the exact-score sub-flow can still read it.
-  const [wagerSubject, setWagerSubject] = useState<WagerSubject | null>(null);
-  const [wagerOpen, setWagerOpen]       = useState(false);
-  const [wagerMatchPick, setWagerMatchPick] = useState<{
-    tournamentMatchId: string;
-    team1Label: string;
-    team2Label: string;
-  } | null>(null);
-  const [actionSheetOpen, setActionSheetOpen] = useState(false);
-  const [exactScoreOpen, setExactScoreOpen] = useState(false);
-  const [exactScoreT1, setExactScoreT1]     = useState('');
-  const [exactScoreT2, setExactScoreT2]     = useState('');
-  const [exactScoreError, setExactScoreError] = useState<string | null>(null);
-  const [wagerMarketOpen, setWagerMarketOpen]       = useState(false);
-  const [wagerMarketShowAll, setWagerMarketShowAll] = useState(false);
-
-  // Edit-tournament modal (admin only)
-  const [showEditModal, setShowEditModal]     = useState(false);
-  const [editName, setEditName]               = useState('');
-  const [editDesc, setEditDesc]               = useState('');
-  const [editLocation, setEditLocation]       = useState('');
-  const [editMinPlayers, setEditMinPlayers]   = useState('');
-  const [editMaxPlayers, setEditMaxPlayers]   = useState('');
-  const [editStartTime, setEditStartTime]     = useState<Date | null>(null);
-  const [editLengthHours, setEditLengthHours] = useState('');
-  const [editAnte, setEditAnte]               = useState('');
-  const [editPayout, setEditPayout]           = useState('');
-  const [editPrizePool, setEditPrizePool]     = useState('');
-  const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [savingEdit, setSavingEdit]           = useState(false);
-
-  // Approved registrations sorted by PLUPR desc — used by the Wager Market panel.
-  // "Not Rated" / null rating sinks to the bottom so unrated players don't outrank real ones.
-  const wagerMarketSorted = useMemo(() => {
-    const approvedRegs = registrations.filter(r => r.status === 'approved');
-    return approvedRegs.slice().sort((a, b) => {
-      const ap = a.profile as any;
-      const bp = b.profile as any;
-      const aVal = ap?.total_matches_played === 0 || ap?.rating == null ? -Infinity : Number(ap.rating);
-      const bVal = bp?.total_matches_played === 0 || bp?.rating == null ? -Infinity : Number(bp.rating);
-      return bVal - aVal;
-    });
-  }, [registrations]);
-
-  useFocusEffect(useCallback(() => { load(); }, []));
-
-  const refresh = useRefresh(load);
-
-  // Refresh MLP standings whenever the tournament loads or new matches land —
-  // the RPC reads completed sub-match counts, so it updates as games finish.
-  // Fetched for any MLP variant with a group stage (round_robin, pool_play,
-  // round_robin_playoff, pool_play_playoff). For the *_playoff variants the
-  // render block hides itself once a playoff round exists in savedRounds.
-  React.useEffect(() => {
-    const isMlp = tournament?.format === 'mlp' || tournament?.format === 'mlp_random';
-    const hasGroupStage =
-      tournament?.mlp_play_format === 'round_robin' ||
-      tournament?.mlp_play_format === 'pool_play' ||
-      tournament?.mlp_play_format === 'round_robin_playoff' ||
-      tournament?.mlp_play_format === 'pool_play_playoff';
-    if (!isMlp || !hasGroupStage) { setMlpStandings(null); return; }
-    if (tournament?.status !== 'active' && tournament?.status !== 'completed') return;
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase.rpc('mlp_team_standings', { p_tournament_id: tournamentId });
-      if (cancelled) return;
-      setMlpStandings((data ?? []) as any);
-    })();
-    return () => { cancelled = true; };
-  }, [tournamentId, tournament?.format, tournament?.mlp_play_format, tournament?.status, savedMatches.length]);
-
-  async function load() {
-    // Local session read: the old getUser() was a network round trip that
-    // resolves to null offline, which made the viewer look like a stranger to
-    // their own tournament (no admin controls, no "you're registered" state).
-    const uid = await currentUserId(supabase);
-    setMyUserId(uid);
-
-    const [tRes, regRes, role, godmodeResult] = await Promise.all([
-      supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
-      supabase.from('tournament_registrations')
-        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played, name_color, list_name_style_id)')
-        .eq('tournament_id', tournamentId)
-        .order('role'),
-      getTournamentRole(tournamentId),
-      checkGodmode(),
-    ]);
-    setGodmode(godmodeResult);
-
-    const t = tRes.data as Tournament;
-    setTournament(t);
-    // The header is the tournament's own name, never the push that opened it.
-    if (t?.name) navigation.setOptions({ title: t.name });
-    // 'unknown' means the role read failed — keep the last known role rather
-    // than stripping an organizer's controls over a network blip.
-    if (role !== 'unknown') setMyRole(role);
-
-    const regs = (regRes.data ?? []) as TournamentRegistration[];
-    setRegistrations(regs);
-
-    // Doubles pair list (only relevant for non-MLP doubles formats — harmless
-    // to load for others, returns empty).
-    const { data: pairs } = await supabase
-      .from('doubles_pairs')
-      .select('partner_1_id, partner_2_id')
-      .eq('tournament_id', tournamentId);
-    setDoublesPairs((pairs ?? []) as any);
-
-    const names: Record<string, string> = {};
-    const ratings: Record<string, number> = {};
-    regs.forEach(r => {
-      if (r.profile) { names[r.user_id] = r.profile.full_name; ratings[r.user_id] = (r.profile as any).rating ?? 3.25; }
-    });
-    setProfileNames(names);
-    setProfileRatings(ratings);
-
-    // Load saved matches + rounds if tournament is active OR completed
-    if (t?.status === 'active' || t?.status === 'completed') {
-      const [smRes, srRes] = await Promise.all([
-        supabase.from('tournament_matches')
-          .select('*, round:tournament_rounds(id, label, round_type, round_number)')
-          .eq('tournament_id', tournamentId)
-          .order('match_order'),
-        supabase.from('tournament_rounds')
-          .select('*')
-          .eq('tournament_id', tournamentId)
-          .order('round_number'),
-      ]);
-      setSavedMatches(smRes.data ?? []);
-      setSavedRounds(srRes.data ?? []);
+  // The anchored Views themselves, so a jump measures the target at TAP time.
+  // The cached onLayout y above goes stale on web whenever something above the
+  // target changes height without resizing it (MLP standings landing, the
+  // StatusBanner appearing, Playoff toggled, the description's "more").
+  const anchorRefs = useRef<Partial<Record<AnchorKey, View | null>>>({});
+  const anchorRefSetters = useRef<Partial<Record<AnchorKey, (r: View | null) => void>>>({});
+  function anchorRef(key: AnchorKey) {
+    // Stable per key, so React doesn't detach / reattach the ref every render.
+    let set = anchorRefSetters.current[key];
+    if (!set) {
+      set = (r: View | null) => { anchorRefs.current[key] = r; };
+      anchorRefSetters.current[key] = set;
     }
-
-    // Load partner requests if format requires it
-    if (requiresPartner(t?.format ?? '', t?.match_type ?? '') && uid) {
-      const { data: pr } = await supabase
-        .from('tournament_partner_requests')
-        .select('*, requesterProfile:profiles!tournament_partner_requests_requester_id_fkey(id, full_name), requestedProfile:profiles!tournament_partner_requests_requested_id_fkey(id, full_name)')
-        .eq('tournament_id', tournamentId)
-        .or(`requester_id.eq.${uid},requested_id.eq.${uid}`);
-      setPartnerRequests((pr ?? []) as PartnerRequest[]);
-    }
-
-    setLoading(false);
+    return set;
   }
 
-  // ── Registration ────────────────────────────────────────────
-  async function register() {
-    // When the tournament is at max_players, a DB trigger flips this insert
-    // to 'waitlisted' — same call either way.
-    const wasFull = tournament?.max_players != null
-      && registrations.filter(r => r.status === 'approved').length >= tournament.max_players;
-    const { error } = await supabase.from('tournament_registrations').insert({
-      tournament_id: tournamentId, user_id: myUserId,
-    });
-    if (error) status.error(error.message);
-    else { status.success(wasFull ? 'Tournament is full — you\'ve been added to the waitlist.' : 'Request to join submitted.'); load(); }
+  function scrollToY(y: number) {
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - SPACE.sm), animated: true }));
   }
-
-  async function approveReg(regId: string) {
-    // Can fail on the DB capacity guard when the tournament is full.
-    const { error } = await supabase.from('tournament_registrations').update({ status: 'approved' }).eq('id', regId);
-    if (error) status.error(error.message);
-    load();
-  }
-  async function rejectReg(regId: string) {
-    await supabase.from('tournament_registrations').update({ status: 'rejected' }).eq('id', regId);
-    load();
-  }
-
-  // Invitee responds to a tournament invite (admin-sent). Notifies the inviter.
-  async function respondToTournamentInvite(regId: string, accept: boolean) {
-    const { error } = await supabase.rpc('tournament_respond_to_invite', {
-      p_registration_id: regId,
-      p_accept: accept,
-    });
-    if (error) {
-      status.error(`${accept ? 'Accept' : 'Decline'} failed: ${error.message}`);
-      return;
-    }
-    status.success(accept ? 'Invite accepted.' : 'Invite declined.');
-    load();
-  }
-
-  // ── Bracket release time ────────────────────────────────────
-  // ── Godmode simulate (Brian only) — fills pending matches randomly ──
-  async function simulateFillMatches() {
-    if (!tournament) return;
-    setSimulating(true);
-    const { data, error } = await supabase.rpc('godmode_simulate_fill_matches', {
-      p_tournament_id: tournament.id,
-    });
-    setSimulating(false);
-    if (error) {
-      status.error(`Simulate failed: ${error.message}`);
-      return;
-    }
-    status.success(`Filled! ${data} pending match${data === 1 ? '' : 'es'} got random scores. Reloading…`);
-    load();
-  }
-
-  // ── Godmode tournament-setup shortcuts (Brian only) ─────────
-  // Helper: call an RPC and return { ok, message, missing }. `missing` is true
-  // when Postgres reports the function doesn't exist (typical when the
-  // migration hasn't been applied yet) so callers can decide to soft-skip.
-  async function tryRpc(name: string, params: Record<string, unknown>) {
-    console.warn('[godmode rpc]', name, params);
-    const { data, error } = await supabase.rpc(name, params);
-    if (error) {
-      const msg = error.message ?? '';
-      const missing = /function .* does not exist|Could not find the function|404|PGRST202/i.test(msg);
-      console.warn('[godmode rpc error]', name, msg, { missing });
-      return { ok: false, message: msg || 'Unknown error', missing };
-    }
-    const row = Array.isArray(data) ? data[0] : data;
-    const message = row?.message ?? (typeof row === 'string' ? row : 'OK');
-    console.warn('[godmode rpc ok]', name, message);
-    return { ok: true, message, missing: false };
-  }
-
-  async function godmodeApproveAllInvitees() {
-    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
-    const r = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
-    const text = r.missing ? 'RPC not deployed — run migration_godmode_approve_all_invitees.sql.' : r.message;
-    if (r.ok) { status.success(`Approved — ${text}`); load(); }
-    else      { status.error(`Approve failed — ${text}`); }
-  }
-
-  async function godmodeForceCreateTeams() {
-    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
-    const rpcName =
-      tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
-      tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
-                                           'godmode_auto_pair_doubles_for_tournament';
-    const params: Record<string, unknown> = { p_tournament_id: tournament.id };
-    if (tournament.format === 'mlp_random') params.p_mode = 'snake';
-    const r = await tryRpc(rpcName, params);
-    const text = r.missing ? `RPC ${rpcName} not deployed — run the corresponding migration.` : r.message;
-    if (r.ok) { status.success(`Teams created — ${text}`); load(); }
-    else      { status.error(`Team-create failed — ${text}`); }
-  }
-
-  // Full-pipeline auto-setup: approve all → create teams (if applicable) →
-  // generate bracket → lock in. Each step soft-skips if the underlying RPC
-  // isn't deployed so partially-deployed environments still make progress.
-  // Godmode: approve everyone, form teams, and generate the bracket PREVIEW.
-  // Deliberately does NOT lock in — locking is a separate explicit button so
-  // the draw can be reviewed first. (The old combined version also locked
-  // from a stale `registrations` closure, so the min-players guard could
-  // silently bail while the toast claimed success.)
-  async function godmodeAutoGeneratePreview() {
-    if (!tournament) { status.error('Godmode: tournament not loaded.'); return; }
-    const steps: string[] = [];
-    try {
-      // 1. Approve everyone.
-      const approve = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
-      steps.push(approve.ok ? `✓ ${approve.message}` : `⚠ Approve skipped (${approve.missing ? 'RPC missing' : approve.message})`);
-
-      // 2. Create teams when relevant.
-      const needsTeams = tournament.match_type === 'doubles'
-        || tournament.format === 'mlp' || tournament.format === 'mlp_random';
-      if (needsTeams) {
-        const rpcName =
-          tournament.format === 'mlp_random' ? 'generate_random_mlp_teams' :
-          tournament.format === 'mlp'        ? 'godmode_force_fill_mlp_teams' :
-                                               'godmode_auto_pair_doubles_for_tournament';
-        const params: Record<string, unknown> = { p_tournament_id: tournament.id };
-        if (tournament.format === 'mlp_random') params.p_mode = 'snake';
-        const teams = await tryRpc(rpcName, params);
-        steps.push(teams.ok ? `✓ ${teams.message}` : `⚠ Teams skipped (${teams.missing ? 'RPC missing' : teams.message})`);
-      }
-
-      // 3. Reload so generateBracket sees the newly approved/paired rows.
-      await load();
-
-      // 4. Generate the bracket preview.
-      //    MLP formats need the server-side generate_mlp_bracket RPC because
-      //    each round expands into 4 sub-matches (Men's / Women's / Mixed 1 /
-      //    Mixed 2) that the local generateBracket() pure helpers don't
-      //    produce — there is no client preview step for MLP, so that path
-      //    goes live immediately.
-      if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
-        const mlpBracket = await tryRpc('generate_mlp_bracket', { p_tournament_id: tournament.id });
-        steps.push(mlpBracket.ok
-          ? `✓ Generated MLP schedule — live immediately (MLP has no preview step)`
-          : `✗ MLP bracket failed (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
-        const summary = steps.join('\n');
-        if (mlpBracket.ok) { status.success(`Auto-setup complete\n${summary}`); load(); }
-        else               { status.error(`Auto-setup partial\n${summary}`); }
-        return;
-      }
-
-      const matches = await generateBracket();
-      if (!matches || matches.length === 0) {
-        steps.push('⚠ Bracket not generated (see prior alert)');
-        status.error(`Auto-setup partial\n${steps.join('\n')}`);
-        return;
-      }
-      steps.push(`✓ Generated ${matches.length}-match preview`);
-      status.success(`Preview ready\n${steps.join('\n')}\nReview the draw below, then tap 🔒 Lock in bracket.`);
-    } catch (e: any) {
-      steps.push(`✗ ${e?.message ?? String(e)}`);
-      status.error(`Auto-setup failed\n${steps.join('\n')}`);
-    }
-  }
-
-  // ── Godmode delete (Brian only) ────────────────────────────
-  function deleteTournament() {
-    if (!tournament) return;
-    setDeleteError(null);
-    setShowDeleteConfirm(true);
-  }
-
-  async function confirmDeleteTournament() {
-    if (!tournament) return;
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      // Try the SECURITY DEFINER RPC first (bypasses RLS entirely). Falls
-      // back to a direct DELETE if the RPC hasn't been deployed yet.
-      const rpcRes = await supabase.rpc('godmode_delete_tournament', {
-        p_tournament_id: tournament.id,
-      });
-      console.warn('[delete tournament rpc]', rpcRes);
-
-      if (rpcRes.error) {
-        const msg = rpcRes.error.message ?? '';
-        const looksMissing =
-          /function .* does not exist|Could not find the function|404|PGRST202/i.test(msg);
-        if (!looksMissing) {
-          setDeleteError(msg || 'Delete failed.');
-          return;
-        }
-        // RPC missing — fall back to direct delete via RLS policy.
-        const fallback = await supabase
-          .from('tournaments')
-          .delete()
-          .eq('id', tournament.id)
-          .select();
-        console.warn('[delete tournament fallback]', fallback);
-        if (fallback.error) {
-          setDeleteError(fallback.error.message ?? 'Delete failed.');
-          return;
-        }
-        if (!fallback.data || fallback.data.length === 0) {
-          setDeleteError(
-            'No rows were deleted. Run supabase/migration_add_godmode_delete_rpc.sql ' +
-            '(or migration_add_godmode_delete.sql) in Supabase SQL Editor.'
-          );
-          return;
-        }
-      }
-
-      setShowDeleteConfirm(false);
-      navigation.goBack();
-    } catch (e: any) {
-      console.warn('[delete tournament] exception', e);
-      setDeleteError(e?.message ?? String(e));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  // ── Complete tournament (admin) ────────────────────────────
-  async function confirmCompleteTournament() {
-    if (!tournament) return;
-    setCompleting(true);
-    setCompleteError(null);
-    try {
-      const { error } = await supabase.rpc('admin_complete_tournament', {
-        p_tournament_id: tournament.id,
-      });
-      if (error) {
-        setCompleteError(error.message ?? 'Complete failed.');
-        return;
-      }
-      setShowCompleteConfirm(false);
-      load();
-    } catch (e: any) {
-      setCompleteError(e?.message ?? String(e));
-    } finally {
-      setCompleting(false);
-    }
-  }
-
-  // ── Cancel tournament (creator) ─────────────────────────────
-  // Server-side RPC refunds every ante/contribution and open wager, then
-  // flips status to cancelled and notifies participants.
-  async function confirmCancelTournament() {
-    if (!tournament) return;
-    setCancelError(null);
-    setCancelling(true);
-    try {
-      const { data, error } = await supabase.rpc('cancel_tournament', { p_tournament_id: tournament.id });
-      if (error) { setCancelError(error.message ?? 'Cancel failed.'); return; }
-      setShowCancelConfirm(false);
-      status.success(typeof data === 'string' ? data : 'Tournament cancelled — everything refunded.');
-      load();
-    } catch (e: any) {
-      setCancelError(e?.message ?? String(e));
-    } finally {
-      setCancelling(false);
-    }
-  }
-
-  // ── Edit tournament (admin) ────────────────────────────────
-  function openEditModal() {
-    if (!tournament) return;
-    setEditName(tournament.name);
-    setEditDesc(tournament.description ?? '');
-    setEditLocation(tournament.location_name ?? '');
-    setEditMinPlayers(tournament.min_players != null ? String(tournament.min_players) : '');
-    setEditMaxPlayers(tournament.max_players != null ? String(tournament.max_players) : '');
-    setEditStartTime(tournament.start_time ? new Date(tournament.start_time) : null);
-    setEditLengthHours(tournament.expected_length_hours != null ? String(tournament.expected_length_hours) : '');
-    setEditAnte(tournament.pickle_ante != null ? String(tournament.pickle_ante) : '0');
-    setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
-    setEditPrizePool(tournament.prize_pool != null ? String(tournament.prize_pool) : '');
-    setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
-    setEditError(null);
-    setShowEditModal(true);
-  }
-
-  async function saveTournamentEdits() {
-    if (!tournament) return;
-    setEditError(null);
-    const name = editName.trim();
-    if (!name) { setEditError('Tournament name is required.'); return; }
-    const maxPlayersN = editMaxPlayers.trim() ? parseInt(editMaxPlayers.trim(), 10) : null;
-    if (editMaxPlayers.trim() && (Number.isNaN(maxPlayersN!) || maxPlayersN! < 2)) {
-      setEditError('Max players must be a number ≥ 2.'); return;
-    }
-    const minPlayersN = editMinPlayers.trim() ? parseInt(editMinPlayers.trim(), 10) : null;
-    if (editMinPlayers.trim() && (Number.isNaN(minPlayersN!) || minPlayersN! < 2)) {
-      setEditError('Min players must be a number ≥ 2.'); return;
-    }
-    if (minPlayersN != null && maxPlayersN != null && minPlayersN > maxPlayersN) {
-      setEditError('Min players can\'t be greater than max players.'); return;
-    }
-    let lengthN: number | null = null;
-    if (editLengthHours.trim()) {
-      lengthN = parseFloat(editLengthHours.trim());
-      if (Number.isNaN(lengthN) || lengthN < 0.5 || lengthN > 168) {
-        setEditError('Expected length must be between 0.5 and 168 hours.'); return;
-      }
-    }
-
-    // Ante (entry fee in pickles, ≥ 0)
-    const anteN = editAnte.trim() ? parseInt(editAnte.trim(), 10) : 0;
-    if (!Number.isFinite(anteN) || anteN < 0) {
-      setEditError('Entry ante must be 0 or a positive integer.'); return;
-    }
-
-    // Payout structure (comma-separated %, sum to 100)
-    const payoutParts = editPayout.split(',').map(s => parseInt(s.trim(), 10));
-    if (payoutParts.some(n => !Number.isFinite(n) || n < 0)) {
-      setEditError('Payout structure must be comma-separated non-negative integers.'); return;
-    }
-    if (payoutParts.reduce((a, b) => a + b, 0) !== 100) {
-      setEditError('Payout structure must sum to 100 (e.g. 60,25,15).'); return;
-    }
-
-    // Prize pool override — leave null to let the existing accounting drive it
-    let prizePoolN: number | null = null;
-    if (editPrizePool.trim()) {
-      prizePoolN = parseInt(editPrizePool.trim(), 10);
-      if (!Number.isFinite(prizePoolN) || prizePoolN < 0) {
-        setEditError('Prize pool must be 0 or a positive integer.'); return;
-      }
-    }
-
-    setSavingEdit(true);
-    const updatePayload: Record<string, any> = {
-      name,
-      description:           editDesc.trim() || null,
-      location_name:         editLocation.trim() || null,
-      min_players:           minPlayersN,
-      max_players:           maxPlayersN,
-      start_time:            editStartTime ? editStartTime.toISOString() : null,
-      expected_length_hours: lengthN,
-      pickle_ante:           anteN,
-      payout_structure:      payoutParts,
-      seeding:               editSeeding,
+  /** Scroll to an anchor, measured now against the scroll content (native and
+   *  web: RNW's measureLayout compares the two nodes' rects at call time). */
+  function scrollToAnchor(key: AnchorKey) {
+    const cached = () => {
+      const y = key === 'banner' ? null : anchors.current[key];
+      if (y != null) scrollToY(y);
     };
-    // Only override the pool when the admin explicitly typed a value.
-    if (prizePoolN != null) updatePayload.prize_pool = prizePoolN;
-
-    const { error } = await supabase.from('tournaments').update(updatePayload).eq('id', tournament.id);
-    setSavingEdit(false);
-
-    if (error) { setEditError(error.message); return; }
-    setShowEditModal(false);
-    setEditError(null);
-    load();
-  }
-
-  async function saveBracketReleaseTime(date: Date) {
-    setShowReleasePicker(false);
-    await supabase.from('tournaments').update({ bracket_release_time: date.toISOString() }).eq('id', tournamentId);
-    load();
-  }
-
-  // ── Bracket generation (admin only) ────────────────────────
-  // Returns the generated MatchPairing[] (also written to state) so callers
-  // that need to chain into doLockIn() can pass them directly instead of
-  // waiting for a React state flush.
-  async function generateBracket(): Promise<MatchPairing[] | null> {
-    if (!tournament) return null;
-    status.clear();
-    const approved = registrations.filter(r => r.status === 'approved').map(r => r.user_id);
-    if (approved.length < 2) { status.error('Need at least 2 approved players.'); return null; }
-
-    // Wrap throws from the pure generators so an unexpected violation surfaces
-    // as a user-facing banner instead of a silent crash.
-    function bailFromError(label: string, e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      status.error(`Couldn't generate ${label}: ${msg}`);
-    }
-
-    function commit(matches: MatchPairing[]): MatchPairing[] {
-      setGeneratedMatches(matches);
-      return matches;
-    }
-
-    // ── MLP (Fixed Teams / Random Teams) ──
-    // Validate that every mlp_teams row has all four slots filled before
-    // attempting to generate a schedule. mlp_random tournaments still write
-    // to mlp_teams once Generate Random Teams has been clicked, so the same
-    // check applies.
-    if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
-      const { data: mlpRows, error: mlpErr } = await supabase
-        .from('mlp_teams')
-        .select('id, name, male_1_id, male_2_id, female_1_id, female_2_id')
-        .eq('tournament_id', tournament.id);
-      if (mlpErr) { status.error(`Could not load MLP teams: ${mlpErr.message}`); return null; }
-      const teamRows = (mlpRows ?? []) as MlpTeamShape[];
-      const teamError = validateMlpTeams(teamRows);
-      if (teamError) { status.error(`MLP teams incomplete: ${teamError.message}`); return null; }
-
-      // Build [string, string][] pairs from the validated teams for the
-      // existing schedule generator (it treats each team as a 2-token pair).
-      // We pass [male_1, male_2] as the token pair and rely on the live MLP
-      // backend tables (mlp_team_standings, etc.) to track the actual 4-player
-      // roster. The preview here is just round-by-round team matchups.
-      const teams: [string, string][] = teamRows
-        .map(t => [t.male_1_id!, t.male_2_id!] as [string, string]);
-
-      try { return commit(generateMLPSchedule(teams)); }
-      catch (e) { bailFromError('MLP bracket', e); return null; }
-    }
-
-    // ── Doubles tournaments with fixed pairs (round-robin / elim / pool play) ──
-    const usesFixedPairs = tournament.match_type === 'doubles'
-      && tournament.format !== 'rotating_partners';
-
-    if (usesFixedPairs) {
-      const approvedSet = new Set(approved);
-      const teams: [string, string][] = [];
-      const paired = new Set<string>();
-      for (const p of doublesPairs) {
-        if (p.partner_1_id && p.partner_2_id
-            && approvedSet.has(p.partner_1_id) && approvedSet.has(p.partner_2_id)) {
-          teams.push([p.partner_1_id, p.partner_2_id]);
-          paired.add(p.partner_1_id);
-          paired.add(p.partner_2_id);
-        }
-      }
-      // REQUIRE every approved player to be locked into a pair of 2 before the
-      // draw is generated. The old behavior silently random-paired leftovers
-      // (never persisted — so the roster views disagreed with the draw) and
-      // silently DROPPED an odd player, which surfaced as 1v1 "doubles"
-      // matches. Now it's a hard stop naming the unpaired players.
-      const leftovers = approved.filter(uid => !paired.has(uid));
-      if (leftovers.length > 0) {
-        const names = leftovers.map(uid => playerName(uid)).join(', ');
-        const hint = tournament.team_creation === 'random'
-          ? 'Use "Generate Random Pairs" in the Teams section to pair everyone.'
-          : 'Everyone must pair up in the Teams section first.';
-        status.error(`All players must be in a doubles pair of 2 before generating the draw. Unpaired (${leftovers.length}): ${names}. ${hint}`);
-        return null;
-      }
-      if (teams.length < 2) {
-        status.error('Not enough teams — need at least 2 doubles pairs to generate a bracket.');
-        return null;
-      }
-      // Doubles elimination advancement can't (yet) reconstruct BYE slots the
-      // way singles can — a non-power-of-2 team count strands the bracket
-      // after round 1. Require 2/4/8/16 teams for elim formats.
-      if ((tournament.format === 'single_elimination' || tournament.format === 'double_elimination')
-          && (teams.length & (teams.length - 1)) !== 0) {
-        status.error(`Doubles ${FORMAT_META[tournament.format].label} needs a power-of-2 team count (2, 4, 8, 16). You have ${teams.length} teams — add or remove a pair, or switch to Round Robin / Pool Play.`);
-        return null;
-      }
-      // Validate every team has two distinct partners and no player is on
-      // multiple teams.
-      const teamErr = validateDoublesTeams(teams);
-      if (teamErr) { status.error(`Doubles teams invalid: ${teamErr.message}`); return null; }
-
-      const seededTeams = seedTeams(teams, profileRatings, tournament.seeding);
-      seededOrderRef.current = seededTeams.flat();
-
+    const node: any = anchorRefs.current[key];
+    const inner = (scrollRef.current as any)?.getInnerViewRef?.();
+    if (node && inner && typeof node.measureLayout === 'function') {
       try {
-        switch (tournament.format) {
-          case 'round_robin':
-            return commit(generateDoublesRoundRobin(seededTeams));
-          case 'single_elimination':
-            return commit(generateDoublesSingleElim(seededTeams));
-          case 'double_elimination':
-            return commit(generateDoublesDoubleElim(seededTeams));
-          case 'pool_play': {
-            const { pools: p, matches: m } = generateDoublesPoolPlay(seededTeams, tournament.pool_count);
-            const poolErr = validatePools(p, tournament.pool_count, m);
-            if (poolErr) { status.error(`Pool setup invalid: ${poolErr.message}`); return null; }
-            setPools(p.map(pool => pool.flat()));
-            return commit(m);
-          }
-        }
-      } catch (e) { bailFromError('doubles bracket', e); }
-      return null;
+        node.measureLayout(inner, (_x: number, y: number) => scrollToY(y), cached);
+        return;
+      } catch { /* fall through to the cached y */ }
     }
-
-    // ── Singles + Rotating-partners: existing per-player logic ──
-    const seeded = seedPlayers(approved, profileRatings, tournament.seeding);
-    seededOrderRef.current = seeded;
-
-    // Singles DOUBLE elim also requires a power-of-2 field: the single-elim
-    // advancement trigger reconstructs BYE slots from seeds, but the
-    // double-elim one doesn't — a non-power-of-2 draw strands the bracket
-    // after round 1 (found by the sweep: 5 players produced ONE match and a
-    // garbage podium). Single elim singles handles byes fine.
-    if (tournament.format === 'double_elimination' && tournament.match_type === 'singles'
-        && (approved.length & (approved.length - 1)) !== 0) {
-      status.error(`Double Elimination needs a power-of-2 player count (2, 4, 8, 16). You have ${approved.length} players — adjust the roster, or switch to Single Elim / Round Robin.`);
-      return null;
-    }
-
-    try {
-      switch (tournament.format) {
-        case 'round_robin':
-          return commit(generateRoundRobin(seeded));
-        case 'single_elimination':
-          return commit(generateSingleElim(seeded));
-        case 'double_elimination':
-          return commit(generateDoubleElim(seeded));
-        case 'pool_play': {
-          const { pools: p, matches: m } = generatePoolPlay(seeded, tournament.pool_count);
-          const poolErr = validatePools(p, tournament.pool_count, m);
-          if (poolErr) { status.error(`Pool setup invalid: ${poolErr.message}`); return null; }
-          setPools(p);
-          return commit(m);
-        }
-        case 'rotating_partners':
-          return commit(generateRotatingPartners(seeded, Math.ceil(seeded.length / 4) * 3));
+    cached();
+  }
+  function consumePendingScroll(key: SectionKey | null) {
+    pendingScroll.current = null;
+    // Clear the param too, so a web refresh (the param is in the URL) or a
+    // re-render doesn't re-arm the scroll.
+    navigation.setParams({ focus: undefined });
+    if (key != null) scrollToAnchor(key);
+  }
+  function anchorLayout(key: SectionKey) {
+    return (e: LayoutChangeEvent) => {
+      anchors.current[key] = e.nativeEvent.layout.y;
+      if (key === 'you') { youH.current = e.nativeEvent.layout.height; }
+      if (pendingReveal.current === key) {
+        pendingReveal.current = null;
+        scrollToY(e.nativeEvent.layout.y);
       }
-    } catch (e) { bailFromError('bracket', e); }
-    return null;
+      tryPendingScroll();
+    };
   }
-
-  // ── Lock in bracket + notify ────────────────────────────────
-  // Alert.alert with multiple buttons collapses to a single OK on web, which
-  // killed this flow. Use a Modal instead — same pattern as Disband Team,
-  // Delete Tournament confirm, etc.
-  function lockInBracket() {
-    if (!generatedMatches || !tournament) return;
-    setLockInError(null);
-    setShowLockInConfirm(true);
+  function onIdentityLayout(e: LayoutChangeEvent) {
+    identityH.current = e.nativeEvent.layout.height;
+    tryPendingScroll();
   }
-
-  async function doLockIn(matchesArg?: MatchPairing[]) {
-    if (lockingRef.current) return;
-    // matchesArg lets callers (e.g. the godmode setup shortcut) pass freshly
-    // generated matches directly, bypassing React state-flush timing.
-    // Defensive: ignore non-array values — e.g., a TouchableOpacity
-    // GestureResponderEvent if a button passes onConfirm={doLockIn} directly.
-    const passed = Array.isArray(matchesArg) ? matchesArg : undefined;
-    const matches = passed ?? generatedMatches;
-    if (!matches || !tournament) return;
-    // Min-roster gate (covers the godmode shortcut path too, which skips
-    // the confirm modal and calls doLockIn directly).
-    const approvedCount = registrations.filter(r => r.status === 'approved').length;
-    if (tournament.min_players != null && approvedCount < tournament.min_players) {
-      status.error(`This tournament needs at least ${tournament.min_players} approved players to lock in (currently ${approvedCount}).`);
-      setShowLockInConfirm(false);
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (identityH.current == null || youH.current == null || youH.current === 0) return;
+    // Content padding above the identity, its bottom margin, then the card.
+    const past = e.nativeEvent.contentOffset.y > SPACE.lg + identityH.current + SPACE.md + youH.current;
+    if (past !== pastYou.current) {
+      pastYou.current = past;
+      setStickyVisible(past);
+    }
+  }
+  /** Open a collapsible section (if needed) and bring it into view. */
+  function reveal(key: SectionKey, isOpen: boolean, open: () => void) {
+    if (isOpen) {
+      scrollToAnchor(key);
       return;
     }
-    lockingRef.current = true;
-    setLocking(true);
-
-    try {
-      // Lock-in is six sequential writes with no transaction behind it, and
-      // neither tournament_rounds nor tournament_matches has a unique
-      // constraint — so a connection that dropped halfway used to leave a
-      // partial bracket that a retry then DUPLICATED. Everything below reads
-      // what is already there and writes only what is missing, which makes
-      // "just try again" the correct recovery instead of a second bug.
-      const existingRounds = await sbCall(() => supabase
-        .from('tournament_rounds')
-        .select('id, round_number')
-        .eq('tournament_id', tournament.id)) as { id: string; round_number: number }[] | null;
-
-      // 0. Persist any novel doubles pairs used in the bracket preview.
-      //    Non-MLP doubles tournaments may have included random pairings of
-      //    previously-unpaired approved players — those rows weren't written
-      //    to doubles_pairs yet. Insert them now so the pair section UI
-      //    reflects every team that actually got locked in.
-      const usesFixedPairs = tournament.match_type === 'doubles'
-        && tournament.format !== 'mlp'
-        && tournament.format !== 'mlp_random'
-        && tournament.format !== 'rotating_partners';
-
-      if (usesFixedPairs) {
-        const alreadyPaired = new Set<string>();
-        for (const p of doublesPairs) {
-          if (p.partner_1_id) alreadyPaired.add(p.partner_1_id);
-          if (p.partner_2_id) alreadyPaired.add(p.partner_2_id);
-        }
-        // Collect distinct teams from the generated matches.
-        const novelPairs: { p1: string; p2: string }[] = [];
-        const seenKey = new Set<string>();
-        for (const m of matches) {
-          for (const team of [m.team1, m.team2]) {
-            const [a, b] = team;
-            if (!a || !b || a === 'BYE' || b === 'BYE') continue;
-            if (alreadyPaired.has(a) || alreadyPaired.has(b)) continue;
-            const key = [a, b].sort().join('|');
-            if (seenKey.has(key)) continue;
-            seenKey.add(key);
-            novelPairs.push({ p1: a, p2: b });
-          }
-        }
-        if (novelPairs.length > 0) {
-          try {
-            await sbCall(() => supabase.rpc('persist_random_doubles_pairs', {
-              p_tournament_id: tournament.id,
-              p_pairs: novelPairs,
-            }), { retries: 0 });
-          } catch (pairErr) {
-            // Non-fatal — bracket lock-in can still proceed.
-            // eslint-disable-next-line no-console
-            console.warn('[lock-in] failed to persist novel doubles pairs', pairErr);
-          }
-        }
-      }
-
-      // 1. Create round record(s). Pool play needs ONE round per pool so the
-      // downstream renderer can group matches by pool (otherwise every match
-      // collapses into "Pool A" because pool identity is lost).
-      //
-      // Derive the pool count from the matches themselves rather than the
-      // `pools` React state — callers can pass freshly generated matches
-      // before setPools has flushed, so reading `pools` would give us
-      // stale/empty data and we'd fall through to the single-round branch.
-      const isPoolPlay = tournament.format === 'pool_play';
-      const roundType  = isPoolPlay ? 'pool' : 'winners';
-      const poolCountFromMatches = isPoolPlay
-        ? matches.reduce((max, m) => Math.max(max, (m.poolIndex ?? -1)), -1) + 1
-        : 0;
-
-      // poolIndex (0-based) → round.id. For non-pool-play, all matches share one round.
-      const roundIdByPool = new Map<number, string>();
-      let defaultRoundId: string | null = null;
-
-      // round_number is what identifies a round within a tournament here, so a
-      // round left behind by a failed attempt is reused rather than re-created.
-      const roundByNumber = new Map((existingRounds ?? []).map(r => [r.round_number, r.id]));
-
-      if (isPoolPlay && poolCountFromMatches > 0) {
-        for (let pi = 0; pi < poolCountFromMatches; pi++) {
-          const letter = String.fromCharCode(65 + pi);
-          const already = roundByNumber.get(pi + 1);
-          if (already) { roundIdByPool.set(pi, already); continue; }
-          try {
-            const poolRound = await sbCall(() => supabase
-              .from('tournament_rounds')
-              .insert({
-                tournament_id: tournament.id,
-                round_number: pi + 1,
-                label:        `Pool ${letter}`,
-                round_type:   'pool',
-              })
-              .select().single(), { retries: 0 }) as { id: string };
-            roundIdByPool.set(pi, poolRound.id);
-          } catch (prErr) {
-            throw new Error(`Could not create Pool ${letter} round: ${friendlySbMessage(prErr, 'unknown error')}`);
-          }
-        }
-      } else {
-        const already = roundByNumber.get(1);
-        if (already) {
-          defaultRoundId = already;
-        } else {
-          try {
-            const round = await sbCall(() => supabase
-              .from('tournament_rounds')
-              .insert({
-                tournament_id: tournament.id,
-                round_number: 1,
-                label:        FORMAT_META[tournament.format].label + ' Schedule',
-                round_type:   roundType,
-              })
-              .select().single(), { retries: 0 }) as { id: string };
-            defaultRoundId = round.id;
-          } catch (rErr) {
-            throw new Error('Could not create round: ' + friendlySbMessage(rErr, 'unknown error'));
-          }
-        }
-      }
-
-      // 2. Save all matches — rotating_partners is always doubles regardless of setting
-      const isRotating = tournament.format === 'rotating_partners' || tournament.format === 'mlp';
-      const matchRows = matches.map((m, i) => {
-        // Pool-play matches carry poolIndex (set in generatePoolPlay); fall back
-        // to pool 0 if absent so we never write a null round_id.
-        const roundId = isPoolPlay
-          ? (roundIdByPool.get(m.poolIndex ?? 0) ?? roundIdByPool.get(0)!)
-          : defaultRoundId!;
-        return {
-          tournament_id: tournament.id,
-          round_id:      roundId,
-          match_order:   i,
-          match_type:    isRotating ? 'doubles' : tournament.match_type,
-          team1_player1: m.team1[0] !== 'BYE' ? m.team1[0] : null,
-          team1_player2: m.team1[1] && m.team1[1] !== 'BYE' ? m.team1[1] : null,
-          team2_player1: m.team2[0] !== 'BYE' ? m.team2[0] : null,
-          team2_player2: m.team2[1] && m.team2[1] !== 'BYE' ? m.team2[1] : null,
-        };
-      });
-
-      // (round_id, match_order) identifies a match within the draw, so rows a
-      // previous attempt already wrote are skipped rather than duplicated.
-      //
-      // But skipping is only correct when this is a RESUME of the same draw. If
-      // the admin regenerated a different draw after a failed attempt, those
-      // slots already hold different players, and silently keeping them would
-      // splice two draws into one bracket — worse than either failure. So the
-      // existing rows are compared against what we just generated, and a
-      // mismatch stops with an explanation instead of half-applying.
-      const existingMatches = await sbCall(() => supabase
-        .from('tournament_matches')
-        .select('round_id, match_order, team1_player1, team1_player2, team2_player1, team2_player2')
-        .eq('tournament_id', tournament.id)) as {
-          round_id: string; match_order: number;
-          team1_player1: string | null; team1_player2: string | null;
-          team2_player1: string | null; team2_player2: string | null;
-        }[] | null;
-
-      const slotKey = (r: { round_id: string; match_order: number }) => `${r.round_id}|${r.match_order}`;
-      const lineup = (r: {
-        team1_player1: string | null; team1_player2: string | null;
-        team2_player1: string | null; team2_player2: string | null;
-      }) => [r.team1_player1, r.team1_player2, r.team2_player1, r.team2_player2].join(',');
-
-      const existingBySlot = new Map((existingMatches ?? []).map(m => [slotKey(m), m]));
-      const conflicts = matchRows.filter(r => {
-        const prior = existingBySlot.get(slotKey(r));
-        return prior && lineup(prior) !== lineup(r);
-      });
-      if (conflicts.length > 0) {
-        throw new Error(
-          `This tournament already has ${existingBySlot.size} matches saved from an earlier Lock In, `
-          + `and ${conflicts.length} of them don't match the draw you're locking in now. `
-          + 'Locking in would mix the two draws. Delete the existing matches first if you meant to '
-          + 'replace them, or re-run Lock In without regenerating to finish the original draw.',
-        );
-      }
-      const pendingRows = matchRows.filter(r => !existingBySlot.has(slotKey(r)));
-
-      // Insert in batches of 20 to avoid request size issues. Not retried: a
-      // retry that lands after a lost reply would duplicate the batch, and the
-      // re-read above is the safe way to resume instead.
-      for (let i = 0; i < pendingRows.length; i += 20) {
-        try {
-          await sbCall(() => supabase.from('tournament_matches').insert(pendingRows.slice(i, i + 20)), { retries: 0 });
-        } catch (mErr) {
-          throw new Error(
-            `Could not save matches (${i} of ${pendingRows.length} written): ${friendlySbMessage(mErr, 'unknown error')}. `
-            + 'Run Lock In again once you have a connection — it resumes where it stopped.',
-          );
-        }
-      }
-
-      // 3. Update tournament status
-      try {
-        await sbCall(() => supabase.from('tournaments').update({ status: 'active' }).eq('id', tournament.id));
-      } catch (sErr) {
-        throw new Error('Could not update status: ' + friendlySbMessage(sErr, 'unknown error'));
-      }
-
-      // 3b. Persist the draw order as registration seeds — the advancement
-      // triggers order registrations by seed to reconstruct round-1 slots.
-      // This is the one step that must never fail quietly: a half-written seed
-      // order still looks like a valid order to those triggers, so they advance
-      // the WRONG players and nothing about the bracket looks broken.
-      const seedOrder = seededOrderRef.current;
-      if (seedOrder) {
-        let seedFailures = 0;
-        for (let i = 0; i < seedOrder.length; i++) {
-          try {
-            // Idempotent: a fixed seed keyed by (tournament, user).
-            await sbCall(() => supabase.from('tournament_registrations')
-              .update({ seed: i + 1 })
-              .eq('tournament_id', tournament.id)
-              .eq('user_id', seedOrder[i]));
-          } catch {
-            seedFailures++;
-          }
-        }
-        if (seedFailures > 0) {
-          throw new Error(
-            `Seeds only partially saved (${seedFailures} of ${seedOrder.length} failed). `
-            + 'Advancement rebuilds round 1 from seed order, so leaving it like this would advance the wrong players. '
-            + 'Run Lock In again once you have a connection — it is safe to repeat and nothing will be duplicated.',
-          );
-        }
-      }
-
-      // 4. Notify each member individually to avoid RLS batch-check timeouts
-      const approvedRegs = registrations.filter(r => r.status === 'approved');
-      const memberIds = approvedRegs.map(r => r.user_id);
-      // Announcements are the only step left that is safe to repeat but not
-      // idempotent — a re-run re-announces. That's noise, never corruption, so
-      // it stays unconditional rather than gating the bracket on it.
-      let notifsFailed = 0;
-      for (const uid of memberIds) {
-        try {
-          await sbCall(() => supabase.from('notifications').insert({
-            user_id:     uid,
-            title:       `🏆 Bracket Set — ${tournament.name}`,
-            body:        `The draw has been finalized! ${matches.length} matches scheduled. Open the tournament to see your matches.`,
-            type:        'tournament',
-            entity_id:   tournament.id,
-            entity_type: 'tournament',
-          }), { retries: 0 });
-        } catch {
-          notifsFailed++;
-        }
-      }
-
-      setGeneratedMatches(null);
-      setPools(null);
-      setShowLockInConfirm(false);
-      load();
-
-      const notified = memberIds.length - notifsFailed;
-      const resumed = pendingRows.length < matchRows.length;
-      status.success(
-        `✓ Bracket locked! Schedule saved — ${notified}/${memberIds.length} members notified.` +
-          (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '') +
-          // Say so plainly when this run only finished someone else's half-write.
-          (resumed ? ` (resumed a previous attempt: ${matchRows.length - pendingRows.length} matches were already saved)` : '')
-      );
-    } catch (err: any) {
-      const msg = friendlySbMessage(err, 'Unknown error. Please try again.');
-      setLockInError(msg);
-      // Also toast it — callers outside the confirm modal (godmode lock
-      // button) never render lockInError.
-      status.error(`Lock-in failed: ${msg}`);
-    } finally {
-      lockingRef.current = false;
-      setLocking(false);
-    }
+    pendingReveal.current = key;
+    open();
   }
 
-  // ── Partner requests ────────────────────────────────────────
-  async function sendPartnerRequest(targetId: string) {
-    setShowPartnerModal(false);
-    const { error } = await supabase.from('tournament_partner_requests').upsert({
-      tournament_id: tournamentId, requester_id: myUserId!, requested_id: targetId, status: 'pending',
+  const tournament = td.tournament;
+  useLayoutEffect(() => {
+    if (!tournament) return;
+    navigation.setOptions({
+      headerRight: () => (
+        <TournamentHeaderActions
+          tournamentId={tournamentId}
+          tournamentName={tournament.name}
+          registrationOpen={tournament.status === 'registration'}
+          onCopied={() => td.status.success('Tournament link copied.')}
+        />
+      ),
     });
-    if (error) status.error(error.message);
-    else { status.success("Request sent! They'll be notified to accept or decline."); load(); }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, tournamentId, tournament?.name, tournament?.status]);
 
-  async function respondToPartnerRequest(reqId: string, accept: boolean) {
-    await supabase.from('tournament_partner_requests')
-      .update({ status: accept ? 'accepted' : 'rejected' }).eq('id', reqId);
-    load();
-  }
+  // ── Derived data (memoized; safe before the loading return) ──
+  const registrations = td.registrations;
+  const approved = useMemo(() => registrations.filter(r => r.status === 'approved'), [registrations]);
+  const myUserId = td.myUserId;
+  const myRole = td.myRole;
+  const isPriv = isTournamentPrivileged(myRole);
+  const isAdmin = myRole === 'admin';
+  const standings = useMemo(() => tournament ? buildStandings({
+    tournament,
+    savedMatches: td.savedMatches,
+    savedRounds: td.savedRounds,
+    registrations,
+    profileNames: td.profileNames,
+    profileRatings: td.profileRatings,
+    myUserId,
+    mlpStandings: td.mlpStandings,
+    myMlpTeamId: mlpTeamOf(td.mlpTeams, myUserId)?.id ?? null,
+    finalRanks: td.finalRanks,
+  }) : null, [tournament, td.savedMatches, td.savedRounds, registrations, td.profileNames,
+    td.profileRatings, myUserId, td.mlpStandings, td.mlpTeams, td.finalRanks]);
+  const nextMatch = useMemo(
+    () => nextMatchFor(td.savedMatches as ScheduleMatch[], myUserId),
+    [td.savedMatches, myUserId],
+  );
 
-  async function cancelPartnerRequest(reqId: string) {
-    await supabase.from('tournament_partner_requests').delete().eq('id', reqId);
-    load();
-  }
+  // Manage opens itself once, on the first load, when a step is waiting.
+  useEffect(() => {
+    if (manageAutoOpened.current || td.loading || !tournament) return;
+    manageAutoOpened.current = true;
+    if (!isPriv) return;
+    const pendingReqs = registrations.some(r => r.status === 'pending' && r.invited_by == null);
+    const payoutDue = tournament.status === 'completed' && (tournament.prize_pool ?? 0) > 0
+      && !tournament.champion_payout_applied_at;
+    // Group play is finished and the playoff is configured but not drawn:
+    // the organizer's next step is in Manage (it used to sit inline).
+    const playoffDue = tournament.status === 'active'
+      && (tournament.format === 'round_robin' || tournament.format === 'pool_play')
+      && (tournament.playoff_format ?? 'none') !== 'none'
+      && td.savedMatches.length > 0
+      && !td.savedRounds.some((r: any) => PLAYOFF_ROUND_TYPES.includes(r.round_type))
+      && groupPlayPendingCount(td.savedRounds, td.savedMatches) === 0;
+    if ((tournament.status === 'registration' && pendingReqs) || payoutDue || playoffDue) setManageOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [td.loading, tournament, isPriv, registrations]);
 
-  // ── Helpers ─────────────────────────────────────────────────
-  function playerName(id: string | undefined): string {
-    if (!id || id === 'BYE') return 'BYE';
-    return profileNames[id] ?? '…';
-  }
-
-  // ── Wagering helpers ────────────────────────────────────────
-  function openMatchWager(
-    pickedTeam: 'team1' | 'team2',
-    pick: { tournamentMatchId: string; team1Label: string; team2Label: string },
-  ) {
-    setWagerSubject({
-      type: 'tournament_match',
-      tournamentMatchId: pick.tournamentMatchId,
-      teamLabels: { team1: pick.team1Label, team2: pick.team2Label },
-      pickedTeam,
-    });
-    setWagerOpen(true);
-  }
-
-  function submitExactScore() {
-    setExactScoreError(null);
-    const t1 = parseInt(exactScoreT1.trim(), 10);
-    const t2 = parseInt(exactScoreT2.trim(), 10);
-    if (!Number.isFinite(t1) || !Number.isFinite(t2) || t1 < 0 || t2 < 0) {
-      setExactScoreError('Both scores must be non-negative integers.');
+  function tryPendingScroll() {
+    const want = pendingScroll.current;
+    if (!want || td.loading || !td.tournament) return;
+    const tt = td.tournament;
+    if (want === 'invite') {
+      // The invite controls are on the You card, right under the identity.
+      if (anchors.current.you == null) return;   // not laid out yet; its onLayout retries
+      consumePendingScroll('you');
       return;
     }
-    const pick = wagerMatchPick;
-    if (!pick) { setExactScoreError('Lost track of which match — try again.'); return; }
-    setWagerSubject({
-      type: 'tournament_match_score',
-      tournamentMatchId: pick.tournamentMatchId,
-      teamLabels: { team1: pick.team1Label, team2: pick.team2Label },
-      team1Score: t1,
-      team2Score: t2,
-    });
-    setExactScoreOpen(false);
-    setExactScoreT1('');
-    setExactScoreT2('');
-    setWagerOpen(true);
+    // 'next_match': the You card when it shows the next match, otherwise the
+    // schedule. Without either the user stays at the top (the safe fallback).
+    const scheduleShown = (tt.status === 'active' || tt.status === 'completed') && td.savedMatches.length > 0;
+    if (tt.status === 'active' && nextMatch) {
+      if (anchors.current.you == null) return;
+      consumePendingScroll('you');
+      return;
+    }
+    if (!scheduleShown) { consumePendingScroll(null); return; }
+    if (anchors.current.schedule == null) return;
+    consumePendingScroll('schedule');
+  }
+  // Data can land after an anchor's first layout; retry once loading settles.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { tryPendingScroll(); }, [td.loading, td.tournament, td.savedMatches]);
+
+  // Action feedback (the sticky bar's Request to join / Accept / Decline, and
+  // Manage's approve / generate / lock-in / playoff at the bottom) lands in the
+  // one StatusBanner under the You card. When it arrives while the user is
+  // scrolled past that card, bring the banner into view so a failure isn't a
+  // silent no-op (useStatusMessage sets a fresh object per message, so this
+  // fires once per message).
+  const statusValue = td.status.value;
+  useEffect(() => {
+    if (!statusValue || !pastYou.current) return;
+    scrollToAnchor('banner');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusValue]);
+
+  function toggle(section: SectionKey, next: boolean, set: (v: boolean) => void) {
+    set(next);
+    trackSectionToggle({ screen: 'TournamentDetail', section, open: next });
   }
 
-  function openMatchActionSheet(m: {
-    id: string;
-    team1_player1: string | null; team1_player2: string | null;
-    team2_player1: string | null; team2_player2: string | null;
-  }) {
-    const team1Label = ([m.team1_player1, m.team1_player2].filter(Boolean) as string[]).map(playerName).join(' & ') || 'Team 1';
-    const team2Label = ([m.team2_player1, m.team2_player2].filter(Boolean) as string[]).map(playerName).join(' & ') || 'Team 2';
-    setWagerMatchPick({ tournamentMatchId: m.id, team1Label, team2Label });
-    setActionSheetOpen(true);
-  }
-
-  function openMatchActionSheetById(matchId: string) {
-    const m = savedMatches.find((sm: any) => sm.id === matchId);
-    if (!m) return;
-    openMatchActionSheet(m);
-  }
-
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  if (td.loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
   if (!tournament) return <EmptyState title="Tournament not found." />;
 
-  const fmt        = FORMAT_META[tournament.format];
-  const approved   = registrations.filter(r => r.status === 'approved');
-  const tournamentLive = tournament.status !== 'completed' && tournament.status !== 'cancelled';
-  const pending    = registrations.filter(r => r.status === 'pending');
+  // ── Registration facts ──
+  const status = tournament.status;
+  const live = status !== 'completed' && status !== 'cancelled';
+  const pending = registrations.filter(r => r.status === 'pending');
   // Pending registrations split: admin-invited (waiting on invitee) vs self-submitted requests.
-  const pendingInvited  = pending.filter(r => r.invited_by != null);
+  const pendingInvited = pending.filter(r => r.invited_by != null);
   const pendingRequests = pending.filter(r => r.invited_by == null);
   // Waitlist: self-requests that arrived while the tournament was full,
   // oldest first (that's the promotion order the DB uses).
@@ -1200,2099 +322,776 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     .filter(r => r.status === 'waitlisted')
     .sort((a, b) => new Date(a.registered_at).getTime() - new Date(b.registered_at).getTime());
   const isFull = tournament.max_players != null && approved.length >= tournament.max_players;
+  // Public "Players": approved members + outstanding invites. Join requests
+  // stay organizer-only (Manage) since nobody has decided on them yet.
+  const rosterShown = [...approved, ...pendingInvited];
+  const myReg = registrations.find(r => r.user_id === myUserId);
+  // Registration deadline (optional, client-enforced): once passed, the
+  // Request to Join action is replaced by the closed note.
+  const regClosed = tournament.registration_closes_at != null
+    && Date.now() >= new Date(tournament.registration_closes_at).getTime();
+  const canRegister = !myReg && status === 'registration'
+    && tournament.registration_mode === 'request' && !regClosed;
+  const isMlp = tournament.format === 'mlp' || tournament.format === 'mlp_random';
+  const needsPairs = requiresPartner(tournament.format, tournament.match_type);
+  const hasTeams = needsPairs || isMlp;
+  const approvedIds = approved.map(r => r.user_id);
+  const pairingDone = isMlp ? mlpTeamsDone(td.mlpTeams) : doublesPairingDone(approvedIds, td.doublesPairs);
+  const fmt = FORMAT_META[tournament.format];
 
-  // ── Predicted tournament flow ────────────────────────────────
-  // The full expected stage structure (pools → QF → SF → F, elim rounds, …)
-  // known at lock-in time. Stages whose DB rounds exist use live data;
-  // stages the advancement triggers haven't created yet come from
-  // predictFlow() and render as "upcoming" skeletons.
-  const flowStages: FlowOverviewStage[] | null = (() => {
-    if (tournament.status !== 'active' && tournament.status !== 'completed') return null;
-    if (savedRounds.length === 0) return null;
-    const isTeamDoubles = tournament.match_type === 'doubles' && tournament.format !== 'rotating_partners';
-    const entrants = isTeamDoubles
-      ? doublesPairs.filter((p: any) => p.partner_1_id && p.partner_2_id).length
-      : approved.length;
-    const actualPoolCount = savedRounds.filter((r: any) => r.round_type === 'pool').length;
-    const predicted = predictFlow({
-      format: tournament.format,
-      playoffFormat: tournament.playoff_format,
-      playoffThirdPlace: tournament.playoff_third_place,
-      poolCount: actualPoolCount || tournament.pool_count,
-      entrants,
+  // ── Active / completed facts ──
+  const scheduleExists = (status === 'active' || status === 'completed') && td.savedMatches.length > 0;
+  const flowStages = buildFlowStages({
+    tournament, savedRounds: td.savedRounds, savedMatches: td.savedMatches,
+    doublesPairs: td.doublesPairs, approved,
+  });
+  const upcomingStages = (flowStages ?? []).filter(s => !s.exists);
+  const playoffExists = td.savedRounds.some((r: any) => PLAYOFF_ROUND_TYPES.includes(r.round_type));
+  const mine = myStanding(standings);
+  const inSchedule = (td.savedMatches as ScheduleMatch[]).some(m => involves(m, myUserId));
+  const playableMatches = (td.savedMatches as ScheduleMatch[]).filter(m => m.match_type !== 'bye'
+    && !(m.is_dreambreaker && m.status === 'cancelled'));
+  const playedCount = playableMatches.filter(m => m.status === 'completed').length;
+
+  // ── Organizer setup checklist ──
+  const steps = setupSteps({
+    pendingRequests: pendingRequests.length,
+    releaseSet: !!tournament.bracket_release_time,
+    needsPairing: hasTeams,
+    pairingDone,
+    previewReady: !!td.generatedMatches && td.generatedMatches.length > 0,
+  });
+  const current = currentSetupStep(steps);
+  // Generate and Lock in are the admin's alone (Manage says so); a co-admin
+  // whose next step is one of them is waiting, not acting.
+  const setupWaitingOnAdmin = !isAdmin && (current.step.key === 'generate' || current.step.key === 'lock');
+
+  // ── Navigation helpers ──
+  function openRecord(m: ScheduleMatch) {
+    navigation.navigate('MatchEntry', {
+      leagueId:           tournament!.league_id ?? '',
+      tournamentId:       tournament!.id,
+      tournamentMatchId:  m.id,
+      tournamentName:     tournament!.name,
+      prefillMatchType:   (m.match_type as any) ?? undefined,
+      prefillTeam1Player: m.team1_player1 ?? undefined,
+      prefillTeam1Partner:m.team1_player2 ?? undefined,
+      prefillTeam2Player: m.team2_player1 ?? undefined,
+      prefillTeam2Partner:m.team2_player2 ?? undefined,
     });
-    if (!predicted) return null;
-    const rounds = [...savedRounds].sort((a: any, b: any) => a.round_number - b.round_number);
-    const out: FlowOverviewStage[] = [];
-    for (let i = 0; i < Math.max(predicted.length, rounds.length); i++) {
-      const r = rounds[i];
-      const p = predicted[i];
-      if (r) {
-        const ms = savedMatches.filter((m: any) =>
-          m.round?.id === r.id && !(m.is_dreambreaker && m.status === 'cancelled'));
-        out.push({
-          key: r.id,
-          label: r.label ?? p?.label ?? `Round ${i + 1}`,
-          kind: p?.kind ?? (r.round_type === 'pool' ? 'group' : 'playoff'),
-          exists: true,
-          total: ms.length,
-          completed: ms.filter((m: any) => m.status === 'completed').length,
-          byes: ms.filter((m: any) => m.match_type === 'bye').length,
+  }
+  async function register() {
+    if (registeringRef.current) return;
+    registeringRef.current = true;
+    setRegistering(true);
+    try { await td.register(); } finally { registeringRef.current = false; setRegistering(false); }
+  }
+  const teamsDefaultOpen = status === 'registration' && (isPriv || myReg?.status === 'approved');
+  const teamsOpen = teamsOpenChoice ?? teamsDefaultOpen;
+  const playoffOpen = playoffOpenChoice ?? (status === 'active' || status === 'completed');
+  const openManage = () => reveal('manage', manageOpen, () => setManageOpen(true));
+  const openTeams = () => reveal('teams', teamsOpen, () => setTeamsOpenChoice(true));
+  const openSchedule = scheduleExists ? () => reveal('schedule', true, () => {}) : null;
+
+  // ── The You card ──
+  const kind = youCardKind({
+    status,
+    isPriv,
+    myReg,
+    canRegister,
+    inviteOnly: tournament.registration_mode === 'invite_only',
+    regClosed: regClosed && tournament.registration_mode === 'request',
+    inSchedule,
+    hasNextMatch: !!nextMatch && canRecordMatch(nextMatch, { isPriv, myUserId }),
+    hasFinalRanks: td.finalRanks.length > 0,
+  });
+  let teamLine: string | null = null;
+  let needsPartner = false;
+  let findPartnerLabel = 'Find a partner';
+  if (needsPairs) {
+    const p = doublesPartnerOf(td.doublesPairs, myUserId);
+    if (p.found && p.partnerId) teamLine = `Partner: ${td.playerName(p.partnerId)}`;
+    else if (tournament.team_creation === 'random') teamLine = 'Partners are drawn by the organizer.';
+    else { teamLine = p.found ? 'Your pair still needs a partner.' : 'No partner yet.'; needsPartner = true; }
+  } else if (isMlp) {
+    const team = mlpTeamOf(td.mlpTeams, myUserId);
+    findPartnerLabel = 'Find a team';
+    if (team) teamLine = `Team: ${team.name}`;
+    else if (tournament.format === 'mlp_random') teamLine = 'Teams are drawn by the organizer.';
+    else { teamLine = 'Not on a team yet.'; needsPartner = true; }
+  }
+  const myRank = finalRankOf(td.finalRanks, myUserId);
+  const pool = tournament.prize_pool ?? 0;
+  const view = youCardView(kind, {
+    isFull,
+    spotsLeft: tournament.max_players != null ? Math.max(0, tournament.max_players - approved.length) : null,
+    ante: tournament.pickle_ante ?? 0,
+    closesLabel: tournament.registration_closes_at && !regClosed
+      ? `closes ${new Date(tournament.registration_closes_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+      : null,
+    register,
+    registering,
+    inviterName: myReg?.invited_by && td.profileNames[myReg.invited_by] ? td.profileNames[myReg.invited_by] : 'An organizer',
+    accept: () => { if (myReg) td.respondToTournamentInvite(myReg.id, true); },
+    decline: () => { if (myReg) td.respondToTournamentInvite(myReg.id, false); },
+    waitlistPosition: myReg?.status === 'waitlisted'
+      ? Math.max(1, waitlisted.findIndex(r => r.id === myReg.id) + 1)
+      : null,
+    teamLine,
+    needsPartner,
+    findPartnerLabel,
+    onFindPartner: openTeams,
+    releaseLine: bracketReleaseLabel(tournament.bracket_release_time) || 'The bracket release time isn\'t set yet.',
+    setupIndex: current.index,
+    setupTotal: steps.length,
+    setupLabel: current.step.label,
+    setupWaitingOnAdmin,
+    onOpenSetup: openManage,
+    opponents: nextMatch && myUserId ? opponentsOf(nextMatch, myUserId).map(td.playerName).join(' & ') : '',
+    partner: nextMatch && myUserId && partnerOf(nextMatch, myUserId) ? td.playerName(partnerOf(nextMatch, myUserId)!) : null,
+    roundLabel: nextMatch?.round?.label ?? null,
+    recordLine: mine
+      ? `You ${mine.row.wins}-${mine.row.losses} · #${mine.position} of ${mine.of}${mine.table ? ` in ${mine.table}` : ''}`
+      : null,
+    onRecord: () => { if (nextMatch) openRecord(nextMatch); },
+    onOpenSchedule: openSchedule,
+    myRank,
+    podium: podiumFromFinalRanks(td.finalRanks).map(p => ({
+      rank: p.rank,
+      names: p.userIds.map(td.playerName).join(' & '),
+      isMe: !!myUserId && p.userIds.includes(myUserId),
+    })),
+    payoutLine: pool > 0
+      ? (tournament.champion_payout_applied_at ? `🥒 ${pool} pot paid out` : `🥒 ${pool} pot · payout pending`)
+      : null,
+  });
+
+  // ── Sticky bar: the You card's primary action, once the card is off screen ──
+  const stickyPrimary = view?.primary
+    ? {
+        title: kind === 'next_match' ? 'Record next match' : view.primary.title,
+        onPress: view.primary.onPress,
+        loading: view.primary.loading,
+      }
+    : kind === 'setup' && !setupWaitingOnAdmin ? { title: 'Open setup', onPress: openManage } : null;
+  const stickySecondary = view?.secondary
+    ? { title: view.secondary.title, onPress: view.secondary.onPress, variant: 'outline' as const }
+    : undefined;
+
+  // ── Pot ──
+  const ante = tournament.pickle_ante ?? 0;
+  const structure = tournament.payout_structure ?? [60, 25, 15];
+  // Hidden for non-organizers when there is nothing in it (plan section 5).
+  const potShown = isPriv || pool > 0 || ante > 0;
+  const potSummary = [`🥒 ${pool} pot`, ante > 0 ? `${ante} ante` : null, `${structure.join('/')}% payout`]
+    .filter(Boolean).join(' · ');
+
+  // ── Manage ──
+  const manageShown = isPriv || td.godmode;
+  const manageSteps: ManageStep[] = [];
+  if (isPriv && status === 'registration') {
+    for (const s of steps) {
+      const isCurrent = s.key === current.step.key;
+      const base = { key: s.key, label: s.label, done: s.done, current: isCurrent };
+      if (s.key === 'approve') {
+        manageSteps.push({
+          ...base,
+          meta: waitlisted.length > 0 ? `${waitlisted.length} on the waitlist` : null,
+          content: pendingRequests.length > 0 || waitlisted.length > 0 ? (
+            <View style={{ gap: SPACE.sm }}>
+              {pendingRequests.length > 0 && (
+                <PendingRequestsSection pendingRequests={pendingRequests} approveReg={td.approveReg} rejectReg={td.rejectReg} />
+              )}
+              {waitlisted.length > 0 && (
+                <WaitlistSection waitlisted={waitlisted} approveReg={td.approveReg} rejectReg={td.rejectReg} />
+              )}
+            </View>
+          ) : null,
         });
-      } else {
-        out.push({
-          key: p.key, label: p.label, kind: p.kind,
-          exists: false, total: p.matchCount, completed: 0, byes: p.byes,
+      } else if (s.key === 'release') {
+        manageSteps.push({
+          ...base,
+          meta: tournament.bracket_release_time
+            ? new Date(tournament.bracket_release_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+            : 'Players see a countdown to it on their card.',
+          actions: td.generatedMatches ? [] : [{
+            title: tournament.bracket_release_time ? 'Change' : 'Set time',
+            onPress: () => td.setShowReleasePicker(true),
+            variant: 'outline',
+          }],
+        });
+      } else if (s.key === 'pair') {
+        manageSteps.push({
+          ...base,
+          meta: isMlp
+            ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'}${tournament.format === 'mlp_random' ? ' · draw them in Teams' : ''}`
+            : `${td.doublesPairs.filter(p => p.partner_1_id && p.partner_2_id).length} complete pair(s) for ${approved.length} players`,
+          actions: [{ title: isMlp ? 'Open Teams' : 'Open Pairs', onPress: openTeams, variant: 'outline' }],
+        });
+      } else if (s.key === 'generate') {
+        const minShort = tournament.min_players != null && approved.length < tournament.min_players;
+        manageSteps.push({
+          ...base,
+          meta: !isAdmin ? 'Only the tournament admin can generate the bracket.'
+            : approved.length < 2 ? 'Needs at least 2 approved players.'
+            : minShort ? `${approved.length}/${tournament.min_players} minimum players: ${tournament.min_players! - approved.length} more before it can lock in.`
+            : null,
+          content: td.generatedMatches && td.generatedMatches.length > 0 ? (
+            <View style={{ gap: SPACE.sm }}>
+              {td.pools && <PoolAssignmentsPreview tournament={tournament} pools={td.pools} playerName={td.playerName} />}
+              <PreviewScheduleSection
+                generatedMatches={td.generatedMatches}
+                myUserId={myUserId}
+                myMatchesOnly={td.myMatchesOnly}
+                setMyMatchesOnly={td.setMyMatchesOnly}
+                playerName={td.playerName}
+              />
+            </View>
+          ) : null,
+          actions: isAdmin && approved.length >= 2 ? [{
+            title: td.generatedMatches ? 'Re-generate preview' : `Generate ${fmt.label} schedule`,
+            onPress: () => { void td.generateBracket(); },
+            variant: td.generatedMatches ? 'outline' : 'primary',
+          }] : [],
+        });
+      } else if (s.key === 'lock') {
+        manageSteps.push({
+          ...base,
+          label: isAdmin ? s.label : `${s.label} (admin)`,
+          meta: td.generatedMatches ? `Saves the draw and notifies all ${approved.length} players.` : 'After the preview.',
+          actions: isAdmin && td.generatedMatches ? [{
+            title: td.locking ? 'Locking in…' : 'Lock in & notify',
+            onPress: td.lockInBracket,
+            loading: td.locking,
+          }] : [],
         });
       }
     }
-    return out;
-  })();
-  const upcomingStages = (flowStages ?? []).filter(s => !s.exists);
-  // Public "Players" list: approved members + outstanding invites (the people the
-  // tournament is actively trying to fill its roster with). Join-requests stay
-  // admin-only since admins haven't decided on them yet.
-  const rosterShown = [...approved, ...pendingInvited];
-  const myReg      = registrations.find(r => r.user_id === myUserId);
-  const isPriv     = isTournamentPrivileged(myRole);
-  const isAdmin    = myRole === 'admin';
-  // Registration deadline (optional, client-enforced): once passed, hide the
-  // Request to Join button and show the closed note instead.
-  const regClosed = tournament.registration_closes_at != null
-                     && Date.now() >= new Date(tournament.registration_closes_at).getTime();
-  const canRegister = !myReg && tournament.status === 'registration'
-                       && tournament.registration_mode === 'request' && !regClosed;
-  const bracketLabel = bracketReleaseLabel(tournament.bracket_release_time);
-
-  // Partner state for current user
-  const myPartnerReqSent     = partnerRequests.find(r => r.requester_id === myUserId && r.status === 'pending');
-  const myPartnerReqReceived = partnerRequests.find(r => r.requested_id === myUserId && r.status === 'pending');
-  const myConfirmedPartner   = partnerRequests.find(r =>
-    (r.requester_id === myUserId || r.requested_id === myUserId) && r.status === 'accepted'
-  );
-  const myPartnerUserId = myConfirmedPartner
-    ? (myConfirmedPartner.requester_id === myUserId ? myConfirmedPartner.requested_id : myConfirmedPartner.requester_id)
+  }
+  if (isPriv && status !== 'registration' && (pendingRequests.length > 0 || waitlisted.length > 0)) {
+    // Requests left unanswered at lock-in stay 'pending' / 'waitlisted'
+    // (doLockIn and the waitlist promoter don't touch them), so organizers
+    // can still approve or reject them after registration, as on master.
+    manageSteps.push({
+      key: 'requests',
+      label: `Resolve ${pendingRequests.length + waitlisted.length} leftover request${pendingRequests.length + waitlisted.length === 1 ? '' : 's'}`,
+      done: false,
+      meta: [
+        'Left over from registration',
+        pendingRequests.length > 0 ? `${pendingRequests.length} pending` : null,
+        waitlisted.length > 0 ? `${waitlisted.length} on the waitlist` : null,
+      ].filter(Boolean).join(' · '),
+      content: (
+        <View style={{ gap: SPACE.sm }}>
+          {pendingRequests.length > 0 && (
+            <PendingRequestsSection pendingRequests={pendingRequests} approveReg={td.approveReg} rejectReg={td.rejectReg} />
+          )}
+          {waitlisted.length > 0 && (
+            <WaitlistSection waitlisted={waitlisted} approveReg={td.approveReg} rejectReg={td.rejectReg} />
+          )}
+        </View>
+      ),
+    });
+  }
+  if (isPriv && status === 'active') {
+    const playoffConfigured = (tournament.format === 'round_robin' || tournament.format === 'pool_play')
+      && (tournament.playoff_format ?? 'none') !== 'none';
+    if (playoffConfigured && td.savedMatches.length > 0) {
+      manageSteps.push({
+        key: 'playoff',
+        label: playoffExists ? 'Playoff drawn' : 'Generate the playoff',
+        done: playoffExists,
+        current: !playoffExists,
+        content: playoffExists ? null : (
+          <GeneratePlayoffSection
+            tournament={tournament}
+            savedRounds={td.savedRounds}
+            savedMatches={td.savedMatches}
+            generatingPlayoff={td.generatingPlayoff}
+            generatePlayoff={td.generatePlayoff}
+          />
+        ),
+      });
+    }
+    manageSteps.push({
+      key: 'complete',
+      label: 'Complete the tournament',
+      done: false,
+      meta: 'Stops match recording and unlocks the payout.',
+      actions: [{ title: 'Complete', onPress: () => td.setShowCompleteConfirm(true), variant: 'outline' }],
+    });
+  }
+  if (isPriv && status === 'completed' && pool > 0) {
+    // Every format (it used to sit in the MLP-only card). The server's
+    // preview / auto-payout RPCs dispatch by format.
+    const paidAt = tournament.champion_payout_applied_at;
+    manageSteps.push({
+      key: 'payout',
+      label: paidAt ? 'Prizes paid out' : 'Pay out prizes',
+      done: !!paidAt,
+      current: !paidAt,
+      meta: paidAt
+        ? new Date(paidAt).toLocaleDateString()
+        : `Splits 🥒 ${pool} among the finishers · stamps badges · applies the PLUPR bonus`,
+      actions: paidAt ? [] : [{ title: 'Review payout', onPress: () => td.setShowPayoutModal(true) }],
+    });
+  }
+  const manageGroups: ManageGroup[] = [{
+    key: 'always',
+    title: manageSteps.length > 0 ? 'Tournament' : undefined,
+    rows: [
+      ...(isAdmin && (td.godmode || live) ? [{ key: 'edit', label: 'Edit tournament', onPress: td.openEditModal }] : []),
+      ...(isPriv && status === 'registration' ? [
+        { key: 'invite', label: 'Invite players', onPress: () => navigation.navigate('TournamentInvitePlayers', { tournamentId, tournamentName: tournament.name }) },
+        { key: 'code', label: 'Invite via code', onPress: () => navigation.navigate('TournamentInvite', { tournamentId, tournamentName: tournament.name }) },
+      ] : []),
+      ...(isPriv ? [{ key: 'roles', label: 'Members & roles', onPress: () => navigation.navigate('TournamentMembers', { tournamentId, tournamentName: tournament.name }) }] : []),
+      // Creator; any live status, before payout. The RPC refunds everything.
+      ...(isAdmin && live && tournament.champion_payout_applied_at == null ? [{
+        key: 'cancel',
+        label: 'Cancel tournament',
+        meta: 'Refunds everyone',
+        danger: true,
+        onPress: () => { td.setCancelError(null); td.setShowCancelConfirm(true); },
+      }] : []),
+    ],
+  }];
+  const manageSummary = status === 'registration' && isPriv
+    ? `Step ${current.index + 1} of ${steps.length}: ${current.step.label}${setupWaitingOnAdmin ? ' (admin)' : ''}`
+    : manageSteps.find(s => s.current)?.label
+      ?? 'Edit, invite and roles';
+  const manageNote = status === 'completed' ? 'This tournament is completed: edits are locked.'
+    : status === 'cancelled' ? 'This tournament was cancelled.'
     : null;
 
-  // Available partners = approved members without a confirmed partner and not myself
-  const takenPartnerIds = new Set(
-    partnerRequests.filter(r => r.status === 'accepted').flatMap(r => [r.requester_id, r.requested_id])
-  );
-  const availablePartners = approved.filter(r =>
-    r.user_id !== myUserId && !takenPartnerIds.has(r.user_id)
-  );
+  // ── Status strip (active / completed) ──
+  const currentStage = flowStages?.find(s => s.exists && s.completed < s.total) ?? null;
+  // A tournament can be completed early (admin_complete_tournament leaves the
+  // unplayed matches), so "All N" only when every match really was played.
+  const allPlayed = playedCount >= playableMatches.length;
+  const stripText = status === 'completed' && allPlayed
+    ? `All ${playedCount} match${playedCount === 1 ? '' : 'es'} played`
+    : `${status !== 'completed' && currentStage ? `${currentStage.label} · ` : ''}${playedCount} of ${playableMatches.length} played`;
 
-  return (
-    <>
-      <ScrollView
-        style={S.container}
-        contentContainerStyle={{ paddingBottom: 48 }}
-        refreshControl={<AppRefreshControl {...refresh} />}
+  const wagerShown = WAGERS_ENABLED && live && approved.length > 0;
+  const mlpPlayoff = isMlp && (tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff');
+  // Round robin / pool play rank the group stage only once a playoff exists
+  // (standingsData), so they get MLP's title too. That includes a completed
+  // one without settled ranks: its table is still the group stage, not a final.
+  const standingsTitle = standings?.groupStage ? 'Group stage'
+    : status === 'completed' ? 'Final standings'
+    : isMlp && mlpPlayoff && playoffExists ? 'Group stage' : 'Standings';
+
+  const teamsSummary = isMlp
+    ? `${td.mlpTeams.length} team${td.mlpTeams.length === 1 ? '' : 's'} formed`
+    : `${td.doublesPairs.filter(p => p.partner_1_id && p.partner_2_id).length} pair(s) formed`;
+  const teamsSection = hasTeams && status !== 'cancelled' ? (
+    <View ref={anchorRef('teams')} style={styles.block} onLayout={anchorLayout('teams')}>
+      <SectionCard
+        title={isMlp ? 'Teams' : 'Pairs'}
+        open={teamsOpen}
+        onToggle={() => toggle('teams', !teamsOpen, setTeamsOpenChoice)}
+        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{teamsSummary}</Text>}
       >
-
-        {/* ── Header ── */}
-        <View style={S.headerCard}>
-          <View style={S.headerTop}>
-            <Text style={S.fmtIcon}>{fmt.icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={S.fmtLabel}>{fmt.label}</Text>
-              <Text style={S.fmtDesc}>{fmt.description}</Text>
-            </View>
-            {myRole && (
-              <View style={[S.myRoleBadge, { backgroundColor: tournamentRoleBadgeColor(myRole) + '22', borderColor: tournamentRoleBadgeColor(myRole) + '55' }]}>
-                <Text style={[S.myRoleText, { color: tournamentRoleBadgeColor(myRole) }]}>
-                  {tournamentRoleLabel(myRole)}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Settings chips */}
-          <View style={S.chipsRow}>
-            <Text style={S.chip}>{tournament.match_type === 'doubles' ? 'Doubles' : 'Singles'}</Text>
-            <Text style={S.chip}>{tournament.seeding === 'elo' ? '📊 PLUPR seeded' : '🎲 Random'}</Text>
-            {tournament.format === 'pool_play' && <Text style={S.chip}>{tournament.pool_count} pools</Text>}
-            {tournament.partner_rotation && <Text style={S.chip}>Rotate {tournament.partner_rotation.replace('_', ' ')}</Text>}
-            {(() => {
-              const f = tournament.format;
-              // Single-/double-elim: the bracket IS the playoff — no separate chip.
-              if (f === 'single_elimination' || f === 'double_elimination') return null;
-              // Rotating partners: no playoff concept today.
-              if (f === 'rotating_partners') return <Text style={S.chip}>🚫 No playoff</Text>;
-              // MLP: playoff lives in mlp_play_format + mlp_playoff_teams.
-              if (f === 'mlp' || f === 'mlp_random') {
-                const mpf = tournament.mlp_play_format;
-                if (mpf === 'round_robin_playoff' || mpf === 'pool_play_playoff') {
-                  return <Text style={S.chip}>🏆 Playoff: Top {tournament.mlp_playoff_teams}</Text>;
-                }
-                return <Text style={S.chip}>🚫 No playoff</Text>;
-              }
-              // round_robin / pool_play — use the unified playoff_format column.
-              const pf = tournament.playoff_format ?? 'none';
-              const tp = tournament.playoff_third_place ?? false;
-              if (pf === 'none')          return <Text style={S.chip}>🚫 No playoff</Text>;
-              if (pf === 'top_2')         return <Text style={S.chip}>🏆 Playoff: Top 2 + 3PM</Text>;
-              if (pf === 'top_4')         return <Text style={S.chip}>🏆 Playoff: Top 4{tp ? ' + 3PM' : ''}</Text>;
-              if (pf === 'top_8')         return <Text style={S.chip}>🏆 Playoff: Top 8{tp ? ' + 3PM' : ''}</Text>;
-              if (pf === 'top_1_per_pool') return <Text style={S.chip}>🏆 Playoff: Top 1 / pool</Text>;
-              if (pf === 'top_2_per_pool') return <Text style={S.chip}>🏆 Playoff: Top 2 / pool</Text>;
-              return null;
-            })()}
-            <Text style={S.chip}>{tournament.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Requests'}</Text>
-          </View>
-
-          {tournament.start_time ? (
-            <Text style={S.metaLine}>📅 {new Date(tournament.start_time).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</Text>
-          ) : (
-            <Text style={S.metaLineEmpty}>📅 Date & time TBD</Text>
-          )}
-          {tournament.expected_length_hours != null ? (
-            <Text style={S.metaLine}>⏱️ ~{tournament.expected_length_hours}h expected</Text>
-          ) : (
-            <Text style={S.metaLineEmpty}>⏱️ Length TBD</Text>
-          )}
-          {tournament.status === 'registration' && (
-            tournament.registration_closes_at ? (
-              <Text style={S.metaLine}>
-                ⏳ Registration {regClosed ? 'closed' : 'closes'} {new Date(tournament.registration_closes_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            ) : (
-              <Text style={S.metaLineEmpty}>⏳ Registration open until the bracket is locked in</Text>
-            )
-          )}
-          {tournament.location_name ? (
-            <Text style={S.metaLine}>📍 {tournament.location_name}</Text>
-          ) : (
-            <Text style={S.metaLineEmpty}>📍 Location TBD</Text>
-          )}
-          {tournament.min_players != null || tournament.max_players != null ? (
-            <Text style={S.metaLine}>
-              👥 {approved.length} joined
-              {tournament.min_players != null ? ` · min ${tournament.min_players}` : ''}
-              {tournament.max_players != null ? ` · max ${tournament.max_players}` : ''}
-              {isFull && tournament.status === 'registration' ? ' — full (waitlist open)' : ''}
-            </Text>
-          ) : (
-            <Text style={S.metaLineEmpty}>👥 {approved.length} joined · no player limits</Text>
-          )}
-          {tournament.description && <Text style={S.desc}>{tournament.description}</Text>}
-
-          {/* Wager Market — visible only while the tournament is still in
-              play, AND only when wagering is enabled (lib/features.ts). */}
-          {WAGERS_ENABLED && tournamentLive && approved.length > 0 && (
-            <>
-              <Pressable
-                style={({ pressed }) => [S.championWagerBtn, pressed && S.championWagerBtnPressed]}
-                onPress={() => setWagerMarketOpen(o => !o)}
-              >
-                <Text style={S.championWagerText}>
-                  {wagerMarketOpen ? '🎲 Wager Market ▾' : '🎲 Wager Market ▸'}
-                </Text>
-              </Pressable>
-
-              {wagerMarketOpen && (() => {
-                const overLimit = wagerMarketSorted.length > WAGER_MARKET_TOP_N;
-                const shown = overLimit && !wagerMarketShowAll
-                  ? wagerMarketSorted.slice(0, WAGER_MARKET_TOP_N)
-                  : wagerMarketSorted;
-                return (
-                  <View style={S.wagerMarketPanel}>
-                    <View style={S.wagerMarketHeader}>
-                      <Text style={[S.wagerMarketCellLabel, { flex: 1, textAlign: 'left' }]}>Player</Text>
-                      {/* Only offer finishing ranks the field can actually
-                          produce — no "🥉 3rd" in a 2-player tournament. */}
-                      {WAGER_MARKET_RANKS.filter(rc => rc.rank <= approved.length).map(rc => (
-                        <Text key={rc.rank} style={S.wagerMarketCellLabel}>{rc.emoji}</Text>
-                      ))}
-                    </View>
-                    {shown.map(item => {
-                      const uname = item.profile?.full_name ?? '—';
-                      const initial = (item.profile?.full_name ?? '?')[0].toUpperCase();
-                      return (
-                        <View key={item.id} style={S.wagerMarketRow}>
-                          <View style={S.wagerMarketPlayerCell}>
-                            <View style={S.wagerMarketAvatar}>
-                              <Text style={S.wagerMarketAvatarText}>{initial}</Text>
-                            </View>
-                            <Text style={S.wagerMarketName} numberOfLines={1}>{uname}</Text>
-                          </View>
-                          {WAGER_MARKET_RANKS.filter(rc => rc.rank <= approved.length).map(rc => (
-                            <Pressable
-                              key={rc.rank}
-                              style={({ pressed }) => [S.wagerMarketBetBtn, pressed && S.wagerMarketBetBtnPressed]}
-                              onPress={() => {
-                                setWagerSubject({
-                                  type: 'tournament_rank',
-                                  tournamentId,
-                                  tournamentName: tournament.name,
-                                  userId: item.user_id,
-                                  userName: uname,
-                                  rank: rc.rank,
-                                });
-                                setWagerOpen(true);
-                              }}
-                            >
-                              <Text style={S.wagerMarketBetText}>{rc.emoji} Bet</Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      );
-                    })}
-                    {overLimit && (
-                      <Pressable
-                        style={S.wagerMarketToggle}
-                        onPress={() => setWagerMarketShowAll(v => !v)}
-                      >
-                        <Text style={S.wagerMarketToggleText}>
-                          {wagerMarketShowAll
-                            ? `Show top ${WAGER_MARKET_TOP_N}`
-                            : `Show all (${wagerMarketSorted.length})`}
-                        </Text>
-                      </Pressable>
-                    )}
-                  </View>
-                );
-              })()}
-            </>
-          )}
-        </View>
-
-        {/* ── Registration / invite CTA (primary action — sits directly under the
-            header so it's the first thing a prospective member sees) ──
-            TODO: smoke-test in browser */}
-        {canRegister && (
-          <TouchableOpacity style={S.registerBtn} onPress={register}>
-            <Text style={S.registerBtnText}>{isFull ? '⏳ Tournament Full — Join Waitlist' : '📝 Request to Join'}</Text>
-          </TouchableOpacity>
-        )}
-        {tournament.registration_mode === 'invite_only' && !myReg && (
-          <View style={S.inviteNote}>
-            <Text style={S.inviteNoteText}>🔒 This tournament is invite only. Contact an organizer to be added.</Text>
-          </View>
-        )}
-        {regClosed && !myReg && tournament.status === 'registration' && tournament.registration_mode === 'request' && (
-          <View style={S.inviteNote}>
-            <Text style={S.inviteNoteText}>⏳ Registration has closed for this tournament.</Text>
-          </View>
-        )}
-        {myReg && myReg.status === 'pending' && myReg.invited_by ? (
-          <View style={[S.myRegBadge, S.regPending]}>
-            <Text style={S.myRegText}>
-              📨 {playerName(myReg.invited_by)} invited you to this tournament.
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: c.primary, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
-                onPress={() => respondToTournamentInvite(myReg.id, true)}
-              >
-                <Text style={{ color: '#fff', fontWeight: '700' }}>Accept invite</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 1, backgroundColor: '#fff', borderWidth: 1.5, borderColor: c.border, paddingVertical: 10, borderRadius: 8, alignItems: 'center' }}
-                onPress={() => respondToTournamentInvite(myReg.id, false)}
-              >
-                <Text style={{ color: c.textSub, fontWeight: '700' }}>Decline</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : myReg && (
-          <View style={[S.myRegBadge,
-            myReg.status === 'approved' ? S.regApproved :
-            myReg.status === 'rejected' ? S.regRejected : S.regPending]}>
-            <Text style={S.myRegText}>
-              {myReg.status === 'approved' ? '✓ You\'re in the tournament!'
-               : myReg.status === 'rejected' ? '✗ Request not approved'
-               : myReg.status === 'waitlisted' ? `⏳ Tournament is full — you're #${Math.max(1, waitlisted.findIndex(r => r.id === myReg.id) + 1)} on the waitlist. You'll be notified when a spot opens.`
-               : '⏳ Registration pending — an admin will review your request shortly.'}
-            </Text>
-          </View>
-        )}
-
-        <StatusBanner status={status.value} style={{ marginHorizontal: 12 }} />
-
-        {/* ── Quick action row ── */}
-        <View style={S.quickActionsRow}>
-          <TouchableOpacity
-            style={S.quickActionBtn}
-            onPress={() => navigation.navigate('TournamentInfo', { tournamentId, tournamentName: tournament.name })}
-            activeOpacity={0.7}
-          >
-            <Text style={S.quickActionText}>ℹ️ How this works</Text>
-          </TouchableOpacity>
-          {/* Tournament URL unfurls into the status/roster OG card. */}
-          <ShareLinkButton
-            url={`https://www.pickleague.club/tournaments/${tournamentId}`}
-            title={tournament.name}
-            message={tournament.status === 'registration'
-              ? `Registration is open for "${tournament.name}" on Pickleague`
-              : `"${tournament.name}" on Pickleague`}
-            onCopied={() => status.success('Tournament link copied.')}
+        {needsPairs ? (
+          <DoublesPairSection
+            tournamentId={tournamentId}
+            tournamentStatus={status}
+            isPriv={isPriv}
+            currentUserId={myUserId}
+            approvedRegistrations={approved}
+            onPairsChanged={() => td.load()}
           />
-          <BookmarkButton targetType="tournament" targetId={tournamentId} style={S.quickActionBtn} />
-          {isAdmin && (godmode || (tournament.status !== 'completed' && tournament.status !== 'cancelled')) && (
-            <TouchableOpacity
-              style={[S.quickActionBtn, S.quickActionBtnPrimary]}
-              onPress={openEditModal}
-              activeOpacity={0.7}
-            >
-              <Text style={[S.quickActionText, S.quickActionTextPrimary]}>Edit Tournament</Text>
-            </TouchableOpacity>
-          )}
-          {isPriv && tournament.status === 'registration' && (
-            <TouchableOpacity
-              style={[S.quickActionBtn, S.quickActionBtnPrimary]}
-              onPress={() => navigation.navigate('TournamentInvitePlayers', { tournamentId, tournamentName: tournament.name })}
-              activeOpacity={0.7}
-            >
-              <Text style={[S.quickActionText, S.quickActionTextPrimary]}>+ Invite Players</Text>
-            </TouchableOpacity>
-          )}
-          {isPriv && tournament.status === 'registration' && (
-            <TouchableOpacity
-              style={[S.quickActionBtn, S.quickActionBtnPrimary]}
-              onPress={() => navigation.navigate('TournamentInvite', { tournamentId, tournamentName: tournament.name })}
-              activeOpacity={0.7}
-            >
-              <Text style={[S.quickActionText, S.quickActionTextPrimary]}>✉️ Invite via Code</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {(tournament.status === 'completed' || tournament.status === 'cancelled') && (
-          <View style={S.closedBanner}>
-            <Text style={S.closedBannerText}>
-              🔒 This tournament is {tournament.status === 'completed' ? 'ended' : 'cancelled'} — edits are locked.
-            </Text>
-          </View>
+        ) : (
+          <MlpTeamSection
+            tournamentId={tournamentId}
+            format={tournament.format as 'mlp' | 'mlp_random'}
+            mlpPlayFormat={tournament.mlp_play_format}
+            tournamentStatus={status}
+            isPriv={isPriv}
+            currentUserId={myUserId}
+            approvedRegistrations={approved}
+            bracketAlreadyGenerated={td.savedMatches.length > 0}
+            onTeamsChanged={() => td.load()}
+          />
         )}
+      </SectionCard>
+    </View>
+  ) : null;
 
-        {/* ── Match History (active or completed tournaments) ── */}
-        {(tournament.status === 'active' || tournament.status === 'completed') && (
-          <TouchableOpacity
-            style={S.historyBtn}
-            onPress={() => navigation.navigate('TournamentMatchHistory', {
-              tournamentId,
-              title: `${tournament.name} History`,
-            })}
-            activeOpacity={0.85}
-          >
-            <Text style={S.historyBtnText}>📜  Match History</Text>
-            <Text style={S.historyBtnSub}>All scheduled and completed matches</Text>
-          </TouchableOpacity>
-        )}
+  const playoffSection = mlpPlayoff && status !== 'cancelled' ? (
+    <View style={styles.block}>
+      <SectionCard
+        title="Playoff"
+        open={playoffOpen}
+        onToggle={() => toggle('playoff', !playoffOpen, setPlayoffOpenChoice)}
+        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Top {tournament.mlp_playoff_teams ?? 4} teams advance</Text>}
+      >
+        <MlpPlayoffPreview
+          tournamentId={tournamentId}
+          tournamentName={tournament.name}
+          leagueId={tournament.league_id ?? ''}
+          mlpPlayFormat={tournament.mlp_play_format as 'round_robin_playoff' | 'pool_play_playoff'}
+          poolCount={tournament.mlp_pool_count ?? 2}
+          playoffTeams={tournament.mlp_playoff_teams ?? 4}
+          isAdmin={isPriv}
+        />
+      </SectionCard>
+    </View>
+  ) : null;
 
-        {/* ── Pickle pot ── */}
+  const playersSection = (
+    <View style={styles.block}>
+      <PlayersSection
+        navigation={navigation}
+        tournament={tournament}
+        tournamentId={tournamentId}
+        rosterShown={rosterShown}
+        isPriv={isPriv}
+        open={playersOpen}
+        onToggle={() => toggle('players', !playersOpen, setPlayersOpen)}
+      />
+    </View>
+  );
+
+  const potSection = potShown ? (
+    <View style={styles.block}>
+      <SectionCard
+        title="Pot"
+        // PicklePotCard is `bare` (no title row, no pool pill), so the header
+        // carries the total while open; closed, the summary line has it.
+        count={potOpen ? `🥒 ${pool}` : undefined}
+        open={potOpen}
+        onToggle={() => toggle('pot', !potOpen, setPotOpen)}
+        collapsedContent={<Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{potSummary}</Text>}
+      >
         <PicklePotCard
+          bare
           scopeType="tournament"
           scopeId={tournamentId}
           scopeLabel="Tournament"
-          pool={tournament.prize_pool ?? 0}
-          ante={tournament.pickle_ante ?? 0}
-          structure={tournament.payout_structure ?? [60, 25, 15]}
+          pool={pool}
+          ante={ante}
+          structure={structure}
           isAdmin={isPriv}
-          canDistribute={tournament.status === 'completed'}
-          members={approved.map(r => ({
-            id: r.user_id,
-            full_name: r.profile?.full_name ?? 'Unknown',
-          }))}
-          onChange={() => load()}
+          canDistribute={status === 'completed'}
+          members={approved.map(r => ({ id: r.user_id, full_name: r.profile?.full_name ?? 'Player' }))}
+          onChange={() => td.load()}
         />
+      </SectionCard>
+    </View>
+  ) : null;
 
-        {/* ── MLP teams (Fixed or Random) ── */}
-        {(tournament.format === 'mlp' || tournament.format === 'mlp_random') && (
-          <View style={S.mlpCard}>
-            <MlpTeamSection
-              tournamentId={tournamentId}
-              format={tournament.format}
-              mlpPlayFormat={tournament.mlp_play_format}
-              tournamentStatus={tournament.status}
-              isPriv={isPriv}
-              currentUserId={myUserId}
-              approvedRegistrations={registrations.filter(r => r.status === 'approved')}
-              bracketAlreadyGenerated={savedMatches.length > 0}
-              onTeamsChanged={() => load()}
-            />
-            {(tournament.mlp_play_format === 'round_robin_playoff' || tournament.mlp_play_format === 'pool_play_playoff') && (
-              <MlpPlayoffPreview
-                tournamentId={tournamentId}
-                tournamentName={tournament.name}
-                leagueId={tournament.league_id ?? ''}
-                mlpPlayFormat={tournament.mlp_play_format}
-                poolCount={tournament.mlp_pool_count ?? 2}
-                playoffTeams={tournament.mlp_playoff_teams ?? 4}
-                isAdmin={isPriv}
-              />
-            )}
-            {/* Auto-payout: any completed tournament with a pool that hasn't been
-                paid out yet. Server-side preview/auto RPCs delegate by format. */}
-            {isPriv
-              && tournament.status === 'completed'
-              && (tournament.prize_pool ?? 0) > 0
-              && !tournament.champion_payout_applied_at && (
-              <TouchableOpacity
-                style={S.payoutBtn}
-                onPress={() => setShowPayoutModal(true)}
-                activeOpacity={0.85}
-              >
-                <Text style={S.payoutBtnText}>🏆 Pay Out Prizes</Text>
-                <Text style={S.payoutBtnSub}>
-                  Splits 🥒 {tournament.prize_pool} among bracket finishers · stamps badges · applies PLUPR bonus
-                </Text>
-              </TouchableOpacity>
-            )}
-            {isPriv && tournament.champion_payout_applied_at && (
-              <View style={S.payoutDoneBanner}>
-                <Text style={S.payoutDoneText}>✓ Prizes paid out on {new Date(tournament.champion_payout_applied_at).toLocaleDateString()}</Text>
-              </View>
-            )}
-          </View>
-        )}
+  const wagerSection = wagerShown ? (
+    <View style={styles.block}>
+      <SectionCard
+        title="Wager market"
+        open={td.wagerMarketOpen}
+        onToggle={() => toggle('wager', !td.wagerMarketOpen, td.setWagerMarketOpen)}
+        collapsedContent={<Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Bet pickles on who finishes on the podium</Text>}
+      >
+        <WagerMarket
+          tournament={tournament}
+          tournamentId={tournamentId}
+          approved={approved}
+          wagerMarketShowAll={td.wagerMarketShowAll}
+          setWagerMarketShowAll={td.setWagerMarketShowAll}
+          wagerMarketSorted={td.wagerMarketSorted}
+          setWagerSubject={td.setWagerSubject}
+          setWagerOpen={td.setWagerOpen}
+        />
+      </SectionCard>
+    </View>
+  ) : null;
 
-        {/* ── Admin: complete tournament ── */}
-        {isPriv && tournament.status === 'active' && (
-          <TouchableOpacity
-            style={S.payoutBtn}
-            onPress={() => setShowCompleteConfirm(true)}
-            activeOpacity={0.85}
-          >
-            <Text style={S.payoutBtnText}>🏁 Complete Tournament</Text>
-            <Text style={S.payoutBtnSub}>
-              Flips status to completed · stops further match recording · unlocks payout
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* ── Member: bracket release countdown ──
-            Only meaningful while the tournament is still in registration —
-            once active/completed the bracket exists, so the "release date"
-            banner would contradict the finalized-bracket state. (Gating on
-            !generatedMatches alone missed this: that's just the unsaved
-            preview, which is always null on a loaded active tournament.) */}
-        {myReg?.status === 'approved' && !generatedMatches && tournament.status === 'registration' && (
-          <View style={S.infoBox}>
-            {bracketLabel ? (
-              <>
-                <Text style={S.infoIcon}>⏰</Text>
-                <Text style={S.infoText}>{bracketLabel}</Text>
-              </>
-            ) : (
-              <>
-                <Text style={S.infoIcon}>🗓️</Text>
-                <Text style={S.infoText}>Bracket release date hasn't been set yet. Check back soon!</Text>
-              </>
-            )}
-          </View>
-        )}
-
-        {/* ── Admin: set bracket release time ── */}
-        {isPriv && !generatedMatches && tournament.status === 'registration' && (
-          <TouchableOpacity style={S.setReleaseBtn} onPress={() => setShowReleasePicker(true)}>
-            <Text style={S.setReleaseBtnText}>
-              {tournament.bracket_release_time
-                ? `⏰ Bracket release: ${new Date(tournament.bracket_release_time).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}  (tap to change)`
-                : '⏰ Set expected bracket release time'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* ── Doubles partner pair (non-MLP doubles formats) ── */}
-        {requiresPartner(tournament.format, tournament.match_type) && (
-          <View style={S.section}>
-            <DoublesPairSection
-              tournamentId={tournamentId}
-              tournamentStatus={tournament.status}
-              isPriv={isPriv}
-              currentUserId={myUserId}
-              approvedRegistrations={registrations.filter(r => r.status === 'approved')}
-              onPairsChanged={() => load()}
-            />
-          </View>
-        )}
-
-        {/* ── Players (approved + outstanding invites) ── */}
-        <View style={S.section}>
-          <View style={S.sectionHeaderRow}>
-            <Text style={S.sectionTitle}>
-              Players ({rosterShown.length}{tournament.max_players ? `/${tournament.max_players}` : ''})
-            </Text>
-            {isPriv && (
-              <TouchableOpacity onPress={() => navigation.navigate('TournamentMembers', { tournamentId, tournamentName: tournament.name })}>
-                <Text style={S.manageLinkText}>Manage Roles →</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          {rosterShown.map((r, i) => {
-            const role = r.role as TournamentRole;
-            const bc = tournamentRoleBadgeColor(role);
-            const isInvitePending = r.status === 'pending';
-            return (
-              <View key={r.id} style={S.playerRow}>
-                <Text style={S.playerSeed}>#{i + 1}</Text>
-                {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
-                <FlairName
-                  name={r.profile?.full_name ?? '—'}
-                  nameColor={(r.profile as any)?.name_color}
-                  styleId={(r.profile as any)?.list_name_style_id ?? null}
-                  mode="list"
-                  style={[S.playerName, isInvitePending && { color: c.textMuted, fontStyle: 'italic' }]}
-                />
-                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)}</Text>
-                {isInvitePending ? (
-                  <View style={[S.rolePill, { backgroundColor: '#fff3cd', borderColor: '#d4a72c' }]}>
-                    <Text style={[S.rolePillText, { color: '#8a6d00' }]}>📨 invited</Text>
-                  </View>
-                ) : role !== 'member' && (
-                  <View style={[S.rolePill, { backgroundColor: bc + '22', borderColor: bc }]}>
-                    <Text style={[S.rolePillText, { color: bc }]}>{tournamentRoleLabel(role)}</Text>
-                  </View>
-                )}
-              </View>
-            );
-          })}
-          {rosterShown.length === 0 && (
-            <EmptyState icon="🏓" title="No players yet" subtitle="No one has joined this tournament yet." />
-          )}
+  return (
+    <View style={[styles.root, { backgroundColor: c.bg }]}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
+        refreshControl={<AppRefreshControl {...td.refresh} />}
+        onScroll={onScroll}
+        scrollEventThrottle={32}
+      >
+        {/* 1 · Identity */}
+        <View style={styles.block} onLayout={onIdentityLayout}>
+          <TournamentIdentity
+            tournament={tournament}
+            approvedCount={approved.length}
+            isFull={isFull}
+            regClosed={regClosed}
+            onOpenInfo={() => navigation.navigate('TournamentInfo', { tournamentId, tournamentName: tournament.name })}
+            onEdit={isAdmin && (td.godmode || live) ? td.openEditModal : undefined}
+          />
         </View>
 
-        {/* ── Pending join requests (admin/co-admin only) ── */}
-        {isPriv && pendingRequests.length > 0 && (
-          <View style={S.section}>
-            <Text style={S.sectionTitle}>Pending Requests ({pendingRequests.length})</Text>
-            {pendingRequests.map(r => (
-              <View key={r.id} style={S.pendingRow}>
-                {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
-                <FlairName
-                  name={r.profile?.full_name ?? '—'}
-                  nameColor={(r.profile as any)?.name_color}
-                  styleId={(r.profile as any)?.list_name_style_id ?? null}
-                  mode="list"
-                  style={S.playerName}
-                  numberOfLines={1}
-                />
-                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
-                <View style={S.pendingActions}>
-                  <TouchableOpacity
-                    style={S.approveBtn}
-                    onPress={() => approveReg(r.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Approve ${r.profile?.full_name ?? 'player'}`}
-                  >
-                    <Text style={S.approveBtnText}>✓</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={S.rejectBtn}
-                    onPress={() => rejectReg(r.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Reject ${r.profile?.full_name ?? 'player'}`}
-                  >
-                    <Text style={S.rejectBtnText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+        {/* 2 · You (the one Emphasis card). Always rendered as a wrapper so
+            its anchor exists; empty for kinds with no card. */}
+        <View ref={anchorRef('you')} style={view ? styles.block : null} onLayout={anchorLayout('you')}>
+          {view ? <TournamentYouCard view={view} /> : null}
+        </View>
 
-        {/* ── Waitlist (admin/co-admin only; users see their own position in
-            their registration banner) ── */}
-        {isPriv && waitlisted.length > 0 && (
-          <View style={S.section}>
-            <Text style={S.sectionTitle}>Waitlist ({waitlisted.length})</Text>
-            <Text style={S.waitlistNote}>
-              Oldest first — this is the order spots are offered when someone leaves or Max Players is raised. Approving directly only works while a spot is free.
-            </Text>
-            {waitlisted.map((r, i) => (
-              <View key={r.id} style={S.pendingRow}>
-                <Text style={S.playerSeed}>#{i + 1}</Text>
-                <FlairName
-                  name={r.profile?.full_name ?? '—'}
-                  nameColor={(r.profile as any)?.name_color}
-                  styleId={(r.profile as any)?.list_name_style_id ?? null}
-                  mode="list"
-                  style={S.playerName}
-                  numberOfLines={1}
-                />
-                <Text style={S.playerRating}>{formatPlupr((r.profile as any)?.rating, (r.profile as any)?.total_matches_played)} PLUPR</Text>
-                <View style={S.pendingActions}>
-                  <TouchableOpacity
-                    style={S.approveBtn}
-                    onPress={() => approveReg(r.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Approve ${r.profile?.full_name ?? 'player'} from waitlist`}
-                  >
-                    <Text style={S.approveBtnText}>✓</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={S.rejectBtn}
-                    onPress={() => rejectReg(r.id)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${r.profile?.full_name ?? 'player'} from waitlist`}
-                  >
-                    <Text style={S.rejectBtnText}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+        {/* collapsable={false}: Android would flatten a style-less wrapper
+            away, leaving nothing to measure. */}
+        <View ref={anchorRef('banner')} collapsable={false}>
+          <StatusBanner status={td.status.value} style={styles.banner} />
+        </View>
 
-        {/* ── Generate / Lock bracket ── */}
-        {tournament.status === 'registration' && isAdmin && approved.length >= 2 && (
-          <>
-            <TouchableOpacity style={S.generateBtn} onPress={generateBracket}>
-              <Text style={S.generateBtnText}>⚡ {generatedMatches ? 'Re-generate Preview' : `Generate ${fmt.label} Schedule`}</Text>
-            </TouchableOpacity>
-            {generatedMatches && (
+        {/* 3 · Status strip: the stage and how much is played */}
+        {scheduleExists && (
+          <View style={styles.block}>
+            <Panel padded={false}>
               <TouchableOpacity
-                style={[S.lockBtn, locking && S.lockBtnDisabled]}
-                onPress={lockInBracket}
-                disabled={locking}
+                style={styles.strip}
+                onPress={() => openSchedule?.()}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${stripText}. Open the schedule`}
               >
-                <Text style={S.lockBtnText}>
-                  {locking ? 'Locking in…' : `🔒 Lock In & Notify ${approved.length} Members`}
-                </Text>
+                <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={1}>{stripText}</Text>
+                <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
               </TouchableOpacity>
-            )}
-          </>
-        )}
-        {tournament.status === 'active' && (
-          <View style={S.activeBanner}>
-            <Text style={S.activeBannerText}>✓ Bracket finalized — all members notified</Text>
-          </View>
-        )}
-        {tournament.status === 'completed' && (
-          <View style={S.completedBanner}>
-            <Text style={S.completedBannerText}>🏁 Tournament Complete</Text>
-          </View>
-        )}
-        {!isAdmin && isPriv && tournament.status === 'registration' && (
-          <View style={S.coAdminNote}>
-            <Text style={S.coAdminNoteText}>Only the tournament admin can generate the bracket.</Text>
-          </View>
-        )}
-        {isAdmin && tournament.status === 'registration' && tournament.min_players != null && approved.length < tournament.min_players && (
-          <View style={S.coAdminNote}>
-            <Text style={S.coAdminNoteText}>
-              👥 {approved.length}/{tournament.min_players} minimum players — the bracket can't be locked in until {tournament.min_players - approved.length} more join.
-            </Text>
+            </Panel>
           </View>
         )}
 
-        {/* ── Pools ── */}
-        {pools && (
-          <View style={S.section}>
-            <Text style={S.sectionTitle}>Pool Assignments ({tournament.seeding === 'elo' ? 'PLUPR snake-draft' : 'random'})</Text>
-            {pools.map((pool, pi) => (
-              <View key={pi} style={S.poolCard}>
-                <Text style={S.poolLabel}>Pool {String.fromCharCode(65 + pi)}</Text>
-                {pool.map(uid => <Text key={uid} style={S.poolPlayer}>• {playerName(uid)}</Text>)}
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* ── Tournament flow overview — the whole expected road to the
-            final, rendered from lock-in: group stages on the left, playoff
-            stages chained to the right, upcoming stages as dashed skeletons ── */}
-        {flowStages && flowStages.length > 1 && (
-          <View style={S.section}>
-            <Text style={S.sectionTitle}>Tournament Flow</Text>
-            <TournamentFlowOverview stages={flowStages} />
-          </View>
-        )}
-
-        {/* ── Pool-play bracket view ── */}
-        {(tournament.status === 'active' || tournament.status === 'completed') && tournament.format === 'pool_play' && savedRounds.length > 0 && (() => {
-          const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
-          if (poolRounds.length === 0) return null;
-
-          type Stat = {
-            key: string; name: string; isMe: boolean;
-            wins: number; losses: number; pf: number; pa: number;
-          };
-
-          // Sorted-pair key so head-to-head lookups agree regardless of which
-          // side of a match the team appears on.
-          function teamKey(p1: string, p2: string | null) {
-            return p2 ? [p1, p2].sort().join('|') : p1;
-          }
-          function teamDisplayName(p1: string | null, p2: string | null): string {
-            if (!p1) return '?';
-            const n1 = profileNames[p1] ?? '?';
-            const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-            return n2 ? `${n1} & ${n2}` : n1;
-          }
-
-          function computeStandings(round: any): Stat[] {
-            const stats = new Map<string, Stat>();
-            const ensure = (p1: string | null, p2: string | null): Stat | null => {
-              if (!p1) return null;
-              const key = teamKey(p1, p2);
-              if (!stats.has(key)) {
-                stats.set(key, {
-                  key, name: teamDisplayName(p1, p2),
-                  isMe: p1 === myUserId || p2 === myUserId,
-                  wins: 0, losses: 0, pf: 0, pa: 0,
-                });
-              }
-              return stats.get(key)!;
-            };
-
-            for (const m of savedMatches.filter((m: any) => m.round?.id === round.id)) {
-              const t1 = ensure(m.team1_player1, m.team1_player2);
-              const t2 = ensure(m.team2_player1, m.team2_player2);
-              if (!t1 || !t2) continue;
-              if (m.status === 'completed' && m.winner_team) {
-                t1.pf += m.team1_score ?? 0; t1.pa += m.team2_score ?? 0;
-                t2.pf += m.team2_score ?? 0; t2.pa += m.team1_score ?? 0;
-                if (m.winner_team === 'team1') { t1.wins++; t2.losses++; }
-                else                            { t2.wins++; t1.losses++; }
-              }
-            }
-
-            const entries = Array.from(stats.values());
-            // Pool-scoped tiebreakers: only consider completed matches in this pool.
-            const poolMatches: TiebreakerMatch[] = savedMatches
-              .filter((m: any) => m.round?.id === round.id)
-              .map((m: any) => ({
-                team1_player1: m.team1_player1,
-                team1_player2: m.team1_player2,
-                team2_player1: m.team2_player1,
-                team2_player2: m.team2_player2,
-                winner_team: m.winner_team,
-                status: m.status,
-              }));
-            return entries.sort(buildStandingsComparator(entries, poolMatches));
-          }
-
-          // Compute standings for the first 2 pools (bracket assumes A & B)
-          const standA = poolRounds[0] ? computeStandings(poolRounds[0]) : [];
-          const standB = poolRounds[1] ? computeStandings(poolRounds[1]) : [];
-          const poolMatchesPlayed = poolRounds.every((r: any) =>
-            savedMatches.filter((m: any) => m.round?.id === r.id).every((m: any) => m.status === 'completed')
-          );
-
-          // Look up actual playoff matches if they exist
-          function findPlayoffMatch(roundType: 'semifinals' | 'finals', orderIdx: number) {
-            const rounds = savedRounds.filter((r: any) => r.round_type === roundType);
-            if (rounds.length === 0) return null;
-            // Use match_order to disambiguate semi-final 1 vs 2 within the same round
-            const candidates = savedMatches
-              .filter((m: any) => rounds.some((r: any) => r.id === m.round?.id))
-              .sort((a: any, b: any) => (a.match_order ?? 0) - (b.match_order ?? 0));
-            return candidates[orderIdx] ?? null;
-          }
-
-          function winnerOfMatch(m: any | null, fallback?: { name?: string; isMe?: boolean }) {
-            if (!m || m.status !== 'completed' || !m.winner_team) return fallback;
-            const isT1 = m.winner_team === 'team1';
-            const p1 = isT1 ? m.team1_player1 : m.team2_player1;
-            const p2 = isT1 ? m.team1_player2 : m.team2_player2;
-            if (!p1) return fallback;
-            return {
-              name: teamDisplayName(p1, p2),
-              isMe: p1 === myUserId || p2 === myUserId,
-            };
-          }
-
-          const semi1Match = findPlayoffMatch('semifinals', 0);
-          const semi2Match = findPlayoffMatch('semifinals', 1);
-          const finalMatch = findPlayoffMatch('finals',     0);
-
-          const a1 = standA[0]; const a2 = standA[1];
-          const b1 = standB[0]; const b2 = standB[1];
-
-          const semi1Winner = winnerOfMatch(semi1Match);
-          const semi2Winner = winnerOfMatch(semi2Match);
-          const finalWinner = winnerOfMatch(finalMatch);
-
-          // The visual tree below is hardcoded to the classic 2-pool shape
-          // (A1 vs B2, B1 vs A2 → final). Rendering it for other pool/playoff
-          // configs mislabels the feeders and skips whole stages (a 3-pool
-          // quarterfinal bracket showed as 2-pool semis). Those configs get
-          // the generalized Tournament Flow overview instead.
-          const classicTwoPoolTree = poolRounds.length === 2
-            && tournament.playoff_format === 'top_2_per_pool';
-
-          return (
-            <View style={S.section}>
-              <Text style={S.sectionTitle}>Tournament Bracket</Text>
-
-              {/* Pool standings */}
-              <View style={S.poolsRow}>
-                {poolRounds.map((round: any, pi: number) => {
-                  const standings = pi === 0 ? standA : pi === 1 ? standB : computeStandings(round);
-                  return (
-                    <View key={round.id} style={S.poolBlock}>
-                      <Text style={S.poolBlockTitle}>Pool {String.fromCharCode(65 + pi)}</Text>
-                      {standings.map((t, i) => (
-                        <View key={t.key} style={S.poolTeamRow}>
-                          <Text style={S.poolTeamIndex}>{i + 1}</Text>
-                          <Text style={[S.poolTeamText, t.isMe && S.poolTeamTextMe]} numberOfLines={2}>
-                            {t.name}
-                          </Text>
-                          {(t.wins > 0 || t.losses > 0) && (
-                            <Text style={[S.poolTeamRecord, i < 2 && S.poolTeamRecordAdvanced]}>
-                              {t.wins}-{t.losses}
-                            </Text>
-                          )}
-                          {t.isMe && <Text style={S.youTag}>YOU</Text>}
-                        </View>
-                      ))}
-                      {standings.length === 0 && <Text style={S.poolEmpty}>No teams yet</Text>}
-                    </View>
-                  );
-                })}
-              </View>
-
-              {classicTwoPoolTree && (<>
-              <View style={S.bracketDivider} />
-
-              {/* Advancement criteria */}
-              <View style={S.advancementCard}>
-                <Text style={S.advancementTitle}>How teams advance</Text>
-                <Text style={S.advancementRule}>
-                  {'🏆  '}The <Text style={S.bold}>top 2 teams</Text> from each pool advance to the semi-finals, determined by:
-                </Text>
-                <Text style={S.advancementPoint}>1.  Best win/loss record</Text>
-                <Text style={S.advancementPoint}>2.  Point differential (if tied on record)</Text>
-                {poolMatchesPlayed && a1 && b2 && (
-                  <Text style={S.advancementResultLine}>
-                    ✓ Pools complete — top 2 from each pool seeded into the bracket below.
-                  </Text>
-                )}
-              </View>
-
-              <View style={S.bracketDivider} />
-
-              {/* Visual bracket — populated with actual team names + winners where available */}
-              <TournamentBracket
-                slotA1={{ label: 'Pool A · 1st Place', team: a1?.name, highlight: a1?.isMe }}
-                slotB2={{ label: 'Pool B · 2nd Place', team: b2?.name, highlight: b2?.isMe }}
-                slotB1={{ label: 'Pool B · 1st Place', team: b1?.name, highlight: b1?.isMe }}
-                slotA2={{ label: 'Pool A · 2nd Place', team: a2?.name, highlight: a2?.isMe }}
-                semi1={{
-                  label: semi1Match?.status === 'completed'
-                    ? `Semi 1: ${semi1Match.team1_score}–${semi1Match.team2_score}`
-                    : 'Semi-Final 1',
-                  team: semi1Winner?.name,
-                  highlight: semi1Winner?.isMe,
-                  tournamentMatchId: semi1Match?.id,
-                }}
-                semi2={{
-                  label: semi2Match?.status === 'completed'
-                    ? `Semi 2: ${semi2Match.team1_score}–${semi2Match.team2_score}`
-                    : 'Semi-Final 2',
-                  team: semi2Winner?.name,
-                  highlight: semi2Winner?.isMe,
-                  tournamentMatchId: semi2Match?.id,
-                }}
-                final={{
-                  label: finalMatch?.status === 'completed'
-                    ? `Final: ${finalMatch.team1_score}–${finalMatch.team2_score}`
-                    : 'Grand Final',
-                  team: finalWinner?.name,
-                  highlight: finalWinner?.isMe,
-                  tournamentMatchId: finalMatch?.id,
-                }}
-                onPressMatch={openMatchActionSheetById}
-              />
-              </>)}
-            </View>
-          );
-        })()}
-
-        {/* ── Live Standings (no-playoff tournaments) ── */}
-        {(tournament.status === 'active' || tournament.status === 'completed')
-          && (tournament.format === 'round_robin' || tournament.format === 'pool_play')
-          && (tournament.playoff_format ?? 'none') === 'none'
-          && savedMatches.length > 0
-          && (() => {
-            type Stat = {
-              key: string; name: string; isMe: boolean;
-              wins: number; losses: number; pf: number; pa: number;
-            };
-            const teamKey = (p1: string, p2: string | null) =>
-              p2 ? [p1, p2].sort().join('|') : p1;
-            const teamName = (p1: string | null, p2: string | null): string => {
-              if (!p1) return '?';
-              const n1 = profileNames[p1] ?? '?';
-              const n2 = p2 ? (profileNames[p2] ?? '?') : null;
-              return n2 ? `${n1} & ${n2}` : n1;
-            };
-
-            const stats = new Map<string, Stat>();
-            const ensure = (p1: string | null, p2: string | null): Stat | null => {
-              if (!p1) return null;
-              const key = teamKey(p1, p2);
-              if (!stats.has(key)) {
-                stats.set(key, {
-                  key, name: teamName(p1, p2),
-                  isMe: p1 === myUserId || (!!p2 && p2 === myUserId),
-                  wins: 0, losses: 0, pf: 0, pa: 0,
-                });
-              }
-              return stats.get(key)!;
-            };
-
-            for (const m of savedMatches) {
-              const t1 = ensure(m.team1_player1, m.team1_player2);
-              const t2 = ensure(m.team2_player1, m.team2_player2);
-              if (!t1 || !t2) continue;
-              if (m.status === 'completed' && m.winner_team) {
-                t1.pf += m.team1_score ?? 0; t1.pa += m.team2_score ?? 0;
-                t2.pf += m.team2_score ?? 0; t2.pa += m.team1_score ?? 0;
-                if (m.winner_team === 'team1') { t1.wins++; t2.losses++; }
-                else                            { t2.wins++; t1.losses++; }
-              }
-            }
-
-            // Apply the canonical tiebreak chain: wins → H2H (2-way ties only) → point_diff → seed.
-            const entries = Array.from(stats.values());
-            const tbMatches: TiebreakerMatch[] = savedMatches.map((m: any) => ({
-              team1_player1: m.team1_player1,
-              team1_player2: m.team1_player2,
-              team2_player1: m.team2_player1,
-              team2_player2: m.team2_player2,
-              winner_team: m.winner_team,
-              status: m.status,
-            }));
-            const standings = entries.sort(buildStandingsComparator(entries, tbMatches));
-
-            if (standings.length === 0) return null;
-
-            const isFinal = tournament.status === 'completed';
-            const title = isFinal ? 'Final Standings' : 'Live Standings';
-
-            return (
-              <View style={S.section}>
-                <Text style={S.sectionTitle}>{title}</Text>
-                <Text style={S.standingsSubtitle}>
-                  Sorted by wins, then head-to-head (2-way ties), then point differential.
-                  {!isFinal && ' Updates as matches are recorded.'}
-                </Text>
-                <View style={S.standingsHeader}>
-                  <Text style={[S.standingsCellRank,  S.standingsHeaderText]}>#</Text>
-                  <Text style={[S.standingsCellName,  S.standingsHeaderText]}>{tournament.match_type === 'doubles' ? 'Team' : 'Player'}</Text>
-                  <Text style={[S.standingsCellWL,    S.standingsHeaderText]}>W-L</Text>
-                  <Text style={[S.standingsCellPF,    S.standingsHeaderText]}>PF-PA</Text>
-                  <Text style={[S.standingsCellDiff,  S.standingsHeaderText]}>±</Text>
-                </View>
-                {standings.map((t, i) => {
-                  const diff = t.pf - t.pa;
-                  return (
-                    <View key={t.key} style={[S.standingsRow, t.isMe && S.standingsRowMe]}>
-                      <Text style={S.standingsCellRank}>{i + 1}</Text>
-                      <Text style={[S.standingsCellName, t.isMe && S.standingsCellMe]} numberOfLines={1}>
-                        {t.name}{t.isMe ? ' (YOU)' : ''}
-                      </Text>
-                      <Text style={S.standingsCellWL}>{t.wins}-{t.losses}</Text>
-                      <Text style={S.standingsCellPF}>{t.pf}-{t.pa}</Text>
-                      <Text style={[S.standingsCellDiff, diff > 0 && S.standingsDiffPos, diff < 0 && S.standingsDiffNeg]}>
-                        {diff > 0 ? `+${diff}` : diff}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            );
-          })()}
-
-        {/* ── MLP Live Standings (group stage of any MLP variant) ──
-            For *_playoff variants this hides once a playoff round exists in
-            savedRounds; the bracket UI then takes over. */}
-        {mlpStandings && mlpStandings.length > 0 && (() => {
-          const hasPlayoffVariant =
-            tournament.mlp_play_format === 'round_robin_playoff' ||
-            tournament.mlp_play_format === 'pool_play_playoff';
-          const playoffStarted = savedRounds.some((r: any) =>
-            ['quarterfinals','semifinals','finals','third_place_match'].includes(r.round_type)
-          );
-          if (hasPlayoffVariant && playoffStarted) return null;
-          const isFinal = tournament.status === 'completed';
-          const title = isFinal ? 'Final Standings' : 'Live Standings';
-          const sorted = [...mlpStandings].sort((a, b) => {
-            if (a.sub_matches_won !== b.sub_matches_won) return b.sub_matches_won - a.sub_matches_won;
-            if (a.sub_matches_lost !== b.sub_matches_lost) return a.sub_matches_lost - b.sub_matches_lost;
-            return (a.seed ?? 999) - (b.seed ?? 999);
-          });
-          const playoffTeams = tournament.mlp_playoff_teams ?? 4;
-          return (
-            <View style={S.section}>
-              <Text style={S.sectionTitle}>{title}</Text>
-              <Text style={S.standingsSubtitle}>
-                {hasPlayoffVariant
-                  ? `Group stage standings by sub-matches won. The top ${playoffTeams} teams will advance to the playoff once group play is complete.`
-                  : `Team standings by sub-matches won (men's, women's, 2× mixed per team meeting).${!isFinal ? ' Updates as matches are recorded.' : ''}`}
-              </Text>
-              <View style={S.standingsHeader}>
-                <Text style={[S.standingsCellRank, S.standingsHeaderText]}>#</Text>
-                <Text style={[S.standingsCellName, S.standingsHeaderText]}>Team</Text>
-                <Text style={[S.standingsCellWL,   S.standingsHeaderText]}>Sub W-L</Text>
-              </View>
-              {sorted.map((t, i) => (
-                <View key={t.team_id} style={S.standingsRow}>
-                  <Text style={S.standingsCellRank}>{i + 1}</Text>
-                  <Text style={S.standingsCellName} numberOfLines={1}>
-                    {t.team_name}
-                    {t.pool_letter ? ` · Pool ${t.pool_letter}` : ''}
-                  </Text>
-                  <Text style={S.standingsCellWL}>{t.sub_matches_won}-{t.sub_matches_lost}</Text>
-                </View>
-              ))}
-            </View>
-          );
-        })()}
-
-        {/* ── Generate Playoff (admin, non-MLP with playoff configured) ── */}
-        {isPriv
-          && tournament.status === 'active'
-          && (tournament.format === 'round_robin' || tournament.format === 'pool_play')
-          && (tournament.playoff_format ?? 'none') !== 'none'
-          && savedRounds.filter((r: any) => ['quarterfinals','semifinals','finals','third_place_match'].includes(r.round_type)).length === 0
-          && savedMatches.length > 0
-          && (() => {
-            const groupPlayPending = savedMatches.filter((m: any) => {
-              const r = savedRounds.find((r: any) => r.id === m.round?.id);
-              if (!r) return false;
-              return !['quarterfinals','semifinals','finals','third_place_match','consolation','losers'].includes(r.round_type)
-                && m.status !== 'completed';
-            }).length;
-            const ready = groupPlayPending === 0;
-            const sizeLabel =
-              tournament.playoff_format === 'top_2' ? 'Top 2 (Final + 3rd Place)' :
-              tournament.playoff_format === 'top_4' ? 'Top 4 (Semis + Final)' :
-              tournament.playoff_format === 'top_8' ? 'Top 8 (Quarters + Semis + Final)' :
-              tournament.playoff_format;
-
-            async function onGenerate() {
-              if (playoffGenRef.current) return;
-              if (!ready) return;
-              playoffGenRef.current = true;
-              status.clear();
-              setGeneratingPlayoff(true);
-              try {
-                // Not retried: a second run would write a second playoff bracket.
-                await sbCall(() => supabase.rpc('generate_playoff_bracket', {
-                  p_tournament_id: tournamentId,
-                }), { retries: 0 });
-                await load();
-                status.success('Playoff bracket generated.');
-              } catch (e) {
-                // Alert.alert renders nothing on react-native-web, so this
-                // failure was completely invisible on the web build.
-                status.error(`Playoff generation failed: ${friendlySbMessage(e, 'unknown error')}`);
-              } finally {
-                playoffGenRef.current = false;
-                setGeneratingPlayoff(false);
-              }
-            }
-
-            return (
-              <View style={S.section}>
-                <Text style={S.sectionTitle}>Playoff Bracket</Text>
-                <Text style={S.standingsSubtitle}>
-                  Configured: {sizeLabel}.
-                  {ready
-                    ? ' All group-play matches complete — ready to generate.'
-                    : ` Waiting on ${groupPlayPending} group-play match${groupPlayPending === 1 ? '' : 'es'} to complete.`}
-                </Text>
-                <TouchableOpacity
-                  style={[S.lockBtn, !ready && S.lockBtnDisabled, generatingPlayoff && S.lockBtnDisabled]}
-                  onPress={onGenerate}
-                  disabled={!ready || generatingPlayoff}
-                >
-                  <Text style={S.lockBtnText}>
-                    {generatingPlayoff ? 'Generating…' : '🏆 Generate Playoff Bracket'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            );
-          })()}
-
-        {/* ── Saved schedule (tournament is active or completed) ── */}
-        {(tournament.status === 'active' || tournament.status === 'completed') && savedMatches.length > 0 && (() => {
-          // Hide cancelled dreambreakers — the meeting was decided 3-1 or 4-0
-          // so the 5th sub-match never gets played. Pending dreambreakers
-          // still render (with a 🏆 badge below) since the players need to
-          // settle the 2-2 tie.
-          const visibleMatches = savedMatches.filter(
-            m => !(m.is_dreambreaker && m.status === 'cancelled'),
-          );
-          const myCount = visibleMatches.filter(m =>
-            myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId)
-          ).length;
-          const displayed = myMatchesOnly
-            ? visibleMatches.filter(m => myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId))
-            : visibleMatches;
-
-          return (
-            <View style={S.section}>
-              {/* Filter toggle */}
-              <View style={S.scheduleHeader}>
-                <Text style={S.sectionTitle}>
-                  Match Schedule ({displayed.length}{myMatchesOnly ? '' : ` of ${visibleMatches.length}`}
-                  {!myMatchesOnly && upcomingStages.length > 0
-                    ? ` · ${visibleMatches.length + upcomingStages.reduce((n, s) => n + s.total, 0)} expected`
-                    : ''})
-                </Text>
-                <TouchableOpacity
-                  style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
-                  onPress={() => setMyMatchesOnly(v => !v)}
-                >
-                  <Text style={[S.myMatchesToggleText, myMatchesOnly && S.myMatchesToggleTextOn]}>
-                    {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {myMatchesOnly && myCount === 0 && (
-                <Text style={S.noMyMatches}>You have no scheduled matches in this tournament.</Text>
-              )}
-
-              {(() => {
-                // Group by round so the user can see how each round shaped the next.
-                const groups: { round: any | null; matches: any[] }[] = [];
-                const idxByRound = new Map<string, number>();
-                for (const m of displayed) {
-                  const key = m.round?.id ?? '__no_round__';
-                  let idx = idxByRound.get(key);
-                  if (idx === undefined) {
-                    idx = groups.length;
-                    idxByRound.set(key, idx);
-                    groups.push({ round: m.round ?? null, matches: [] });
-                  }
-                  groups[idx].matches.push(m);
-                }
-                groups.sort((a, b) =>
-                  (a.round?.round_number ?? 999) - (b.round?.round_number ?? 999),
-                );
-
-                let globalIdx = 0;
-                return groups.map((group, gi) => (
-                  <View key={group.round?.id ?? `g${gi}`} style={gi > 0 && S.roundBlock}>
-                    {group.round?.label && (
-                      <Text style={S.scheduleRoundLabel}>{group.round.label}</Text>
-                    )}
-                    {group.matches.map((m) => {
-                      const i = globalIdx++;
-                      const t1 = [m.team1_player1, m.team1_player2].filter(Boolean).map(playerName).join(' & ') || '—';
-                      const t2 = [m.team2_player1, m.team2_player2].filter(Boolean).map(playerName).join(' & ') || '—';
-                      const isMyMatch = myUserId && [m.team1_player1, m.team1_player2, m.team2_player1, m.team2_player2].includes(myUserId);
-                      const completed = m.status === 'completed' && m.winner_team != null;
-                      const team1Won = m.winner_team === 'team1';
-                      // Pending dreambreaker = 5th singles sub-match the meeting
-                      // is tied 2-2 and needs to play out.
-                      const isPendingDreambreaker = m.is_dreambreaker && m.status === 'pending';
-                      const isBye = m.match_type === 'bye';
-                      // BYE rows render as a single seed advancing to the next round —
-                      // no scoring, no tap-to-record. Short-circuit before the standard
-                      // row render below.
-                      if (isBye) {
-                        return (
-                          <View
-                            key={m.id}
-                            style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
-                          >
-                            <Text style={S.matchNum}>{i + 1}</Text>
-                            <Text style={[
-                              S.matchup,
-                              S.matchupWinner,
-                              isMyMatch && S.matchupHighlight,
-                            ]} numberOfLines={1}>{t1}</Text>
-                            <Text style={S.vs}>—</Text>
-                            <Text style={[S.matchup]} numberOfLines={1}>bye to next round</Text>
-                            {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
-                          </View>
-                        );
-                      }
-                      // Tappable when not yet recorded. Completed rows are inert —
-                      // they're history at that point. The League_id we pass is the
-                      // tournament's league_id (may be null for standalone tournaments).
-                      const tappable = !completed && !!m.team1_player1 && !!m.team2_player1;
-                      const handlePress = () => navigation.navigate('MatchEntry', {
-                        leagueId:           tournament?.league_id ?? '',
-                        tournamentId:       tournament?.id,
-                        tournamentMatchId:  m.id,
-                        tournamentName:     tournament?.name,
-                        prefillMatchType:   m.match_type,
-                        prefillTeam1Player: m.team1_player1 ?? undefined,
-                        prefillTeam1Partner:m.team1_player2 ?? undefined,
-                        prefillTeam2Player: m.team2_player1 ?? undefined,
-                        prefillTeam2Partner:m.team2_player2 ?? undefined,
-                      });
-                      // Gated (lib/features.ts): with wagering off there is
-                      // nothing for a long-press to open.
-                      const wagerable = WAGERS_ENABLED && !completed && !!m.team1_player1 && !!m.team2_player1;
-                      const Row: any = tappable || wagerable ? TouchableOpacity : View;
-                      const rowProps: Record<string, any> = {};
-                      if (tappable) { rowProps.onPress = handlePress; rowProps.activeOpacity = 0.6; }
-                      if (wagerable) { rowProps.onLongPress = () => openMatchActionSheet(m); }
-                      return (
-                        <React.Fragment key={m.id}>
-                          {isPendingDreambreaker && (
-                            <Text style={S.dreambreakerBadge}>
-                              🏆 Dreambreaker (singles tiebreaker)
-                            </Text>
-                          )}
-                          <Row
-                            style={[S.matchRow, isMyMatch && S.matchRowHighlight]}
-                            {...rowProps}
-                          >
-                            <Text style={S.matchNum}>{i + 1}</Text>
-                            <Text style={[
-                              S.matchup,
-                              completed && team1Won && S.matchupWinner,
-                              completed && !team1Won && S.matchupLoser,
-                              isMyMatch && S.matchupHighlight,
-                            ]} numberOfLines={1}>{t1}</Text>
-                            {completed ? (
-                              <Text style={S.matchScore}>{m.team1_score}–{m.team2_score}</Text>
-                            ) : (
-                              <Text style={S.vs}>vs</Text>
-                            )}
-                            <Text style={[
-                              S.matchup,
-                              completed && !team1Won && S.matchupWinner,
-                              completed && team1Won && S.matchupLoser,
-                              isMyMatch && S.matchupHighlight,
-                            ]} numberOfLines={1}>{t2}</Text>
-                            {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
-                            {tappable && !isMyMatch && (
-                              <Text style={S.recordChevron}>›</Text>
-                            )}
-                          </Row>
-                        </React.Fragment>
-                      );
-                    })}
-                  </View>
-                ));
-              })()}
-
-              {/* ── Upcoming stages the DB hasn't created yet — predicted
-                  skeleton so the whole flow is visible from lock-in ── */}
-              {!myMatchesOnly && upcomingStages.map(stage => (
-                <View key={stage.key} style={S.roundBlock}>
-                  <Text style={S.scheduleRoundLabel}>
-                    {stage.label} · {stage.total} match{stage.total === 1 ? '' : 'es'} upcoming
-                  </Text>
-                  {Array.from({ length: stage.total }).map((_, gi) => {
-                    const byeSlot = gi < stage.byes;
-                    return (
-                      <View key={gi} style={[S.matchRow, S.matchRowGhost]}>
-                        <Text style={S.matchNum}>·</Text>
-                        <Text style={[S.matchup, S.matchupGhost]} numberOfLines={1}>
-                          {byeSlot ? 'bye slot' : 'TBD'}
-                        </Text>
-                        <Text style={S.vs}>{byeSlot ? '—' : 'vs'}</Text>
-                        <Text style={[S.matchup, S.matchupGhost]} numberOfLines={1}>
-                          {byeSlot ? 'lucky draw advances' : 'TBD'}
-                        </Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
-          );
-        })()}
-
-        {/* ── Generated preview schedule (before lock-in) ── */}
-        {generatedMatches && generatedMatches.length > 0 && (() => {
-          const previewFiltered = myMatchesOnly
-            ? generatedMatches.filter(m => myUserId && (m.team1.includes(myUserId) || m.team2.includes(myUserId)))
-            : generatedMatches;
-          const rounds = [...new Set(previewFiltered.map(m => m.round))].sort((a,b) => a-b);
-
-          return (
-            <View style={S.section}>
-              <View style={S.previewBanner}>
-                <Text style={S.previewBannerText}>👁 Preview — tap "Lock In" above to save and notify members</Text>
-              </View>
-
-              {/* Filter toggle */}
-              <View style={S.scheduleHeader}>
-                <Text style={S.sectionTitle}>
-                  Preview ({previewFiltered.length}{myMatchesOnly ? '' : ` of ${generatedMatches.length}`} matches)
-                </Text>
-                <TouchableOpacity
-                  style={[S.myMatchesToggle, myMatchesOnly && S.myMatchesToggleOn]}
-                  onPress={() => setMyMatchesOnly(v => !v)}
-                >
-                  <Text style={[S.myMatchesToggleText, myMatchesOnly && S.myMatchesToggleTextOn]}>
-                    {myMatchesOnly ? '👤 My matches' : '👥 All matches'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {rounds.map(r => (
-                <View key={r} style={S.roundBlock}>
-                  <Text style={S.roundLabel}>
-                    {generatedMatches.find(m => m.round === r)?.label?.split('·')[0]?.trim() ?? `Round ${r}`}
-                  </Text>
-                  {previewFiltered.filter(m => m.round === r).map((m, mi) => {
-                    const t1 = m.team1.map(playerName).join(' & ');
-                    const t2 = m.team2.map(playerName).join(' & ');
-                    const isMyMatch = myUserId && (m.team1.includes(myUserId) || m.team2.includes(myUserId));
-                    return (
-                      <View key={mi} style={[S.matchRow, isMyMatch && S.matchRowHighlight]}>
-                        <Text style={S.matchNum}>{mi+1}</Text>
-                        <Text style={[S.matchup, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t1}</Text>
-                        <Text style={S.vs}>vs</Text>
-                        <Text style={[S.matchup, isMyMatch && S.matchupHighlight]} numberOfLines={1}>{t2}</Text>
-                        {isMyMatch && <Text style={S.myMatchTag}>YOU</Text>}
-                      </View>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
-          );
-        })()}
-
-        {/* ── Godmode test helpers (Brian only) ── */}
-        {godmode && (
+        {status === 'registration' ? (
           <>
-            {tournament.status === 'registration' && (
-              <View style={S.godmodeSetupBlock}>
-                <Text style={S.godmodeSectionTitle}>Tournament setup shortcuts</Text>
-                <TouchableOpacity
-                  style={[S.quickActionBtn, S.godmodeSetupBtn]}
-                  onPress={godmodeApproveAllInvitees}
-                  activeOpacity={0.7}
-                >
-                  <Text style={S.quickActionText}>✅ Force-approve all invitees</Text>
-                </TouchableOpacity>
-                {(tournament.match_type === 'doubles'
-                  || tournament.format === 'mlp'
-                  || tournament.format === 'mlp_random') && (
-                  <TouchableOpacity
-                    style={[S.quickActionBtn, S.godmodeSetupBtn]}
-                    onPress={godmodeForceCreateTeams}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={S.quickActionText}>🤝 Force-create teams</Text>
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  style={[S.quickActionBtn, S.godmodeSetupBtn]}
-                  onPress={godmodeAutoGeneratePreview}
-                  activeOpacity={0.7}
-                >
-                  <Text style={S.quickActionText}>🎯 Auto-generate bracket preview</Text>
-                </TouchableOpacity>
-                {generatedMatches && generatedMatches.length > 0 && (
-                  <TouchableOpacity
-                    style={[S.quickActionBtn, S.godmodeSetupBtn, S.godmodeLockBtn]}
-                    onPress={() => doLockIn()}
-                    disabled={locking}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[S.quickActionText, S.godmodeLockText]}>
-                      {locking ? 'Locking in…' : `🔒 Lock in bracket (${generatedMatches.length} matches) & notify`}
-                    </Text>
-                  </TouchableOpacity>
-                )}
+            {teamsSection}
+            {playoffSection}
+            {playersSection}
+            {potSection}
+            {wagerSection}
+          </>
+        ) : (
+          <>
+            {/* Flow strip: each stage card filters the schedule to its round */}
+            {flowStages && flowStages.length > 1 && (
+              <View style={styles.block}>
+                <SectionCard title="Stages">
+                  <TournamentFlowOverview
+                    stages={flowStages}
+                    selectedKey={scheduleFilter.roundId}
+                    onPressStage={(key) => {
+                      const next = scheduleFilter.roundId === key ? null : key;
+                      setScheduleFilter({ ...scheduleFilter, roundId: next });
+                      if (next) openSchedule?.();
+                    }}
+                  />
+                </SectionCard>
               </View>
             )}
 
-            <TouchableOpacity
-              style={[S.dangerBtn, { backgroundColor: '#6d28d9', borderColor: '#6d28d9' }]}
-              onPress={simulateFillMatches}
-              activeOpacity={0.85}
-              disabled={simulating}
-            >
-              <Text style={[S.dangerBtnText, { color: '#fff' }]}>
-                {simulating ? 'Filling…' : '🎲 Auto-fill pending matches with random scores (godmode)'}
-              </Text>
-              <Text style={[S.dangerBtnSub, { color: '#e9d5ff' }]}>
-                Picks a random winner per match (11–rand 0..9). PLUPR fires per update. Last pool/RR match auto-spawns the playoff.
-              </Text>
-            </TouchableOpacity>
+            {/* Standings for every format, your row pinned */}
+            {standings && (
+              <View style={styles.block}>
+                <StandingsSection data={standings} title={standingsTitle} />
+              </View>
+            )}
 
-            <TouchableOpacity style={S.dangerBtn} onPress={deleteTournament} activeOpacity={0.85}>
-              <Text style={S.dangerBtnText}>🗑  Delete Tournament (godmode)</Text>
-              <Text style={S.dangerBtnSub}>Removes the tournament and everything cascaded under it.</Text>
-            </TouchableOpacity>
+            {/* Classic 2-pool tree (renders nothing for other shapes) */}
+            {(status === 'active' || status === 'completed') && tournament.format === 'pool_play' && td.savedRounds.length > 0 && (
+              <View style={styles.block}>
+                <PoolPlayBracketSection
+                  tournament={tournament}
+                  myUserId={myUserId}
+                  savedRounds={td.savedRounds}
+                  savedMatches={td.savedMatches}
+                  profileNames={td.profileNames}
+                  openMatchActionSheetById={td.openMatchActionSheetById}
+                />
+              </View>
+            )}
+
+            {playoffSection}
+
+            {/* Schedule */}
+            {scheduleExists && (
+              <View ref={anchorRef('schedule')} style={styles.block} onLayout={anchorLayout('schedule')}>
+                <MatchScheduleSection
+                  navigation={navigation}
+                  tournament={tournament}
+                  myUserId={myUserId}
+                  isPriv={isPriv}
+                  upcomingStages={upcomingStages}
+                  filter={scheduleFilter}
+                  setFilter={setScheduleFilter}
+                  onOpenHistory={() => navigation.navigate('TournamentMatchHistory', {
+                    tournamentId,
+                    title: `${tournament.name} History`,
+                  })}
+                  savedMatches={td.savedMatches}
+                  savedRounds={td.savedRounds}
+                  playerName={td.playerName}
+                  openMatchActionSheet={td.openMatchActionSheet}
+                />
+              </View>
+            )}
+
+            {teamsSection}
+            {playersSection}
+            {potSection}
+            {wagerSection}
           </>
         )}
 
-        {/* ── Cancel tournament (creator; any live status, pre-payout) ── */}
-        {isAdmin && tournamentLive && tournament.champion_payout_applied_at == null && (
-          <TouchableOpacity
-            style={S.dangerBtn}
-            onPress={() => { setCancelError(null); setShowCancelConfirm(true); }}
-            activeOpacity={0.85}
-          >
-            <Text style={S.dangerBtnText}>🚫  Cancel Tournament</Text>
-            <Text style={S.dangerBtnSub}>
-              Refunds every ante, pot contribution and open wager, then closes the tournament as cancelled.
-            </Text>
-          </TouchableOpacity>
+        {/* 6 · Manage (organizers; the developer account's tools) */}
+        {manageShown && (
+          <View ref={anchorRef('manage')} onLayout={anchorLayout('manage')}>
+            <TournamentManageSection
+              open={manageOpen}
+              onToggle={(next) => toggle('manage', next, setManageOpen)}
+              summary={manageSummary}
+              note={manageNote}
+              steps={manageSteps}
+              groups={manageGroups}
+              developer={td.godmode ? (
+                <GodmodePanel
+                  tournament={tournament}
+                  generatedMatches={td.generatedMatches}
+                  locking={td.locking}
+                  doLockIn={td.doLockIn}
+                  simulating={td.simulating}
+                  simulateFillMatches={td.simulateFillMatches}
+                  deleteTournament={td.deleteTournament}
+                  godmodeApproveAllInvitees={td.godmodeApproveAllInvitees}
+                  godmodeForceCreateTeams={td.godmodeForceCreateTeams}
+                  godmodeAutoGeneratePreview={td.godmodeAutoGeneratePreview}
+                />
+              ) : undefined}
+            />
+          </View>
         )}
-
       </ScrollView>
+
+      {/* Last child of the root, outside the ScrollView: the bar is absolutely
+          positioned and publishes its height to the bottom chrome slot, which
+          lifts PlayIsland above it and pads the list (bottomInset). */}
+      <StickyActionBar
+        visible={stickyVisible && !!stickyPrimary}
+        active={isFocused}
+        summary={tournament.name}
+        primary={stickyPrimary ?? undefined}
+        secondary={stickySecondary}
+      />
 
       {/* ── Bracket release time picker ── */}
       <AppDateTimePicker
-        visible={showReleasePicker}
+        visible={td.showReleasePicker}
         value={tournament.bracket_release_time ? new Date(tournament.bracket_release_time) : new Date(Date.now() + 86400000)}
         minimumDate={new Date()}
-        onChange={saveBracketReleaseTime}
-        onClose={() => setShowReleasePicker(false)}
+        onChange={td.saveBracketReleaseTime}
+        onClose={() => td.setShowReleasePicker(false)}
       />
 
-      {/* ── Partner selection modal ── */}
-      <Modal visible={showPartnerModal} transparent animationType="slide" onRequestClose={() => setShowPartnerModal(false)}>
-        <Pressable style={S.modalOverlay} onPress={() => setShowPartnerModal(false)}>
-          <Pressable style={S.modalSheet} onPress={() => {}}>
-            <Text style={S.modalTitle}>Request a Partner</Text>
-            <Text style={S.modalSubtitle}>{availablePartners.length} player{availablePartners.length !== 1 ? 's' : ''} available</Text>
-            <FlatList
-              data={availablePartners}
-              keyExtractor={i => i.id}
-              scrollEnabled={availablePartners.length > 6}
-              style={{ maxHeight: 320 }}
-              renderItem={({ item }) => (
-                <TouchableOpacity style={S.partnerOption} onPress={() => sendPartnerRequest(item.user_id)}>
-                  <View style={S.partnerOptionAvatar}>
-                    <Text style={S.partnerOptionInitial}>{(item.profile?.full_name ?? '?')[0].toUpperCase()}</Text>
-                  </View>
-                  <Text style={S.partnerOptionName}>{item.profile?.full_name}</Text>
-                  <Text style={S.partnerOptionRating}>{formatPlupr((item.profile as any)?.rating, (item.profile as any)?.total_matches_played)} PLUPR</Text>
-                </TouchableOpacity>
-              )}
-              ListEmptyComponent={<Text style={S.modalEmpty}>All players are already partnered.</Text>}
-            />
-            <TouchableOpacity style={S.modalClose} onPress={() => setShowPartnerModal(false)}>
-              <Text style={S.modalCloseText}>Close</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ── Edit tournament modal ──────────────────────────── */}
-      <Modal visible={showEditModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowEditModal(false)}>
-        <ScrollView contentContainerStyle={S.editModal} keyboardShouldPersistTaps="handled">
-          <Text style={S.editModalTitle}>Edit Tournament</Text>
-
-          <Text style={S.editFieldLabel}>Name</Text>
-          <TextInput
-            style={S.editInput}
-            value={editName}
-            onChangeText={setEditName}
-            placeholder="Tournament name"
-            placeholderTextColor={c.textMuted}
-            maxLength={80}
-          />
-
-          <Text style={S.editFieldLabel}>Description</Text>
-          <TextInput
-            style={[S.editInput, S.editInputMultiline]}
-            value={editDesc}
-            onChangeText={setEditDesc}
-            placeholder="What's this tournament about?"
-            placeholderTextColor={c.textMuted}
-            multiline
-            numberOfLines={4}
-            maxLength={500}
-          />
-
-          <Text style={S.editFieldLabel}>Start time</Text>
-          <TouchableOpacity
-            style={[S.editInput, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
-            onPress={() => setShowStartPicker(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={editStartTime ? S.editDateText : S.editDatePlaceholder}>
-              {editStartTime
-                ? editStartTime.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-                : 'Tap to set'}
-            </Text>
-            <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, backgroundColor: c.primaryLight }}>
-              <Text style={{ fontSize: 12, color: c.primary, fontWeight: '700' }}>
-                📅 {editStartTime ? 'Change' : 'Pick'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-          {editStartTime && (
-            <TouchableOpacity onPress={() => setEditStartTime(null)} style={{ paddingVertical: 6, alignSelf: 'flex-start' }}>
-              <Text style={{ fontSize: 13, color: c.danger, fontWeight: '600' }}>Clear start time</Text>
-            </TouchableOpacity>
-          )}
-
-          <Text style={S.editFieldLabel}>Expected length (hours)</Text>
-          <TextInput
-            style={S.editInput}
-            value={editLengthHours}
-            onChangeText={setEditLengthHours}
-            placeholder="e.g. 3, 4.5"
-            placeholderTextColor={c.textMuted}
-            keyboardType="decimal-pad"
-            maxLength={6}
-          />
-
-          <Text style={S.editFieldLabel}>Location</Text>
-          <TextInput
-            style={S.editInput}
-            value={editLocation}
-            onChangeText={setEditLocation}
-            placeholder="Where is it being held?"
-            placeholderTextColor={c.textMuted}
-            maxLength={200}
-          />
-
-          <Text style={S.editFieldLabel}>Min players</Text>
-          <TextInput
-            style={S.editInput}
-            value={editMinPlayers}
-            onChangeText={setEditMinPlayers}
-            placeholder="No minimum"
-            placeholderTextColor={c.textMuted}
-            keyboardType="number-pad"
-            maxLength={4}
-          />
-
-          <Text style={S.editFieldLabel}>Max players (raising it promotes the waitlist)</Text>
-          <TextInput
-            style={S.editInput}
-            value={editMaxPlayers}
-            onChangeText={setEditMaxPlayers}
-            placeholder="No cap"
-            placeholderTextColor={c.textMuted}
-            keyboardType="number-pad"
-            maxLength={4}
-          />
-
-          <Text style={S.editFieldLabel}>Entry ante (🥒)</Text>
-          <TextInput
-            style={S.editInput}
-            value={editAnte}
-            onChangeText={setEditAnte}
-            placeholder="0"
-            placeholderTextColor={c.textMuted}
-            keyboardType="number-pad"
-            maxLength={7}
-          />
-
-          <Text style={S.editFieldLabel}>Payout structure (% per place, sum 100)</Text>
-          <TextInput
-            style={S.editInput}
-            value={editPayout}
-            onChangeText={setEditPayout}
-            placeholder="60,25,15"
-            placeholderTextColor={c.textMuted}
-            maxLength={40}
-          />
-
-          <Text style={S.editFieldLabel}>Prize pool override (🥒)</Text>
-          <TextInput
-            style={S.editInput}
-            value={editPrizePool}
-            onChangeText={setEditPrizePool}
-            placeholder="Leave blank to keep current pool"
-            placeholderTextColor={c.textMuted}
-            keyboardType="number-pad"
-            maxLength={9}
-          />
-
-          <Text style={S.editFieldLabel}>Seeding mode</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity
-              style={[S.editInput, { flex: 1, alignItems: 'center', backgroundColor: editSeeding === 'random' ? c.primaryLight : c.surface }]}
-              onPress={() => setEditSeeding('random')}
-            >
-              <Text style={{ color: editSeeding === 'random' ? c.primary : c.textSub, fontWeight: '700' }}>🎲 Random</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.editInput, { flex: 1, alignItems: 'center', backgroundColor: editSeeding === 'elo' ? c.primaryLight : c.surface }]}
-              onPress={() => setEditSeeding('elo')}
-            >
-              <Text style={{ color: editSeeding === 'elo' ? c.primary : c.textSub, fontWeight: '700' }}>📊 PLUPR-based</Text>
-            </TouchableOpacity>
-          </View>
-
-          {editError && (
-            <Text style={S.editErrorText}>{editError}</Text>
-          )}
-
-          <TouchableOpacity
-            style={[S.editSaveBtn, savingEdit && S.editSaveBtnDisabled]}
-            onPress={saveTournamentEdits}
-            disabled={savingEdit}
-          >
-            <Text style={S.editSaveBtnText}>{savingEdit ? 'Saving…' : 'Save Changes'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.editCancelBtn} onPress={() => setShowEditModal(false)}>
-            <Text style={S.editCancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Datetime picker MUST live inside the edit Modal so its position:fixed
-            overlay shares the same stacking context. Otherwise on web the page-
-            sheet Modal renders above the picker and it appears hidden until
-            the edit modal closes. */}
-        <AppDateTimePicker
-          visible={showStartPicker}
-          value={editStartTime ?? new Date()}
-          onChange={d => { setEditStartTime(d); setShowStartPicker(false); }}
-          onClose={() => setShowStartPicker(false)}
-        />
-      </Modal>
+      {/* ── Edit tournament modal ── */}
+      <EditTournamentModal
+        showEditModal={td.showEditModal}
+        setShowEditModal={td.setShowEditModal}
+        saveTournamentEdits={td.saveTournamentEdits}
+        editError={td.editError}
+        savingEdit={td.savingEdit}
+        editName={td.editName} setEditName={td.setEditName}
+        editDesc={td.editDesc} setEditDesc={td.setEditDesc}
+        editLocation={td.editLocation} setEditLocation={td.setEditLocation}
+        editMinPlayers={td.editMinPlayers} setEditMinPlayers={td.setEditMinPlayers}
+        editMaxPlayers={td.editMaxPlayers} setEditMaxPlayers={td.setEditMaxPlayers}
+        editStartTime={td.editStartTime} setEditStartTime={td.setEditStartTime}
+        editLengthHours={td.editLengthHours} setEditLengthHours={td.setEditLengthHours}
+        editAnte={td.editAnte} setEditAnte={td.setEditAnte}
+        editPayout={td.editPayout} setEditPayout={td.setEditPayout}
+        editPrizePool={td.editPrizePool} setEditPrizePool={td.setEditPrizePool}
+        editSeeding={td.editSeeding} setEditSeeding={td.setEditSeeding}
+        showStartPicker={td.showStartPicker} setShowStartPicker={td.setShowStartPicker}
+      />
 
       <ConfirmModal
-        visible={showLockInConfirm}
+        visible={td.showLockInConfirm}
         title="Lock in bracket?"
         body={`This finalizes the schedule and notifies all ${approved.length} member${approved.length === 1 ? '' : 's'}. You won't be able to regenerate after this.`}
         primaryLabel="Lock In & Notify"
         variant="danger"
-        busy={locking}
-        error={lockInError}
-        onConfirm={() => doLockIn()}
-        onClose={() => setShowLockInConfirm(false)}
+        busy={td.locking}
+        error={td.lockInError}
+        onConfirm={() => td.doLockIn()}
+        onClose={() => td.setShowLockInConfirm(false)}
       />
 
       <ConfirmModal
-        visible={showCompleteConfirm}
+        visible={td.showCompleteConfirm}
         title="Complete tournament?"
         body="This flips the tournament status to completed. Players can no longer record matches. Payout becomes available."
         primaryLabel="Complete"
         variant="danger"
-        busy={completing}
-        error={completeError}
-        onConfirm={() => confirmCompleteTournament()}
-        onClose={() => setShowCompleteConfirm(false)}
+        busy={td.completing}
+        error={td.completeError}
+        onConfirm={() => td.confirmCompleteTournament()}
+        onClose={() => td.setShowCompleteConfirm(false)}
       />
 
       <ConfirmModal
-        visible={showCancelConfirm}
-        title={`🚫  Cancel "${tournament?.name ?? ''}"?`}
+        visible={td.showCancelConfirm}
+        title={`🚫  Cancel "${tournament.name}"?`}
         body="This refunds every ante, pot contribution and open wager to its owner, notifies all participants, and permanently marks the tournament cancelled. Matches already played keep their rating effects."
         primaryLabel="Cancel & Refund Everyone"
         variant="danger"
-        busy={cancelling}
-        error={cancelError}
-        onConfirm={confirmCancelTournament}
-        onClose={() => setShowCancelConfirm(false)}
+        busy={td.cancelling}
+        error={td.cancelError}
+        onConfirm={td.confirmCancelTournament}
+        onClose={() => td.setShowCancelConfirm(false)}
       />
 
       <ConfirmModal
-        visible={showDeleteConfirm}
-        title={`🗑  Delete "${tournament?.name ?? ''}"?`}
+        visible={td.showDeleteConfirm}
+        title={`🗑  Delete "${tournament.name}"?`}
         body="This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone."
         primaryLabel="Delete Tournament"
         variant="danger"
-        busy={deleting}
-        error={deleteError}
-        onConfirm={confirmDeleteTournament}
-        onClose={() => setShowDeleteConfirm(false)}
+        busy={td.deleting}
+        error={td.deleteError}
+        onConfirm={td.confirmDeleteTournament}
+        onClose={() => td.setShowDeleteConfirm(false)}
       />
 
       <PayoutPreviewModal
-        visible={showPayoutModal}
+        visible={td.showPayoutModal}
         tournamentId={tournamentId}
-        prizePool={tournament?.prize_pool ?? 0}
-        onClose={() => setShowPayoutModal(false)}
-        onPaid={() => { setShowPayoutModal(false); load(); }}
+        prizePool={pool}
+        onClose={() => td.setShowPayoutModal(false)}
+        onPaid={() => { td.setShowPayoutModal(false); td.load(); }}
       />
 
-      {/* ── Wager action sheet ── (gated: lib/features.ts) */}
-      <ActionSheetModal
-        visible={WAGERS_ENABLED && actionSheetOpen}
-        title="Propose wager"
-        subtitle={
-          wagerMatchPick
-            ? `${wagerMatchPick.team1Label}  vs  ${wagerMatchPick.team2Label}`
-            : undefined
-        }
-        onClose={() => setActionSheetOpen(false)}
-        actions={
-          wagerMatchPick
-            ? [
-                {
-                  label: `${wagerMatchPick.team1Label} wins`,
-                  onPress: () => openMatchWager('team1', wagerMatchPick),
-                },
-                {
-                  label: `${wagerMatchPick.team2Label} wins`,
-                  onPress: () => openMatchWager('team2', wagerMatchPick),
-                },
-                {
-                  label: 'Exact final score',
-                  onPress: () => setExactScoreOpen(true),
-                },
-              ]
-            : []
-        }
+      <WagerModals
+        actionSheetOpen={td.actionSheetOpen}
+        setActionSheetOpen={td.setActionSheetOpen}
+        wagerMatchPick={td.wagerMatchPick}
+        setWagerMatchPick={td.setWagerMatchPick}
+        openMatchWager={td.openMatchWager}
+        exactScoreOpen={td.exactScoreOpen}
+        setExactScoreOpen={td.setExactScoreOpen}
+        exactScoreError={td.exactScoreError}
+        setExactScoreError={td.setExactScoreError}
+        submitExactScore={td.submitExactScore}
+        exactScoreT1={td.exactScoreT1}
+        setExactScoreT1={td.setExactScoreT1}
+        exactScoreT2={td.exactScoreT2}
+        setExactScoreT2={td.setExactScoreT2}
+        wagerOpen={td.wagerOpen}
+        setWagerOpen={td.setWagerOpen}
+        wagerSubject={td.wagerSubject}
+        setWagerSubject={td.setWagerSubject}
       />
-
-      {/* ── Exact-score input modal ── */}
-      <ConfirmModal
-        visible={exactScoreOpen}
-        title="Predict exact score"
-        body={
-          wagerMatchPick
-            ? `${wagerMatchPick.team1Label}  vs  ${wagerMatchPick.team2Label}`
-            : undefined
-        }
-        primaryLabel="Continue"
-        busy={false}
-        error={exactScoreError}
-        primaryDisabled={!exactScoreT1.trim() || !exactScoreT2.trim()}
-        onConfirm={submitExactScore}
-        onClose={() => {
-          setExactScoreOpen(false);
-          setExactScoreT1('');
-          setExactScoreT2('');
-          setExactScoreError(null);
-          setWagerMatchPick(null);
-        }}
-        extraField={
-          <View style={S.scoreRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={S.scoreLabel}>{wagerMatchPick?.team1Label ?? 'Team 1'} score</Text>
-              <TextInput
-                style={S.scoreInput}
-                value={exactScoreT1}
-                onChangeText={setExactScoreT1}
-                placeholder="0"
-                placeholderTextColor={c.textMuted}
-                keyboardType="number-pad"
-                maxLength={3}
-              />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={S.scoreLabel}>{wagerMatchPick?.team2Label ?? 'Team 2'} score</Text>
-              <TextInput
-                style={S.scoreInput}
-                value={exactScoreT2}
-                onChangeText={setExactScoreT2}
-                placeholder="0"
-                placeholderTextColor={c.textMuted}
-                keyboardType="number-pad"
-                maxLength={3}
-              />
-            </View>
-          </View>
-        }
-      />
-
-      {/* ── Wager propose modal (Unit 1) ── */}
-      <WagerProposeModal
-        visible={WAGERS_ENABLED && wagerOpen}
-        subject={wagerSubject}
-        onClose={() => {
-          setWagerOpen(false);
-          setWagerSubject(null);
-          setWagerMatchPick(null);
-        }}
-      />
-    </>
+    </View>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bg },
-
-    headerCard: { backgroundColor: c.surface, padding: 16, marginBottom: 8, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
-    headerTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
-    fmtIcon: { fontSize: 30, marginTop: 2 },
-    fmtLabel: { fontSize: 16, fontWeight: '800', color: c.text },
-    fmtDesc: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    myRoleBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
-    myRoleText: { fontSize: 11, fontWeight: '700' },
-    chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-    chip: { backgroundColor: c.bg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, fontSize: 12, color: c.textSub, fontWeight: '500' },
-    metaLine: { fontSize: 13, color: c.textSub, marginBottom: 3 },
-    metaLineEmpty: { fontSize: 13, color: c.textMuted, marginBottom: 3, fontStyle: 'italic' },
-    waitlistNote: { fontSize: 12, color: c.textMuted, marginBottom: 8 },
-    desc: { fontSize: 13, color: c.textMuted, marginTop: 6 },
-
-    infoBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff8e1', margin: 12, marginBottom: 4, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: '#ffe082' },
-    mlpCard: { margin: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
-    infoIcon: { fontSize: 22 },
-    infoText: { flex: 1, fontSize: 14, color: '#b8860b', fontWeight: '500' },
-
-    setReleaseBtn: { margin: 12, marginBottom: 4, backgroundColor: c.bg, borderRadius: 12, padding: 12 },
-    setReleaseBtnText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    historyBtn: { margin: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 12, padding: 14, flexDirection: 'column', borderWidth: 1, borderColor: c.border, elevation: 2, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4 },
-    historyBtnText: { fontSize: 15, fontWeight: '700', color: c.text },
-    historyBtnSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
-
-    quickActionsRow: { flexDirection: 'row', gap: 8, marginHorizontal: 12, marginBottom: 8, marginTop: 0 },
-    quickActionBtn:  { flex: 1, backgroundColor: c.surface, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
-    quickActionBtnPrimary:   { backgroundColor: c.primaryLight, borderColor: c.primary },
-    quickActionText:         { fontSize: 13, fontWeight: '700', color: c.textSub },
-    quickActionTextPrimary:  { color: c.primary },
-
-    closedBanner:     { marginHorizontal: 12, marginBottom: 8, backgroundColor: '#fff8e1', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#ffe082' },
-    closedBannerText: { fontSize: 13, color: '#b8860b', fontWeight: '600' },
-    dangerBtn:        { margin: 12, marginTop: 16, backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.danger + '88' },
-    dangerBtnText:    { fontSize: 15, fontWeight: '800', color: c.danger },
-    godmodeSetupBlock: { marginHorizontal: 12, marginTop: 16, padding: 12, gap: 8, borderRadius: 14, borderWidth: 1.5, borderColor: '#6d28d988', backgroundColor: c.surface },
-    godmodeSectionTitle: { fontSize: 13, fontWeight: '800', color: '#6d28d9', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
-    godmodeSetupBtn:  { flex: 0, alignSelf: 'stretch' },
-    godmodeLockBtn:   { backgroundColor: '#6d28d9', borderColor: '#6d28d9' },
-    godmodeLockText:  { color: '#fff', fontWeight: '700' },
-
-    confirmBackdrop:        { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-    confirmCard:            { backgroundColor: c.surface, borderRadius: 16, padding: 22, maxWidth: 460, width: '100%' },
-    confirmTitle:           { fontSize: 18, fontWeight: '900', color: c.text, marginBottom: 10 },
-    confirmBody:            { fontSize: 13, color: c.textSub, lineHeight: 19, marginBottom: 18 },
-    confirmBtnRow:          { flexDirection: 'row', gap: 10 },
-    confirmBtn:             { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    confirmBtnSecondary:    { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    confirmBtnSecondaryText:{ color: c.textSub, fontWeight: '700', fontSize: 14 },
-    confirmBtnDanger:       { backgroundColor: c.danger },
-    confirmBtnDangerText:   { color: '#fff', fontWeight: '800', fontSize: 14 },
-    dangerBtnSub:     { fontSize: 12, color: c.textMuted, marginTop: 4 },
-
-    payoutBtn:        { marginTop: 12, backgroundColor: c.primary, borderRadius: 12, padding: 14, alignItems: 'center' },
-    payoutBtnText:    { fontSize: 15, fontWeight: '900', color: '#fff' },
-    payoutBtnSub:     { fontSize: 11, color: '#fff', opacity: 0.85, marginTop: 4, textAlign: 'center' },
-    payoutDoneBanner: { marginTop: 12, backgroundColor: '#e8f5e9', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#a5d6a7', alignItems: 'center' },
-    payoutDoneText:   { fontSize: 12, color: '#2e7d32', fontWeight: '700' },
-
-    editModal:        { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
-    editModalTitle:   { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 6 },
-    editFieldLabel:   { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 18, marginBottom: 6 },
-    editInput:        { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 16, marginBottom: 4, backgroundColor: c.surface, color: c.text },
-    editInputMultiline: { minHeight: 96, textAlignVertical: 'top' },
-    editDateText:     { fontSize: 15, color: c.text },
-    editDatePlaceholder: { fontSize: 15, color: c.textMuted },
-    editSaveBtn:      { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 24 },
-    editSaveBtnDisabled: { backgroundColor: '#a5d6a7' },
-    editSaveBtnText:  { color: '#fff', fontWeight: '700', fontSize: 16 },
-    editCancelBtn:    { padding: 14, alignItems: 'center' },
-    editCancelBtnText:{ fontSize: 15, color: c.textMuted },
-    editErrorText:    { marginTop: 20, color: '#c62828', fontSize: 14, fontWeight: '600' },
-
-    registerBtn: { margin: 12, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
-    registerBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-    inviteNote: { margin: 12, backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 14 },
-    inviteNoteText: { fontSize: 13, color: c.textMuted },
-    myRegBadge: { margin: 12, borderRadius: 12, padding: 14 },
-    regApproved: { backgroundColor: c.primaryLight },
-    regPending:  { backgroundColor: '#fff8e1' },
-    regRejected: { backgroundColor: '#ffebee' },
-    myRegText: { fontSize: 14, fontWeight: '600', color: c.text },
-
-    section: { backgroundColor: c.surface, margin: 12, marginTop: 0, marginBottom: 8, borderRadius: 14, padding: 14, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
-    sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    sectionTitle: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
-
-    standingsSubtitle: { fontSize: 12, color: c.textMuted, marginTop: 4, marginBottom: 10 },
-    standingsHeader: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border },
-    standingsHeaderText: { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase' },
-    standingsRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
-    standingsRowMe: { backgroundColor: c.surfaceAlt },
-    standingsCellRank: { width: 28, fontSize: 13, fontWeight: '600', color: c.textMuted },
-    standingsCellName: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text, paddingRight: 8 },
-    standingsCellMe: { color: c.primary },
-    standingsCellWL: { width: 56, fontSize: 14, fontWeight: '600', color: c.text, textAlign: 'right' },
-    standingsCellPF: { width: 76, fontSize: 13, color: c.textMuted, textAlign: 'right' },
-    standingsCellDiff: { width: 44, fontSize: 13, fontWeight: '600', color: c.text, textAlign: 'right' },
-    standingsDiffPos: { color: '#16a34a' },
-    standingsDiffNeg: { color: '#dc2626' },
-    manageLinkText: { fontSize: 12, color: c.primary, fontWeight: '600' },
-    emptySection: { fontSize: 15, color: c.textMuted, textAlign: 'center', paddingVertical: 8 },
-
-    playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: c.bg },
-    playerSeed: { width: 28, fontSize: 12, color: c.border, fontWeight: '600' },
-    playerName: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text },
-    playerRating: { fontSize: 13, fontWeight: '700', color: c.primary, marginRight: 6 },
-    rolePill: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1 },
-    rolePillText: { fontSize: 10, fontWeight: '700' },
-
-    pendingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
-    pendingActions: { flexDirection: 'row', gap: 6 },
-    approveBtn: { backgroundColor: c.primary, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-    approveBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-    rejectBtn: { backgroundColor: c.bg, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-    rejectBtnText: { color: c.textMuted, fontSize: 14, fontWeight: '800' },
-
-    generateBtn: { margin: 12, marginBottom: 6, backgroundColor: '#1565c0', borderRadius: 12, padding: 16, alignItems: 'center' },
-    generateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    lockBtn: { margin: 12, marginTop: 0, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
-    lockBtnDisabled: { backgroundColor: '#a5d6a7' },
-    lockBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    activeBanner: { margin: 12, backgroundColor: c.primaryLight, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#c8e6c9' },
-    activeBannerText: { fontSize: 14, color: c.primary, fontWeight: '700' },
-    completedBanner: { margin: 12, backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
-    completedBannerText: { fontSize: 14, color: c.textSub, fontWeight: '700' },
-    coAdminNote: { margin: 12, marginTop: 0, backgroundColor: c.bg, borderRadius: 12, padding: 12 },
-    coAdminNoteText: { fontSize: 13, color: c.textMuted, textAlign: 'center' },
-    bracketDivider: { height: 1, backgroundColor: c.border, marginVertical: 14 },
-    poolsRow: { flexDirection: 'row', gap: 10, marginBottom: 4 },
-    poolBlock: { flex: 1, backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 11, borderWidth: 1, borderColor: c.border },
-    poolBlockTitle: { fontSize: 12, fontWeight: '800', color: '#1565c0', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
-    poolTeamRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6 },
-    poolTeamIndex: { width: 16, fontSize: 11, fontWeight: '700', color: c.border },
-    poolTeamText: { flex: 1, fontSize: 12, color: c.text, fontWeight: '500', lineHeight: 16 },
-    poolTeamTextMe: { color: c.primary, fontWeight: '700' },
-    poolTeamRecord: { fontSize: 11, fontWeight: '700', color: c.textMuted, marginRight: 4 },
-    poolTeamRecordAdvanced: { color: c.primary },
-    poolEmpty: { fontSize: 11, color: c.textMuted, fontStyle: 'italic', paddingVertical: 4 },
-    advancementResultLine: { fontSize: 12, color: c.primary, fontWeight: '600', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border },
-    youTag: { fontSize: 9, fontWeight: '800', color: c.primary, backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
-    advancementCard: { backgroundColor: '#f0f4ff', borderRadius: 10, padding: 13, borderWidth: 1, borderColor: '#c5cff5' },
-    advancementTitle: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 7 },
-    advancementRule: { fontSize: 13, color: c.text, lineHeight: 19, marginBottom: 6 },
-    advancementPoint: { fontSize: 13, color: c.textSub, lineHeight: 18, paddingLeft: 8 },
-    bold: { fontWeight: '700' },
-    scheduleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    myMatchesToggle: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    myMatchesToggleOn: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    myMatchesToggleText: { fontSize: 12, color: c.textMuted, fontWeight: '600' },
-    myMatchesToggleTextOn: { color: c.primary },
-    noMyMatches: { fontSize: 15, color: c.textMuted, textAlign: 'center', paddingVertical: 12 },
-    previewBanner: { backgroundColor: '#fff3e0', borderRadius: 8, padding: 10, marginBottom: 10 },
-    previewBannerText: { fontSize: 12, color: '#e65100', fontWeight: '500' },
-    matchRowHighlight: { backgroundColor: c.primaryLight },
-    matchupHighlight: { color: c.primary, fontWeight: '800' },
-    matchupWinner: { fontWeight: '800', color: c.text },
-    matchupLoser:  { color: c.textMuted },
-    matchScore: { fontSize: 13, fontWeight: '800', color: c.textSub, paddingHorizontal: 4 },
-    scheduleRoundLabel: { fontSize: 12, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 4 },
-    dreambreakerBadge: { fontSize: 11, fontWeight: '800', color: '#b8860b', backgroundColor: '#fff8e1', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 6, marginBottom: 2, letterSpacing: 0.3 },
-    myMatchTag: { fontSize: 9, color: c.primary, fontWeight: '800', backgroundColor: c.primaryLight, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 6 },
-    recordChevron: { fontSize: 18, color: c.textMuted, fontWeight: '700', marginLeft: 4 },
-
-    // Partner section
-    partnerConfirmed: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.primaryLight, borderRadius: 10, padding: 12 },
-    partnerConfirmedIcon: { fontSize: 24 },
-    partnerConfirmedName: { flex: 1, fontSize: 15, fontWeight: '700', color: c.text },
-    partnerConfirmedNote: { fontSize: 12, color: c.primary },
-    partnerPending: { backgroundColor: '#fff8e1', borderRadius: 10, padding: 12 },
-    partnerPendingText: { fontSize: 13, color: '#b8860b', marginBottom: 6 },
-    cancelReqText: { fontSize: 12, color: c.danger, fontWeight: '600' },
-    partnerRequest: { backgroundColor: c.primaryLight, borderRadius: 10, padding: 12 },
-    partnerReqText: { fontSize: 14, fontWeight: '600', color: c.text, marginBottom: 10 },
-    partnerReqActions: { flexDirection: 'row', gap: 10 },
-    acceptBtn: { flex: 1, backgroundColor: c.primary, borderRadius: 8, padding: 10, alignItems: 'center' },
-    acceptBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
-    declineBtn: { flex: 1, backgroundColor: c.bg, borderRadius: 8, padding: 10, alignItems: 'center' },
-    declineBtnText: { color: c.textMuted, fontWeight: '600', fontSize: 14 },
-    noPartnerText: { fontSize: 15, color: c.textMuted, marginBottom: 10 },
-    findPartnerBtn: { backgroundColor: c.primaryLight, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.primary },
-    findPartnerBtnText: { color: c.primary, fontWeight: '700', fontSize: 14 },
-
-    // Pools & schedule
-    poolCard: { backgroundColor: c.surfaceAlt, borderRadius: 8, padding: 10, marginBottom: 8 },
-    poolLabel: { fontSize: 13, fontWeight: '700', color: '#1565c0', marginBottom: 4 },
-    poolPlayer: { fontSize: 13, color: c.textSub, paddingVertical: 2 },
-    roundBlock: { marginBottom: 12 },
-    roundLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-    matchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: c.bg },
-    matchRowGhost: { opacity: 0.55 },
-    matchupGhost: { color: c.textMuted, fontStyle: 'italic', fontWeight: '400' },
-    matchNum: { width: 20, fontSize: 11, color: c.border, fontWeight: '600' },
-    matchup: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
-    vs: { fontSize: 11, color: c.border, fontWeight: '700' },
-
-    // Partner modal
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    modalSheet: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
-    modalTitle: { fontSize: 20, fontWeight: '800', color: c.text, marginBottom: 4 },
-    modalSubtitle: { fontSize: 13, color: c.textMuted, marginBottom: 14 },
-    partnerOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.bg },
-    partnerOptionAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-    partnerOptionInitial: { fontSize: 16, fontWeight: '700', color: c.primary },
-    partnerOptionName: { flex: 1, fontSize: 15, fontWeight: '600', color: c.text },
-    partnerOptionRating: { fontSize: 13, fontWeight: '700', color: c.primary },
-    modalEmpty: { textAlign: 'center', color: c.textMuted, paddingVertical: 20, fontSize: 15 },
-    modalClose: { marginTop: 16, padding: 14, alignItems: 'center' },
-    modalCloseText: { fontSize: 15, color: c.textMuted },
-
-    // Champion wager button (header card)
-    championWagerBtn: {
-      marginTop: 10,
-      alignSelf: 'flex-start',
-      backgroundColor: c.primaryLight,
-      borderColor: c.primary,
-      borderWidth: 1,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    championWagerBtnPressed: { opacity: 0.7 },
-    championWagerText: { fontSize: 13, fontWeight: '800', color: c.primary },
-
-    // Wager Market panel (collapsible table: players × ranks 1/2/3)
-    wagerMarketPanel: {
-      marginTop: 10,
-      borderWidth: 1,
-      borderColor: c.border,
-      borderRadius: 10,
-      backgroundColor: c.surfaceAlt,
-      padding: 8,
-    },
-    wagerMarketHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 4,
-      paddingBottom: 6,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-      marginBottom: 4,
-    },
-    wagerMarketCellLabel: {
-      width: 64,
-      fontSize: 11,
-      fontWeight: '800',
-      color: c.textMuted,
-      textTransform: 'uppercase',
-      letterSpacing: 0.6,
-      textAlign: 'center',
-    },
-    wagerMarketRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 6,
-      paddingHorizontal: 4,
-      gap: 4,
-      borderBottomWidth: 1,
-      borderBottomColor: c.bg,
-    },
-    wagerMarketPlayerCell: {
-      flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      minWidth: 0,
-    },
-    wagerMarketAvatar: {
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      backgroundColor: c.primaryLight,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    wagerMarketAvatarText: { fontSize: 13, fontWeight: '800', color: c.primary },
-    wagerMarketName: { flex: 1, fontSize: 13, fontWeight: '600', color: c.text },
-    wagerMarketBetBtn: {
-      width: 64,
-      paddingVertical: 6,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: c.primary,
-      backgroundColor: c.primaryLight,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    wagerMarketBetBtnPressed: { opacity: 0.7 },
-    wagerMarketBetText: { fontSize: 11, fontWeight: '800', color: c.primary },
-    wagerMarketToggle: { paddingVertical: 10, alignItems: 'center' },
-    wagerMarketToggleText: { fontSize: 12, fontWeight: '700', color: c.primary },
-
-    // Exact-score modal inputs
-    scoreRow:   { flexDirection: 'row', gap: 12, marginTop: 4, marginBottom: 10 },
-    scoreLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, marginBottom: 4 },
-    scoreInput: {
-      borderWidth: 1, borderColor: c.border, borderRadius: 8,
-      paddingHorizontal: 10, paddingVertical: 8, fontSize: 16, color: c.text,
-      backgroundColor: c.surface,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  // The screen gutter (SPACE.lg) on every side; sections stack with SPACE.md.
+  content: { padding: SPACE.lg },
+  block: { marginBottom: SPACE.md },
+  banner: { marginBottom: SPACE.md },
+  strip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md },
+  stripText: { flex: 1, minWidth: 0 },
+  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
+});

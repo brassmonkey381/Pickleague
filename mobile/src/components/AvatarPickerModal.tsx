@@ -3,6 +3,8 @@ import {
   Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator, Platform, Pressable, useWindowDimensions,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
@@ -34,6 +36,7 @@ export type PremiumAvatar = {
 };
 
 type Props = {
+  /** Modal mode only. A page is shown whenever its host renders it. */
   visible: boolean;
   currentAvatarId: number;
   currentPhotoUrl: string | null;
@@ -42,7 +45,25 @@ type Props = {
   userId: string;
   purchasedAvatars: PremiumAvatar[];
   onSave: (avatarId: number, photoUrl: string | null, premium: PremiumAvatar | null) => void;
+  /** Modal: Cancel / backdrop / Escape. Page: the back arrow (the host returns
+   *  to its form). */
   onClose: () => void;
+  /**
+   * 'modal' (default): its own Modal with Cancel / Done, as before.
+   * 'page': just the picker body, for a host that is already a Modal (the Edit
+   * profile sheet), so a second Modal never opens on top (iOS shows one at a
+   * time, and a picked avatar used to be lost when the outer form wasn't
+   * saved). The header becomes a back arrow; every pick is reported live
+   * through `onChange`, so the host's draft is current whenever the user
+   * leaves the page. Upload errors show inline instead of in a ConfirmModal,
+   * and the host owns Escape / Android back.
+   */
+  presentation?: 'modal' | 'page';
+  /** Every change of the selection (same arguments as onSave), either mode. */
+  onChange?: (avatarId: number, photoUrl: string | null, premium: PremiumAvatar | null) => void;
+  /** An upload started / finished. A page host uses it to block leaving the
+   *  page mid-upload (the result would have nowhere to go). */
+  onUploadingChange?: (uploading: boolean) => void;
 };
 
 /**
@@ -85,11 +106,12 @@ function shrinkImageForWeb(file: File): Promise<Blob | null> {
 
 export default function AvatarPickerModal({
   visible, currentAvatarId, currentPhotoUrl, currentPremium, earnedBadgeNames, userId,
-  purchasedAvatars, onSave, onClose,
+  purchasedAvatars, onSave, onClose, presentation = 'modal', onChange, onUploadingChange,
 }: Props) {
   const { colors } = useTheme();
   const { width: winW } = useWindowDimensions();
   const isWeb = Platform.OS === 'web';
+  const isPage = presentation === 'page';
 
   // Card has horizontal padding=16 each side (32 total); native uses full width.
   const cardWidth = isWeb ? Math.min(winW, WEB_CARD_MAX) : winW;
@@ -115,12 +137,30 @@ export default function AvatarPickerModal({
     !av.unlock || earnedBadgeNames.includes(av.unlock.badge);
 
   useEffect(() => {
-    if (!isWeb || !visible) return;
+    // A page's host owns Escape (it steps back to its form instead of closing).
+    if (!isWeb || !visible || isPage) return;
     // Escape must not dismiss mid-upload — the outcome would have nowhere to go.
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !uploadInFlight.current) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose, isWeb]);
+  }, [visible, onClose, isWeb, isPage]);
+
+  // Report every change of the selection (not the initial values). Refs hold
+  // the latest callbacks so an inline arrow from the host doesn't re-fire it.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onUploadingRef = useRef(onUploadingChange);
+  onUploadingRef.current = onUploadingChange;
+  const firstSelection = useRef(true);
+  useEffect(() => {
+    if (firstSelection.current) { firstSelection.current = false; return; }
+    onChangeRef.current?.(selectedId, photoUrl, photoUrl ? null : selectedPremium);
+  }, [selectedId, photoUrl, selectedPremium]);
+  const firstUploading = useRef(true);
+  useEffect(() => {
+    if (firstUploading.current) { firstUploading.current = false; return; }
+    onUploadingRef.current?.(uploading);
+  }, [uploading]);
 
   function cancelUpload() {
     uploadToken.current += 1;
@@ -135,16 +175,24 @@ export default function AvatarPickerModal({
     setUploading(true);
     try {
       const ext = (rawExt || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
-      const fileName = `${userId}/avatar.${ext}`;
-      // upsert:true makes the object path idempotent, so a retry after a dropped
-      // socket overwrites rather than duplicating. Bounded generously — see
-      // UPLOAD_TIMEOUT_MS — so a dead connection can't spin forever.
+      // A unique object per upload. The fixed `avatar.<ext>` path used to be
+      // overwritten the moment a photo was picked, and the saved avatar_url
+      // points at that same object, so a photo picked and then discarded (Edit
+      // sheet Cancel) went live for everyone anyway. Now only Save, by writing
+      // avatar_url, makes a photo live; EditProfileSheet prunes the leftovers.
+      // The storage policies key on the first folder (`<uid>/`), so any name
+      // under it is allowed, and moderation removes the whole folder.
+      const fileName = `${userId}/avatar-${Date.now()}.${ext}`;
+      // upsert:true keeps the sbCall retry idempotent (it reuses this fileName)
+      // after a dropped socket. Bounded generously — see UPLOAD_TIMEOUT_MS — so
+      // a dead connection can't spin forever.
       await sbCall(() => supabase.storage
         .from('avatars')
         .upload(fileName, blob, { upsert: true, contentType: `image/${ext}` }),
         { retries: 1, timeoutMs: UPLOAD_TIMEOUT_MS });
       if (uploadToken.current !== token) return;
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      // The URL is unique per upload, so ?t= is no longer needed; harmless.
       setPhotoUrl(`${data.publicUrl}?t=${Date.now()}`);
     } catch (e) {
       if (uploadToken.current !== token) return;
@@ -254,9 +302,26 @@ export default function AvatarPickerModal({
       })
     : null;
 
+  const pageHeader = isPage ? (
+    <View style={S.header}>
+      {/* Back keeps the pick (it is already in the host's draft via onChange);
+          mid-upload it stops waiting instead, exactly like Cancel below. */}
+      <TouchableOpacity
+        onPress={uploading ? cancelUpload : onClose}
+        style={S.pageBackBtn}
+        accessibilityRole="button"
+        accessibilityLabel={uploading ? 'Cancel upload' : 'Back'}
+      >
+        <Text style={S.pageBackText} numberOfLines={1}>{uploading ? 'Cancel upload' : '‹ Back'}</Text>
+      </TouchableOpacity>
+      <Text style={S.headerTitle}>Choose Avatar</Text>
+      <View style={S.pageBackBtn} />
+    </View>
+  ) : null;
+
   const body = (
     <>
-      <View style={S.header}>
+      {pageHeader ?? <View style={S.header}>
         {/* Dismissing mid-upload left the outcome with nowhere to be reported,
             so Cancel stops waiting on the upload instead of closing the modal —
             the user is never trapped, and never silently left without a photo. */}
@@ -271,7 +336,24 @@ export default function AvatarPickerModal({
         >
           <Text style={[S.headerBtnText, { color: uploading ? colors.textMuted : colors.primary, fontWeight: '700' }]}>Done</Text>
         </TouchableOpacity>
-      </View>
+      </View>}
+
+      {isPage && errorModal ? (
+        <View style={S.inlineError}>
+          <View style={S.hintBody}>
+            <Text style={S.inlineErrorTitle}>{errorModal.title}</Text>
+            {errorModal.body ? <Text style={S.inlineErrorText}>{errorModal.body}</Text> : null}
+          </View>
+          <TouchableOpacity
+            onPress={() => setErrorModal(null)}
+            style={S.closeBox}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          >
+            <Text style={S.hintClose}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
         <View style={S.previewSection}>
@@ -370,7 +452,12 @@ export default function AvatarPickerModal({
                   {lockedHint.unlock!.description}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setLockedHint(null)}>
+              <TouchableOpacity
+                onPress={() => setLockedHint(null)}
+                style={S.closeBox}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              >
                 <Text style={S.hintClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -383,6 +470,12 @@ export default function AvatarPickerModal({
       </ScrollView>
     </>
   );
+
+  if (isPage) {
+    // The host is already a Modal: render in place (flex:1 so the ScrollView
+    // fills the host's page area). The hidden <input> stays inside `body`.
+    return <View style={S.page}>{body}</View>;
+  }
 
   return (
     <Modal
@@ -416,55 +509,74 @@ export default function AvatarPickerModal({
   );
 }
 
+// Section 6 scales only: SPACE / RADIUS / HAIRLINE tokens and the textStyles
+// presets. The emoji sizes are glyphs inside fixed circles, not text.
 function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number) {
+  const t = textStyles(c);
   return StyleSheet.create({
     root:         { flex: 1, backgroundColor: c.surface },
-    backdrop:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    card:         { width: '100%', maxWidth: WEB_CARD_MAX, maxHeight: '90%', backgroundColor: c.surface, borderRadius: 14, overflow: 'hidden' },
+    page:         { flex: 1, minHeight: 0, backgroundColor: c.surface },
+    // Page header buttons: real 44 boxes (react-native-web ignores hitSlop).
+    pageBackBtn:  { minWidth: 88, minHeight: 44, justifyContent: 'center' },
+    pageBackText: { ...t.title, color: c.primary },
+    backdrop:     { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
+    card:         { width: '100%', maxWidth: WEB_CARD_MAX, maxHeight: '90%', backgroundColor: c.surface, borderRadius: RADIUS.lg, overflow: 'hidden' },
 
-    header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
-    headerTitle:  { fontSize: 17, fontWeight: '700', color: c.text },
-    headerBtn:    { minWidth: 60, alignItems: 'center' },
-    headerBtnText:{ fontSize: 15, color: c.textMuted },
+    header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SPACE.lg, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    headerTitle:  t.title,
+    // Modal-mode Cancel / Done: real 44 boxes too.
+    headerBtn:    { minWidth: 60, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    headerBtnText:{ ...t.sub, color: c.textMuted },
 
-    scroll:       { padding: 16, paddingBottom: 40 },
+    // Horizontal padding is the 32 the cell-size math above subtracts.
+    scroll:       { padding: SPACE.lg, paddingBottom: SPACE.xl },
 
-    previewSection:{ alignItems: 'center', marginBottom: 20 },
-    previewCircle: { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
-    previewPhoto:  { width: 90, height: 90, borderRadius: 45, marginBottom: 8 },
+    previewSection:{ alignItems: 'center', marginBottom: SPACE.lg },
+    previewCircle: { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
+    previewPhoto:  { width: 90, height: 90, borderRadius: 45, marginBottom: SPACE.sm },
     previewEmoji:  { fontSize: 48 },
-    previewName:   { fontSize: 14, color: c.textSub, fontWeight: '600' },
+    previewName:   t.sub,
 
-    photoRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-    photoBtn:     { flex: 1, borderWidth: 1.5, borderColor: c.primary, borderRadius: 10, padding: 12, alignItems: 'center' },
-    photoBtnText: { fontSize: 15, color: c.primary, fontWeight: '600' },
-    uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    removePhotoBtn:  { paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, borderWidth: 1.5, borderColor: c.danger },
-    removePhotoBtnText: { fontSize: 13, color: c.danger, fontWeight: '600' },
+    photoRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.lg },
+    photoBtn:     { flex: 1, minHeight: 44, justifyContent: 'center', borderWidth: HAIRLINE, borderColor: c.primary, borderRadius: RADIUS.md, padding: SPACE.md, alignItems: 'center' },
+    photoBtnText: { ...t.title, color: c.primary },
+    uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    removePhotoBtn:  { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, paddingVertical: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.danger },
+    removePhotoBtnText: { ...t.sub, color: c.danger },
 
-    orLabel:      { textAlign: 'center', fontSize: 13, color: c.textMuted, marginBottom: 16 },
-    sectionLabel: { fontSize: 13, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+    orLabel:      { ...t.hint, textAlign: 'center', marginBottom: SPACE.lg },
+    sectionLabel: { ...t.fieldLabel, marginBottom: SPACE.sm },
 
-    grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-start', marginBottom: 12 },
-    cell:         { width: CELL_SIZE, alignItems: 'center', padding: 4, borderRadius: 12, borderWidth: 2, borderColor: 'transparent' },
+    // gap stays within the 6px per cell the cell-size math leaves, so five
+    // cells still fit a row.
+    grid:         { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, justifyContent: 'flex-start', marginBottom: SPACE.md },
+    // The 2px outline marks the selected cell (a selection state, not a divider).
+    cell:         { width: CELL_SIZE, alignItems: 'center', padding: SPACE.xs, borderRadius: RADIUS.md, borderWidth: 2, borderColor: 'transparent' },
     cellSelected: { borderColor: c.primary, backgroundColor: c.primaryLight },
     cellLocked:   { opacity: 0.65 },
-    cellCircle:   { width: CELL_SIZE - 12, height: CELL_SIZE - 12, borderRadius: (CELL_SIZE - 12) / 2, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+    cellCircle:   { width: CELL_SIZE - 12, height: CELL_SIZE - 12, borderRadius: (CELL_SIZE - 12) / 2, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.xs },
     cellEmoji:    { fontSize: 28 },
     cellEmojiLocked: { opacity: 0.5 },
-    lockOverlay:  { position: 'absolute', bottom: -2, right: -2, fontSize: 13 },
-    cellName:     { fontSize: 10, color: c.textSub, textAlign: 'center', fontWeight: '500' },
+    lockOverlay:  { position: 'absolute', bottom: -SPACE.xxs, right: -SPACE.xxs, fontSize: FONT.size.base },
+    cellName:     { fontSize: FONT.size.xxs, color: c.textSub, textAlign: 'center', fontWeight: '500' },
     cellNameLocked: { color: c.textMuted },
 
-    hintCard:     { backgroundColor: '#fff8e1', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#ffe082' },
-    hintRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-    hintEmoji:    { fontSize: 32, marginTop: 2 },
+    hintCard:     { backgroundColor: c.warningLight, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.warning },
+    hintRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md },
+    hintEmoji:    { fontSize: 32, marginTop: SPACE.xxs },
     hintBody:     { flex: 1 },
-    hintTitle:    { fontSize: 14, fontWeight: '700', color: '#5d4037', marginBottom: 4 },
-    hintText:     { fontSize: 13, color: '#795548', lineHeight: 18 },
+    hintTitle:    { ...t.title, marginBottom: SPACE.xs },
+    hintText:     t.sub,
     hintBold:     { fontWeight: '700' },
-    hintClose:    { fontSize: 16, color: c.textMuted, padding: 4 },
+    hintClose:    { fontSize: FONT.size.lg, color: c.textMuted },
+    // The ✕ in a real 44 box, pulled into the card's corner padding.
+    closeBox:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: -SPACE.md, marginRight: -SPACE.md },
 
-    footnote:     { textAlign: 'center', fontSize: 12, color: c.textMuted, marginTop: 8 },
+    // Page mode: upload errors render inline (no second Modal over the host).
+    inlineError:      { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, marginHorizontal: SPACE.lg, marginTop: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.danger, backgroundColor: c.dangerLight },
+    inlineErrorTitle: { ...t.title, color: c.danger, marginBottom: SPACE.xxs },
+    inlineErrorText:  { ...t.sub, color: c.text },
+
+    footnote:     { ...t.hint, textAlign: 'center', marginTop: SPACE.sm },
   });
 }

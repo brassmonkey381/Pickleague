@@ -8,6 +8,8 @@ import { useTheme } from '../lib/ThemeContext';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 
 export type ScopeType = 'tournament' | 'season' | 'league';
 
@@ -23,6 +25,13 @@ export type PicklePotCardProps = {
   members: Array<{ id: string; full_name: string }>;
   myPickleBalance?: number;  // optional — shown in Contribute modal
   onChange: () => void;      // refetch parent state after RPC succeeds
+  /**
+   * Render without the card chrome and the title row, for a host that already
+   * frames the pot (TournamentDetail's collapsed "Pot" section names it and
+   * shows the total in its header). Default false: the standalone card,
+   * as SeasonStandings uses it.
+   */
+  bare?: boolean;
 };
 
 export default function PicklePotCard(props: PicklePotCardProps) {
@@ -30,7 +39,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
   const S = makeStyles(c);
   const {
     scopeType, scopeId, scopeLabel, pool, ante, structure,
-    isAdmin, canDistribute, members, myPickleBalance, onChange,
+    isAdmin, canDistribute, members, myPickleBalance, onChange, bare = false,
   } = props;
 
   const [showContribute, setShowContribute] = useState(false);
@@ -46,13 +55,15 @@ export default function PicklePotCard(props: PicklePotCardProps) {
   const ladder = ['🥇', '🥈', '🥉', '4th', '5th'];
 
   return (
-    <View style={S.card}>
-      <View style={S.header}>
-        <Text style={S.title}>🥒 {scopeLabel} Pot</Text>
-        <View style={S.poolPill}>
-          <Text style={S.poolValue}>🥒 {pool}</Text>
+    <View style={bare ? null : S.card}>
+      {!bare && (
+        <View style={S.header}>
+          <Text style={S.title}>🥒 {scopeLabel} Pot</Text>
+          <View style={S.poolPill}>
+            <Text style={S.poolValue}>🥒 {pool}</Text>
+          </View>
         </View>
-      </View>
+      )}
 
       <View style={S.metaRow}>
         {ante != null && ante > 0 && (
@@ -236,7 +247,7 @@ function ContributeModal({
               disabled={!valid || busy}
             >
               {busy
-                ? <ActivityIndicator color="#fff" size="small" />
+                ? <ActivityIndicator color={S.btnPrimaryText.color as string} size="small" />
                 : <Text style={S.btnPrimaryText}>Contribute</Text>}
             </TouchableOpacity>
           </View>
@@ -350,7 +361,7 @@ function AwardModal({
               disabled={!valid || busy}
             >
               {busy
-                ? <ActivityIndicator color="#fff" size="small" />
+                ? <ActivityIndicator color={S.btnPrimaryText.color as string} size="small" />
                 : <Text style={S.btnPrimaryText}>Award</Text>}
             </TouchableOpacity>
           </View>
@@ -440,7 +451,7 @@ function DistributeModal({
               disabled={busy}
             >
               {busy
-                ? <ActivityIndicator color="#fff" size="small" />
+                ? <ActivityIndicator color={S.btnPrimaryText.color as string} size="small" />
                 : <Text style={S.btnAccentText}>Distribute</Text>}
             </TouchableOpacity>
           </View>
@@ -452,58 +463,59 @@ function DistributeModal({
 
 // ─────────────────────────────────────────────────────────────────────
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  // UI compaction P5b: SPACE / RADIUS tokens, theme colours only (no hex, no
+  // shadow: the card is a plain hairline Panel; the modals are overlays and
+  // keep the backdrop), FONT sizes only, and 44px boxes on every button.
   return StyleSheet.create({
     card: {
-      backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12,
-      borderWidth: 1, borderColor: c.border,
-      shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
+      backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md,
+      borderWidth: HAIRLINE, borderColor: c.border,
     },
-    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    title:     { fontSize: 15, fontWeight: '800', color: c.text },
-    poolPill:  { backgroundColor: c.primaryLight, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1.5, borderColor: c.primary },
-    poolValue: { fontSize: 14, fontWeight: '900', color: c.primary },
+    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACE.sm },
+    title:     { fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy, color: c.text },
+    poolPill:  { backgroundColor: c.primaryLight, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.primary },
+    poolValue: { fontSize: FONT.size.md, fontWeight: FONT.weight.black, color: c.primary },
 
-    metaRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
-    metaPill:  { backgroundColor: c.surfaceAlt, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: c.border },
-    metaText:  { fontSize: 12, color: c.textSub },
-    metaBold:  { fontWeight: '700', color: c.text },
-    hint:      { fontSize: 11, color: c.textMuted, marginTop: 4, lineHeight: 16 },
+    metaRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.xs },
+    metaPill:  { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border },
+    metaText:  { fontSize: FONT.size.sm, color: c.textSub },
+    metaBold:  { fontWeight: FONT.weight.bold, color: c.text },
+    hint:      { fontSize: FONT.size.xs, color: c.textMuted, marginTop: SPACE.xs, lineHeight: FONT.line.tight },
 
-    btnRow:    { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
-    btn:       { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', minWidth: 90 },
+    btnRow:    { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.sm, flexWrap: 'wrap' },
+    btn:       { flex: 1, minHeight: 44, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center', minWidth: 90 },
     btnPrimary:        { backgroundColor: c.primary },
-    btnPrimaryText:    { color: '#fff', fontWeight: '800', fontSize: 13 },
-    btnSecondary:      { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    btnSecondaryText:  { color: c.textSub, fontWeight: '700', fontSize: 13 },
-    btnAccent:         { backgroundColor: '#f57f17' },
-    btnAccentText:     { color: '#fff', fontWeight: '800', fontSize: 13 },
+    btnPrimaryText:    { color: c.textInverse, fontWeight: FONT.weight.heavy, fontSize: FONT.size.base },
+    btnSecondary:      { backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    btnSecondaryText:  { color: c.textSub, fontWeight: FONT.weight.bold, fontSize: FONT.size.base },
+    btnAccent:         { backgroundColor: c.warning },
+    btnAccentText:     { color: c.textInverse, fontWeight: FONT.weight.heavy, fontSize: FONT.size.base },
     btnDisabled:       { opacity: 0.45 },
 
-    modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-    modalCard:     { backgroundColor: c.surface, borderRadius: 16, padding: 20, maxWidth: 480, width: '100%', alignSelf: 'center' },
-    modalTitle:    { fontSize: 18, fontWeight: '900', color: c.text, marginBottom: 4 },
-    modalBody:     { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 19 },
-    modalBold:     { fontWeight: '800', color: c.text },
-    modalSub:      { fontSize: 12, color: c.textMuted, marginTop: 2, marginBottom: 6 },
+    modalBackdrop: { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', padding: SPACE.lg },
+    modalCard:     { backgroundColor: c.surface, borderRadius: RADIUS.lg, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.xl, maxWidth: 480, width: '100%', alignSelf: 'center' },
+    modalTitle:    { fontSize: FONT.size.xl, fontWeight: FONT.weight.black, color: c.text, marginBottom: SPACE.xs },
+    modalBody:     { fontSize: FONT.size.base, color: c.textSub, marginTop: SPACE.xs, lineHeight: FONT.line.tight },
+    modalBold:     { fontWeight: FONT.weight.heavy, color: c.text },
+    modalSub:      { fontSize: FONT.size.sm, color: c.textMuted, marginTop: SPACE.xxs, marginBottom: SPACE.xs },
 
-    label:    { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 12, marginBottom: 5 },
-    input:    { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    label:    { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: SPACE.md, marginBottom: SPACE.xs },
+    input:    { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
 
-    previewBox:    { backgroundColor: c.primaryLight, borderRadius: 10, padding: 12, marginTop: 12 },
-    previewLine:   { fontSize: 13, color: c.textSub, marginVertical: 1 },
-    previewTotal:  { fontSize: 14, fontWeight: '800', color: c.primary, marginTop: 4 },
-    errorText:     { fontSize: 12, color: c.danger, marginTop: 8 },
+    previewBox:    { backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
+    previewLine:   { fontSize: FONT.size.base, color: c.textSub, marginVertical: SPACE.xxs },
+    previewTotal:  { fontSize: FONT.size.md, fontWeight: FONT.weight.heavy, color: c.primary, marginTop: SPACE.xs },
+    errorText:     { fontSize: FONT.size.sm, color: c.danger, marginTop: SPACE.sm },
 
-    memberList:    { maxHeight: 200, marginTop: 6, borderWidth: 1, borderColor: c.border, borderRadius: 10 },
-    memberRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderBottomColor: c.border },
+    memberList:    { maxHeight: 200, marginTop: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md },
+    memberRow:     { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACE.md, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     memberRowSelected: { backgroundColor: c.primaryLight },
-    memberName:    { fontSize: 14, color: c.text },
-    memberNameSelected: { fontWeight: '700', color: c.primary },
-    memberCheck:   { fontSize: 16, color: c.primary, fontWeight: '700' },
-    emptyText:     { padding: 14, fontSize: 13, color: c.textMuted, textAlign: 'center' },
+    memberName:    { fontSize: FONT.size.md, color: c.text },
+    memberNameSelected: { fontWeight: FONT.weight.bold, color: c.primary },
+    memberCheck:   { fontSize: FONT.size.lg, color: c.primary, fontWeight: FONT.weight.bold },
+    emptyText:     { padding: SPACE.md, fontSize: FONT.size.base, color: c.textMuted, textAlign: 'center' },
 
-
-    modalBtnRow:   { flexDirection: 'row', gap: 10, marginTop: 16 },
-    modalBtn:      { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+    modalBtnRow:   { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.lg },
+    modalBtn:      { flex: 1, minHeight: 44, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
   });
 }

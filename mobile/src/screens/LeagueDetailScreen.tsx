@@ -1,138 +1,146 @@
-import React, { useEffect, useRef, useState } from 'react';
+// A league's home screen, laid out in the one section order every detail
+// screen uses (plan section 5):
+//
+//   0 header ...... league name as the native title; [Share] [Bookmark] on the right
+//   1 identity .... (Public) (📍 court · N here ›) (N members) (You: Admin) (ⓘ How it works)
+//                   + the description, clamped to 2 lines with "more"
+//   2 you ......... quick row [+Record] [Standings] [Events] [Members]
+//                   (non-members: the shared LeagueJoinCard + [Standings] [Events] [Members])
+//   3 status ...... SeasonStrip: "Fall · Wk 7 of 12 · You #2 · locks Oct 20 ›" + top 3 + your row
+//   4 coming up ... votes (needs-you) first, then events and tournaments by date,
+//                   max 3, then "Show N more"
+//   5 more ........ History · Calendar · Tournaments · Past (n)
+//   6 manage ...... every admin action, in one collapsed section
+//
+// This replaced a stack of tall cards (court banner, info card, role banner,
+// season card, champion card, two "upcoming" cards, past seasons, seven option
+// cards) that put Record Match at y≈700; the quick row puts it at y≈100-160.
+// Once the quick row scrolls away, a StickyActionBar repeats the primary
+// action (Record for members, Join/Request for everyone else); PlayIsland
+// floats above that bar through the foundation's bottom chrome slot.
+//
+// Every action that existed before is still here: Record, Members, Events,
+// Match history, Calendar, Tournaments, past seasons, How it works, share and
+// bookmark (header), join/request (LeagueJoinCard), and in Manage: edit league,
+// invite players, start a season, edit the baseline, lock periods / complete
+// season (SeasonStandings), join requests (LeagueMembers) and godmode delete.
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  ScrollView, Text, TouchableOpacity, StyleSheet,
-  View, ActivityIndicator, Modal, TextInput,
+  ScrollView, View, StyleSheet, Text,
+  type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp, useFocusEffect } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
+import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import {
   sbCall, currentUserId, classifySbError, friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
-import { getLeagueRole, isPrivileged, LeagueRole, roleLabel, roleBadgeColor } from '../lib/leagueRole';
+import { StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
+import { TextField } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { supabase } from '../lib/supabase';
+import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { isGodmodeUserId } from '../lib/godmode';
-import { getRegionName } from '../lib/regions';
-import { TONE_COLORS, tournamentTone, ActivityTone } from '../lib/activityTone';
-import CourtPicker, { CourtResult } from '../components/CourtPicker';
-import AppDateTimePicker from '../components/AppDateTimePicker';
 import ConfirmModal from '../components/ConfirmModal';
+import ActionSheetModal from '../components/ActionSheetModal';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
-import { displayCourtName } from '../lib/courtNickname';
-import StatusBanner from '../components/StatusBanner';
-import BookmarkButton from '../components/BookmarkButton';
-import ShareLinkButton from '../components/ShareLinkButton';
-import { useStatusMessage } from '../lib/useStatusMessage';
+import { useToast } from '../lib/useToast';
 import { League, LeagueSeason, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
-import { BallIcon } from '../components/PickleIcons';
-import FlairName from '../components/FlairName';
-import CourtPresenceLine from '../components/CourtPresenceLine';
+import { trackSectionToggle } from '../lib/analytics';
+import { useLeagueJoin } from '../lib/useLeagueJoin';
+import { tournamentStatusChip } from '../lib/entityGlyph';
+import {
+  addDaysIso, livePeriodNumber, localIsoDate, periodWindow, standingsTargetSeasonId, summarizeSeason,
+  type SeasonSummary, type StandingsMatch, type StandingsMember,
+} from '../lib/seasonSummary';
+import LeagueJoinCard from '../components/LeagueJoinCard';
+import SeasonStrip from '../components/SeasonStrip';
+import LeagueIdentity from '../components/league/LeagueIdentity';
+import LeagueQuickRow from '../components/league/LeagueQuickRow';
+import LeagueComingUp, { type LeagueChampion, type LeagueComingUpItem } from '../components/league/LeagueComingUp';
+import LeagueMoreLinks, { type LeagueMoreLink } from '../components/league/LeagueMoreLinks';
+import LeagueManageSection, { type LeagueManageRow } from '../components/league/LeagueManageSection';
+import LeagueEditSheet from '../components/league/LeagueEditSheet';
+import SeasonSetupSheet from '../components/league/SeasonSetupSheet';
+import LeagueHeaderActions from '../components/league/LeagueHeaderActions';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueDetail'>;
   route: RouteProp<RootStackParamList, 'LeagueDetail'>;
 };
-type Option = { icon: React.ReactNode; label: string; sub: string; onPress: () => void; adminOnly?: boolean; highlight?: boolean };
 
-type ChampionWinner = {
-  name:        string;
-  nameColor:   string | null;
-  profileStyleId: string | null;
-};
+type MemberRow = StandingsMember & { role?: string | null };
 
-type LatestChampion = {
-  tournamentId:   string;
-  tournamentName: string;
-  teamName:       string;
-  winners:        ChampionWinner[];
-  record:         string | null; // "12-4" or null when no record data
-};
+// The columns the season strip's live standings read (SeasonStandings' list).
+const STANDINGS_MATCH_COLUMNS =
+  'player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
+  + ' player1_rating_before, player1_rating_after, player2_rating_before, player2_rating_after';
 
-type ComingUpItem = {
-  key:    string;
-  kind:   'tournament' | 'event';
-  icon:   React.ReactNode;
-  title:  string;
-  whenLabel: string;
-  whenMs: number;
-  badge?: string;        // e.g. "Voting"
-  // purple = open/joinable/upcoming-future; blue = locked-in & scheduled.
-  // undefined = no status tint (e.g. voting closed, awaiting finalization).
-  tone?:  ActivityTone;
-  onPress: () => void;
-};
-
-const WEEK_PRESETS    = [3, 6, 12] as const;
-const LOCK_PRESETS    = [1, 2, 4]  as const;
-
-// Build the separator that appears AFTER the winner at index `i` in a roster
-// of length `n`. Mirrors the old comma-and-"and" formatting.
-function rosterSeparator(i: number, n: number): string {
-  if (i === n - 1) return '';            // last: no trailing separator
-  if (n === 2) return ' and ';           // "Alice and Bob"
-  if (i === n - 2) return ', and ';      // Oxford comma before final name
-  return ', ';
+/** "Jan 5, 2026 → Mar 30, 2026" for a past-season row. */
+function seasonRange(s: LeagueSeason): string {
+  const f = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${f(s.start_date)} → ${f(s.end_date)}`;
 }
 
 export default function LeagueDetailScreen({ navigation, route }: Props) {
   const { leagueId, leagueName: paramName } = route.params;
   const { colors } = useTheme();
-  const S = makeStyles(colors);
+  const t = textStyles(colors);
+  const toast = useToast();
+  const isFocused = useIsFocused();
   const { registerAnchor } = useTour();
 
-  // Spotlight-tour anchor: the gold "Record Match" card is the final step of
-  // the 'leagues' tour. Registered on layout (the card only renders once the
+  // Spotlight-tour anchor: the quick row's Record tile is the final step of
+  // the 'leagues' tour. Registered on layout (the row only renders once the
   // screen has loaded). Harmless if the tour never reaches this step.
   const recordAnchor = useRef<any>(null);
 
   const [myRole, setMyRole]   = useState<LeagueRole>(null);
   // False until a role read actually succeeded. A failed read must not be
-  // mistaken for "not a member" — that showed existing members a "Join this
+  // mistaken for "not a member": that showed existing members a "Join this
   // league" card and quietly dropped every admin control.
   const [roleKnown, setRoleKnown] = useState(false);
   const [league, setLeague]   = useState<League | null>(null);
   // The loaded name wins over the param: a push used to pass its own title
-  // ("🎟️ Invite: ...") as the league name, header included.
-  const leagueName = league?.name || paramName;
-  useEffect(() => {
-    if (league?.name) navigation.setOptions({ title: league.name });
-  }, [league?.name, navigation]);
+  // ("🎟️ Invite: ...") as the league name, header included. A clean web URL
+  // (/leagues/:id) has no param at all, so the header says "League" until the
+  // row lands instead of the route name "LeagueDetail".
+  const leagueName = league?.name || paramName || '';
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<unknown>(null);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);
   const [pastSeasons, setPastSeasons]   = useState<LeagueSeason[]>([]);
+  const [members, setMembers]           = useState<MemberRow[] | null>(null);
+  const [seasonSummary, setSeasonSummary] = useState<SeasonSummary | null>(null);
+  // Which season `seasonSummary` describes (SeasonSummary carries no id). A
+  // failed strip load may keep the previous summary only for the SAME season,
+  // never show season A's ranks and lock date under season B.
+  const summarySeasonId = useRef<string | null>(null);
+  // Latest strip load: an older, slower load must not overwrite a newer one.
+  const stripSeq = useRef(0);
   const [godmode, setGodmode]           = useState(false);
-  const [latestChampion, setLatestChampion] = useState<LatestChampion | null>(null);
-  const [upcomingTournaments, setUpcomingTournaments] = useState<ComingUpItem[]>([]);
-  const [upcomingEvents, setUpcomingEvents]           = useState<ComingUpItem[]>([]);
-  const [comingUpLoaded, setComingUpLoaded]           = useState(false);
+  const [champion, setChampion]         = useState<LeagueChampion | null>(null);
+  const [comingUp, setComingUp]         = useState<LeagueComingUpItem[]>([]);
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const [myRequestPending, setMyRequestPending] = useState(false);
+
+  // Manage: controlled so it can open itself when a step is pending (join
+  // requests waiting, a period lock due), until the user toggles it.
+  const [manageOpen, setManageOpen] = useState(false);
+  const manageTouched = useRef(false);
+
+  const [pastSheetOpen, setPastSheetOpen] = useState(false);
+  const [editVisible, setEditVisible]     = useState(false);
+  const [seasonModal, setSeasonModal]     = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]         = useState(false);
   const [deleteError, setDeleteError]   = useState<string | null>(null);
-
-  // League edit modal
-  const [editVisible, setEditVisible]   = useState(false);
-  const [pendingName, setPendingName]   = useState('');
-  const [pendingDesc, setPendingDesc]   = useState('');
-  const [pendingIsOpen, setPendingIsOpen] = useState(true);
-  const [pendingCourt, setPendingCourt] = useState<CourtResult | null>(null);
-  const [saving, setSaving]             = useState(false);
-
-  // Season setup modal
-  const [seasonModal, setSeasonModal]         = useState(false);
-  const [seasonName, setSeasonName]           = useState('');
-  const [seasonStart, setSeasonStart]         = useState(new Date());
-  const [showDatePicker, setShowDatePicker]   = useState(false);
-  const [totalWeeks, setTotalWeeks]           = useState(12);
-  const [customWeeks, setCustomWeeks]         = useState('');
-  const [lockWeeks, setLockWeeks]             = useState(2);
-  const [customLock, setCustomLock]           = useState('');
-  const [baselinePlupr, setBaselinePlupr]     = useState('3.5');
-  const [creatingSeasonFlag, setCreatingSeasonFlag] = useState(false);
 
   // Edit-baseline modal for the active season
   const [showBaselineEdit, setShowBaselineEdit] = useState(false);
@@ -140,13 +148,38 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [savingBaseline, setSavingBaseline]     = useState(false);
   const [baselineError, setBaselineError]       = useState<string | null>(null);
 
-  // In-modal status banners (replaces Alert.alert on web)
-  const editStatus   = useStatusMessage();
-  const seasonStatus = useStatusMessage();
+  // Sticky bar: shown once the "you" slot (quick row / join card) has scrolled
+  // off the top. Kept in a ref too so onScroll only sets state on a change.
+  const youBottom = useRef<number | null>(null);
+  // The threshold is built from SIZES only (identity height + "you" height):
+  // react-native-web's onLayout comes from a ResizeObserver and does not fire
+  // when a View only MOVES, so the "you" slot's y goes stale on web when the
+  // identity block above grows (roster opened, "more", the presence chip wrap).
+  const identityH = useRef<number | null>(null);
+  const youH = useRef<number | null>(null);
+  const pastYou = useRef(false);
+  const [stickyVisible, setStickyVisible] = useState(false);
+  const bottomInset = useBottomChromeInset(SPACE.lg);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      title: leagueName || 'League',
+      headerRight: () => (
+        <LeagueHeaderActions
+          leagueId={leagueId}
+          leagueName={leagueName || 'this league'}
+          onCopied={() => toast.success('League link copied.')}
+        />
+      ),
+    });
+    // toast is stable for the provider's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, leagueId, leagueName]);
 
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [leagueId])
   );
 
@@ -154,7 +187,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   async function load() {
     try {
-      const [role, uid, leagueRow, seasonRow, completedRows] = await Promise.all([
+      const [role, uid, leagueRow, seasonRow, completedRows, memberRows] = await Promise.all([
         // A failed role read reports "unknown", never "not a member".
         getLeagueRole(leagueId).catch(() => 'unknown' as const),
         // Local session read instead of checkGodmode()'s getUser() round trip.
@@ -172,18 +205,32 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           .eq('league_id', leagueId)
           .eq('status', 'completed')
           .order('end_date', { ascending: false })),
+        // Members (readable by everyone): the "N members" chip and the season
+        // strip's names. Decorative, so a failure leaves them out instead of
+        // failing the screen.
+        sbCall(() => supabase.from('league_members')
+          .select('user_id, role, profile:profiles(full_name)')
+          .eq('league_id', leagueId))
+          .catch(() => null),
       ]);
       if (role !== 'unknown') { setMyRole(role); setRoleKnown(true); }
+      const season = (seasonRow as LeagueSeason) ?? null;
+      const memberList = memberRows ? (memberRows as unknown as MemberRow[]) : null;
       setLeague(leagueRow as League);
-      setActiveSeason((seasonRow as LeagueSeason) ?? null);
+      setActiveSeason(season);
       setPastSeasons((completedRows ?? []) as LeagueSeason[]);
+      if (memberList) setMembers(memberList);
+      setMyUserId(uid);
       setGodmode(isGodmodeUserId(uid));
       setLoadError(null);
 
-      // Fire the league-recap + coming-up loaders in parallel after the main
-      // render. Errors here are non-fatal — the cards just won't render.
+      // Secondary loaders run after the main render. Errors in them are
+      // non-fatal: their sections just don't render (or keep what they had).
+      const effectiveRole = role === 'unknown' ? myRole : role;
+      void loadSeasonStrip(season, uid, memberList);
       void loadLatestChampion();
-      void loadComingUp();
+      void loadComingUp(isPrivileged(effectiveRole));
+      void loadRequests(role, uid, memberList);
     } catch (e) {
       // Keep whatever's already rendered; the error only decides what the
       // "no league loaded" branch shows.
@@ -193,47 +240,91 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  // ── Join / request-to-join (prospective members) ──────────────
-  const [joining, setJoining] = useState(false);
-  const joinStatus = useStatusMessage();
-
-  async function joinOpenLeague() {
-    setJoining(true);
-    joinStatus.clear();
+  // ── Season strip ──────────────────────────────────────────────
+  async function loadSeasonStrip(season: LeagueSeason | null, uid: string | null, memberList: MemberRow[] | null) {
+    const seq = ++stripSeq.current;
+    if (!season) { summarySeasonId.current = null; setSeasonSummary(null); return; }
+    // The same UTC "today" SeasonStandings uses, so the strip and the screen
+    // it opens agree on the live period (see lib/seasonSummary.ts). The lock
+    // flag uses the LOCAL date, as SeasonStandings' Lock button does.
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const lockToday = localIsoDate(now);
+    const s = season as LeagueSeason & { baseline_plupr?: number | null };
     try {
-      const uid = await currentUserId(supabase);
-      if (!uid) { joinStatus.error('Please sign in again.'); return; }
-      await sbCall(() => supabase
-        .from('league_members')
-        .upsert({ league_id: leagueId, user_id: uid, role: 'member' }));
-      await load();
-    } catch (e) {
-      joinStatus.error(friendlySbMessage(e, "Couldn't join the league."));
-    } finally {
-      setJoining(false);
+      const snaps = await sbCall(() => supabase.from('season_snapshots')
+        .select('period_number')
+        .eq('season_id', season.id));
+      const locked = new Set(((snaps ?? []) as { period_number: number }[]).map((r) => r.period_number));
+      let matches: StandingsMatch[] = [];
+      const period = today >= season.start_date ? livePeriodNumber(season, locked, today) : null;
+      if (period != null) {
+        const w = periodWindow(season, period, today);
+        // A day of slack on each side of the window: summarizeSeason filters
+        // with SeasonStandings' exact string compare, so the server bound only
+        // has to be wide enough, never exact.
+        matches = ((await sbCall(() => supabase.from('matches')
+          .select(STANDINGS_MATCH_COLUMNS)
+          .eq('league_id', leagueId)
+          .gte('played_at', addDaysIso(w.start, -1))
+          .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
+      }
+      if (seq !== stripSeq.current) return;
+      setSeasonSummary(summarizeSeason({
+        season: s, lockedPeriods: locked, members: memberList ?? [], matches, myUserId: uid, today, lockToday,
+      }));
+      summarySeasonId.current = season.id;
+    } catch {
+      if (seq !== stripSeq.current) return;
+      // Keep a strip that was already showing for THIS season; otherwise show
+      // the headline without lock or rank facts (unknown is left out, never
+      // guessed).
+      const fallback: SeasonSummary = {
+        ...summarizeSeason({ season: s, lockedPeriods: [], members: [], matches: [], myUserId: uid, today, lockToday }),
+        nextLockOn: null,
+        lockDue: false,
+      };
+      const sameSeason = summarySeasonId.current === season.id;
+      setSeasonSummary((prev) => (prev && sameSeason ? prev : fallback));
+      summarySeasonId.current = season.id;
     }
   }
 
-  async function requestToJoin() {
-    setJoining(true);
-    joinStatus.clear();
+  // ── Join requests (admins) / my pending request (non-members) ──
+  async function loadRequests(role: LeagueRole, uid: string | null, memberList: MemberRow[] | null) {
     try {
-      const uid = await currentUserId(supabase);
-      if (!uid) { joinStatus.error('Please sign in again.'); return; }
-      await sbCall(() => supabase
-        .from('league_join_requests')
-        .upsert({ league_id: leagueId, user_id: uid, status: 'pending' }));
-      joinStatus.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
-    } catch (e) {
-      joinStatus.error(friendlySbMessage(e, "Couldn't send the request."));
-    } finally {
-      setJoining(false);
+      if (isPrivileged(role)) {
+        // RLS: admins and co-admins can read their league's requests. Nothing
+        // resolves a request when the requester joins another way (redeeming
+        // an invite code leaves the row 'pending' forever), so requesters who
+        // are already members don't count as waiting; otherwise Manage would
+        // flag a stale request and open itself on every visit. If the members
+        // read failed, fall back to the raw count.
+        const { data } = await supabase.from('league_join_requests')
+          .select('user_id')
+          .eq('league_id', leagueId)
+          .eq('status', 'pending');
+        const pending = (data ?? []) as { user_id: string }[];
+        const memberIds = memberList ? new Set(memberList.map((m) => m.user_id)) : null;
+        setPendingRequests(memberIds ? pending.filter((r) => !memberIds.has(r.user_id)).length : pending.length);
+      } else if (role === null && uid) {
+        // RLS: a user can read their own requests.
+        const { data } = await supabase.from('league_join_requests')
+          .select('id')
+          .eq('league_id', leagueId)
+          .eq('user_id', uid)
+          .eq('status', 'pending')
+          .maybeSingle();
+        setMyRequestPending(!!data);
+      }
+    } catch {
+      // Decorative: the Manage row / "Request sent" state just doesn't show.
     }
   }
 
   async function loadLatestChampion() {
     // Most recent completed tournament in this league.
-    const { data: t } = await supabase
+    const { data: tour } = await supabase
       .from('tournaments')
       .select('id, name, status')
       .eq('league_id', leagueId)
@@ -242,41 +333,34 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!t) { setLatestChampion(null); return; }
+    if (!tour) { setChampion(null); return; }
 
     // First-place winners from the champion-badges table (MLP auto-payout).
     const { data: badges } = await supabase
       .from('tournament_champion_badges')
       .select('user_id, team_name, team_id')
-      .eq('tournament_id', t.id)
+      .eq('tournament_id', tour.id)
       .eq('place', 1);
-    if (!badges || badges.length === 0) { setLatestChampion(null); return; }
+    if (!badges || badges.length === 0) { setChampion(null); return; }
 
-    const winnerUids  = badges.map((b: any) => b.user_id);
-    const teamName    = (badges[0] as any).team_name ?? 'Champions';
+    const winnerUids    = badges.map((b: any) => b.user_id);
+    // A non-team winner (e.g. singles) has no team_name: null, so the row
+    // titles itself "<tournament> champions" instead of "Champions: Champions".
+    const rawTeam       = (badges[0] as any).team_name as string | null | undefined;
+    const teamName      = rawTeam && rawTeam.trim() ? rawTeam.trim() : null;
     const winningTeamId = (badges[0] as any).team_id ?? null;
 
     const [profilesRes, standingsRes] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id, full_name, name_color, profile_name_style_id')
-        .in('id', winnerUids),
+      supabase.from('profiles').select('id, full_name').in('id', winnerUids),
       winningTeamId
-        ? supabase.rpc('mlp_team_standings', { p_tournament_id: t.id })
+        ? supabase.rpc('mlp_team_standings', { p_tournament_id: tour.id })
         : Promise.resolve({ data: null } as any),
     ]);
 
-    const profileMap: Record<string, ChampionWinner> = {};
-    for (const p of (profilesRes.data ?? []) as any[]) {
-      profileMap[p.id] = {
-        name:        p.full_name ?? '—',
-        nameColor:   p.name_color ?? null,
-        profileStyleId: p.profile_name_style_id ?? null,
-      };
-    }
-    const winners: ChampionWinner[] = winnerUids.map((u: string) =>
-      profileMap[u] ?? { name: '—', nameColor: null, profileStyleId: null }
-    );
+    const names = new Map<string, string>();
+    for (const p of (profilesRes.data ?? []) as any[]) if (p.full_name) names.set(p.id, p.full_name);
+    // A winner whose profile didn't load is left out rather than shown as "—".
+    const winners = winnerUids.map((u: string) => names.get(u)).filter((n: string | undefined): n is string => !!n);
 
     let record: string | null = null;
     if (winningTeamId && standingsRes?.data) {
@@ -284,16 +368,16 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       if (winRow) record = `${winRow.sub_matches_won}-${winRow.sub_matches_lost}`;
     }
 
-    setLatestChampion({
-      tournamentId: t.id,
-      tournamentName: t.name,
+    setChampion({
+      tournamentName: tour.name,
       teamName,
       winners,
       record,
+      onPress: () => navigation.navigate('TournamentDetail', { tournamentId: tour.id, tournamentName: tour.name }),
     });
   }
 
-  async function loadComingUp() {
+  async function loadComingUp(privileged: boolean) {
     const fmt = (ms: number) => new Date(ms).toLocaleString(undefined, {
       weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
     });
@@ -307,7 +391,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         .limit(5),
       // Scheduled events with a confirmed future slot. We fetch the slot
       // separately rather than via embedded select because the FK on
-      // confirmed_slot_id wasn't always present in older schemas — the join
+      // confirmed_slot_id wasn't always present in older schemas: the join
       // would silently return null and drop the row.
       supabase.from('league_events')
         .select('id, title, status, confirmed_slot_id')
@@ -320,32 +404,27 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         .eq('status', 'voting'),
     ]);
 
-    // Tournaments — include those with a NULL start_time (registration but
-    // date not yet picked) as "Date TBD" so they're visible to admins.
-    // Dated tournaments still sort first by start_time; TBD ones drop to the
-    // bottom via Number.MAX_SAFE_INTEGER.
-    const tItems: ComingUpItem[] = [];
-    for (const t of ((tRes.data ?? []) as any[])) {
-      const ms = t.start_time ? new Date(t.start_time).getTime() : null;
-      if (ms != null && ms < Date.now()) continue;
-      tItems.push({
-        key:   `t-${t.id}`,
+    const now = Date.now();
+    const items: LeagueComingUpItem[] = [];
+
+    // Tournaments, including those with no start_time yet (registration open,
+    // date not picked). Those sort last. Admins see "Date TBD"; everyone else
+    // sees what they can act on instead (content rule: no TBD for non-admins).
+    for (const tr of ((tRes.data ?? []) as any[])) {
+      const ms = tr.start_time ? new Date(tr.start_time).getTime() : null;
+      if (ms != null && ms < now) continue;
+      items.push({
+        key:   `t-${tr.id}`,
         kind:  'tournament',
-        icon:  <BallIcon size={22} />,
-        title: t.name,
-        whenLabel: ms != null ? fmt(ms) : 'Date TBD',
-        whenMs:    ms ?? Number.MAX_SAFE_INTEGER,
-        // Open for registration → purple; registration closed (active) → blue.
-        tone:  tournamentTone(t.status),
-        onPress: () => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }),
+        title: tr.name,
+        when:  ms != null ? fmt(ms) : privileged ? 'Date TBD' : tr.status === 'registration' ? 'Registration open' : 'Starting soon',
+        whenMs: ms ?? Number.MAX_SAFE_INTEGER,
+        chip:  tournamentStatusChip(tr.status),
+        onPress: () => navigation.navigate('TournamentDetail', { tournamentId: tr.id, tournamentName: tr.name }),
       });
     }
-    tItems.sort((a, b) => a.whenMs - b.whenMs);
 
-    // Events: scheduled (with future slot) + voting (with vote_ends_at in future)
-    const eItems: ComingUpItem[] = [];
-
-    // Resolve confirmed slot starts_at via a second targeted fetch — robust
+    // Resolve confirmed slot starts_at via a second targeted fetch, robust
     // whether or not PostgREST has an FK relationship for the embedded form.
     const scheduledRows = (scheduledRes.data ?? []) as any[];
     const slotIds = scheduledRows.map(ev => ev.confirmed_slot_id).filter(Boolean) as string[];
@@ -364,16 +443,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       const startsAt = ev.confirmed_slot_id ? slotStarts.get(ev.confirmed_slot_id) : null;
       if (!startsAt) continue;
       const ms = new Date(startsAt).getTime();
-      if (ms < Date.now()) continue;
-      eItems.push({
+      if (ms < now) continue;
+      items.push({
         key:   `e-${ev.id}`,
         kind:  'event',
-        icon:  '📅',
         title: ev.title,
-        whenLabel: fmt(ms),
+        when:  fmt(ms),
         whenMs: ms,
-        // Voting closed, locked into a future slot → blue.
-        tone:  'blue',
         onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
       });
     }
@@ -381,43 +457,43 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     for (const ev of ((votingRes.data ?? []) as any[])) {
       if (!ev.vote_ends_at) continue;
       const ms = new Date(ev.vote_ends_at).getTime();
-      if (ms >= Date.now()) {
-        // Voting is still open — show with the live deadline.
-        eItems.push({
+      if (ms >= now) {
+        // Voting is still open: show the live deadline and land on the vote.
+        items.push({
           key:   `v-${ev.id}`,
-          kind:  'event',
-          icon:  '🗳️',
+          kind:  'vote',
           title: ev.title,
-          whenLabel: `Voting ends ${fmt(ms)}`,
+          when:  `Voting ends ${fmt(ms)}`,
           whenMs: ms,
-          badge: 'Voting',
-          // Voting open → purple.
-          tone:  'purple',
-          onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
+          chip:  { label: 'Voting', tone: 'brand' },
+          onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title, focus: 'vote' }),
         });
       } else {
         // Voting closed but the event hasn't been finalized into 'scheduled'
-        // yet — surface it so admins can act on it.
-        eItems.push({
+        // yet: surface it so admins can act on it. Sorted at "now", above
+        // future events.
+        items.push({
           key:   `vc-${ev.id}`,
-          kind:  'event',
-          icon:  '⏰',
+          kind:  'vote',
           title: ev.title,
-          whenLabel: `Voting closed ${fmt(ms)} — needs finalization`,
-          // Sort vote-closed items right at "now" so they sit above future events.
-          whenMs: Date.now(),
-          badge: 'Vote closed',
+          when:  privileged ? `Voting closed ${fmt(ms)} · needs finalizing` : `Voting closed ${fmt(ms)}`,
+          whenMs: now,
+          chip:  { label: 'Vote closed', tone: 'warning' },
           onPress: () => navigation.navigate('EventDetail', { eventId: ev.id, title: ev.title }),
         });
       }
     }
-    eItems.sort((a, b) => a.whenMs - b.whenMs);
 
-    setUpcomingTournaments(tItems.slice(0, 2));
-    setUpcomingEvents(eItems.slice(0, 3));
-    setComingUpLoaded(true);
+    // Plan section 5 slot 4: needs-you rows first (open votes, and closed votes
+    // awaiting finalization, which sit at "now" so they lead the group), each
+    // by deadline; then tournaments and play days by date. Without this an open
+    // vote with a later deadline falls below the 3-row cap into "Show N more".
+    const rank = (it: LeagueComingUpItem) => (it.kind === 'vote' ? 0 : 1);
+    items.sort((a, b) => rank(a) - rank(b) || a.whenMs - b.whenMs);
+    setComingUp(items);
   }
 
+  // ── Godmode delete ────────────────────────────────────────────
   function deleteLeague() {
     if (!league) return;
     setDeleteError(null);
@@ -455,84 +531,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     navigation.goBack();
   }
 
-  async function saveLeagueChanges() {
-    if (!league) return;
-    editStatus.clear();
-    const trimmedName = pendingName.trim();
-    if (!trimmedName) { editStatus.error('League name is required.'); return; }
-
-    setSaving(true);
-    const newCourtName = pendingCourt?.name ?? null;
-    const homeCourtChanged = newCourtName !== league.home_court;
-
-    const { error } = await supabase.from('leagues').update({
-      name:           trimmedName,
-      description:    pendingDesc.trim() || null,
-      is_open:        pendingIsOpen,
-      home_court:     newCourtName,
-      home_court_lat: pendingCourt?.lat ?? null,
-      home_court_lng: pendingCourt?.lng ?? null,
-    }).eq('id', leagueId);
-    if (error) { editStatus.error(error.message); setSaving(false); return; }
-
-    // Re-derive is_home_court on existing matches only if home court changed.
-    // Server-side RPC: `matches` has no RLS UPDATE policy, so the old
-    // per-row client updates silently no-opped (matched zero rows).
-    if (homeCourtChanged) {
-      const { error: relabelErr } = await supabase.rpc('relabel_league_home_court', { p_league_id: leagueId });
-      if (relabelErr) editStatus.error(`Home court saved, but match relabeling failed: ${relabelErr.message}`);
-    }
-
-    setSaving(false);
-    setEditVisible(false);
-    const { data } = await supabase.from('leagues').select('*').eq('id', leagueId).single();
-    setLeague(data as League);
-  }
-
-  function openEdit() {
-    if (!league) return;
-    setPendingName(league.name);
-    setPendingDesc(league.description ?? '');
-    setPendingIsOpen(league.is_open);
-    setPendingCourt(
-      league.home_court
-        ? { name: league.home_court, address: '', lat: league.home_court_lat ?? 0, lng: league.home_court_lng ?? 0, placeId: '' }
-        : null
-    );
-    editStatus.clear();
-    setEditVisible(true);
-  }
-
-  // ── Season creation ───────────────────────────────────────────
-
-  // Pull a PLUPR-style number out of the league name as the default baseline.
-  // Matches "4.5" / "3.0" first, then a bare 2-6 integer; falls back to 3.5.
-  function defaultBaselineFromLeague(name: string | undefined | null): string {
-    if (!name) return '3.5';
-    const decimal = name.match(/[2-6]\.[0-9]/);
-    if (decimal) {
-      const v = parseFloat(decimal[0]);
-      if (v >= 2 && v <= 6.5) return v.toFixed(1);
-    }
-    const whole = name.match(/\b([2-6])\b/);
-    if (whole) return `${whole[1]}.0`;
-    return '3.5';
-  }
-
-  function openSeasonModal() {
-    // Auto-suggest a season name based on how many exist
-    supabase.from('league_seasons').select('id', { count: 'exact', head: true }).eq('league_id', leagueId)
-      .then(({ count }) => setSeasonName(`Season ${(count ?? 0) + 1}`));
-    setSeasonStart(new Date());
-    setTotalWeeks(12);
-    setLockWeeks(2);
-    setCustomWeeks('');
-    setCustomLock('');
-    setBaselinePlupr(defaultBaselineFromLeague(league?.name));
-    seasonStatus.clear();
-    setSeasonModal(true);
-  }
-
+  // ── Baseline edit ─────────────────────────────────────────────
   function openBaselineEdit() {
     if (!activeSeason) return;
     setEditBaselineInput(((activeSeason as any).baseline_plupr ?? 3.5).toString());
@@ -557,68 +556,56 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     load();
   }
 
-  const effectiveWeeks = totalWeeks === 0 ? parseInt(customWeeks || '0', 10) : totalWeeks;
-  const effectiveLock  = lockWeeks  === 0 ? parseInt(customLock  || '0', 10) : lockWeeks;
-
-  function computeLockDates(): Date[] {
-    if (!effectiveWeeks || !effectiveLock) return [];
-    const dates: Date[] = [];
-    const periods = Math.floor(effectiveWeeks / effectiveLock);
-    for (let i = 1; i <= periods; i++) {
-      const d = new Date(seasonStart);
-      d.setDate(d.getDate() + i * effectiveLock * 7);
-      dates.push(d);
+  // ── Sticky bar ────────────────────────────────────────────────
+  function recomputeYouBottom() {
+    if (identityH.current == null || youH.current == null) return;
+    // container paddingTop + identity + container gap + the "you" slot.
+    youBottom.current = SPACE.md + identityH.current + SPACE.md + youH.current;
+  }
+  function onIdentityLayout(e: LayoutChangeEvent) {
+    identityH.current = e.nativeEvent.layout.height;
+    recomputeYouBottom();
+  }
+  function onYouLayout(e: LayoutChangeEvent) {
+    youH.current = e.nativeEvent.layout.height;
+    recomputeYouBottom();
+  }
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    if (youBottom.current == null) return;
+    const past = e.nativeEvent.contentOffset.y > youBottom.current;
+    if (past !== pastYou.current) {
+      pastYou.current = past;
+      setStickyVisible(past);
     }
-    return dates;
   }
 
-  async function createSeason() {
-    seasonStatus.clear();
-    if (!seasonName.trim()) { seasonStatus.error('Please enter a season name.'); return; }
-    if (!effectiveWeeks || effectiveWeeks < 1) { seasonStatus.error('Please set a valid duration.'); return; }
-    if (!effectiveLock || effectiveLock < 1)   { seasonStatus.error('Please set a valid lock frequency.'); return; }
-    if (effectiveLock > effectiveWeeks)        { seasonStatus.error('Lock frequency cannot exceed season length.'); return; }
-    const baselineN = parseFloat(baselinePlupr);
-    if (!Number.isFinite(baselineN) || baselineN < 2 || baselineN > 6.5) {
-      seasonStatus.error('Baseline PLUPR must be between 2.0 and 6.5.');
-      return;
+  // The non-member sticky [Join]/[Request] runs its own useLeagueJoin (the
+  // card owns another); its copy goes to a toast, and a join reloads the
+  // screen, which flips the viewer to a member and removes both.
+  const stickyJoin = useLeagueJoin({
+    status: { clear() {}, error: toast.error, success: toast.success },
+    onJoined: () => load(),
+  });
+
+  // Manage opens itself when a step is pending (join requests waiting, a
+  // period lock due), unless the user has already opened or closed it.
+  const managePending = isPrivileged(myRole) && (pendingRequests > 0 || !!seasonSummary?.lockDue);
+  useEffect(() => {
+    if (managePending && !manageTouched.current) {
+      manageTouched.current = true;
+      setManageOpen(true);
     }
+  }, [managePending]);
 
-    const uid = await currentUserId(supabase);
-    if (!uid) { seasonStatus.error('Please sign in again.'); return; }
+  // ── Render ────────────────────────────────────────────────────
 
-    setCreatingSeasonFlag(true);
-    const startStr = seasonStart.toISOString().split('T')[0];
-    const endDate  = new Date(seasonStart);
-    endDate.setDate(endDate.getDate() + effectiveWeeks * 7);
-    const endStr   = endDate.toISOString().split('T')[0];
-
-    const { error } = await supabase.from('league_seasons').insert({
-      league_id:            leagueId,
-      name:                 seasonName.trim(),
-      start_date:           startStr,
-      end_date:             endStr,
-      total_weeks:          effectiveWeeks,
-      lock_frequency_weeks: effectiveLock,
-      baseline_plupr:       baselineN,
-      status:               new Date() >= seasonStart ? 'active' : 'upcoming',
-      created_by:           uid,
-    });
-    setCreatingSeasonFlag(false);
-    if (error) { seasonStatus.error(error.message); return; }
-    setSeasonModal(false);
-    load();
-  }
-
-  // ── Data ──────────────────────────────────────────────────────
-
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  if (loading) return <View style={[styles.root, { backgroundColor: colors.bg }]}><SkeletonList rows={6} /></View>;
   if (!league) {
-    // Without the league row the page is a shell of "Not set" placeholders —
-    // say what actually happened and keep pull-to-refresh mounted.
+    // Without the league row the page is a shell of placeholders: say what
+    // actually happened and keep pull-to-refresh mounted.
     const missing = loadError == null || classifySbError(loadError) === 'notFound';
     return (
-      <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+      <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
         <EmptyState
           icon={missing ? '🔍' : '📡'}
           title={missing ? 'League not found.' : "Couldn't load this league"}
@@ -631,587 +618,213 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   }
 
   const privileged = isPrivileged(myRole);
-  const isAdmin    = myRole === 'admin';
-  const region     = getRegionName(league?.home_court_lat ?? null, league?.home_court_lng ?? null);
+  // Only a role read that SUCCEEDED and said "not a member" makes a viewer a
+  // non-member. An unreadable role keeps the member layout (with Record).
+  const nonMember = roleKnown && !myRole;
+  const requested = myRequestPending || stickyJoin.requestedIds.has(leagueId);
+  const standingsSeasonId = standingsTargetSeasonId(activeSeason, pastSeasons);
+  const memberCount = members ? members.length : null;
+  const lockDue = privileged && !!seasonSummary?.lockDue;
 
-  const options: Option[] = [
-    {
-      icon: '📝', label: 'Record Match',
-      sub: 'Enter a singles or doubles result',
-      onPress: () => navigation.navigate('MatchEntry', { leagueId }),
-      // Gold-highlight the primary action for members so it's the obvious next step.
-      highlight: !!myRole,
-    },
-    {
-      icon: '👥', label: 'Members',
-      sub: privileged ? 'View members, manage roles, find players' : 'View league members',
-      onPress: () => navigation.navigate('LeagueMembers', { leagueId, leagueName }),
-    },
-    {
-      icon: '🗳️', label: 'Schedule & Events',
-      sub: privileged ? 'Propose play sessions, vote on availability' : 'View upcoming events and vote',
-      onPress: () => navigation.navigate('Events', { leagueId, leagueName }),
-    },
-    {
-      icon: '📜', label: 'Match History',
-      sub: 'All completed matches with dates & scores',
-      onPress: () => navigation.navigate('MatchHistory', { leagueId, title: `${leagueName} History` }),
-    },
-    {
-      icon: '🗓️', label: 'Calendar Analytics',
-      sub: 'W-L records and PLUPR changes by day',
-      onPress: () => navigation.navigate('CalendarAnalytics', { leagueId, title: `${leagueName} Calendar` }),
-    },
-    {
-      icon: <BallIcon size={26} />, label: 'Tournaments',
-      sub: 'Create and manage tournaments',
-      onPress: () => navigation.navigate('Tournaments', { leagueId, leagueName }),
-    },
-    ...(privileged ? [{
-      icon: '✉️', label: 'Invite Players',
-      sub: !league?.is_open ? 'League is private — share invite codes' : 'Share invite codes',
-      onPress: () => navigation.navigate('Invite', { leagueId, leagueName }),
-      adminOnly: true,
+  const goStandings = (seasonId: string) =>
+    navigation.navigate('SeasonStandings', { seasonId, leagueId, leagueName });
+  const goRecord = () => navigation.navigate('MatchEntry', { leagueId });
+  const goMembers = () => navigation.navigate('LeagueMembers', { leagueId, leagueName });
+
+  const moreLinks: LeagueMoreLink[] = [
+    // Short visible labels keep the line to one 44px row on a 360-390pt phone
+    // (plan section 5, slot 5); the a11y labels keep the full names.
+    { key: 'history', label: 'History', a11yLabel: 'Match history', onPress: () => navigation.navigate('MatchHistory', { leagueId, title: `${leagueName} History` }) },
+    { key: 'calendar', label: 'Calendar', a11yLabel: 'Calendar analytics', onPress: () => navigation.navigate('CalendarAnalytics', { leagueId, title: `${leagueName} Calendar` }) },
+    { key: 'tournaments', label: 'Tournaments', onPress: () => navigation.navigate('Tournaments', { leagueId, leagueName }) },
+    ...(pastSeasons.length > 0 ? [{
+      key: 'past',
+      label: `Past (${pastSeasons.length})`,
+      a11yLabel: `Past seasons (${pastSeasons.length})`,
+      onPress: () => {
+        if (pastSeasons.length === 1) goStandings(pastSeasons[0].id);
+        else setPastSheetOpen(true);
+      },
     }] : []),
   ];
 
-  const lockDates = seasonModal ? computeLockDates() : [];
+  const baselineValue = (activeSeason as any)?.baseline_plupr;
+  const manageRows: LeagueManageRow[] = [
+    ...(privileged && pendingRequests > 0 ? [{
+      key: 'requests',
+      label: `${pendingRequests} join request${pendingRequests === 1 ? '' : 's'}`,
+      meta: 'Review',
+      attention: true,
+      onPress: goMembers,
+    }] : []),
+    ...(privileged && (godmode || league.is_active) ? [{
+      key: 'edit', label: 'Edit league details', onPress: () => setEditVisible(true),
+    }] : []),
+    ...(privileged ? [{
+      key: 'invite',
+      label: 'Invite players',
+      meta: league.is_open ? null : 'Private: share codes',
+      onPress: () => navigation.navigate('Invite', { leagueId, leagueName }),
+    }] : []),
+    ...(privileged && !activeSeason ? [{
+      key: 'season', label: 'Start a season', onPress: () => setSeasonModal(true),
+    }] : []),
+    ...(privileged && activeSeason ? [
+      {
+        key: 'periods',
+        label: 'Lock periods · complete season',
+        meta: lockDue ? 'Lock due' : null,
+        attention: lockDue,
+        onPress: () => goStandings(activeSeason.id),
+      },
+      {
+        key: 'baseline',
+        label: 'Baseline PLUPR',
+        meta: `${Number(baselineValue ?? 3.5).toFixed(2)} · Edit`,
+        onPress: openBaselineEdit,
+      },
+    ] : []),
+    ...(godmode ? [{
+      key: 'delete', label: 'Delete league (godmode)', danger: true, onPress: deleteLeague,
+    }] : []),
+  ];
+  const manageSummary = [
+    pendingRequests > 0 && privileged ? `${pendingRequests} join request${pendingRequests === 1 ? '' : 's'}` : null,
+    lockDue ? 'Period lock due' : null,
+  ].filter(Boolean).join(' · ') || (privileged ? 'Edit, invites, seasons' : 'Developer tools');
+
+  // The sticky bar repeats the "you" slot's one action once it scrolls away.
+  // A pending request only counts on a PRIVATE league (as in LeagueJoinCard):
+  // if an admin made the league public since, the card offers [Join] and the
+  // sticky must repeat it.
+  const requestSent = requested && !league.is_open;
+  const joinAction = nonMember && !requestSent && !stickyJoin.joinedIds.has(leagueId)
+    ? {
+        title: league.is_open ? 'Join league' : 'Request to join',
+        loading: stickyJoin.isBusy(leagueId),
+        onPress: () => {
+          if (league.is_open) void stickyJoin.join(leagueId);
+          else void stickyJoin.request(leagueId, leagueName);
+        },
+      }
+    : null;
+  const stickyPrimary = nonMember ? joinAction : { title: 'Record match', onPress: goRecord };
 
   return (
-    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
-
-      {/* ── Home court banner ──────────────────────────────────── */}
-      <View style={S.courtBanner}>
-        <Text style={S.courtIcon}>📍</Text>
-        <View style={S.courtInfo}>
-          <Text style={S.courtLabel}>Home Court</Text>
-          <Text style={S.courtName} numberOfLines={1}>{league?.home_court ? displayCourtName(league.home_court) : 'Not set'}</Text>
-          {region && <Text style={S.courtRegion}>{region}</Text>}
-          <CourtPresenceLine lat={league?.home_court_lat} lng={league?.home_court_lng} name={league?.home_court ? displayCourtName(league.home_court) : null} />
-        </View>
-      </View>
-
-      {/* ── League description + privacy ───────────────────────── */}
-      <View style={S.infoCard}>
-        <View style={S.infoHeader}>
-          <View style={[S.privacyBadge, league?.is_open ? S.privacyPublic : S.privacyPrivate]}>
-            <Text style={[S.privacyText, league?.is_open ? S.privacyPublicText : S.privacyPrivateText]}>
-              {league?.is_open ? '🌐 Public' : '🔒 Private'}
-            </Text>
-          </View>
-          {privileged && (godmode || league?.is_active) && (
-            <TouchableOpacity style={S.editLeagueBtn} onPress={openEdit}>
-              <Text style={S.editLeagueText}>Edit League</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {!league?.is_active && (
-          <View style={S.closedBanner}>
-            <Text style={S.closedBannerText}>🔒 This league is closed — edits are locked.</Text>
-          </View>
-        )}
-        <Text style={league?.description ? S.descText : S.descPlaceholder}>
-          {league?.description ?? (privileged ? 'No description yet — tap "Edit League" to add one.' : 'No description.')}
-        </Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity
-            style={S.howItWorksLink}
-            onPress={() => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
-          >
-            <Text style={S.howItWorksText}>ℹ️ How this league works →</Text>
-          </TouchableOpacity>
-          {/* League URL unfurls into the roster/top-players OG card. */}
-          <ShareLinkButton
-            url={`https://www.pickleague.club/leagues/${leagueId}`}
-            title={leagueName}
-            message={`Join "${leagueName}" on Pickleague`}
-            onCopied={() => joinStatus.success('League link copied.')}
+    <View style={[styles.root, { backgroundColor: colors.bg }]}>
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: bottomInset }]}
+        refreshControl={<AppRefreshControl {...refresh} />}
+        onScroll={onScroll}
+        scrollEventThrottle={32}
+      >
+        {/* 1 · Identity (wrapped only to measure its height for the sticky bar) */}
+        <View onLayout={onIdentityLayout}>
+          <LeagueIdentity
+            league={league}
+            myRole={myRole}
+            memberCount={memberCount}
+            privileged={privileged}
+            onOpenInfo={() => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
+            onSetCourt={privileged && (godmode || league.is_active) ? () => setEditVisible(true) : undefined}
           />
-          <BookmarkButton targetType="league" targetId={leagueId} />
         </View>
-      </View>
 
-      {/* ── Role badge ─────────────────────────────────────────── */}
-      {/* 'unknown' (role read failed) renders nothing rather than "Your role: —". */}
-      {myRole && myRole !== 'unknown' && (
-        <View style={[S.roleBanner, { backgroundColor: roleBadgeColor(myRole) + '18', borderColor: roleBadgeColor(myRole) + '44' }]}>
-          <Text style={[S.roleText, { color: roleBadgeColor(myRole) }]}>
-            Your role: {roleLabel(myRole)}
-          </Text>
-        </View>
-      )}
-
-      {/* ── Active season card ─────────────────────────────────── */}
-      {activeSeason ? (
-        <View style={S.seasonCard}>
-          <View style={S.seasonCardTop}>
-            <View>
-              <Text style={S.seasonCardLabel}>Active Season</Text>
-              <Text style={S.seasonCardName}>{activeSeason.name}</Text>
-            </View>
-            <View style={[S.seasonStatusBadge, activeSeason.status === 'active' ? S.seasonBadgeActive : S.seasonBadgeUpcoming]}>
-              <Text style={[S.seasonStatusText, activeSeason.status === 'active' ? S.seasonBadgeActiveText : S.seasonBadgeUpcomingText]}>
-                {activeSeason.status === 'active' ? 'Active' : 'Upcoming'}
-              </Text>
-            </View>
-          </View>
-          <Text style={S.seasonCardMeta}>
-            {activeSeason.total_weeks} weeks · every {activeSeason.lock_frequency_weeks}w lock-in · {activeSeason.total_periods} periods
-          </Text>
-          <Text style={S.seasonCardDates}>
-            {new Date(activeSeason.start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-            {' → '}
-            {new Date(activeSeason.end_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-          </Text>
-          <Text style={S.seasonCardMeta}>
-            Baseline PLUPR: {(activeSeason as any).baseline_plupr?.toFixed?.(2) ?? '3.50'}
-            {privileged && (
-              <Text onPress={openBaselineEdit} style={{ color: colors.primary, fontWeight: '700' }}>
-                {'  '}Edit ✎
-              </Text>
-            )}
-          </Text>
-          <TouchableOpacity
-            style={S.seasonViewBtn}
-            onPress={() => navigation.navigate('SeasonStandings', { seasonId: activeSeason.id, leagueId, leagueName })}
-          >
-            <Text style={S.seasonViewBtnText}>View Season Standings & Controls →</Text>
-          </TouchableOpacity>
-        </View>
-      ) : privileged ? (
-        <TouchableOpacity style={S.noSeasonCard} onPress={openSeasonModal}>
-          <Text style={S.noSeasonIcon}>🏆</Text>
-          <View style={S.noSeasonText}>
-            <Text style={S.noSeasonTitle}>No Active Season</Text>
-            <Text style={S.noSeasonSub}>Start a season to track standings over time with periodic rankings lock-in and end-of-period PLUPR resets.</Text>
-          </View>
-          <Text style={S.noSeasonCta}>Start →</Text>
-        </TouchableOpacity>
-      ) : null}
-
-      {/* ── Latest tournament champion ─────────────────────────── */}
-      {latestChampion && (
-        <TouchableOpacity
-          style={S.championCard}
-          onPress={() => navigation.navigate('TournamentDetail', {
-            tournamentId: latestChampion.tournamentId,
-            tournamentName: latestChampion.tournamentName,
-          })}
-          activeOpacity={0.85}
-        >
-          <Text style={S.championLabel}>🏆 Latest Tournament Champion</Text>
-          <Text style={S.championLead}>
-            <Text style={S.championTeam}>{latestChampion.teamName}</Text>
-            {' '}took home {latestChampion.tournamentName}!
-          </Text>
-          {latestChampion.record && (
-            <Text style={S.championRecord}>Final record: {latestChampion.record}</Text>
-          )}
-          {/* TODO: smoke-test in browser — champion winner names render with hero styles */}
-          <Text style={S.championRoster}>
-            🎉 Congrats to {latestChampion.winners.length === 0
-              ? 'the champions'
-              : latestChampion.winners.map((w, i) => (
-                  <Text key={i}>
-                    <FlairName
-                      name={w.name}
-                      nameColor={w.nameColor}
-                      styleId={w.profileStyleId}
-                      mode="hero"
-                      style={S.championRoster}
-                    />
-                    {rosterSeparator(i, latestChampion.winners.length)}
-                  </Text>
-                ))}!
-          </Text>
-          <Text style={S.championLink}>View tournament →</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* ── Upcoming tournaments ───────────────────────────────── */}
-      {comingUpLoaded && (
-        <View style={S.comingUpCard}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <BallIcon size={18} />
-            <Text style={S.comingUpHeader}>Upcoming Tournaments</Text>
-          </View>
-          {upcomingTournaments.length === 0 ? (
-            <Text style={S.comingUpEmpty}>No upcoming tournaments.</Text>
-          ) : (
-            upcomingTournaments.map(item => (
-              <TouchableOpacity
-                key={item.key}
-                style={[
-                  S.comingUpRow,
-                  item.tone && S.comingUpRowToned,
-                  item.tone && { backgroundColor: TONE_COLORS[item.tone].bg, borderColor: TONE_COLORS[item.tone].border },
-                ]}
-                onPress={item.onPress}
-                activeOpacity={0.7}
-              >
-                {typeof item.icon === 'string'
-                  ? <Text style={S.comingUpIcon}>{item.icon}</Text>
-                  : <View style={{ width: 26, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={S.comingUpTitle}>{item.title}</Text>
-                  <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
-                </View>
-                {item.badge && (
-                  <View style={S.comingUpBadge}>
-                    <Text style={S.comingUpBadgeText}>{item.badge}</Text>
-                  </View>
-                )}
-                <Text style={S.comingUpChevron}>›</Text>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-      )}
-
-      {/* ── Upcoming events (scheduled + currently voting) ─────── */}
-      {comingUpLoaded && (
-        <View style={S.comingUpCard}>
-          <Text style={S.comingUpHeader}>📅 Upcoming Events</Text>
-          {upcomingEvents.length === 0 ? (
-            <Text style={S.comingUpEmpty}>No upcoming events.</Text>
-          ) : (
-            upcomingEvents.map(item => (
-              <TouchableOpacity
-                key={item.key}
-                style={[
-                  S.comingUpRow,
-                  item.tone && S.comingUpRowToned,
-                  item.tone && { backgroundColor: TONE_COLORS[item.tone].bg, borderColor: TONE_COLORS[item.tone].border },
-                ]}
-                onPress={item.onPress}
-                activeOpacity={0.7}
-              >
-                {typeof item.icon === 'string'
-                  ? <Text style={S.comingUpIcon}>{item.icon}</Text>
-                  : <View style={{ width: 26, alignItems: 'center', justifyContent: 'center' }}>{item.icon}</View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={S.comingUpTitle}>{item.title}</Text>
-                  <Text style={S.comingUpWhen}>{item.whenLabel}</Text>
-                </View>
-                {item.badge && (
-                  <View style={S.comingUpBadge}>
-                    <Text style={S.comingUpBadgeText}>{item.badge}</Text>
-                  </View>
-                )}
-                <Text style={S.comingUpChevron}>›</Text>
-              </TouchableOpacity>
-            ))
-          )}
-        </View>
-      )}
-
-      {/* ── Past seasons ───────────────────────────────────────── */}
-      {pastSeasons.length > 0 && (
-        <View style={S.pastSeasonsCard}>
-          <Text style={S.pastSeasonsHeader}>Past Seasons ({pastSeasons.length})</Text>
-          {pastSeasons.map(s => (
-            <TouchableOpacity
-              key={s.id}
-              style={S.pastSeasonRow}
-              onPress={() => navigation.navigate('SeasonStandings', { seasonId: s.id, leagueId, leagueName })}
-              activeOpacity={0.7}
-            >
-              <Text style={S.pastSeasonTrophy}>🏁</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={S.pastSeasonName}>{s.name}</Text>
-                <Text style={S.pastSeasonMeta}>
-                  {new Date(s.start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  {' → '}
-                  {new Date(s.end_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                  {'  ·  '}{s.total_periods} periods
-                </Text>
-              </View>
-              <Text style={S.pastSeasonChevron}>›</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* ── Join block for prospective members ─────────────────── */}
-      {/* TODO: smoke-test in browser — Join League / Request to Join block shows only for non-members */}
-      {/* Only offer to join once we KNOW the viewer isn't a member — an
-          unreadable role must not hand an existing member a Join button. */}
-      {roleKnown && !myRole && (
-        <View style={S.joinCard}>
-          <Text style={S.joinCardTitle}>
-            {league?.is_open ? 'Join this league' : 'Want in?'}
-          </Text>
-          <Text style={S.joinCardSub}>
-            {league?.is_open
-              ? 'Join to record matches, see standings, and play in events.'
-              : 'This league is private — request to join and an admin will share an invite code.'}
-          </Text>
-          <StatusBanner status={joinStatus.value} style={{ marginTop: 8 }} />
-          <TouchableOpacity
-            style={[S.joinBtn, joining && S.joinBtnDisabled]}
-            onPress={league?.is_open ? joinOpenLeague : requestToJoin}
-            disabled={joining}
-            activeOpacity={0.85}
-          >
-            <Text style={S.joinBtnText}>
-              {joining
-                ? (league?.is_open ? 'Joining…' : 'Sending…')
-                : (league?.is_open ? 'Join League' : 'Request to Join')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Option cards ───────────────────────────────────────── */}
-      {/* TODO: smoke-test in browser — Members 2nd, Record Match gold-highlighted for members */}
-      {/* TODO: smoke-test in browser — leagues spotlight tour highlights this Record Match card as its final step */}
-      {options.map((opt) => {
-        const isRecord = opt.label === 'Record Match';
-        return (
-        <TouchableOpacity
-          key={opt.label}
-          ref={isRecord ? recordAnchor : undefined}
-          onLayout={isRecord ? () => registerAnchor('leagues', 'record', recordAnchor) : undefined}
-          style={[S.card, opt.highlight && S.cardHighlight]}
-          onPress={opt.onPress}
-        >
-          {typeof opt.icon === 'string'
-            ? <Text style={S.cardIcon}>{opt.icon}</Text>
-            : <View style={{ marginRight: 14, alignItems: 'center', justifyContent: 'center' }}>{opt.icon}</View>}
-          <View style={S.cardText}>
-            <Text style={[S.label, opt.highlight && S.labelHighlight]}>{opt.label}</Text>
-            <Text style={S.sub}>{opt.sub}</Text>
-          </View>
-          {opt.adminOnly && (
-            <View style={S.adminTag}>
-              <Text style={S.adminTagText}>Admin</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-        );
-      })}
-
-      {/* ── Godmode delete ─────────────────────────────────────── */}
-      {godmode && (
-        <TouchableOpacity style={S.dangerBtn} onPress={deleteLeague} activeOpacity={0.85}>
-          <Text style={S.dangerBtnText}>🗑  Delete League (godmode)</Text>
-          <Text style={S.dangerBtnSub}>Removes the league and everything cascaded under it.</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* ── Edit league modal ──────────────────────────────────── */}
-      <Modal visible={editVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditVisible(false)}>
-        <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
-          <Text style={S.modalTitle}>Edit League</Text>
-
-          <StatusBanner status={editStatus.value} />
-
-          <Text style={S.fieldLabel}>Name</Text>
-          <TextInput
-            style={S.input}
-            value={pendingName}
-            onChangeText={setPendingName}
-            placeholder="League name"
-            placeholderTextColor={colors.textMuted}
-            maxLength={80}
+        {/* 2 · You: the join card (non-members) and the quick row */}
+        <View style={styles.you} onLayout={onYouLayout}>
+          <LeagueJoinCard
+            leagueId={leagueId}
+            leagueName={leagueName}
+            isOpen={league.is_open}
+            roleKnown={roleKnown}
+            isMember={!!myRole && myRole !== 'unknown'}
+            requested={requested}
+            onJoined={() => load()}
+            onRequested={() => setMyRequestPending(true)}
           />
-
-          <Text style={S.fieldLabel}>Description</Text>
-          <TextInput
-            style={[S.input, S.inputMultiline]}
-            value={pendingDesc}
-            onChangeText={setPendingDesc}
-            placeholder="What's this league about?"
-            placeholderTextColor={colors.textMuted}
-            multiline
-            numberOfLines={4}
-            maxLength={500}
+          <LeagueQuickRow
+            showRecord={!nonMember}
+            onRecord={goRecord}
+            recordRef={recordAnchor}
+            onRecordLayout={() => registerAnchor('leagues', 'record', recordAnchor)}
+            onStandings={standingsSeasonId ? () => goStandings(standingsSeasonId) : null}
+            onEvents={() => navigation.navigate('Events', { leagueId, leagueName })}
+            onMembers={goMembers}
           />
+        </View>
 
-          <Text style={S.fieldLabel}>Privacy</Text>
-          <View style={S.privacyRow}>
-            <TouchableOpacity
-              style={[S.privacyOption, pendingIsOpen && S.privacyOptionActive]}
-              onPress={() => setPendingIsOpen(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={[S.privacyOptionTitle, pendingIsOpen && S.privacyOptionTitleActive]}>🌐 Public</Text>
-              <Text style={S.privacyOptionSub}>Anyone can join freely</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.privacyOption, !pendingIsOpen && S.privacyOptionActive]}
-              onPress={() => setPendingIsOpen(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={[S.privacyOptionTitle, !pendingIsOpen && S.privacyOptionTitleActive]}>🔒 Private</Text>
-              <Text style={S.privacyOptionSub}>Invite or request only</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={S.fieldLabel}>Home Court</Text>
-          <Text style={S.modalHint}>
-            Changing the home court updates the home/away status of all past matches in this league.
-          </Text>
-          <CourtPicker value={pendingCourt} onSelect={setPendingCourt} active={editVisible} showNoneOption placeholder="Search for the home court…" />
-          {!pendingCourt && (
-            <View style={S.warning}><Text style={S.warningText}>⚠️ Without a home court every match entry requires a location.</Text></View>
-          )}
-
-          <TouchableOpacity style={[S.saveBtn, saving && S.saveBtnDisabled]} onPress={saveLeagueChanges} disabled={saving}>
-            <Text style={S.saveBtnText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.cancelBtn} onPress={() => setEditVisible(false)}>
-            <Text style={S.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </Modal>
-
-      {/* ── Create season modal ────────────────────────────────── */}
-      <Modal visible={seasonModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSeasonModal(false)}>
-        <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
-          <Text style={S.modalTitle}>🏆 Start a New Season</Text>
-
-          <StatusBanner status={seasonStatus.value} />
-
-          {/* Season name */}
-          <Text style={S.fieldLabel}>Season Name</Text>
-          <TextInput
-            style={S.input}
-            value={seasonName}
-            onChangeText={setSeasonName}
-            placeholder="e.g. Season 1, Spring 2025"
-            placeholderTextColor={colors.textMuted}
+        {/* 3 · Season status strip. While an active season's numbers are
+            still loading, render nothing rather than flash an admin the
+            "No active season" line. */}
+        {!activeSeason || seasonSummary ? (
+          <SeasonStrip
+            summary={activeSeason ? seasonSummary : null}
+            privileged={privileged}
+            myUserId={myUserId}
+            onOpen={() => { if (activeSeason) goStandings(activeSeason.id); }}
+            onStartSeason={() => setSeasonModal(true)}
           />
+        ) : null}
 
-          {/* Start date */}
-          <Text style={S.fieldLabel}>Start Date</Text>
-          <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
-            <Text style={S.dateBtnText}>
-              📅 {seasonStart.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
-            </Text>
-          </TouchableOpacity>
+        {/* 4 · Coming up (renders nothing when empty) */}
+        <LeagueComingUp items={comingUp} champion={champion} />
 
-          {/* Duration presets */}
-          <Text style={S.fieldLabel}>Season Length</Text>
-          <View style={S.presetRow}>
-            {WEEK_PRESETS.map(w => (
-              <TouchableOpacity
-                key={w}
-                style={[S.presetBtn, totalWeeks === w && S.presetBtnActive]}
-                onPress={() => { setTotalWeeks(w); setCustomWeeks(''); }}
-              >
-                <Text style={[S.presetBtnText, totalWeeks === w && S.presetBtnTextActive]}>{w} weeks</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={[S.presetBtn, totalWeeks === 0 && S.presetBtnActive]}
-              onPress={() => setTotalWeeks(0)}
-            >
-              <Text style={[S.presetBtnText, totalWeeks === 0 && S.presetBtnTextActive]}>Custom</Text>
-            </TouchableOpacity>
-          </View>
-          {totalWeeks === 0 && (
-            <TextInput
-              style={S.input}
-              value={customWeeks}
-              onChangeText={setCustomWeeks}
-              keyboardType="number-pad"
-              placeholder="Enter number of weeks"
-              placeholderTextColor={colors.textMuted}
-            />
-          )}
+        {/* 5 · More links, then Manage */}
+        <LeagueMoreLinks links={moreLinks} />
 
-          {/* Lock frequency presets */}
-          <Text style={S.fieldLabel}>Lock-In Frequency</Text>
-          <Text style={S.fieldHint}>How often standings are frozen as a snapshot</Text>
-          <View style={S.presetRow}>
-            {LOCK_PRESETS.map(w => (
-              <TouchableOpacity
-                key={w}
-                style={[S.presetBtn, lockWeeks === w && S.presetBtnActive]}
-                onPress={() => { setLockWeeks(w); setCustomLock(''); }}
-              >
-                <Text style={[S.presetBtnText, lockWeeks === w && S.presetBtnTextActive]}>
-                  Every {w}w
-                </Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={[S.presetBtn, lockWeeks === 0 && S.presetBtnActive]}
-              onPress={() => setLockWeeks(0)}
-            >
-              <Text style={[S.presetBtnText, lockWeeks === 0 && S.presetBtnTextActive]}>Custom</Text>
-            </TouchableOpacity>
-          </View>
-          {lockWeeks === 0 && (
-            <TextInput
-              style={S.input}
-              value={customLock}
-              onChangeText={setCustomLock}
-              keyboardType="number-pad"
-              placeholder="Enter lock frequency in weeks"
-              placeholderTextColor={colors.textMuted}
-            />
-          )}
-
-          {/* Baseline PLUPR */}
-          <Text style={S.fieldLabel}>Baseline PLUPR</Text>
-          <Text style={S.fieldHint}>
-            Soft-reset target at end of each period. Top-5 finishers keep small bonuses on top
-            of this baseline; everyone else snaps clean to it.
-          </Text>
-          <TextInput
-            style={S.input}
-            value={baselinePlupr}
-            onChangeText={setBaselinePlupr}
-            keyboardType="decimal-pad"
-            placeholder="e.g. 4.5"
-            placeholderTextColor={colors.textMuted}
+        {(privileged || godmode) ? (
+          <LeagueManageSection
+            open={manageOpen}
+            onToggle={(next) => {
+              manageTouched.current = true;
+              setManageOpen(next);
+              trackSectionToggle({ screen: 'LeagueDetail', section: 'manage', open: next });
+            }}
+            summary={manageSummary}
+            rows={manageRows}
+            note={!league.is_active && privileged ? 'This league is closed: edits are locked.' : null}
           />
+        ) : null}
+      </ScrollView>
 
-          {/* Lock-in schedule preview */}
-          {lockDates.length > 0 && (
-            <View style={S.previewBox}>
-              <Text style={S.previewTitle}>
-                {lockDates.length} lock-in period{lockDates.length !== 1 ? 's' : ''} · final standings = median rank
-              </Text>
-              {lockDates.map((d, i) => (
-                <Text key={i} style={S.previewLine}>
-                  Period {i + 1}: {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                  {i === lockDates.length - 1 ? '  ← season ends' : ''}
-                </Text>
-              ))}
-              <Text style={S.previewReset}>
-                PLUPR soft-reset after each period: top 5 players carry rank bonuses (+0.40/+0.275/+0.175/+0.10/+0.05), everyone else resets to 3.250.
-              </Text>
-            </View>
-          )}
+      {/* Last child of the root, outside the ScrollView: the bar is absolutely
+          positioned and publishes its height to the bottom chrome slot, which
+          lifts PlayIsland above it and pads the list (bottomInset). */}
+      <StickyActionBar
+        visible={stickyVisible && !!stickyPrimary}
+        active={isFocused}
+        summary={leagueName}
+        primary={stickyPrimary ?? undefined}
+      />
 
-          <TouchableOpacity
-            style={[S.saveBtn, creatingSeasonFlag && S.saveBtnDisabled]}
-            onPress={createSeason}
-            disabled={creatingSeasonFlag}
-          >
-            <Text style={S.saveBtnText}>{creatingSeasonFlag ? 'Creating…' : 'Create Season'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={S.cancelBtn} onPress={() => setSeasonModal(false)}>
-            <Text style={S.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </Modal>
+      <ActionSheetModal
+        visible={pastSheetOpen}
+        title="Past seasons"
+        actions={pastSeasons.map((s) => ({
+          label: `${s.name} · ${seasonRange(s)}`,
+          onPress: () => goStandings(s.id),
+        }))}
+        onClose={() => setPastSheetOpen(false)}
+      />
 
-      {/* Date picker for season start */}
-      <AppDateTimePicker
-        visible={showDatePicker}
-        value={seasonStart}
-        minimumDate={new Date()}
-        onChange={d => setSeasonStart(d)}
-        onClose={() => setShowDatePicker(false)}
+      <LeagueEditSheet
+        visible={editVisible}
+        league={league}
+        onClose={() => setEditVisible(false)}
+        onSaved={(row) => { if (row) setLeague(row); }}
+      />
+
+      <SeasonSetupSheet
+        visible={seasonModal}
+        leagueId={leagueId}
+        leagueName={league.name}
+        onClose={() => setSeasonModal(false)}
+        onCreated={() => { void load(); }}
       />
 
       <ConfirmModal
         visible={showDeleteConfirm}
-        title={`Delete "${league?.name ?? ''}"?`}
+        title={`Delete "${league.name}"?`}
         body="This permanently removes the league and all of its members, matches, events, seasons, and tournaments. This cannot be undone."
         primaryLabel="Delete League"
         variant="danger"
@@ -1226,17 +839,15 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         title="Edit Baseline PLUPR"
         body={
           <View>
-            <Text style={{ color: colors.textSub, marginBottom: 8 }}>
+            <Text style={[t.sub, styles.baselineHint]}>
               Soft-reset target at end of each period. Top-5 finishers keep a small bonus on top
               of this baseline; everyone else snaps clean to it. Allowed: 2.00–6.50.
             </Text>
-            <TextInput
-              style={S.input}
+            <TextField
               value={editBaselineInput}
               onChangeText={setEditBaselineInput}
               keyboardType="decimal-pad"
               placeholder="e.g. 4.5"
-              placeholderTextColor={colors.textMuted}
             />
           </View>
         }
@@ -1246,147 +857,15 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         onConfirm={() => saveBaseline()}
         onClose={() => setShowBaselineEdit(false)}
       />
-    </ScrollView>
+    </View>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    container:  { padding: 16, gap: 10 },
-
-    courtBanner:    { backgroundColor: c.surface, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: c.primaryLight, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    courtIcon:      { fontSize: 24 },
-    courtInfo:      { flex: 1 },
-    courtLabel:     { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: '700' },
-    courtName:      { fontSize: 15, fontWeight: '700', color: c.text, marginTop: 1 },
-    courtRegion:    { fontSize: 12, color: c.textMuted, marginTop: 1 },
-    editCourtBtn:   { borderWidth: 1, borderColor: c.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5 },
-    editCourtText:  { fontSize: 13, color: c.primary, fontWeight: '600' },
-
-    infoCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, gap: 10, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    infoHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-    privacyBadge:   { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
-    privacyPublic:  { backgroundColor: c.primaryLight },
-    privacyPrivate: { backgroundColor: '#fff8e1' },
-    privacyText:    { fontSize: 12, fontWeight: '700' },
-    privacyPublicText:  { color: c.primary },
-    privacyPrivateText: { color: '#b8860b' },
-    editLeagueBtn:  { borderWidth: 1, borderColor: c.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5 },
-    editLeagueText: { fontSize: 13, color: c.primary, fontWeight: '600' },
-    descText:       { fontSize: 14, color: c.text, lineHeight: 20 },
-    descPlaceholder:{ fontSize: 13, color: c.textMuted, fontStyle: 'italic' },
-    howItWorksLink: { paddingTop: 6, borderTopWidth: 1, borderTopColor: c.border },
-    howItWorksText: { fontSize: 13, color: c.primary, fontWeight: '600' },
-    closedBanner:   { backgroundColor: '#fff8e1', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#ffe082' },
-    closedBannerText: { fontSize: 13, color: '#b8860b', fontWeight: '600' },
-    dangerBtn:      { backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.danger + '88', marginTop: 8 },
-    dangerBtnText:  { fontSize: 15, fontWeight: '800', color: c.danger },
-    dangerBtnSub:   { fontSize: 12, color: c.textMuted, marginTop: 4 },
-
-    roleBanner:     { borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
-    roleText:       { fontSize: 13, fontWeight: '700' },
-
-    // Season cards
-    seasonCard:         { backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.primary + '44', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    seasonCardTop:      { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 4 },
-    seasonCardLabel:    { fontSize: 10, color: c.primary, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
-    seasonCardName:     { fontSize: 18, fontWeight: '800', color: c.text, marginTop: 1 },
-    seasonStatusBadge:  { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-    seasonBadgeActive:  { backgroundColor: c.primaryLight },
-    seasonBadgeUpcoming:{ backgroundColor: '#fff8e1' },
-    seasonStatusText:   { fontSize: 12, fontWeight: '700' },
-    seasonBadgeActiveText:  { color: c.primary },
-    seasonBadgeUpcomingText: { color: '#b8860b' },
-    seasonCardMeta:     { fontSize: 12, color: c.textMuted, marginBottom: 2 },
-    seasonCardDates:    { fontSize: 13, color: c.textSub, fontWeight: '600', marginBottom: 12 },
-    seasonViewBtn:      { backgroundColor: c.primary, borderRadius: 10, paddingVertical: 11, paddingHorizontal: 16, alignItems: 'center' },
-    seasonViewBtnText:  { color: '#fff', fontWeight: '700', fontSize: 14 },
-
-    noSeasonCard:       { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: c.border, borderStyle: 'dashed' },
-    noSeasonIcon:       { fontSize: 28 },
-    noSeasonText:       { flex: 1 },
-    noSeasonTitle:      { fontSize: 15, fontWeight: '700', color: c.text, marginBottom: 2 },
-    noSeasonSub:        { fontSize: 12, color: c.textMuted, lineHeight: 16 },
-    noSeasonCta:        { fontSize: 15, color: c.primary, fontWeight: '700' },
-
-    championCard:       { backgroundColor: '#fff8e1', borderRadius: 14, padding: 16, marginTop: 12, borderWidth: 1.5, borderColor: '#e6c875', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    championLabel:      { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 },
-    championLead:       { fontSize: 15, color: c.text, lineHeight: 21, marginBottom: 4 },
-    championTeam:       { fontWeight: '900', color: '#a7740a' },
-    championRecord:     { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 4 },
-    championRoster:     { fontSize: 13, color: c.textSub, lineHeight: 19 },
-    championLink:       { fontSize: 13, fontWeight: '700', color: c.primary, marginTop: 8 },
-
-    comingUpCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginTop: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    comingUpHeader:     { fontSize: 12, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 },
-    comingUpRow:        { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: c.bg, gap: 12 },
-    // Toned rows read as a colored pill: drop the divider, round + inset them.
-    comingUpRowToned:   { borderTopWidth: 0, borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, marginTop: 6 },
-    comingUpIcon:       { fontSize: 22 },
-    comingUpTitle:      { fontSize: 15, fontWeight: '700', color: c.text },
-    comingUpWhen:       { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    comingUpChevron:    { fontSize: 22, color: c.textMuted, fontWeight: '600' },
-    comingUpEmpty:      { fontSize: 13, color: c.textMuted, fontStyle: 'italic', paddingVertical: 8 },
-    comingUpBadge:      { backgroundColor: '#fff3cd', borderColor: '#d4a72c', borderWidth: 1, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginRight: 6 },
-    comingUpBadgeText:  { fontSize: 10, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.4 },
-
-    pastSeasonsCard:    { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginTop: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    pastSeasonsHeader:  { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-    pastSeasonRow:      { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, borderTopColor: c.bg, gap: 12 },
-    pastSeasonTrophy:   { fontSize: 22 },
-    pastSeasonName:     { fontSize: 15, fontWeight: '700', color: c.text },
-    pastSeasonMeta:     { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    pastSeasonChevron:  { fontSize: 22, color: c.textMuted, fontWeight: '600' },
-
-    // Join block (prospective members)
-    joinCard:       { backgroundColor: c.surface, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: c.primary + '44', elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    joinCardTitle:  { fontSize: 17, fontWeight: '800', color: c.text },
-    joinCardSub:    { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
-    joinBtn:        { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-    joinBtnDisabled:{ backgroundColor: c.primary + '80' },
-    joinBtnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
-
-    card:           { backgroundColor: c.surface, borderRadius: 14, padding: 16, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, flexDirection: 'row', alignItems: 'center' },
-    cardHighlight:  { backgroundColor: '#fff8e1', borderWidth: 1.5, borderColor: '#ffe082' },
-    cardIcon:       { fontSize: 26, marginRight: 14 },
-    cardText:       { flex: 1 },
-    label:          { fontSize: 16, fontWeight: '700', color: c.text },
-    labelHighlight: { color: '#b8860b' },
-    sub:            { fontSize: 13, color: c.textSub, marginTop: 2 },
-    adminTag:       { backgroundColor: '#fff8e1', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, borderColor: '#ffe082' },
-    adminTagText:   { fontSize: 11, fontWeight: '700', color: '#b8860b' },
-
-    // Modals (shared)
-    modal:          { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
-    modalTitle:     { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 6 },
-    modalHint:      { fontSize: 14, color: c.textSub, lineHeight: 20, marginBottom: 20 },
-    fieldLabel:     { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 18, marginBottom: 6 },
-    fieldHint:      { fontSize: 12, color: c.textMuted, marginTop: -4, marginBottom: 8 },
-    input:          { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 16, marginBottom: 4, backgroundColor: c.surface, color: c.text },
-    inputMultiline: { minHeight: 96, textAlignVertical: 'top' },
-    privacyRow:     { flexDirection: 'row', gap: 10 },
-    privacyOption:  { flex: 1, borderWidth: 1.5, borderColor: c.border, borderRadius: 12, padding: 12, backgroundColor: c.bg },
-    privacyOptionActive:      { borderColor: c.primary, backgroundColor: c.primaryLight },
-    privacyOptionTitle:       { fontSize: 14, fontWeight: '700', color: c.textSub, marginBottom: 4 },
-    privacyOptionTitleActive: { color: c.primary },
-    privacyOptionSub:         { fontSize: 12, color: c.textMuted, lineHeight: 16 },
-    dateBtn:        { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14 },
-    dateBtnText:    { fontSize: 15, color: c.text },
-    presetRow:      { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-    presetBtn:      { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.bg },
-    presetBtnActive:{ borderColor: c.primary, backgroundColor: c.primaryLight },
-    presetBtnText:  { fontSize: 13, fontWeight: '600', color: c.textSub },
-    presetBtnTextActive: { color: c.primary },
-    previewBox:     { backgroundColor: c.primaryLight, borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1, borderColor: c.primary + '44' },
-    previewTitle:   { fontSize: 13, fontWeight: '700', color: c.primary, marginBottom: 8 },
-    previewLine:    { fontSize: 13, color: c.text, marginBottom: 3 },
-    previewReset:   { fontSize: 12, color: c.textSub, marginTop: 8, lineHeight: 17 },
-    warning:        { backgroundColor: '#fff8e1', borderRadius: 8, padding: 10, marginTop: 10, borderWidth: 1, borderColor: '#ffe082' },
-    warningText:    { fontSize: 13, color: '#b8860b' },
-    saveBtn:        { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 24 },
-    saveBtnDisabled:{ backgroundColor: c.primary + '80' },
-    saveBtnText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
-    cancelBtn:      { padding: 14, alignItems: 'center' },
-    cancelBtnText:  { color: c.textMuted, fontSize: 15 },
-  });
-}
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  // Top padding is SPACE.md (not the lg gutter) so the quick row's Record
+  // stays above y=200 even when the chip row wraps to two lines.
+  container: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, gap: SPACE.md },
+  you: { gap: SPACE.md },
+  baselineHint: { marginBottom: SPACE.sm },
+});

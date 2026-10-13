@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
@@ -74,6 +74,7 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import { WAGERS_ENABLED } from '../lib/features';
+import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
 import SubmitVenueScreen from '../screens/SubmitVenueScreen';
@@ -101,67 +102,6 @@ function WebMaxWidth({
     </View>
   );
 }
-
-const linking: LinkingOptions<RootStackParamList> = {
-  // Both origins are live and both are shared: ShareLinkButton builds
-  // `https://www.pickleague.club/...` (so the Open Graph card unfurls from the
-  // canonical origin, api/_lib/cards.tsx FALLBACK_ORIGIN) while invite and
-  // guest-pass messages use the apex. A universal link that opens the app but
-  // matches no prefix lands on Home instead of the screen the sender meant, so
-  // both must be listed here AND in ios.associatedDomains.
-  prefixes: ['https://pickleague.club', 'https://www.pickleague.club', 'pickleague://'],
-  config: {
-    screens: {
-      Login: 'login',
-      Register: 'register',
-      GuestJoin: 'g/:token',
-      Home: '',
-      Play: 'play',
-      Leagues: 'leagues',
-      LeagueDetail: 'leagues/:leagueId',
-      LeagueMembers: 'leagues/:leagueId/members',
-      LeagueInfo: 'leagues/:leagueId/info',
-      Invite: 'leagues/:leagueId/invite',
-      Events: 'leagues/:leagueId/events',
-      CreateEvent: 'leagues/:leagueId/events/new',
-      EventDetail: 'events/:eventId',
-      Tournaments: 'tournaments',
-      TournamentDetail: 'tournaments/:tournamentId',
-      TournamentMembers: 'tournaments/:tournamentId/members',
-      TournamentInfo: 'tournaments/:tournamentId/info',
-      TournamentInvite: 'tournaments/:tournamentId/invite',
-      TournamentInvitePlayers: 'tournaments/:tournamentId/invite-players',
-      TournamentMatchHistory: 'tournaments/:tournamentId/matches',
-      CreateTournament: 'tournaments/new',
-      MatchEntry: 'match-entry',
-      MatchHistory: 'matches',
-      CalendarAnalytics: 'analytics/calendar',
-      SeasonStandings: 'seasons/:seasonId/standings',
-      Profile: {
-        path: 'profile/:userId?',
-      },
-      PlayerProfile: 'players/:userId',
-      Claim: 'claim',
-      Notifications: 'notifications',
-      Settings: 'settings',
-      About: 'about',
-      Shop: 'shop',
-      GiftPickles: 'gift-pickles',
-      ScoringAlgo: 'scoring-algo',
-      UnlockProgress: 'unlock-progress',
-      Drill: 'drill',
-      DrillSearch: 'drill/search',
-      DrillRequests: 'drill/requests',
-      Godmode: 'godmode',
-      BlockedPlayers: 'blocked-players',
-      ModerationQueue: 'moderation',
-      // Wager deep links are registered only while the feature is on - an
-      // unregistered path must not resolve to an unregistered screen.
-      ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),
-      Bookmarks: 'bookmarks',
-    },
-  },
-};
 
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();

@@ -432,6 +432,12 @@ function handleEventVote(r: ParsedNotificationResponse): Promise<boolean> {
     failure: FAILED,
     mapError: voteError,
     needsApp: { title: 'Open Pickleague to vote', body: 'Tap to pick your times.' },
+    // Name the event in the write's notices ("Voted 1st: Thu play day",
+    // "That didn't save: Thu play day"), like every other button's notice.
+    // Read from the push title ("🗳️ New vote: Thu play day"); null for an
+    // unknown title shape, and the titles stay generic. voteError / needsApp
+    // copy is posted as written (the foundation never names the subject there).
+    subject: subjectOf(d),
   });
 }
 

@@ -1,11 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, ScrollView, Platform,
+  View, Text, TextInput, TouchableOpacity, Pressable,
+  StyleSheet, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
-import { Picker } from '@react-native-picker/picker';
+// Player pickers are the foundation's searchable SingleSelectModal now, not
+// @react-native-picker wheels (a doubles match stacked four ~216px wheels).
+// The picker package stays installed for any other caller; this screen no
+// longer imports it.
+import { Panel, Badge, FilterPill, SectionHeader, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { DoublesCategory, Profile, RootStackParamList } from '../types';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
@@ -25,62 +32,40 @@ type Props = {
 
 type MatchType = 'singles' | 'doubles';
 
-// Cross-platform player picker: HTML <select> on web, native Picker on iOS/Android
-function PlayerPickerField({ label, value, onChange, members, exclude, S, colors }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  members: Profile[];
-  exclude: string[];
+/** The four player slots, in the order the form shows them. */
+type PlayerSlot = 'p1' | 'partner1' | 'p2' | 'partner2';
+
+const SLOT_LABEL: Record<PlayerSlot, string> = {
+  p1: 'Team 1 player',
+  partner1: 'Team 1 partner',
+  p2: 'Team 2 player',
+  partner2: 'Team 2 partner',
+};
+
+/**
+ * One player slot: a 44px field showing the chosen name (or the slot's name as
+ * a placeholder). Tapping it opens the screen's one SingleSelectModal; only
+ * one picker Modal is ever up at a time.
+ */
+function PlayerField({ slot, name, onPress, S }: {
+  slot: PlayerSlot;
+  name: string | null;
+  onPress: () => void;
   S: ReturnType<typeof makeStyles>;
-  colors: ReturnType<typeof useTheme>['colors'];
 }) {
-  const available = members.filter((m) => !exclude.includes(m.id) || m.id === value);
-
-  const webSelect = Platform.OS === 'web'
-    ? React.createElement(
-        'select',
-        {
-          value,
-          onChange: (e: any) => onChange(e.target.value),
-          style: {
-            fontSize: 15,
-            padding: '11px 12px',
-            width: '100%',
-            border: `1px solid ${colors.border}`,
-            borderRadius: 8,
-            backgroundColor: colors.surface,
-            color: value ? colors.text : colors.textMuted,
-            outline: 'none',
-            cursor: 'pointer',
-            boxSizing: 'border-box',
-          },
-        },
-        [
-          React.createElement('option', { key: '', value: '' }, 'Select player...'),
-          ...available.map((m) =>
-            React.createElement('option', { key: m.id, value: m.id }, m.full_name)
-          ),
-        ]
-      )
-    : null;
-
   return (
-    <>
-      <Text style={S.label}>{label}</Text>
-      <View style={S.pickerWrapper}>
-        {Platform.OS === 'web' ? (
-          webSelect
-        ) : (
-          <Picker selectedValue={value} onValueChange={onChange}>
-            <Picker.Item label="Select player..." value="" />
-            {available.map((m) => (
-              <Picker.Item key={m.id} label={m.full_name} value={m.id} />
-            ))}
-          </Picker>
-        )}
-      </View>
-    </>
+    <TouchableOpacity
+      style={S.field}
+      activeOpacity={0.7}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={name ? `${SLOT_LABEL[slot]}: ${name}. Change` : `Choose ${SLOT_LABEL[slot].toLowerCase()}`}
+    >
+      <Text style={[S.fieldText, !name && S.fieldPlaceholder]} numberOfLines={1}>
+        {name ?? SLOT_LABEL[slot]}
+      </Text>
+      <Text style={S.fieldChevron}>▾</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -119,6 +104,14 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const autoFilledCourtRef = useRef<string | null>(null);
   const [leaguePickerOpen, setLeaguePickerOpen] = useState(false);
   const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
+  // Which player slot's picker is open (one SingleSelectModal serves all four).
+  const [pickerSlot, setPickerSlot] = useState<PlayerSlot | null>(null);
+  // Bumped on every open and used as the picker's key: the foundation modal
+  // keeps its search query in local state, so one shared instance would carry
+  // the last slot's search into the next. Bumping on open (not close) remounts
+  // it while hidden, so the close slide-out isn't cut.
+  const [pickerOpenSeq, setPickerOpenSeq] = useState(0);
+  const openPicker = (slot: PlayerSlot) => { setPickerOpenSeq((n) => n + 1); setPickerSlot(slot); };
   const [matchType, setMatchType] = useState<MatchType>(prefillMatchType ?? 'doubles');
   const [p1, setP1] = useState(prefillTeam1Player ?? '');
   const [partner1, setPartner1] = useState(prefillTeam1Partner ?? '');
@@ -333,8 +326,14 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       setLeagueCandidates(leagues);
       setTournamentCandidates(tourns);
 
-      // Clear selections that no longer qualify after a player change.
-      setSelectedLeagueId(prev => (prev && leagues.some(l => l.id === prev)) ? prev : null);
+      // Clear selections that no longer qualify after a player change. When
+      // exactly one league holds every chosen player (and the recorder, per
+      // the insert RLS), pick it: there is nothing to choose. A league the
+      // user picked themselves is kept as long as it still qualifies.
+      setSelectedLeagueId(prev => {
+        if (prev && leagues.some(l => l.id === prev)) return prev;
+        return leagues.length === 1 ? leagues[0].id : null;
+      });
       setSelectedTournamentId(prev => (prev && tourns.some(t => t.id === prev)) ? prev : null);
     })();
     return () => { cancelled = true; };
@@ -715,30 +714,73 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   // List of slots that still need a gender declared (after applying overrides).
   const pendingGenderSlots = unsetSlots();
 
+  // ── Player picker (one SingleSelectModal for all four slots) ───────────
+  const slotValue: Record<PlayerSlot, string> = { p1, partner1, p2, partner2 };
+  const slotSetter: Record<PlayerSlot, (v: string) => void> = {
+    p1: setP1, partner1: setPartner1, p2: setP2, partner2: setPartner2,
+  };
+  // Who a slot may NOT pick: anyone already on the other team, and its own
+  // teammate. Same exclusions the wheel pickers applied.
+  const slotExclude: Record<PlayerSlot, string[]> = {
+    p1:       [...team2Players, partner1],
+    partner1: [...team2Players, p1],
+    p2:       [...team1Players, partner2],
+    partner2: [...team1Players, p2],
+  };
+  const nameOf = (id: string) => (id ? members.find((m) => m.id === id)?.full_name ?? 'Player' : null);
+
+  const pickerItems = useMemo(() => {
+    if (!pickerSlot) return [];
+    const value = slotValue[pickerSlot];
+    const exclude = slotExclude[pickerSlot];
+    return members
+      .filter((m) => !exclude.includes(m.id) || m.id === value)
+      .map((m) => ({ id: m.id, name: m.full_name ?? 'Player' }));
+    // slotValue / slotExclude are rebuilt every render from these inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerSlot, members, p1, partner1, p2, partner2]);
+
+  const selectedLeagueName = leagueCandidates.find(l => l.id === selectedLeagueId)?.name ?? null;
+  // The optional tournament tag only renders when the chosen league has an
+  // active tournament these players are all in (or one is already chosen):
+  // a disabled "(none)" field is a row of nothing.
+  const showTournamentField = pickLeagueInline && (visibleTournaments.length > 0 || !!selectedTournamentId);
+  const categoryCopy: Record<DoublesCategory, { label: string; tone: 'brand' | 'info' | 'warning'; sub: string }> = {
+    gendered:    { label: 'Gendered doubles', tone: 'brand',   sub: 'Updates Gendered Doubles PLUPR' },
+    mixed:       { label: 'Mixed doubles',    tone: 'info',    sub: 'Updates Mixed Doubles PLUPR' },
+    unspecified: { label: 'Needs genders',    tone: 'warning', sub: 'Pick a gender above for every player without one' },
+  };
+
   return (
-    <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
+    <ScrollView style={S.screen} contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
 
       {/* Tournament-match banner */}
       {isTournamentMatch && (
-        <View style={S.tournamentBanner}>
+        // The screen's one Emphasis card: Panel + 3px accent edge.
+        <Panel style={S.tournamentBanner}>
           <Text style={S.tournamentBannerTitle}>🏆 Recording a tournament match</Text>
-          <Text style={S.tournamentBannerBody}>
+          <Text style={S.tournamentBannerBody} numberOfLines={3}>
             {tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.
           </Text>
-        </View>
+        </Panel>
       )}
 
-      {/* Singles / Doubles toggle — locked in tournament mode */}
-      <View style={S.toggleRow}>
+      {/* Singles / Doubles toggle — locked in tournament mode. A form radio
+          group, not an in-screen tab, so it stays hand-rolled rather than a
+          SegmentedToggle. FOUNDATION-TODO: SegmentedToggle per-option disabled
+          + a 44px box on outline/solid, then this can adopt it. */}
+      <View style={S.toggleRow} accessibilityRole="radiogroup">
         {(['singles', 'doubles'] as MatchType[]).map((t) => {
           const isActive = matchType === t;
           const disabled = isTournamentMatch && !isActive;
           return (
             <TouchableOpacity
               key={t}
-              style={[S.toggleBtn, isActive && S.toggleBtnActive, disabled && { opacity: 0.4 }]}
+              style={[S.toggleBtn, isActive && S.toggleBtnActive, disabled && S.dim]}
               onPress={() => disabled ? null : resetOnTypeChange(t)}
               disabled={disabled}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: isActive, disabled }}
             >
               <Text style={[S.toggleText, isActive && S.toggleTextActive]}>
                 {t === 'singles' ? 'Singles' : 'Doubles'}
@@ -748,215 +790,223 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         })}
       </View>
 
+      {/* Players first: on a Home-launched match the league list below is
+          narrowed to leagues every chosen player shares (and auto-picked when
+          exactly one does). */}
+      <Panel style={S.block}>
+        <View style={S.teamRow}>
+          <PlayerField slot="p1" name={nameOf(p1)} onPress={() => openPicker('p1')} S={S} />
+          {matchType === 'doubles' && (
+            <PlayerField slot="partner1" name={nameOf(partner1)} onPress={() => openPicker('partner1')} S={S} />
+          )}
+        </View>
+        <View style={S.vsRow} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <View style={S.vsRule} />
+          <Text style={S.vsText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>vs</Text>
+          <View style={S.vsRule} />
+        </View>
+        <View style={S.teamRow}>
+          <PlayerField slot="p2" name={nameOf(p2)} onPress={() => openPicker('p2')} S={S} />
+          {matchType === 'doubles' && (
+            <PlayerField slot="partner2" name={nameOf(partner2)} onPress={() => openPicker('partner2')} S={S} />
+          )}
+        </View>
+      </Panel>
+
       {/* Home-launched entry: league (required) + tournament tag (optional).
           Hidden for every other entry point, which fixes the league via route. */}
       {pickLeagueInline && (
-        <View style={S.tagSection}>
-          <Text style={S.label}>League <Text style={S.locationRequired}>*</Text></Text>
-          <TouchableOpacity
-            style={S.dropdownField}
-            activeOpacity={0.7}
-            disabled={selectedPlayerIds.length === 0}
-            onPress={() => setLeaguePickerOpen(true)}
-          >
-            <Text style={[S.dropdownText, !selectedLeagueId && S.dropdownPlaceholder]} numberOfLines={1}>
-              {selectedPlayerIds.length === 0
-                ? 'Pick players first…'
-                : (leagueCandidates.find(l => l.id === selectedLeagueId)?.name
-                    ?? (leagueCandidates.length === 0 ? 'No shared league for these players' : 'Select a league…'))}
+        <View style={[S.block, S.tagRow]}>
+          <View style={S.tagCol}>
+            <Text style={S.fieldLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              League <Text style={S.required}>*</Text>
             </Text>
-            <Text style={S.dropdownChevron}>▾</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[S.field, selectedPlayerIds.length === 0 && S.dim]}
+              activeOpacity={0.7}
+              disabled={selectedPlayerIds.length === 0}
+              onPress={() => setLeaguePickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={selectedLeagueName ? `League: ${selectedLeagueName}. Change` : 'Choose a league'}
+            >
+              <Text style={[S.fieldText, !selectedLeagueId && S.fieldPlaceholder]} numberOfLines={1}>
+                {selectedPlayerIds.length === 0
+                  ? 'Pick players first…'
+                  : (selectedLeagueName
+                      ?? (leagueCandidates.length === 0 ? 'No shared league for these players' : 'Select a league…'))}
+              </Text>
+              <Text style={S.fieldChevron}>▾</Text>
+            </TouchableOpacity>
+          </View>
 
-          <Text style={S.label}>Tournament <Text style={S.optionalHint}>(optional)</Text></Text>
-          <TouchableOpacity
-            style={S.dropdownField}
-            activeOpacity={0.7}
-            disabled={selectedPlayerIds.length === 0 || visibleTournaments.length === 0}
-            onPress={() => setTournamentPickerOpen(true)}
-          >
-            <Text style={[S.dropdownText, !selectedTournamentId && S.dropdownPlaceholder]} numberOfLines={1}>
-              {selectedPlayerIds.length === 0
-                ? 'Pick players first…'
-                : !selectedLeagueId
-                  ? 'Pick a league first…'
-                  : selectedTournamentId
-                    ? (visibleTournaments.find(t => t.id === selectedTournamentId)?.name ?? '(none)')
-                    : visibleTournaments.length === 0 ? 'No active tournament in this league' : '(none)'}
-            </Text>
-            <Text style={S.dropdownChevron}>▾</Text>
-          </TouchableOpacity>
+          {showTournamentField && (
+            <View style={S.tagCol}>
+              <Text style={S.fieldLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Tournament</Text>
+              <TouchableOpacity
+                style={S.field}
+                activeOpacity={0.7}
+                onPress={() => setTournamentPickerOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Tag a tournament (optional)"
+              >
+                <Text style={[S.fieldText, !selectedTournamentId && S.fieldPlaceholder]} numberOfLines={1}>
+                  {selectedTournamentId
+                    ? (visibleTournaments.find(t => t.id === selectedTournamentId)?.name ?? 'Optional')
+                    : 'Optional'}
+                </Text>
+                <Text style={S.fieldChevron}>▾</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
 
-      {/* Team 1 */}
-      <View style={S.teamSection}>
-        <Text style={S.teamLabel}>Team 1</Text>
-        <PlayerPickerField label="Player" value={p1} onChange={setP1} members={members} exclude={[...team2Players, partner1]} S={S} colors={colors} />
-        {matchType === 'doubles' && (
-          <PlayerPickerField label="Partner" value={partner1} onChange={setPartner1} members={members} exclude={[...team2Players, p1]} S={S} colors={colors} />
-        )}
-      </View>
-
-      {/* Team 2 */}
-      <View style={S.teamSection}>
-        <Text style={S.teamLabel}>Team 2</Text>
-        <PlayerPickerField label="Player" value={p2} onChange={setP2} members={members} exclude={[...team1Players, partner2]} S={S} colors={colors} />
-        {matchType === 'doubles' && (
-          <PlayerPickerField label="Partner" value={partner2} onChange={setPartner2} members={members} exclude={[...team1Players, p2]} S={S} colors={colors} />
-        )}
-      </View>
-
       {/* Per-match gender declaration for players without a profile gender */}
       {matchType === 'doubles' && pendingGenderSlots.length > 0 && (
-        <View style={S.genderDeclareCard}>
+        <View style={[S.block, S.genderDeclareCard]}>
           <Text style={S.genderDeclareTitle}>Declare gender for this match</Text>
-          <Text style={S.genderDeclareBody}>
-            {pendingGenderSlots.length === 1 ? 'This player hasn\'t' : 'These players haven\'t'} set a gender on their profile.
-            Pick a gender for this match so we can classify it as Gendered or Mixed Doubles.
+          <Text style={S.genderDeclareBody} numberOfLines={2}>
+            {pendingGenderSlots.length === 1 ? 'This player hasn\'t' : 'These players haven\'t'} set a gender on their profile, so we can't tell Gendered from Mixed Doubles.
           </Text>
           {pendingGenderSlots.map(s => (
             <View key={s.slot} style={S.genderDeclareRow}>
               <Text style={S.genderDeclareName} numberOfLines={1}>{s.name}</Text>
-              <View style={S.genderDeclarePills}>
-                {(['male','female'] as const).map(g => {
-                  const active = genderOverrides[s.slot] === g;
-                  return (
-                    <TouchableOpacity
-                      key={g}
-                      style={[S.genderDeclarePill, active && S.genderDeclarePillActive]}
-                      onPress={() => setGenderOverrides(prev => ({ ...prev, [s.slot]: g }))}
-                    >
-                      <Text style={[S.genderDeclarePillText, active && S.genderDeclarePillTextActive]}>
-                        {g === 'male' ? '♂ Male' : '♀ Female'}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {(['male','female'] as const).map(g => {
+                const active = genderOverrides[s.slot] === g;
+                return (
+                  <FilterPill
+                    key={g}
+                    label={g === 'male' ? '♂ Male' : '♀ Female'}
+                    active={active}
+                    onPress={() => setGenderOverrides(prev => ({ ...prev, [s.slot]: g }))}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: active }}
+                    accessibilityLabel={`${s.name}: ${g}`}
+                  />
+                );
+              })}
             </View>
           ))}
         </View>
       )}
 
-      {/* Doubles category preview */}
+      {/* Doubles category preview: one line instead of a card. */}
       {doublesCategory && (
-        <View style={[
-          S.categoryCard,
-          doublesCategory === 'gendered'    && S.categoryCardGendered,
-          doublesCategory === 'mixed'       && S.categoryCardMixed,
-          doublesCategory === 'unspecified' && S.categoryCardUnspecified,
-        ]}>
-          <Text style={S.categoryHeader}>
-            {doublesCategory === 'gendered'    ? '👥 Gendered Doubles' :
-             doublesCategory === 'mixed'       ? '👥 Mixed Doubles'    :
-                                                 '⚠️ Uncategorized Doubles'}
-          </Text>
-          <Text style={S.categorySub}>
-            {doublesCategory === 'gendered'    ? 'All four players are on the same side (or one declared the same as the others) — updates Gendered Doubles PLUPR.' :
-             doublesCategory === 'mixed'       ? 'Players span multiple genders — updates Mixed Doubles PLUPR.'             :
-                                                 'Pick a gender above for every player without one to enable this match.'}
-          </Text>
+        <View style={[S.block, S.categoryLine]}>
+          <Badge
+            label={categoryCopy[doublesCategory].label}
+            tone={categoryCopy[doublesCategory].tone}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          />
+          <Text style={S.categorySub} numberOfLines={1}>{categoryCopy[doublesCategory].sub}</Text>
         </View>
       )}
 
       {/* Score entry — supports best-of-N (add a game per row). */}
-      {games.map((g, i) => (
-        <View key={i} style={S.scoreCard}>
-          {games.length > 1 && (
-            <View style={S.gameLabelRow}>
-              <Text style={S.gameLabel}>Game {i + 1}</Text>
-              <TouchableOpacity onPress={() => removeGame(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Text style={S.gameRemove}>✕</Text>
-              </TouchableOpacity>
+      <Panel padded={false} style={S.block}>
+        <SectionHeader
+          title="Score"
+          action={{ label: '+ Add game', a11yLabel: 'Add another game', onPress: addGame }}
+          style={S.panelHeader}
+        />
+        <View style={S.scoreBody}>
+          {games.map((g, i) => (
+            <View key={i} style={S.scoreRow}>
+              {games.length > 1 && (
+                <Text style={S.gameLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>G{i + 1}</Text>
+              )}
+              <View style={S.scoreCol}>
+                {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>}
+                <TextInput
+                  style={S.scoreInput}
+                  keyboardType="number-pad"
+                  value={g.t1}
+                  onChangeText={(v) => updateGame(i, 't1', v)}
+                  placeholder="0"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  accessibilityLabel={`Game ${i + 1}, ${p1Name} score`}
+                />
+              </View>
+              <Text style={S.vs}>–</Text>
+              <View style={S.scoreCol}>
+                {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>}
+                <TextInput
+                  style={S.scoreInput}
+                  keyboardType="number-pad"
+                  value={g.t2}
+                  onChangeText={(v) => updateGame(i, 't2', v)}
+                  placeholder="0"
+                  placeholderTextColor={colors.textMuted}
+                  maxLength={2}
+                  accessibilityLabel={`Game ${i + 1}, ${p2Name} score`}
+                />
+              </View>
+              {games.length > 1 && (
+                <Pressable
+                  onPress={() => removeGame(i)}
+                  style={({ pressed }) => [S.removeBox, pressed && S.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove game ${i + 1}`}
+                >
+                  <Text style={S.removeGlyph}>✕</Text>
+                </Pressable>
+              )}
             </View>
-          )}
-          <View style={S.scoreRow}>
-            <View style={S.scoreCol}>
-              {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p1Name}</Text>}
-              <TextInput
-                style={S.scoreInput}
-                keyboardType="number-pad"
-                value={g.t1}
-                onChangeText={(v) => updateGame(i, 't1', v)}
-                placeholder="0"
-                placeholderTextColor={colors.border}
-                maxLength={2}
-              />
-            </View>
-            <Text style={S.vs}>vs</Text>
-            <View style={S.scoreCol}>
-              {i === 0 && <Text style={S.scoreName} numberOfLines={1}>{p2Name}</Text>}
-              <TextInput
-                style={S.scoreInput}
-                keyboardType="number-pad"
-                value={g.t2}
-                onChangeText={(v) => updateGame(i, 't2', v)}
-                placeholder="0"
-                placeholderTextColor={colors.border}
-                maxLength={2}
-              />
-            </View>
-          </View>
+          ))}
         </View>
-      ))}
-      <TouchableOpacity style={S.addGameBtn} onPress={addGame}>
-        <Text style={S.addGameBtnText}>+ Add another game</Text>
-      </TouchableOpacity>
+      </Panel>
 
       {/* Location */}
-      <View style={S.locationSection}>
-        <Text style={S.locationLabel}>
-          Match Location
-          {!location && <Text style={S.locationRequired}> *</Text>}
-        </Text>
+      <View style={S.block}>
+        <SectionHeader
+          title={location ? 'Match location' : 'Match location *'}
+          action={{
+            label: 'Add a court',
+            a11yLabel: "Can't find your court? Add it",
+            onPress: () =>
+              navigation.navigate(
+                'SubmitVenue',
+                location ? { lat: location.lat, lng: location.lng } : undefined,
+              ),
+          }}
+        />
         <CourtPicker
           value={location}
           onSelect={setLocation}
           active
           placeholder="Search for the court played at..."
         />
-        <TouchableOpacity
-          style={{ alignSelf: 'flex-start', paddingVertical: 8 }}
-          onPress={() =>
-            navigation.navigate(
-              'SubmitVenue',
-              location ? { lat: location.lat, lng: location.lng } : undefined,
-            )
-          }
-        >
-          <Text style={{ color: colors.primary, fontWeight: '700', fontSize: 13 }}>
-            Can't find your court? Add it →
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* Indoor / Outdoor */}
-      <View style={S.courtTypeSection}>
-        <Text style={S.courtTypeLabel}>Court Type</Text>
+      <View style={S.block}>
+        <SectionHeader title="Court type" />
         {courtHint && (
-          <Text style={S.courtHint}>📍 {courtHint}</Text>
+          <Text style={S.courtHint} numberOfLines={1}>📍 {courtHint}</Text>
         )}
         <View style={S.courtTypeRow}>
           {([false, true] as const).map(outdoor => {
             const buttonType: 'outdoor' | 'indoor' = outdoor ? 'outdoor' : 'indoor';
             const isDisabled = courtTypeLocked !== null && courtTypeLocked !== buttonType;
+            const isActive = isOutdoor === outdoor;
             return (
               <TouchableOpacity
                 key={String(outdoor)}
                 style={[
                   S.courtTypeBtn,
-                  isOutdoor === outdoor && S.courtTypeBtnActive,
+                  isActive && S.courtTypeBtnActive,
                   isDisabled && S.courtTypeBtnDisabled,
                 ]}
                 onPress={() => isDisabled ? null : setIsOutdoor(prev => prev === outdoor ? null : outdoor)}
                 disabled={isDisabled}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive, disabled: isDisabled }}
               >
-                <Text style={[S.courtTypeIcon, isDisabled && S.courtTypeTextDisabled]}>{outdoor ? '☀️' : '🏠'}</Text>
+                <Text style={S.courtTypeIcon}>{outdoor ? '☀️' : '🏠'}</Text>
                 <Text style={[
                   S.courtTypeText,
-                  isOutdoor === outdoor && S.courtTypeTextActive,
-                  isDisabled && S.courtTypeTextDisabled,
+                  isActive && S.courtTypeTextActive,
                 ]}>
                   {outdoor ? 'Outdoor' : 'Indoor'}
                 </Text>
@@ -967,15 +1017,40 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       </View>
 
       {/* Status message */}
-      <StatusBanner status={status.value} />
+      <StatusBanner status={status.value} style={S.status} />
 
-      <TouchableOpacity
-        style={[S.button, (loading || submitted) && S.buttonDisabled]}
+      {/* The one full-height primary on the screen. */}
+      <Button
+        title={submitted ? 'Recorded' : 'Record match'}
         onPress={submitMatch}
+        loading={loading}
         disabled={loading || submitted}
-      >
-        <Text style={S.buttonText}>{loading ? 'Saving...' : submitted ? 'Recorded' : 'Record Match'}</Text>
-      </TouchableOpacity>
+      />
+
+      {/* One player picker for the four slots. A Modal only ever opens from a
+          tap on this screen, never on top of another one. */}
+      {/* FOUNDATION-TODO: SingleSelectModal should clear its search query when
+          visible goes true (and show emptyText when a search has no hits even
+          with noneLabel set); the key remounts it per open until then. */}
+      <SingleSelectModal
+        key={pickerOpenSeq}
+        visible={pickerSlot != null}
+        title={pickerSlot ? SLOT_LABEL[pickerSlot] : ''}
+        items={pickerItems}
+        selectedId={pickerSlot ? slotValue[pickerSlot] || null : null}
+        onPick={(id) => {
+          if (pickerSlot) slotSetter[pickerSlot](id ?? '');
+          setPickerSlot(null);
+        }}
+        onClose={() => setPickerSlot(null)}
+        searchPlaceholder="Search players…"
+        // The clear row only when there's something to clear: the modal always
+        // prepends it, which would otherwise keep emptyText from ever showing.
+        noneLabel={pickerSlot && slotValue[pickerSlot] ? 'No player' : null}
+        emptyText={members.length === 0
+          ? (pickLeagueInline ? 'Join a league to record a match with league-mates.' : 'No players to pick from yet.')
+          : 'No matches.'}
+      />
 
       {/* Home-launched league / tournament pickers. */}
       {/* TODO: smoke-test in browser */}
@@ -1002,79 +1077,74 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   );
 }
 
+// Height budget for a Home-launched doubles match at the default text size,
+// with nothing picked yet (the plan's "under 700px, no wheels"): 12 top +
+// toggle 44 + teams panel 136 + league 62 + score 124 + location ~90 + court
+// type 76 + Record 50 + 6 gaps of 12 + 24 bottom = about 690.
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 40 },
-    tournamentBanner:      { backgroundColor: c.primaryLight, borderLeftWidth: 4, borderLeftColor: c.primary, borderRadius: 10, padding: 12, marginBottom: 16 },
-    tournamentBannerTitle: { fontSize: 14, fontWeight: '800', color: c.text, marginBottom: 4 },
-    tournamentBannerBody:  { fontSize: 13, color: c.textSub, lineHeight: 18 },
-    toggleRow: { flexDirection: 'row', borderRadius: 10, borderWidth: 1.5, borderColor: c.border, overflow: 'hidden', marginBottom: 20 },
-    toggleBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: c.surfaceAlt },
-    toggleBtnActive: { backgroundColor: c.primary },
-    toggleText: { fontSize: 15, fontWeight: '600', color: c.textMuted },
-    toggleTextActive: { color: '#fff' },
-    teamSection: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
-    teamLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+    screen:    { flex: 1, backgroundColor: c.bg },
+    container: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xl, flexGrow: 1 },
+    block:     { marginBottom: SPACE.md },
+    dim:       { opacity: 0.4 },
+    pressed:   { opacity: 0.6 },
 
-    tagSection:        { marginBottom: 16 },
-    optionalHint:      { fontSize: 12, fontWeight: '500', color: c.textMuted },
-    dropdownField:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: c.surface },
-    dropdownText:      { flex: 1, fontSize: 15, color: c.text },
-    dropdownPlaceholder: { color: c.textMuted },
-    dropdownChevron:   { fontSize: 14, color: c.textMuted, marginLeft: 8 },
+    // Panel supplies the hairline border, surface fill, 12 padding and radius 14.
+    tournamentBanner:      { borderLeftWidth: 3, borderLeftColor: c.primary, marginBottom: SPACE.md },
+    tournamentBannerTitle: { ...t.title, marginBottom: SPACE.xxs },
+    tournamentBannerBody:  t.sub,
 
-    genderDeclareCard:       { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5, borderColor: '#d4a72c', backgroundColor: '#fff8e6' },
-    genderDeclareTitle:      { fontSize: 14, fontWeight: '800', color: '#8a6d00', marginBottom: 4 },
-    genderDeclareBody:       { fontSize: 12, color: c.textSub, lineHeight: 17, marginBottom: 8 },
-    genderDeclareRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6 },
-    genderDeclareName:       { flex: 1, fontSize: 13, fontWeight: '700', color: c.text },
-    genderDeclarePills:      { flexDirection: 'row', gap: 6 },
-    genderDeclarePill:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
-    genderDeclarePillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    genderDeclarePillText:   { fontSize: 12, fontWeight: '700', color: c.textSub },
-    genderDeclarePillTextActive: { color: c.primary },
+    toggleRow:        { flexDirection: 'row', borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, overflow: 'hidden', marginBottom: SPACE.md },
+    toggleBtn:        { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
+    toggleBtnActive:  { backgroundColor: c.primary },
+    toggleText:       { fontSize: FONT.size.lg, fontWeight: '600', color: c.textSub },
+    toggleTextActive: { color: c.textInverse },
 
-    categoryCard:            { borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 1.5 },
-    categoryCardGendered:    { backgroundColor: c.primaryLight, borderColor: c.primary },
-    categoryCardMixed:       { backgroundColor: '#f3e5f5',      borderColor: '#8e24aa' },
-    categoryCardUnspecified: { backgroundColor: '#fff8e1',      borderColor: '#f57f17' },
-    categoryHeader:          { fontSize: 14, fontWeight: '800', color: c.text, marginBottom: 4 },
-    categorySub:             { fontSize: 12, color: c.textSub, lineHeight: 16 },
-    label: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 5, marginTop: 10 },
-    pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 8, overflow: 'hidden', backgroundColor: c.surface },
-    scoreCard: { flexDirection: 'column', backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginVertical: 8, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
-    scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    scoreCol: { flex: 1, alignItems: 'center' },
-    scoreName: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 8, textAlign: 'center' },
-    scoreInput: { borderWidth: 2, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 28, textAlign: 'center', fontWeight: '800', color: c.text, width: 72, backgroundColor: c.surface },
-    vs: { fontSize: 16, fontWeight: '700', color: c.border },
-    gameLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    gameLabel: { fontSize: 12, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6 },
-    gameRemove: { fontSize: 16, color: c.textMuted, fontWeight: '700', paddingHorizontal: 4 },
-    addGameBtn: { alignSelf: 'center', marginTop: 4, marginBottom: 8, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
-    addGameBtnText: { fontSize: 13, fontWeight: '700', color: c.primary },
-    statusBox: { borderRadius: 8, padding: 14, marginTop: 8, marginBottom: 4 },
-    statusError: { backgroundColor: '#ffebee' },
-    statusSuccess: { backgroundColor: c.primaryLight },
-    statusText: { fontSize: 14, fontWeight: '600' },
-    statusTextError: { color: c.danger },
-    statusTextSuccess: { color: c.primary },
-    locationSection: { marginTop: 8, marginBottom: 4 },
-    locationLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 6 },
-    locationRequired: { color: c.danger },
-    courtTypeSection: { marginTop: 12, marginBottom: 4 },
-    courtTypeLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 4 },
-    courtHint: { fontSize: 12, color: c.textMuted, marginBottom: 6, fontStyle: 'italic' },
-    courtTypeRow: { flexDirection: 'row', gap: 10 },
-    courtTypeBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    courtTypeBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    // Player / league fields: a 44 box, the 15px value, a chevron.
+    teamRow:          { flexDirection: 'row', gap: SPACE.sm },
+    field:            { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, backgroundColor: c.surface },
+    fieldText:        { flex: 1, fontSize: FONT.size.lg, color: c.text },
+    fieldPlaceholder: { color: c.textMuted },
+    fieldChevron:     { fontSize: FONT.size.md, color: c.textMuted, marginLeft: SPACE.sm },
+    vsRow:            { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginVertical: SPACE.xs },
+    vsRule:           { flex: 1, height: HAIRLINE, backgroundColor: c.border },
+    vsText:           t.meta,
+
+    tagRow:     { flexDirection: 'row', gap: SPACE.sm },
+    tagCol:     { flex: 1, minWidth: 0 },
+    fieldLabel: { ...t.fieldLabel, marginBottom: SPACE.xs },
+    required:   { color: c.danger },
+
+    genderDeclareCard:  { borderRadius: RADIUS.lg, padding: SPACE.md, borderWidth: HAIRLINE, borderColor: c.warning, backgroundColor: c.warningLight },
+    genderDeclareTitle: { ...t.title, fontSize: FONT.size.md },
+    genderDeclareBody:  { ...t.sub, marginTop: SPACE.xxs, marginBottom: SPACE.xs },
+    genderDeclareRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    genderDeclareName:  { flex: 1, fontSize: FONT.size.base, fontWeight: '700', color: c.text },
+
+    categoryLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 24 },
+    categorySub:  { ...t.sub, flex: 1 },
+
+    panelHeader: { paddingHorizontal: SPACE.md },
+    scoreBody:   { paddingHorizontal: SPACE.md, paddingBottom: SPACE.md, gap: SPACE.sm },
+    scoreRow:    { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.md },
+    scoreCol:    { flex: 1, alignItems: 'center' },
+    scoreName:   { ...t.meta, color: c.textSub, marginBottom: SPACE.xs, textAlign: 'center' },
+    scoreInput:  { borderWidth: 2, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 48, paddingVertical: SPACE.xs, fontSize: FONT.size.h1, textAlign: 'center', fontWeight: '800', color: c.text, width: 72, backgroundColor: c.surface },
+    vs:          { fontSize: FONT.size.xl, fontWeight: '700', color: c.textMuted, paddingBottom: SPACE.md },
+    gameLabel:   { ...t.meta, width: 24, paddingBottom: SPACE.md + SPACE.xxs },
+    removeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    removeGlyph: { fontSize: FONT.size.lg, fontWeight: '700', color: c.textMuted },
+
+    courtHint:            { ...t.sub, color: c.textMuted, fontStyle: 'italic', marginBottom: SPACE.xs },
+    courtTypeRow:         { flexDirection: 'row', gap: SPACE.sm },
+    courtTypeBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minHeight: 44, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surface },
+    courtTypeBtnActive:   { borderColor: c.primary, backgroundColor: c.primaryLight },
     courtTypeBtnDisabled: { opacity: 0.4, backgroundColor: c.bg },
-    courtTypeIcon: { fontSize: 18 },
-    courtTypeText: { fontSize: 14, fontWeight: '600', color: c.textMuted },
-    courtTypeTextActive: { color: c.primary },
-    courtTypeTextDisabled: { color: c.textMuted },
-    button: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 12 },
-    buttonDisabled: { backgroundColor: c.primary + '80' },
-    buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    courtTypeIcon:        { fontSize: FONT.size.xl },
+    courtTypeText:        { fontSize: FONT.size.md, fontWeight: '600', color: c.textSub },
+    courtTypeTextActive:  { color: c.primary },
+
+    status: { marginBottom: SPACE.sm },
   });
 }

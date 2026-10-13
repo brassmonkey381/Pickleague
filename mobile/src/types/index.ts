@@ -142,6 +142,8 @@ export type LeagueWithStats = League & {
   featuredSeasonStatus: 'active' | 'upcoming' | null;
   featuredSeasonStart: string | null;
   featuredSeasonEnd: string | null;
+  // The featured season's length in weeks (league_seasons.total_weeks), for "Wk 7/12".
+  featuredSeasonTotalWeeks?: number | null;
 };
 
 export type LeagueJoinRequest = {
@@ -499,7 +501,11 @@ export type RootStackParamList = {
   Register: undefined;
   GuestJoin: { token: string };
   Home: undefined;
-  Play: { initialTab?: 'leagues' | 'tournaments' } | undefined;
+  // mine: a Home "All yours (N)" visit turns the Mine-only chip on for that
+  // visit. Route params are never persisted (usePersistedState skips them).
+  // prefillInviteCode: passed through to the embedded Leagues body, which opens
+  // Join-with-Code (as the standalone 'Leagues' route does).
+  Play: { initialTab?: 'leagues' | 'tournaments'; mine?: boolean; prefillInviteCode?: string } | undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
   // Landing for the magic link sent by the request-claim edge function.
@@ -507,12 +513,14 @@ export type RootStackParamList = {
   HeadToHead: { opponentId: string; opponentName: string };
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };
-  TournamentDetail: { tournamentId: string; tournamentName: string };
+  // focus: Home's Up next row opens the screen scrolled to that control.
+  TournamentDetail: { tournamentId: string; tournamentName: string; focus?: 'invite' | 'next_match' };
   TournamentMembers: { tournamentId: string; tournamentName: string };
   TournamentInvitePlayers: { tournamentId: string; tournamentName: string };
   TournamentMatchHistory: { tournamentId: string; title: string };
   TournamentInfo: { tournamentId: string; tournamentName: string };
-  Notifications: undefined;
+  // initialChip: Home's Up next "+N more" opens the inbox on its Requests chip.
+  Notifications: { initialChip?: 'requests' } | undefined;
   LeagueDetail: { leagueId: string; leagueName: string };
   LeagueInfo: { leagueId: string; leagueName: string };
   LeagueMembers: { leagueId: string; leagueName: string };
@@ -522,7 +530,8 @@ export type RootStackParamList = {
   CreateEvent: { leagueId: string };
   // title: a placeholder header; the screen sets the real one from the event.
   // openNudge / openClose: from a push button (Text group / Close vote).
-  EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean };
+  // focus: Home's Up next row opens the screen scrolled to that control.
+  EventDetail: { eventId: string; title: string; openNudge?: boolean; openClose?: boolean; focus?: 'vote' | 'rsvp' };
   // Screen exists but is not yet registered in AppNavigator.
   ScheduleMatch: { leagueId: string };
   MatchEntry: {

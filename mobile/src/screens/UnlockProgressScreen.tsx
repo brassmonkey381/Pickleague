@@ -1,15 +1,32 @@
-import React, { useEffect, useState } from 'react';
+// Every cosmetic you can earn and how close you are (plan section 8, P6:
+// compacted). Profile's status strip ("Next unlock: ... 3/5 >") lands here, so
+// this screen now also carries what the old ~900px Unlockable Rewards card on
+// Profile held: the Getting started checklist (collapsed) and the avatar / tag
+// slot / tag rows.
+//
+// Layout: one summary strip, then a SectionHeader + grouped Panel of 64px rows
+// per category. Each row: glyph tile · name + Earned/Locked chip · gating badge
+// · a thin foundation ProgressBar (or the requirement) · the name-style reward
+// that unlocks with the same badge, if any (tap -> Shop).
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import { Panel, SectionHeader, CollapsibleSection, Badge } from '@just-messin-around/expo-foundation/ui';
+import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { RootStackParamList } from '../types';
+import { Profile, RootStackParamList } from '../types';
 import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS } from '../data/profileCustomization';
 import { computeBadgeProgress } from '../lib/unlockProgress';
+import { trackSectionToggle } from '../lib/analytics';
 import FlairName from '../components/FlairName';
+import FtueChecklistCard from '../components/FtueChecklistCard';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -31,28 +48,14 @@ type NameStyleReward = {
   unlock_badge_id: string;
 };
 
-function ProgressRow({ prog, c }: { prog: Progress; c: any }) {
-  if (!prog.showBar) {
-    return <Text style={{ fontSize: 11, color: c.textMuted, fontStyle: 'italic' }}>{prog.text}</Text>;
-  }
-  const filled = Math.max(prog.pct, 0.02);
-  const empty  = 1 - filled;
-  return (
-    <>
-      <View style={{ flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border }}>
-        <View style={{ backgroundColor: c.primary, flex: filled }} />
-        {empty > 0 && <View style={{ backgroundColor: c.border, flex: empty }} />}
-      </View>
-      <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{prog.text}</Text>
-    </>
-  );
-}
+type Colors = ReturnType<typeof useTheme>['colors'];
 
 // TODO: smoke-test in browser — verify the per-badge name-style reward row
 // renders with the muted preview when locked and "✓ Unlocked" when earned,
 // and that tapping it routes to the Shop.
 export default function UnlockProgressScreen({ navigation }: Props) {
   const { colors } = useTheme();
+  const t = textStyles(colors);
   const styles = makeStyles(colors);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,9 +67,26 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   const [nameStyleRewards, setNameStyleRewards] = useState<Record<string, NameStyleReward>>({});
   // Preview name on the reward chip — same source of truth as ShopScreen.
   const [myFullName, setMyFullName] = useState<string>('You');
+  // The Getting started checklist reads profile fields to decide what's done.
+  const [profile, setProfile] = useState<Profile | null>(null);
   const refresh = useRefresh(load);
 
   useEffect(() => { load(); }, []);
+
+  // Back from Profile (Getting started's "Set up your profile" step pushes it)
+  // or the Shop: re-read, so a profile saved there flips the step to its Claim
+  // button, and new badges show, without a pull-to-refresh. The checklist's own
+  // focus reload only re-reads grants and memberships; it takes the profile
+  // from here. The mount effect covers the first focus; load() never sets
+  // `loading` back, so the skeleton doesn't flash, and a failed re-read keeps
+  // what is shown (the error state needs an empty screen).
+  const focusCount = useRef(0);
+  useFocusEffect(useCallback(() => {
+    focusCount.current += 1;
+    if (focusCount.current > 1) void load();
+    // load() only calls setters and module clients, so the first closure stays valid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []));
 
   async function load() {
     try {
@@ -134,6 +154,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
 
     const prof = profileRes.data;
     if (prof) {
+      setProfile(prof as Profile);
       setMyFullName(prof.full_name ?? 'You');
 
       // Badge-progress math lives in lib/unlockProgress so Home cards and the
@@ -152,9 +173,9 @@ export default function UnlockProgressScreen({ navigation }: Props) {
     }
   }
 
-  // Renders the per-badge name-style reward row when the badge has a
-  // corresponding entry in shop_items.unlock_badge_id. Tapping opens the
-  // Shop where the locked row is visible (or the inventory if owned).
+  // The name-style reward that unlocks with a badge, as a 44px line inside
+  // its row. Tapping opens the Shop, where the locked row is visible (or the
+  // inventory if owned).
   function renderNameStyleReward(badgeName: string) {
     const reward = nameStyleRewards[badgeName];
     if (!reward) return null;
@@ -164,6 +185,8 @@ export default function UnlockProgressScreen({ navigation }: Props) {
         onPress={() => navigation.navigate('Shop')}
         activeOpacity={0.75}
         style={styles.rewardRow}
+        accessibilityRole="button"
+        accessibilityLabel={`${earned ? 'Unlocked' : 'Reward'}: ${reward.name} name style. Open the Shop`}
       >
         <View style={styles.rewardPreviewBox}>
           <FlairName
@@ -173,23 +196,78 @@ export default function UnlockProgressScreen({ navigation }: Props) {
             // degrade to their base color — keeps the row calm even for
             // hero-tier styles like the Champion / Top Rated effects.
             mode="list"
-            style={[styles.rewardPreviewText, !earned && styles.rewardPreviewTextMuted]}
+            style={[styles.rewardPreviewText, !earned && styles.muted]}
             numberOfLines={1}
           />
         </View>
-        <View style={styles.rewardTextCol}>
-          <Text style={styles.rewardLabel} numberOfLines={1}>
-            {earned ? '✓ Unlocked' : 'Reward'} · {reward.name}
-          </Text>
-          <Text style={styles.rewardSubLabel} numberOfLines={1}>
-            Name style · {reward.category === 'profile_name_style' ? 'Profile' : 'List'}
-          </Text>
-        </View>
+        <Text style={[t.meta, styles.flexText]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          {earned ? '✓ Unlocked' : 'Reward'} · {reward.name} · {reward.category === 'profile_name_style' ? 'Profile' : 'List'} style
+        </Text>
+        <Text style={styles.chevronSmall}>›</Text>
       </TouchableOpacity>
     );
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  /** One unlock: glyph · name + status chip · gating badge · progress or
+   *  requirement · its name-style reward. A render function, not a nested
+   *  component, so rows aren't remounted (and FlairName previews restarted)
+   *  on every render. */
+  function renderUnlockRow({
+    key, glyph, glyphBg, name, badgeName, requirement, lastRow, onPress,
+  }: {
+    key: string | number; glyph: string; glyphBg: string; name: string; badgeName: string;
+    requirement: string; lastRow: boolean; onPress?: () => void;
+  }) {
+    const earned = earnedBadgeNames.includes(badgeName);
+    const prog = badgeProgress[badgeName];
+    const body = (
+      <>
+        <View style={[styles.tile, { backgroundColor: earned ? glyphBg : colors.surfaceAlt }]}>
+          <Text style={[styles.tileGlyph, !earned && styles.muted]}>{glyph}</Text>
+        </View>
+        <View style={styles.flexText}>
+          <View style={styles.nameLine}>
+            <Text style={[t.title, styles.flexShrink]} numberOfLines={1}>{name}</Text>
+            <Badge
+              label={earned ? 'Earned' : 'Locked'}
+              tone={earned ? 'success' : 'neutral'}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+            />
+          </View>
+          <Text style={[t.meta, { color: colors.primary }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {badgeName}
+          </Text>
+          {!earned && prog?.showBar ? (
+            <ProgressBar
+              progress={prog.pct}
+              minFill={0.02}
+              height={4}
+              trackColor={colors.border}
+              caption={prog.text}
+              containerStyle={styles.progress}
+              accessibilityLabel={`${name} progress`}
+              accessibilityValueText={prog.text}
+            />
+          ) : !earned && prog ? (
+            <Text style={[t.meta, styles.italic]} numberOfLines={1}>{prog.text}</Text>
+          ) : (
+            <Text style={t.sub} numberOfLines={2}>{requirement}</Text>
+          )}
+          {renderNameStyleReward(badgeName)}
+        </View>
+      </>
+    );
+    const rowStyle = [styles.row, lastRow && styles.rowLast];
+    return onPress ? (
+      <TouchableOpacity key={key} style={rowStyle} activeOpacity={0.75} onPress={onPress} accessibilityRole="button">
+        {body}
+      </TouchableOpacity>
+    ) : (
+      <View key={key} style={rowStyle}>{body}</View>
+    );
+  }
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
 
   if (loadError && earnedBadgeNames.length === 0) {
     return (
@@ -206,9 +284,9 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   }
 
   const lockedAvatars = AVATARS.filter(a => !!a.unlock);
-  const lockedTags    = PLAY_TAGS.filter(t => !!t.unlock);
+  const lockedTags    = PLAY_TAGS.filter(tg => !!tg.unlock);
   const earnedAvatars = lockedAvatars.filter(a => earnedBadgeNames.includes(a.unlock!.badge)).length;
-  const earnedTags    = lockedTags.filter(t => earnedBadgeNames.includes(t.unlock!.badge)).length;
+  const earnedTags    = lockedTags.filter(tg => earnedBadgeNames.includes(tg.unlock!.badge)).length;
   const earnedSlots   = TAG_SLOT_UNLOCKS.filter(u => earnedBadgeNames.includes(u.badge)).length;
   // Name-style rewards section — list every badge that has a name-style
   // reward, even those that don't gate an avatar/tag/slot (e.g. First Rally,
@@ -216,198 +294,182 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   // in the progress UI.
   const nameStyleBadgeNames = Object.keys(nameStyleRewards);
   const earnedNameStyles = nameStyleBadgeNames.filter(n => earnedBadgeNames.includes(n)).length;
+  const coveredBadges = new Set<string>([
+    ...lockedAvatars.map(a => a.unlock!.badge),
+    ...TAG_SLOT_UNLOCKS.map(u => u.badge),
+    ...lockedTags.map(tg => tg.unlock!.badge),
+  ]);
+  const uncoveredStyles = nameStyleBadgeNames.filter(n => !coveredBadges.has(n));
+
+  const summary = [
+    { label: 'Avatars',     value: `${earnedAvatars}/${lockedAvatars.length}` },
+    { label: 'Tags',        value: `${earnedTags}/${lockedTags.length}` },
+    { label: 'Tag slots',   value: `${earnedSlots}/${TAG_SLOT_UNLOCKS.length}` },
+    ...(nameStyleBadgeNames.length > 0
+      ? [{ label: 'Name styles', value: `${earnedNameStyles}/${nameStyleBadgeNames.length}` }]
+      : []),
+  ];
 
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-      <Text style={styles.title}>🔓 Unlockable Rewards</Text>
-      <Text style={styles.subtitle}>
+      <Text style={[t.sub, styles.intro]} numberOfLines={2}>
         Earn the gating badge to unlock each cosmetic. Progress is tracked across your account.
       </Text>
 
-      <View style={styles.summaryRow}>
-        <View style={styles.summaryPill}>
-          <Text style={styles.summaryValue}>{earnedAvatars}/{lockedAvatars.length}</Text>
-          <Text style={styles.summaryLabel}>Avatars</Text>
+      <Panel padded={false} style={styles.block}>
+        <View style={styles.summaryRow}>
+          {summary.map((s, i) => (
+            <View
+              key={s.label}
+              style={[styles.summaryCell, i > 0 && styles.summaryDivider]}
+              accessible
+              accessibilityLabel={`${s.label}: ${s.value.replace('/', ' of ')}`}
+            >
+              <Text style={t.title}>{s.value}</Text>
+              <Text style={t.fieldLabel} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{s.label}</Text>
+            </View>
+          ))}
         </View>
-        <View style={styles.summaryPill}>
-          <Text style={styles.summaryValue}>{earnedTags}/{lockedTags.length}</Text>
-          <Text style={styles.summaryLabel}>Tags</Text>
-        </View>
-        <View style={styles.summaryPill}>
-          <Text style={styles.summaryValue}>{earnedSlots}/{TAG_SLOT_UNLOCKS.length}</Text>
-          <Text style={styles.summaryLabel}>Tag Slots</Text>
-        </View>
-        {nameStyleBadgeNames.length > 0 && (
-          <View style={styles.summaryPill}>
-            <Text style={styles.summaryValue}>{earnedNameStyles}/{nameStyleBadgeNames.length}</Text>
-            <Text style={styles.summaryLabel}>Name Styles</Text>
-          </View>
-        )}
+      </Panel>
+
+      {/* The FTUE checklist (and its Claim buttons) used to sit in Profile's
+          rewards card; it lives here now, collapsed. Home's Get started still
+          shows it while anything is unclaimed. */}
+      <CollapsibleSection
+        compact
+        title="Getting started"
+        onToggle={open => trackSectionToggle({ screen: 'UnlockProgress', section: 'getting_started', open })}
+      >
+        <FtueChecklistCard
+          profile={profile}
+          navigation={navigation}
+          alwaysShow
+          embedded
+          onClaimed={bal => setProfile(p => (p ? { ...p, pickles: bal } : p))}
+        />
+      </CollapsibleSection>
+
+      <View style={styles.block}>
+        <SectionHeader title="Special avatars" count={`${earnedAvatars}/${lockedAvatars.length}`} />
+        <Panel padded={false}>
+          {lockedAvatars.map((av, i) => (
+            renderUnlockRow({
+              key: av.id,
+              glyph: av.emoji,
+              glyphBg: av.bgColor,
+              name: `${av.name} Avatar`,
+              badgeName: av.unlock!.badge,
+              requirement: av.unlock!.description,
+              lastRow: i === lockedAvatars.length - 1,
+            })
+          ))}
+        </Panel>
       </View>
 
-      <Text style={styles.catLabel}>Special Avatars</Text>
-      {lockedAvatars.map(av => {
-        const earned = earnedBadgeNames.includes(av.unlock!.badge);
-        const prog   = badgeProgress[av.unlock!.badge];
-        return (
-          <View key={av.id} style={styles.row}>
-            <View style={[styles.iconCircle, { backgroundColor: earned ? av.bgColor : '#eeeeee' }]}>
-              <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>{av.emoji}</Text>
-            </View>
-            <View style={styles.info}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name}>{av.name} Avatar</Text>
-                {earned
-                  ? <Text style={styles.earned}>✓ Earned</Text>
-                  : <Text style={styles.locked}>Locked</Text>}
-              </View>
-              <Text style={styles.badgeName}>{av.unlock!.badge}</Text>
-              {!earned && prog
-                ? <ProgressRow prog={prog} c={colors} />
-                : <Text style={styles.req}>{av.unlock!.description}</Text>}
-              {renderNameStyleReward(av.unlock!.badge)}
-            </View>
-          </View>
-        );
-      })}
+      <View style={styles.block}>
+        <SectionHeader title="Extra tag slots" count={`${earnedSlots}/${TAG_SLOT_UNLOCKS.length}`} />
+        <Panel padded={false}>
+          {TAG_SLOT_UNLOCKS.map((u, i) => (
+            // Tag slots are used on your profile (the tag picker), so tapping
+            // routes there — not the Shop. (A name-style reward line inside,
+            // if any, keeps its own tap → Shop.)
+            renderUnlockRow({
+              key: u.badge,
+              glyph: '🏷️',
+              glyphBg: colors.primaryLight,
+              name: '+1 Tag Slot',
+              badgeName: u.badge,
+              requirement: u.description,
+              lastRow: i === TAG_SLOT_UNLOCKS.length - 1,
+              onPress: () => navigation.navigate('Profile', {}),
+            })
+          ))}
+        </Panel>
+      </View>
 
-      <Text style={styles.catLabel}>Extra Tag Slots</Text>
-      {TAG_SLOT_UNLOCKS.map(u => {
-        const earned = earnedBadgeNames.includes(u.badge);
-        const prog   = badgeProgress[u.badge];
-        return (
-          // Tag slots are used on your profile (the tag picker), so tapping
-          // routes there — not the Shop. (A name-style reward chip inside,
-          // if any, keeps its own tap → Shop.)
-          <TouchableOpacity
-            key={u.badge}
-            style={styles.row}
-            activeOpacity={0.75}
-            onPress={() => navigation.navigate('Profile', {})}
-          >
-            <View style={[styles.iconCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
-              <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
-            </View>
-            <View style={styles.info}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name}>+1 Tag Slot</Text>
-                {earned
-                  ? <Text style={styles.earned}>✓ Earned</Text>
-                  : <Text style={styles.locked}>Locked</Text>}
-              </View>
-              <Text style={styles.badgeName}>{u.badge}</Text>
-              {!earned && prog
-                ? <ProgressRow prog={prog} c={colors} />
-                : <Text style={styles.req}>{u.description}</Text>}
-              {renderNameStyleReward(u.badge)}
-            </View>
-          </TouchableOpacity>
-        );
-      })}
-
-      <Text style={styles.catLabel}>Exclusive Tags</Text>
-      {lockedTags.map(t => {
-        const earned = earnedBadgeNames.includes(t.unlock!.badge);
-        const prog   = badgeProgress[t.unlock!.badge];
-        return (
-          <View key={t.slug} style={styles.row}>
-            <View style={[styles.iconCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
-              <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
-            </View>
-            <View style={styles.info}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name}>{t.label}</Text>
-                {earned
-                  ? <Text style={styles.earned}>✓ Earned</Text>
-                  : <Text style={styles.locked}>Locked</Text>}
-              </View>
-              <Text style={styles.badgeName}>{t.unlock!.badge}</Text>
-              {!earned && prog
-                ? <ProgressRow prog={prog} c={colors} />
-                : <Text style={styles.req}>{t.unlock!.description}</Text>}
-              {renderNameStyleReward(t.unlock!.badge)}
-            </View>
-          </View>
-        );
-      })}
+      <View style={styles.block}>
+        <SectionHeader title="Exclusive tags" count={`${earnedTags}/${lockedTags.length}`} />
+        <Panel padded={false}>
+          {lockedTags.map((tg, i) => (
+            renderUnlockRow({
+              key: tg.slug,
+              glyph: '🏷️',
+              glyphBg: colors.primaryLight,
+              name: tg.label,
+              badgeName: tg.unlock!.badge,
+              requirement: tg.unlock!.description,
+              lastRow: i === lockedTags.length - 1,
+            })
+          ))}
+        </Panel>
+      </View>
 
       {/* Name-style rewards section — covers badges that don't gate an
           avatar/tag/slot but DO gate a name style (First Rally, Tournament
           Champion, etc.) so every progression-unlock style is discoverable. */}
-      {(() => {
-        const coveredBadges = new Set<string>([
-          ...lockedAvatars.map(a => a.unlock!.badge),
-          ...TAG_SLOT_UNLOCKS.map(u => u.badge),
-          ...lockedTags.map(t => t.unlock!.badge),
-        ]);
-        const uncovered = nameStyleBadgeNames.filter(n => !coveredBadges.has(n));
-        if (uncovered.length === 0) return null;
-        return (
-          <>
-            <Text style={styles.catLabel}>Exclusive Name Styles</Text>
-            {uncovered.map(badgeName => {
+      {uncoveredStyles.length > 0 && (
+        <View style={styles.block}>
+          <SectionHeader
+            title="Exclusive name styles"
+            count={`${uncoveredStyles.filter(n => earnedBadgeNames.includes(n)).length}/${uncoveredStyles.length}`}
+          />
+          <Panel padded={false}>
+            {uncoveredStyles.map((badgeName, i) => {
               const reward = nameStyleRewards[badgeName];
-              const earned = earnedBadgeNames.includes(badgeName);
-              const prog   = badgeProgress[badgeName];
               return (
-                <View key={reward.slug} style={styles.row}>
-                  <View style={[styles.iconCircle, { backgroundColor: earned ? '#fff7ed' : '#eeeeee' }]}>
-                    <Text style={[styles.iconEmoji, !earned && { opacity: 0.4 }]}>🎨</Text>
-                  </View>
-                  <View style={styles.info}>
-                    <View style={styles.nameRow}>
-                      <Text style={styles.name}>{reward.name}</Text>
-                      {earned
-                        ? <Text style={styles.earned}>✓ Earned</Text>
-                        : <Text style={styles.locked}>Locked</Text>}
-                    </View>
-                    <Text style={styles.badgeName}>{badgeName}</Text>
-                    {!earned && prog
-                      ? <ProgressRow prog={prog} c={colors} />
-                      : <Text style={styles.req}>Earn the {badgeName} badge to unlock.</Text>}
-                    {renderNameStyleReward(badgeName)}
-                  </View>
-                </View>
+                renderUnlockRow({
+                  key: reward.slug,
+                  glyph: '🎨',
+                  glyphBg: colors.warningLight,
+                  name: reward.name,
+                  badgeName: badgeName,
+                  requirement: `Earn the ${badgeName} badge to unlock.`,
+                  lastRow: i === uncoveredStyles.length - 1,
+                })
               );
             })}
-          </>
-        );
-      })()}
+          </Panel>
+        </View>
+      )}
     </ScrollView>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: Colors) {
   return StyleSheet.create({
-    container:    { padding: 20, backgroundColor: c.bg, flexGrow: 1 },
-    title:        { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 4 },
-    subtitle:     { fontSize: 13, color: c.textMuted, marginBottom: 16 },
-    summaryRow:   { flexDirection: 'row', gap: 8, marginBottom: 16, flexWrap: 'wrap' },
-    summaryPill:  { flex: 1, minWidth: 70, backgroundColor: c.surface, borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: c.border },
-    summaryValue: { fontSize: 18, fontWeight: '800', color: c.text },
-    summaryLabel: { fontSize: 11, color: c.textMuted, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.6 },
-    catLabel:     { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 8, marginBottom: 8 },
-    row:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 10, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
-    iconCircle:   { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-    iconEmoji:    { fontSize: 22 },
-    info:         { flex: 1 },
-    nameRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 },
-    name:         { fontSize: 14, fontWeight: '700', color: c.text, flex: 1 },
-    earned:       { fontSize: 11, color: c.primary, fontWeight: '700' },
-    locked:       { fontSize: 11, color: c.textMuted, fontWeight: '600' },
-    badgeName:    { fontSize: 11, color: c.primary, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 2 },
-    req:          { fontSize: 12, color: c.textMuted },
-    rewardRow:    {
-      flexDirection: 'row', alignItems: 'center', gap: 8,
-      marginTop: 6, paddingVertical: 6, paddingHorizontal: 8,
-      backgroundColor: c.surfaceAlt, borderRadius: 8,
-      borderWidth: 1, borderColor: c.border,
+    container:  { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
+    intro:      { marginBottom: SPACE.md },
+    block:      { marginBottom: SPACE.md },
+    flexText:   { flex: 1, minWidth: 0 },
+    flexShrink: { flexShrink: 1 },
+    muted:      { opacity: 0.45 },
+    italic:     { fontStyle: 'italic', marginTop: SPACE.xxs },
+
+    summaryRow:     { flexDirection: 'row' },
+    summaryCell:    { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'center', paddingVertical: SPACE.sm, gap: SPACE.xxs },
+    summaryDivider: { borderLeftWidth: HAIRLINE, borderLeftColor: c.border },
+
+    // A Row inside the category Panel: 64 min (title + badge + progress), a
+    // hairline divider between rows, none under the last.
+    row: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md,
+      minHeight: 64, paddingVertical: SPACE.sm + SPACE.xxs, paddingHorizontal: SPACE.md,
+      borderBottomWidth: HAIRLINE, borderBottomColor: c.border,
     },
-    rewardPreviewBox:     { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 6, backgroundColor: c.bg, minWidth: 60, maxWidth: 110, alignItems: 'center' },
-    rewardPreviewText:    { fontSize: 12, fontWeight: '700' },
-    rewardPreviewTextMuted:{ opacity: 0.55 },
-    rewardTextCol:        { flex: 1 },
-    rewardLabel:          { fontSize: 11, fontWeight: '700', color: c.text },
-    rewardSubLabel:       { fontSize: 10, color: c.textMuted, marginTop: 1 },
+    rowLast:   { borderBottomWidth: 0 },
+    tile:      { width: 40, height: 40, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
+    tileGlyph: { fontSize: FONT.size.h2 },
+    nameLine:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    progress:  { marginTop: SPACE.xs },
+
+    rewardRow: {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
+      minHeight: 44, marginTop: SPACE.xs, paddingHorizontal: SPACE.sm,
+      backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md,
+      borderWidth: HAIRLINE, borderColor: c.border,
+    },
+    rewardPreviewBox:  { paddingVertical: SPACE.xxs, paddingHorizontal: SPACE.xs + SPACE.xxs, borderRadius: RADIUS.sm, backgroundColor: c.bg, minWidth: 60, maxWidth: 110, alignItems: 'center' },
+    rewardPreviewText: { fontSize: FONT.size.sm, fontWeight: '700' },
+    chevronSmall:      { fontSize: FONT.size.lg, fontWeight: '700', color: c.textMuted },
   });
 }

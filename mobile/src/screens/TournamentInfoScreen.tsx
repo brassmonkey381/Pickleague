@@ -9,6 +9,8 @@ import { FORMAT_META } from '../lib/tournament';
 import { useTheme } from '../lib/ThemeContext';
 import EmptyState from '../components/EmptyState';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInfo'>;
@@ -16,17 +18,24 @@ type Props = {
 };
 
 // Per-format explainers — what's shown depends on this tournament's format.
+// UI compaction P5b fixed the stale copy: standings follow the canonical
+// chain (wins, head-to-head between exactly 2 tied, point differential, seed;
+// lib/tournamentTiebreakers.ts), not PLUPR; pool-play advancement depends on
+// the configured playoff (playoffLines below); MLP teams are 4 players with
+// sub-matches; and the partner-finder modal these pages pointed to is gone
+// (partners pair up in the tournament's Pairs / Teams section).
+const CANONICAL_TIEBREAK = 'Standings: wins first, then head-to-head when exactly two are tied, then point differential, then seed.';
+
 const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: string[]; advancement: string[] }> = {
   round_robin: {
-    headline: 'Every player faces every other player exactly once.',
+    headline: 'Every player (or team) faces every other one exactly once.',
     flow: [
-      'A circle-method schedule pairs every player with every other player.',
-      'Standings are tracked by win-loss record, with PLUPR as the tiebreaker.',
-      'No elimination — everyone plays every round.',
+      'A circle-method schedule pairs every entrant with every other entrant.',
+      CANONICAL_TIEBREAK,
+      'No elimination: everyone plays every round.',
     ],
     advancement: [
-      'There\'s no bracket. The standings table is the result.',
-      'Top spot = highest wins; ties broken by PLUPR rating.',
+      'With no playoff, the standings table is the result.',
     ],
   },
   single_elimination: {
@@ -56,39 +65,31 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     ],
   },
   pool_play: {
-    headline: 'Round-robin pools, then a knockout bracket from the top finishers.',
+    headline: 'Round-robin pools, then (optionally) a playoff from the top finishers.',
     flow: [
-      'Players are split into balanced pools (snake-draft for PLUPR seeding, otherwise random).',
-      'Inside each pool, every team plays every other team once.',
-      'Top 2 from each pool advance to the semi-finals; semi winners play in the grand final.',
+      'Players are split into balanced pools (snake draft under PLUPR seeding, otherwise random).',
+      'Inside each pool, every entrant plays every other entrant once.',
+      'Pool standings: wins first, then head-to-head when exactly two are tied, then point differential, then seed.',
     ],
-    advancement: [
-      '1st in each pool gets a higher seed than 2nd.',
-      'Standings: best wins/losses record first, point differential as tiebreaker.',
-      'Bracket pairings: A1 vs B2 in Semi 1; B1 vs A2 in Semi 2; semi winners meet in the grand final.',
-    ],
+    advancement: [],
   },
   mlp: {
-    headline: 'Pre-formed teams play a round-robin against each other.',
+    headline: 'Teams of 4 (2 men, 2 women) play team meetings.',
     flow: [
-      'Each pair of approved players is locked in as a fixed team.',
-      'Teams play every other team once in a circle-method round robin.',
-      'Standings are by wins, with PLUPR of the team average as tiebreaker.',
+      'Captains build fixed teams in the Teams section before the bracket is drawn.',
+      'Each team meeting is 4 doubles sub-matches: men\'s, women\'s and 2 mixed. A 2-2 meeting is settled by a singles dreambreaker.',
+      'Team standings are by sub-matches won.',
     ],
-    advancement: [
-      'No bracket — the round-robin standings are the final order.',
-    ],
+    advancement: [],
   },
   mlp_random: {
-    headline: 'Randomly drafted teams play a round-robin against each other.',
+    headline: 'Drafted teams of 4 (2 men, 2 women) play team meetings.',
     flow: [
-      'Approved players are randomly drafted into teams when the tournament starts.',
-      'Teams play every other team once in a circle-method round robin.',
-      'Standings are by wins, with PLUPR of the team average as tiebreaker.',
+      'The organizer drafts approved players into teams (random or snake draft).',
+      'Each team meeting is 4 doubles sub-matches: men\'s, women\'s and 2 mixed. A 2-2 meeting is settled by a singles dreambreaker.',
+      'Team standings are by sub-matches won.',
     ],
-    advancement: [
-      'No bracket — the round-robin standings are the final order.',
-    ],
+    advancement: [],
   },
   rotating_partners: {
     headline: 'Doubles where partners rotate every round.',
@@ -99,10 +100,39 @@ const FORMAT_EXPLAINERS: Record<Tournament['format'], { headline: string; flow: 
     ],
     advancement: [
       'No bracket — every match is independent.',
-      'Standings are tracked per individual: wins desc, PLUPR as tiebreak.',
+      'Standings are per player: wins (games, in best-of matches), then fewer losses, then PLUPR.',
     ],
   },
 };
+
+/** The playoff that follows group play, from the tournament's settings. */
+function playoffLines(t: Tournament): string[] {
+  if (t.format === 'mlp' || t.format === 'mlp_random') {
+    const mpf = t.mlp_play_format;
+    const groups = mpf === 'pool_play' || mpf === 'pool_play_playoff'
+      ? `Group play runs in ${t.mlp_pool_count ?? 2} pools.`
+      : 'Group play is a round robin: every team meets every other team.';
+    if (mpf === 'round_robin_playoff' || mpf === 'pool_play_playoff') {
+      return [groups, `The top ${t.mlp_playoff_teams ?? 4} teams by sub-matches won advance to a playoff once group play is complete.`];
+    }
+    return [groups, 'No playoff: the team standings are the final order.'];
+  }
+  if (t.format !== 'round_robin' && t.format !== 'pool_play') return [];
+  const third = t.playoff_third_place ? ', plus a third-place match' : '';
+  switch (t.playoff_format ?? 'none') {
+    case 'top_2': return ['The top 2 play the final; 3rd and 4th play for third place.'];
+    case 'top_4': return [`The top 4 play semifinals, then the final${third}.`];
+    case 'top_8': return [`The top 8 play quarterfinals, semifinals and the final${third}.`];
+    case 'top_1_per_pool': return ['Each pool winner advances to the playoff, seeded across pools.'];
+    case 'top_2_per_pool': return [
+      'The top 2 of each pool advance to the playoff, seeded across pools.',
+      'With 2 pools: A1 vs B2 and B1 vs A2 in the semifinals; the winners meet in the final.',
+    ];
+    default: return [t.format === 'pool_play'
+      ? 'No playoff: the pool tables are the final result.'
+      : 'No playoff: the standings table is the result.'];
+  }
+}
 
 export default function TournamentInfoScreen({ route }: Props) {
   const { tournamentId } = route.params;
@@ -149,9 +179,15 @@ export default function TournamentInfoScreen({ route }: Props) {
 
   const meta = FORMAT_META[t.format];
   const expl = FORMAT_EXPLAINERS[t.format];
+  // Round robin's static line covers "no playoff"; a configured playoff
+  // replaces it. Pool play and MLP always read their playoff settings.
+  const rrPlayoff = t.format === 'round_robin' && (t.playoff_format ?? 'none') !== 'none';
+  const advancement = rrPlayoff
+    ? playoffLines(t)
+    : [...expl.advancement, ...(t.format === 'round_robin' ? [] : playoffLines(t))];
 
   return (
-    <ScrollView style={S.container} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
+    <ScrollView style={S.container} contentContainerStyle={S.content}>
       <Text style={S.pageTitle}>How {t.name} works</Text>
       <Text style={S.pageSub}>
         Specifics for this tournament's format and the rules that govern its bracket.
@@ -173,9 +209,22 @@ export default function TournamentInfoScreen({ route }: Props) {
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}
         <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'} />
+        {/* The identity row dropped the old "Registration closes" and "~Nh
+            expected" header lines (P5b), so they live here. Shown only when
+            set: never a TBD. */}
+        {t.status === 'registration' && t.registration_closes_at && (
+          <Row
+            S={S}
+            label={Date.now() >= new Date(t.registration_closes_at).getTime() ? 'Registration closed' : 'Registration closes'}
+            value={new Date(t.registration_closes_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+          />
+        )}
+        {t.expected_length_hours != null && t.expected_length_hours > 0 && (
+          <Row S={S} label="Expected length" value={`~${t.expected_length_hours}h`} />
+        )}
         {t.min_players != null && <Row S={S} label="Min players"   value={`${t.min_players}`} />}
         {t.max_players != null && <Row S={S} label="Max players"   value={`${t.max_players}`} />}
-        <Row S={S} label="Approved players"  value={`${memberCount}`} />
+        {memberCount > 0 && <Row S={S} label="Approved players"  value={`${memberCount}`} />}
         <Row S={S} label="Status"            value={statusLabel(t.status)} />
       </Section>
 
@@ -187,8 +236,8 @@ export default function TournamentInfoScreen({ route }: Props) {
       </Section>
 
       {/* ── Advancement / how winners are determined ──────── */}
-      <Section S={S} title={t.format === 'round_robin' || t.format === 'mlp' || t.format === 'rotating_partners' ? 'Standings' : 'Advancement'}>
-        {expl.advancement.map((line, i) => (
+      <Section S={S} title={t.format === 'rotating_partners' || (t.format === 'round_robin' && !rrPlayoff) ? 'Standings' : 'Advancement'}>
+        {advancement.map((line, i) => (
           <Para key={i} S={S}>• {line}</Para>
         ))}
       </Section>
@@ -205,8 +254,8 @@ export default function TournamentInfoScreen({ route }: Props) {
       {/* ── PLUPR impact ────────────────────────────────────── */}
       <Section S={S} title="PLUPR impact">
         <Para S={S}>
-          Tournament matches are tracked in their own table and do <Text style={S.bold}>not</Text> affect league PLUPR ratings.
-          Bracket results, scores, and the round-by-round flow are visible in the tournament's bracket view and match history.
+          Tournament matches <Text style={S.bold}>count toward PLUPR</Text>: when a score is recorded, ratings update the same way a league match does.
+          Paying out a completed tournament's prizes also applies a PLUPR bonus to its finishers.
         </Para>
       </Section>
 
@@ -215,8 +264,13 @@ export default function TournamentInfoScreen({ route }: Props) {
         <Section S={S} title="Doubles partner rules">
           {t.format === 'mlp' && (
             <Para S={S}>
-              <Text style={S.bold}>Fixed teams</Text> — once approved, you and your partner are locked in for the whole event.
-              Use the partner-finder modal on the tournament detail page to send a partner request before the bracket is generated.
+              <Text style={S.bold}>Fixed teams</Text> — a captain creates a team in the tournament's Teams section and invites
+              players (2 men, 2 women), or you ask to join a team there. Rosters lock when the bracket is drawn.
+            </Para>
+          )}
+          {t.format === 'mlp_random' && (
+            <Para S={S}>
+              <Text style={S.bold}>Drafted teams</Text> — you don't pick: the organizer drafts every approved player into a team.
             </Para>
           )}
           {t.format === 'rotating_partners' && (
@@ -225,10 +279,12 @@ export default function TournamentInfoScreen({ route }: Props) {
               so every player partners with several different people across the event.
             </Para>
           )}
-          {t.format !== 'mlp' && t.format !== 'rotating_partners' && (
+          {t.format !== 'mlp' && t.format !== 'mlp_random' && t.format !== 'rotating_partners' && (
             <Para S={S}>
-              For doubles in this format, your partner is chosen via partner-request before the bracket is locked.
-              Once locked, you're a team for the duration.
+              {t.team_creation === 'random'
+                ? 'The organizer draws random pairs from the approved players before the bracket is locked.'
+                : 'Pair up in the tournament\'s Pairs section before the bracket is locked: create a pair and invite your partner, or ask to join one.'}
+              {' '}Once locked, you're a team for the duration.
             </Para>
           )}
         </Section>
@@ -248,7 +304,7 @@ function Section({ S, title, children }: { S: any; title: string; children: Reac
   return (
     <View style={S.section}>
       <Text style={S.sectionTitle}>{title}</Text>
-      <View style={{ gap: 10 }}>{children}</View>
+      <View style={S.sectionBody}>{children}</View>
     </View>
   );
 }
@@ -276,24 +332,28 @@ function BulletLine({ S, index, text }: { S: any; index: number; text: string })
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  // UI compaction P5b token sweep: SPACE / RADIUS, FONT sizes only (no 18 /
+  // 22), theme colours only, no shadows.
   return StyleSheet.create({
     container:    { flex: 1, backgroundColor: c.bg },
-    pageTitle:    { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 4 },
-    pageSub:      { fontSize: 14, color: c.textMuted, marginBottom: 18 },
-    headline:     { backgroundColor: c.primaryLight, borderRadius: 14, padding: 14, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: c.primary + '44' },
-    headlineIcon: { fontSize: 32 },
-    headlineLabel:{ fontSize: 18, fontWeight: '800', color: c.primary },
-    headlineDesc: { fontSize: 13, color: c.text, marginTop: 2, lineHeight: 18 },
-    section:      { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
-    sectionTitle: { fontSize: 13, fontWeight: '800', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
-    row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingVertical: 4 },
-    rowLabel:     { fontSize: 13, color: c.textMuted, fontWeight: '600' },
-    rowValue:     { fontSize: 14, color: c.text, fontWeight: '600', flex: 1, textAlign: 'right' },
-    para:         { fontSize: 14, color: c.text, lineHeight: 20 },
-    bold:         { fontWeight: '800' },
-    bulletRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-    bulletNum:    { width: 22, height: 22, borderRadius: 11, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
-    bulletNumText:{ fontSize: 11, fontWeight: '800', color: '#fff' },
-    bulletText:   { flex: 1, fontSize: 14, color: c.text, lineHeight: 20 },
+    content:      { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
+    pageTitle:    { fontSize: FONT.size.h2, fontWeight: FONT.weight.heavy, color: c.text, marginBottom: SPACE.xs },
+    pageSub:      { fontSize: FONT.size.md, color: c.textMuted, marginBottom: SPACE.lg },
+    headline:     { backgroundColor: c.primaryLight, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderWidth: HAIRLINE, borderColor: c.primary },
+    headlineIcon: { fontSize: FONT.size.display },
+    headlineLabel:{ fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.primary },
+    headlineDesc: { fontSize: FONT.size.base, color: c.text, marginTop: SPACE.xxs, lineHeight: FONT.line.tight },
+    section:      { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.border },
+    sectionTitle: { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.primary, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: SPACE.md },
+    sectionBody:  { gap: SPACE.sm },
+    row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: SPACE.md, paddingVertical: SPACE.xs },
+    rowLabel:     { fontSize: FONT.size.base, color: c.textMuted, fontWeight: FONT.weight.semibold },
+    rowValue:     { fontSize: FONT.size.md, color: c.text, fontWeight: FONT.weight.semibold, flex: 1, textAlign: 'right' },
+    para:         { fontSize: FONT.size.md, color: c.text, lineHeight: FONT.line.normal },
+    bold:         { fontWeight: FONT.weight.heavy },
+    bulletRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },
+    bulletNum:    { width: 22, height: 22, borderRadius: RADIUS.pill, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
+    bulletNumText:{ fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy, color: c.textInverse },
+    bulletText:   { flex: 1, fontSize: FONT.size.md, color: c.text, lineHeight: FONT.line.normal },
   });
 }

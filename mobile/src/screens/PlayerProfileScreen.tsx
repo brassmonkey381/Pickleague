@@ -1,8 +1,20 @@
-import React, { useEffect, useState, useCallback } from 'react';
+// Another player's profile (plan section 8, P6: "row header, merged badges,
+// Leagues in common"). Order:
+//   1. Row header   avatar 64 beside name / @username · matches / tagline, then
+//                   one chip row (DUPR, tags +N) with Share · Save · ⋯ at its end
+//   2. Quick row    [Head-to-head] (not on yourself) [Match history]
+//   3. Chemistry    your doubles chemistry together, when you've partnered
+//   4. Leagues in common  rows -> LeagueDetail (hidden when none / yourself)
+//   5. Badges (n)   one merged grid, newest first (was three category cards)
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
+import { Panel, SectionHeader, Chip } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -13,10 +25,9 @@ import { useTheme } from '../lib/ThemeContext';
 import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import FlairName from '../components/FlairName';
+import LeagueRow, { LeagueRowRole } from '../components/LeagueRow';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
-import { computeReliability } from '../lib/reliability';
 import { computeChemistry, fmtDelta, chemistryColor, DoublesMatch } from '../lib/chemistry';
-import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import BookmarkButton from '../components/BookmarkButton';
 import ShareLinkButton from '../components/ShareLinkButton';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
@@ -31,9 +42,22 @@ type Props = {
   route: RouteProp<RootStackParamList, 'PlayerProfile'>;
 };
 
+type CommonLeague = {
+  id: string; name: string; home_court: string | null; is_open: boolean | null;
+  /** THEIR role in it (both of you are members). */
+  role: LeagueRowRole;
+};
+
+/** Tag chips shown before "+N". */
+const TAG_CHIPS_SHOWN = 2;
+/** Leagues in common shown before "Show N more". */
+const COMMON_CAP = 4;
+const AVATAR = 64;
+
 export default function PlayerProfileScreen({ navigation, route }: Props) {
   const { userId } = route.params;
   const { colors } = useTheme();
+  const t = textStyles(colors);
   const styles = makeStyles(colors);
   const [profile, setProfile]             = useState<Profile | null>(null);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
@@ -42,6 +66,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     gifted_by_user_id: string | null; gift_message: string | null;
     item: { name: string; description: string; icon: string };
   }[]>([]);
+  // Per-court PLUPR stays loaded for the hidden court card (see the render).
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [matchCount, setMatchCount]       = useState(0);
   const [loading, setLoading]             = useState(true);
@@ -50,6 +75,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const [loadError, setLoadError]         = useState<unknown>(null);
   const [meId, setMeId]                   = useState<string | null>(null);
   const [myChemistry, setMyChemistry]     = useState<ReturnType<typeof computeChemistry> | null>(null);
+  const [commonLeagues, setCommonLeagues] = useState<CommonLeague[]>([]);
+  const [showAllCommon, setShowAllCommon] = useState(false);
 
   const refresh = useRefresh(load);
 
@@ -90,8 +117,11 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       );
       setLoadError(null);
 
-      // Load mutual chemistry in background
-      if (uid) loadMutualChemistry(uid);
+      // Best-effort enrichment in the background.
+      if (uid) {
+        loadMutualChemistry(uid);
+        loadCommonLeagues(uid);
+      }
     } catch (e) {
       // Keep whatever is already on screen; the error only decides which
       // fallback the "no profile yet" branch renders.
@@ -120,7 +150,34 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     if (result.matchesTogether > 0) setMyChemistry(result);
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  // Leagues you're both in. league_members is readable by everyone (RLS
+  // "Members viewable by everyone"), so one read covers both players.
+  async function loadCommonLeagues(myId: string) {
+    if (myId === userId) { setCommonLeagues([]); return; }
+    try {
+      const rows = await sbCall(() => supabase
+        .from('league_members')
+        .select('user_id, role, league:leagues(id, name, home_court, is_open, is_active)')
+        .in('user_id', [myId, userId])) as any[] | null;
+      const mine = new Set<string>();
+      const theirs = new Map<string, CommonLeague>();
+      for (const r of rows ?? []) {
+        const l = r.league;
+        if (!l || l.is_active === false) continue;
+        if (r.user_id === myId) mine.add(l.id);
+        else theirs.set(l.id, { id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role: r.role ?? 'member' });
+      }
+      setCommonLeagues(
+        Array.from(theirs.values())
+          .filter(l => mine.has(l.id))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+    } catch {
+      // Enrichment only: keep what's shown.
+    }
+  }
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
   if (!profile) {
     // Keep a scroll view + pull-to-refresh mounted either way: the old bare
     // <Text> was a dead end that could only be escaped by leaving the screen.
@@ -137,8 +194,6 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       </ScrollView>
     );
   }
-
-  const reliability   = computeReliability(profile.total_matches_played ?? 0, profile.last_match_at ?? null);
 
   // Group repeats of the same badge into a single stack so the tile can
   // render "Badge ×N" instead of N identical tiles. Key on the badge's
@@ -179,11 +234,13 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     league: null,
   }));
 
-  const profileBadgeGroups  = groupBadges(badges.filter(b => b.badge.category === 'profile'));
-  const leagueBadgeGroups   = groupBadges(badges.filter(b => b.badge.category === 'league'));
-  const cosmeticBadgeGroups = groupBadges(cosmeticBadgeItems);
-  const hasAnyVisibleBadges = badges.length > 0 || cosmeticBadgeItems.length > 0;
+  // One merged grid, newest first. Each tile's detail still names its
+  // category (Profile / League / Cosmetic), so nothing is lost by merging.
+  const badgeGroups = groupBadges([...badges, ...cosmeticBadgeItems]);
+  const badgeCount = badges.length + cosmeticBadgeItems.length;
+  const badgesPublic = profile.badges_public !== false;
 
+  // Per-court PLUPR (hidden) — grouped exactly as the court card needs it.
   const locationGroups: Record<string, {
     singles?: PlayerLocationRating;
     doubles_gendered?: PlayerLocationRating;
@@ -194,19 +251,73 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     locationGroups[r.location_name][r.match_type] = r;
   }
 
+  const avatarDef = AVATARS.find(a => a.id === (profile.avatar_id ?? 1)) ?? AVATARS[0];
+  const tagLabels = (profile.selected_tags ?? [])
+    .map(slug => PLAY_TAGS.find(tg => tg.slug === slug)?.label)
+    .filter((l): l is string => !!l);
+  const tagOverflow = tagLabels.length - TAG_CHIPS_SHOWN;
+  const isOther = !!meId && meId !== userId;
+
+  const shownCommon = showAllCommon ? commonLeagues : commonLeagues.slice(0, COMMON_CAP);
+  const commonHidden = commonLeagues.length - shownCommon.length;
+
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={{ position: 'absolute', top: 12, right: 16, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {/* ── 1. Row header ─────────────────────────────────────── */}
+      <View style={styles.identity}>
+        {profile.avatar_url ? (
+          <CachedImage source={{ uri: profile.avatar_url }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: avatarDef.bgColor }]}>
+            <Text style={styles.avatarEmoji}>{avatarDef.emoji}</Text>
+          </View>
+        )}
+        <View style={styles.identityText}>
+          {/* TODO: smoke-test in browser — hero mode FlairName wire-up */}
+          <FlairName
+            style={styles.fullName}
+            nameColor={profile.name_color}
+            styleId={profile.profile_name_style_id}
+            mode="hero"
+            name={profile.full_name}
+            numberOfLines={1}
+          />
+          <Text style={t.sub} numberOfLines={1}>
+            @{profile.username}{matchCount > 0 ? ` · ${matchCount} ${matchCount === 1 ? 'match' : 'matches'}` : ''}
+          </Text>
+          {profile.tagline ? <Text style={[t.sub, styles.tagline]} numberOfLines={1}>{profile.tagline}</Text> : null}
+        </View>
+      </View>
+
+      {/* Seeded from a DUPR roster and not yet claimed? Offer to claim it.
+          Self-hides for every normal profile. */}
+      <ClaimAccountButton profileId={userId} isUnclaimed={profile.is_unclaimed} />
+
+      <View style={styles.chipRow}>
+        <View style={styles.chips}>
+          {/* The one place a linked DUPR profile is visible. Until this existed the
+              claim flow had no confirmation surface at all — profiles.dupr_id was
+              written and never shown. */}
+          {profile.dupr_id ? (
+            <Chip label={`DUPR ${profile.dupr_id}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          ) : null}
+          {tagLabels.slice(0, TAG_CHIPS_SHOWN).map(label => (
+            <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          ))}
+          {tagOverflow > 0 ? (
+            <Chip label={`+${tagOverflow}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          ) : null}
+        </View>
+        <View style={styles.utilities}>
           {/* The player URL unfurls into their OG card, which mirrors this
               screen's public view and honours badges_public / hidden badges. */}
           <ShareLinkButton
             url={`https://www.pickleague.club/players/${userId}`}
             title={profile.full_name}
             message={`${profile.full_name} on Pickleague`}
+            style={styles.shareBtn}
           />
-          <BookmarkButton targetType="profile" targetId={userId} />
+          <BookmarkButton targetType="profile" targetId={userId} style={styles.box44} />
           {/* Report / block. Hides itself on your own profile. */}
           <PlayerModerationMenu
             userId={userId}
@@ -222,191 +333,136 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
             compact
           />
         </View>
-        {profile.avatar_url ? (
-          <CachedImage source={{ uri: profile.avatar_url }} style={styles.avatarPhoto} />
-        ) : (
-          <View style={[styles.avatar, { backgroundColor: (AVATARS.find(a => a.id === (profile.avatar_id ?? 1)) ?? AVATARS[0]).bgColor }]}>
-            <Text style={styles.avatarEmoji}>
-              {(AVATARS.find(a => a.id === (profile.avatar_id ?? 1)) ?? AVATARS[0]).emoji}
-            </Text>
-          </View>
-        )}
-        {/* TODO: smoke-test in browser — hero mode FlairName wire-up */}
-        <FlairName
-          style={styles.fullName}
-          nameColor={profile.name_color}
-          styleId={profile.profile_name_style_id}
-          mode="hero"
-          name={profile.full_name}
-        />
-        {profile.tagline ? <Text style={styles.tagline}>{profile.tagline}</Text> : null}
-        {/* Seeded from a DUPR roster and not yet claimed? Offer to claim it.
-            Self-hides for every normal profile. */}
-        <ClaimAccountButton profileId={userId} isUnclaimed={profile.is_unclaimed} />
-        <Text style={styles.username}>@{profile.username}</Text>
-        {/* The one place a linked DUPR profile is visible. Until this existed the
-            claim flow had no confirmation surface at all — profiles.dupr_id was
-            written and never shown. */}
-        {profile.dupr_id ? (
-          <View style={styles.duprChip}>
-            <Text style={styles.duprChipText}>DUPR {profile.dupr_id}</Text>
-          </View>
-        ) : null}
-        {(profile.selected_tags ?? []).length > 0 && (
-          <View style={styles.tagsRow}>
-            {(profile.selected_tags ?? []).map(slug => {
-              const tag = PLAY_TAGS.find(t => t.slug === slug);
-              return tag ? (
-                <View key={slug} style={styles.tagChip}>
-                  <Text style={styles.tagChipText}>{tag.label}</Text>
-                </View>
-              ) : null;
-            })}
-          </View>
-        )}
-        <Text style={styles.matchCount}>{matchCount} matches played</Text>
       </View>
 
-      {/* Head-to-head — only when viewing someone other than yourself */}
-      {meId && meId !== userId && (
-        <TouchableOpacity
-          style={styles.h2hBtn}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('HeadToHead', { opponentId: userId, opponentName: profile.full_name })}
-        >
-          <Text style={styles.h2hBtnText}>⚔️  Head-to-head vs you</Text>
-        </TouchableOpacity>
-      )}
+      {/* ── 2. Quick row ───────────────────────────────────────── */}
+      <View style={styles.quickRow}>
+        {isOther && (
+          <Button
+            size="sm"
+            title="⚔️ Head-to-head"
+            onPress={() => navigation.navigate('HeadToHead', { opponentId: userId, opponentName: profile.full_name })}
+            style={styles.quickBtn}
+          />
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          title="Match history"
+          onPress={() => navigation.navigate('MatchHistory', { userId, title: `${profile.full_name}'s History` })}
+          style={styles.quickBtn}
+        />
+      </View>
 
       {/* PLUPR strip + reliability (hidden) — global PLUPR is intentionally not
           shown on other players' profiles; PLUPR is being kept contained within
           a league. Re-add this block to restore. */}
 
-      {/* Mutual chemistry card */}
+      {/* ── 3. Chemistry together ──────────────────────────────── */}
       {myChemistry && myChemistry.matchesTogether > 0 && (
-        <View style={styles.chemCard}>
-          <Text style={styles.chemTitle}>Your Chemistry Together</Text>
+        <Panel style={styles.block}>
           <View style={styles.chemMain}>
+            <Text style={[t.title, styles.flexText]} numberOfLines={1}>Your chemistry together</Text>
             <Text style={[styles.chemDelta, { color: chemistryColor(myChemistry.overallDelta) }]}>
               {fmtDelta(myChemistry.overallDelta)}
             </Text>
-            <Text style={styles.chemSub}>win rate vs your baseline · {myChemistry.matchesTogether} doubles matches</Text>
           </View>
+          <Text style={t.sub} numberOfLines={1}>
+            Win rate vs your baseline · {myChemistry.matchesTogether} doubles {myChemistry.matchesTogether === 1 ? 'match' : 'matches'}
+          </Text>
           {myChemistry.insights.map((ins, i) => (
-            <Text key={i} style={styles.chemInsight}>• {ins}</Text>
+            <Text key={i} style={[t.sub, styles.insight]} numberOfLines={2}>• {ins}</Text>
           ))}
           {!myChemistry.significant && (
-            <Text style={styles.chemHint}>Play {5 - myChemistry.matchesTogether} more doubles matches together for deeper stats</Text>
+            <Text style={[t.meta, styles.insight]}>
+              Play {5 - myChemistry.matchesTogether} more doubles matches together for deeper stats
+            </Text>
           )}
+        </Panel>
+      )}
+
+      {/* ── 4. Leagues in common ───────────────────────────────── */}
+      {commonLeagues.length > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Leagues in common" count={commonLeagues.length} />
+          <Panel padded={false}>
+            {shownCommon.map((l, i) => (
+              <LeagueRow
+                key={l.id}
+                layout="row"
+                league={{ id: l.id, name: l.name, home_court: l.home_court, is_open: l.is_open }}
+                role={l.role}
+                onPress={() => navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name })}
+                lastRow={commonHidden === 0 && i === shownCommon.length - 1}
+              />
+            ))}
+            {commonHidden > 0 && (
+              <TouchableOpacity
+                style={styles.moreRow}
+                onPress={() => setShowAllCommon(true)}
+                accessibilityRole="button"
+              >
+                <Text style={[t.meta, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  Show {commonHidden} more
+                </Text>
+              </TouchableOpacity>
+            )}
+          </Panel>
         </View>
       )}
 
-      {/* Badges */}
-      {profile.badges_public !== false && hasAnyVisibleBadges && (
-        <>
-          {profileBadgeGroups.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Profile Badges</Text>
-              <View style={styles.badgeGrid}>
-                {profileBadgeGroups.map(g => (
-                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
-                ))}
-              </View>
+      {/* ── 5. Badges (merged) ─────────────────────────────────── */}
+      {badgesPublic && badgeCount > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Badges" count={badgeCount} />
+          <Panel>
+            <View style={styles.badgeGrid}>
+              {badgeGroups.map(g => (
+                <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
+              ))}
             </View>
-          )}
-          {leagueBadgeGroups.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>League Badges</Text>
-              <View style={styles.badgeGrid}>
-                {leagueBadgeGroups.map(g => (
-                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
-                ))}
-              </View>
-            </View>
-          )}
-          {cosmeticBadgeGroups.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Cosmetic Badges</Text>
-              <View style={styles.badgeGrid}>
-                {cosmeticBadgeGroups.map(g => (
-                  <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
-                ))}
-              </View>
-            </View>
-          )}
-        </>
-      )}
-      {profile.badges_public === false && (
-        <View style={styles.privateBox}>
-          <Text style={styles.privateText}>🔒  This player's badges are private.</Text>
+          </Panel>
         </View>
+      )}
+      {!badgesPublic && (
+        <Text style={[t.hint, styles.block]}>🔒  This player's badges are private.</Text>
       )}
 
       {/* Court ratings (hidden) — per-court PLUPR is intentionally not shown on
           other players' profiles; PLUPR is being kept contained within a league.
           The locationGroups data is left intact so this can be restored. */}
-
-      {/* Actions */}
-      <TouchableOpacity
-        style={styles.actionBtn}
-        onPress={() => navigation.navigate('MatchHistory', { userId, title: `${profile.full_name}'s History` })}
-      >
-        <Text style={styles.actionBtnText}>📜  View Match History</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    container: { padding: 20, backgroundColor: c.bg, flexGrow: 1 },
-    error: { textAlign: 'center', marginTop: 60, color: c.textMuted },
-    header: { alignItems: 'center', marginBottom: 16 },
-    avatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 4, elevation: 3 },
-    avatarPhoto: { width: 80, height: 80, borderRadius: 40, marginBottom: 10 },
-    avatarEmoji: { fontSize: 40 },
-    fullName: { fontSize: 22, fontWeight: '800', color: c.text },
-    tagline: { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginTop: 3, marginBottom: 2 },
-    username: { fontSize: 14, color: c.textMuted, marginTop: 2 },
-    matchCount: { fontSize: 13, color: c.textMuted, marginTop: 4 },
-    duprChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4, marginTop: 6 },
-    duprChipText: { fontSize: 12, color: c.textSub, fontWeight: '700', letterSpacing: 0.4 },
-    h2hBtn: { backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginBottom: 14 },
-    h2hBtnText: { color: c.primary, fontSize: 14, fontWeight: '700' },
-    tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 6 },
-    tagChip: { backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-    tagChipText: { fontSize: 12, color: c.primary, fontWeight: '600' },
-    eloCard:    { flexDirection: 'row', backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 4, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-    eloItem:    { flex: 1, alignItems: 'center' },
-    eloValue:   { fontSize: 24, fontWeight: '800', color: c.primary },
-    eloLabel:   { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    eloDivider: { width: 1, height: 32, backgroundColor: c.border },
-    relRow:     { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 14, gap: 5 },
-    relDots:    { flexDirection: 'row', gap: 3 },
-    relDot:     { width: 7, height: 7, borderRadius: 4, backgroundColor: c.border },
-    relLabel:   { fontSize: 12, fontWeight: '700' },
-    relDetail:  { fontSize: 11, color: c.textMuted, flex: 1 },
-    chemCard:   { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1.5, borderColor: c.primaryLight },
-    chemTitle:  { fontSize: 13, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
-    chemMain:   { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 6 },
-    chemDelta:  { fontSize: 28, fontWeight: '900' },
-    chemSub:    { fontSize: 12, color: c.textMuted, flex: 1, flexWrap: 'wrap' },
-    chemInsight:{ fontSize: 13, color: c.text, marginBottom: 3 },
-    chemHint:   { fontSize: 11, color: c.textMuted, marginTop: 4 },
-    section: { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-    sectionTitle: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
-    badgeGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -4 },
-    privateBox: { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 16, alignItems: 'center', marginBottom: 12 },
-    privateText: { color: c.textMuted, fontSize: 14 },
-    locRow: { marginBottom: 10 },
-    locName: { fontSize: 13, fontWeight: '600', color: c.text, marginBottom: 4 },
-    locRatings: { flexDirection: 'row', gap: 8 },
-    locPill: { backgroundColor: c.primaryLight, borderRadius: 8, padding: 8, alignItems: 'center', minWidth: 80 },
-    locPillD: { backgroundColor: '#e3f2fd' },
-    locPillM: { backgroundColor: '#f3e5f5' },
-    locVal: { fontSize: 18, fontWeight: '800', color: c.text },
-    locType: { fontSize: 10, color: c.textSub, marginTop: 2 },
-    actionBtn: { backgroundColor: c.surface, borderRadius: 12, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: c.border, marginTop: 4 },
-    actionBtnText: { fontSize: 15, fontWeight: '600', color: c.textSub },
+    container: { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
+    flexText:  { flex: 1, minWidth: 0 },
+    box44:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    block:     { marginBottom: SPACE.md },
+
+    identity:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+    identityText: { flex: 1, minWidth: 0, gap: SPACE.xxs },
+    avatar:       { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+    avatarEmoji:  { fontSize: 34 },
+    fullName:     { fontSize: FONT.size.h2, fontWeight: '700', color: c.text },
+    tagline:      { fontStyle: 'italic' },
+
+    // Chips wrap on the left; Share · Save · ⋯ stay together on the right.
+    chipRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, marginTop: SPACE.xs },
+    chips:     { flex: 1, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
+    utilities: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    shareBtn:  { alignSelf: 'center' },
+
+    quickRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
+    quickBtn: { flexGrow: 1 },
+
+    chemMain:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    chemDelta: { fontSize: FONT.size.h2, fontWeight: '800' },
+    insight:   { marginTop: SPACE.xs },
+
+    moreRow:   { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },
+    badgeGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -SPACE.xs, borderRadius: RADIUS.md },
   });
 }

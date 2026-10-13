@@ -1,27 +1,74 @@
-import React, { useCallback } from 'react';
-import {
-  View, Text, FlatList, TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+// Notifications (plan section 8, P3): a compact, filterable, paged list.
+//
+//   [All] [Requests] [Unread] [Leagues] [Tournaments] [Rewards]   Mark all read
+//   TODAY
+//   (🏆) Tournament invite: Fall Open                      5m ago   ✕
+//        Sam invited you to "Fall Open". Tap to accept or decline,
+//        or use invite code ABC-123 if you'd rather join by code.
+//   YESTERDAY ...
+//
+// - Chips are keyed on entity_type / category / push_data.kind, NEVER on the
+//   legacy `type` column: every payout, badge and pickle notice is written with
+//   type='tournament', so a type chip would file rewards under Tournaments
+//   (lib/inboxRequests.ts has the mapping and the generators it came from).
+//   Each chip filters on the server, so paging walks that chip's rows.
+// - Paged: 50 at a time, "Load more" for the next 50. Paging is by keyset
+//   (the last row's created_at + id), not by offset: deleting a row, or
+//   reading one under Unread, takes it out of the server's set, and an offset
+//   would then skip the rows that moved up into its place. A refresh
+//   refetches as many as are showing (up to MAX_REFETCH), so it doesn't snap
+//   back to 50.
+// - A row whose target was deleted (its league / tournament / event / match /
+//   drill is gone) is greyed out with "No longer available", and a tap only
+//   marks it read and opens its full text instead of navigating nowhere.
+//   Home's bell leaves those out of its dot too (homeData's unreadLive).
+// - Every row has a visible delete (✕, a 44 box) BESIDE the card, not inside
+//   it: the card is one touchable, so VoiceOver can't reach a button nested in
+//   it (and on web it would be a press inside a press). The old hidden
+//   long-press delete is gone: it deleted with no confirmation on a slow press.
+// - Bodies clamp to 2 lines with a "more" under a long one (the row tap still
+//   navigates). A row that has nowhere to go (deleted target or no route)
+//   also expands on tap.
+// - A failed "mark all read" / delete puts every chip's cached page back as
+//   it was (a refetch alone can't, offline, and only covers the current chip).
+// - initialChip ('requests'): Home's Up next "+N more" lands on Requests.
+// - A tap goes where the same push would (lib/pushLinks.ts linkOf + routeLink),
+//   and an invite with an embedded code auto-redeems first, as before.
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, type RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundation/cache';
+import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
+import { FilterChipRow, ListCard, SectionHeader, SkeletonList } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 import { linkOf } from '../lib/pushLinks';
 import { routeLink } from '../lib/push';
-import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
+import { entityTileColors, type EntityKind } from '../lib/entityGlyph';
+import {
+  NOTIFICATION_CHIPS,
+  chipServerFilter,
+  findMissingTargets,
+  groupByDay,
+  matchesNotificationChip,
+  notificationTime,
+  type DayGroupItem,
+  type NotificationChip,
+} from '../lib/inboxRequests';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
-import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'> };
+type Props = {
+  navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'>;
+  route: RouteProp<RootStackParamList, 'Notifications'>;
+};
 
 type Notification = {
   id: string;
@@ -30,29 +77,117 @@ type Notification = {
   type: string;
   entity_id: string | null;
   entity_type: string | null;
+  /** The generator's preference key (migration_notification_generators.sql). */
+  category: string | null;
   is_read: boolean;
   created_at: string;
   /** Generator hints (migration_push_data.sql); kind refines where a tap goes. */
   push_data?: { deep_link?: unknown; kind?: unknown } | null;
 };
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1)  return 'Just now';
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+/** One chip's loaded list, as cached. */
+type NotificationPage = {
+  rows: Notification[];
+  /** Ids of rows whose target no longer exists. */
+  missing: string[];
+  /** Rows the server returned (before the client-side chip check): how many
+   *  a refresh refetches so the list doesn't shrink. Never an offset. */
+  fetched: number;
+  /** The last RAW row returned (before the client-side chip check, so the
+   *  Requests chip's over-matches can't stall it): the next page starts
+   *  strictly after it in (created_at desc, id desc) order. */
+  cursor: Cursor | null;
+  hasMore: boolean;
+  /** Every unread notification (all chips), for "Mark all read". */
+  unreadTotal: number;
+};
+
+type Cursor = { created_at: string; id: string };
+
+const PAGE = 50;
+/** A refresh refetches what is showing, up to this many rows. */
+const MAX_REFETCH = 200;
+const COLUMNS = 'id, title, body, type, entity_id, entity_type, category, is_read, created_at, push_data';
+// v3: keyset pages (a `cursor`). v2 pages (offset-paged, no cursor) and the
+// v1 key ('notifications:list', a bare array) are simply never read again.
+const KEY_PREFIX = 'notifications:v3';
+const keyFor = (chip: NotificationChip) => `${KEY_PREFIX}:${chip}`;
+const DB = { client: supabase, call: sbCall };
+
+/** A chip's rows, newest first, with `id` breaking created_at ties (one
+ *  transaction's notifications share now()), so the order is total. The
+ *  first `limit`, or with `after`: older than it, or (`tieOf`) its own
+ *  timestamp with a lower id. */
+function pageQuery(chip: NotificationChip, limit: number, after?: { older: Cursor } | { tieOf: Cursor }) {
+  let q = supabase
+    .from('notifications')
+    .select(COLUMNS)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false });
+  if (after && 'tieOf' in after) q = q.eq('created_at', after.tieOf.created_at).lt('id', after.tieOf.id);
+  else if (after) q = q.lt('created_at', after.older.created_at);
+  const f = chipServerFilter(chip);
+  if (f.kind === 'eq') q = q.eq(f.column, f.value);
+  else if (f.kind === 'in') q = q.in(f.column, [...f.values]);
+  else if (f.kind === 'or') q = q.or(f.filter);
+  return q.limit(limit);
 }
 
-const TYPE_ICON: Record<string, React.ReactNode> = {
-  tournament: '🏆',
-  league:     <BallIcon size={22} />,
-  match:      '🏅',
-  drill:      <DumbbellIcon size={22} />,
-  info:       '📣',
-};
+/** The first `limit` rows, or the `limit` rows after `after`. The keyset
+ *  "(created_at, id) < cursor" runs as two plain queries (the cursor's
+ *  same-timestamp rows with a lower id, then everything older) merged in
+ *  order, rather than one `or`: the Requests chip already spends the
+ *  query's `or`. */
+async function fetchRaw(chip: NotificationChip, limit: number, after: Cursor | null): Promise<Notification[]> {
+  if (!after) return ((await sbCall(() => pageQuery(chip, limit))) ?? []) as Notification[];
+  const [ties, older] = await Promise.all([
+    sbCall(() => pageQuery(chip, limit, { tieOf: after })),
+    sbCall(() => pageQuery(chip, limit, { older: after })),
+  ]);
+  return [...((ties ?? []) as Notification[]), ...((older ?? []) as Notification[])].slice(0, limit);
+}
+
+/** A chip's rows (see fetchRaw), checked against the chip rule and for
+ *  deleted targets. The deleted check is soft: a failed lookup leaves rows
+ *  normal. */
+async function fetchRows(chip: NotificationChip, limit: number, after: Cursor | null) {
+  const raw = await fetchRaw(chip, limit, after);
+  const rows = raw.filter(n => matchesNotificationChip(n, chip));
+  const missing = await findMissingTargets(DB, rows).catch(() => new Set<string>());
+  return { raw, rows, missing };
+}
+
+/** The keyset position after these raw rows (the last one). */
+function cursorOf(raw: readonly Notification[]): Cursor | null {
+  const last = raw[raw.length - 1];
+  return last ? { created_at: last.created_at, id: last.id } : null;
+}
+
+async function loadPage(chip: NotificationChip): Promise<NotificationPage> {
+  // Keep what is showing on a refresh (the cached page's row count), else one page.
+  const showing = peekQuery<NotificationPage>(keyFor(chip))?.fetched ?? PAGE;
+  const count = Math.min(MAX_REFETCH, Math.max(PAGE, showing));
+  const [{ raw, rows, missing }, unreadRes] = await Promise.all([
+    fetchRows(chip, count, null),
+    supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false),
+  ]);
+  return {
+    rows,
+    missing: [...missing],
+    fetched: raw.length,
+    cursor: cursorOf(raw),
+    hasMore: raw.length === count,
+    unreadTotal: unreadRes.count ?? rows.filter(n => !n.is_read).length,
+  };
+}
+
+/** A body longer than this (or with a line break) likely runs past 2 lines on
+ *  a phone, so it gets a "more". A length check, not onTextLayout: that never
+ *  fires on react-native-web, and with numberOfLines set iOS reports only the
+ *  visible lines. On a wide web window "more" may show on a body that fits;
+ *  the tap then just reads "less". */
+const LONG_BODY_CHARS = 70;
+const isLongBody = (body: string) => body.length > LONG_BODY_CHARS || body.includes('\n');
 
 // Invite-broadcast bodies contain "...invite code TOKEN" (followed by "." or " to join.").
 // Server format lives in supabase/migration_invite_code_broadcast.sql.
@@ -61,67 +196,161 @@ function extractInviteCode(body: string): string | null {
   return m ? m[1] : null;
 }
 
-const NOTIFICATIONS_KEY = 'notifications:list';
+/** The row's glyph, by entity_type (never `type`). */
+function glyphFor(entityType: string | null): { glyph: string; kind: EntityKind } {
+  switch (entityType) {
+    case 'tournament': return { glyph: '🏆', kind: 'tournament' };
+    case 'league': return { glyph: '🎾', kind: 'league' };
+    case 'event': return { glyph: '📅', kind: 'event' };
+    case 'match': return { glyph: '🏅', kind: 'match' };
+    case 'drill': return { glyph: '🏓', kind: 'drill' };
+    case 'shop': return { glyph: '🥒', kind: 'pickles' };
+    case 'shop_item': return { glyph: '🛒', kind: 'shop' };
+    case 'profile': return { glyph: '🎖️', kind: 'player' };
+    case 'plupr_history': return { glyph: '📈', kind: 'player' };
+    case 'wager':
+    case 'wager_on_me': return { glyph: '🎲', kind: 'pickles' };
+    default: return { glyph: '📣', kind: 'shop' };
+  }
+}
 
-export default function NotificationsScreen({ navigation }: Props) {
+export default function NotificationsScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
-  const S = makeStyles(c);
-
+  const t = textStyles(c);
   const status = useStatusMessage();
-
-  const query = useCachedQuery<Notification[]>(
-    NOTIFICATIONS_KEY,
-    () => sbCall(() => supabase
-      .from('notifications')
-      .select('*')
-      .order('created_at', { ascending: false })) as Promise<Notification[]>,
-    { ttlMs: 30_000, persistMs: 24 * 60 * 60 * 1000 },
+  // On web the param is in the URL (?initialChip=requests), so it is read by
+  // value, then cleared: a refresh after switching chips keeps the user's
+  // chip instead of snapping back to Requests.
+  const [chip, setChip] = useState<NotificationChip>(
+    () => (route.params?.initialChip === 'requests' ? 'requests' : 'all'),
   );
-  const notifications = query.data ?? [];
+  // Also honours the param arriving on an already-mounted screen (a navigate
+  // to a Notifications route that is in the stack updates its params).
+  const initialChip = route.params?.initialChip;
+  useEffect(() => {
+    if (initialChip == null) return;
+    if (initialChip === 'requests') setChip('requests');
+    navigation.setParams({ initialChip: undefined });
+  }, [initialChip, navigation]);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const query = useCachedQuery<NotificationPage>(keyFor(chip), () => loadPage(chip), {
+    ttlMs: 30_000,
+    persistMs: 24 * 60 * 60 * 1000,
+  });
+  const page = query.data;
+  const rows = page?.rows ?? [];
+  const missing = useMemo(() => new Set(page?.missing ?? []), [page?.missing]);
   // "All quiet here!" is only honest once a fetch actually succeeded — a dead
   // connection with nothing cached gets a retry affordance instead.
-  const loadFailed = query.error != null && query.data === undefined;
+  const loadFailed = query.error != null && page === undefined;
 
   const reload = useCallback(() => query.refresh(), [query.refresh]);
   const refresh = useRefresh(reload);
-
   useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 
-  // The list lives in the query cache, so local edits write through it rather
-  // than to component state (which the next revalidation would overwrite).
-  function patchList(fn: (list: Notification[]) => Notification[]) {
-    setQueryData(NOTIFICATIONS_KEY, fn(notifications));
+  // "now" for the day headers and times: re-read with every payload.
+  const now = useMemo(() => Date.now(), [page]);
+  const items = useMemo(() => groupByDay(rows, now), [rows, now]);
+
+  // Local edits write through every chip's cached list (a row read or deleted
+  // under Unread is also read or deleted under All), not component state,
+  // which the next revalidation would overwrite.
+  function patchAll(fn: (n: Notification) => Notification | null, unreadDelta: (p: NotificationPage) => number) {
+    for (const { value } of NOTIFICATION_CHIPS) {
+      const key = keyFor(value);
+      const cur = peekQuery<NotificationPage>(key);
+      if (!cur) continue;
+      const next: Notification[] = [];
+      for (const n of cur.rows) {
+        const m = fn(n);
+        if (m) next.push(m);
+      }
+      setQueryData(key, { ...cur, rows: next, unreadTotal: Math.max(0, cur.unreadTotal + unreadDelta(cur)) });
+    }
   }
 
-  async function markRead(id: string) {
-    patchList(list => list.map(n => n.id === id ? { ...n, is_read: true } : n));
+  // A failed write puts back every chip's cached page exactly as it was. A
+  // refetch alone can't do this offline (it fails too, and the optimistic
+  // pages stay, persisted for a day), and it only covers the current chip.
+  function snapshotAll(): Array<[string, NotificationPage]> {
+    const out: Array<[string, NotificationPage]> = [];
+    for (const { value } of NOTIFICATION_CHIPS) {
+      const key = keyFor(value);
+      const cur = peekQuery<NotificationPage>(key);
+      if (cur) out.push([key, cur]);
+    }
+    return out;
+  }
+  function restoreAll(snap: ReadonlyArray<[string, NotificationPage]>) {
+    for (const [key, saved] of snap) setQueryData(key, saved);
+  }
+
+  async function markRead(n: Notification) {
+    if (n.is_read) return;
+    const id = n.id;
+    patchAll(x => (x.id === id ? { ...x, is_read: true } : x), () => -1);
     try {
       await sbCall(() => supabase.from('notifications').update({ is_read: true }).eq('id', id));
     } catch {
-      // Roll the optimistic read-state back so the badge count stays truthful.
-      patchList(list => list.map(n => n.id === id ? { ...n, is_read: false } : n));
+      // Roll the optimistic read-state back so the counts stay truthful.
+      patchAll(x => (x.id === id ? { ...x, is_read: false } : x), () => 1);
     }
   }
 
   async function markAllRead() {
-    const previous = notifications;
-    patchList(list => list.map(n => ({ ...n, is_read: true })));
+    const snap = snapshotAll();
+    patchAll(x => (x.is_read ? x : { ...x, is_read: true }), p => -p.unreadTotal);
     try {
       await sbCall(() => supabase.from('notifications').update({ is_read: true }).eq('is_read', false));
     } catch (e) {
-      setQueryData(NOTIFICATIONS_KEY, previous);
+      restoreAll(snap);
       status.error(friendlySbMessage(e, "Couldn't mark them read."));
+      void reload();
     }
   }
 
-  async function deleteNotification(id: string) {
-    const previous = notifications;
-    patchList(list => list.filter(n => n.id !== id));
+  async function deleteNotification(n: Notification) {
+    const id = n.id;
+    const wasUnread = !n.is_read;
+    const snap = snapshotAll();
+    patchAll(x => (x.id === id ? null : x), () => (wasUnread ? -1 : 0));
     try {
       await sbCall(() => supabase.from('notifications').delete().eq('id', id));
     } catch (e) {
-      setQueryData(NOTIFICATIONS_KEY, previous);
+      restoreAll(snap);
       status.error(friendlySbMessage(e, "Couldn't delete that notification."));
+      void reload();
+    }
+  }
+
+  async function loadMore() {
+    if (!page || !page.hasMore || !page.cursor || loadingMore) return;
+    const key = keyFor(chip);
+    setLoadingMore(true);
+    try {
+      // One row past the page says whether another page exists, so the last
+      // "Load more" is never an empty one.
+      const next = await fetchRows(chip, PAGE + 1, page.cursor);
+      const raw = next.raw.slice(0, PAGE);
+      const inPage = new Set(raw.map(n => n.id));
+      const cur = peekQuery<NotificationPage>(key) ?? page;
+      // The keyset never returns a row already shown; this dedupe only covers
+      // a refresh that landed while this page was in flight.
+      const seen = new Set(cur.rows.map(n => n.id));
+      setQueryData(key, {
+        ...cur,
+        rows: [...cur.rows, ...next.rows.filter(n => inPage.has(n.id) && !seen.has(n.id))],
+        missing: [...cur.missing, ...[...next.missing].filter(id => inPage.has(id))],
+        fetched: cur.fetched + raw.length,
+        cursor: cursorOf(raw) ?? cur.cursor,
+        hasMore: next.raw.length > PAGE,
+      });
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't load more notifications."));
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -154,114 +383,230 @@ export default function NotificationsScreen({ navigation }: Props) {
     return true;
   }
 
+  function linkFor(n: Notification): string {
+    const deepLink = typeof n.push_data?.deep_link === 'string' ? n.push_data.deep_link : undefined;
+    const kind = typeof n.push_data?.kind === 'string' ? n.push_data.kind : undefined;
+    return linkOf({ entity_type: n.entity_type, entity_id: n.entity_id, deepLink, kind });
+  }
+
+  function toggleExpanded(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function handleTap(n: Notification) {
-    markRead(n.id);
+    void markRead(n);
+    // Its target is gone: nothing to open. Show the whole text instead.
+    if (missing.has(n.id)) { toggleExpanded(n.id); return; }
     // League/tournament invites carry an embedded code → auto-accept.
     if ((n.entity_type === 'tournament' || n.entity_type === 'league') && (await tryAutoAcceptInvite(n))) return;
     // Everything else goes where the same push would (lib/pushLinks.ts),
     // refined by its kind: a drill chat opens its thread, a join request opens
     // the members screen, an organizer nudge opens the text composer. The wager screens stay gated there
-    // (they are not registered while wagering is off). Unrouted: stay here.
-    const deepLink = typeof n.push_data?.deep_link === 'string' ? n.push_data.deep_link : undefined;
-    const kind = typeof n.push_data?.kind === 'string' ? n.push_data.kind : undefined;
-    const link = linkOf({ entity_type: n.entity_type, entity_id: n.entity_id, deepLink, kind });
+    // (they are not registered while wagering is off). Unrouted: stay here,
+    // and show the whole text.
+    const link = linkFor(n);
     if (link) routeLink(link);
+    else toggleExpanded(n.id);
   }
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
+  const unreadTotal = page?.unreadTotal ?? 0;
+  const chipLabel = NOTIFICATION_CHIPS.find(x => x.value === chip)?.label ?? 'All';
 
-  if (query.loading && !loadFailed) {
-    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  }
+  const renderItem = ({ item }: { item: DayGroupItem<Notification> }) => {
+    if (item.kind === 'header') {
+      return <SectionHeader title={item.label} style={styles.dayHeader} />;
+    }
+    const n = item.row;
+    const gone = missing.has(n.id);
+    const open = expanded.has(n.id);
+    const g = glyphFor(n.entity_type);
+    const tile = entityTileColors(g.kind, c);
+    const long = isLongBody(n.body);
+    // The ✕ is a SIBLING of the card, not its `trailing`: ListCard is one
+    // touchable (accessible by default), so iOS VoiceOver can't focus a button
+    // nested in it, and a screen-reader user could not delete at all.
+    // FOUNDATION-TODO: ListCard should forward accessibilityLabel / Hint /
+    // accessibilityActions + onAccessibilityAction, so the card could also
+    // offer "Delete" as a rotor action.
+    return (
+      <View style={styles.rowWrap}>
+        <ListCard
+          density="compact"
+          align="top"
+          style={styles.card}
+          onPress={() => { void handleTap(n); }}
+          leading={
+            <View
+              style={[styles.tile, { backgroundColor: tile.bg, borderColor: tile.border }, gone && styles.gone]}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            >
+              <Text style={styles.glyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{g.glyph}</Text>
+            </View>
+          }
+          title={
+            <View style={styles.titleLine}>
+              {!n.is_read ? <View style={[styles.unreadDot, { backgroundColor: c.primary }]} /> : null}
+              <Text
+                style={[t.title, styles.titleText, n.is_read && { color: c.textSub }, gone && styles.gone]}
+                numberOfLines={open ? undefined : 1}
+              >
+                {n.title}
+              </Text>
+              <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                {notificationTime(n.created_at, now)}
+              </Text>
+            </View>
+          }
+          subtitle={
+            <View style={gone ? styles.gone : undefined}>
+              <Text style={[t.sub, styles.body]} numberOfLines={open ? undefined : 2}>{n.body}</Text>
+              {long ? (
+                // Nested in the card's touchable on purpose (sighted users tap it;
+                // VoiceOver reads the card's whole text anyway): the inner press
+                // wins on native, and react-native-web stops the click at the
+                // first pressable, so "more" never also navigates. A real 44
+                // box: web ignores hitSlop.
+                <TouchableOpacity
+                  style={styles.moreBox}
+                  onPress={() => toggleExpanded(n.id)}
+                  activeOpacity={0.6}
+                  accessibilityRole="button"
+                  accessibilityLabel={open ? 'Show less' : `Show full notification: ${n.title}`}
+                >
+                  <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                    {open ? 'less' : 'more'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+              {gone ? (
+                <Text style={[t.meta, styles.goneNote]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  No longer available
+                </Text>
+              ) : null}
+            </View>
+          }
+        />
+        <TouchableOpacity
+          style={styles.deleteBox}
+          onPress={() => { void deleteNotification(n); }}
+          activeOpacity={0.6}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete notification: ${n.title}`}
+        >
+          <Text style={[t.title, { color: c.textMuted }]}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
-    <View style={S.container}>
+    <View style={[styles.container, { backgroundColor: c.bg }]}>
       {/* TODO: smoke-test in browser — auto-accept invite toast + deep-link */}
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
-      {unreadCount > 0 && (
-        <TouchableOpacity
-          style={S.markAllBtn}
-          onPress={markAllRead}
-          accessibilityRole="button"
-          accessibilityLabel={`Mark all ${unreadCount} notifications as read`}
-        >
-          <Text style={S.markAllText}>Mark all as read ({unreadCount})</Text>
-        </TouchableOpacity>
-      )}
-      <FlatList
-        data={notifications}
-        keyExtractor={n => n.id}
-        contentContainerStyle={{ padding: 16 }}
-        refreshControl={<AppRefreshControl {...refresh} />}
-        renderItem={({ item }) => (
+      <StatusBanner status={status.value} style={styles.banner} />
+      <FilterChipRow<NotificationChip>
+        size="md"
+        options={NOTIFICATION_CHIPS.map(x => ({ value: x.value, label: x.label }))}
+        value={chip}
+        onChange={(v) => { setChip(v); setExpanded(new Set()); }}
+        scrollToSelected
+        style={styles.chips}
+        trailing={unreadTotal > 0 ? (
           <TouchableOpacity
-            style={[S.card, !item.is_read && S.cardUnread]}
-            onPress={() => handleTap(item)}
-            onLongPress={() => deleteNotification(item.id)}
+            style={styles.markAll}
+            onPress={() => { void markAllRead(); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Mark all ${unreadTotal} notifications as read`}
           >
-            <View style={S.iconCol}>
-              {typeof TYPE_ICON[item.type] === 'string' || TYPE_ICON[item.type] == null
-                ? <Text style={S.typeIcon}>{(TYPE_ICON[item.type] as string) ?? '📣'}</Text>
-                : <View style={{ alignItems: 'center', justifyContent: 'center' }}>{TYPE_ICON[item.type]}</View>}
-              {!item.is_read && <View style={S.unreadDot} />}
-            </View>
-            <View style={S.content}>
-              <Text style={[S.title, !item.is_read && S.titleUnread]}>{item.title}</Text>
-              <Text style={S.body}>{item.body}</Text>
-              <Text style={S.time}>{timeAgo(item.created_at)}</Text>
-            </View>
+            <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              Mark all read
+            </Text>
           </TouchableOpacity>
-        )}
-        ListEmptyComponent={
-          loadFailed
-            ? <EmptyState
-                icon="📡"
-                title="Couldn't load notifications"
-                subtitle={friendlySbMessage(query.error)}
-                actionLabel="Retry"
-                onAction={() => { void reload(); }}
-              />
-            : <EmptyState
-                icon="🔔"
-                title="All quiet here!"
-                subtitle="You'll be notified when brackets are set, invites arrive, and more."
-              />
-        }
+        ) : undefined}
       />
+      {query.loading && page === undefined && !loadFailed ? (
+        <View style={styles.skeleton}><SkeletonList rows={6} variant="row" /></View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={i => i.key}
+          renderItem={renderItem}
+          contentContainerStyle={styles.list}
+          refreshControl={<AppRefreshControl {...refresh} />}
+          ListFooterComponent={page?.hasMore ? (
+            <TouchableOpacity
+              style={styles.more}
+              onPress={() => { void loadMore(); }}
+              disabled={loadingMore}
+              accessibilityRole="button"
+              accessibilityLabel="Load more notifications"
+            >
+              <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          ListEmptyComponent={
+            loadFailed
+              ? <EmptyState
+                  icon="📡"
+                  title="Couldn't load notifications"
+                  subtitle={friendlySbMessage(query.error)}
+                  actionLabel="Retry"
+                  onAction={() => { void reload(); }}
+                />
+              : chip === 'all'
+                ? <EmptyState
+                    icon="🔔"
+                    title="All quiet here!"
+                    subtitle="You'll be notified when brackets are set, invites arrive, and more."
+                  />
+                : <EmptyState compact title={`Nothing under ${chipLabel}`} />
+          }
+        />
+      )}
     </View>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    container:   { flex: 1, backgroundColor: c.bg },
-    markAllBtn:  { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border },
-    markAllText: { color: c.primary, fontWeight: '600', fontSize: 14 },
-    card: {
-      backgroundColor: c.surface,
-      borderRadius: 14,
-      padding: 14,
-      marginBottom: 10,
-      flexDirection: 'row',
-      gap: 12,
-      shadowColor: '#000',
-      shadowOpacity: 0.07,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 3,
-    },
-    cardUnread:  { borderLeftWidth: 3, borderLeftColor: c.primary, backgroundColor: c.primaryLight },
-    iconCol:     { alignItems: 'center', gap: 6 },
-    typeIcon:    { fontSize: 22 },
-    unreadDot:   { width: 8, height: 8, borderRadius: 4, backgroundColor: c.primary },
-    content:     { flex: 1 },
-    title:       { fontSize: 14, fontWeight: '600', color: c.textSub, marginBottom: 3 },
-    titleUnread: { color: c.text, fontWeight: '700' },
-    body:        { fontSize: 13, color: c.textSub, lineHeight: 18 },
-    time:        { fontSize: 11, color: c.textMuted, marginTop: 5 },
-    emptyWrap:   { alignItems: 'center', marginTop: 80, paddingHorizontal: 32 },
-    emptyIcon:   { fontSize: 48, marginBottom: 12 },
-    empty:       { fontSize: 17, fontWeight: '700', color: c.textSub, marginBottom: 6 },
-    emptySub:    { fontSize: 13, color: c.textMuted, textAlign: 'center', lineHeight: 18 },
-  });
-}
+const TILE = 36;
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  banner: { marginHorizontal: SPACE.lg, marginTop: SPACE.sm },
+  chips: { paddingHorizontal: SPACE.lg },
+  markAll: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingHorizontal: SPACE.sm },
+  skeleton: { paddingHorizontal: SPACE.lg },
+  list: { paddingHorizontal: SPACE.lg, paddingBottom: SPACE.xl },
+  dayHeader: { marginTop: SPACE.sm },
+  tile: {
+    minWidth: TILE,
+    minHeight: TILE,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  glyph: { fontSize: FONT.size.xl, lineHeight: FONT.size.xl + SPACE.xs * 2 },
+  // Title, then the time on the same line (the day is in the header above).
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minWidth: 0 },
+  titleText: { flexShrink: 1, flexGrow: 1 },
+  unreadDot: { width: SPACE.sm, height: SPACE.sm, borderRadius: RADIUS.pill },
+  body: { marginTop: SPACE.xxs },
+  gone: { opacity: 0.5 },
+  goneNote: { marginTop: SPACE.xxs },
+  // The card and its ✕ side by side, the ✕ level with the title line (the
+  // compact card's top padding + half a title line is about half of 44).
+  rowWrap: { flexDirection: 'row', alignItems: 'flex-start' },
+  card: { flex: 1, minWidth: 0 },
+  // The ✕: a real 44 box (react-native-web ignores hitSlop).
+  deleteBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  // "more" / "less" under a long body: a real 44 box, hugging its text.
+  moreBox: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  more: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+});

@@ -1,93 +1,84 @@
+// Home's unlock teaser: ONE 44px row with the nearest badge still to earn on
+// the foundation ProgressBar (layout 'inline'), tapping through to
+// UnlockProgress. Replaces the old "Closest unlocks" card with its hand-rolled
+// bar (plan section 3: "Unlock teaser ... 44, built on the foundation
+// ProgressBar"). Home renders it only when Get started is hidden; it hides
+// itself when nothing account-wide is left to earn or the progress can't load.
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
+import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
-import { RootStackParamList } from '../types';
 import { computeBadgeProgress, BadgeProgress } from '../lib/unlockProgress';
-
-// TODO: smoke-test in browser — verify the 1–2 nearest unlocks render with a
-// filled progress bar + label, the card taps through to UnlockProgress, and
-// the card disappears when nothing non-perLeague remains to earn.
 
 type Props = {
   userId: string | null;
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Home'>;
+  // Only navigates, so any screen's nav prop fits.
+  navigation: { navigate: (screen: 'UnlockProgress') => void };
+  /** Analytics hook (home.tap). */
+  onPressed?: () => void;
 };
 
-// Thin filled/empty progress bar matching the ProgressRow style in
-// UnlockProgressScreen — kept visually consistent across surfaces.
-function ProgressRow({ row, c }: { row: BadgeProgress; c: ReturnType<typeof useTheme>['colors'] }) {
-  const filled = Math.max(row.pct, 0.02);
-  const empty = 1 - filled;
-  return (
-    <View style={{ marginBottom: 10 }}>
-      <Text style={{ fontSize: 13, fontWeight: '700', color: c.text }}>{row.badge}</Text>
-      <View style={{ flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border }}>
-        <View style={{ backgroundColor: c.primary, flex: filled }} />
-        {empty > 0 && <View style={{ backgroundColor: c.border, flex: empty }} />}
-      </View>
-      <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{row.label}</Text>
-    </View>
-  );
-}
-
-export default function ClosestUnlocksCard({ userId, navigation }: Props) {
-  const { colors } = useTheme();
-  const s = makeStyles(colors);
-  const [rows, setRows] = useState<BadgeProgress[]>([]);
+export default function ClosestUnlocksCard({ userId, navigation, onPressed }: Props) {
+  const { colors: c } = useTheme();
+  const [next, setNext] = useState<BadgeProgress | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    if (!userId) { setRows([]); return; }
+    if (!userId) { setNext(null); return; }
     (async () => {
       try {
         const all = await computeBadgeProgress(userId);
         if (cancelled) return;
-        // Nearest not-yet-earned badges with a real global threshold. The lib
-        // already sorts closest-first, so take the top 2.
-        const closest = all.filter(p => !p.earned && !p.perLeague).slice(0, 2);
-        setRows(closest);
+        // The nearest not-yet-earned badge with a real global threshold. The
+        // lib already sorts closest-first.
+        setNext(all.find(p => !p.earned && !p.perLeague) ?? null);
       } catch {
-        // computeBadgeProgress now throws rather than reporting zero progress.
-        // This is one card among many on Home, so it stays hidden (rows [])
-        // instead of claiming the user has made no progress at all.
+        // computeBadgeProgress throws rather than reporting zero progress. The
+        // teaser stays hidden instead of claiming the user has made none.
       }
     })();
     return () => { cancelled = true; };
   }, [userId]);
 
-  if (rows.length === 0) return null;
+  if (!next) return null;
+  const value = `${Math.min(next.current, next.target)}/${next.target}`;
 
   return (
     <TouchableOpacity
-      style={s.card}
+      style={[styles.row, { backgroundColor: c.surface, borderColor: c.border }]}
       activeOpacity={0.85}
-      onPress={() => navigation.navigate('UnlockProgress')}
+      onPress={() => { onPressed?.(); navigation.navigate('UnlockProgress'); }}
+      accessibilityRole="button"
+      accessibilityLabel={`Next unlock: ${next.badge}, ${next.current} of ${next.target}. See all unlocks`}
     >
-      <View style={s.headerRow}>
-        <Text style={s.title}>🔓 Closest unlocks</Text>
-        <Text style={s.viewAll}>View all →</Text>
+      <View style={styles.bar}>
+        <ProgressBar
+          progress={next.pct}
+          layout="inline"
+          label={`Next unlock: ${next.badge}`}
+          valueText={value}
+          accessibilityValueText={`${next.current} of ${next.target}`}
+          height={SPACE.sm}
+          minFill={0.02}
+        />
       </View>
-      {rows.map(row => (
-        <ProgressRow key={row.badge} row={row} c={colors} />
-      ))}
+      <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
     </TouchableOpacity>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    card: {
-      marginHorizontal: 16,
-      marginTop: 12,
-      padding: 14,
-      borderRadius: 14,
-      backgroundColor: c.surface,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-    title: { fontSize: 15, fontWeight: '800', color: c.text },
-    viewAll: { fontSize: 13, fontWeight: '700', color: c.primary },
-  });
-}
+const styles = StyleSheet.create({
+  row: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.sm,
+    paddingHorizontal: SPACE.md,
+    borderWidth: 1,
+    borderRadius: RADIUS.md,
+  },
+  bar: { flex: 1, minWidth: 0 },
+  chevron: { fontSize: FONT.size.h2, fontWeight: '700' },
+});

@@ -4,16 +4,20 @@
 // (`import { TourProvider, useTour, TOURS } from '../lib/TourContext'`) are
 // unchanged.
 import { createTourContext, type TourStep } from '@just-messin-around/expo-foundation/tour';
+import { createSignal } from '@just-messin-around/expo-foundation/hooks';
 
 export type { TourStep } from '@just-messin-around/expo-foundation/tour';
 
 export type TourKey = 'leagues' | 'profile';
 
 export const TOURS: Record<TourKey, TourStep[]> = {
+  // Anchors: 'search' = the Play/Leagues search field (registered only while
+  // that list is focused and its tab visible), 'join' = the [Join] on the first
+  // joinable DISCOVER row, 'record' = LeagueDetail's quick-row Record.
   leagues: [
-    { stepKey: 'search', title: 'Find a league', body: 'Browse or search open leagues here.' },
-    { stepKey: 'join',   title: 'Join in one tap', body: 'Tap the big Join button to enter a league.' },
-    { stepKey: 'record', title: 'Record matches', body: 'Once you have played, record results from the highlighted card.' },
+    { stepKey: 'search', title: 'Find a league', body: 'Search or browse leagues here.' },
+    { stepKey: 'join',   title: 'Join in one tap', body: 'Tap Join to enter a league.' },
+    { stepKey: 'record', title: 'Record matches', body: 'After you play, tap Record.' },
   ],
   profile: [
     { stepKey: 'edit',    title: 'Set up your profile', body: 'Add an avatar and details here.' },
@@ -21,9 +25,21 @@ export const TOURS: Record<TourKey, TourStep[]> = {
   ],
 };
 
+// Fired the moment a tour actually starts (first run AND a manual replay), so
+// the screens that host its anchors can make them reachable: Play switches to
+// its Leagues tab, and the Leagues list closes its filter sheet and clears the
+// Discover chips + route-param chips that could hide the first joinable row.
+// A signal rather than a direct call because the engine is created once at
+// module level and the screens come and go.
+const tourStartSignal = createSignal<TourKey>();
+
+/** Subscribe to tour starts. Returns an unsubscribe function. */
+export const onTourStart = tourStartSignal.subscribe;
+
 const tour = createTourContext<TourKey>({
   storagePrefix: 'pickleague_tour_',
   tours: TOURS,
+  onStart: (tourKey) => tourStartSignal.emit(tourKey),
   // Behavior/layout of the overlay. These reproduce Pickleague's original
   // hand-rolled overlay: a non-blocking absolute layer (taps reach the
   // highlighted target), tap-the-dim-to-dismiss, an anchored 280px bubble, and

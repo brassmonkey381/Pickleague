@@ -28,6 +28,7 @@ import { AppState, type AppStateStatus, Platform } from 'react-native';
 
 import { getInstallTime, getNativeBuild } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from './supabase';
+import { isGodmodeUserId } from './godmode';
 
 /** lib/supabase asserts its env with `!`; mirror the check here so a missing .env means silent
  *  no-op analytics rather than requests at a placeholder. */
@@ -595,6 +596,11 @@ export function trackScreen(name: string | undefined): void {
  * time it actually happened. Assumes the bootstrap has settled. Fire-and-forget; never throws.
  */
 function emit(name: string, props?: Record<string, unknown>, ts?: string): void {
+  // The developer account dominates the usage tables (60 days of page views come from 2-3
+  // users, mostly the developer), which would make Home's section-tap mix meaningless. Checked
+  // HERE, where the identity is settled (a buffered tap is flushed only after
+  // resetSessionUser sets cachedUser), so a tap made before the auth bootstrap is still judged.
+  if (DEVELOPER_EXCLUDED_EVENTS.has(name) && isGodmodeUserId(cachedUser?.id)) return;
   // A signup carries its campaign attribution. Merged HERE, centrally, so every account.created
   // call site attributes without repeating it — and an explicit `code` prop still wins.
   if (name === 'account.created' && campaignCode && !(props && 'code' in props)) {
@@ -673,4 +679,80 @@ export function endSession(): void {
   accessToken = null;
   unbindLifecycleListeners();
   clearStoredSession();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Typed custom events (ui-compaction). These are NEW event names only: route names are unchanged
+// so the page.view series stays comparable, and nothing here may emit a synthetic page.view
+// (trackScreen de-dupes on the route name, and the session's first page.view fills
+// landing_route, so a fake 'Play/tournaments' view would both double count and could become the
+// landing route). Props are slugs, ids and counts only: never a league/tournament/person name.
+// ---------------------------------------------------------------------------------------------
+
+/** Events the developer (godmode) account never records. See emit(). */
+const DEVELOPER_EXCLUDED_EVENTS = new Set<string>(['home.tap']);
+
+/** Home's sections, in screen order. */
+export type HomeSection =
+  | 'top_bar'
+  | 'greeting'
+  | 'now'
+  | 'get_started'
+  | 'up_next'
+  | 'yours'
+  | 'join'
+  | 'quick'
+  | 'court'
+  | 'open_near_you'
+  | 'unlock';
+
+export type HomeTapProps = {
+  section: HomeSection;
+  /** What was tapped, as a slug: 'row' | 'vote' | 'rsvp' | 'join' | 'request' | 'find_more' |
+   *  'all_yours' | 'show_more' | 'bell' | 'saved' | 'settings' | 'record' | ... Never a name. */
+  target: string;
+  /** 0-based index of the row within its section; omit for a one-off control (sent as null). */
+  position?: number;
+};
+
+/** `home.tap`: one tap on a Home section. Skipped for the developer account. Never throws. */
+export function trackHomeTap(p: HomeTapProps): void {
+  track('home.tap', { section: p.section, target: p.target, position: p.position ?? null });
+}
+
+export type PlayList = 'leagues' | 'tournaments';
+
+/** `play.tab`: the Play underline toggle switched to `tab` (a user tap, not the initial mount). */
+export function trackPlayTab(tab: PlayList): void {
+  track('play.tab', { tab });
+}
+
+export type PlayFilterProps = {
+  list: PlayList;
+  /** The filter's key ('mine' | 'open' | 'in_season' | 'saved' | 'distance' | 'sort' | ...). */
+  key: string;
+  /** The option toggled (a chip key, a radius, a sort key). null for a plain on/off chip. */
+  value?: string | number | boolean | null;
+  /** true when the filter/option turned on, false when it turned off or was removed. */
+  on: boolean;
+};
+
+/** `play.filter`: one filter change on a Play list (chip, sheet Apply, sort, chip removal). */
+export function trackPlayFilter(p: PlayFilterProps): void {
+  track('play.filter', { list: p.list, key: p.key, value: p.value ?? null, on: p.on });
+}
+
+export type SectionToggleProps = {
+  /** The route name of the screen ('LeagueDetail', 'TournamentDetail', 'Profile', ...). */
+  screen: string;
+  /** The section's slug ('manage' | 'roster' | 'pot' | 'rules' | 'availability' | ...). */
+  section: string;
+  /** The state after the toggle. */
+  open: boolean;
+};
+
+/** `section.toggle`: a user opened or closed a collapsible section. Not for programmatic opens
+ *  (a push or a pending step auto-opening Manage) — those aren't choices. */
+export function trackSectionToggle(p: SectionToggleProps): void {
+  track('section.toggle', { screen: p.screen, section: p.section, open: p.open });
 }

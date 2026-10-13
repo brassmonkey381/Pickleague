@@ -74,6 +74,10 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   return (
     <LiveStatusIsland
       visible={active}
+      // Bottom-anchored: the foundation (1.39+) lifts it to max(safe area,
+      // bottom chrome slot) + gap, so it floats above a screen's
+      // StickyActionBar (LeagueDetail, later TournamentDetail) instead of
+      // covering it. Nothing to pass here; the bar publishes its own height.
       anchor="bottom"
       pill={{ primary: `${meta?.label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
       title="PLAYING NOW"

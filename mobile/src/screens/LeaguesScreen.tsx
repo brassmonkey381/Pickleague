@@ -1,21 +1,48 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+// Play > Leagues (plan section 4). The same body is mounted by the Play tab
+// and by the standalone 'Leagues' route (FTUE "Join a league", the
+// invite_code push), so both get the same list, anchors and Join-with-Code.
+//
+//   [Q] Search leagues, courts, admins      x     fixed chrome, outside the list
+//   (chips ... only once Discover > 6 rows)  [Filters]
+//   MINE  3                                       hidden at 0; never filtered, only searched
+//   [🎾] Dinks              Admin  >
+//   DISCOVER  1                     Most active v sort only above 6 rows
+//   [🎾] Organized Pickle Pl...    [ Join ]       tour 'leagues/join'
+//        + New league  ·  Enter code             only while the list fits one screen
+//
+// Create actions live in the header "+" (ActionSheet). Filters are saved per
+// user (usePlayFilterState); search is not. The data rides on useCachedQuery
+// and refreshes on focus, so a league joined elsewhere (Home, LeagueDetail's
+// join card) is in MINE when you come back, without pull-to-refresh.
+// lib/regions.ts is no longer used here: distance replaces the region pills.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  TextInput, Modal, Switch, ScrollView,
+  View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable, Platform,
+  type LayoutChangeEvent, type ListRenderItemInfo,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RouteProp } from '@react-navigation/native';
+import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
+import {
+  ActionSheetModal,
+  FilterSheet,
+  SectionHeader,
+  type ActionSheetAction,
+  type ActiveFilterEntry,
+  type FilterSheetGroup,
+} from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { LeagueWithStats, RootStackParamList } from '../types';
-import { REGIONS, getRegionName, inRegion } from '../lib/regions';
-import { displayCourtName } from '../lib/courtNickname';
-import { TONE_COLORS } from '../lib/activityTone';
+import { useCourtName } from '../lib/courtNickname';
+import { seasonWeek } from '../lib/agenda';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { isGodmodeUserId, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
-import { useTour } from '../lib/TourContext';
-import { gs } from '../lib/globalStyles';
+import { onTourStart, useTour } from '../lib/TourContext';
 import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -23,123 +50,352 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { useLeagueJoin } from '../lib/useLeagueJoin';
+import LeagueRow, { LeagueJoinButton } from '../components/LeagueRow';
+import {
+  LEAGUE_CHIPS,
+  LEAGUE_CHIP_LABELS,
+  LEAGUE_PERSIST_DEFAULTS,
+  LEAGUE_PINNED_CHIPS,
+  LEAGUE_SORT_LABELS,
+  MINE_PREVIEW,
+  MIN_PLAYER_OPTIONS,
+  countLabel,
+  countSheetFilters,
+  distanceLabel,
+  distanceMiles,
+  leagueSortOptions,
+  normalizeQuery,
+  pagedCount,
+  quickChipsVisible,
+  sheetInEffect,
+  sortVisible,
+  splitLeagues,
+  widerDistance,
+} from '../lib/playFilters';
+import PlayListChrome from '../components/play/PlayListChrome';
+import DistanceFilterGroup from '../components/play/DistanceFilterGroup';
+import { usePlayHeaderPlus } from '../components/play/HeaderPlusButton';
+import { usePlayFilterState } from '../components/play/usePlayFilterState';
+import { usePlayLocation } from '../components/play/usePlayLocation';
+import { usePlayTour } from '../components/play/usePlayTour';
+import { usePlayUserId } from '../components/play/usePlayUserId';
+import { afterModalClose } from '../components/play/afterModalClose';
+import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
   route: RouteProp<RootStackParamList, 'Leagues'>;
+  /** Embedded in Play: whether this tab is the one showing. The standalone
+   *  route is always active. Gates the tour anchors and the header "+". */
+  active?: boolean;
+  /** Play's "All yours (N) >": each new value turns the Mine chip on for this
+   *  visit only (never saved). */
+  routeMineToken?: number;
+  /** Play's toggle count (every league in the list). */
+  onCount?: (n: number) => void;
 };
 
-type Filters = {
-  showPrivate: boolean;
-  createdWithin: number | null;
-  minPlayers: number;
-  region: string | null;
-  // Always surface leagues I'm a member of, even if they'd be hidden by the
-  // discovery filters (private/region/min-players/age). On by default.
-  alwaysShowMine: boolean;
-  // Restrict the list to only leagues I'm a member of. Off by default.
-  onlyMine: boolean;
+/** A league row as Play shows it: the stats the list always loaded, plus
+ *  whether I saved it and how active it was in the last 30 days. */
+type PlayLeagueRow = LeagueWithStats & { saved: boolean; recentMatchCount: number };
+
+type LeaguesData = {
+  leagues: PlayLeagueRow[];
+  godmode: boolean;
+  /** null when the create-limit count failed (the screen keeps the last one). */
+  activeAdminLeagueCount: number | null;
 };
 
-// Private leagues are hidden by default; the "Show private leagues" toggle reveals them.
-// My leagues are always shown by default; "only mine" is off by default.
-const DEFAULT_FILTERS: Filters = {
-  showPrivate: false, createdWithin: null, minPlayers: 0, region: null,
-  alwaysShowMine: true, onlyMine: false,
-};
+const RECENT_MS = 30 * 24 * 60 * 60 * 1000;
 
-const CREATED_WITHIN_OPTIONS = [
-  { label: 'All time', value: null },
-  { label: '7 days',   value: 7 },
-  { label: '30 days',  value: 30 },
-  { label: '90 days',  value: 90 },
-];
-
-const MIN_PLAYERS_OPTIONS = [
-  { label: 'Any',  value: 0 },
-  { label: '5+',   value: 5 },
-  { label: '10+',  value: 10 },
-  { label: '20+',  value: 20 },
-];
-
-function activeFilterCount(f: Filters): number {
-  return (f.showPrivate ? 1 : 0) + (f.createdWithin !== null ? 1 : 0) + (f.minPlayers > 0 ? 1 : 0) + (f.region !== null ? 1 : 0)
-    // Count the membership filters only when they deviate from their defaults.
-    + (f.alwaysShowMine ? 0 : 1) + (f.onlyMine ? 1 : 0);
-}
-
-function applyFilters(leagues: LeagueWithStats[], f: Filters): LeagueWithStats[] {
-  return leagues.filter((l) => {
-    const isMine = l.myRole !== null;
-    // "Only my leagues" restricts the list to leagues I'm a member of.
-    if (f.onlyMine) return isMine;
-    // "Always show my leagues" lets member leagues bypass the discovery filters.
-    if (f.alwaysShowMine && isMine) return true;
-    if (!f.showPrivate && !l.is_open) return false;
-    if (f.minPlayers > 0 && l.memberCount < f.minPlayers) return false;
-    if (f.createdWithin !== null) {
-      const ageDays = (Date.now() - new Date(l.created_at).getTime()) / 86400000;
-      if (ageDays > f.createdWithin) return false;
-    }
-    if (f.region !== null && !inRegion(l.home_court_lat ?? null, l.home_court_lng ?? null, f.region)) return false;
-    return true;
-  });
-}
-
-function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-// Short month + day for the season chip ("Apr 15 – Jul 22"). Year omitted
-// unless the start year differs from the end year (then both years shown).
+// Short month + day ("Nov 3") for an upcoming season's start date (a DATE).
 function fmtShort(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-function fmtShortYear(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-function formatSeasonRange(startIso: string | null, endIso: string | null): string {
-  if (!startIso && !endIso) return 'TBD';
-  if (startIso && !endIso) return `Starts ${fmtShort(startIso)}`;
-  if (!startIso && endIso) return `Ends ${fmtShort(endIso)}`;
-  const startY = new Date(startIso! + 'T00:00:00').getFullYear();
-  const endY   = new Date(endIso!   + 'T00:00:00').getFullYear();
-  return startY === endY
-    ? `${fmtShort(startIso!)} – ${fmtShort(endIso!)}`
-    : `${fmtShortYear(startIso!)} – ${fmtShortYear(endIso!)}`;
+  return new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default function LeaguesScreen({ navigation, route }: Props) {
+/** The row's live facts after court and players, at most two: a vote, the
+ *  season, an open tournament. Never "TBD" (content rule 3). A member sees how
+ *  far the season is ("Wk 7/12", the same helper Home's YOURS uses); Discover
+ *  rows keep "In season". */
+function leagueFacts(l: PlayLeagueRow, now: number): string[] {
+  const facts: string[] = [];
+  if (l.openVoteCount > 0) facts.push('Vote open');
+  if (l.featuredSeasonStatus === 'active') {
+    const wk = l.myRole && l.featuredSeasonStart && l.featuredSeasonTotalWeeks
+      ? seasonWeek({ status: 'active', startDate: l.featuredSeasonStart, totalWeeks: l.featuredSeasonTotalWeeks }, now)
+      : null;
+    facts.push(wk ? `Wk ${wk.week}/${wk.total}` : 'In season');
+  }
+  else if (l.featuredSeasonStatus === 'upcoming' && l.featuredSeasonStart) facts.push(`Season starts ${fmtShort(l.featuredSeasonStart)}`);
+  if (l.openRegistrationTournamentCount > 0) facts.push('Tournament open');
+  return facts.slice(0, 2);
+}
+
+async function loadLeaguesData(): Promise<LeaguesData> {
+  // Identity is a LOCAL session read now, and godmode a local id check, so
+  // neither costs a round trip. The admin-league count no longer waits on the
+  // league list either — it only ever needed the user id.
+  const uid = await currentUserId(supabase);
+
+  const [leagueRows, adminLeagueCount] = await Promise.all([
+    sbCall(() => supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false })),
+    // Non-fatal on its own: countActiveAdminLeagues throws by design, but a
+    // failed create-limit count must not blank the whole league list. The
+    // screen keeps the last known count instead.
+    uid ? countActiveAdminLeagues(uid).catch(() => null) : Promise.resolve(0),
+  ]);
+
+  const ids = (leagueRows ?? []).map((l) => l.id);
+  if (ids.length === 0) return { leagues: [], godmode: isGodmodeUserId(uid), activeAdminLeagueCount: adminLeagueCount };
+
+  // All parallel fetches
+  const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes, adminRes, eventRes, savedRes] = await Promise.all([
+    // PostgREST caps a response at max_rows (1000), so these two can come back
+    // truncated at scale. Member counts are a known limit (plan section 4:
+    // precomputed in Phase 7).
+    sbCall(() => supabase.from('league_members').select('league_id').in('league_id', ids)),
+    // Newest first, so a truncated result drops the OLDEST matches: the
+    // 30-day activity count behind the default "Most active" sort stays exact
+    // while recent matches across all leagues are under the cap.
+    sbCall(() => supabase.from('matches').select('league_id, played_at').in('league_id', ids).order('played_at', { ascending: false })),
+    uid
+      ? sbCall(() => supabase.from('league_members').select('league_id, role').eq('user_id', uid).in('league_id', ids))
+      : Promise.resolve([]),
+    uid
+      ? sbCall(() => supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids))
+      : Promise.resolve([]),
+    sbCall(() => supabase.from('league_seasons')
+      .select('league_id, status, baseline_plupr, start_date, end_date, total_weeks')
+      .in('league_id', ids)
+      .in('status', ['active', 'upcoming'])),
+    sbCall(() => supabase.from('tournaments')
+      .select('league_id, status, start_time')
+      .in('league_id', ids)
+      .in('status', ['registration', 'active'])),
+    // League admins (creator is backfilled as admin): search covers admin names.
+    sbCall(() => supabase.from('league_members')
+      .select('league_id, user_id, profile:profiles(id, full_name)')
+      .eq('role', 'admin')
+      .in('league_id', ids)),
+    // Open votes + scheduled events (we resolve scheduled slots' times below).
+    sbCall(() => supabase.from('league_events')
+      .select('id, league_id, status, vote_ends_at, confirmed_slot_id')
+      .in('league_id', ids)
+      .in('status', ['voting', 'scheduled'])),
+    // My saved leagues (the Saved chip). RLS: bookmarks_select_own. Non-fatal:
+    // a failed read leaves the chip at 0 rather than blanking the list.
+    uid
+      ? sbCall(() => supabase.from('bookmarks').select('target_id').eq('user_id', uid).eq('target_type', 'league')).catch(() => [])
+      : Promise.resolve([]),
+  ]);
+
+  const memberRows     = (memberRes ?? []) as any[];
+  const matchRows      = (matchRes ?? []) as any[];
+  const myMembers      = (myMemberRes ?? []) as any[];
+  const myRequests     = (myRequestRes ?? []) as any[];
+  const seasonRows     = (seasonRes ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null; total_weeks: number | null }[];
+  const tournamentRows = (tournamentRes ?? []) as { league_id: string; status: string; start_time: string | null }[];
+  const adminRows      = (adminRes ?? []) as any[];
+  const eventRows      = (eventRes ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
+  const savedIds       = new Set(((savedRes ?? []) as { target_id: string }[]).map((b) => b.target_id));
+
+  // One admin per league (first admin row). supabase may type the joined
+  // profile as an array; handle either shape.
+  const adminByLeague = new Map<string, { id: string; name: string }>();
+  for (const a of adminRows) {
+    const prof = Array.isArray(a.profile) ? a.profile[0] : a.profile;
+    if (!adminByLeague.has(a.league_id) && prof) {
+      adminByLeague.set(a.league_id, { id: prof.id, name: prof.full_name });
+    }
+  }
+
+  // Resolve the start times of scheduled events' confirmed slots.
+  const slotIds = eventRows.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
+  const slotStartsById = new Map<string, string>();
+  if (slotIds.length > 0) {
+    const slotRows = await sbCall(() => supabase.from('event_slots').select('id, starts_at').in('id', slotIds));
+    (slotRows ?? []).forEach((s: any) => slotStartsById.set(s.id, s.starts_at));
+  }
+  const nowMs = Date.now();
+
+  const leagues: PlayLeagueRow[] = (leagueRows ?? []).map((l) => {
+    const members    = memberRows.filter((m) => m.league_id === l.id);
+    const lMatches   = matchRows.filter((m) => m.league_id === l.id);
+    const myMembership = myMembers.find((m: any) => m.league_id === l.id);
+    const hasRequested = myRequests.some((r: any) => r.league_id === l.id);
+    const distinctDays = new Set(lMatches.map((m) => (m.played_at as string).slice(0, 10))).size;
+    const recentMatchCount = lMatches.filter((m) => nowMs - new Date(m.played_at).getTime() <= RECENT_MS).length;
+
+    const leagueSeasons = seasonRows.filter(s => s.league_id === l.id);
+    const myActiveSeasonsOnly = leagueSeasons.filter(s => s.status === 'active');
+    // Use the most-recently-started active season's baseline for display.
+    const currentSeason = myActiveSeasonsOnly
+      .slice()
+      .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))[0];
+
+    // Featured season: prefer active (latest start), else upcoming (earliest
+    // start). An upcoming one shows as a row fact ("Season starts Nov 3").
+    const upcoming = leagueSeasons
+      .filter(s => s.status === 'upcoming')
+      .slice()
+      .sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))[0];
+    const featuredSeason = currentSeason ?? upcoming ?? null;
+    const featuredStatus: 'active' | 'upcoming' | null = featuredSeason
+      ? (featuredSeason.status === 'active' ? 'active' : 'upcoming')
+      : null;
+    const lTournaments = tournamentRows.filter(t => t.league_id === l.id);
+    const openRegistrationTournamentCount = lTournaments.filter(t => t.status === 'registration').length;
+    const scheduledTournamentCount = lTournaments.filter(t =>
+      t.status === 'active' && t.start_time != null && new Date(t.start_time).getTime() > nowMs).length;
+
+    const lEvents = eventRows.filter(e => e.league_id === l.id);
+    const openVoteCount = lEvents.filter(e =>
+      e.status === 'voting' && new Date(e.vote_ends_at).getTime() > nowMs).length;
+    const upcomingEventCount = lEvents.filter(e =>
+      e.status === 'scheduled'
+      && e.confirmed_slot_id
+      && slotStartsById.has(e.confirmed_slot_id)
+      && new Date(slotStartsById.get(e.confirmed_slot_id)!).getTime() > nowMs).length;
+    const admin = adminByLeague.get(l.id) ?? null;
+
+    return {
+      ...l,
+      is_open: l.is_open ?? true,
+      memberCount: members.length,
+      matchCount: lMatches.length,
+      distinctPlayDays: distinctDays,
+      myRole: myMembership?.role ?? null,
+      hasRequested,
+      activeSeasonCount: myActiveSeasonsOnly.length,
+      activeTournamentCount: lTournaments.length,
+      openRegistrationTournamentCount,
+      scheduledTournamentCount,
+      upcomingEventCount,
+      openVoteCount,
+      adminId:   admin?.id ?? null,
+      adminName: admin?.name ?? null,
+      currentBaselinePlupr: currentSeason?.baseline_plupr != null ? Number(currentSeason.baseline_plupr) : null,
+      featuredSeasonStatus: featuredStatus,
+      featuredSeasonStart: featuredSeason?.start_date ?? null,
+      featuredSeasonEnd:   featuredSeason?.end_date ?? null,
+      featuredSeasonTotalWeeks: featuredSeason?.total_weeks ?? null,
+      saved: savedIds.has(l.id),
+      recentMatchCount,
+    };
+  });
+
+  return { leagues, godmode: isGodmodeUserId(uid), activeAdminLeagueCount: adminLeagueCount };
+}
+
+type Item =
+  | { kind: 'mineHeader' }
+  | { kind: 'discoverHeader' }
+  | { kind: 'row'; section: 'mine' | 'discover'; league: PlayLeagueRow; last: boolean }
+  | { kind: 'discoverEmpty' };
+
+const itemKey = (it: Item) => (it.kind === 'row' ? `${it.section}:${it.league.id}` : it.kind);
+
+/** Default height of the "+ New league · Enter code" footer (before it is measured). */
+const CREATE_FOOTER_H = 44 + SPACE.sm;
+
+export default function LeaguesScreen({ navigation, route, active = true, routeMineToken, onCount }: Props) {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const S = makeStyles(c);
-  const { registerAnchor } = useTour();
+  const courtName = useCourtName();
+  const uid = usePlayUserId();
+  const { coords, setCoords } = usePlayLocation();
+  const fixtureOn = usePlayFixtureOn();
 
-  // Spotlight-tour anchors. The filter bar is the 'search' step; the first
-  // joinable league card's Join button is the 'join' step. Registering an
-  // anchor the tour may never reach is harmless.
-  // TODO: smoke-test in browser — from FTUE "Join a league" / "Record your
-  // first match", the leagues tour should highlight the filter bar → first
-  // Join button → (on LeagueDetail) the Record Match card, once per user.
-  const searchAnchor = useRef<any>(null);
-  const joinAnchor = useRef<any>(null);
-  useEffect(() => { registerAnchor('leagues', 'search', searchAnchor); }, [registerAnchor]);
+  // A tour start (first run or replay) closes the sheet and drops the chips
+  // that could hide the first joinable row. Subscribed BEFORE usePlayTour:
+  // effects run in declaration order, and its anchor registration can start
+  // the tour synchronously (the seen flag already cached), so a later
+  // subscription would miss that start. `current` is assigned further down,
+  // in render, before any effect runs.
+  const onTourStartRef = useRef(() => {});
+  useEffect(() => onTourStart((key) => { if (key === 'leagues') onTourStartRef.current(); }), []);
 
-  const [allLeagues, setAllLeagues]   = useState<LeagueWithStats[]>([]);
-  const [loading, setLoading]         = useState(true);
-  // Set when a load fails. "No leagues yet — create one!" is a lie to a user
-  // who has five and is just on bad WiFi.
-  const [loadError, setLoadError]     = useState<unknown>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters]         = useState<Filters>(DEFAULT_FILTERS);
+  const tour = usePlayTour(active);
+  // A start this list never heard (it fired before this instance mounted, e.g.
+  // inside armTour off proxies another Leagues list left registered) still
+  // gets the same prep once this list is the live one. Idempotent.
+  const { activeTour } = useTour();
+  useEffect(() => {
+    if (activeTour === 'leagues' && tour.live) onTourStartRef.current();
+  }, [activeTour, tour.live]);
 
-  // Join-with-code modal state
+  // ── Data ──────────────────────────────────────────────────────────────────
+  const query = useCachedQuery<LeaguesData>('play:leagues:list', loadLeaguesData, {
+    ttlMs: 30_000,
+    persistMs: 24 * 60 * 60 * 1000,
+  });
+  const reload = useCallback(() => query.refresh(), [query.refresh]);
+  // Refresh on focus: a league joined on Home or LeagueDetail lands in MINE
+  // when you come back, no pull-to-refresh needed.
+  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
+  const refresh = useRefresh(reload);
+
+  // Dev-only scale fixture, added at render time (never cached).
+  const allLeagues = useMemo<PlayLeagueRow[]>(() => {
+    const real = query.data?.leagues ?? [];
+    return fixtureOn ? [...real, ...fixtureLeagues()] : real;
+  }, [query.data?.leagues, fixtureOn]);
+  const loadFailed = query.error != null && query.data === undefined;
+
+  // Per-account create limit; a failed count keeps the last known one.
+  const adminCountRef = useRef(0);
+  if (query.data?.activeAdminLeagueCount != null) adminCountRef.current = query.data.activeAdminLeagueCount;
+  const godmode = query.data?.godmode ?? false;
+  const atLeagueLimit = !godmode && adminCountRef.current >= 1;
+
+  useEffect(() => { onCount?.(allLeagues.length); }, [allLeagues.length, onCount]);
+
+  // ── Filters ───────────────────────────────────────────────────────────────
+  const filters = usePlayFilterState({
+    list: 'leagues',
+    storageKey: uid ? `play:leagues:${uid}` : null,
+    defaults: LEAGUE_PERSIST_DEFAULTS,
+    routeMineToken,
+  });
+  const [searchText, setSearchText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const searching = normalizeQuery(searchQuery) !== '';
+  // What the chip row and the Filters count show: a saved radius without a
+  // device location filters nothing, so it isn't shown as on. The sheet
+  // itself still gets the raw values, so the saved radius survives an Apply.
+  const sheetShown = useMemo(() => sheetInEffect(filters.sheet, coords), [filters.sheet, coords]);
+
+  const split = useMemo(() => splitLeagues(allLeagues, {
+    query: searchQuery,
+    chips: filters.chips,
+    sheet: filters.sheet,
+    sort: filters.sort,
+    coords,
+    courtLabel: (raw) => courtName(raw),
+  }), [allLeagues, searchQuery, filters.chips, filters.sheet, filters.sort, coords, courtName]);
+
+  const [mineExpanded, setMineExpanded] = useState(false);
+  const [pages, setPages] = useState(1);
+  // A new search / filter / sort starts Discover from page 1.
+  const filterSignature = `${searchQuery}|${filters.chips.join(',')}|${JSON.stringify(filters.sheet)}|${filters.sort}|${!!coords}`;
+  useEffect(() => { setPages(1); }, [filterSignature]);
+
+  const shownDiscover = pagedCount(split.discover.length, pages);
+  const discoverPage = split.discover.slice(0, shownDiscover);
+  const radius = distanceMiles(filters.sheet.distance);
+
+  // ── Overlays (only one RN Modal at a time) ────────────────────────────────
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const [showJoinCode, setShowJoinCode] = useState(false);
-  const [inviteCode, setInviteCode]     = useState('');
-  const [joining, setJoining]           = useState(false);
-  const [joinError, setJoinError]       = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
 
   // Create modal state
-  const [showCreate, setShowCreate]   = useState(false);
   const [name, setName]               = useState('');
   const [description, setDescription] = useState('');
   const [isOpen, setIsOpen]           = useState(true);
@@ -147,185 +403,52 @@ export default function LeaguesScreen({ navigation, route }: Props) {
   const [createError, setCreateError] = useState('');
   const [creating, setCreating]       = useState(false);
 
-  // Per-account create limit
-  const [godmode, setGodmode]                       = useState(false);
-  const [activeAdminLeagueCount, setActiveAdminLeagueCount] = useState(0);
-  const [showLimitModal, setShowLimitModal] = useState(false);
-  const atLeagueLimit = !godmode && activeAdminLeagueCount >= 1;
-
   const status = useStatusMessage();
-  const refresh = useRefresh(loadLeagues);
 
-  useEffect(() => { loadLeagues(); }, []);
+  // Join / request-a-code / redeem-a-code (shared with Home and LeagueJoinCard).
+  // onJoined is awaited while the row stays busy, so it moves from DISCOVER
+  // into MINE without flashing back to [Join].
+  const leagueJoin = useLeagueJoin({
+    status,
+    onJoined: () => reload(),
+    onRequested: () => reload(),
+  });
+
+  const openCreate = useCallback(() => {
+    if (atLeagueLimit) setShowLimitModal(true);
+    else setShowCreate(true);
+  }, [atLeagueLimit]);
+
+  // Header "+": New league / Enter code. Only the live list owns the header.
+  usePlayHeaderPlus(navigation, tour.live, 'New league or enter a code', () => setPlusOpen(true));
 
   // Notification tap (or deep-link) can pre-populate an invite code and pop the
   // Join modal automatically. Consume the param so navigating back here later
-  // doesn't keep re-opening the modal.
+  // doesn't keep re-opening the modal. (Play passes its own param through.)
   useEffect(() => {
     const code = route.params?.prefillInviteCode;
     if (!code) return;
     setInviteCode(code);
-    setShowJoinCode(true);
+    const anyOpen = sheetOpen || plusOpen || sortOpen;
+    setSheetOpen(false); setPlusOpen(false); setSortOpen(false);
+    if (anyOpen) afterModalClose(() => setShowJoinCode(true));
+    else setShowJoinCode(true);
     navigation.setParams({ prefillInviteCode: undefined } as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route.params?.prefillInviteCode]);
 
-  async function loadLeagues() {
-    try {
-      await loadLeaguesInner();
-      setLoadError(null);
-    } catch (e) {
-      // Keep the list that's already rendered — a refresh that dies in a dead
-      // zone must not empty the leagues the user was browsing.
-      setLoadError(e);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // The tour-start prep (subscribed at the top, see onTourStartRef).
+  onTourStartRef.current = () => {
+    setSheetOpen(false); setPlusOpen(false); setSortOpen(false);
+    filters.clearChipsQuietly();
+  };
 
-  async function loadLeaguesInner() {
-    // Identity is a LOCAL session read now, and godmode a local id check, so
-    // neither costs a round trip. The admin-league count no longer waits on the
-    // league list either — it only ever needed the user id.
-    const uid = await currentUserId(supabase);
-    setGodmode(isGodmodeUserId(uid));
-
-    const [leagueRows, adminLeagueCount] = await Promise.all([
-      sbCall(() => supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false })),
-      // Non-fatal on its own: countActiveAdminLeagues throws by design, but a
-      // failed create-limit count must not blank the whole league list. Keep
-      // the last known count instead.
-      uid ? countActiveAdminLeagues(uid).catch(() => null) : Promise.resolve(0),
-    ]);
-    if (adminLeagueCount != null) setActiveAdminLeagueCount(adminLeagueCount);
-
-    const ids = (leagueRows ?? []).map((l) => l.id);
-    if (ids.length === 0) { setAllLeagues([]); return; }
-
-    // All parallel fetches
-    const [memberRes, matchRes, myMemberRes, myRequestRes, seasonRes, tournamentRes, adminRes, eventRes] = await Promise.all([
-      sbCall(() => supabase.from('league_members').select('league_id').in('league_id', ids)),
-      sbCall(() => supabase.from('matches').select('league_id, played_at').in('league_id', ids)),
-      uid
-        ? sbCall(() => supabase.from('league_members').select('league_id, role').eq('user_id', uid).in('league_id', ids))
-        : Promise.resolve([]),
-      uid
-        ? sbCall(() => supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids))
-        : Promise.resolve([]),
-      sbCall(() => supabase.from('league_seasons')
-        .select('league_id, status, baseline_plupr, start_date, end_date')
-        .in('league_id', ids)
-        .in('status', ['active', 'upcoming'])),
-      sbCall(() => supabase.from('tournaments')
-        .select('league_id, status, start_time')
-        .in('league_id', ids)
-        .in('status', ['registration', 'active'])),
-      // League admins (creator is backfilled as admin) — for the clickable admin link.
-      sbCall(() => supabase.from('league_members')
-        .select('league_id, user_id, profile:profiles(id, full_name)')
-        .eq('role', 'admin')
-        .in('league_id', ids)),
-      // Open votes + scheduled events (we resolve scheduled slots' times below).
-      sbCall(() => supabase.from('league_events')
-        .select('id, league_id, status, vote_ends_at, confirmed_slot_id')
-        .in('league_id', ids)
-        .in('status', ['voting', 'scheduled'])),
-    ]);
-
-    const memberRows     = (memberRes ?? []) as any[];
-    const matchRows      = (matchRes ?? []) as any[];
-    const myMembers      = (myMemberRes ?? []) as any[];
-    const myRequests     = (myRequestRes ?? []) as any[];
-    const seasonRows     = (seasonRes ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null }[];
-    const tournamentRows = (tournamentRes ?? []) as { league_id: string; status: string; start_time: string | null }[];
-    const adminRows      = (adminRes ?? []) as any[];
-    const eventRows      = (eventRes ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
-
-    // One admin per league (first admin row). supabase may type the joined
-    // profile as an array; handle either shape.
-    const adminByLeague = new Map<string, { id: string; name: string }>();
-    for (const a of adminRows) {
-      const prof = Array.isArray(a.profile) ? a.profile[0] : a.profile;
-      if (!adminByLeague.has(a.league_id) && prof) {
-        adminByLeague.set(a.league_id, { id: prof.id, name: prof.full_name });
-      }
-    }
-
-    // Resolve the start times of scheduled events' confirmed slots.
-    const slotIds = eventRows.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
-    const slotStartsById = new Map<string, string>();
-    if (slotIds.length > 0) {
-      const slotRows = await sbCall(() => supabase.from('event_slots').select('id, starts_at').in('id', slotIds));
-      (slotRows ?? []).forEach((s: any) => slotStartsById.set(s.id, s.starts_at));
-    }
-    const nowMs = Date.now();
-
-    const leagues: LeagueWithStats[] = (leagueRows ?? []).map((l) => {
-      const members    = memberRows.filter((m) => m.league_id === l.id);
-      const lMatches   = matchRows.filter((m) => m.league_id === l.id);
-      const myMembership = myMembers.find((m: any) => m.league_id === l.id);
-      const hasRequested = myRequests.some((r: any) => r.league_id === l.id);
-      const distinctDays = new Set(lMatches.map((m) => (m.played_at as string).slice(0, 10))).size;
-
-      const leagueSeasons = seasonRows.filter(s => s.league_id === l.id);
-      const myActiveSeasonsOnly = leagueSeasons.filter(s => s.status === 'active');
-      // Use the most-recently-started active season's baseline for display.
-      const currentSeason = myActiveSeasonsOnly
-        .slice()
-        .sort((a, b) => (b.start_date ?? '').localeCompare(a.start_date ?? ''))[0];
-
-      // Featured season for the chip: prefer active (latest start), else
-      // upcoming (earliest start). Falls back to null → "TBD" in render.
-      const upcoming = leagueSeasons
-        .filter(s => s.status === 'upcoming')
-        .slice()
-        .sort((a, b) => (a.start_date ?? '').localeCompare(b.start_date ?? ''))[0];
-      const featuredSeason = currentSeason ?? upcoming ?? null;
-      const featuredStatus: 'active' | 'upcoming' | null = featuredSeason
-        ? (featuredSeason.status === 'active' ? 'active' : 'upcoming')
-        : null;
-      const lTournaments = tournamentRows.filter(t => t.league_id === l.id);
-      const activeTournamentCount = lTournaments.length;
-      // Open for registration → purple. Closed-reg but scheduled for a future
-      // start (status 'active', start_time ahead) → blue.
-      const openRegistrationTournamentCount = lTournaments.filter(t => t.status === 'registration').length;
-      const scheduledTournamentCount = lTournaments.filter(t =>
-        t.status === 'active' && t.start_time != null && new Date(t.start_time).getTime() > nowMs).length;
-
-      const lEvents = eventRows.filter(e => e.league_id === l.id);
-      const openVoteCount = lEvents.filter(e =>
-        e.status === 'voting' && new Date(e.vote_ends_at).getTime() > nowMs).length;
-      const upcomingEventCount = lEvents.filter(e =>
-        e.status === 'scheduled'
-        && e.confirmed_slot_id
-        && slotStartsById.has(e.confirmed_slot_id)
-        && new Date(slotStartsById.get(e.confirmed_slot_id)!).getTime() > nowMs).length;
-      const admin = adminByLeague.get(l.id) ?? null;
-
-      return {
-        ...l,
-        is_open: l.is_open ?? true,
-        memberCount: members.length,
-        matchCount: lMatches.length,
-        distinctPlayDays: distinctDays,
-        myRole: myMembership?.role ?? null,
-        hasRequested,
-        activeSeasonCount: myActiveSeasonsOnly.length,
-        activeTournamentCount,
-        openRegistrationTournamentCount,
-        scheduledTournamentCount,
-        upcomingEventCount,
-        openVoteCount,
-        adminId:   admin?.id ?? null,
-        adminName: admin?.name ?? null,
-        currentBaselinePlupr: currentSeason?.baseline_plupr != null ? Number(currentSeason.baseline_plupr) : null,
-        featuredSeasonStatus: featuredStatus,
-        featuredSeasonStart: featuredSeason?.start_date ?? null,
-        featuredSeasonEnd:   featuredSeason?.end_date ?? null,
-      };
-    });
-
-    setAllLeagues(leagues);
-  }
+  const clearAll = useCallback(() => {
+    filters.clearFilters();
+    setSearchText('');
+    setSearchQuery('');
+    tour.searchRef.current?.clear();
+  }, [filters.clearFilters, tour.searchRef]);
 
   async function createLeague() {
     setCreateError('');
@@ -338,12 +461,12 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     try {
       // `user!.id` used to throw a raw TypeError here when the getUser() round
       // trip came back empty, stranding the "Creating…" flag.
-      const uid = await currentUserId(supabase);
-      if (!uid) { setCreateError('Please sign in again.'); return; }
+      const me = await currentUserId(supabase);
+      if (!me) { setCreateError('Please sign in again.'); return; }
       const newLeague = await sbCall(() => supabase.from('leagues').insert({
         name: name.trim(),
         description: description.trim() || null,
-        created_by: uid,
+        created_by: me,
         is_open: isOpen,
         home_court:     homeCourt?.name ?? null,
         home_court_lat: homeCourt?.lat ?? null,
@@ -353,13 +476,13 @@ export default function LeaguesScreen({ navigation, route }: Props) {
       // Auto-add creator as admin member
       await sbCall(() => supabase.from('league_members').insert({
         league_id: newLeague.id,
-        user_id: uid,
+        user_id: me,
         role: 'admin',
       }));
 
       setShowCreate(false);
       setName(''); setDescription(''); setIsOpen(true); setHomeCourt(null); setCreateError('');
-      loadLeagues();
+      void reload();
     } catch (e) {
       setCreateError(friendlySbMessage(e, 'Failed to create league.'));
     } finally {
@@ -367,437 +490,324 @@ export default function LeaguesScreen({ navigation, route }: Props) {
     }
   }
 
-  async function joinLeague(leagueId: string) {
-    status.clear();
-    try {
-      const uid = await currentUserId(supabase);
-      if (!uid) { status.error('Please sign in again.'); return; }
-      await sbCall(() => supabase.from('league_members').upsert({ league_id: leagueId, user_id: uid, role: 'member' }));
-      loadLeagues();
-    } catch (e) {
-      status.error(friendlySbMessage(e, "Couldn't join the league."));
-    }
-  }
-
-  async function requestCode(leagueId: string, leagueName: string) {
-    status.clear();
-    try {
-      const uid = await currentUserId(supabase);
-      if (!uid) { status.error('Please sign in again.'); return; }
-      await sbCall(() => supabase
-        .from('league_join_requests')
-        .upsert({ league_id: leagueId, user_id: uid, status: 'pending' }));
-      loadLeagues(); // refreshes hasRequested flag
-      status.success(`Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`);
-    } catch (e) {
-      status.error(friendlySbMessage(e, "Couldn't send the request."));
-    }
-  }
-
   async function joinWithCode() {
-    setJoinError('');
-    const token = inviteCode.replace(/-/g, '').toUpperCase().trim();
-    if (token.length < 8) { setJoinError('Enter a valid invite code.'); return; }
-
-    setJoining(true);
-    const { data, error } = await supabase.rpc('redeem_invite_code', { p_token: token });
-    setJoining(false);
-    if (error) { setJoinError(error.message ?? 'Failed to redeem.'); return; }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { setJoinError(row?.message ?? 'Invalid invite code.'); return; }
-
+    const redeemed = await leagueJoin.redeemCode(inviteCode);
+    if (!redeemed) return;
     setShowJoinCode(false);
     setInviteCode('');
-    loadLeagues();
-    const heading = row.scope_type === 'tournament' ? 'Joined tournament!' : 'Joined!';
-    status.success(`${heading} ${row.message ?? `You've joined "${row.scope_name}".`}`);
   }
 
-  const filtered = useMemo(() => applyFilters(allLeagues, filters), [allLeagues, filters]);
-  const numActiveFilters = activeFilterCount(filters);
+  // Cancel, Android back and the iOS swipe-down all close the same way, so a
+  // reopened modal never shows the last attempt's code and red error.
+  const closeJoinCode = () => {
+    setShowJoinCode(false);
+    setInviteCode('');
+    leagueJoin.setError('');
+  };
 
-  // First joinable open-league card hosts the 'join' tour anchor.
+  // ── Rows ──────────────────────────────────────────────────────────────────
+  // The first joinable open league in DISCOVER hosts the 'leagues/join' anchor.
   const firstJoinableId = useMemo(
-    () => filtered.find((l) => !l.myRole && l.is_open)?.id ?? null,
-    [filtered],
+    () => discoverPage.find((l) =>
+      l.myRole == null && l.is_open !== false && !leagueJoin.joinedIds.has(l.id) && !isFixtureId(l.id))?.id ?? null,
+    [discoverPage, leagueJoin.joinedIds],
   );
 
-  function setFilter<K extends keyof Filters>(key: K, val: Filters[K]) {
-    setFilters((prev) => ({ ...prev, [key]: val }));
-  }
+  const mineRows = searching || mineExpanded ? split.mine : split.mine.slice(0, MINE_PREVIEW);
 
-  // Color the season chip by its status: green for active (running now),
-  // purple for upcoming (planned for a future start), gray for TBD (no
-  // season scheduled).
-  function seasonChipStyle(status: 'active' | 'upcoming' | null) {
-    if (status === 'active')   return { backgroundColor: c.primaryLight, borderColor: c.primary };
-    if (status === 'upcoming') return { backgroundColor: TONE_COLORS.purple.bg, borderColor: TONE_COLORS.purple.border };
-    return { backgroundColor: c.surfaceAlt, borderColor: c.border };
-  }
-  function seasonChipLabelStyle(status: 'active' | 'upcoming' | null) {
-    if (status === 'active')   return { color: c.primary };
-    if (status === 'upcoming') return { color: TONE_COLORS.purple.label };
-    return { color: c.textMuted };
-  }
-  function seasonChipValueStyle(status: 'active' | 'upcoming' | null) {
-    if (status === 'active')   return { color: c.text };
-    if (status === 'upcoming') return { color: TONE_COLORS.purple.value };
-    return { color: c.textSub };
-  }
+  const items = useMemo<Item[]>(() => {
+    const out: Item[] = [];
+    if (split.mine.length > 0) {
+      out.push({ kind: 'mineHeader' });
+      mineRows.forEach((l, i) => out.push({ kind: 'row', section: 'mine', league: l, last: i === mineRows.length - 1 }));
+    }
+    if (!split.hideDiscover) {
+      if (discoverPage.length > 0) {
+        out.push({ kind: 'discoverHeader' });
+        discoverPage.forEach((l, i) => out.push({ kind: 'row', section: 'discover', league: l, last: i === discoverPage.length - 1 }));
+      } else if (split.filtersOn && split.mine.length > 0) {
+        // Discover is empty BECAUSE of a filter: say so, with the way out.
+        out.push({ kind: 'discoverHeader' }, { kind: 'discoverEmpty' });
+      }
+    }
+    return out;
+  }, [split, mineRows, discoverPage]);
 
-  // Purple/blue chip style helpers shared by the tournament/event/vote chips.
-  function toneChip(tone: 'purple' | 'blue') {
-    return { backgroundColor: TONE_COLORS[tone].bg, borderColor: TONE_COLORS[tone].border };
-  }
-  function toneChipLabel(tone: 'purple' | 'blue') { return { color: TONE_COLORS[tone].label }; }
-  function toneChipValue(tone: 'purple' | 'blue') { return { color: TONE_COLORS[tone].value }; }
+  const openLeague = (l: PlayLeagueRow) => {
+    if (isFixtureId(l.id)) { status.error('Dev fixture row: it is not in the database.'); return; }
+    navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name });
+  };
 
-  function renderLeagueCard({ item }: { item: LeagueWithStats }) {
+  function renderRow(l: PlayLeagueRow, section: 'mine' | 'discover') {
+    const isMember = l.myRole != null;
+    let action: React.ReactNode;
+    if (section === 'discover' && !isMember) {
+      action = isFixtureId(l.id) ? (
+        <Button
+          size="sm"
+          variant={l.is_open === false ? 'outline' : 'primary'}
+          title={l.is_open === false ? 'Request code' : 'Join'}
+          onPress={() => status.error('Dev fixture row: joining is disabled.')}
+        />
+      ) : (
+        <LeagueJoinButton
+          league={l}
+          leagueJoin={leagueJoin}
+          requested={l.hasRequested}
+          requestLabel="Request code"
+          anchorRef={l.id === firstJoinableId ? tour.joinRef : undefined}
+          onAnchorLayout={l.id === firstJoinableId ? tour.registerJoin : undefined}
+        />
+      );
+    }
     return (
-      <TouchableOpacity
-        style={S.card}
-        onPress={() => navigation.navigate('LeagueDetail', { leagueId: item.id, leagueName: item.name })}
-        activeOpacity={0.75}
-      >
-        {/* Title row */}
-        <View style={S.cardTitleRow}>
-          <Text style={S.leagueName} numberOfLines={1}>{item.name}</Text>
-          <View style={[S.openBadge, !item.is_open && S.privateBadge]}>
-            <Text style={[S.openBadgeText, !item.is_open && S.privateBadgeText]}>
-              {item.is_open ? 'Open' : 'Private'}
-            </Text>
-          </View>
-        </View>
-
-        {item.description ? (
-          <Text style={S.description} numberOfLines={2}>{item.description}</Text>
-        ) : null}
-
-        {/* Home court */}
-        {item.home_court ? (
-          <View style={S.homeCourtRow}>
-            <Text style={S.homeCourtPin}>📍</Text>
-            <Text style={S.homeCourtText} numberOfLines={1}>{displayCourtName(item.home_court)}</Text>
-            {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null) && (
-              <View style={S.regionChip}>
-                <Text style={S.regionChipText}>
-                  {getRegionName(item.home_court_lat ?? null, item.home_court_lng ?? null)}
-                </Text>
-              </View>
-            )}
-          </View>
-        ) : (
-          <Text style={S.noCourtText}>📍 No home court set</Text>
-        )}
-
-        {/* Admin — tappable link to their profile */}
-        {item.adminId && item.adminName && (
-          <TouchableOpacity
-            style={S.adminRow}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              navigation.navigate('PlayerProfile', { userId: item.adminId!, userName: item.adminName! });
-            }}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            activeOpacity={0.6}
-            accessibilityRole="button"
-            accessibilityLabel={`View admin ${item.adminName} profile`}
-          >
-            <Text style={S.adminLabel}>👑 Admin</Text>
-            <Text style={S.adminName} numberOfLines={1}>{item.adminName}</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Stats row */}
-        <View style={S.statsRow}>
-          <View style={S.statItem}>
-            <Text style={S.statValue}>{item.memberCount}</Text>
-            <Text style={S.statLabel}>Players</Text>
-          </View>
-          <View style={S.statDivider} />
-          <View style={S.statItem}>
-            <Text style={S.statValue}>{item.matchCount}</Text>
-            <Text style={S.statLabel}>Matches</Text>
-          </View>
-          <View style={S.statDivider} />
-          <View style={S.statItem}>
-            <Text style={S.statValue}>{item.distinctPlayDays}</Text>
-            <Text style={S.statLabel}>Play Days</Text>
-          </View>
-        </View>
-
-        {/* Activity row: baseline PLUPR + featured season window + active tournaments */}
-        <View style={S.activityRow}>
-          {item.currentBaselinePlupr != null && (
-            <View style={S.activityChip}>
-              <Text style={S.activityChipLabel}>Baseline PLUPR</Text>
-              <Text style={S.activityChipValue}>{item.currentBaselinePlupr.toFixed(2)}</Text>
-            </View>
-          )}
-          <View style={[S.activityChip, seasonChipStyle(item.featuredSeasonStatus)]}>
-            <Text style={[S.activityChipLabel, seasonChipLabelStyle(item.featuredSeasonStatus)]}>
-              {item.featuredSeasonStatus === 'upcoming' ? 'Upcoming season' : 'Season'}
-            </Text>
-            <Text style={[S.activityChipValue, seasonChipValueStyle(item.featuredSeasonStatus)]}>
-              {formatSeasonRange(item.featuredSeasonStart, item.featuredSeasonEnd)}
-            </Text>
-          </View>
-          {/* Open for registration → purple (joinable now). */}
-          {item.openRegistrationTournamentCount > 0 && (
-            <View style={[S.activityChip, toneChip('purple')]}>
-              <Text style={[S.activityChipLabel, toneChipLabel('purple')]}>Tournaments Open</Text>
-              <Text style={[S.activityChipValue, toneChipValue('purple')]}>{item.openRegistrationTournamentCount}</Text>
-            </View>
-          )}
-          {/* Registration closed, scheduled for a future start → blue. */}
-          {item.scheduledTournamentCount > 0 && (
-            <View style={[S.activityChip, toneChip('blue')]}>
-              <Text style={[S.activityChipLabel, toneChipLabel('blue')]}>Upcoming Tournaments</Text>
-              <Text style={[S.activityChipValue, toneChipValue('blue')]}>{item.scheduledTournamentCount}</Text>
-            </View>
-          )}
-          {/* Scheduled events (voting closed, future start) → blue. */}
-          {item.upcomingEventCount > 0 && (
-            <View style={[S.activityChip, toneChip('blue')]}>
-              <Text style={[S.activityChipLabel, toneChipLabel('blue')]}>Upcoming Events</Text>
-              <Text style={[S.activityChipValue, toneChipValue('blue')]}>{item.upcomingEventCount}</Text>
-            </View>
-          )}
-          {/* Open votes → purple (votable now). */}
-          {item.openVoteCount > 0 && (
-            <View style={[S.activityChip, toneChip('purple')]}>
-              <Text style={[S.activityChipLabel, toneChipLabel('purple')]}>Open Votes</Text>
-              <Text style={[S.activityChipValue, toneChipValue('purple')]}>{item.openVoteCount}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Footer: created date + role/join status */}
-        <View style={S.cardFooter}>
-          <Text style={S.createdText}>Created {fmtDate(item.created_at)}</Text>
-        </View>
-
-        {/* Role / membership row */}
-        <View style={S.membershipRow}>
-          <Text style={[
-            S.roleStatusText,
-            item.myRole ? S.roleStatusJoined : S.roleStatusNot,
-          ]}>
-            {item.myRole
-              ? `Your Role: ${item.myRole.charAt(0).toUpperCase() + item.myRole.slice(1).replace('-', '-')}`
-              : 'Your Role: Not Joined Yet'}
-          </Text>
-
-          {/* Open league — show Join if not a member */}
-          {/* TODO: smoke-test in browser — enlarged primary Join CTA on open-league cards */}
-          {!item.myRole && item.is_open && (
-            <TouchableOpacity
-              ref={item.id === firstJoinableId ? joinAnchor : undefined}
-              onLayout={item.id === firstJoinableId ? () => registerAnchor('leagues', 'join', joinAnchor) : undefined}
-              style={S.joinBtn}
-              onPress={(e) => { e.stopPropagation?.(); joinLeague(item.id); }}
-            >
-              <Text style={S.joinText}>Join</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Private league — show Request Code if not a member */}
-          {!item.myRole && !item.is_open && (
-            item.hasRequested ? (
-              <View style={S.requestedBadge}>
-                <Text style={S.requestedText}>Requested</Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={S.requestBtn}
-                onPress={(e) => { e.stopPropagation?.(); requestCode(item.id, item.name); }}
-              >
-                <Text style={S.requestText}>Request Code</Text>
-              </TouchableOpacity>
-            )
-          )}
-        </View>
-      </TouchableOpacity>
+      <LeagueRow
+        league={l}
+        role={l.myRole}
+        // A pending request sits in MINE with its chip; in DISCOVER the
+        // button says "Requested" itself (no chip, so it isn't said twice).
+        requested={section === 'mine' && !isMember && l.hasRequested}
+        memberCount={l.memberCount}
+        facts={leagueFacts(l, Date.now())}
+        action={action}
+        onPress={() => openLeague(l)}
+      />
     );
   }
 
-  // A failed first load falls through to the list so pull-to-refresh and the
-  // Retry button stay reachable.
-  const loadFailed = loadError != null && allLeagues.length === 0;
-  if (loading && !loadFailed) {
-    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  }
+  const renderItem = ({ item }: ListRenderItemInfo<Item>) => {
+    switch (item.kind) {
+      case 'mineHeader': {
+        const capped = !searching && split.mine.length > MINE_PREVIEW;
+        return (
+          <SectionHeader
+            title="Mine"
+            count={split.mine.length}
+            style={S.firstHeader}
+            action={capped
+              ? mineExpanded
+                ? { label: 'Show less', onPress: () => setMineExpanded(false) }
+                : { label: `Show all (${split.mine.length})`, onPress: () => setMineExpanded(true), a11yLabel: `Show all ${split.mine.length} of your leagues` }
+              : undefined}
+          />
+        );
+      }
+      case 'discoverHeader':
+        return (
+          <SectionHeader
+            title="Discover"
+            count={countLabel(shownDiscover, split.discover.length)}
+            style={split.mine.length > 0 ? S.header : S.firstHeader}
+            action={sortVisible(split.discover.length)
+              ? {
+                  label: `${LEAGUE_SORT_LABELS[split.sort]} ▾`,
+                  onPress: () => setSortOpen(true),
+                  a11yLabel: `Sort: ${LEAGUE_SORT_LABELS[split.sort]}. Change sort`,
+                }
+              : undefined}
+          />
+        );
+      case 'discoverEmpty':
+        return (
+          <EmptyState
+            compact
+            icon="🔍"
+            title="No leagues match your filters."
+            actionLabel="Clear filters"
+            onAction={clearAll}
+          />
+        );
+      case 'row':
+        return renderRow(item.league, item.section);
+    }
+  };
+
+  // ── "+ New league · Enter code" footer, only while the list fits ──────────
+  const [viewportH, setViewportH] = useState(0);
+  const [bodyH, setBodyH] = useState(0);
+  const footerHRef = useRef(CREATE_FOOTER_H);
+  const footerShownRef = useRef(false);
+  const allPaged = shownDiscover >= split.discover.length;
+  const fitsOneScreen = viewportH > 0 && allPaged && bodyH + footerHRef.current <= viewportH;
+  footerShownRef.current = fitsOneScreen;
+
+  const onListLayout = (e: LayoutChangeEvent) => setViewportH(e.nativeEvent.layout.height);
+  // Content height WITHOUT the create footer, so showing it can't flip the
+  // decision back (no flicker).
+  const onContentSize = (_w: number, h: number) => setBodyH(h - (footerShownRef.current ? footerHRef.current : 0));
+
+  const distanceEnd = radius != null && coords != null && allPaged && !split.hideDiscover && !loadFailed && allLeagues.length > 0;
+  const wider = widerDistance(filters.sheet.distance);
+
+  const footer = (
+    <View>
+      {distanceEnd ? (
+        <EmptyState
+          compact
+          icon="📍"
+          title={`Nothing more within ${radius} mi.`}
+          actionLabel={wider ? `Widen to ${wider} mi` : undefined}
+          onAction={wider ? () => filters.setSheetValue('distance', wider) : undefined}
+        />
+      ) : null}
+      {fitsOneScreen ? (
+        <View
+          style={S.createFooter}
+          onLayout={(e) => { footerHRef.current = e.nativeEvent.layout.height + SPACE.sm; }}
+        >
+          <Pressable onPress={openCreate} accessibilityRole="button" style={S.footerLink}>
+            <Text style={[t.sub, S.footerLinkText]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>+ New league</Text>
+          </Pressable>
+          <Text style={[t.meta, { color: c.textMuted }]} accessibilityElementsHidden>·</Text>
+          <Pressable onPress={() => setShowJoinCode(true)} accessibilityRole="button" style={S.footerLink}>
+            <Text style={[t.sub, S.footerLinkText]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Enter code</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const emptyList = loadFailed ? (
+    // A failed fetch must never read as "no leagues yet".
+    <EmptyState
+      icon="📡"
+      title="Couldn't load leagues"
+      subtitle={friendlySbMessage(query.error)}
+      actionLabel="Retry"
+      onAction={() => { void reload(); }}
+    />
+  ) : allLeagues.length === 0 ? (
+    // The "+ New league · Enter code" footer below carries the actions.
+    <EmptyState icon="🎾" title="No leagues yet" subtitle="Create one to get started!" />
+  ) : (
+    <EmptyState
+      compact
+      icon="🔍"
+      title={searching ? `No leagues match "${searchQuery.trim()}".` : 'No leagues match your filters.'}
+      actionLabel="Clear filters"
+      onAction={clearAll}
+    />
+  );
+
+  // ── Sheet + sort + "+" ────────────────────────────────────────────────────
+  const sheetGroups = useMemo<FilterSheetGroup[]>(() => [
+    {
+      key: 'distance',
+      title: 'Distance',
+      kind: 'custom',
+      render: (ctx) => <DistanceFilterGroup ctx={ctx} coords={coords} onCoords={setCoords} noun="leagues" />,
+    },
+    {
+      key: 'private',
+      title: 'Private leagues',
+      kind: 'single',
+      hint: 'Private leagues join by invite code. Tap Request code on one to ask its admins.',
+      options: [{ value: 'show', label: 'Show' }, { value: 'hide', label: 'Hide' }],
+    },
+    {
+      key: 'min_players',
+      title: 'Min players',
+      kind: 'single',
+      options: [{ value: 'any', label: 'Any' }, ...MIN_PLAYER_OPTIONS.map((o) => ({ value: o, label: `${o}+` }))],
+    },
+  ], [coords, setCoords]);
+
+  const formatSheetLabel = useCallback((e: ActiveFilterEntry) => {
+    if (e.key === 'distance') return distanceLabel(e.value) ?? 'Distance';
+    if (e.key === 'private') return e.value === 'hide' ? 'Hiding private' : 'Private';
+    if (e.key === 'min_players') return e.value ? `${e.value}+ players` : 'Min players';
+    return null;
+  }, []);
+
+  const sortActions = useMemo<ActionSheetAction[]>(() =>
+    leagueSortOptions({ coords, center: split.center }).map((k) => ({
+      label: `${k === split.sort ? '✓ ' : ''}${LEAGUE_SORT_LABELS[k]}`,
+      onPress: () => filters.setSort(k),
+    })), [coords, split.center, split.sort, filters.setSort]);
+
+  const plusActions: ActionSheetAction[] = [
+    { label: atLeagueLimit ? 'New league (limit reached)' : 'New league', iconName: 'plus', onPress: () => afterModalClose(openCreate) },
+    { label: 'Enter code', iconName: 'key', onPress: () => afterModalClose(() => setShowJoinCode(true)) },
+  ];
+
+  const chipOptions = LEAGUE_CHIPS.map((k) => ({ value: k, label: LEAGUE_CHIP_LABELS[k], count: split.chipCounts[k] }));
 
   return (
     <View style={S.container}>
-      {/* Filter bar — spotlight-tour 'search' anchor */}
-      <View ref={searchAnchor} style={S.filterBar}>
-        <Text style={S.resultCount}>
-          {filtered.length} {filtered.length === 1 ? 'league' : 'leagues'}
-        </Text>
-        <TouchableOpacity
-          style={[S.filterBtn, numActiveFilters > 0 && S.filterBtnActive]}
-          onPress={() => setShowFilters((v) => !v)}
-        >
-          <Text style={[S.filterBtnText, numActiveFilters > 0 && S.filterBtnTextActive]}>
-            Filters{numActiveFilters > 0 ? ` (${numActiveFilters})` : ''}
-          </Text>
-        </TouchableOpacity>
-        {numActiveFilters > 0 && (
-          <TouchableOpacity onPress={() => setFilters(DEFAULT_FILTERS)} style={S.clearBtn}>
-            <Text style={S.clearBtnText}>Clear</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Collapsible filter panel */}
-      {showFilters && (
-        <View style={S.filterPanel}>
-          {/* Always show my leagues (on by default) — member leagues bypass the
-              other discovery filters so you never lose sight of them. */}
-          <View style={S.filterRow}>
-            <Text style={S.filterLabel}>Always show my leagues</Text>
-            <Switch
-              value={filters.alwaysShowMine}
-              onValueChange={(v) => setFilter('alwaysShowMine', v)}
-              trackColor={{ true: c.primary }}
-              thumbColor={c.surface}
-            />
-          </View>
-
-          {/* Only my leagues (off by default) — restricts the list to leagues
-              I'm a member of. */}
-          <View style={S.filterRow}>
-            <Text style={S.filterLabel}>Only my leagues</Text>
-            <Switch
-              value={filters.onlyMine}
-              onValueChange={(v) => setFilter('onlyMine', v)}
-              trackColor={{ true: c.primary }}
-              thumbColor={c.surface}
-            />
-          </View>
-
-          {/* Show private leagues (hidden by default) */}
-          <View style={S.filterRow}>
-            <Text style={S.filterLabel}>Show private leagues</Text>
-            <Switch
-              value={filters.showPrivate}
-              onValueChange={(v) => setFilter('showPrivate', v)}
-              trackColor={{ true: c.primary }}
-              thumbColor={c.surface}
-            />
-          </View>
-
-          {/* Created within */}
-          <Text style={S.filterLabel}>Created within</Text>
-          <View style={S.pillRow}>
-            {CREATED_WITHIN_OPTIONS.map((o) => (
-              <TouchableOpacity
-                key={String(o.value)}
-                style={[S.pill, filters.createdWithin === o.value && S.pillActive]}
-                onPress={() => setFilter('createdWithin', o.value)}
-              >
-                <Text style={[S.pillText, filters.createdWithin === o.value && S.pillTextActive]}>
-                  {o.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Min players */}
-          <Text style={S.filterLabel}>Minimum players</Text>
-          <View style={S.pillRow}>
-            {MIN_PLAYERS_OPTIONS.map((o) => (
-              <TouchableOpacity
-                key={o.value}
-                style={[S.pill, filters.minPlayers === o.value && S.pillActive]}
-                onPress={() => setFilter('minPlayers', o.value)}
-              >
-                <Text style={[S.pillText, filters.minPlayers === o.value && S.pillTextActive]}>
-                  {o.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Region */}
-          <Text style={S.filterLabel}>Region</Text>
-          <View style={S.pillRow}>
-            <TouchableOpacity
-              style={[S.pill, filters.region === null && S.pillActive]}
-              onPress={() => setFilter('region', null)}
-            >
-              <Text style={[S.pillText, filters.region === null && S.pillTextActive]}>All</Text>
-            </TouchableOpacity>
-            {REGIONS.map((r) => (
-              <TouchableOpacity
-                key={r.name}
-                style={[S.pill, filters.region === r.name && S.pillActive]}
-                onPress={() => setFilter('region', r.name)}
-              >
-                <Text style={[S.pillText, filters.region === r.name && S.pillTextActive]}>
-                  {r.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-
-      <FlatList
-        data={filtered}
-        keyExtractor={(item) => item.id}
-        renderItem={renderLeagueCard}
-        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-        refreshControl={<AppRefreshControl {...refresh} />}
-        ListHeaderComponent={
-          status.value ? <StatusBanner status={status.value} style={{ marginBottom: 8 }} /> : null
-        }
-        ListEmptyComponent={
-          loadFailed ? (
-            <EmptyState
-              icon="📡"
-              title="Couldn't load leagues"
-              subtitle={friendlySbMessage(loadError)}
-              actionLabel="Retry"
-              onAction={() => { setLoading(true); void loadLeagues(); }}
-            />
-          ) : allLeagues.length === 0 ? (
-            <EmptyState icon="🏆" title="No leagues yet" subtitle="Create one to get started!" />
-          ) : (
-            <EmptyState icon="🔍" title="No matches" subtitle="No leagues match your filters." />
-          )
-        }
+      <PlayListChrome
+        searchRef={tour.searchRef}
+        query={searchText}
+        onChangeQuery={setSearchText}
+        onDebouncedQuery={setSearchQuery}
+        placeholder="Search leagues, courts, admins"
+        showChips={quickChipsVisible(split.discoverBase, split.filtersOn)}
+        chipOptions={chipOptions}
+        chips={filters.chips}
+        onChangeChips={filters.setChips}
+        pinnedKeys={LEAGUE_PINNED_CHIPS}
+        sheetValues={sheetShown}
+        sheetDefaults={filters.sheetDefaults}
+        sheetGroups={sheetGroups}
+        formatSheetLabel={formatSheetLabel}
+        onRemoveSheetValue={filters.removeSheetValue}
+        sheetCount={countSheetFilters(sheetShown, filters.sheetDefaults)}
+        onOpenFilters={() => setSheetOpen(true)}
       />
 
-      <View style={S.fabRow}>
-        <TouchableOpacity style={S.fabSecondary} onPress={() => setShowJoinCode(true)}>
-          <Text style={S.fabSecondaryText}>Enter Code</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[S.fab, atLeagueLimit && S.fabDisabled]}
-          onPress={() => {
-            if (atLeagueLimit) {
-              setShowLimitModal(true);
-              return;
-            }
-            setShowCreate(true);
-          }}
-          activeOpacity={0.8}
-        >
-          <Text style={[S.fabText, atLeagueLimit && S.fabTextDisabled]}>
-            {atLeagueLimit ? '+ New League (limit reached)' : '+ New League'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      {query.loading && !loadFailed ? (
+        <View style={S.skeleton}><SkeletonList rows={6} variant="row" /></View>
+      ) : (
+        <FlatList
+          ref={tour.listRef}
+          data={items}
+          keyExtractor={itemKey}
+          renderItem={renderItem}
+          onScroll={tour.onScroll}
+          scrollEventThrottle={16}
+          onLayout={onListLayout}
+          onContentSizeChange={onContentSize}
+          onEndReached={() => { if (!allPaged) setPages((p) => p + 1); }}
+          onEndReachedThreshold={0.5}
+          initialNumToRender={14}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={S.listContent}
+          refreshControl={<AppRefreshControl {...refresh} />}
+          ListHeaderComponent={status.value ? <StatusBanner status={status.value} style={S.banner} /> : null}
+          ListEmptyComponent={emptyList}
+          ListFooterComponent={footer}
+        />
+      )}
+
+      <FilterSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title="Filter leagues"
+        groups={sheetGroups}
+        values={filters.sheet}
+        defaults={filters.sheetDefaults}
+        onApply={filters.applySheet}
+      />
+
+      <ActionSheetModal
+        visible={sortOpen}
+        title="Sort leagues"
+        actions={sortActions}
+        onClose={() => setSortOpen(false)}
+      />
+
+      <ActionSheetModal
+        visible={plusOpen}
+        actions={plusActions}
+        onClose={() => setPlusOpen(false)}
+      />
 
       {/* Join with Code modal */}
-      <Modal visible={showJoinCode} animationType="slide" presentationStyle="pageSheet">
+      <Modal visible={showJoinCode} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeJoinCode}>
         <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
-          <Text style={S.modalTitle}>Join with Invite Code</Text>
-          <Text style={S.modalHint}>
+          <Text style={[t.h1, S.modalTitle]}>Join with Invite Code</Text>
+          <Text style={[t.bodySub, S.modalHint]}>
             Enter the invite code shared with you for a league or tournament. Codes look like{' '}
-            <Text style={{ fontWeight: '700' }}>3F7A-B2C9-D1E4</Text>.
+            <Text style={S.bold}>3F7A-B2C9-D1E4</Text>.
           </Text>
           <TextInput
             style={[S.input, S.codeInput]}
@@ -808,30 +818,33 @@ export default function LeaguesScreen({ navigation, route }: Props) {
             autoCapitalize="characters"
             autoCorrect={false}
           />
-          {joinError ? (
+          {leagueJoin.error ? (
             <View style={S.errorBox}>
-              <Text style={S.errorText}>{joinError}</Text>
+              <Text style={[t.sub, S.errorText]}>{leagueJoin.error}</Text>
             </View>
           ) : null}
-          <TouchableOpacity
-            style={[S.button, joining && { backgroundColor: c.primaryLight }]}
-            onPress={joinWithCode}
-            disabled={joining}
+          <Button
+            title={leagueJoin.joining ? 'Joining...' : 'Redeem Code'}
+            onPress={() => { void joinWithCode(); }}
+            disabled={leagueJoin.joining}
+            style={S.submit}
+          />
+          <Pressable
+            onPress={closeJoinCode}
+            accessibilityRole="button"
+            style={S.cancel}
           >
-            <Text style={S.buttonText}>{joining ? 'Joining...' : 'Redeem Code'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { setShowJoinCode(false); setInviteCode(''); setJoinError(''); }}>
-            <Text style={S.cancelText}>Cancel</Text>
-          </TouchableOpacity>
+            <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
+          </Pressable>
         </ScrollView>
       </Modal>
 
       {/* Create modal */}
-      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet">
+      <Modal visible={showCreate} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowCreate(false)}>
         <ScrollView contentContainerStyle={S.modal} keyboardShouldPersistTaps="handled">
-          <Text style={S.modalTitle}>Create League</Text>
+          <Text style={[t.h1, S.modalTitle]}>Create League</Text>
 
-          <Text style={S.modalLabel}>League Name</Text>
+          <Text style={[t.sub, S.modalLabel]}>League Name</Text>
           <TextInput
             style={S.input}
             placeholder="e.g. Tuesday Night Rec"
@@ -840,9 +853,9 @@ export default function LeaguesScreen({ navigation, route }: Props) {
             onChangeText={setName}
           />
 
-          <Text style={S.modalLabel}>Description (optional)</Text>
+          <Text style={[t.sub, S.modalLabel]}>Description (optional)</Text>
           <TextInput
-            style={[S.input, { height: 72, textAlignVertical: 'top' }]}
+            style={[S.input, S.multiline]}
             placeholder="Skill level, location, notes..."
             placeholderTextColor={c.textMuted}
             value={description}
@@ -851,9 +864,9 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           />
 
           <View style={S.toggleRow}>
-            <View>
-              <Text style={S.modalLabel}>Open to join</Text>
-              <Text style={S.toggleHint}>
+            <View style={S.toggleText}>
+              <Text style={[t.sub, S.toggleLabel]}>Open to join</Text>
+              <Text style={t.hint}>
                 {isOpen ? 'Anyone can join this league.' : 'Players must be invited.'}
               </Text>
             </View>
@@ -866,7 +879,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           </View>
 
           {/* Home court */}
-          <Text style={S.modalLabel}>Home Court</Text>
+          <Text style={[t.sub, S.modalLabel]}>Home Court</Text>
           <CourtPicker
             value={homeCourt}
             onSelect={setHomeCourt}
@@ -876,7 +889,7 @@ export default function LeaguesScreen({ navigation, route }: Props) {
           />
           {!homeCourt && (
             <View style={S.courtWarning}>
-              <Text style={S.courtWarningText}>
+              <Text style={[t.sub, { color: c.text }]}>
                 Without a home court, every match entry will require a location to be entered manually.
               </Text>
             </View>
@@ -884,21 +897,20 @@ export default function LeaguesScreen({ navigation, route }: Props) {
 
           {createError ? (
             <View style={S.errorBox}>
-              <Text style={S.errorText}>{createError}</Text>
+              <Text style={[t.sub, S.errorText]}>{createError}</Text>
             </View>
           ) : null}
 
-          <TouchableOpacity
-            style={[S.button, creating && { backgroundColor: c.primaryLight }]}
-            onPress={createLeague}
+          <Button
+            title={creating ? 'Creating...' : 'Create League'}
+            onPress={() => { void createLeague(); }}
             disabled={creating}
-          >
-            <Text style={S.buttonText}>{creating ? 'Creating...' : 'Create League'}</Text>
-          </TouchableOpacity>
+            style={S.submit}
+          />
 
-          <TouchableOpacity onPress={() => { setShowCreate(false); setCreateError(''); }}>
-            <Text style={S.cancelText}>Cancel</Text>
-          </TouchableOpacity>
+          <Pressable onPress={() => { setShowCreate(false); setCreateError(''); }} accessibilityRole="button" style={S.cancel}>
+            <Text style={[t.sub, { color: c.textMuted }]}>Cancel</Text>
+          </Pressable>
         </ScrollView>
       </Modal>
 
@@ -918,95 +930,49 @@ export default function LeaguesScreen({ navigation, route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
+    skeleton: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm },
+    // No flexGrow: onContentSizeChange reports the content container's height,
+    // and a grown container is never shorter than the viewport, so the
+    // fits-one-screen check behind the create footer could never pass.
+    listContent: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, paddingBottom: SPACE.xl },
+    banner: { marginTop: SPACE.sm, marginBottom: SPACE.xs },
+    firstHeader: { marginTop: SPACE.xs },
+    header: { marginTop: SPACE.md },
 
-    // Filter bar
-    filterBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    resultCount: { flex: 1, fontSize: 13, color: c.textMuted },
-    filterBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
-    filterBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    filterBtnText: { fontSize: 13, fontWeight: '600', color: c.textSub },
-    filterBtnTextActive: { color: c.primary },
-    clearBtn: { paddingHorizontal: 10, paddingVertical: 7 },
-    clearBtnText: { fontSize: 13, color: c.danger, fontWeight: '600' },
+    createFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, marginTop: SPACE.sm, minHeight: 44 },
+    footerLink: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.sm, alignItems: 'center', justifyContent: 'center' },
+    footerLinkText: { color: c.primary, fontWeight: '700' },
 
-    // Filter panel
-    filterPanel: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.border, gap: 10 },
-    filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    filterLabel: { fontSize: 13, fontWeight: '700', color: c.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
-    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-    pill: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    pillTextActive: { color: c.primary, fontWeight: '700' },
-
-    // League card
-    card: { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-    cardTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-    leagueName: { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, marginRight: 8 },
-    openBadge: { backgroundColor: c.primaryLight, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-    privateBadge: { backgroundColor: c.bg },
-    openBadgeText: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
-    privateBadgeText: { color: c.textMuted },
-    description: { fontSize: 13, color: c.textSub, marginBottom: 12 },
-
-    // Stats
-    statsRow: { flexDirection: 'row', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, marginBottom: 10 },
-    statItem: { flex: 1, alignItems: 'center' },
-    statValue: { fontSize: 20, fontWeight: '800', color: c.text },
-    statLabel: { fontSize: 11, color: c.textMuted, marginTop: 1, textTransform: 'uppercase', letterSpacing: 0.4 },
-    statDivider: { width: 1, backgroundColor: c.border, marginVertical: 2 },
-    activityRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
-    activityChip:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.primary, alignItems: 'flex-start' },
-    activityChipLabel:  { fontSize: 10, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.4 },
-    activityChipValue:  { fontSize: 14, fontWeight: '800', color: c.text, marginTop: 1 },
-
-    // Card footer
-    cardFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    homeCourtRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10 },
-    homeCourtPin: { fontSize: 12 },
-    homeCourtText: { fontSize: 12, color: c.textSub, fontWeight: '500', flex: 1 },
-    regionChip: { backgroundColor: c.primaryLight, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-    regionChipText: { fontSize: 10, color: c.primary, fontWeight: '700' },
-    noCourtText: { fontSize: 12, color: c.textMuted, marginBottom: 10 },
-    createdText: { fontSize: 12, color: c.textMuted },
-    membershipRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border },
-    roleStatusText: { fontSize: 13, fontWeight: '600' },
-    roleStatusJoined: { color: c.primary },
-    roleStatusNot: { color: c.textMuted },
-    joinBtn: { backgroundColor: '#FFF3C4', borderWidth: 1.5, borderColor: '#E6B800', paddingHorizontal: 32, paddingVertical: 15, borderRadius: 26, elevation: 4, shadowColor: '#b8860b', shadowOpacity: 0.30, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
-    joinText: { color: '#7A5C00', fontWeight: '800', fontSize: 17, letterSpacing: 0.3 },
-    adminRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-    adminLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted },
-    adminName: { fontSize: 13, fontWeight: '700', color: c.primary, flexShrink: 1 },
-    requestBtn: { backgroundColor: '#fff8e1', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#ffe082' },
-    requestText: { color: '#b8860b', fontWeight: '700', fontSize: 13 },
-    requestedBadge: { backgroundColor: c.bg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-    requestedText: { color: c.textMuted, fontWeight: '600', fontSize: 13 },
-
-    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15, lineHeight: 22 },
-    fabRow: { position: 'absolute', bottom: 24, right: 16, flexDirection: 'row', gap: 10, alignItems: 'center' },
-    fab: { backgroundColor: c.primary, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
-    fabDisabled: { backgroundColor: c.border, elevation: 0 },
-    fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    fabTextDisabled: { color: c.textMuted },
-    fabSecondary: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 30, elevation: 3, borderWidth: 1.5, borderColor: c.primary },
-    fabSecondaryText: { color: c.primary, fontWeight: '700', fontSize: 14 },
-
-    // Create modal
-    modal: { padding: 24, paddingTop: 48, flexGrow: 1, backgroundColor: c.surface },
-    modalTitle: { fontSize: 26, fontWeight: '800', color: c.text, marginBottom: 24 },
-    modalLabel: { fontSize: 13, fontWeight: '600', color: c.textSub, marginBottom: 6, marginTop: 16 },
-    input: { borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 14, fontSize: 16, color: c.text, backgroundColor: c.surface },
-    toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, backgroundColor: c.surfaceAlt, padding: 14, borderRadius: 10 },
-    toggleHint: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
-    errorText: { color: c.danger, fontSize: 14, fontWeight: '600' },
-    button: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
-    buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-    cancelText: { textAlign: 'center', color: c.textMuted, marginTop: 16, fontSize: 15 },
-    modalHint: { fontSize: 14, color: c.textSub, marginBottom: 16, lineHeight: 20 },
-    codeInput: { fontSize: 22, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
-    courtWarning: { backgroundColor: '#fff8e1', borderRadius: 8, padding: 10, marginTop: 8, borderWidth: 1, borderColor: '#ffe082' },
-    courtWarningText: { fontSize: 13, color: '#b8860b', lineHeight: 18 },
+    // Join-with-code + create modals
+    modal: { padding: SPACE.xl, flexGrow: 1, backgroundColor: c.surface },
+    modalTitle: { marginBottom: SPACE.xl },
+    modalHint: { marginBottom: SPACE.lg },
+    bold: { fontWeight: '700' },
+    modalLabel: { fontWeight: '600', marginBottom: SPACE.xs, marginTop: SPACE.lg },
+    input: {
+      borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md,
+      // iOS Safari zooms the page when an input under 16px gets focus (our
+      // viewport sets no maximum-scale), and it stays zoomed after the modal
+      // closes, so web keeps a 16 floor. A browser rule, not a type preset.
+      // FOUNDATION-TODO: export a web input-font floor (INPUT_MIN_FONT_WEB = 16)
+      // and apply it in FilterSearchField, whose 15px input zooms the same way.
+      padding: SPACE.md, fontSize: Platform.OS === 'web' ? 16 : FONT.size.lg, color: c.text, backgroundColor: c.surface,
+    },
+    multiline: { minHeight: 72, textAlignVertical: 'top' },
+    codeInput: { fontSize: FONT.size.h2, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
+    toggleRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      marginTop: SPACE.lg, backgroundColor: c.surfaceAlt, padding: SPACE.md, borderRadius: RADIUS.md, minHeight: 56,
+    },
+    toggleText: { flex: 1, marginRight: SPACE.sm },
+    toggleLabel: { fontWeight: '600', color: c.textSub },
+    errorBox: { backgroundColor: c.dangerLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
+    errorText: { color: c.danger, fontWeight: '600' },
+    courtWarning: {
+      backgroundColor: c.warningLight, borderRadius: RADIUS.md, padding: SPACE.sm,
+      marginTop: SPACE.sm, borderWidth: 1, borderColor: c.warning,
+    },
+    submit: { marginTop: SPACE.lg },
+    cancel: { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: SPACE.sm },
   });
 }

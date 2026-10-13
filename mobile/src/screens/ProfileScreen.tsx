@@ -1,60 +1,63 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+// Your own profile (plan section 5, "Profile"): about 600px collapsed, down
+// from 3,500-4,700px. The one section order every detail screen uses:
+//   1. Identity    avatar 64 (opens the Edit sheet; tour 'profile/edit'), name,
+//                  @username, tagline, pickle pill (-> Shop), tag chips (+N)
+//   2. Quick row   [Edit profile] [Match history] [Calendar]
+//   3. Status      "Next unlock: Ninja avatar 3/5 >" (tour 'profile/rewards';
+//                  replaces the ~900px Unlockable Rewards card, whose rows all
+//                  live on UnlockProgress)
+//   4. Coming up   my leagues & live tournaments -> their detail screens
+//   5. Reference   collapsed: Availability · Paddle · Badges · Inventory ·
+//                  Doubles chemistry. Content mounts only when opened (the
+//                  672px availability grid included).
+// Every edit of who you are (avatar, name, username, tagline, gender, tags,
+// badge privacy) goes through EditProfileSheet's single Save. Both tour anchors
+// sit outside the collapsible sections, so collapsing never unmounts them.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, useWindowDimensions,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
+import { Panel, SectionHeader, CollapsibleSection, Chip } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
-import { Gender, Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
+import { Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
 import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
 import FlairName from '../components/FlairName';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
-import AvatarPickerModal, { PremiumAvatar } from '../components/AvatarPickerModal';
-import TagPickerModal from '../components/TagPickerModal';
+import { PremiumAvatar } from '../components/AvatarPickerModal';
+import EditProfileSheet, { EditProfileSaved, EditProfileValues } from '../components/EditProfileSheet';
 import AvailabilityGrid from '../components/AvailabilityGrid';
+import LeagueRow, { LeagueRowRole } from '../components/LeagueRow';
+import TournamentRow from '../components/TournamentRow';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
-import { AVATARS, PLAY_TAGS, TAG_SLOT_UNLOCKS, computeMaxTagSlots } from '../data/profileCustomization';
+import { AVATARS, PLAY_TAGS, computeMaxTagSlots } from '../data/profileCustomization';
 import { TOTAL_CELLS } from '../lib/availability';
+// Kept for the hidden PLUPR card (see the note in the render): restoring it is
+// re-adding the block, not re-plumbing these.
 import { computeReliability } from '../lib/reliability';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import {
-  computeAllPartnerChemistry, fmtDelta, chemistryColor,
+  computeAllPartnerChemistry, fmtDelta,
   ChemistryResult, DoublesMatch,
 } from '../lib/chemistry';
-import { AVATARS as AVATAR_LIST } from '../data/profileCustomization';
+import { computeBadgeProgress } from '../lib/unlockProgress';
+import { availabilitySummary, nextUnlockTeaser, NextUnlockResult } from '../lib/profileSummary';
+import { trackSectionToggle } from '../lib/analytics';
 import { BallIcon } from '../components/PickleIcons';
-import FtueChecklistCard from '../components/FtueChecklistCard';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-
-// Shared progress row used inside the Unlockable Rewards card
-function UnlockProgressRow({
-  prog,
-}: {
-  prog: { text: string; pct: number; showBar: boolean };
-}) {
-  const { colors: c } = useTheme();
-  if (!prog.showBar) {
-    return <Text style={{ fontSize: 11, color: c.textMuted, fontStyle: 'italic' }}>{prog.text}</Text>;
-  }
-  const filled = Math.max(prog.pct, 0.02);
-  const empty  = 1 - filled;
-  return (
-    <>
-      <View style={{ flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border }}>
-        <View style={[{ backgroundColor: c.primary }, { flex: filled }]} />
-        {empty > 0 && <View style={[{ backgroundColor: c.border }, { flex: empty }]} />}
-      </View>
-      <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{prog.text}</Text>
-    </>
-  );
-}
 
 // ── PLUPR history chart ───────────────────────────────────────────────
 // Reconstructs each PLUPR facet's trajectory by walking the user's match
@@ -120,20 +123,36 @@ function computeEloSeries(matches: EloMatchRow[], userId: string): Series {
   return { points };
 }
 
-const FACET_COLORS = {
-  overall:  '#4caf50', // green
-  singles:  '#1976d2', // blue
-  gendered: '#00897b', // teal
-  mixed:    '#8e24aa', // purple
-} as const;
+type Colors = ReturnType<typeof useTheme>['colors'];
 
+// Facet line colours from the theme (were hex): overall = brand green,
+// singles = info blue, gendered = success teal-green, mixed = rare purple.
+function facetColors(c: Colors) {
+  return { overall: c.primary, singles: c.info, gendered: c.success, mixed: c.rarityRare } as const;
+}
+
+// The chemistry badge's tone, from theme tokens. lib/chemistry's chemistryColor
+// returns fixed light-mode hex (and a 3-digit '#888' for neutral, which turned
+// into the invalid '#88822' once an alpha suffix was appended), so the badge
+// maps the same thresholds onto tokens instead. Strong and mild positive share
+// one tone; mild negative is a warning, strong negative a danger.
+function chemTone(c: Colors, delta: number) {
+  if (delta >= 0.03)  return { fg: c.success,   bg: c.successLight };
+  if (delta <= -0.08) return { fg: c.danger,    bg: c.dangerLight };
+  if (delta <= -0.03) return { fg: c.warning,   bg: c.warningLight };
+  return { fg: c.textMuted, bg: c.surfaceAlt };
+}
+
+// Not rendered today (the PLUPR card is hidden — see the render). Kept whole
+// so the card can be restored by re-adding the block.
 function EloHistoryChart({
   matches, userId, colors: c,
 }: {
   matches: EloMatchRow[];
   userId: string;
-  colors: ReturnType<typeof useTheme>['colors'];
+  colors: Colors;
 }) {
+  const FACET_COLORS = facetColors(c);
   const series = computeEloSeries(matches, userId);
   const n = series.points.length;
   if (n < 2) {
@@ -186,7 +205,7 @@ function EloHistoryChart({
       {/* Legend */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 4 }}>
         {[
-          { key: 'overall',  label: 'Overall',      color: FACET_COLORS.overall  },
+          { key: 'overall',  label: 'Overall',          color: FACET_COLORS.overall  },
           { key: 'singles',  label: 'Singles',          color: FACET_COLORS.singles  },
           { key: 'gendered', label: 'Gendered Doubles', color: FACET_COLORS.gendered },
           { key: 'mixed',    label: 'Mixed Doubles',    color: FACET_COLORS.mixed    },
@@ -241,49 +260,53 @@ function EloHistoryChart({
   );
 }
 
+// One owned Shop item: icon · name (+ gift line) · show/hide · Equip.
+// 56 tall; the eye toggle and the Equip button are real 44 boxes.
 function InvRow({
   icon, bgColor, name, gift, message, isHidden,
-  actionLabel, actionDisabled, onAction, onToggleHidden, styles,
+  actionLabel, equipped, onAction, onToggleHidden, styles,
 }: {
   icon: string; bgColor: string; name: string;
   gift: string | null; message: string | null;
   isHidden: boolean;
-  actionLabel?: string; actionDisabled?: boolean; onAction?: () => void;
+  /** Omit for items with nothing to equip (cosmetic badges). */
+  actionLabel?: string;
+  /** Already equipped: the action shows as a plain "Equipped" label. */
+  equipped?: boolean;
+  onAction?: () => void;
   onToggleHidden: () => void;
-  styles: any;
+  styles: ReturnType<typeof makeStyles>;
 }) {
   return (
     <View style={[styles.invRow, isHidden && styles.invRowHidden]}>
       <View style={[styles.invIconBox, { backgroundColor: bgColor }]}>
         <Text style={styles.invIconEmoji}>{icon}</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.invName, isHidden && styles.invNameDim]} numberOfLines={1}>{name}</Text>
+      <View style={styles.flexText}>
+        <Text style={[styles.rowTitle, isHidden && styles.textDim]} numberOfLines={1}>{name}</Text>
         {gift && (
-          <Text style={styles.invGiftLabel} numberOfLines={1}>
+          <Text style={styles.rowSub} numberOfLines={1}>
             🎁 Gift{message ? ` · "${message}"` : ''}
           </Text>
         )}
       </View>
       <TouchableOpacity
         onPress={onToggleHidden}
-        style={styles.invHideBtn}
+        style={styles.box44}
         accessibilityRole="button"
         accessibilityLabel={isHidden ? `Show ${name}` : `Hide ${name}`}
       >
         <Text style={styles.invHideText}>{isHidden ? '🙈' : '👁️'}</Text>
       </TouchableOpacity>
-      {actionLabel && (
-        <TouchableOpacity
-          style={[styles.invActionBtn, actionDisabled && styles.invActionBtnDim]}
-          onPress={onAction}
-          disabled={actionDisabled}
-        >
-          <Text style={[styles.invActionText, actionDisabled && styles.invActionTextDim]}>
-            {actionLabel}
-          </Text>
-        </TouchableOpacity>
-      )}
+      {actionLabel ? (
+        equipped ? (
+          <View style={styles.box44}>
+            <Text style={styles.equippedText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>✓ {actionLabel}</Text>
+          </View>
+        ) : (
+          <Button size="sm" title={actionLabel} onPress={onAction} />
+        )
+      ) : null}
     </View>
   );
 }
@@ -299,28 +322,45 @@ type PurchaseWithItem = {
   item: ShopItem;
 };
 
+/** "Coming up": my active leagues and my live tournament registrations. */
+type ComingLeague = {
+  id: string; name: string; home_court: string | null; is_open: boolean | null; role: LeagueRowRole;
+};
+type ComingTournament = {
+  id: string; name: string; location_name: string | null; status: string | null;
+  start_time: string | null; leagueName: string | null; myStatus: string; invited: boolean;
+};
+
+/** Rows shown before "Show N more" (content rule 4: nothing is cut silently). */
+const COMING_UP_CAP = 4;
+
+/** "Sat 9 AM" within the coming week, else "Nov 2". */
+function shortWhen(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const days = (d.getTime() - Date.now()) / 86_400_000;
+  if (days > -1 && days < 6) {
+    const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
+    return `${day} ${time}`;
+  }
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+/** Tag chips shown under the name before collapsing the rest into "+N". */
+const TAG_CHIPS_SHOWN = 2;
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Profile'> };
 
 export default function ProfileScreen({ navigation }: Props) {
   const { colors } = useTheme();
-  // container padding 24×2 + card padding 16×2 = 80; 3 gaps × 6 = 18.
-  // useWindowDimensions() recomputes on window resize so the layout stays
-  // aligned on web when the user resizes their browser. Native unaffected.
-  const { width: windowWidth } = useWindowDimensions();
-  const locPillW = Math.floor((windowWidth - 80 - 18) / 4);
-  const styles = useMemo(() => makeStyles(colors, locPillW), [colors, locPillW]);
-  const GREEN = colors.primary;
+  const t = textStyles(colors);
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const status = useStatusMessage();
   const [profile, setProfile]             = useState<Profile | null>(null);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
-  const [username, setUsername]           = useState('');
-  const [tagline, setTagline]             = useState('');
-  const [gender, setGender]               = useState<Gender | null>(null);
-  const [selectedTags, setSelectedTags]   = useState<string[]>([]);
-  const [avatarId, setAvatarId]           = useState(1);
-  const [photoUrl, setPhotoUrl]           = useState<string | null>(null);
-  const [badgesPublic, setBadgesPublic]   = useState(true);
   const [defaultPaddle, setDefaultPaddle] = useState<(PaddleSelection & { paddleId: string }) | null>(null);
   const [availability, setAvailability]   = useState<boolean[]>(Array(TOTAL_CELLS).fill(false));
   const [avSaveStatus, setAvSaveStatus]   = useState<'idle' | 'saving' | 'saved' | 'error' | 'needs-migration'>('idle');
@@ -330,27 +370,26 @@ export default function ProfileScreen({ navigation }: Props) {
   const paddleSaving = useRef(false);
   const [chemistryResults, setChemistryResults] = useState<ChemistryResult[]>([]);
   const [eloHistory, setEloHistory] = useState<EloMatchRow[]>([]);
-  const [premiumAvatars, setPremiumAvatars]   = useState<PremiumAvatar[]>([]);
-  const [cosmeticBadges, setCosmeticBadges]   = useState<ShopItem[]>([]);
-  const [equippedPremium, setEquippedPremium] = useState<PremiumAvatar | null>(null);
   const [shopPurchases, setShopPurchases]     = useState<PurchaseWithItem[]>([]);
   const [partnerNames, setPartnerNames] = useState<Record<string, { full_name: string; avatar_id: number; avatar_url: string | null }>>({});
-  // badgeProgress: keyed by badge name, value is { text, pct, showBar }
-  const [badgeProgress, setBadgeProgress] = useState<Record<string, { text: string; pct: number; showBar: boolean }>>({});
+  // undefined = not known yet (loading, or the read failed). The strip renders
+  // in every case so its tour anchor exists.
+  const [unlock, setUnlock] = useState<NextUnlockResult | undefined>(undefined);
+  const [comingLeagues, setComingLeagues] = useState<ComingLeague[]>([]);
+  const [comingTournaments, setComingTournaments] = useState<ComingTournament[]>([]);
+  const [showAllComing, setShowAllComing] = useState(false);
   const [showPaddlePicker, setShowPaddlePicker]   = useState(false);
-  const [showAvatarPicker, setShowAvatarPicker]   = useState(false);
-  const [showTagPicker, setShowTagPicker]         = useState(false);
+  const [editOpen, setEditOpen]                   = useState(false);
   const [gridScrollLocked, setGridScrollLocked]   = useState(false);
   const [loading, setLoading]             = useState(true);
-  const [saving, setSaving]               = useState(false);
   const [userId, setUserId]               = useState<string | null>(null);
 
-  // Spotlight-tour anchors for the 'profile' tour: the avatar edit control
-  // ('edit') and the Unlockable Rewards card ('rewards'). Registering an
-  // anchor the tour may never reach is harmless.
+  // Spotlight-tour anchors for the 'profile' tour: the avatar ('edit', which
+  // opens the Edit sheet) and the next-unlock strip ('rewards'). Both live
+  // outside every collapsible section, so collapsing one never unmounts them.
   // TODO: smoke-test in browser — from FTUE "Set up your profile", the profile
-  // tour should highlight the avatar edit control then the Unlockable Rewards
-  // card, once per user (clear AsyncStorage to re-trigger).
+  // tour should highlight the avatar, then the next-unlock strip, once per
+  // user (clear AsyncStorage to re-trigger).
   const { registerAnchor } = useTour();
   const editAnchor = useRef<any>(null);
   const rewardsAnchor = useRef<any>(null);
@@ -358,6 +397,23 @@ export default function ProfileScreen({ navigation }: Props) {
   const refresh = useRefresh(loadProfile);
 
   useEffect(() => { loadProfile(); }, []);
+  useEffect(() => () => { if (avSaveTimer.current) clearTimeout(avSaveTimer.current); }, []);
+
+  // What changes on screens reached from here re-reads on every return:
+  //   - Coming up (join a league, get approved into a tournament);
+  //   - the pickle pill, avatar and name styles (FTUE Claim buttons live on
+  //     UnlockProgress now, and the pill opens the Shop, whose Buy & Equip
+  //     spends pickles and equips an avatar);
+  //   - Inventory (a Shop purchase) and the next-unlock strip.
+  // The mount load covers the first focus. Refs: the callback is stable.
+  const uidRef = useRef<string | null>(null);
+  uidRef.current = userId;
+  const refocusRef = useRef<(uid: string) => void>(() => {});
+  const focusCount = useRef(0);
+  useFocusEffect(useCallback(() => {
+    focusCount.current += 1;
+    if (focusCount.current > 1 && uidRef.current) refocusRef.current(uidRef.current);
+  }, []));
 
   async function loadProfile() {
     // Local session read. getUser() is a round trip that resolves null offline,
@@ -387,19 +443,6 @@ export default function ProfileScreen({ navigation }: Props) {
     if (profileRes.data) {
       const d = profileRes.data;
       setProfile(d);
-      setUsername(d.username);
-      setBadgesPublic(d.badges_public ?? true);
-      setAvatarId(d.avatar_id ?? 1);
-      setPhotoUrl(d.avatar_url ?? null);
-      setTagline(d.tagline ?? '');
-      setGender(d.gender ?? null);
-      setSelectedTags(d.selected_tags ?? []);
-      // Equipped premium avatar (driven by avatar_emoji + avatar_bg_color)
-      if (d.avatar_emoji && d.avatar_bg_color) {
-        setEquippedPremium({ slug: 'equipped', name: 'Premium', emoji: d.avatar_emoji, bgColor: d.avatar_bg_color });
-      } else {
-        setEquippedPremium(null);
-      }
       const av = d.availability;
       setAvailability(Array.isArray(av) && av.length === TOTAL_CELLS ? av : Array(TOTAL_CELLS).fill(false));
     }
@@ -407,11 +450,12 @@ export default function ProfileScreen({ navigation }: Props) {
     setBadges((badgesRes.data ?? []) as BadgeItem[]);
     setLoading(false);
 
-    // Load chemistry + badge progress + PLUPR history + shop purchases (non-blocking)
+    // Non-blocking: chemistry, next unlock, PLUPR history, shop purchases, coming up.
     loadChemistry(user.id);
-    loadBadgeProgress(user.id, profileRes.data);
+    loadNextUnlock(user.id);
     loadEloHistory(user.id);
     loadShopPurchases(user.id);
+    loadComingUp(user.id);
   }
 
   async function loadShopPurchases(uid: string) {
@@ -421,22 +465,86 @@ export default function ProfileScreen({ navigation }: Props) {
       .eq('user_id', uid)
       .order('purchased_at', { ascending: false });
 
-    const purchases = ((data ?? []) as any[]).filter(r => r.item) as PurchaseWithItem[];
-    setShopPurchases(purchases);
-
-    const items = purchases.map(p => p.item);
-    setPremiumAvatars(
-      items
-        .filter(i => i.category === 'avatar')
-        .map(i => ({
-          slug: i.slug,
-          name: i.name,
-          emoji: i.payload?.emoji ?? i.icon,
-          bgColor: i.payload?.bgColor ?? '#eeeeee',
-        }))
-    );
-    setCosmeticBadges(items.filter(i => i.category === 'cosmetic_badge'));
+    setShopPurchases(((data ?? []) as any[]).filter(r => r.item) as PurchaseWithItem[]);
   }
+
+  // The status strip reads the same progress math as UnlockProgress and Home
+  // (lib/unlockProgress), so the three never disagree.
+  async function loadNextUnlock(uid: string) {
+    try {
+      setUnlock(nextUnlockTeaser(await computeBadgeProgress(uid)));
+    } catch {
+      // computeBadgeProgress throws rather than reporting zero progress; keep
+      // the strip's neutral "Unlockable rewards" instead of a wrong number.
+    }
+  }
+
+  async function loadComingUp(uid: string) {
+    try {
+      const [memberRows, regRows] = await Promise.all([
+        sbCall(() => supabase
+          .from('league_members')
+          .select('role, league:leagues(id, name, home_court, is_open, is_active)')
+          .eq('user_id', uid)),
+        sbCall(() => supabase
+          .from('tournament_registrations')
+          .select('status, invited_by, tournament:tournaments(id, name, location_name, start_time, status, league:leagues(name))')
+          .eq('user_id', uid)
+          .in('status', ['approved', 'pending', 'waitlisted'])),
+      ]);
+
+      const leagues: ComingLeague[] = [];
+      for (const r of (memberRows ?? []) as any[]) {
+        const l = r.league;
+        if (!l || l.is_active === false) continue;
+        leagues.push({ id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role: r.role ?? 'member' });
+      }
+      leagues.sort((a, b) => a.name.localeCompare(b.name));
+
+      const tournaments: ComingTournament[] = [];
+      for (const r of (regRows ?? []) as any[]) {
+        const tn = r.tournament;
+        // Only what's still ahead or running (completed / cancelled are history).
+        if (!tn || tn.status === 'completed' || tn.status === 'cancelled') continue;
+        tournaments.push({
+          id: tn.id, name: tn.name, location_name: tn.location_name ?? null, status: tn.status ?? null,
+          start_time: tn.start_time ?? null, leagueName: tn.league?.name ?? null,
+          myStatus: r.status, invited: r.status === 'pending' && r.invited_by != null,
+        });
+      }
+      tournaments.sort((a, b) => {
+        const am = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+        const bm = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
+        return am - bm;
+      });
+
+      setComingLeagues(leagues);
+      setComingTournaments(tournaments);
+    } catch {
+      // Best-effort section: on a failed read keep whatever is already shown
+      // (an empty section simply doesn't render).
+    }
+  }
+
+  // Only the profile columns other screens write (UnlockProgress claims, Shop
+  // purchases and equips), merged into the current row. Never touches
+  // `availability` or `loading`, so an open grid keeps its state and Back
+  // doesn't flash the skeleton.
+  async function loadVolatileProfile(uid: string) {
+    const { data } = await supabase
+      .from('profiles')
+      .select('pickles, avatar_emoji, avatar_bg_color, name_color, list_name_style_id, profile_name_style_id')
+      .eq('id', uid)
+      .maybeSingle();
+    if (data) setProfile(p => (p ? { ...p, ...(data as Partial<Profile>) } : p));
+  }
+
+  refocusRef.current = (uid: string) => {
+    void loadComingUp(uid);
+    void loadVolatileProfile(uid);
+    void loadShopPurchases(uid);
+    void loadNextUnlock(uid);
+  };
 
   async function equipAvatar(emoji: string | null, bgColor: string | null) {
     if (!userId) return;
@@ -445,7 +553,6 @@ export default function ProfileScreen({ navigation }: Props) {
       .update({ avatar_emoji: emoji, avatar_bg_color: bgColor })
       .eq('id', userId);
     if (error) { status.error(error.message); return; }
-    setEquippedPremium(emoji && bgColor ? { slug: 'equipped', name: 'Premium', emoji, bgColor } : null);
     setProfile(p => p ? { ...p, avatar_emoji: emoji, avatar_bg_color: bgColor } : p);
   }
 
@@ -502,82 +609,6 @@ export default function ProfileScreen({ navigation }: Props) {
     setEloHistory((data ?? []) as EloMatchRow[]);
   }
 
-  async function loadBadgeProgress(uid: string, prof: any) {
-    if (!prof) return;
-
-    // One query covers win streak, location variety, and match type counts
-    const { data: matches } = await supabase
-      .from('matches')
-      .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
-      .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
-      .order('played_at', { ascending: false })
-      .limit(200);
-
-    const mx = matches ?? [];
-
-    const didWin = (m: any) => {
-      const t1 = m.player1_id === uid || m.partner1_id === uid;
-      return (t1 && m.winner_team === 'team1') || (!t1 && m.winner_team === 'team2');
-    };
-
-    // Current win streak (matches are newest-first)
-    let streak = 0;
-    for (const m of mx) {
-      if (didWin(m)) streak++;
-      else break;
-    }
-
-    // Distinct courts played
-    const courts = new Set(mx.map((m: any) => m.location_name).filter(Boolean)).size;
-
-    // Doubles and singles counts
-    const doublesPlayed = mx.filter((m: any) => m.match_type === 'doubles').length;
-    const singlesPlayed = mx.filter((m: any) => m.match_type === 'singles').length;
-
-    // Account age in days
-    const memberDays = Math.floor(
-      (Date.now() - new Date(prof.created_at).getTime()) / 86_400_000,
-    );
-
-    const elo = prof.rating ?? 3.25;
-
-    const entry = (
-      current: number,
-      target: number,
-      label: (c: number, t: number) => string,
-    ) => ({
-      text:    label(current, target),
-      pct:     Math.min(current / target, 1),
-      showBar: true,
-    });
-
-    const league = () => ({
-      text:    'Progress tracked per-league',
-      pct:     0,
-      showBar: false,
-    });
-
-    setBadgeProgress({
-      'Hot Streak':        entry(streak,       5,    (c, t) => `${c} / ${t} wins in a row`),
-      // Show progress as a percentage rather than the raw PLUPR value — PLUPR is
-      // being kept contained within a league rather than surfaced on the profile.
-      'Top Rated':         entry(elo,          4.0,  (c, t) => `${Math.round(Math.min(c / t, 1) * 100)}% to top tier`),
-      'Veteran':           entry(memberDays,   30,   (c, t) => `${c} / ${t} days as member`),
-      'Court Hopper':      entry(courts,       5,    (c, t) => `${c} / ${t} courts played`),
-      'Doubles Dynamo':    entry(doublesPlayed, 20,  (c, t) => `${c} / ${t} doubles matches`),
-      'Singles Specialist':entry(singlesPlayed, 25,  (c, t) => `${c} / ${t} singles matches`),
-      'First Rally':       entry(Math.min(mx.length, prof.total_matches_played ?? mx.length), 1, (c) => `${c} match${c === 1 ? '' : 'es'} played`),
-      // League-specific — no numeric global progress available
-      'League Leader':     league(),
-      'Hat Trick':         league(),
-      'Home Court Hero':   league(),
-      'League Regular':    league(),
-      'Dominant':          league(),
-      'Iron Player':       league(),
-      'Comeback King':     league(),
-    });
-  }
-
   async function loadChemistry(uid: string) {
     const { data } = await supabase
       .from('matches')
@@ -600,67 +631,6 @@ export default function ProfileScreen({ navigation }: Props) {
       for (const p of (profiles ?? []) as any[]) map[p.id] = p;
       setPartnerNames(map);
     }
-  }
-
-  async function saveProfile() {
-    if (!userId) return;
-    setSaving(true);
-
-    const fullPayload = {
-      username,
-      badges_public:   badgesPublic,
-      avatar_url:      photoUrl,
-      avatar_id:       avatarId,
-      avatar_emoji:    equippedPremium?.emoji    ?? null,
-      avatar_bg_color: equippedPremium?.bgColor  ?? null,
-      tagline:         tagline.trim() || null,
-      gender:          gender,
-      selected_tags:   selectedTags,
-      availability,
-    };
-
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(fullPayload)
-      .eq('id', userId)
-      .select('id')
-      .single();
-
-    if (!error && data) {
-      status.success('Saved!');
-      setSaving(false);
-      return;
-    }
-
-    // If the migration hasn't been run yet, PostgREST returns PGRST204 for missing
-    // columns and the entire update is rejected — including username.  Fall back to
-    // saving only the columns that always exist so at least the core fields save.
-    const isMissingColumn =
-      error?.code === 'PGRST204' ||
-      error?.message?.toLowerCase().includes('column') ||
-      error?.message?.toLowerCase().includes('schema cache');
-
-    if (isMissingColumn) {
-      const { error: fallbackErr } = await supabase
-        .from('profiles')
-        .update({ username, badges_public: badgesPublic, avatar_url: photoUrl })
-        .eq('id', userId);
-
-      if (fallbackErr) {
-        status.error(fallbackErr.message);
-      } else {
-        status.error(
-          'Partially saved. Username and photo saved. Run migration_add_profile_customization.sql and migration_add_availability.sql in your Supabase SQL Editor to unlock all features.',
-        );
-      }
-    } else if (!data && !error) {
-      // Update ran but matched 0 rows — session / RLS mismatch
-      status.error('Not saved. Your session may have expired. Please log out and back in.');
-    } else {
-      status.error(error?.message ?? 'Unknown error');
-    }
-
-    setSaving(false);
   }
 
   // Auto-saves availability immediately whenever the grid changes.
@@ -688,13 +658,6 @@ export default function ProfileScreen({ navigation }: Props) {
         avSaveTimer.current = setTimeout(() => setAvSaveStatus('idle'), 4000);
       }
     }
-  }
-
-  function handleAvatarSave(id: number, url: string | null, premium: PremiumAvatar | null) {
-    setAvatarId(id);
-    setPhotoUrl(url);
-    setEquippedPremium(premium);
-    setShowAvatarPicker(false);
   }
 
   async function saveDefaultPaddle(sel: PaddleSelection) {
@@ -797,7 +760,45 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  function handleEditSaved(saved: EditProfileSaved) {
+    setProfile(p => (p ? { ...p, ...saved } : p));
+    setEditOpen(false);
+    status.success('Profile saved.');
+  }
+
+  // Analytics for user toggles of the reference sections (never page.view).
+  const onSectionToggle = (section: string) => (open: boolean) =>
+    trackSectionToggle({ screen: 'Profile', section, open });
+
+  // Shop avatars the player owns, for the Edit sheet's avatar page.
+  const premiumAvatars: PremiumAvatar[] = useMemo(() => shopPurchases
+    .filter(p => p.item.category === 'avatar')
+    .map(p => ({
+      slug: p.item.slug,
+      name: p.item.name,
+      emoji: p.item.payload?.emoji ?? p.item.icon,
+      bgColor: p.item.payload?.bgColor ?? colors.surfaceAlt,
+    })), [shopPurchases, colors.surfaceAlt]);
+
+  // Equipped premium avatar (driven by avatar_emoji + avatar_bg_color).
+  const equippedPremium: PremiumAvatar | null = profile?.avatar_emoji && profile?.avatar_bg_color
+    ? { slug: 'equipped', name: 'Premium', emoji: profile.avatar_emoji, bgColor: profile.avatar_bg_color }
+    : null;
+
+  // What the Edit sheet opens with; it reads this only at open.
+  const editInitial: EditProfileValues = {
+    fullName:     profile?.full_name ?? '',
+    username:     profile?.username ?? '',
+    tagline:      profile?.tagline ?? '',
+    gender:       profile?.gender ?? null,
+    selectedTags: profile?.selected_tags ?? [],
+    avatarId:     profile?.avatar_id ?? 1,
+    photoUrl:     profile?.avatar_url ?? null,
+    premium:      equippedPremium,
+    badgesPublic: profile?.badges_public ?? true,
+  };
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
 
   const earnedBadgeNames = Array.from(new Set(badges.map(b => b.badge.name)));
 
@@ -847,26 +848,61 @@ export default function ProfileScreen({ navigation }: Props) {
       league: null,
     }));
 
-  const profileBadgeGroups  = groupBadges(badges.filter(b => b.badge.category === 'profile'));
-  const leagueBadgeGroups   = groupBadges(badges.filter(b => b.badge.category === 'league'));
-  const cosmeticBadgeGroups = groupBadges(cosmeticBadgeItems);
-  const visibleBadgeCount   =
+  const badgeGroups = [
+    { label: 'Profile',  groups: groupBadges(badges.filter(b => b.badge.category === 'profile')) },
+    { label: 'League',   groups: groupBadges(badges.filter(b => b.badge.category === 'league')) },
+    { label: 'Cosmetic', groups: groupBadges(cosmeticBadgeItems) },
+  ].filter(g => g.groups.length > 0);
+  const visibleBadgeCount =
     badges.filter(b => !b.is_hidden).length +
     cosmeticBadgeItems.filter(b => !b.is_hidden).length;
-  const totalBadgeCount     = badges.length + cosmeticBadgeItems.length;
+  const totalBadgeCount = badges.length + cosmeticBadgeItems.length;
   const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
-  const cartoonAvatar = AVATARS.find(a => a.id === avatarId) ?? AVATARS[0];
+
+  const photoUrl = profile?.avatar_url ?? null;
+  const cartoonAvatar = AVATARS.find(a => a.id === (profile?.avatar_id ?? 1)) ?? AVATARS[0];
   const displayAvatar = equippedPremium
     ? { emoji: equippedPremium.emoji, bgColor: equippedPremium.bgColor }
     : { emoji: cartoonAvatar.emoji, bgColor: cartoonAvatar.bgColor };
 
-  const singlesRating      = profile?.singles_rating       ?? profile?.rating ?? 3.25;
-  const doublesRating      = profile?.doubles_rating       ?? profile?.rating ?? 3.25;
-  const mixedDoublesRating = profile?.mixed_doubles_rating ?? profile?.rating ?? 3.25;
+  const tagLabels = (profile?.selected_tags ?? [])
+    .map(slug => PLAY_TAGS.find(tg => tg.slug === slug)?.label)
+    .filter((l): l is string => !!l);
+  const tagOverflow = tagLabels.length - TAG_CHIPS_SHOWN;
 
-  // Unlocks progress helpers
-  const lockedAvatars   = AVATARS.filter(a => !!a.unlock);
-  const lockedTagsCount = PLAY_TAGS.filter(t => !!t.unlock).length;
+  // Coming up: tournaments first (they have a date), then leagues.
+  const comingCount = comingTournaments.length + comingLeagues.length;
+  const comingLimit = showAllComing ? comingCount : COMING_UP_CAP;
+  const shownTournaments = comingTournaments.slice(0, comingLimit);
+  const shownLeagues = comingLeagues.slice(0, Math.max(0, comingLimit - shownTournaments.length));
+  const comingHidden = comingCount - shownTournaments.length - shownLeagues.length;
+
+  // Reference-section summaries (one line each, shown while collapsed).
+  const availSummary = availabilitySummary(availability) ?? 'Not set';
+  const paddleSummary = defaultPaddle ? `${defaultPaddle.brandName} ${defaultPaddle.modelName}` : 'Not set';
+  const chemRows = chemistryResults.filter(r => partnerNames[r.partnerId]);
+  const bestChem = chemRows.length > 0
+    ? chemRows.reduce((best, r) => (r.overallDelta > best.overallDelta ? r : best), chemRows[0])
+    : null;
+
+  // Inventory, by category.
+  const inv = {
+    avatars:       shopPurchases.filter(p => p.item.category === 'avatar'),
+    flairs:        shopPurchases.filter(p => p.item.category === 'flair'),
+    listStyles:    shopPurchases.filter(p => p.item.category === 'list_name_style'),
+    profileStyles: shopPurchases.filter(p => p.item.category === 'profile_name_style'),
+    badges:        shopPurchases.filter(p => p.item.category === 'cosmetic_badge'),
+  };
+
+  // The strip's text when there is no measurable badge to show a bar for.
+  // League-only badges still gate rewards, so they never read "all earned".
+  const unlockText =
+    unlock?.kind === 'league_only' ? `${unlock.remaining} more to earn in league play`
+    : unlock?.kind === 'all_earned' ? 'Every unlock earned'
+    : 'Unlockable rewards';
+  const unlockA11y = unlock?.kind === 'next'
+    ? `Next unlock: ${unlock.reward}, ${unlock.a11yValue}. Open unlock progress`
+    : `${unlockText}. Open unlock progress`;
 
   return (
     <>
@@ -874,20 +910,20 @@ export default function ProfileScreen({ navigation }: Props) {
 
       <StatusBanner status={status.value} />
 
-      {/* ── Avatar / photo ─────────────────────────────────────── */}
-      <View style={styles.avatarSection}>
+      {/* ── 1. Identity ─────────────────────────────────────────── */}
+      <View style={styles.identity}>
         <TouchableOpacity
           ref={editAnchor}
           onLayout={() => registerAnchor('profile', 'edit', editAnchor)}
-          onPress={() => setShowAvatarPicker(true)}
+          onPress={() => setEditOpen(true)}
           activeOpacity={0.8}
           accessibilityRole="button"
-          accessibilityLabel="Edit profile photo"
+          accessibilityLabel="Edit profile"
         >
           {photoUrl ? (
-            <CachedImage source={{ uri: photoUrl }} style={styles.avatarPhoto} />
+            <CachedImage source={{ uri: photoUrl }} style={styles.avatar} />
           ) : (
-            <View style={[styles.avatarCircle, { backgroundColor: displayAvatar.bgColor }]}>
+            <View style={[styles.avatar, { backgroundColor: displayAvatar.bgColor }]}>
               <Text style={styles.avatarEmoji}>{displayAvatar.emoji}</Text>
             </View>
           )}
@@ -895,36 +931,41 @@ export default function ProfileScreen({ navigation }: Props) {
             <Text style={styles.avatarEditBadgeText}>✏️</Text>
           </View>
         </TouchableOpacity>
-        {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
-        <FlairName
-          style={styles.fullName}
-          nameColor={profile?.name_color}
-          styleId={profile?.profile_name_style_id}
-          mode="hero"
-          name={profile?.full_name ?? ''}
-        />
-        {tagline ? <Text style={styles.taglineDisplay}>{tagline}</Text> : null}
+        <View style={styles.identityText}>
+          {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
+          <FlairName
+            style={styles.fullName}
+            nameColor={profile?.name_color}
+            styleId={profile?.profile_name_style_id}
+            mode="hero"
+            name={profile?.full_name ?? ''}
+            numberOfLines={1}
+          />
+          {profile?.username ? <Text style={t.sub} numberOfLines={1}>@{profile.username}</Text> : null}
+          {profile?.tagline ? <Text style={[t.sub, styles.tagline]} numberOfLines={1}>{profile.tagline}</Text> : null}
+        </View>
+      </View>
 
-        {/* Pickle balance pill — tap to visit Shop */}
-        <TouchableOpacity style={styles.pickleBalancePill} onPress={() => navigation.navigate('Shop')}>
-          <Text style={styles.pickleBalanceEmoji}>🥒</Text>
-          <Text style={styles.pickleBalanceValue}>{profile?.pickles ?? 0}</Text>
-          <Text style={styles.pickleBalanceLabel}>pickles · tap to shop</Text>
-        </TouchableOpacity>
-
-        {/* Selected tags display under name */}
-        {selectedTags.length > 0 && (
-          <View style={styles.tagsDisplayRow}>
-            {selectedTags.map(slug => {
-              const tag = PLAY_TAGS.find(t => t.slug === slug);
-              return tag ? (
-                <View key={slug} style={styles.tagDisplayChip}>
-                  <Text style={styles.tagDisplayText}>{tag.label}</Text>
-                </View>
-              ) : null;
-            })}
+      <View style={styles.chipRow}>
+        {/* Pickle balance: the pill is the visual, the 44 box the tap target. */}
+        <TouchableOpacity
+          style={styles.box44}
+          onPress={() => navigation.navigate('Shop')}
+          accessibilityRole="button"
+          accessibilityLabel={`${profile?.pickles ?? 0} pickles. Open the Pickle Shop`}
+        >
+          <View style={styles.picklePill}>
+            <Text style={styles.pickleText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              🥒 {profile?.pickles ?? 0} ›
+            </Text>
           </View>
-        )}
+        </TouchableOpacity>
+        {tagLabels.slice(0, TAG_CHIPS_SHOWN).map(label => (
+          <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+        ))}
+        {tagOverflow > 0 ? (
+          <Chip label={`+${tagOverflow}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+        ) : null}
       </View>
 
       {/* ── PLUPR ratings (hidden) ──────────────────────────────────
@@ -933,156 +974,348 @@ export default function ProfileScreen({ navigation }: Props) {
           rendered. PLUPR is being kept contained within a league rather than
           surfaced on the profile. The EloHistoryChart component, eloHistory
           loader, reliability helper, and formatPlupr import are left intact
-          so this card can be restored by re-adding the block. */}
+          so this card can be restored by re-adding the block.
+          ── Court ratings (hidden) ──────────────────────────────────
+          Per-court PLUPR ratings are intentionally not rendered — PLUPR is
+          being kept contained within a league. The locationRatings state and
+          its loader query are left intact so this card can be restored by
+          re-adding the block. */}
 
-      {/* ── Pickle Shop Inventory ─────────────────────────────── */}
-      {shopPurchases.length > 0 && (() => {
-        const avatars    = shopPurchases.filter(p => p.item.category === 'avatar');
-        const flairs     = shopPurchases.filter(p => p.item.category === 'flair');
-        const listStyles = shopPurchases.filter(p => p.item.category === 'list_name_style');
-        const profileStyles = shopPurchases.filter(p => p.item.category === 'profile_name_style');
-        const badges     = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
-        return (
-          <View style={styles.locationCard}>
-            <Text style={styles.cardTitle}>🥒 Pickle Shop Inventory</Text>
+      {/* ── 2. Quick row ────────────────────────────────────────── */}
+      <View style={styles.quickRow}>
+        <Button size="sm" title="Edit profile" onPress={() => setEditOpen(true)} style={styles.quickBtn} />
+        <Button
+          size="sm"
+          variant="outline"
+          title="Match history"
+          onPress={() => userId && navigation.navigate('MatchHistory', { userId, title: 'My Match History' })}
+          style={styles.quickBtn}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          title="Calendar"
+          onPress={() => userId && navigation.navigate('CalendarAnalytics', { userId, title: 'My Calendar' })}
+          style={styles.quickBtn}
+        />
+      </View>
 
-            {/* Avatars */}
-            {avatars.length > 0 && (
-              <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>Avatars</Text>
-                {avatars.map(p => {
+      {/* ── 3. Status strip: next unlock (tour 'profile/rewards') ─── */}
+      <View
+        ref={rewardsAnchor}
+        collapsable={false}
+        onLayout={() => registerAnchor('profile', 'rewards', rewardsAnchor)}
+      >
+        <TouchableOpacity
+          style={styles.strip}
+          onPress={() => navigation.navigate('UnlockProgress')}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={unlockA11y}
+        >
+          <Text style={styles.stripGlyph}>🔓</Text>
+          {unlock?.kind === 'next' ? (
+            <ProgressBar
+              layout="inline"
+              progress={unlock.pct}
+              minFill={0.02}
+              height={6}
+              trackColor={colors.border}
+              label={`Next unlock: ${unlock.reward}`}
+              labelStyle={styles.stripLabel}
+              valueText={unlock.valueText}
+              containerStyle={styles.flexText}
+            />
+          ) : (
+            <Text style={[styles.stripLabel, styles.flexText]} numberOfLines={1}>
+              {unlockText}
+            </Text>
+          )}
+          <Text style={styles.chevron}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* ── 4. Coming up ────────────────────────────────────────── */}
+      {comingCount > 0 && (
+        <View style={styles.block}>
+          <SectionHeader title="Coming up" count={comingCount} />
+          <Panel padded={false}>
+            {shownTournaments.map((tn, i) => (
+              <TournamentRow
+                key={`t-${tn.id}`}
+                layout="row"
+                tournament={{ id: tn.id, name: tn.name, location_name: tn.location_name, status: tn.status }}
+                leagueName={tn.leagueName}
+                myStatus={tn.myStatus}
+                invited={tn.invited}
+                trailingText={shortWhen(tn.start_time)}
+                onPress={() => navigation.navigate('TournamentDetail', { tournamentId: tn.id, tournamentName: tn.name })}
+                lastRow={comingHidden === 0 && shownLeagues.length === 0 && i === shownTournaments.length - 1}
+              />
+            ))}
+            {shownLeagues.map((l, i) => (
+              <LeagueRow
+                key={`l-${l.id}`}
+                layout="row"
+                league={{ id: l.id, name: l.name, home_court: l.home_court, is_open: l.is_open }}
+                role={l.role}
+                onPress={() => navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name })}
+                lastRow={comingHidden === 0 && i === shownLeagues.length - 1}
+              />
+            ))}
+            {comingHidden > 0 && (
+              <TouchableOpacity
+                style={styles.moreRow}
+                onPress={() => setShowAllComing(true)}
+                accessibilityRole="button"
+              >
+                <Text style={[t.meta, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  Show {comingHidden} more
+                </Text>
+              </TouchableOpacity>
+            )}
+          </Panel>
+        </View>
+      )}
+
+      {/* ── 5. Reference (collapsed; content mounts on open) ──────── */}
+      <View style={styles.reference}>
+        <CollapsibleSection
+          compact
+          title="Availability"
+          summary={availSummary}
+          onToggle={(open: boolean) => {
+            // The grid unmounts on collapse and has no unmount cleanup, so a
+            // collapse mid-Edit (the header stays tappable while the page
+            // scroll is locked) would leave the whole Profile unscrollable.
+            // FOUNDATION-TODO: AvailabilityGrid should call onScrollLock(false)
+            // in an unmount cleanup when it unmounts while editing.
+            if (!open) setGridScrollLocked(false);
+            onSectionToggle('availability')(open);
+          }}
+        >
+          <View style={styles.availHead}>
+            <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
+              Auto-saved · used for event filters and player matching
+            </Text>
+            {avSaveStatus === 'saving' && <Text style={t.meta}>Saving…</Text>}
+            {avSaveStatus === 'saved' && <Text style={[t.meta, { color: colors.primary }]}>✓ Saved</Text>}
+            {avSaveStatus === 'error' && <Text style={[t.meta, { color: colors.warning }]}>⚠ Save failed</Text>}
+            {avSaveStatus === 'needs-migration' && (
+              <Text style={[t.meta, { color: colors.warning }]}>Run migration_add_availability.sql</Text>
+            )}
+          </View>
+          <AvailabilityGrid
+            availability={availability}
+            onChange={handleAvailabilityChange}
+            onScrollLock={setGridScrollLocked}
+          />
+        </CollapsibleSection>
+
+        <CollapsibleSection
+          compact
+          title="Paddle"
+          summary={paddleSummary}
+          onToggle={onSectionToggle('paddle')}
+        >
+          {defaultPaddle ? (
+            <View style={styles.paddleRow}>
+              <View style={styles.flexText}>
+                <Text style={t.meta} numberOfLines={1}>{defaultPaddle.brandName}</Text>
+                <Text style={t.title} numberOfLines={1}>{defaultPaddle.modelName}</Text>
+                {defaultPaddle.thicknessMm != null && (
+                  <Text style={t.sub}>{defaultPaddle.thicknessMm} mm core</Text>
+                )}
+              </View>
+              <Button size="sm" variant="outline" title="Change" onPress={() => setShowPaddlePicker(true)} />
+              <Button size="sm" variant="danger" title="Remove" onPress={removePaddle} />
+            </View>
+          ) : (
+            <View style={styles.paddleRow}>
+              <Text style={[t.sub, styles.flexText]} numberOfLines={2}>
+                Auto-filled when recording matches. Editable within 72 hours.
+              </Text>
+              <Button size="sm" title="Set paddle" onPress={() => setShowPaddlePicker(true)} />
+            </View>
+          )}
+        </CollapsibleSection>
+
+        {totalBadgeCount > 0 && (
+          <CollapsibleSection
+            compact
+            title="Badges"
+            count={totalBadgeCount}
+            summary={`${visibleBadgeCount} shown${profile?.badges_public === false ? ' · private profile' : ''}`}
+            onToggle={onSectionToggle('badges')}
+          >
+            <View style={styles.badgeActions}>
+              <Text style={[t.sub, styles.flexText]} numberOfLines={1}>Tap a badge to see why you earned it.</Text>
+              <TouchableOpacity style={styles.textBtn} onPress={() => setAllBadgesHidden(false)} accessibilityRole="button">
+                <Text style={styles.linkText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Show all</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.textBtn} onPress={() => setAllBadgesHidden(true)} accessibilityRole="button">
+                <Text style={styles.linkText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Hide all</Text>
+              </TouchableOpacity>
+            </View>
+            {badgeGroups.map(g => (
+              <View key={g.label}>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{g.label}</Text>
+                <View style={styles.badgeGrid}>
+                  {g.groups.map(bg => (
+                    <BadgeDisplay
+                      key={bg.rep.id}
+                      badge={bg.rep}
+                      stack={bg.stack}
+                      isOwner
+                      onToggleHide={toggleBadgeVisibility}
+                    />
+                  ))}
+                </View>
+              </View>
+            ))}
+          </CollapsibleSection>
+        )}
+
+        {shopPurchases.length > 0 && (
+          <CollapsibleSection
+            compact
+            title="Inventory"
+            count={shopPurchases.length}
+            summary="Tap to equip"
+            onToggle={onSectionToggle('inventory')}
+          >
+            {inv.avatars.length > 0 && (
+              <View>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Avatars</Text>
+                {inv.avatars.map(p => {
                   const equipped = profile?.avatar_emoji === p.item.payload?.emoji
                                 && profile?.avatar_bg_color === p.item.payload?.bgColor;
                   return (
                     <InvRow
                       key={p.id}
                       icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? '#eee'}
+                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
                       name={p.item.name}
                       gift={p.gifted_by_user_id}
                       message={p.gift_message}
                       isHidden={p.is_hidden}
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
-                      actionDisabled={equipped}
+                      actionLabel={equipped ? 'Equipped' : 'Equip'}
+                      equipped={equipped}
                       onAction={() => equipAvatar(p.item.payload?.emoji ?? null, p.item.payload?.bgColor ?? null)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.avatar_emoji && (
-                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => equipAvatar(null, null)}>
-                    <Text style={styles.invUnequipText}>↺ Revert to cartoon avatar</Text>
+                  <TouchableOpacity style={styles.revertRow} onPress={() => equipAvatar(null, null)} accessibilityRole="button">
+                    <Text style={styles.revertText}>↺ Revert to cartoon avatar</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
 
-            {/* Flair */}
-            {flairs.length > 0 && (
-              <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>Name Color Flair</Text>
-                {flairs.map(p => {
+            {inv.flairs.length > 0 && (
+              <View>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Name color flair</Text>
+                {inv.flairs.map(p => {
                   const value    = p.item.payload?.value as string | undefined;
                   const equipped = !!value && profile?.name_color === value;
                   return (
                     <InvRow
                       key={p.id}
                       icon={p.item.icon}
-                      bgColor={value ?? '#eee'}
+                      bgColor={value ?? colors.surfaceAlt}
                       name={p.item.name}
                       gift={p.gifted_by_user_id}
                       message={p.gift_message}
                       isHidden={p.is_hidden}
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? '✓ Active' : 'Apply'}
-                      actionDisabled={equipped}
+                      actionLabel={equipped ? 'Active' : 'Apply'}
+                      equipped={equipped}
                       onAction={() => applyFlair(value ?? null)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.name_color && (
-                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyFlair(null)}>
-                    <Text style={styles.invUnequipText}>↺ Revert to default name color</Text>
+                  <TouchableOpacity style={styles.revertRow} onPress={() => applyFlair(null)} accessibilityRole="button">
+                    <Text style={styles.revertText}>↺ Revert to default name color</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
 
-            {/* List Name Styles */}
-            {listStyles.length > 0 && (
-              <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>List Name Styles</Text>
-                {listStyles.map(p => {
+            {inv.listStyles.length > 0 && (
+              <View>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>List name styles</Text>
+                {inv.listStyles.map(p => {
                   const slug     = p.item.slug;
                   const equipped = profile?.list_name_style_id === slug;
                   return (
                     <InvRow
                       key={p.id}
                       icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? '#eef2ff'}
+                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
                       name={p.item.name}
                       gift={p.gifted_by_user_id}
                       message={p.gift_message}
                       isHidden={p.is_hidden}
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
-                      actionDisabled={equipped}
+                      actionLabel={equipped ? 'Equipped' : 'Equip'}
+                      equipped={equipped}
                       onAction={() => applyListNameStyle(slug)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.list_name_style_id && (
-                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyListNameStyle(null)}>
-                    <Text style={styles.invUnequipText}>↺ Revert to default list name style</Text>
+                  <TouchableOpacity style={styles.revertRow} onPress={() => applyListNameStyle(null)} accessibilityRole="button">
+                    <Text style={styles.revertText}>↺ Revert to default list name style</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
 
-            {/* Profile Name Styles */}
-            {profileStyles.length > 0 && (
-              <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>Profile Name Styles</Text>
-                {profileStyles.map(p => {
+            {inv.profileStyles.length > 0 && (
+              <View>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Profile name styles</Text>
+                {inv.profileStyles.map(p => {
                   const slug     = p.item.slug;
                   const equipped = profile?.profile_name_style_id === slug;
                   return (
                     <InvRow
                       key={p.id}
                       icon={p.item.icon}
-                      bgColor={p.item.payload?.bgColor ?? '#fdf4ff'}
+                      bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
                       name={p.item.name}
                       gift={p.gifted_by_user_id}
                       message={p.gift_message}
                       isHidden={p.is_hidden}
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
-                      actionLabel={equipped ? '✓ Equipped' : 'Equip'}
-                      actionDisabled={equipped}
+                      actionLabel={equipped ? 'Equipped' : 'Equip'}
+                      equipped={equipped}
                       onAction={() => applyProfileNameStyle(slug)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.profile_name_style_id && (
-                  <TouchableOpacity style={styles.invUnequipBtn} onPress={() => applyProfileNameStyle(null)}>
-                    <Text style={styles.invUnequipText}>↺ Revert to default profile name style</Text>
+                  <TouchableOpacity style={styles.revertRow} onPress={() => applyProfileNameStyle(null)} accessibilityRole="button">
+                    <Text style={styles.revertText}>↺ Revert to default profile name style</Text>
                   </TouchableOpacity>
                 )}
               </View>
             )}
 
-            {/* Cosmetic Badges */}
-            {badges.length > 0 && (
-              <View style={styles.invSection}>
-                <Text style={styles.invSectionTitle}>Cosmetic Badges</Text>
-                {badges.map(p => (
+            {inv.badges.length > 0 && (
+              <View>
+                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Cosmetic badges</Text>
+                {inv.badges.map(p => (
                   <InvRow
                     key={p.id}
                     icon={p.item.icon}
-                    bgColor={p.item.payload?.bgColor ?? '#fff8e1'}
+                    bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
                     name={p.item.name}
                     gift={p.gifted_by_user_id}
                     message={p.gift_message}
@@ -1093,401 +1326,51 @@ export default function ProfileScreen({ navigation }: Props) {
                 ))}
               </View>
             )}
-          </View>
-        );
-      })()}
-
-      {/* ── Court ratings (hidden) ───────────────────────────────────
-          Per-court PLUPR ratings are intentionally not rendered — PLUPR is
-          being kept contained within a league. The locationRatings state and
-          its loader query are left intact so this card can be restored by
-          re-adding the block. */}
-
-      {/* ── Partner Chemistry ────────────────────────────────────── */}
-      {chemistryResults.length > 0 && (
-        <View style={styles.chemCard}>
-          <Text style={styles.cardTitle}>🤝 Doubles Chemistry</Text>
-          <Text style={styles.chemSubtitle}>Win-rate boost vs your baseline when playing with each partner</Text>
-          {chemistryResults.map(r => {
-            const partner = partnerNames[r.partnerId];
-            if (!partner) return null;
-            const av = AVATAR_LIST.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATAR_LIST[0];
-            const color = chemistryColor(r.overallDelta);
-            const deltaStr = fmtDelta(r.overallDelta);
-            return (
-              <View key={r.partnerId} style={styles.chemRow}>
-                <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
-                  <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
-                </View>
-                <View style={styles.chemInfo}>
-                  <Text style={styles.chemName} numberOfLines={1}>{partner.full_name}</Text>
-                  {r.insights[0] ? (
-                    <Text style={styles.chemInsight} numberOfLines={1}>{r.insights[0]}</Text>
-                  ) : (
-                    <Text style={styles.chemInsight}>{r.matchesTogether} match{r.matchesTogether !== 1 ? 'es' : ''} together</Text>
-                  )}
-                </View>
-                <View style={[styles.chemMatchCount, { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-                  <Text style={styles.chemMatchCountText}>{r.matchesTogether}</Text>
-                  <BallIcon size={14} />
-                </View>
-                <View style={[styles.chemBadge, { backgroundColor: color + '22', borderColor: color + '55' }]}>
-                  <Text style={[styles.chemBadgeText, { color }]}>{deltaStr}</Text>
-                </View>
-              </View>
-            );
-          })}
-          {!chemistryResults.some(r => r.significant) && (
-            <Text style={styles.chemHint}>Play 5+ doubles matches with a partner to unlock deeper insights</Text>
-          )}
-        </View>
-      )}
-
-      {/* ── Default Paddle ───────────────────────────────────────── */}
-      <View style={styles.paddleCard}>
-        <View style={styles.paddleHeader}>
-          <Text style={styles.paddleTitle}>🎽 Default Paddle</Text>
-          {defaultPaddle && (
-            <TouchableOpacity onPress={removePaddle}>
-              <Text style={styles.paddleRemove}>Remove</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        {defaultPaddle ? (
-          <TouchableOpacity style={styles.paddleSelected} onPress={() => setShowPaddlePicker(true)}>
-            <View style={styles.paddleInfo}>
-              <Text style={styles.paddleBrand}>{defaultPaddle.brandName}</Text>
-              <Text style={styles.paddleModel}>{defaultPaddle.modelName}</Text>
-              {defaultPaddle.thicknessMm != null && (
-                <Text style={styles.paddleThickness}>{defaultPaddle.thicknessMm} mm core</Text>
-              )}
-            </View>
-            <Text style={styles.paddleEdit}>Change</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.paddleEmpty} onPress={() => setShowPaddlePicker(true)}>
-            <Text style={styles.paddleEmptyText}>+ Set your default paddle</Text>
-            <Text style={styles.paddleEmptyHint}>Auto-filled when recording matches. Editable within 72 hours.</Text>
-          </TouchableOpacity>
+          </CollapsibleSection>
         )}
-      </View>
 
-      {/* ── Availability ─────────────────────────────────────────── */}
-      <View style={styles.availCard}>
-        <View style={styles.availHeader}>
-          <View style={styles.availTitleRow}>
-            <Text style={styles.availTitle}>📅 Weekly Availability</Text>
-            {avSaveStatus === 'saving' && (
-              <Text style={styles.avStatusSaving}>Saving…</Text>
-            )}
-            {avSaveStatus === 'saved' && (
-              <Text style={styles.avStatusSaved}>✓ Saved</Text>
-            )}
-            {avSaveStatus === 'error' && (
-              <Text style={styles.avStatusError}>⚠ Save failed</Text>
-            )}
-            {avSaveStatus === 'needs-migration' && (
-              <Text style={styles.avStatusError}>Run migration_add_availability.sql</Text>
-            )}
-          </View>
-          <Text style={styles.availSubtitle}>
-            Auto-saved · used for event filters and player matching
-          </Text>
-        </View>
-        <AvailabilityGrid
-          availability={availability}
-          onChange={handleAvailabilityChange}
-          onScrollLock={setGridScrollLocked}
-        />
-      </View>
-
-      {/* ── Badges ──────────────────────────────────────────────── */}
-      {totalBadgeCount > 0 && (
-        <View style={styles.badgeCard}>
-          <View style={styles.badgeHeader}>
-            <Text style={styles.badgeSectionTitle}>
-              Badges ({visibleBadgeCount} shown)
-            </Text>
-            <View style={styles.badgeActions}>
-              <TouchableOpacity onPress={() => setAllBadgesHidden(false)}>
-                <Text style={styles.badgeActionText}>Show All</Text>
-              </TouchableOpacity>
-              <Text style={styles.badgeSep}>·</Text>
-              <TouchableOpacity onPress={() => setAllBadgesHidden(true)}>
-                <Text style={styles.badgeActionText}>Hide All</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <Text style={styles.badgeHint}>Tap a badge to see why you earned it.</Text>
-          {profileBadgeGroups.length > 0 && (
-            <>
-              <Text style={styles.badgeCatLabel}>Profile</Text>
-              <View style={styles.badgeGrid}>
-                {profileBadgeGroups.map(g => (
-                  <BadgeDisplay
-                    key={g.rep.id}
-                    badge={g.rep}
-                    stack={g.stack}
-                    isOwner
-                    onToggleHide={toggleBadgeVisibility}
-                  />
-                ))}
-              </View>
-            </>
-          )}
-          {leagueBadgeGroups.length > 0 && (
-            <>
-              <Text style={styles.badgeCatLabel}>League</Text>
-              <View style={styles.badgeGrid}>
-                {leagueBadgeGroups.map(g => (
-                  <BadgeDisplay
-                    key={g.rep.id}
-                    badge={g.rep}
-                    stack={g.stack}
-                    isOwner
-                    onToggleHide={toggleBadgeVisibility}
-                  />
-                ))}
-              </View>
-            </>
-          )}
-          {cosmeticBadgeGroups.length > 0 && (
-            <>
-              <Text style={styles.badgeCatLabel}>Cosmetic</Text>
-              <View style={styles.badgeGrid}>
-                {cosmeticBadgeGroups.map(g => (
-                  <BadgeDisplay
-                    key={g.rep.id}
-                    badge={g.rep}
-                    stack={g.stack}
-                    isOwner
-                    onToggleHide={toggleBadgeVisibility}
-                  />
-                ))}
-              </View>
-            </>
-          )}
-          <View style={styles.privacyRow}>
-            <Text style={styles.privacyLabel}>Show badges on my public profile</Text>
-            <TouchableOpacity
-              style={[styles.privacyToggle, badgesPublic && styles.privacyToggleOn]}
-              onPress={() => setBadgesPublic(v => !v)}
-            >
-              <Text style={[styles.privacyToggleText, badgesPublic && styles.privacyToggleTextOn]}>
-                {badgesPublic ? 'Public' : 'Private'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* ── Edit section ─────────────────────────────────────────── */}
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Username</Text>
-        <TextInput
-          style={styles.input}
-          value={username}
-          onChangeText={setUsername}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="your handle"
-        />
-        <Text style={styles.fieldHint}>This is how you appear in league standings.</Text>
-      </View>
-
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Tagline</Text>
-        <TextInput
-          style={styles.input}
-          value={tagline}
-          onChangeText={t => setTagline(t.slice(0, 50))}
-          placeholder="Describe yourself in 50 chars…"
-          maxLength={50}
-        />
-        <Text style={[styles.fieldHint, tagline.length > 44 && styles.fieldHintWarn]}>
-          {tagline.length}/50 characters
-        </Text>
-      </View>
-
-      <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Gender</Text>
-        <Text style={styles.fieldHint}>
-          Used to classify doubles matches as Gendered Doubles or Mixed Doubles.
-          Until set, your doubles matches won't be counted as Gendered or Mixed Doubles.
-        </Text>
-        <View style={styles.genderRow}>
-          {([
-            { v: 'male',              label: 'Male' },
-            { v: 'female',            label: 'Female' },
-            { v: 'other',             label: 'Other' },
-            { v: 'prefer-not-to-say', label: 'Prefer not to say' },
-          ] as { v: Gender; label: string }[]).map(({ v, label }) => (
-            <TouchableOpacity
-              key={v}
-              style={[styles.genderPill, gender === v && styles.genderPillActive]}
-              onPress={() => setGender(v)}
-            >
-              <Text style={[styles.genderPillText, gender === v && styles.genderPillTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Play style tags editor */}
-      <View style={styles.tagsCard}>
-        <View style={styles.tagsHeader}>
-          <Text style={styles.fieldLabel}>Play Style Tags</Text>
-          <TouchableOpacity onPress={() => setShowTagPicker(true)}>
-            <Text style={styles.tagsEditBtn}>{selectedTags.length === 0 ? '+ Add Tags' : 'Edit'}</Text>
-          </TouchableOpacity>
-        </View>
-        {selectedTags.length === 0 ? (
-          <TouchableOpacity onPress={() => setShowTagPicker(true)}>
-            <Text style={styles.tagsEmpty}>Tap to pick up to {maxTagSlots} tags that describe your game</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.tagsRow}>
-            {selectedTags.map(slug => {
-              const tag = PLAY_TAGS.find(t => t.slug === slug);
-              return tag ? (
-                <View key={slug} style={styles.tagChip}>
-                  <Text style={styles.tagChipText}>{tag.label}</Text>
+        {chemRows.length > 0 && (
+          <CollapsibleSection
+            compact
+            title="Doubles chemistry"
+            count={chemRows.length}
+            summary={bestChem ? `Best: ${partnerNames[bestChem.partnerId]?.full_name} ${fmtDelta(bestChem.overallDelta)}` : undefined}
+            onToggle={onSectionToggle('chemistry')}
+          >
+            <Text style={t.sub} numberOfLines={2}>Win-rate boost vs your baseline when playing with each partner</Text>
+            {chemRows.map(r => {
+              const partner = partnerNames[r.partnerId];
+              const av = AVATARS.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATARS[0];
+              const tone = chemTone(colors, r.overallDelta);
+              return (
+                <View key={r.partnerId} style={styles.chemRow}>
+                  <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
+                    <Text style={styles.chemAvatarEmoji}>{av.emoji}</Text>
+                  </View>
+                  <View style={styles.flexText}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>{partner.full_name}</Text>
+                    <Text style={styles.rowSub} numberOfLines={1}>
+                      {r.insights[0] ?? `${r.matchesTogether} match${r.matchesTogether !== 1 ? 'es' : ''} together`}
+                    </Text>
+                  </View>
+                  <View style={styles.chemCount}>
+                    <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{r.matchesTogether}</Text>
+                    <BallIcon size={14} />
+                  </View>
+                  <View style={[styles.chemBadge, { backgroundColor: tone.bg, borderColor: tone.fg }]}>
+                    <Text style={[t.meta, { color: tone.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                      {fmtDelta(r.overallDelta)}
+                    </Text>
+                  </View>
                 </View>
-              ) : null;
+              );
             })}
-          </View>
+            {!chemRows.some(r => r.significant) && (
+              <Text style={t.meta}>Play 5+ doubles matches with a partner to unlock deeper insights</Text>
+            )}
+          </CollapsibleSection>
         )}
-        <Text style={styles.tagsSlotHint}>{selectedTags.length}/{maxTagSlots} tag slots used</Text>
       </View>
-
-      <TouchableOpacity style={styles.button} onPress={saveProfile} disabled={saving}>
-        <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
-      </TouchableOpacity>
-
-      {/* ── Unlocks progress ─────────────────────────────────────── */}
-      <View
-        ref={rewardsAnchor}
-        onLayout={() => registerAnchor('profile', 'rewards', rewardsAnchor)}
-        style={styles.unlocksCard}
-      >
-        <Text style={styles.unlocksSectionTitle}>🔓 Unlockable Rewards</Text>
-        <Text style={styles.unlocksSubtitle}>Earn badges to unlock special avatars, tags, and tag slots.</Text>
-
-        {/* Getting Started checklist — always visible here as a progress tracker */}
-        <Text style={styles.unlockCatLabel}>Getting Started</Text>
-        <FtueChecklistCard
-          profile={profile}
-          navigation={navigation}
-          alwaysShow
-          embedded
-          onClaimed={(bal) => setProfile(p => (p ? { ...p, pickles: bal } : p))}
-        />
-
-        {/* Avatar unlocks */}
-        <Text style={styles.unlockCatLabel}>Special Avatars</Text>
-        {lockedAvatars.map(av => {
-          const earned = earnedBadgeNames.includes(av.unlock!.badge);
-          const prog   = badgeProgress[av.unlock!.badge];
-          return (
-            <View key={av.id} style={styles.unlockRow}>
-              <View style={[styles.unlockAvatarCircle, { backgroundColor: earned ? av.bgColor : '#eeeeee' }]}>
-                <Text style={[styles.unlockAvatarEmoji, !earned && { opacity: 0.4 }]}>{av.emoji}</Text>
-              </View>
-              <View style={styles.unlockInfo}>
-                <View style={styles.unlockNameRow}>
-                  <Text style={styles.unlockName}>{av.name} Avatar</Text>
-                  {earned && <Text style={styles.earnedCheckText}>✓ Unlocked</Text>}
-                </View>
-                <Text style={styles.unlockBadgeName}>{av.unlock!.badge}</Text>
-                {!earned && prog ? (
-                  <UnlockProgressRow prog={prog} />
-                ) : (
-                  <Text style={styles.unlockReq}>{av.unlock!.description}</Text>
-                )}
-              </View>
-            </View>
-          );
-        })}
-
-        {/* Tag slot unlocks */}
-        <Text style={styles.unlockCatLabel}>Extra Tag Slots</Text>
-        {TAG_SLOT_UNLOCKS.map(u => {
-          const earned = earnedBadgeNames.includes(u.badge);
-          const prog   = badgeProgress[u.badge];
-          return (
-            <View key={u.badge} style={styles.unlockRow}>
-              <View style={[styles.unlockAvatarCircle, { backgroundColor: earned ? '#e8f5e9' : '#eeeeee' }]}>
-                <Text style={[styles.unlockAvatarEmoji, !earned && { opacity: 0.4 }]}>🏷️</Text>
-              </View>
-              <View style={styles.unlockInfo}>
-                <View style={styles.unlockNameRow}>
-                  <Text style={styles.unlockName}>+1 Tag Slot</Text>
-                  {earned && <Text style={styles.earnedCheckText}>✓ Unlocked</Text>}
-                </View>
-                <Text style={styles.unlockBadgeName}>{u.badge}</Text>
-                {!earned && prog ? (
-                  <UnlockProgressRow prog={prog} />
-                ) : (
-                  <Text style={styles.unlockReq}>{u.description}</Text>
-                )}
-              </View>
-            </View>
-          );
-        })}
-
-        {/* Locked tags summary with earned count */}
-        {(() => {
-          const earnedTagUnlocks = PLAY_TAGS
-            .filter(t => t.unlock)
-            .filter(t => earnedBadgeNames.includes(t.unlock!.badge)).length;
-          return (
-            <View style={styles.unlockTagsRow}>
-              <Text style={styles.unlockAvatarEmoji}>🏷️</Text>
-              <View style={styles.unlockInfo}>
-                <View style={styles.unlockNameRow}>
-                  <Text style={styles.unlockName}>Exclusive Tags</Text>
-                  <Text style={[styles.earnedCheckText, earnedTagUnlocks === 0 && { color: '#bbb' }]}>
-                    {earnedTagUnlocks}/{lockedTagsCount} earned
-                  </Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { flex: Math.max(earnedTagUnlocks / lockedTagsCount, 0.02) }]} />
-                  {earnedTagUnlocks < lockedTagsCount && (
-                    <View style={[styles.progressEmpty, { flex: 1 - earnedTagUnlocks / lockedTagsCount }]} />
-                  )}
-                </View>
-                <Text style={styles.unlockReq}>
-                  Earn badges like Hot Streak, Dominant, Veteran, and more to wear exclusive tags.
-                </Text>
-              </View>
-            </View>
-          );
-        })()}
-
-        <TouchableOpacity onPress={() => navigation.navigate('UnlockProgress')} style={styles.viewUnlockProgressBtn}>
-          <Text style={styles.badgeActionText}>🔓 View Unlock Progress</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.divider} />
-
-      <TouchableOpacity style={styles.secondaryCard} onPress={() => userId && navigation.navigate('MatchHistory', { userId, title: 'My Match History' })}>
-        <Text style={styles.secondaryIcon}>📜</Text>
-        <View>
-          <Text style={styles.secondaryLabel}>Match History</Text>
-          <Text style={styles.secondarySub}>All your match results with dates</Text>
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.secondaryCard} onPress={() => userId && navigation.navigate('CalendarAnalytics', { userId, title: 'My Calendar' })}>
-        <Text style={styles.secondaryIcon}>🗓️</Text>
-        <View>
-          <Text style={styles.secondaryLabel}>Calendar Analytics</Text>
-          <Text style={styles.secondarySub}>Win-loss record by day</Text>
-        </View>
-      </TouchableOpacity>
 
     </ScrollView>
 
@@ -1499,220 +1382,98 @@ export default function ProfileScreen({ navigation }: Props) {
     />
 
     {userId && (
-      <AvatarPickerModal
-        visible={showAvatarPicker}
-        currentAvatarId={avatarId}
-        currentPhotoUrl={photoUrl}
-        currentPremium={equippedPremium}
-        earnedBadgeNames={earnedBadgeNames}
+      <EditProfileSheet
+        visible={editOpen}
         userId={userId}
+        initial={editInitial}
+        earnedBadgeNames={earnedBadgeNames}
         purchasedAvatars={premiumAvatars}
-        onSave={handleAvatarSave}
-        onClose={() => setShowAvatarPicker(false)}
+        maxTagSlots={maxTagSlots}
+        onClose={() => setEditOpen(false)}
+        onSaved={handleEditSaved}
       />
     )}
-
-    <TagPickerModal
-      visible={showTagPicker}
-      selectedTags={selectedTags}
-      maxSlots={maxTagSlots}
-      earnedBadgeNames={earnedBadgeNames}
-      onSave={tags => { setSelectedTags(tags); setShowTagPicker(false); }}
-      onClose={() => setShowTagPicker(false)}
-    />
     </>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors'], locPillW: number) {
-  const GREEN = c.primary;
+const AVATAR = 64;
+
+function makeStyles(c: Colors) {
   return StyleSheet.create({
-  container:  { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
+    container: { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
+    flexText:  { flex: 1, minWidth: 0 },
+    box44:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    chevron:   { fontSize: FONT.size.h2, fontWeight: '700', color: c.textMuted },
+    block:     { marginBottom: SPACE.md },
 
-  // Avatar section
-  avatarSection:    { alignItems: 'center', marginBottom: 20 },
-  pickleBalancePill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 6,
-    borderRadius: 16, backgroundColor: c.primaryLight,
-    borderWidth: 1, borderColor: c.primary,
-    marginTop: 8,
-  },
-  pickleBalanceEmoji: { fontSize: 14 },
-  pickleBalanceValue: { fontSize: 14, fontWeight: '800', color: c.primary },
-  pickleBalanceLabel: { fontSize: 11, color: c.primary, opacity: 0.85 },
-  avatarCircle:     { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 4 },
-  avatarPhoto:      { width: 90, height: 90, borderRadius: 45, marginBottom: 12 },
-  avatarEmoji:      { fontSize: 48 },
-  avatarEditBadge:  { position: 'absolute', bottom: 10, right: -4, width: 26, height: 26, borderRadius: 13, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  avatarEditBadgeText: { fontSize: 12 },
-  fullName:         { fontSize: 24, fontWeight: '700', color: c.text, marginBottom: 4 },
-  taglineDisplay:   { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginBottom: 8 },
-  tagsDisplayRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 4 },
-  tagDisplayChip:   { backgroundColor: c.primaryLight, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  tagDisplayText:   { fontSize: 12, color: GREEN, fontWeight: '600' },
+    // 1. Identity: avatar 64 beside name / @username / tagline.
+    identity:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+    identityText:    { flex: 1, minWidth: 0, gap: SPACE.xxs },
+    avatar:          { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+    avatarEmoji:     { fontSize: 34 },
+    avatarEditBadge: {
+      position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: 12,
+      backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center',
+      borderWidth: HAIRLINE, borderColor: c.border,
+    },
+    avatarEditBadgeText: { fontSize: FONT.size.xs },
+    fullName:        { fontSize: FONT.size.h2, fontWeight: '700', color: c.text },
+    tagline:         { fontStyle: 'italic' },
+    chipRow:         { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, marginBottom: SPACE.xs },
+    picklePill: {
+      flexDirection: 'row', alignItems: 'center', minHeight: 28,
+      paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill,
+      backgroundColor: c.primaryLight, borderWidth: HAIRLINE, borderColor: c.primary,
+    },
+    pickleText:      { fontSize: FONT.size.sm, fontWeight: '700', color: c.primary },
 
-  // Shared card title
-  cardTitle:  { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
+    // 2. Quick row: three sm buttons sized to their labels, sharing the spare width.
+    quickRow:  { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
+    quickBtn:  { flexGrow: 1 },
 
-  // PLUPR + reliability
-  eloCard:            { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  eloCardHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
-  reliabilityPill:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  reliabilityDots:    { flexDirection: 'row', gap: 3 },
-  reliabilityDot:     { width: 7, height: 7, borderRadius: 4, backgroundColor: c.border },
-  reliabilityLabel:   { fontSize: 11, fontWeight: '700' },
-  reliabilityDetail:  { fontSize: 11, color: c.textMuted, marginBottom: 10 },
-  eloRow:             { flexDirection: 'row', alignItems: 'center' },
-  eloItem:            { flex: 1, alignItems: 'center' },
-  eloValue:           { fontSize: 26, fontWeight: '800', color: GREEN },
-  eloLabel:           { fontSize: 12, color: c.textMuted, marginTop: 2 },
-  eloDivider:         { width: 1, height: 36, backgroundColor: c.border },
-  eloChartContainer:  { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border },
-  eloChartTitle:      { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, textAlign: 'center' },
+    // 3. Status strip
+    strip: {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
+      minHeight: 48, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs,
+      borderRadius: RADIUS.lg, borderWidth: HAIRLINE, borderColor: c.border,
+      backgroundColor: c.surface, marginBottom: SPACE.md,
+    },
+    stripGlyph: { fontSize: FONT.size.lg },
+    stripLabel: { fontSize: FONT.size.base, fontWeight: '600', color: c.text },
 
-  // Chemistry
-  chemCard:           { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  chemSubtitle:       { fontSize: 11, color: c.textMuted, marginBottom: 10 },
-  chemRow:            { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  chemAvatar:         { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  chemAvatarEmoji:    { fontSize: 19 },
-  chemInfo:           { flex: 1 },
-  chemName:           { fontSize: 14, fontWeight: '700', color: c.text },
-  chemInsight:        { fontSize: 11, color: c.textMuted, marginTop: 1 },
-  chemMatchCount:     { paddingHorizontal: 6 },
-  chemMatchCountText: { fontSize: 11, color: c.textMuted },
-  chemBadge:          { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
-  chemBadgeText:      { fontSize: 13, fontWeight: '800' },
-  chemHint:           { fontSize: 11, color: c.textMuted, marginTop: 4 },
+    // 4. Coming up
+    moreRow: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },
 
-  // Location
-  locationCard:   { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  locationGrid:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  shopBadgeGrid:  { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  shopBadgeCard:  { width: '30%', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 4, borderWidth: 1, borderColor: c.border },
-  shopBadgeIcon:  { fontSize: 28, marginBottom: 4 },
-  shopBadgeName:  { fontSize: 11, fontWeight: '700', color: c.text, textAlign: 'center' },
+    // 5. Reference
+    reference:  {},
+    groupLabel: { marginTop: SPACE.xs },
+    // The title preset (15/700); InvRow gets styles but not `t`.
+    rowTitle:   textStyles(c).title,
+    rowSub:     textStyles(c).sub,
+    textDim:    { color: c.textMuted },
+    textBtn:    { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
+    linkText:   { fontSize: FONT.size.sm, fontWeight: '600', color: c.primary },
 
-  // Inventory rows
-  invSection:        { marginTop: 10 },
-  invSectionTitle:   { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 8 },
-  invRow:            { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-  invRowHidden:      { opacity: 0.55 },
-  invIconBox:        { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  invIconEmoji:      { fontSize: 18 },
-  invName:           { fontSize: 14, fontWeight: '700', color: c.text },
-  invNameDim:        { color: c.textMuted },
-  invGiftLabel:      { fontSize: 11, color: c.textSub, marginTop: 1 },
-  invHideBtn:        { paddingHorizontal: 6, paddingVertical: 4 },
-  invHideText:       { fontSize: 16 },
-  invActionBtn:      { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.primary },
-  invActionBtnDim:   { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-  invActionText:     { fontSize: 12, color: '#fff', fontWeight: '700' },
-  invActionTextDim:  { color: c.textMuted },
-  invUnequipBtn:     { paddingVertical: 8, paddingHorizontal: 4, marginTop: 2 },
-  invUnequipText:    { fontSize: 12, color: c.textMuted, fontWeight: '600' },
-  locPill:        { width: locPillW, backgroundColor: c.primaryLight, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, alignItems: 'center' },
-  locPillDoubles: { backgroundColor: '#e3f2fd' },
-  locPillMixed:   { backgroundColor: '#f3e5f5' },
-  locPillCourt:   { fontSize: 9, color: c.textMuted, width: '100%', textAlign: 'center', marginBottom: 2 },
-  locPillRating:  { fontSize: 18, fontWeight: '800', color: c.text, lineHeight: 22 },
-  locPillType:    { fontSize: 9, color: c.textSub, textTransform: 'uppercase' as const, letterSpacing: 0.4, marginTop: 1 },
-  locPillRecord:  { fontSize: 10, color: c.textSub, marginTop: 2 },
+    availHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    paddleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
 
-  // Paddle
-  paddleCard:      { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  paddleHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  paddleTitle:     { fontSize: 15, fontWeight: '700', color: c.text },
-  paddleRemove:    { fontSize: 13, color: c.danger },
-  paddleSelected:  { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: c.border },
-  paddleInfo:      { flex: 1 },
-  paddleBrand:     { fontSize: 12, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  paddleModel:     { fontSize: 15, fontWeight: '700', color: c.text, marginTop: 1 },
-  paddleThickness: { fontSize: 12, color: GREEN, marginTop: 2, fontWeight: '500' },
-  paddleEdit:      { fontSize: 13, color: GREEN, fontWeight: '600' },
-  paddleEmpty:     { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', borderStyle: 'dashed' },
-  paddleEmptyText: { fontSize: 15, color: GREEN, fontWeight: '600', marginBottom: 4 },
-  paddleEmptyHint: { fontSize: 12, color: c.textMuted, textAlign: 'center' },
+    badgeActions: { flexDirection: 'row', alignItems: 'center' },
+    badgeGrid:    { flexDirection: 'row', flexWrap: 'wrap', margin: -SPACE.xs },
 
-  // Availability
-  availCard:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  availHeader:      { marginBottom: 10 },
-  availTitleRow:    { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  availTitle:       { fontSize: 15, fontWeight: '700', color: c.text },
-  availSubtitle:    { fontSize: 12, color: c.textMuted },
-  avStatusSaving:   { fontSize: 12, color: c.textMuted },
-  avStatusSaved:    { fontSize: 12, color: GREEN, fontWeight: '600' },
-  avStatusError:    { fontSize: 12, color: '#e65100', fontWeight: '600', flexShrink: 1 },
+    invRow:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56 },
+    invRowHidden: { opacity: 0.55 },
+    invIconBox:   { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    invIconEmoji: { fontSize: FONT.size.xl },
+    invHideText:  { fontSize: FONT.size.lg },
+    equippedText: { fontSize: FONT.size.sm, fontWeight: '600', color: c.textMuted, paddingHorizontal: SPACE.xs },
+    revertRow:    { minHeight: 44, justifyContent: 'center' },
+    revertText:   { fontSize: FONT.size.sm, color: c.textMuted, fontWeight: '600' },
 
-  // Badges
-  badgeCard:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.border, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-  badgeHeader:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-  badgeSectionTitle:{ fontSize: 13, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.8 },
-  badgeActions:     { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  badgeActionText:  { fontSize: 12, color: GREEN, fontWeight: '600' },
-  badgeSep:         { fontSize: 12, color: c.textMuted },
-  badgeHint:        { fontSize: 11, color: c.textMuted, marginBottom: 10 },
-  badgeCatLabel:    { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 6, marginBottom: 4 },
-  badgeGrid:        { flexDirection: 'row', flexWrap: 'wrap', margin: -4, marginBottom: 4 },
-  privacyRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
-  privacyLabel:     { fontSize: 13, color: c.textSub, flex: 1 },
-  privacyToggle:    { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-  privacyToggleOn:  { borderColor: GREEN, backgroundColor: c.primaryLight },
-  privacyToggleText:{ fontSize: 13, fontWeight: '600', color: c.textMuted },
-  privacyToggleTextOn: { color: GREEN },
-
-  // Edit fields
-  fieldGroup:    { marginBottom: 14, marginTop: 4 },
-  fieldLabel:    { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 },
-  input:         { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, color: c.text, backgroundColor: c.surface },
-  fieldHint:     { fontSize: 12, color: c.textMuted, marginTop: 5 },
-  fieldHintWarn: { color: '#e65100' },
-
-  // Gender picker
-  genderRow:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
-  genderPill:          { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
-  genderPillActive:    { borderColor: GREEN, backgroundColor: c.primaryLight },
-  genderPillText:      { fontSize: 14, color: c.textSub, fontWeight: '600' },
-  genderPillTextActive:{ color: GREEN, fontWeight: '700' },
-
-  // Tags editor
-  tagsCard:      { marginBottom: 14 },
-  tagsHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  tagsEditBtn:   { fontSize: 13, color: GREEN, fontWeight: '700' },
-  tagsEmpty:     { fontSize: 14, color: c.textMuted, fontStyle: 'italic', paddingVertical: 8 },
-  tagsRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 },
-  tagChip:       { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: GREEN },
-  tagChipText:   { fontSize: 13, color: GREEN, fontWeight: '700' },
-  tagsSlotHint:  { fontSize: 12, color: c.textMuted, marginTop: 4 },
-
-  button:        { backgroundColor: GREEN, padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 8, marginBottom: 24 },
-  buttonText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
-
-  // Unlocks progress
-  unlocksCard:       { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: c.border },
-  unlocksSectionTitle:{ fontSize: 16, fontWeight: '800', color: c.text, marginBottom: 4 },
-  unlocksSubtitle:   { fontSize: 13, color: c.textMuted, marginBottom: 14 },
-  unlockCatLabel:    { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginTop: 4 },
-  viewUnlockProgressBtn: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border, alignItems: 'center' },
-  unlockRow:          { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
-  unlockTagsRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 4, backgroundColor: c.surface, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.border },
-  unlockAvatarCircle: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
-  unlockAvatarEmoji:  { fontSize: 24 },
-  unlockInfo:         { flex: 1 },
-  unlockNameRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 1 },
-  unlockName:         { fontSize: 14, fontWeight: '700', color: c.text, flex: 1 },
-  earnedCheckText:    { fontSize: 11, color: GREEN, fontWeight: '700' },
-  unlockBadgeName:    { fontSize: 11, color: GREEN, fontWeight: '600', textTransform: 'uppercase' as const, letterSpacing: 0.4, marginBottom: 2 },
-  unlockReq:          { fontSize: 12, color: c.textMuted },
-  progressTrack:      { flexDirection: 'row', height: 5, borderRadius: 3, overflow: 'hidden', marginTop: 5, marginBottom: 3, backgroundColor: c.border },
-  progressFill:       { backgroundColor: GREEN },
-  progressEmpty:      { backgroundColor: c.border },
-
-  divider:       { height: 1, backgroundColor: c.border, marginVertical: 8, marginBottom: 20 },
-  secondaryCard: { flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: c.surface, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: c.border },
-  secondaryIcon: { fontSize: 28 },
-  secondaryLabel:{ fontSize: 16, fontWeight: '700', color: c.text },
-  secondarySub:  { fontSize: 13, color: c.textSub, marginTop: 2 },
+    chemRow:         { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
+    chemAvatar:      { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    chemAvatarEmoji: { fontSize: FONT.size.xl },
+    chemCount:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    chemBadge:       { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.md, borderWidth: HAIRLINE },
   });
 }

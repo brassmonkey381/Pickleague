@@ -11,9 +11,17 @@
  *   [POOL A 3/3 ✓]
  *   [POOL B 2/3 ▶]  →  [QUARTERFINALS 0/4 · 2 byes]  →  [SEMIS 0/2]  →  [🏆 FINALS 0/1]
  *   [POOL C 3/3 ✓]
+ *
+ * UI compaction P5b: the cards double as a stage filter. With `onPressStage`,
+ * a card whose round exists is a 44px-min button that filters the schedule to
+ * that round (tap again to clear); `selectedKey` marks the active one.
+ * Upcoming (predicted) cards stay inert: there is nothing to list yet. Token
+ * sweep: SPACE / RADIUS, theme colours, FONT sizes only.
  */
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 
 export type FlowOverviewStage = {
@@ -27,9 +35,15 @@ export type FlowOverviewStage = {
   byes: number;
 };
 
-type Props = { stages: FlowOverviewStage[] };
+type Props = {
+  stages: FlowOverviewStage[];
+  /** Makes existing stages tappable (the schedule's round filter). */
+  onPressStage?: (key: string) => void;
+  /** The stage currently filtering the schedule. */
+  selectedKey?: string | null;
+};
 
-export default function TournamentFlowOverview({ stages }: Props) {
+export default function TournamentFlowOverview({ stages, onPressStage, selectedKey }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
 
@@ -42,31 +56,52 @@ export default function TournamentFlowOverview({ stages }: Props) {
     const done = s.exists && s.total > 0 && s.completed >= s.total;
     const started = s.exists && s.completed > 0;
     const final = isFinalStage(s);
-    return (
-      <View
-        key={s.key}
-        style={[
-          S.card,
-          done && S.cardDone,
-          !s.exists && S.cardUpcoming,
-          final && S.cardFinal,
-        ]}
-      >
-        <Text style={[S.cardLabel, final && S.cardLabelFinal]} numberOfLines={1}>
+    const selected = !!selectedKey && selectedKey === s.key;
+    const status = done ? '✓ complete'
+      : started ? 'in progress'
+      : s.exists ? 'ready to play'
+      : 'upcoming';
+    const body = (
+      <>
+        <Text
+          style={[S.cardLabel, final && S.cardLabelFinal]}
+          numberOfLines={1}
+          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+        >
           {final ? '🏆 ' : ''}{s.label.toUpperCase()}
         </Text>
-        <Text style={[S.cardCount, !s.exists && S.cardCountUpcoming]}>
+        <Text style={[S.cardCount, !s.exists && S.cardCountUpcoming]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
           {s.completed}/{s.total}
         </Text>
-        <Text style={S.cardSub} numberOfLines={1}>
-          {done ? '✓ complete'
-            : started ? 'in progress'
-            : s.exists ? 'ready to play'
-            : 'upcoming'}
+        <Text style={S.cardSub} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          {status}
           {s.byes > 0 ? ` · ${s.byes} bye${s.byes === 1 ? '' : 's'}` : ''}
         </Text>
-      </View>
+      </>
     );
+    const style = [
+      S.card,
+      done && S.cardDone,
+      !s.exists && S.cardUpcoming,
+      final && S.cardFinal,
+      selected && S.cardSelected,
+    ];
+    if (onPressStage && s.exists) {
+      return (
+        <TouchableOpacity
+          key={s.key}
+          style={style}
+          onPress={() => onPressStage(s.key)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ selected }}
+          accessibilityLabel={`${s.label}, ${s.completed} of ${s.total} played, ${status}. ${selected ? 'Showing only this round; tap to show all' : 'Show only this round'}`}
+        >
+          {body}
+        </TouchableOpacity>
+      );
+    }
+    return <View key={s.key} style={style}>{body}</View>;
   }
 
   return (
@@ -84,26 +119,29 @@ export default function TournamentFlowOverview({ stages }: Props) {
   );
 }
 
-const makeStyles = (c: any) => StyleSheet.create({
-  row: { alignItems: 'center', paddingVertical: 4, paddingHorizontal: 2 },
-  groupColumn: { gap: 6 },
+const makeStyles = (c: ReturnType<typeof useTheme>['colors']) => StyleSheet.create({
+  row: { alignItems: 'center', paddingVertical: SPACE.xs, paddingHorizontal: SPACE.xxs },
+  groupColumn: { gap: SPACE.xs },
   playoffColumn: { justifyContent: 'center' },
-  arrow: { fontSize: 16, color: c.textMuted, marginHorizontal: 6 },
+  arrow: { fontSize: FONT.size.lg, color: c.textMuted, marginHorizontal: SPACE.xs },
   card: {
     width: 118,
-    borderRadius: 10,
-    borderWidth: 1.5,
+    minHeight: 44,
+    borderRadius: RADIUS.md,
+    borderWidth: HAIRLINE,
     borderColor: c.border,
     backgroundColor: c.surface,
-    paddingVertical: 7,
-    paddingHorizontal: 9,
+    paddingVertical: SPACE.xs,
+    paddingHorizontal: SPACE.sm,
   },
-  cardDone:     { borderColor: '#2e7d32', backgroundColor: '#2e7d3211' },
+  cardDone:     { borderColor: c.success, backgroundColor: c.successLight },
   cardUpcoming: { borderStyle: 'dashed', opacity: 0.65 },
-  cardFinal:    { borderColor: '#b8860b' },
-  cardLabel:      { fontSize: 10, fontWeight: '800', letterSpacing: 0.4, color: c.textSub },
-  cardLabelFinal: { color: '#b8860b' },
-  cardCount:         { fontSize: 17, fontWeight: '800', color: c.text, marginTop: 1 },
+  cardFinal:    { borderColor: c.rarityLegendary },
+  // A selected stage gets the brand edge, drawn 2px so it reads over "done".
+  cardSelected: { borderColor: c.primary, borderWidth: 2, backgroundColor: c.primaryLight },
+  cardLabel:      { fontSize: FONT.size.xxs, fontWeight: FONT.weight.heavy, letterSpacing: 0.4, color: c.textSub },
+  cardLabelFinal: { color: c.rarityLegendary },
+  cardCount:         { fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.text, marginTop: SPACE.xxs },
   cardCountUpcoming: { color: c.textMuted },
-  cardSub: { fontSize: 10, color: c.textMuted, marginTop: 1 },
+  cardSub: { fontSize: FONT.size.xxs, color: c.textMuted, marginTop: SPACE.xxs },
 });

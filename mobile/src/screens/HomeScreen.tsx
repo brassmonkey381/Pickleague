@@ -1,778 +1,696 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Platform, Modal, Pressable, useWindowDimensions } from 'react-native';
+// Home (plan section 3): what's yours first, about 660px tall for an active
+// member instead of ~1,590.
+//
+//   top bar ...... PICKLEAGUE            [Saved] [Bell] [Gear]   fixed, 44
+//   greeting ..... (avatar) Hi, Brian ›          🔥 5  🥒 1,240 ›   44
+//   NOW .......... check-in / prompt / play session / live event (when any)
+//   GET STARTED .. starter quests + guest / DUPR offers (until all claimed)
+//   UP NEXT ...... votes, RSVPs, tournaments, drills, and the requests waiting
+//                  on me: scores to confirm, invites, drill and join requests
+//                  (lib/agenda.ts + lib/inboxRequests.ts)
+//   YOURS ........ my leagues + tournaments, one live fact each
+//     or JOIN A LEAGUE (no league yet): code, browse, 3 leagues with [Join]
+//   quick row .... Record · Play · Drill · Shop · History
+//   court row .... "At the courts?  Find my court ›" (idle check-in)
+//   OPEN NEAR YOU  open tournaments / joinable leagues (members)
+//   unlock ....... next badge on a progress bar (once Get started is gone)
+//
+// Sections are a KEYED array, so React moves an element between positions
+// without remounting it. That is how the check-in card goes from the court row
+// to NOW and back while staying mounted (the 'home/' push target relies on it).
+//
+// Location is never requested here (rule 5): the permission status is read,
+// and coordinates are used only when it is already granted.
+//
+// The bell (P3): its NUMBER counts what needs me (every needs-you agenda item,
+// uncapped; built from the source rows, so a request whose target was deleted
+// can't count), and plain unread notices only light a dot (and only those
+// whose target still exists: homeData's unreadLive).
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useFocusEffect } from '@react-navigation/native';
-import { supabase } from '../lib/supabase';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { useCachedQuery, setQueryData } from '@just-messin-around/expo-foundation/cache';
+import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
+import { AppTopBar, ConfirmModal, EmptyState, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { useCoords } from '@just-messin-around/expo-foundation/hooks';
+import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around/expo-foundation/platform';
+import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { DrillSession, Profile, RootStackParamList } from '../types';
-import { isoDate, slotRangeLabel } from '../lib/drillTime';
-import { formatPlupr } from '../lib/plupr';
-import FlairName from '../components/FlairName';
-import StreakModal from '../components/StreakModal';
-import FtueChecklistCard from '../components/FtueChecklistCard';
-import CourtCheckinCard from '../components/CourtCheckinCard';
-import GuestUpgradeBanner from '../components/GuestUpgradeBanner';
-import DuprImportBanner from '../components/DuprImportBanner';
-import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
-import { DumbbellIcon, BallIcon } from '../components/PickleIcons';
-import BookmarkButton from '../components/BookmarkButton';
+import { useToast } from '../lib/useToast';
+import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
-import EmptyState from '../components/EmptyState';
-import { SkeletonList } from '../components/Skeleton';
+import { trackHomeTap, trackSectionToggle, type HomeSection } from '../lib/analytics';
+import {
+  buildAgenda,
+  drillAgendaItems,
+  eventAgendaItems,
+  needsYouCount,
+  tournamentAgendaItems,
+  type AgendaItem,
+  type AgendaTarget,
+} from '../lib/agenda';
+import { inboxAgendaItems } from '../lib/inboxRequests';
 import {
   claimDailyLoginStreak,
   hasStreakBeenShown,
   markStreakShown,
+  markStreakModalShownToday,
+  streakRewardClaimable,
+  wasStreakModalShownToday,
   StreakResult,
 } from '../lib/loginStreak';
-import { WAGERS_ENABLED } from '../lib/features';
+import { useLeagueJoin, type LeagueJoinedEvent } from '../lib/useLeagueJoin';
+import { playSession } from '../lib/playSession';
+import { useFtueChecklist } from '../components/FtueChecklistCard';
+import { useIsGuest } from '../components/GuestUpgradeBanner';
+import { useDuprImportOffer } from '../components/DuprImportBanner';
+import CourtCheckinCard, { type CourtCardMode } from '../components/CourtCheckinCard';
+import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
+import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData, type HomeLeague } from '../components/home/homeData';
+import HomeGreeting from '../components/home/HomeGreeting';
+import GetStartedPanel from '../components/home/GetStartedPanel';
+import NowPanel from '../components/home/NowPanel';
+import UpNextSection from '../components/home/UpNextSection';
+import YoursSection from '../components/home/YoursSection';
+import JoinLeagueSection from '../components/home/JoinLeagueSection';
+import JoinCodeModal from '../components/home/JoinCodeModal';
+import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
+import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
+import StreakBonusModal from '../components/home/StreakBonusModal';
+import BellGlyph, { bellA11yLabel, bellBadge } from '../components/home/BellGlyph';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
-type NavItem = { icon: React.ReactNode; label: string; screen: any; params: any };
-const NAV_ITEMS: NavItem[] = [
-  { icon: <BallIcon size={32} />,  label: 'Play',        screen: 'Play',        params: undefined },
-  { icon: <DumbbellIcon size={32} />, label: 'Drill',    screen: 'Drill',       params: undefined },
-  { icon: '🛒',                    label: 'Pickle Shop', screen: 'Shop',        params: undefined },
-  { icon: '😎',                    label: 'Profile',     screen: 'Profile',     params: {} },
-  // The Wagers tile is gated (see lib/features.ts) - the MyWagers screen is
-  // not registered while WAGERS_ENABLED is false, so leaving the tile in
-  // would navigate nowhere.
-  ...(WAGERS_ENABLED
-    ? [{ icon: '🎲', label: 'Wagers', screen: 'MyWagers', params: undefined } as NavItem]
-    : []),
-  // Defaults to this user's own matches, matching where a tapped match push
-  // lands (resolvePushTarget in lib/push) — the tile and the notification
-  // should not disagree about what "match history" means.
-  { icon: '📋', label: 'Match History', screen: 'MatchHistory',
-    params: { title: 'Match History', initialMyMatchesOnly: true } },
-  // About stays last: it is the reference tile, not somewhere you go to act.
-  { icon: '🥒',                    label: 'About',       screen: 'About',       params: undefined },
-];
+/** Pop-ups Home may raise on its own. Queued: never two RN Modals at once. */
+type QueuedModal = { kind: 'welcome'; balance: number } | { kind: 'streak'; result: StreakResult };
 
-// Tournaments — registered (active) + open-registration the user could join.
-type TournamentRow = {
-  id: string; name: string;
-  start_time: string | null;
-  status: 'registration' | 'active' | 'completed' | 'cancelled' | string;
-  league_id: string | null;
-  my_status?: 'approved' | 'pending' | null;
-};
+const JOIN_ROWS = 3;
+const OPEN_ROWS = 3;
+/** The modal handoff pause: longer than RN Modal's ~300ms fade-out. */
+const HANDOFF_MS = 350;
+const NEW_ACCOUNT_MS = 7 * 24 * 60 * 60 * 1000;
+const METERS_PER_MILE = 1609.344;
 
-// Upcoming league events (voting open, or scheduled and not yet started)
-// from leagues the user is a member of.
-type UpcomingEventRow = {
-  id: string;
-  title: string;
-  league_id: string;
-  status: 'voting' | 'scheduled';
-  vote_ends_at: string | null;
-  starts_at: string | null;
-};
-
-// Everything the home screen paints, fetched as one unit. Bundling it is what
-// lets the screen tell "still loading / couldn't reach the server" apart from
-// "you really have nothing going on" — and what stops a failed pull-to-refresh
-// from reporting a balance of 0 pickles as fact.
-type HomeData = {
-  profile: Profile | null;
-  unreadCount: number;
-  inLeague: boolean;
-  drillsToday: (DrillSession & { partner_name: string })[];
-  myTournaments: TournamentRow[];
-  openTournaments: TournamentRow[];
-  upcomingEvents: UpcomingEventRow[];
-};
-
-const EMPTY_HOME: HomeData = {
-  profile: null, unreadCount: 0, inLeague: false, drillsToday: [],
-  myTournaments: [], openTournaments: [], upcomingEvents: [],
-};
-
-const HOME_KEY = 'home:overview';
-
-// One pass over everything the home screen shows. The old version fired
-// supabase.auth.getUser() five times per focus (a network round trip each) and
-// ran the events lookup as four strictly serial requests; on a weak connection
-// that was enough for the whole screen to fall back to a signed-out-looking
-// blank. Identity is now a local session read, and only the genuinely dependent
-// steps (events need my league ids, slots need the event rows) stay sequential.
-async function loadHome(): Promise<HomeData> {
-  const uid = await currentUserId(supabase);
-  if (!uid) return EMPTY_HOME;
-
-  const today = isoDate(new Date());
-  const [profile, unreadRes, memberRows, drillRows, regRows, openRows] = await Promise.all([
-    sbCall(() => supabase.from('profiles').select('*').eq('id', uid).single()),
-    supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
-    // Mirrors FtueChecklistCard's membership check, and doubles as the league
-    // filter for upcoming events (it used to be fetched twice).
-    sbCall(() => supabase.from('league_members').select('league_id').eq('user_id', uid)),
-    sbCall(() => supabase
-      .from('drill_sessions')
-      .select(`
-        *,
-        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
-        p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
-      `)
-      .eq('session_date', today)
-      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
-      .order('session_slot')),
-    // Tournaments I'm registered for (still active or in registration).
-    sbCall(() => supabase
-      .from('tournament_registrations')
-      .select('status, tournament:tournaments(id, name, start_time, status, league_id)')
-      .eq('user_id', uid)
-      .in('status', ['approved', 'pending'])),
-    sbCall(() => supabase
-      .from('tournaments')
-      .select('id, name, start_time, status, league_id')
-      .eq('status', 'registration')
-      .order('start_time', { ascending: true, nullsFirst: false })
-      .limit(25)),
-  ]);
-
-  // Hide drill sessions I've already dismissed today.
-  const drillsToday = ((drillRows ?? []) as any[])
-    .filter(r => !(r.reminder_dismissed_by ?? []).includes(uid))
-    .map(r => ({
-      ...r,
-      partner_name: r.player1_id === uid ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
-    }));
-
-  const myTournaments: TournamentRow[] = [];
-  for (const r of ((regRows ?? []) as any[])) {
-    const t = r.tournament as TournamentRow | null;
-    if (!t || t.status === 'completed' || t.status === 'cancelled') continue;
-    myTournaments.push({ ...t, my_status: r.status });
-  }
-  myTournaments.sort((a, b) => {
-    const ams = a.start_time ? new Date(a.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-    const bms = b.start_time ? new Date(b.start_time).getTime() : Number.MAX_SAFE_INTEGER;
-    return ams - bms;
-  });
-
-  // Open-registration tournaments I haven't joined yet.
-  const myIds = new Set(myTournaments.map(t => t.id));
-  const openTournaments = ((openRows ?? []) as TournamentRow[]).filter(t => !myIds.has(t.id));
-
-  const leagueIds = ((memberRows ?? []) as { league_id: string }[]).map(r => r.league_id);
-  const upcomingEvents = leagueIds.length > 0 ? await loadUpcomingEvents(leagueIds) : [];
-
-  return {
-    profile: (profile ?? null) as Profile | null,
-    unreadCount: unreadRes.count ?? 0,
-    inLeague: leagueIds.length > 0,
-    drillsToday,
-    myTournaments,
-    openTournaments,
-    upcomingEvents,
-  };
-}
-
-async function loadUpcomingEvents(leagueIds: string[]): Promise<UpcomingEventRow[]> {
-  const nowIso = new Date().toISOString();
-  const rows = ((await sbCall(() => supabase
-    .from('league_events')
-    .select(`id, title, league_id, status, vote_ends_at, confirmed_slot_id`)
-    .in('league_id', leagueIds)
-    .in('status', ['voting', 'scheduled'])
-    .order('vote_ends_at', { ascending: true }))) ?? []) as any[];
-
-  // For scheduled events, look up the confirmed slot's start time.
-  const confirmedSlotIds = rows
-    .filter(r => r.status === 'scheduled' && r.confirmed_slot_id)
-    .map(r => r.confirmed_slot_id);
-  const slotMap = new Map<string, string>();
-  if (confirmedSlotIds.length) {
-    const slotRows = await sbCall(() => supabase
-      .from('event_slots')
-      .select('id, starts_at')
-      .in('id', confirmedSlotIds));
-    for (const s of ((slotRows ?? []) as any[])) slotMap.set(s.id, s.starts_at);
-  }
-
-  const upcoming: UpcomingEventRow[] = [];
-  for (const r of rows) {
-    if (r.status === 'voting') {
-      if (!r.vote_ends_at || r.vote_ends_at < nowIso) continue;
-      upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'voting', vote_ends_at: r.vote_ends_at, starts_at: null });
-    } else {
-      const starts = r.confirmed_slot_id ? slotMap.get(r.confirmed_slot_id) ?? null : null;
-      if (!starts || starts < nowIso) continue;
-      upcoming.push({ id: r.id, title: r.title, league_id: r.league_id, status: 'scheduled', vote_ends_at: null, starts_at: starts });
-    }
-  }
-  // Sort by the earliest relevant timestamp (vote_ends or starts_at).
-  upcoming.sort((a, b) => {
-    const at = a.starts_at ?? a.vote_ends_at ?? '';
-    const bt = b.starts_at ?? b.vote_ends_at ?? '';
-    return at.localeCompare(bt);
-  });
-  return upcoming;
+function milesLabel(m: number): string {
+  const mi = m / METERS_PER_MILE;
+  return mi < 10 ? `${mi.toFixed(1)} mi` : `${Math.round(mi)} mi`;
 }
 
 export default function HomeScreen({ navigation }: Props) {
-  const { colors } = useTheme();
-  const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const [welcomeBalance, setWelcomeBalance] = useState(0);
-  const [streakOpen, setStreakOpen] = useState(false);
-  const [streakResult, setStreakResult] = useState<StreakResult | null>(null);
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const toast = useToast();
+  const focused = useIsFocused();
 
   const query = useCachedQuery<HomeData>(HOME_KEY, loadHome, {
     ttlMs: 30_000,
     persistMs: 24 * 60 * 60 * 1000,
   });
-  const {
-    profile, unreadCount, inLeague, drillsToday,
-    myTournaments, openTournaments, upcomingEvents,
-  } = query.data ?? EMPTY_HOME;
+  // Spread over EMPTY_HOME: whatever the cache holds, every field exists.
+  const data: HomeData = useMemo(() => ({ ...EMPTY_HOME, ...(query.data ?? {}) }), [query.data]);
+  const { profile, myLeagues, myTournaments } = data;
   const loadFailed = query.error != null && query.data === undefined;
+  const firstLoad = query.loading && query.data === undefined;
 
   const reload = useCallback(() => query.refresh(), [query.refresh]);
-  useFocusEffect(useCallback(() => { void reload(); }, [reload]));
-
+  // "now" for the time labels: re-read on every focus and every new payload.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { setNow(Date.now()); }, [query.data]);
+  useFocusEffect(useCallback(() => {
+    setNow(Date.now());
+    void reload();
+  }, [reload]));
   const refresh = useRefresh(reload);
 
   // Local patches (welcome pickles, FTUE claim, dismissed drill reminder) write
   // through the cache so the next revalidation doesn't clobber them mid-flight.
+  // Built from the LIVE cache entry, not this render's query.data: callers (the
+  // FTUE claim, the drill dismiss) reach here after an await, and a reload that
+  // landed meanwhile would otherwise be overwritten by the older snapshot (and
+  // setQueryData restamps it as fresh for the whole TTL).
   function patchHome(fn: (d: HomeData) => HomeData) {
-    setQueryData(HOME_KEY, fn(query.data ?? EMPTY_HOME));
+    setQueryData(HOME_KEY, fn({ ...EMPTY_HOME, ...(peekQuery<HomeData>(HOME_KEY) ?? {}) }));
   }
 
-  // Claim welcome pickles once per account, on first home visit after signup.
-  useEffect(() => { claimWelcomePicklesOnce(); }, []);
-  // Daily login streak: pop once per app session per user. Idempotent RPC.
-  useEffect(() => { showStreakOncePerSession(); }, []);
-
-  // Web: close info modals on Escape key.
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    if (!welcomeOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (welcomeOpen) setWelcomeOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [welcomeOpen]);
-
-  async function dismissDrillReminder(session: DrillSession) {
-    const uid = await currentUserId(supabase);
-    if (!uid) return;
-    const next = Array.from(new Set([...(session.reminder_dismissed_by ?? []), uid]));
-    patchHome(d => ({ ...d, drillsToday: d.drillsToday.filter(s => s.id !== session.id) }));
-    try {
-      await sbCall(() => supabase
-        .from('drill_sessions')
-        .update({ reminder_dismissed_by: next })
-        .eq('id', session.id));
-    } catch {
-      // Couldn't persist the dismissal — the banner returns on the next load.
-    }
-  }
-
-  // Both grants below fire on mount, while loadHome's very first request is
-  // still in flight — and cachedFetch dedupes a concurrent refresh onto that
-  // already-running request instead of starting a new one (queryCache.ts:
-  // `const running = inflight.get(key); if (running) return running`). That
-  // check sits above the TTL logic, so refresh()'s ttlMs:0 cannot bypass it.
-  //
-  // A single reload() here therefore resolved with the PRE-grant profile and
-  // cached it, which is why a brand-new account showed 🥒 0 in the header until
-  // some other screen forced its own fetch. Drain the in-flight request first,
-  // then force a genuinely fresh one.
-  //
-  // Deliberately a refetch rather than patching the balance in from the RPC's
-  // return value: the streak RPC reports what it granted, not the new total, so
-  // patching means adding to a balance that may already include the grant.
-  // Refetching cannot double-count.
-  const reloadAfterGrant = useCallback(async () => {
+  // A grant / join usually lands while loadHome's request is still in flight,
+  // and cachedFetch dedupes a concurrent refresh onto that already-running
+  // request (queryCache.ts: `const running = inflight.get(key); if (running)
+  // return running`), above the TTL logic, so refresh()'s ttlMs:0 can't bypass
+  // it. One reload() would resolve with the PRE-grant data and cache it (a new
+  // account used to show 🥒 0 until another screen forced a fetch). Drain the
+  // in-flight request first, then force a genuinely fresh one. A refetch, not a
+  // patch: the RPCs report what they granted, not the new total, so patching
+  // could double-count.
+  const reloadFresh = useCallback(async () => {
     try { await reload(); } catch { /* joins the in-flight fetch; the retry covers it */ }
     try { await reload(); } catch { /* offline — focus revalidation catches up */ }
   }, [reload]);
 
-  // Revalidate as the pop-ups go away too. The grant's own refetch above should
-  // already have landed, but dismissing is the moment the header becomes visible
-  // and worth being right — and this is the fallback if that refetch was still
-  // in flight or the device was offline when it ran.
-  const closeWelcome = useCallback(() => { setWelcomeOpen(false); void reload(); }, [reload]);
-  const closeStreak = useCallback(() => { setStreakOpen(false); void reload(); }, [reload]);
+  // ── Analytics ──
+  const tap = useCallback((section: HomeSection, target: string, position?: number) => {
+    trackHomeTap({ section, target, position });
+  }, []);
+
+  // ── Modal queue ──
+  // Welcome pickles (first launch only: the RPC grants once per account) and
+  // the streak reward (only when today's reward was just claimed, once per user
+  // per day) wait their turn; a user-opened sheet (Enter code, the league
+  // picker) holds them back; and nothing pops while Home isn't the focused
+  // screen, because an RN Modal draws over whatever is on top.
+  //
+  // Handoff: iOS won't present a Modal while another presentation is still
+  // dismissing; it drops the second one silently and the visible prop never
+  // changes, so it never retries (PlayerModerationMenu waits 350ms for the
+  // same reason). So the next pop-up never goes visible in the commit that
+  // hides the previous one: closing a pop-up or one of the sheets holds the
+  // queue for HANDOFF_MS (longer than RN's ~300ms fade), and so does gaining
+  // focus (a screen presented modally on top may still be dismissing). Harmless
+  // on Android and web, where it is only a short pause.
+  const [queue, setQueue] = useState<QueuedModal[]>([]);
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [handoffHeld, setHandoffHeld] = useState(false);
+  const handoffTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdHandoff = useCallback(() => {
+    setHandoffHeld(true);
+    if (handoffTimer.current) clearTimeout(handoffTimer.current);
+    handoffTimer.current = setTimeout(() => setHandoffHeld(false), HANDOFF_MS);
+  }, []);
+  useEffect(() => () => { if (handoffTimer.current) clearTimeout(handoffTimer.current); }, []);
+  const [focusSettled, setFocusSettled] = useState(false);
+  useEffect(() => {
+    if (!focused) { setFocusSettled(false); return; }
+    const timer = setTimeout(() => setFocusSettled(true), HANDOFF_MS);
+    return () => clearTimeout(timer);
+  }, [focused]);
+
+  const activeModal = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen ? queue[0] ?? null : null;
+  // The pop-up on screen right now (one commit behind, which is enough: a
+  // queued one only appears after a HANDOFF_MS pause anyway).
+  const shownRef = useRef<QueuedModal | null>(null);
+  useEffect(() => { shownRef.current = activeModal; }, [activeModal]);
+  const enqueue = useCallback((m: QueuedModal) => {
+    setQueue(q => {
+      if (m.kind !== 'welcome') return [...q, m];
+      // Welcome goes first (it explains the balance the streak adds to), but
+      // never in front of a pop-up already on screen: swapping a visible Modal
+      // for another in one commit is the iOS drop described above.
+      return q.length > 0 && q[0] === shownRef.current ? [q[0], m, ...q.slice(1)] : [m, ...q];
+    });
+  }, []);
+  const closeModal = useCallback(() => {
+    holdHandoff();
+    setQueue(q => q.slice(1));
+    // Dismissing is the moment the header becomes visible and worth being
+    // right; also the fallback if the grant's own refetch was still in flight.
+    void reload();
+  }, [reload, holdHandoff]);
+  // Sheets the user opened hold the queue while up, and hand off like a pop-up
+  // when they close (same commit as the close, so nothing slips through).
+  const closeCodeSheet = useCallback(() => { holdHandoff(); setCodeOpen(false); }, [holdHandoff]);
+  const onPickerOpenChange = useCallback((open: boolean) => {
+    if (!open) holdHandoff();
+    setPickerOpen(open);
+  }, [holdHandoff]);
+
+  // "Shown today" is recorded when the streak pop-up is actually on screen,
+  // not when it is queued: one that never got to show (a dropped present, the
+  // app closed while it waited) can still show later today.
+  const streakMarkedFor = useRef<StreakResult | null>(null);
+  useEffect(() => {
+    const r = activeModal?.kind === 'streak' ? activeModal.result : null;
+    if (!r || streakMarkedFor.current === r) return;
+    streakMarkedFor.current = r;
+    void currentUserId(supabase).then(uid => { if (uid) void markStreakModalShownToday(uid); }).catch(() => {});
+  }, [activeModal]);
+
+  // Streak count straight from the claim, until the reload brings it in.
+  const [claimedStreak, setClaimedStreak] = useState<number | null>(null);
 
   async function claimWelcomePicklesOnce() {
-    const { data, error } = await supabase.rpc('claim_welcome_pickles');
+    const { data: rpc, error } = await supabase.rpc('claim_welcome_pickles');
     if (error) return;
-    const row = Array.isArray(data) ? data[0] : data;
+    const row = Array.isArray(rpc) ? rpc[0] : rpc;
     if (row?.granted) {
-      setWelcomeBalance(row.new_balance ?? 1000);
-      setWelcomeOpen(true);
-      void reloadAfterGrant();
+      enqueue({ kind: 'welcome', balance: row.new_balance ?? 1000 });
+      void reloadFresh();
     }
   }
 
-  async function showStreakOncePerSession() {
+  async function claimStreakOncePerSession() {
     const uid = await currentUserId(supabase);
     if (!uid) return;
     if (hasStreakBeenShown(uid)) return;
     markStreakShown(uid);
+    // Claimed every session (day-idempotent RPC), so the streak and its daily
+    // pickles are credited even on days the modal stays shut.
     const result = await claimDailyLoginStreak();
     if (!result) return;
-    setStreakResult(result);
-    setStreakOpen(true);
-    if (result.claimed_today) void reloadAfterGrant();
+    setClaimedStreak(result.streak_after);
+    if (result.claimed_today) void reloadFresh();
+    if (!streakRewardClaimable(result)) return;
+    if (await wasStreakModalShownToday(uid)) return;
+    // Marked shown once it is on screen (the effect above), not here.
+    enqueue({ kind: 'streak', result });
   }
 
-  // Wide layouts (web / tablet) lay the 4 PLUPR tiles in a single row; phones
-  // get a roomy 2×2. 600px is the breakpoint between the two.
-  const { width } = useWindowDimensions();
-  const wideStats = width >= 600;
-  const s = makeStyles(colors, wideStats);
+  // Both run on Home's FIRST FOCUS, not on mount: the linking config's
+  // initialRouteName mounts Home underneath a cold deep link (/leagues/:id,
+  // /events/:id, a universal link), and an RN Modal renders over whatever
+  // screen is on top, so a mount-time pop-up would cover the screen the link
+  // opened. They wait until the user actually lands on Home.
+  const greetedRef = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (greetedRef.current) return;
+    greetedRef.current = true;
+    void claimWelcomePicklesOnce();
+    void claimStreakOncePerSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, like the mount effects it replaces
+  }, []));
+
+  // ── Joining (JOIN A LEAGUE) ──
+  const [justJoinedId, setJustJoinedId] = useState<string | null>(null);
+  const leagueJoin = useLeagueJoin({
+    status: { clear() {}, error: toast.error, success: toast.success },
+    onJoined: async (e: LeagueJoinedEvent) => {
+      if (e.via === 'join') setJustJoinedId(e.leagueId);
+      else if (e.scopeType === 'league' && e.scopeId) setJustJoinedId(e.scopeId);
+      // Awaited by the hook while the row stays busy, so it doesn't flash
+      // back to [Join] before the league moves into YOURS.
+      await reloadFresh();
+    },
+    onRequested: () => reloadFresh(),
+  });
+
+  // ── Starter quests + offers (Get started) ──
+  const ftue = useFtueChecklist({
+    profile,
+    navigation,
+    inLeague: query.data ? data.inLeague : undefined,
+    onClaimed: (newBalance) => patchHome(d => ({
+      ...d,
+      profile: d.profile ? { ...d.profile, pickles: newBalance } : d.profile,
+    })),
+  });
+  const isGuest = useIsGuest();
+  const dupr = useDuprImportOffer();
+  const getStartedVisible = !ftue.loading && (!ftue.allClaimed || isGuest || dupr.visible);
+  const accountIsNew = profile?.created_at ? now - Date.parse(profile.created_at) < NEW_ACCOUNT_MS : false;
+
+  // ── NOW ──
+  const [courtMode, setCourtMode] = useState<CourtCardMode>('idle');
+  const live = playSession.useLiveSession();
+  const session = live.status !== 'idle' && live.meta
+    ? { label: live.meta.label ?? 'Playing', venueName: live.meta.venueName ?? null }
+    : null;
+
+  const privilegedLeagues = useMemo(
+    () => myLeagues.filter(l => l.role === 'admin' || l.role === 'co-admin').map(l => ({ id: l.id, name: l.name })),
+    [myLeagues],
+  );
+
+  // ── Agenda ──
+  const agendaItems: AgendaItem[] = useMemo(() => [
+    ...eventAgendaItems(data.events, now),
+    ...tournamentAgendaItems(myTournaments, now),
+    ...drillAgendaItems(data.drillsToday),
+    ...inboxAgendaItems(data.inbox, profile?.id ?? null, privilegedLeagues, now),
+  ], [data.events, data.drillsToday, data.inbox, myTournaments, profile?.id, privilegedLeagues, now]);
+  // The bell's number. Counted before NOW takes the live events out of UP
+  // NEXT: an RSVP still open on a live event still needs you.
+  const needYou = useMemo(() => needsYouCount(agendaItems, now), [agendaItems, now]);
+  // A live league event shows in NOW, so UP NEXT leaves it out.
+  const liveEvents = useMemo(
+    () => buildAgenda(agendaItems, now, { cap: Infinity }).rows.filter(r => r.bucket === 'live' && r.kind === 'event'),
+    [agendaItems, now],
+  );
+  const agenda = useMemo(() => {
+    const liveKeys = new Set(liveEvents.map(r => r.key));
+    return buildAgenda(agendaItems.filter(i => !liveKeys.has(i.key)), now);
+  }, [agendaItems, liveEvents, now]);
+  const nowActive = courtMode !== 'idle' || !!session || liveEvents.length > 0;
+
+  const isMember = myLeagues.length > 0;
+
+  // ── Location: status only; coords only when already granted ──
+  const [locGranted, setLocGranted] = useState(false);
+  useFocusEffect(useCallback(() => {
+    let on = true;
+    void getForegroundLocationStatus().then(s => { if (on) setLocGranted(s === 'granted'); }).catch(() => {});
+    return () => { on = false; };
+  }, []));
+  const { coords: rawCoords } = useCoords({ enabled: locGranted });
+  const coords = locGranted ? rawCoords : null;
+  const distanceTo = useCallback((lat: number | null, lng: number | null): number | null => {
+    if (!coords || lat == null || lng == null) return null;
+    return distanceMeters({ lat: coords.lat, lng: coords.lng }, { lat, lng });
+  }, [coords]);
+
+  // JOIN A LEAGUE: nearest first when we may know where you are; otherwise
+  // open leagues before private ones, the busiest first.
+  const joinLeagues = useMemo(() => {
+    const rows = data.openLeagues.map(l => ({ l, d: distanceTo(l.lat, l.lng) }));
+    rows.sort((a, b) => {
+      if (a.d != null || b.d != null) return (a.d ?? Infinity) - (b.d ?? Infinity);
+      const ao = a.l.is_open === false ? 1 : 0;
+      const bo = b.l.is_open === false ? 1 : 0;
+      return ao - bo || b.l.memberCount - a.l.memberCount;
+    });
+    return rows.slice(0, JOIN_ROWS);
+  }, [data.openLeagues, distanceTo]);
+  const joinDistances = useMemo(
+    () => new Map(joinLeagues.filter(r => r.d != null).map(r => [r.l.id, milesLabel(r.d!)])),
+    [joinLeagues],
+  );
+
+  // OPEN NEAR YOU (members): open tournaments, then joinable leagues; nearest
+  // first when location is granted. Keeps the uncapped total for "See all (N)".
+  const openItems: { rows: OpenItem[]; total: number } = useMemo(() => {
+    const items: (OpenItem & { d: number | null })[] = [
+      ...data.openTournaments.map(tr => {
+        const d = distanceTo(tr.lat, tr.lng);
+        return { kind: 'tournament' as const, key: `t-${tr.id}`, tournament: tr, distance: d != null ? milesLabel(d) : null, d };
+      }),
+      ...data.openLeagues.map(l => {
+        const d = distanceTo(l.lat, l.lng);
+        return { kind: 'league' as const, key: `l-${l.id}`, league: l, distance: d != null ? milesLabel(d) : null, d };
+      }),
+    ];
+    if (coords) items.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
+    return { rows: items.slice(0, OPEN_ROWS), total: items.length };
+  }, [data.openTournaments, data.openLeagues, distanceTo, coords]);
+
+  // ── Navigation helpers ──
+  const go = useCallback((target: AgendaTarget) => {
+    switch (target.screen) {
+      case 'EventDetail': navigation.navigate('EventDetail', target.params); break;
+      case 'TournamentDetail': navigation.navigate('TournamentDetail', target.params); break;
+      case 'DrillRequests': navigation.navigate('DrillRequests', target.params); break;
+      case 'MatchHistory': navigation.navigate('MatchHistory', target.params); break;
+      case 'LeagueMembers': navigation.navigate('LeagueMembers', target.params); break;
+    }
+  }, [navigation]);
+  const openLeague = (l: { id: string; name: string }) =>
+    navigation.navigate('LeagueDetail', { leagueId: l.id, leagueName: l.name });
+
+  async function dismissDrill(sessionId: string) {
+    const uid = await currentUserId(supabase);
+    if (!uid) return;
+    patchHome(d => ({ ...d, drillsToday: d.drillsToday.filter(s => s.id !== sessionId) }));
+    try {
+      // Append to the dismissed list without clobbering the partner's entry.
+      const row = await sbCall(() => supabase
+        .from('drill_sessions')
+        .select('reminder_dismissed_by')
+        .eq('id', sessionId)
+        .single());
+      const prev = ((row as { reminder_dismissed_by?: string[] } | null)?.reminder_dismissed_by ?? []);
+      const next = Array.from(new Set([...prev, uid]));
+      await sbCall(() => supabase.from('drill_sessions').update({ reminder_dismissed_by: next }).eq('id', sessionId));
+    } catch (e) {
+      // Couldn't persist the dismissal — the row returns on the next load.
+      toast.error(friendlySbMessage(e, "Couldn't hide that drill just now."));
+    }
+  }
+
+  function onQuick(target: QuickTarget, position: number) {
+    tap('quick', target, position);
+    switch (target) {
+      case 'record': navigation.navigate('MatchEntry', { fromHome: true }); break;
+      case 'play': navigation.navigate('Play'); break;
+      case 'drill': navigation.navigate('Drill'); break;
+      case 'shop': navigation.navigate('Shop'); break;
+      case 'wagers': navigation.navigate('MyWagers'); break;
+      // Defaults to this user's own matches, matching where a tapped match push
+      // lands (resolvePushTarget in lib/push).
+      case 'history': navigation.navigate('MatchHistory', { title: 'Match History', initialMyMatchesOnly: true }); break;
+    }
+  }
+
+  // ── Sections (keyed: see the file header) ──
+  const sections: React.ReactElement[] = [];
+
+  sections.push(
+    <HomeGreeting
+      key="greeting"
+      profile={profile}
+      streak={claimedStreak ?? data.streak}
+      onProfile={() => { tap('greeting', 'profile'); navigation.navigate('Profile', {}); }}
+      onShop={() => { tap('greeting', 'shop'); navigation.navigate('Shop'); }}
+    />,
+  );
+
+  if (nowActive) sections.push(<SectionHeader key="now-header" title="Now" style={styles.tightHeader} />);
+
+  const court = (
+    <CourtCheckinCard
+      key="court"
+      onModeChange={setCourtMode}
+      onTap={(target) => tap(courtMode === 'idle' ? 'court' : 'now', target)}
+    />
+  );
+  if (courtMode !== 'idle') sections.push(court);
+
+  if (session || liveEvents.length > 0) {
+    sections.push(
+      <NowPanel
+        key="now-panel"
+        session={session}
+        liveEvents={liveEvents}
+        now={now}
+        emphasis={courtMode === 'idle'}
+        onEnterScore={() => { tap('now', 'enter_score'); navigation.navigate('MatchEntry', { fromHome: true }); }}
+        onEvent={(row, i) => { tap('now', 'live_event', i); go(row.target); }}
+      />,
+    );
+  }
+
+  if (getStartedVisible) {
+    sections.push(
+      <GetStartedPanel
+        key="get-started"
+        ftue={ftue}
+        isGuest={isGuest}
+        dupr={dupr}
+        defaultOpen={accountIsNew}
+        emphasis={!nowActive}
+        onToggle={(open) => {
+          tap('get_started', open ? 'expand' : 'collapse');
+          trackSectionToggle({ screen: 'Home', section: 'get_started', open });
+        }}
+        onTap={(target, position) => tap('get_started', target, position)}
+      />,
+    );
+  }
+
+  if (loadFailed) {
+    // Only true once a fetch has failed with nothing cached: say so plainly
+    // and offer a retry, instead of claiming you have nothing going on.
+    sections.push(
+      <View key="load-failed" style={[styles.failed, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <EmptyState
+          compact
+          icon="📡"
+          title="Couldn't load your leagues"
+          subtitle={friendlySbMessage(query.error)}
+          actionLabel="Retry"
+          onAction={() => { void reload(); }}
+        />
+      </View>,
+    );
+  } else if (firstLoad) {
+    sections.push(<SkeletonList key="skeleton" rows={4} variant="row" />);
+  } else {
+    if (agenda.total > 0 || isMember) {
+      sections.push(
+        <UpNextSection
+          key="up-next"
+          agenda={agenda}
+          now={now}
+          privilegedLeagues={privilegedLeagues}
+          navigate={go}
+          onProposePlayDay={(leagueId) => navigation.navigate('CreateEvent', { leagueId })}
+          onDismissDrill={(id) => { void dismissDrill(id); }}
+          onTap={(target, position) => tap('up_next', target, position)}
+          onPickerOpenChange={onPickerOpenChange}
+          onSeeAll={(requests) => navigation.navigate('Notifications', requests ? { initialChip: 'requests' } : undefined)}
+        />,
+      );
+    }
+
+    if (isMember || myTournaments.length > 0) {
+      sections.push(
+        <YoursSection
+          key="yours"
+          leagues={myLeagues}
+          tournaments={myTournaments}
+          now={now}
+          highlightId={justJoinedId}
+          onLeague={(l: HomeLeague, i) => { tap('yours', 'league', i); openLeague(l); }}
+          onTournament={(tr, i) => {
+            tap('yours', 'tournament', i);
+            navigation.navigate('TournamentDetail', { tournamentId: tr.id, tournamentName: tr.name });
+          }}
+          onFindMore={() => { tap('yours', 'find_more'); navigation.navigate('Play'); }}
+          onAllYours={() => { tap('yours', 'all_yours'); navigation.navigate('Play', { mine: true }); }}
+        />,
+      );
+    }
+
+    if (!isMember) {
+      sections.push(
+        <JoinLeagueSection
+          key="join"
+          leagues={joinLeagues.map(r => r.l)}
+          leagueJoin={leagueJoin}
+          distanceById={joinDistances}
+          onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
+          onBrowse={() => { tap('join', 'browse'); navigation.navigate('Play'); }}
+          onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
+          onJoinPressed={(kind, i) => tap('join', kind, i)}
+        />,
+      );
+    }
+  }
+
+  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
+
+  if (courtMode === 'idle') sections.push(court);
+
+  if (isMember && !loadFailed && !firstLoad && openItems.rows.length > 0) {
+    sections.push(
+      <OpenNearYouSection
+        key="open"
+        items={openItems.rows}
+        total={openItems.total}
+        totalIsFloor={data.openCapped}
+        onSeeAll={() => { tap('open_near_you', 'see_all'); navigation.navigate('Play'); }}
+        nearby={!!coords}
+        now={now}
+        onPress={(item, i) => {
+          tap('open_near_you', item.kind, i);
+          if (item.kind === 'league') openLeague(item.league);
+          else navigation.navigate('TournamentDetail', { tournamentId: item.tournament.id, tournamentName: item.tournament.name });
+        }}
+      />,
+    );
+  }
+
+  if (!getStartedVisible && !ftue.loading && profile) {
+    sections.push(
+      <ClosestUnlocksCard
+        key="unlock"
+        userId={profile.id}
+        navigation={navigation}
+        onPressed={() => tap('unlock', 'unlock_progress')}
+      />,
+    );
+  }
+
+  const welcome = activeModal?.kind === 'welcome' ? activeModal : null;
+  const streakModal = activeModal?.kind === 'streak' ? activeModal : null;
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ paddingBottom: 40 }}
-      refreshControl={<AppRefreshControl {...refresh} />}
-    >
+    <View style={[styles.root, { backgroundColor: c.bg }]}>
+      <AppTopBar
+        title="PICKLEAGUE"
+        style={[styles.topBar, { backgroundColor: c.bg, borderBottomColor: c.border }]}
+        // The app's web column is 720 (AppNavigator's WebMaxWidth).
+        contentStyle={styles.topBarContent}
+        actions={[
+          {
+            key: 'saved',
+            icon: <Text style={styles.savedGlyph}>🔖</Text>,
+            caption: 'Saved',
+            a11yLabel: 'Saved',
+            onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
+          },
+          {
+            // No `badge` here: BellGlyph draws it so the label can say what
+            // the number means (see that file's FOUNDATION-TODO).
+            key: 'bell',
+            icon: <BellGlyph badge={bellBadge(needYou, data.unreadLive)} />,
+            a11yLabel: bellA11yLabel(needYou, data.unreadLive),
+            onPress: () => { tap('top_bar', 'bell'); navigation.navigate('Notifications'); },
+          },
+          {
+            key: 'settings',
+            icon: 'gear',
+            a11yLabel: 'Settings',
+            onPress: () => { tap('top_bar', 'settings'); navigation.navigate('Settings'); },
+          },
+        ]}
+      />
+      <ScrollView
+        style={styles.flex}
+        contentContainerStyle={styles.content}
+        refreshControl={<AppRefreshControl {...refresh} />}
+      >
+        {sections}
+      </ScrollView>
 
-      {/* ── Hero header ─────────────────────────────── */}
-      <View style={s.hero}>
-        {/* Decorative balls */}
-        <View style={s.decoBallTL}><BallIcon size={80} /></View>
-        <View style={s.decoBallBR}><BallIcon size={100} /></View>
-
-        {/* Settings (top-left) */}
-        <TouchableOpacity
-          style={s.settingsBtn}
-          onPress={() => navigation.navigate('Settings')}
-          accessibilityRole="button"
-          accessibilityLabel="Settings"
-        >
-          <Text style={s.settingsIcon}>⚙️</Text>
-        </TouchableOpacity>
-
-        {/* Bell (top-right) */}
-        <TouchableOpacity
-          style={s.bellBtn}
-          onPress={() => navigation.navigate('Notifications')}
-          accessibilityRole="button"
-          accessibilityLabel="Notifications"
-        >
-          <Text style={s.bellIcon}>🔔</Text>
-          {unreadCount > 0 && (
-            <View style={s.badge}>
-              <Text style={s.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {/* App title */}
-        <View style={s.titleRow}>
-          <Text style={s.titleEmoji}>🥒</Text>
-          <Text style={s.titleText}>PICKLEAGUE</Text>
-        </View>
-        <Text style={s.titleSub}>Your recreational league hub</Text>
-
-        {/* Divider */}
-        <View style={s.heroDivider} />
-
-        {/* Greeting (left) + pickle balance (right) */}
-        <View style={s.greetingRow}>
-          <View style={s.greetingLeft}>
-            {/* tap your name to open your profile */}
-            <Text style={s.welcomeLabel}>Welcome back,</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Profile', {})} activeOpacity={0.6}>
-              {/* TODO: smoke-test in browser — hero name renders with profile_name_style_id */}
-              <FlairName
-                style={s.heroName}
-                nameColor={profile?.name_color}
-                styleId={profile?.profile_name_style_id}
-                mode="hero"
-                name={profile?.full_name?.trim().split(/\s+/)[0] ?? '...'}
-              />
-            </TouchableOpacity>
-          </View>
-
-          {/* Pickle balance — to the right of the greeting; count on top,
-              "pickles · tap to shop" beneath it. (PLUPR tiles previously lived
-              here; they're intentionally hidden — kept contained within a league.) */}
-          <TouchableOpacity style={s.picklePill} onPress={() => navigation.navigate('Shop')} activeOpacity={0.8}>
-            <View style={s.pickleTopRow}>
-              <Text style={s.pickleEmoji}>🥒</Text>
-              {/* Until the profile actually lands, the balance is unknown — "0"
-                  would be a claim we can't back up (and one users act on). */}
-              <Text style={s.pickleValue}>{profile ? profile.pickles ?? 0 : '—'}</Text>
-            </View>
-            <Text style={s.pickleLabel}>pickles · tap to shop</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Guest? Nudge to save the account (self-hides for real users). */}
-      <GuestUpgradeBanner />
-
-      {/* Confirmed email on an imported DUPR roster? Offer to carry the rating
-          over (self-hides when there's no match or it's already imported). */}
-      <DuprImportBanner />
-
-      {/* ── First-time-user checklist (hides once all steps claimed) ── */}
-      {/* TODO: smoke-test in browser */}
-      <FtueChecklistCard
-        profile={profile}
-        navigation={navigation}
-        onClaimed={(newBalance) => patchHome(d => ({
-          ...d,
-          profile: d.profile ? { ...d.profile, pickles: newBalance } : d.profile,
-        }))}
+      <JoinCodeModal
+        visible={codeOpen}
+        leagueJoin={leagueJoin}
+        onClose={closeCodeSheet}
+        onRedeemed={(r) => {
+          // A completed redemption ('enter_code' only counts the sheet opening).
+          tap('join', 'code_redeemed');
+          closeCodeSheet();
+          // A tournament code registers you there: open it. A league code's
+          // league moves into YOURS on the reload the hook already runs.
+          if (r.scopeType === 'tournament' && r.scopeId) {
+            navigation.navigate('TournamentDetail', { tournamentId: r.scopeId, tournamentName: r.scopeName });
+          }
+        }}
       />
 
-      {/* ── Court check-in + who's here now ── */}
-      <CourtCheckinCard />
-
-      {/* ── Upcoming (tournaments + events + drill sessions) ── */}
-      <View style={s.tournamentSection}>
-        <View style={s.tournamentSectionHeader}>
-          <Text style={s.tournamentSectionTitle}>📅 Upcoming events</Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Bookmarks')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Bookmarks"
-          >
-            <Text style={s.bookmarkIcon}>🔖</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* "No upcoming events" is only true once a fetch has succeeded —
-            otherwise the section says so plainly and offers a retry. */}
-        {loadFailed ? (
-          <EmptyState
-            icon="📡"
-            title="Couldn't load your schedule"
-            subtitle={friendlySbMessage(query.error)}
-            actionLabel="Retry"
-            onAction={() => { void reload(); }}
-          />
-        ) : query.loading ? (
-          <SkeletonList rows={3} />
-        ) : myTournaments.length === 0 && openTournaments.length === 0 && upcomingEvents.length === 0 && drillsToday.length === 0 ? (
-          <EmptyState icon="📅" title="No upcoming events" subtitle="Tournaments, league events, and drill sessions you join will show up here." />
-        ) : (
-          <>
-            {myTournaments.slice(0, 3).map(t => (
-              <TouchableOpacity
-                key={`mine-${t.id}`}
-                style={s.tournamentRow}
-                activeOpacity={0.7}
-                onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.tournamentRowName} numberOfLines={1}>🏆 {t.name}</Text>
-                  <Text style={s.tournamentRowMeta}>
-                    {t.start_time
-                      ? new Date(t.start_time).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
-                      : 'Date TBD'}
-                    {' · '}
-                    {t.my_status === 'pending' ? '📨 Invited' : t.status === 'registration' ? '✓ Registered' : '✓ Active'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-
-            {upcomingEvents.slice(0, 4).map(e => (
-              <TouchableOpacity
-                key={`event-${e.id}`}
-                style={s.tournamentRow}
-                activeOpacity={0.7}
-                onPress={() => navigation.navigate('EventDetail', { eventId: e.id, title: e.title })}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.tournamentRowName} numberOfLines={1}>📅 {e.title}</Text>
-                  <Text style={s.tournamentRowMeta}>
-                    {e.status === 'voting'
-                      ? `🗳️ Voting · ends ${new Date(e.vote_ends_at!).toLocaleDateString()}`
-                      : e.starts_at
-                        ? `✓ Scheduled · ${new Date(e.starts_at).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}`
-                        : '✓ Scheduled'}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))}
-
-            {drillsToday.slice(0, 3).map(d => (
-              <TouchableOpacity
-                key={`drill-${d.id}`}
-                style={[s.tournamentRow, { flexDirection: 'row', alignItems: 'center' }]}
-                activeOpacity={0.7}
-                onPress={() => navigation.navigate('DrillRequests')}
-              >
-                <View style={{ flex: 1 }}>
-                  <Text style={s.tournamentRowName} numberOfLines={1}>🏓 Drill with {d.partner_name}</Text>
-                  <Text style={s.tournamentRowMeta}>
-                    Today · {slotRangeLabel(d.session_slot, d.length_minutes ?? 60)}
-                  </Text>
-                </View>
-                <BookmarkButton targetType="drill_session" targetId={d.id} size={18} />
-              </TouchableOpacity>
-            ))}
-
-            {openTournaments.length > 0 && (
-              <>
-                <Text style={s.tournamentSubheading}>Open registration</Text>
-                {openTournaments.slice(0, 4).map(t => (
-                  <TouchableOpacity
-                    key={`open-${t.id}`}
-                    style={s.tournamentRow}
-                    activeOpacity={0.7}
-                    onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={s.tournamentRowName} numberOfLines={1}>🏆 {t.name}</Text>
-                      <Text style={s.tournamentRowMeta}>
-                        {t.start_time
-                          ? new Date(t.start_time).toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })
-                          : 'Date TBD'}
-                        {' · '}Tap to register
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
-          </>
-        )}
-      </View>
-
-      {/* ── Today's drill session reminders ───────────────── */}
-      {drillsToday.map(s2 => (
-        <TouchableOpacity
-          key={s2.id}
-          style={s.drillBanner}
-          onPress={() => navigation.navigate('DrillRequests')}
-          activeOpacity={0.85}
-        >
-          <View style={s.drillBannerEmoji}><DumbbellIcon size={28} color="#ffffff" /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.drillBannerTitle}>Drill with {s2.partner_name} today!</Text>
-            <Text style={s.drillBannerSub}>{slotRangeLabel(s2.session_slot, s2.length_minutes ?? 60)} · tap for details</Text>
-          </View>
-          <TouchableOpacity
-            onPress={(e) => { e.stopPropagation(); dismissDrillReminder(s2); }}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss drill reminder"
-          >
-            <Text style={s.drillBannerClose}>✕</Text>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      ))}
-
-      {/* ── Record a Match (only when the user is in a league) ── */}
-      {/* TODO: smoke-test in browser */}
-      {inLeague && (
-        <TouchableOpacity
-          style={s.recordCard}
-          activeOpacity={0.85}
-          onPress={() => navigation.navigate('MatchEntry', { fromHome: true })}
-        >
-          <Text style={s.recordIcon}>📝</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={s.recordTitle}>Record a Match</Text>
-            <Text style={s.recordSub}>Log your latest result</Text>
-          </View>
-          <Text style={s.recordChevron}>›</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* ── Nav grid ────────────────────────────────── */}
-      <View style={s.grid}>
-        {NAV_ITEMS.map(({ icon, label, screen, params }) => (
-          <TouchableOpacity
-            key={label}
-            style={s.card}
-            activeOpacity={0.75}
-            onPress={() => (navigation.navigate as any)(screen, params)}
-          >
-            {typeof icon === 'string'
-              ? <Text style={s.cardIcon}>{icon}</Text>
-              : <View style={{ marginBottom: 4, alignItems: 'center', justifyContent: 'center' }}>{icon}</View>}
-            <Text style={s.cardLabel}>{label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* ── Closest unlocks (hides when nothing global remains) ── */}
-      {/* TODO: smoke-test in browser */}
-      <ClosestUnlocksCard userId={profile?.id ?? null} navigation={navigation} />
-
-      {/* ── Welcome pickles modal ────────────────────────── */}
-      <Modal visible={welcomeOpen} transparent animationType="fade" onRequestClose={closeWelcome}>
-        <Pressable
-          style={s.welcomeBackdrop}
-          onPress={(e) => { if (e.target === e.currentTarget) closeWelcome(); }}
-        >
-          <View style={s.welcomeCard}>
-            <Text style={s.welcomeEmoji}>🥒</Text>
-            <Text style={s.welcomeTitle}>Welcome to Pickleague!</Text>
-            <Text style={s.welcomeBody}>
-              Here's <Text style={s.welcomeAmount}>1,000 pickles</Text> to get you started.
+      <ConfirmModal
+        visible={!!welcome}
+        title="🥒 Welcome to Pickleague!"
+        body={
+          <View style={styles.welcomeBody}>
+            <Text style={[t.body, styles.center]}>
+              Here's <Text style={{ color: c.primary, fontWeight: FONT.weight.bold }}>1,000 pickles</Text> to get you started.
             </Text>
-            <Text style={s.welcomeSub}>
+            <Text style={[t.sub, styles.center]}>
               Spend them in the Pickle Shop on premium avatars, cosmetic badges, or profile flair.
             </Text>
-            <Text style={s.welcomeBalance}>Your balance: 🥒 {welcomeBalance}</Text>
-            <View style={s.welcomeBtnRow}>
-              <TouchableOpacity
-                style={[s.welcomeBtn, s.welcomeBtnSecondary]}
-                onPress={closeWelcome}
-              >
-                <Text style={s.welcomeBtnSecondaryText}>Later</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={s.welcomeBtn}
-                onPress={() => { closeWelcome(); navigation.navigate('Shop'); }}
-              >
-                <Text style={s.welcomeBtnText}>Visit Shop</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={[t.title, styles.center, { color: c.primary }]}>
+              Your balance: 🥒 {(welcome?.balance ?? 0).toLocaleString()}
+            </Text>
           </View>
-        </Pressable>
-      </Modal>
-
-      {/* ── Daily login streak ─────────────────────────── */}
-      <StreakModal
-        visible={streakOpen}
-        result={streakResult}
-        onClose={closeStreak}
+        }
+        primaryLabel="Visit Shop"
+        cancelLabel="Later"
+        onConfirm={() => { closeModal(); navigation.navigate('Shop'); }}
+        onClose={closeModal}
       />
-    </ScrollView>
+
+      <StreakBonusModal visible={!!streakModal} result={streakModal?.result ?? null} onClose={closeModal} />
+    </View>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors'], wideStats: boolean) {
-  return StyleSheet.create({
-    hero: {
-      backgroundColor: c.headerBg,
-      paddingTop: Platform.OS === 'ios' ? 60 : 48,
-      paddingBottom: 28,
-      paddingHorizontal: 24,
-      overflow: 'hidden',
-    },
-    decoBallTL: { position: 'absolute', top: -10, left: -8, opacity: 0.12 },
-    decoBallBR: { position: 'absolute', bottom: -16, right: -8, opacity: 0.12 },
-    bellBtn:  { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 48, right: 16, padding: 8, zIndex: 10 },
-    bellIcon: { fontSize: 22 },
-    settingsBtn:  { position: 'absolute', top: Platform.OS === 'ios' ? 60 : 48, right: 54, padding: 8, zIndex: 10 },
-    settingsIcon: { fontSize: 22 },
-    badge:    { position: 'absolute', top: 4, right: 2, backgroundColor: '#c62828', borderRadius: 9, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
-    badgeText:{ color: '#fff', fontSize: 10, fontWeight: '800' },
-    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-    titleEmoji:{ fontSize: 28 },
-    titleText: { fontSize: 28, fontWeight: '900', color: c.headerText, letterSpacing: 5 },
-    titleSub:  { fontSize: 13, color: c.headerSub, marginTop: 3, letterSpacing: 0.5 },
-    heroDivider: { height: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginVertical: 18 },
-    welcomeLabel: { fontSize: 14, color: c.headerSub, fontWeight: '500' },
-    heroName:  { fontSize: 30, fontWeight: '800', color: c.headerText, marginTop: 2 },
-
-    // Hero greeting laid out beside the PLUPR quick-stats grid (name + pickles
-    // on the left, a 2×2 grid of rating tiles pinned to the right). The grid
-    // keeps its size (flexShrink 0) while the greeting flexes to fill the rest —
-    // tiles are a touch larger on wide/web layouts and compact on phones so the
-    // name always has room.
-    greetingRow:  { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-    greetingLeft: { flex: 1, minWidth: 0 },
-    pluprGrid:    {
-      flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end',
-      flexShrink: 0, width: wideStats ? 2 * 96 + 8 : 2 * 78 + 8,
-    },
-    pluprTile:    {
-      width: wideStats ? 96 : 78, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6,
-      borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.12)',
-      borderWidth: 1, borderColor: 'rgba(255,255,255,0.20)',
-    },
-    pluprValue:   { fontSize: wideStats ? 18 : 17, fontWeight: '800', color: c.headerText },
-    pluprLabel:   { fontSize: wideStats ? 11 : 10, color: c.headerSub, fontWeight: '600', marginTop: 2, textAlign: 'center' },
-
-    picklePill: {
-      alignItems: 'center',
-      alignSelf: 'flex-start',
-      backgroundColor: 'rgba(255,255,255,0.18)',
-      paddingHorizontal: 16, paddingVertical: 8,
-      borderRadius: 16,
-      borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
-    },
-    pickleTopRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    pickleEmoji: { fontSize: 16 },
-    pickleValue: { fontSize: 16, fontWeight: '800', color: c.headerText },
-    pickleLabel: { fontSize: 12, color: c.headerSub, marginTop: 2 },
-
-    drillBanner: {
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      backgroundColor: c.primaryLight,
-      borderLeftWidth: 4, borderLeftColor: c.primary,
-      paddingHorizontal: 14, paddingVertical: 12,
-      marginHorizontal: 14, marginTop: 12, borderRadius: 10,
-    },
-    drillBannerEmoji: { width: 34, height: 34, justifyContent: 'center', alignItems: 'center' },
-    drillBannerTitle: { fontSize: 14, fontWeight: '800', color: c.text },
-    drillBannerSub:   { fontSize: 12, color: c.textSub, marginTop: 1 },
-    drillBannerClose: { fontSize: 18, fontWeight: '700', color: c.textMuted, paddingHorizontal: 6 },
-
-    welcomeBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-    welcomeCard:     { backgroundColor: c.surface, borderRadius: 18, padding: 28, alignItems: 'center', maxWidth: 380, width: '100%', shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 10 },
-    welcomeEmoji:    { fontSize: 64, marginBottom: 8 },
-    welcomeTitle:    { fontSize: 22, fontWeight: '900', color: c.text, marginBottom: 10, textAlign: 'center' },
-    welcomeBody:     { fontSize: 15, color: c.textSub, textAlign: 'center', lineHeight: 22, marginBottom: 6 },
-    welcomeAmount:   { fontWeight: '900', color: c.primary, fontSize: 17 },
-    welcomeSub:      { fontSize: 13, color: c.textMuted, textAlign: 'center', lineHeight: 19, marginBottom: 14 },
-    welcomeBalance:  { fontSize: 14, fontWeight: '700', color: c.primary, marginBottom: 18, backgroundColor: c.primaryLight, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, overflow: 'hidden' },
-    welcomeBtnRow:   { flexDirection: 'row', gap: 10, width: '100%' },
-    welcomeBtn:      { flex: 1, backgroundColor: c.primary, paddingVertical: 12, borderRadius: 12, alignItems: 'center' },
-    welcomeBtnText:  { color: '#fff', fontWeight: '800', fontSize: 14 },
-    welcomeBtnSecondary: { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    welcomeBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
-
-    recordCard: {
-      flexDirection: 'row', alignItems: 'center', gap: 12,
-      marginHorizontal: 16, marginTop: 16,
-      paddingHorizontal: 16, paddingVertical: 16,
-      borderRadius: 14,
-      backgroundColor: '#fff8e1', borderWidth: 1.5, borderColor: '#ffe082',
-      elevation: 2, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
-    },
-    recordIcon:    { fontSize: 30 },
-    recordTitle:   { fontSize: 17, fontWeight: '800', color: '#b8860b' },
-    recordSub:     { fontSize: 13, color: '#b8860b', marginTop: 2, opacity: 0.85 },
-    recordChevron: { fontSize: 26, color: '#b8860b', fontWeight: '700' },
-
-    grid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, padding: 16, marginTop: 8 },
-
-    tournamentSection:       { marginHorizontal: 16, marginTop: 12, padding: 14, borderRadius: 14, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-    tournamentSectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    tournamentSectionTitle:  { fontSize: 15, fontWeight: '800', color: c.text },
-    tournamentViewAll:       { fontSize: 13, fontWeight: '700', color: c.primary },
-    bookmarkIcon:            { fontSize: 22 },
-    upcomingEmpty:           { fontSize: 13, color: c.textMuted, fontStyle: 'italic', paddingVertical: 6 },
-    tournamentSubheading:    { fontSize: 11, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 10, marginBottom: 4 },
-    tournamentRow:           { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
-    tournamentRowName:       { fontSize: 14, fontWeight: '700', color: c.text },
-    tournamentRowMeta:       { fontSize: 12, color: c.textSub, marginTop: 2 },
-    card:     {
-      width: '47%',
-      backgroundColor: c.surface,
-      borderRadius: 14,
-      paddingVertical: 22,
-      alignItems: 'center',
-      elevation: 2,
-      shadowColor: '#000',
-      shadowOpacity: 0.07,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
-    },
-    cardIcon:  { fontSize: 38, marginBottom: 8 },
-    cardLabel: { fontSize: 14, fontWeight: '700', color: c.text },
-  });
-}
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  flex: { flex: 1 },
+  topBar: { borderBottomWidth: HAIRLINE },
+  topBarContent: { maxWidth: 720 },
+  savedGlyph: { fontSize: FONT.size.h2, lineHeight: FONT.size.h1 },
+  content: {
+    paddingHorizontal: SPACE.lg,
+    paddingTop: SPACE.xs,
+    paddingBottom: SPACE.xl,
+    gap: SPACE.md,
+  },
+  // NOW's label sits right on its panel.
+  tightHeader: { marginBottom: -SPACE.sm },
+  failed: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg },
+  welcomeBody: { gap: SPACE.sm },
+  center: { textAlign: 'center' },
+});

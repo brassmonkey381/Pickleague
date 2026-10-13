@@ -1,21 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
-import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { navigationRef } from '../lib/navigationRef';
+import EntityRow from './EntityRow';
 
 /**
- * Inline "save your account" nudge for guest (anonymous) accounts. Tapping opens
- * the upgrade flow. Re-checks `profiles.is_guest` on every auth state change
- * (including the refreshSession the upgrade screen fires on success), so it
- * disappears once the guest converts. Rendered inline near the top of the Home
- * screen only — not app-wide.
+ * Whether the signed-in account is a guest (anonymous) one. Re-checks
+ * `profiles.is_guest` on every auth state change (including the refreshSession
+ * the upgrade screen fires on success), so it flips to false once the guest
+ * converts. Split out of the old banner so Home's Get started panel can count
+ * the offer as one of its rows (plan section 3: guest and DUPR offers are rows
+ * in Get started, never separate banners).
  */
-export default function GuestUpgradeBanner() {
-  const { colors: c } = useTheme();
+export function useIsGuest(): boolean {
   const [isGuest, setIsGuest] = useState(false);
-
   useEffect(() => {
     let cancelled = false;
     // IMPORTANT: never call an auth method (getUser/refreshSession) inside the
@@ -45,29 +43,39 @@ export default function GuestUpgradeBanner() {
     return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);
 
-  if (!isGuest) return null;
+  return isGuest;
+}
 
+type RowProps = {
+  /** The Panel's final row (no divider under it). */
+  lastRow?: boolean;
+  /** Analytics hook; navigation to UpgradeAccount happens here regardless. */
+  onPressed?: () => void;
+};
+
+/** The "save your account" offer as a Get started row. Presentational: render
+ *  it only when useIsGuest() is true. */
+export function GuestUpgradeRow({ lastRow, onPressed }: RowProps) {
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      style={[styles.banner, { backgroundColor: c.primary }]}
-      onPress={() => { if (navigationRef.isReady()) navigationRef.navigate('UpgradeAccount'); }}
-    >
-      <Text style={styles.title}>👋  You're a guest — save your account</Text>
-      <Text style={styles.sub}>Add an email & password so you don't lose access  →</Text>
-    </TouchableOpacity>
+    <EntityRow
+      kind="player"
+      layout="row"
+      glyph="👋"
+      title="Save your account"
+      subtitle="You're a guest. Add an email so you don't lose access."
+      trailingText="Save"
+      lastRow={lastRow}
+      onPress={() => {
+        onPressed?.();
+        if (navigationRef.isReady()) navigationRef.navigate('UpgradeAccount');
+      }}
+    />
   );
 }
 
-const styles = StyleSheet.create({
-  banner: {
-    marginHorizontal: 16,
-    marginTop: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  title: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  sub:   { color: '#fff', fontSize: 12, marginTop: 2, opacity: 0.95 },
-});
+/** Self-checking variant: the row, only for guests. */
+export default function GuestUpgradeBanner(props: RowProps) {
+  const isGuest = useIsGuest();
+  if (!isGuest) return null;
+  return <GuestUpgradeRow {...props} />;
+}

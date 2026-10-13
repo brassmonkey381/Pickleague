@@ -1,15 +1,31 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, FlatList, StyleSheet, Pressable, TextInput } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
 // Aliased: this screen already has a `currentUserId` state variable, which would
 // otherwise shadow the helper.
 import { sbCall, currentUserId as readCurrentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { REGIONS, inRegion } from '../lib/regions';
+import {
+  ListCard,
+  Badge,
+  SectionHeader,
+  FilterSheet,
+  FilterChipRow,
+  FilterPill,
+  FilterSearchField,
+  ActiveFilterChips,
+  countActiveFilters,
+  removeFilterValue,
+  resetFilters,
+  type FilterSheetGroup,
+  type FilterValues,
+} from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Match, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -26,129 +42,62 @@ import { WAGERS_ENABLED } from '../lib/features';
 import type { WagerSubject } from '../lib/wager';
 import type { Profile } from '../types';
 import { noteGoodMoment } from '../lib/ratingPrompt';
-
-type HomeAwayFilter     = 'all' | 'home' | 'away';
-type TypeFilter         = 'all' | 'singles' | 'doubles';
-type RecencyFilter      = 3 | 7 | 30 | 90 | null; // days; null = all time
-type IndoorOutdoorFilter = 'all' | 'outdoor' | 'indoor' | 'unknown';
-type DoublesCategoryFilter = 'all' | 'gendered' | 'mixed' | 'unspecified';
+import { entityGlyph, joinFacts } from '../lib/entityGlyph';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
   route: RouteProp<RootStackParamList, 'MatchHistory'>;
 };
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bg },
-    card: { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderLeftWidth: 4, borderLeftColor: c.border, elevation: 3, shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6 },
-    win:  { borderLeftColor: c.primary },
-    loss: { borderLeftColor: c.danger },
+// A match row plus the league / tournament it was recorded under. The embeds
+// are read-only joins on matches.league_id (NOT NULL) and matches.tournament_id
+// (an optional display-only tag, migration_matches_tournament_tag.sql); both
+// tables are `select using (true)`, so RLS allows them for every viewer.
+type HistoryMatch = Match & {
+  tournament_id?: string | null;
+  league?: { id: string; name: string } | null;
+  tournament?: { id: string; name: string } | null;
+};
 
-    // Brief gold ring flashed on a deep-linked match (from a match-confirm notif).
-    highlightCard:     { borderWidth: 2, borderColor: '#ffe082', backgroundColor: '#fff8e1' },
-    pendingCard:       { borderLeftColor: '#d4a72c', backgroundColor: '#fffaeb' },
-    pendingHeader:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    pendingBadgeText:  { fontSize: 12, fontWeight: '800', color: '#8a6d00', textTransform: 'uppercase', letterSpacing: 0.5 },
-    pendingDeadline:   { fontSize: 12, fontWeight: '700', color: '#8a6d00' },
-    upcomingCard:      { borderLeftColor: c.primary, backgroundColor: c.primaryLight },
-    upcomingBadgeText: { fontSize: 12, fontWeight: '800', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5 },
-    upcomingMenuText:  { fontSize: 18, fontWeight: '900', color: c.primary, lineHeight: 18 },
-    upcomingMatchup:   { fontSize: 14, fontWeight: '700', color: c.text },
-    upcomingVs:        { fontSize: 13, fontWeight: '600', color: c.textSub, marginVertical: 4 },
-    upcomingWhen:      { fontSize: 12, fontWeight: '700', color: c.primary, marginTop: 8 },
-    sectionTitle:      { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 4, marginBottom: 8 },
-    pendingMatchup:    { fontSize: 14, fontWeight: '700', color: c.text },
-    pendingScore:      { fontSize: 22, fontWeight: '900', color: c.text, marginVertical: 4 },
-    pendingTeamRow:    { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, marginBottom: 8 },
-    pendingTeamStatus: { fontSize: 11, fontWeight: '700' },
-    pendingTeamDone:   { color: '#2e7d32' },
-    pendingTeamWaiting:{ color: '#8a6d00' },
-    confirmBtn:        { backgroundColor: c.primary, paddingVertical: 10, borderRadius: 10, alignItems: 'center', marginTop: 4 },
-    confirmBtnText:    { color: '#fff', fontWeight: '800', fontSize: 14 },
-    pendingNote:       { fontSize: 12, color: c.textSub, fontStyle: 'italic', marginTop: 6 },
-    leagueRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
-    typeTag: { fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' },
-    cardHeader: { flexDirection: 'row', alignItems: 'center' },
-    result: { fontSize: 22, fontWeight: '800', width: 28 },
-    winText:  { color: c.primary },
-    lossText: { color: c.danger },
-    cardInfo: { flex: 1, marginLeft: 10 },
-    opponent: { fontSize: 15, fontWeight: '600', color: c.text },
-    dateText: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    locationText: { fontSize: 11, color: c.textMuted, marginTop: 1 },
-    partnerText: { fontSize: 12, color: c.primary, marginTop: 1 },
-    cardRight: { alignItems: 'flex-end' },
-    matchup: { fontSize: 15, fontWeight: '600', color: c.text, flex: 1, marginRight: 8 },
-    score: { fontSize: 15, fontWeight: '700', color: c.textSub },
-    elo: { fontSize: 12, fontWeight: '600', marginTop: 2 },
-    eloUp:   { color: c.primary },
-    eloDown: { color: c.danger },
-    filterBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 10, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    countText: { flex: 1, fontSize: 13, color: c.textMuted },
-    filterBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
-    filterBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    filterBtnText: { fontSize: 13, fontWeight: '600', color: c.textSub },
-    filterBtnTextActive: { color: c.primary },
-    clearText: { fontSize: 13, color: c.danger, fontWeight: '600' },
-    filterPanel: { backgroundColor: c.surface, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    filterLabel: { fontSize: 12, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
-    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-    pill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    pillTextActive: { color: c.primary, fontWeight: '700' },
-    resultMini: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-    resultMiniWin: { backgroundColor: c.primary },
-    resultMiniLoss: { backgroundColor: c.danger },
-    resultMiniText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-    matchupWinner: { fontWeight: '800', color: c.text },
-    searchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    searchInput: {
-      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8,
-      paddingHorizontal: 12, paddingVertical: 8, fontSize: 14,
-      backgroundColor: c.surface, color: c.text,
-    },
-    clearSearch: { paddingHorizontal: 10, paddingVertical: 8 },
-    clearSearchText: { fontSize: 14, color: c.textMuted, fontWeight: '600' },
-    leagueMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-    homeAwayBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-    homeBadge: { backgroundColor: c.primaryLight },
-    awayBadge: { backgroundColor: c.bg },
-    homeAwayText: { fontSize: 11, fontWeight: '700' },
-    homeText: { color: c.primary },
-    awayText: { color: c.textMuted },
-    indoorBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, marginTop: 2 },
-    outdoorBg: { backgroundColor: '#fff8e1' },
-    indoorBg:  { backgroundColor: '#e3f2fd' },
-    unknownBg: { backgroundColor: c.bg },
-    indoorText: { fontSize: 11, fontWeight: '700' },
-    outdoorColor: { color: '#f57f17' },
-    indoorColor:  { color: '#1565c0' },
-    unknownColor: { color: c.textMuted },
-    catBadge:        { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8, marginTop: 2 },
-    catGenderedBg:   { backgroundColor: c.primaryLight },
-    catMixedBg:      { backgroundColor: '#f3e5f5' },
-    catUnspecBg:     { backgroundColor: c.bg },
-    catText:         { fontSize: 11, fontWeight: '700' },
-    catGenderedColor:{ color: c.primary },
-    catMixedColor:   { color: '#8e24aa' },
-    catUnspecColor:  { color: c.textMuted },
-    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
-    calendarBtn: { backgroundColor: c.primaryLight, borderRadius: 10, padding: 14, marginBottom: 12, alignItems: 'center' },
-    calendarBtnText: { color: c.primary, fontWeight: '700', fontSize: 15 },
-    pendingMenuBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-    pendingMenuText: { fontSize: 18, fontWeight: '900', color: '#8a6d00', lineHeight: 18 },
-    pendingHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    scoreInputRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 8, marginBottom: 4 },
-    scoreInput: {
-      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8,
-      paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, fontWeight: '700',
-      backgroundColor: c.surface, color: c.text, textAlign: 'center',
-    },
-    scoreInputDash: { fontSize: 18, fontWeight: '800', color: c.textMuted },
-    scoreInputLabel: { fontSize: 11, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8 },
-  });
+// ── Filters ─────────────────────────────────────────────────────────────
+// Every filter lives in one FilterValues record so the foundation FilterSheet,
+// ActiveFilterChips and the pure helpers (count / remove / reset) all read the
+// same state. null = off. "Mine" is the one quick chip on the row itself.
+//
+// Filter-pill convention: the league / tournament chip on each card ships with
+// the League and Tournament groups here. They replace the old Region pill
+// (5 hard-coded Bay Area boxes in lib/regions.ts), which no card displayed.
+const FILTER_DEFAULTS: FilterValues = {
+  player: null,
+  recency: null,
+  homeAway: null,
+  matchType: null,
+  doublesCategory: null,
+  indoorOutdoor: null,
+  league: null,
+  tournament: null,
+};
+
+// Card-height budget: a compact card is 56-62 at the default text size, and the
+// plan's hard cap for match cards is 72. Used as the scroll estimate too.
+const MATCH_ROW_ESTIMATE = 66;
+
+/** Pre-applied filters from the route (a PLUPR facet on Home, a push). */
+function initialFilters(p: RootStackParamList['MatchHistory'] | undefined): FilterValues {
+  return {
+    ...FILTER_DEFAULTS,
+    matchType: p?.initialMatchType ?? null,
+    doublesCategory: p?.initialDoublesCategory ?? null,
+  };
+}
+
+/** "Oct 3", or "Oct 3, 2025" outside the current year. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, sameYear
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 type WagerRowCtx = {
@@ -158,7 +107,7 @@ type WagerRowCtx = {
 };
 
 // Renders a 1-or-2-player team with each player's FlairName styling (list mode).
-// Falls back to plain "Unknown" when a profile is missing. Designed to be
+// Falls back to plain "Player" when a profile is missing. Designed to be
 // embedded inside a parent <Text>, which carries the text style + numberOfLines.
 // TODO: smoke-test in browser — list mode FlairName wire-up
 function TeamFlair({
@@ -170,7 +119,7 @@ function TeamFlair({
   partner?: Partial<Profile> | null;
   textStyle?: any;
 }) {
-  if (!player) return <Text style={textStyle}>Unknown</Text>;
+  if (!player) return <Text style={textStyle}>Player</Text>;
   const playerEl = (
     <FlairName
       name={player.full_name ?? '?'}
@@ -197,36 +146,36 @@ function TeamFlair({
 }
 
 export default function MatchHistoryScreen({ navigation, route }: Props) {
-  const { leagueId, userId, initialMatchType, initialDoublesCategory, initialMyMatchesOnly, highlightMatchId } = route.params;
+  // Defensive: the web path /matches can arrive with no params at all.
+  const params = route.params ?? ({ title: 'Match History' } as RootStackParamList['MatchHistory']);
+  const { leagueId, userId, initialMyMatchesOnly, highlightMatchId } = params;
   const { colors } = useTheme();
   const S = makeStyles(colors);
-  const [matches, setMatches]       = useState<Match[]>([]);
+  const t = textStyles(colors);
+  const [matches, setMatches]       = useState<HistoryMatch[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
   // Set when a fetch fails. Distinguishes "no matches recorded yet" from
   // "couldn't reach the server" — the same empty view used to serve both.
   const [loadError, setLoadError]   = useState<unknown>(null);
-  // Open filter drawer by default when arriving with pre-applied filters so
-  // the user can see what's been narrowed for them.
-  const [showFilters, setShowFilters] = useState(!!(initialMatchType || initialDoublesCategory || initialMyMatchesOnly));
-  const [homeAway, setHomeAway]     = useState<HomeAwayFilter>('all');
-  const [matchType, setMatchType]   = useState<TypeFilter>(initialMatchType ?? 'all');
-  const [region, setRegion]         = useState<string | null>(null);
-  const [recency, setRecency]       = useState<RecencyFilter>(null);
-  const [playerSearch, setPlayerSearch] = useState('');
+  // Filters start COLLAPSED, always. Pre-applied route filters (the match/
+  // push sets "Mine"; Home's facet tiles set a type) show as removable chips
+  // on the one-line filter row instead of opening the ~500px panel, which
+  // used to push the push's highlighted match below the fold.
+  const [sheetOpen, setSheetOpen]   = useState(false);
+  const [filters, setFilters]       = useState<FilterValues>(() => initialFilters(params));
   const [myMatchesOnly, setMyMatchesOnly] = useState(!!initialMyMatchesOnly);
-  const [indoorOutdoor, setIndoorOutdoor] = useState<IndoorOutdoorFilter>('all');
-  const [doublesCategory, setDoublesCategory] = useState<DoublesCategoryFilter>(initialDoublesCategory ?? 'all');
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   // Deep-link highlight: when arriving from a match-confirm notification, scroll
-  // to that match and flash a gold ring so the inline Confirm/Reject controls
-  // jump out. The highlight clears after a couple seconds.
-  const listRef = useRef<FlatList<Match>>(null);
+  // to that match and tint it so the inline Confirm control jumps out. The
+  // highlight clears after a couple seconds.
+  const listRef = useRef<FlatList<HistoryMatch>>(null);
   // Tracks the highlightMatchId we've already auto-scrolled to, so later filter
   // edits don't re-yank the viewport. `filteredRef` always holds the latest
   // filtered list so deferred scrolls recompute a fresh (never stale) index.
   const scrolledForRef = useRef<string | null>(null);
-  const filteredRef = useRef<Match[]>([]);
+  const filteredRef = useRef<HistoryMatch[]>([]);
   const [highlightedId, setHighlightedId] = useState<string | null>(highlightMatchId ?? null);
 
   const status = useStatusMessage();
@@ -289,14 +238,16 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
             player1:profiles!matches_player1_id_fkey(id, full_name, name_color, list_name_style_id),
             partner1:profiles!matches_partner1_id_fkey(id, full_name, name_color, list_name_style_id),
             player2:profiles!matches_player2_id_fkey(id, full_name, name_color, list_name_style_id),
-            partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id)
+            partner2:profiles!matches_partner2_id_fkey(id, full_name, name_color, list_name_style_id),
+            league:leagues(id, name),
+            tournament:tournaments(id, name)
           `)
           .order('played_at', { ascending: false });
         if (leagueId) query = query.eq('league_id', leagueId);
         return query;
       });
 
-      let results = (data ?? []) as Match[];
+      let results = (data ?? []) as HistoryMatch[];
 
       // Filter to only matches involving the target player (including as a doubles partner)
       if (userId) {
@@ -322,14 +273,22 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   }
 
   async function confirmMatch(matchId: string) {
-    const { error } = await supabase.rpc('confirm_match', { p_match_id: matchId });
-    if (error) {
-      status.error(`Confirm failed: ${error.message}`);
-      return;
+    // One confirm at a time: a second tap while the RPC is in flight would
+    // post the same confirmation twice.
+    if (confirmingId) return;
+    setConfirmingId(matchId);
+    try {
+      const { error } = await supabase.rpc('confirm_match', { p_match_id: matchId });
+      if (error) {
+        status.error(`Confirm failed: ${error.message}`);
+        return;
+      }
+      status.success('Match confirmed.');
+      noteGoodMoment(); // a settled result is a good moment (rating prompt)
+      loadMatches();
+    } finally {
+      setConfirmingId(null);
     }
-    status.success('Match confirmed.');
-    noteGoodMoment(); // a settled result is a good moment (rating prompt)
-    loadMatches();
   }
 
   function didWin(match: Match, uid: string) {
@@ -348,57 +307,113 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const isDoubles = item.match_type === 'doubles';
     const team1 = isDoubles && item.partner1?.full_name
       ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
-      : (item.player1?.full_name ?? 'Unknown');
+      : (item.player1?.full_name ?? 'Team 1');
     const team2 = isDoubles && item.partner2?.full_name
       ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
-      : (item.player2?.full_name ?? 'Unknown');
+      : (item.player2?.full_name ?? 'Team 2');
     return { team1, team2 };
   }
 
-  function renderUpcoming(item: Match) {
-    const { team1: team1Name, team2: team2Name } = teamNames(item);
-    const isDoubles = item.match_type === 'doubles';
-
-    let whenLabel = 'Time TBD';
-    if (item.scheduled_at) {
-      const when = new Date(item.scheduled_at);
-      const dateStr = when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-      const timeStr = when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      whenLabel = `Scheduled for ${dateStr} at ${timeStr}`;
+  // The card's league / tournament chip. A tournament tag is the more specific
+  // of the two, so it wins; on a league-scoped history every row would repeat
+  // the same league, so the league chip is left off there.
+  function scopeChip(item: HistoryMatch) {
+    if (item.tournament?.name) {
+      return <Badge label={`${entityGlyph('tournament')} ${item.tournament.name}`} tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
     }
+    if (!leagueId && item.league?.name) {
+      return <Badge label={`${entityGlyph('league')} ${item.league.name}`} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
+    }
+    return null;
+  }
 
+  /** Line 2 of every card: [scope chip] facts, one line, ellipsized. Pending
+   *  cards pass chip: false, so the chip can't squeeze the countdown out of view. */
+  function metaLine(item: HistoryMatch, facts: string, opts?: { chip?: boolean }) {
+    const chip = opts?.chip === false ? null : scopeChip(item);
+    if (!chip && !facts) return undefined;
     return (
-      <View key={item.id} style={[S.card, S.upcomingCard]}>
-        <View style={S.pendingHeader}>
-          <Text style={S.upcomingBadgeText}>🗓️ Upcoming</Text>
-          {WAGERS_ENABLED && (
-            <TouchableOpacity
-              style={S.pendingMenuBtn}
-              accessibilityRole="button"
-              accessibilityLabel="Wager options"
-              onPress={() => openWagerSheet({
-                matchId: item.id,
-                team1Label: team1Name,
-                team2Label: team2Name,
-              })}
-            >
-              <Text style={S.upcomingMenuText}>⋯</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <Text style={S.upcomingMatchup} numberOfLines={1}>
-          <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={S.upcomingMatchup} />
-        </Text>
-        <Text style={S.upcomingVs}>vs</Text>
-        <Text style={S.upcomingMatchup} numberOfLines={1}>
-          <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={S.upcomingMatchup} />
-        </Text>
-        <Text style={S.upcomingWhen}>{whenLabel}</Text>
+      <View style={S.metaLine}>
+        {chip ? <View style={S.metaChip}>{chip}</View> : null}
+        {facts ? <Text style={[t.sub, S.metaText]} numberOfLines={1}>{facts}</Text> : null}
       </View>
     );
   }
 
-  function renderMatch({ item }: { item: Match }) {
+  // The descriptive tags that used to be three stacked badges, now facts on the
+  // meta line. Unknown / unspecified values are left out (content rule 3); the
+  // filter sheet can still find them.
+  function tagFacts(item: Match): (string | null)[] {
+    return [
+      item.is_home_court == null ? null : item.is_home_court ? '🏠 Home' : '✈️ Away',
+      item.is_outdoor === true ? '☀️ Outdoor' : item.is_outdoor === false ? '🏢 Indoor' : null,
+      item.match_type === 'doubles' && item.doubles_category === 'mixed' ? 'Mixed' : null,
+      item.match_type === 'doubles' && item.doubles_category === 'gendered' ? 'Gendered' : null,
+    ];
+  }
+
+  // Plain render helpers (not components declared in render), so a re-render
+  // updates these in place instead of remounting them.
+  function wagerMenu(item: Match) {
+    if (!WAGERS_ENABLED) return null;
+    const names = teamNames(item);
+    return (
+      <Pressable
+        style={({ pressed }) => [S.menuBox, pressed && S.pressed]}
+        accessibilityRole="button"
+        accessibilityLabel="Wager options"
+        onPress={() => openWagerSheet({ matchId: item.id, team1Label: names.team1, team2Label: names.team2 })}
+      >
+        <Text style={S.menuGlyph}>⋯</Text>
+      </Pressable>
+    );
+  }
+
+  function tile(label: string, tone: 'win' | 'loss' | 'pending' | 'upcoming', a11yLabel?: string) {
+    const bg = tone === 'win' ? colors.primary
+      : tone === 'loss' ? colors.danger
+      : tone === 'pending' ? colors.warningLight
+      : colors.infoLight;
+    const fg = tone === 'win' || tone === 'loss' ? colors.textInverse : colors.text;
+    // W/L is the card's only result cue for screen readers (the card isn't
+    // pressable, so nothing else announces it). Glyph tiles stay decorative:
+    // the pending state is spelled out on the meta line.
+    const a11y = a11yLabel
+      ? { accessible: true, accessibilityRole: 'text' as const, accessibilityLabel: a11yLabel }
+      : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const };
+    return (
+      <View style={[S.tile, { backgroundColor: bg }]} {...a11y}>
+        <Text style={[S.tileText, { color: fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{label}</Text>
+      </View>
+    );
+  }
+
+  function renderUpcoming(item: HistoryMatch) {
+    const isDoubles = item.match_type === 'doubles';
+    let when: string | null = null;
+    if (item.scheduled_at) {
+      const d = new Date(item.scheduled_at);
+      when = `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+    }
+    return (
+      <ListCard
+        key={item.id}
+        density="compact"
+        leading={tile(entityGlyph('season'), 'upcoming')}
+        title={
+          <Text style={t.title} numberOfLines={1}>
+            <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
+            {' vs '}
+            <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
+          </Text>
+        }
+        subtitle={metaLine(item, joinFacts([when, item.location_name ? displayCourtName(item.location_name) : null]))}
+        trailing={WAGERS_ENABLED ? wagerMenu(item) : undefined}
+      />
+    );
+  }
+
+  function renderMatch({ item }: { item: HistoryMatch }) {
     // Determine perspective: userId param wins, then fall back to logged-in user IF they're in this match
     const inMatch = (uid: string) =>
       item.player1_id === uid || item.player2_id === uid ||
@@ -406,19 +421,14 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
     const viewAs = userId ?? (currentUserId && inMatch(currentUserId) ? currentUserId : null);
 
-    // Gold ring flashed on the deep-linked match (cleared after a couple seconds).
+    // Tint on the deep-linked match (cleared after a couple seconds).
     const isHighlighted = item.id === highlightedId;
+    const isDoubles = item.match_type === 'doubles';
+    const court = item.location_name ? displayCourtName(item.location_name) : null;
 
-    // Pending match — custom card with a Confirm button when the viewer's
-    // team hasn't confirmed yet. PLUPRs aren't applied until both teams sign off.
+    // Pending match — a Confirm button when the viewer's team hasn't confirmed
+    // yet. PLUPRs aren't applied until both teams sign off.
     if (item.status === 'pending') {
-      const isDoubles = item.match_type === 'doubles';
-      const team1Name = isDoubles && item.partner1?.full_name
-        ? `${item.player1?.full_name ?? '?'} & ${item.partner1.full_name}`
-        : (item.player1?.full_name ?? 'Unknown');
-      const team2Name = isDoubles && item.partner2?.full_name
-        ? `${item.player2?.full_name ?? '?'} & ${item.partner2.full_name}`
-        : (item.player2?.full_name ?? 'Unknown');
       const team1Done = !!item.team1_confirmed_by;
       const team2Done = !!item.team2_confirmed_by;
       const callerOnTeam1 = !!currentUserId && (currentUserId === item.player1_id || currentUserId === item.partner1_id);
@@ -427,7 +437,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       const canCallerConfirm = (callerOnTeam1 && !team1Done) || (callerOnTeam2 && !team2Done);
 
       // Deadline countdown
-      let deadlineLabel = '';
+      let deadlineLabel: string | null = null;
       if (item.confirm_deadline) {
         const msLeft = new Date(item.confirm_deadline).getTime() - Date.now();
         if (msLeft > 0) {
@@ -438,134 +448,75 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }
       }
 
+      // Short on purpose: the meta line is one ellipsized line beside the
+      // Confirm button. Viewers outside the match get the real per-team state
+      // (the recorder's team usually confirms at insert).
+      const stateLabel = canCallerConfirm
+        ? 'Confirm needed'
+        : myTeamConfirmed
+          ? 'Waiting on other team'
+          : `Team 1 ${team1Done ? '✓' : 'waiting'} · Team 2 ${team2Done ? '✓' : 'waiting'}`;
+      // An unconfirmed match is dropped after an hour, so the countdown leads
+      // the line and survives truncation.
+      const deadlineFact = deadlineLabel === 'expired' ? 'Expired' : deadlineLabel;
+
       return (
-        <View style={[S.card, S.pendingCard, isHighlighted && S.highlightCard]}>
-          <View style={S.pendingHeader}>
-            <Text style={S.pendingBadgeText}>⏳ Pending confirmation</Text>
-            <View style={S.pendingHeaderRight}>
-              {deadlineLabel ? <Text style={S.pendingDeadline}>{deadlineLabel}</Text> : null}
-              {WAGERS_ENABLED && (
-                <TouchableOpacity
-                  style={S.pendingMenuBtn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Wager options"
-                  onPress={() => openWagerSheet({
-                    matchId: item.id,
-                    team1Label: team1Name,
-                    team2Label: team2Name,
-                  })}
-                >
-                  <Text style={S.pendingMenuText}>⋯</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-          <Text style={S.pendingMatchup} numberOfLines={1}>
-            <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={S.pendingMatchup} />
-          </Text>
-          <Text style={S.pendingScore}>{item.player1_score} – {item.player2_score}</Text>
-          <Text style={S.pendingMatchup} numberOfLines={1}>
-            {'vs '}
-            <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={S.pendingMatchup} />
-          </Text>
-          <View style={S.pendingTeamRow}>
-            <Text style={[S.pendingTeamStatus, team1Done ? S.pendingTeamDone : S.pendingTeamWaiting]}>
-              {team1Done ? '✓ Team 1 confirmed' : '… Team 1 waiting'}
+        <ListCard
+          density="compact"
+          highlighted={isHighlighted}
+          leading={tile('⏳', 'pending')}
+          title={
+            <Text style={t.title} numberOfLines={1}>
+              <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
+              {' vs '}
+              <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={t.title} />
             </Text>
-            <Text style={[S.pendingTeamStatus, team2Done ? S.pendingTeamDone : S.pendingTeamWaiting]}>
-              {team2Done ? '✓ Team 2 confirmed' : '… Team 2 waiting'}
-            </Text>
-          </View>
-          {canCallerConfirm && (
-            <TouchableOpacity style={S.confirmBtn} onPress={() => confirmMatch(item.id)}>
-              <Text style={S.confirmBtnText}>✓ Confirm this match</Text>
-            </TouchableOpacity>
-          )}
-          {!canCallerConfirm && myTeamConfirmed && (
-            <Text style={S.pendingNote}>Your team confirmed. Waiting on the other team.</Text>
-          )}
-          {!canCallerConfirm && !myTeamConfirmed && !inMatch(currentUserId ?? '') && (
-            <Text style={S.pendingNote}>Awaiting confirmation from both teams.</Text>
-          )}
-        </View>
+          }
+          subtitle={metaLine(item, joinFacts([deadlineFact, stateLabel, `${item.player1_score}–${item.player2_score}`]), { chip: false })}
+          trailing={
+            canCallerConfirm || WAGERS_ENABLED ? (
+              <View style={S.trailingRow}>
+                {canCallerConfirm ? (
+                  <Button
+                    size="sm"
+                    title="Confirm"
+                    onPress={() => confirmMatch(item.id)}
+                    loading={confirmingId === item.id}
+                    disabled={confirmingId != null}
+                  />
+                ) : null}
+                {wagerMenu(item)}
+              </View>
+            ) : undefined
+          }
+          style={canCallerConfirm ? S.actionCard : undefined}
+        />
       );
     }
-
-    const playedAt = new Date(item.played_at);
-    const dateStr  = playedAt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    const timeStr  = playedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-    const isDoubles = item.match_type === 'doubles';
-
-    const locationLine = item.location_name
-      ? <Text style={S.locationText}>📍 {displayCourtName(item.location_name)}</Text>
-      : null;
-
-    const indoorOutdoorBadge = (
-      <View style={[S.indoorBadge, item.is_outdoor === true ? S.outdoorBg : item.is_outdoor === false ? S.indoorBg : S.unknownBg]}>
-        <Text style={[S.indoorText, item.is_outdoor === true ? S.outdoorColor : item.is_outdoor === false ? S.indoorColor : S.unknownColor]}>
-          {item.is_outdoor === true ? '☀️ Outdoor' : item.is_outdoor === false ? '🏢 Indoor' : '❓ Unknown'}
-        </Text>
-      </View>
-    );
-
-    const categoryBadge = isDoubles ? (
-      <View style={[
-        S.catBadge,
-        item.doubles_category === 'gendered' ? S.catGenderedBg :
-        item.doubles_category === 'mixed'    ? S.catMixedBg    : S.catUnspecBg,
-      ]}>
-        <Text style={[
-          S.catText,
-          item.doubles_category === 'gendered' ? S.catGenderedColor :
-          item.doubles_category === 'mixed'    ? S.catMixedColor    : S.catUnspecColor,
-        ]}>
-          {item.doubles_category === 'gendered' ? 'Gendered Doubles' :
-           item.doubles_category === 'mixed'    ? 'Mixed Doubles'    :
-                                                  'Unspecified Doubles'}
-        </Text>
-      </View>
-    ) : null;
-
-    const homeAwayBadge = item.is_home_court != null
-      ? (
-        <View style={[S.homeAwayBadge, item.is_home_court ? S.homeBadge : S.awayBadge]}>
-          <Text style={[S.homeAwayText, item.is_home_court ? S.homeText : S.awayText]}>
-            {item.is_home_court ? '🏠 Home' : '✈️ Away'}
-          </Text>
-        </View>
-      ) : null;
 
     // League-wide view — always show who won so every card has a result indicator
     if (!viewAs) {
       const team1Won = item.winner_team === 'team1';
       return (
-        <View style={[S.card, team1Won ? S.win : S.loss, isHighlighted && S.highlightCard]}>
-          <View style={S.leagueRow}>
-            <View style={[S.resultMini, team1Won ? S.resultMiniWin : S.resultMiniLoss]}>
-              <Text style={S.resultMiniText}>{team1Won ? 'W' : 'L'}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[S.matchup, team1Won && S.matchupWinner]} numberOfLines={1}>
-                <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={[S.matchup, team1Won && S.matchupWinner]} />
-              </Text>
-              <Text style={[S.matchup, !team1Won && S.matchupWinner]} numberOfLines={1}>
-                {'vs '}
-                <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={[S.matchup, !team1Won && S.matchupWinner]} />
-              </Text>
-            </View>
-            <View style={{ alignItems: 'flex-end', gap: 2 }}>
-              <View style={S.leagueMeta}>
-                <Text style={S.score}>{item.player1_score} – {item.player2_score}</Text>
-                <Text style={S.typeTag}>{item.match_type === 'doubles' ? 'Doubles' : 'Singles'}</Text>
-              </View>
-              {homeAwayBadge}
-              {indoorOutdoorBadge}
-              {categoryBadge}
-            </View>
-          </View>
-          <Text style={S.dateText}>{dateStr} at {timeStr}</Text>
-          {locationLine}
-        </View>
+        <ListCard
+          density="compact"
+          highlighted={isHighlighted}
+          leading={tile(team1Won ? 'W' : 'L', team1Won ? 'win' : 'loss', team1Won ? 'Team 1 won' : 'Team 2 won')}
+          title={
+            <Text style={[t.title, S.loserName]} numberOfLines={1}>
+              <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={[t.title, team1Won ? S.winnerName : S.loserName]} />
+              {' vs '}
+              <TeamFlair player={item.player2} partner={isDoubles ? item.partner2 : null} textStyle={[t.title, !team1Won ? S.winnerName : S.loserName]} />
+            </Text>
+          }
+          subtitle={metaLine(item, joinFacts([
+            shortDate(item.played_at),
+            isDoubles ? 'Doubles' : 'Singles',
+            court,
+            ...tagFacts(item),
+          ]))}
+          trailing={<Text style={S.score}>{item.player1_score}–{item.player2_score}</Text>}
+        />
       );
     }
 
@@ -575,73 +526,145 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const oppScore = onTeam1 ? item.player2_score : item.player1_score;
     const delta    = ratingChange(item, viewAs);
 
-    // Build opponent line — for doubles show both opponents
+    // Opponents (both for doubles) on the title; your partner on the meta line.
     const oppPlayer  = onTeam1 ? item.player2  : item.player1;
     const oppPartner = onTeam1 ? item.partner2 : item.partner1;
-    // Build partner line — for doubles show your partner
     const myPartner = onTeam1 ? item.partner1 : item.partner2;
-    const partnerLine = isDoubles && myPartner?.full_name
-      ? (
-        <Text style={S.partnerText}>
-          {'🤝 '}
-          <FlairName
-            name={myPartner.full_name}
-            nameColor={myPartner.name_color}
-            styleId={myPartner.list_name_style_id ?? null}
-            mode="list"
-            style={S.partnerText}
-          />
-        </Text>
-      )
-      : null;
 
     return (
-      <View style={[S.card, won ? S.win : S.loss, isHighlighted && S.highlightCard]}>
-        <View style={S.cardHeader}>
-          <Text style={[S.result, won ? S.winText : S.lossText]}>
-            {won ? 'W' : 'L'}
+      <ListCard
+        density="compact"
+        highlighted={isHighlighted}
+        leading={tile(won ? 'W' : 'L', won ? 'win' : 'loss', won ? 'Win' : 'Loss')}
+        title={
+          <Text style={t.title} numberOfLines={1}>
+            {'vs '}
+            <TeamFlair player={oppPlayer} partner={isDoubles ? oppPartner : null} textStyle={t.title} />
           </Text>
-          <View style={S.cardInfo}>
-            <Text style={S.opponent} numberOfLines={1}>
-              {'vs '}
-              <TeamFlair player={oppPlayer} partner={isDoubles ? oppPartner : null} textStyle={S.opponent} />
-            </Text>
-            {partnerLine}
-            <Text style={S.dateText}>{dateStr} at {timeStr}</Text>
-            {locationLine}
-          </View>
-          <View style={S.cardRight}>
-            <Text style={S.score}>{myScore} – {oppScore}</Text>
+        }
+        subtitle={metaLine(item, joinFacts([
+          shortDate(item.played_at),
+          isDoubles && myPartner?.full_name ? `🤝 ${myPartner.full_name}` : null,
+          court,
+          ...tagFacts(item),
+        ]))}
+        trailing={
+          <View style={S.scoreCol}>
+            <Text style={S.score}>{myScore}–{oppScore}</Text>
             {delta != null && (
-              <Text style={[S.elo, delta >= 0 ? S.eloUp : S.eloDown]}>
-                {delta >= 0 ? '+' : ''}{delta.toFixed(2)} PLUPR
+              <Text style={[S.delta, { color: delta >= 0 ? colors.primary : colors.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                {delta >= 0 ? '+' : ''}{delta.toFixed(2)}
               </Text>
             )}
-            {homeAwayBadge}
-            {indoorOutdoorBadge}
-            {categoryBadge}
           </View>
-        </View>
-      </View>
+        }
+      />
     );
   }
 
-  const { filtered, upcoming } = useMemo(() => {
-    const cutoff = recency ? Date.now() - recency * 86400000 : null;
-    const searchLower = playerSearch.trim().toLowerCase();
+  // League / tournament options come from the matches themselves, with counts,
+  // so the sheet never offers a choice that matches nothing.
+  const scopeOptions = useMemo(() => {
+    const leagues = new Map<string, { label: string; count: number }>();
+    const tourns = new Map<string, { label: string; count: number }>();
+    for (const m of matches) {
+      if (m.league?.id) {
+        const e = leagues.get(m.league.id) ?? { label: m.league.name, count: 0 };
+        e.count += 1;
+        leagues.set(m.league.id, e);
+      }
+      if (m.tournament?.id) {
+        const e = tourns.get(m.tournament.id) ?? { label: m.tournament.name, count: 0 };
+        e.count += 1;
+        tourns.set(m.tournament.id, e);
+      }
+    }
+    const toOptions = (map: Map<string, { label: string; count: number }>) =>
+      [...map.entries()]
+        .map(([value, e]) => ({ value, label: e.label, count: e.count }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    return { leagues: toOptions(leagues), tournaments: toOptions(tourns) };
+  }, [matches]);
 
-    const pred = (m: Match, opts: { skipDateFilters?: boolean } = {}) => {
-      if (matchType !== 'all' && m.match_type !== matchType) return false;
-      if (homeAway === 'home' && !m.is_home_court) return false;
-      if (homeAway === 'away' && m.is_home_court) return false;
-      if (region !== null && !inRegion(m.location_lat, m.location_lng, region)) return false;
+  const filterGroups = useMemo<FilterSheetGroup[]>(() => {
+    const groups: FilterSheetGroup[] = [
+      {
+        key: 'player',
+        title: 'Player name',
+        kind: 'custom',
+        render: ({ value, setValue }) => (
+          <FilterSearchField
+            size="sm"
+            value={typeof value === 'string' ? value : ''}
+            onChangeText={(text) => setValue(text ? text : null)}
+            placeholder="Search by player name…"
+            autoCorrect={false}
+            autoCapitalize="words"
+            returnKeyType="search"
+            clearAccessibilityLabel="Clear player name search"
+          />
+        ),
+      },
+      {
+        key: 'recency',
+        title: 'Played',
+        kind: 'single',
+        options: [
+          { value: '3', label: 'Last 3 days' },
+          { value: '7', label: 'Last 7 days' },
+          { value: '30', label: 'Last 30 days' },
+          { value: '90', label: 'Last 90 days' },
+        ],
+      },
+      { key: 'matchType', title: 'Match type', kind: 'single', options: [
+        { value: 'singles', label: 'Singles' },
+        { value: 'doubles', label: 'Doubles' },
+      ] },
+      { key: 'doublesCategory', title: 'Doubles category', kind: 'single', options: [
+        { value: 'gendered', label: 'Gendered' },
+        { value: 'mixed', label: 'Mixed' },
+        { value: 'unspecified', label: 'Uncategorized' },
+      ] },
+      { key: 'homeAway', title: 'Home / away', kind: 'single', options: [
+        { value: 'home', label: '🏠 Home' },
+        { value: 'away', label: '✈️ Away' },
+      ] },
+      { key: 'indoorOutdoor', title: 'Indoor / outdoor', kind: 'single', options: [
+        { value: 'outdoor', label: '☀️ Outdoor' },
+        { value: 'indoor', label: '🏢 Indoor' },
+        { value: 'unknown', label: 'Not set' },
+      ] },
+    ];
+    // The League group mirrors the card chip: shown wherever the chip can be
+    // (not on a league-scoped history, where every row is the same league).
+    if (!leagueId && scopeOptions.leagues.length > 0) {
+      groups.push({ key: 'league', title: 'League', kind: 'single', options: scopeOptions.leagues });
+    }
+    if (scopeOptions.tournaments.length > 0) {
+      groups.push({ key: 'tournament', title: 'Tournament', kind: 'single', options: scopeOptions.tournaments });
+    }
+    return groups;
+  }, [leagueId, scopeOptions]);
+
+  const { filtered, upcoming } = useMemo(() => {
+    const f = filters;
+    const recencyDays = f.recency ? Number(f.recency) : null;
+    const cutoff = recencyDays ? Date.now() - recencyDays * 86400000 : null;
+    const searchLower = typeof f.player === 'string' ? f.player.trim().toLowerCase() : '';
+
+    const pred = (m: HistoryMatch, opts: { skipDateFilters?: boolean } = {}) => {
+      if (f.matchType && m.match_type !== f.matchType) return false;
+      if (f.homeAway === 'home' && !m.is_home_court) return false;
+      if (f.homeAway === 'away' && m.is_home_court) return false;
+      if (f.league && m.league_id !== f.league) return false;
+      if (f.tournament && m.tournament_id !== f.tournament) return false;
       if (!opts.skipDateFilters && cutoff && new Date(m.played_at).getTime() < cutoff) return false;
-      if (indoorOutdoor === 'outdoor' && m.is_outdoor !== true) return false;
-      if (indoorOutdoor === 'indoor'  && m.is_outdoor !== false) return false;
-      if (indoorOutdoor === 'unknown' && m.is_outdoor !== null) return false;
-      if (doublesCategory !== 'all') {
+      if (f.indoorOutdoor === 'outdoor' && m.is_outdoor !== true) return false;
+      if (f.indoorOutdoor === 'indoor'  && m.is_outdoor !== false) return false;
+      if (f.indoorOutdoor === 'unknown' && m.is_outdoor !== null) return false;
+      if (f.doublesCategory) {
         if (m.match_type !== 'doubles') return false;
-        if (m.doubles_category !== doublesCategory) return false;
+        if (m.doubles_category !== f.doublesCategory) return false;
       }
 
       // My matches only — show matches where the logged-in user participated
@@ -655,9 +678,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       if (searchLower) {
         const names = [
           m.player1?.full_name,
-          (m as any).partner1?.full_name,
+          m.partner1?.full_name,
           m.player2?.full_name,
-          (m as any).partner2?.full_name,
+          m.partner2?.full_name,
         ].filter(Boolean).join(' ').toLowerCase();
         if (!names.includes(searchLower)) return false;
       }
@@ -679,19 +702,20 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     const rest = matches.filter((m) => m.status !== 'scheduled' && pred(m));
 
     return { filtered: rest, upcoming: upcomingList };
-  }, [matches, matchType, homeAway, region, recency, myMatchesOnly, currentUserId, playerSearch, indoorOutdoor, doublesCategory]);
+  }, [matches, filters, myMatchesOnly, currentUserId]);
 
   // Keep a live handle on the latest filtered list for deferred scrolls.
   filteredRef.current = filtered;
 
-  // TODO: smoke-test in browser — deep-link scroll-to + gold highlight flash.
+  // TODO: smoke-test in browser — deep-link scroll-to + highlight tint.
   // Scroll to the deep-linked match once it actually appears in the filtered
-  // list, then flash its highlight (fades after 2.5s). Depends on `filtered`
-  // so it re-checks as the list settles (e.g. `myMatchesOnly` kicks in only
-  // after currentUserId resolves). We auto-scroll at most once per target
+  // list, then tint it (fades after 2.5s). Depends on `filtered` so it
+  // re-checks as the list settles (e.g. `myMatchesOnly` kicks in only after
+  // currentUserId resolves). We auto-scroll at most once per target
   // (scrolledForRef) so later user filter edits don't yank the viewport, and
   // the deferred scroll recomputes the index from filteredRef to avoid a stale
-  // index if the list changed length in the meantime.
+  // index if the list changed length in the meantime. With the filters
+  // collapsed and ~66px cards, a recent match is usually already in view.
   useEffect(() => {
     if (loading || !highlightMatchId) return;
     if (scrolledForRef.current === highlightMatchId) return;
@@ -707,166 +731,86 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     return () => { clearTimeout(scrollTimer); clearTimeout(fadeTimer); };
   }, [loading, highlightMatchId, filtered]);
 
-  const activeFilterCount =
-    (homeAway !== 'all' ? 1 : 0) +
-    (matchType !== 'all' ? 1 : 0) +
-    (region !== null ? 1 : 0) +
-    (recency !== null ? 1 : 0) +
-    (myMatchesOnly ? 1 : 0) +
-    (playerSearch.trim() ? 1 : 0) +
-    (indoorOutdoor !== 'all' ? 1 : 0) +
-    (doublesCategory !== 'all' ? 1 : 0);
+  const sheetFilterCount = countActiveFilters(filters, FILTER_DEFAULTS);
+  const anyFilterOn = sheetFilterCount > 0 || myMatchesOnly;
+
+  // An empty "Match history (0)" section never renders under Upcoming (empty
+  // sections don't render); with no Upcoming the header stays as the Calendar
+  // entry point above the empty state.
+  const showHistoryHeader = matches.length > 0 && (filtered.length > 0 || upcoming.length === 0);
+  const calendarAction = {
+    label: '📅 Calendar',
+    a11yLabel: 'View calendar analytics',
+    onPress: () => navigation.navigate('CalendarAnalytics', {
+      userId,
+      leagueId,
+      title: params.title + ' Calendar',
+    }),
+  };
+
+  function clearAllFilters() {
+    setFilters(resetFilters(FILTER_DEFAULTS));
+    setMyMatchesOnly(false);
+  }
 
   // A failed first load falls through to the list so its pull-to-refresh (and
   // the Retry button below) stay mounted.
   const loadFailed = loadError != null && matches.length === 0;
   if (loading && !loadFailed) {
-    return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+    return <View style={S.container}><SkeletonList rows={8} variant="row" rowHeight={MATCH_ROW_ESTIMATE} /></View>;
   }
 
   return (
     <View style={S.container}>
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
-      {/* Filter bar */}
+      <StatusBanner status={status.value} style={{ marginHorizontal: SPACE.lg, marginTop: SPACE.sm }} />
+
+      {/* One 44px filter row: the Mine quick chip (league-wide views only),
+          a removable chip per applied filter, and Filters (n) pinned right.
+          Everything else lives in the sheet. Fixed chrome outside the list
+          (no stickyHeaderIndices, which react-native-web mishandles). */}
       <View style={S.filterBar}>
-        <Text style={S.countText}>{filtered.length} match{filtered.length !== 1 ? 'es' : ''}</Text>
-        <TouchableOpacity
-          style={[S.filterBtn, activeFilterCount > 0 && S.filterBtnActive]}
-          onPress={() => setShowFilters(v => !v)}
-        >
-          <Text style={[S.filterBtnText, activeFilterCount > 0 && S.filterBtnTextActive]}>
-            Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-          </Text>
-        </TouchableOpacity>
-        {/* My matches quick toggle — only useful in league-wide view */}
-        {!userId && (
-          <TouchableOpacity
-            style={[S.filterBtn, myMatchesOnly && S.filterBtnActive]}
-            onPress={() => setMyMatchesOnly(v => !v)}
-          >
-            <Text style={[S.filterBtnText, myMatchesOnly && S.filterBtnTextActive]}>
-              👤 Mine
-            </Text>
-          </TouchableOpacity>
-        )}
-        {activeFilterCount > 0 && (
-          <TouchableOpacity onPress={() => { setHomeAway('all'); setMatchType('all'); setRegion(null); setRecency(null); setMyMatchesOnly(false); setPlayerSearch(''); setIndoorOutdoor('all'); setDoublesCategory('all'); }}>
-            <Text style={S.clearText}>Clear</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Filter panel */}
-      {showFilters && (
-        <View style={S.filterPanel}>
-          {/* Player name search */}
-          <Text style={S.filterLabel}>Player Name</Text>
-          <View style={S.searchRow}>
-            <TextInput
-              style={S.searchInput}
-              placeholder="Search by player name..."
-              placeholderTextColor={colors.textMuted}
-              value={playerSearch}
-              onChangeText={setPlayerSearch}
-              autoCorrect={false}
-              autoCapitalize="words"
-              returnKeyType="search"
+        <FilterChipRow
+          multi
+          size="md"
+          options={!userId ? [{ value: 'mine', label: 'Mine' }] : []}
+          values={myMatchesOnly ? ['mine'] : []}
+          onChangeValues={(vals) => setMyMatchesOnly(vals.includes('mine'))}
+          wrapAtWidth={600}
+          leading={
+            <ActiveFilterChips
+              values={filters}
+              defaults={FILTER_DEFAULTS}
+              groups={filterGroups}
+              formatLabel={(e) => (e.key === 'player' && e.value ? `“${e.value}”` : null)}
+              onRemove={(key, value) => setFilters((prev) => removeFilterValue(prev, FILTER_DEFAULTS, key, value))}
+              inline
             />
-            {playerSearch.length > 0 && (
-              <TouchableOpacity
-                style={S.clearSearch}
-                accessibilityRole="button"
-                accessibilityLabel="Clear player name search"
-                onPress={() => setPlayerSearch('')}
-              >
-                <Text style={S.clearSearchText}>✕</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <Text style={S.filterLabel}>Recency</Text>
-          <View style={S.pillRow}>
-            {([null, 3, 7, 30, 90] as RecencyFilter[]).map((v) => (
-              <TouchableOpacity key={String(v)} style={[S.pill, recency === v && S.pillActive]} onPress={() => setRecency(v)}>
-                <Text style={[S.pillText, recency === v && S.pillTextActive]}>
-                  {v === null ? 'All time' : `Last ${v}d`}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={S.filterLabel}>Home / Away</Text>
-          <View style={S.pillRow}>
-            {(['all', 'home', 'away'] as HomeAwayFilter[]).map((v) => (
-              <TouchableOpacity key={v} style={[S.pill, homeAway === v && S.pillActive]} onPress={() => setHomeAway(v)}>
-                <Text style={[S.pillText, homeAway === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'home' ? '🏠 Home' : '✈️ Away'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={S.filterLabel}>Match Type</Text>
-          <View style={S.pillRow}>
-            {(['all', 'singles', 'doubles'] as TypeFilter[]).map((v) => (
-              <TouchableOpacity key={v} style={[S.pill, matchType === v && S.pillActive]} onPress={() => setMatchType(v)}>
-                <Text style={[S.pillText, matchType === v && S.pillTextActive]}>
-                  {v === 'all' ? 'All' : v === 'singles' ? 'Singles' : 'Doubles'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={S.filterLabel}>Doubles Category</Text>
-          <View style={S.pillRow}>
-            {([
-              { v: 'all',         label: 'All' },
-              { v: 'gendered',    label: 'Gendered Doubles' },
-              { v: 'mixed',       label: 'Mixed Doubles' },
-              { v: 'unspecified', label: 'Unspecified Doubles' },
-            ] as { v: DoublesCategoryFilter; label: string }[]).map(({ v, label }) => (
-              <TouchableOpacity key={v} style={[S.pill, doublesCategory === v && S.pillActive]} onPress={() => setDoublesCategory(v)}>
-                <Text style={[S.pillText, doublesCategory === v && S.pillTextActive]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={S.filterLabel}>Indoor / Outdoor</Text>
-          <View style={S.pillRow}>
-            {([
-              { v: 'all',     label: 'All' },
-              { v: 'outdoor', label: '☀️ Outdoor' },
-              { v: 'indoor',  label: '🏢 Indoor' },
-              { v: 'unknown', label: '❓ Unknown' },
-            ] as { v: IndoorOutdoorFilter; label: string }[]).map(({ v, label }) => (
-              <TouchableOpacity key={v} style={[S.pill, indoorOutdoor === v && S.pillActive]} onPress={() => setIndoorOutdoor(v)}>
-                <Text style={[S.pillText, indoorOutdoor === v && S.pillTextActive]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={S.filterLabel}>Region</Text>
-          <View style={S.pillRow}>
-            <TouchableOpacity style={[S.pill, region === null && S.pillActive]} onPress={() => setRegion(null)}>
-              <Text style={[S.pillText, region === null && S.pillTextActive]}>All</Text>
-            </TouchableOpacity>
-            {REGIONS.map((r) => (
-              <TouchableOpacity key={r.name} style={[S.pill, region === r.name && S.pillActive]} onPress={() => setRegion(r.name)}>
-                <Text style={[S.pillText, region === r.name && S.pillTextActive]}>{r.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
+          }
+          trailing={
+            <FilterPill
+              label="Filters"
+              count={sheetFilterCount > 0 ? sheetFilterCount : undefined}
+              active={sheetFilterCount > 0}
+              onPress={() => setSheetOpen(true)}
+              accessibilityLabel={sheetFilterCount > 0 ? `Filters, ${sheetFilterCount} on` : 'Filters'}
+            />
+          }
+        />
+      </View>
 
       <FlatList
         ref={listRef}
         data={filtered}
         keyExtractor={(item) => item.id}
         renderItem={renderMatch}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={S.listContent}
         refreshControl={<AppRefreshControl {...refresh} />}
         onScrollToIndexFailed={({ index, averageItemLength }) => {
           // Target row isn't measured yet (it's below the render window). Nudge
           // toward it by estimated offset, then retry. Recompute the index from
           // the live filtered list (by id when deep-linking) so a list that
           // shrank between attempts can't park us on the wrong row.
-          listRef.current?.scrollToOffset({ offset: index * (averageItemLength || 120), animated: false });
+          listRef.current?.scrollToOffset({ offset: index * (averageItemLength || MATCH_ROW_ESTIMATE), animated: false });
           setTimeout(() => {
             const liveIdx = highlightMatchId
               ? filteredRef.current.findIndex((m) => m.id === highlightMatchId)
@@ -885,37 +829,54 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
                 actionLabel="Retry"
                 onAction={() => { setLoading(true); void loadMatches(); }}
               />
-            : upcoming.length === 0
-            ? <EmptyState icon="🏓" title="No matches yet" subtitle="No matches recorded yet." />
-            : null
+            : upcoming.length > 0
+            ? null
+            : matches.length > 0 && anyFilterOn
+            // Every empty state caused by filters offers the way out.
+            ? <EmptyState icon="🔍" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
+            : <EmptyState icon={entityGlyph('match')} title="No matches yet" subtitle="No matches recorded yet." />
         }
         ListHeaderComponent={
           (matches.length > 0 || upcoming.length > 0) ? (
             <View>
               {upcoming.length > 0 && (
-                <View>
-                  <Text style={S.sectionTitle}>🗓️ Upcoming ({upcoming.length})</Text>
+                <View style={S.section}>
+                  <SectionHeader
+                    title="Upcoming"
+                    count={upcoming.length}
+                    // No history header below (nothing played fits) — Calendar
+                    // rides here instead so it stays reachable.
+                    action={showHistoryHeader ? undefined : calendarAction}
+                  />
                   {upcoming.map(renderUpcoming)}
                 </View>
               )}
-              {matches.length > 0 && (
-                <TouchableOpacity
-                  style={S.calendarBtn}
-                  onPress={() => navigation.navigate('CalendarAnalytics', {
-                    userId,
-                    leagueId,
-                    title: route.params.title + ' Calendar',
-                  })}
-                >
-                  <Text style={S.calendarBtnText}>📅  View Calendar Analytics</Text>
-                </TouchableOpacity>
+              {upcoming.length > 0 && filtered.length === 0 && anyFilterOn && (
+                // ListEmptyComponent stands down while Upcoming has rows, so
+                // the filtered-empty way out renders inline here instead.
+                <EmptyState compact icon="🔍" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
               )}
-              {upcoming.length > 0 && filtered.length > 0 && (
-                <Text style={S.sectionTitle}>Match History</Text>
+              {showHistoryHeader && (
+                // The old full-width Calendar Analytics button is this header's
+                // action now: same destination, 44px instead of ~60.
+                <SectionHeader
+                  title={upcoming.length > 0 ? 'Match history' : 'Matches'}
+                  count={filtered.length > 0 ? filtered.length : undefined}
+                  action={calendarAction}
+                />
               )}
             </View>
           ) : null
         }
+      />
+
+      <FilterSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        groups={filterGroups}
+        values={filters}
+        defaults={FILTER_DEFAULTS}
+        onApply={(next) => setFilters(next)}
       />
 
       {/* Every wager surface below is gated (lib/features.ts). The state and
@@ -940,7 +901,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         primaryDisabled={!scoreInput || scoreInput.t1.trim() === '' || scoreInput.t2.trim() === ''}
         extraField={scoreInput ? (
           <View>
-            <Text style={S.scoreInputLabel}>Predicted final score</Text>
+            <Text style={[t.fieldLabel, S.scoreInputLabel]}>Predicted final score</Text>
             <View style={S.scoreInputRow}>
               <TextInput
                 style={S.scoreInput}
@@ -975,4 +936,53 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       />
     </View>
   );
+}
+
+const TILE = 32;
+
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    filterBar: {
+      paddingHorizontal: SPACE.lg,
+      backgroundColor: c.surface,
+      borderBottomWidth: HAIRLINE,
+      borderBottomColor: c.border,
+    },
+    listContent: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xl },
+    section: { marginBottom: SPACE.xs },
+
+    tile: { width: TILE, height: TILE, borderRadius: TILE / 2, alignItems: 'center', justifyContent: 'center' },
+    tileText: { fontSize: FONT.size.base, fontWeight: '800' },
+
+    // Line 2: [scope chip] facts — one line; the facts give way first.
+    metaLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.xxs, minWidth: 0 },
+    metaChip: { flexShrink: 1, maxWidth: '55%' },
+    metaText: { flex: 1, minWidth: 0 },
+
+    winnerName: { color: c.text },
+    loserName: { color: c.textSub },
+
+    scoreCol: { alignItems: 'flex-end', gap: SPACE.xxs },
+    score: { ...t.title, color: c.textSub },
+    delta: { ...t.meta },
+
+    // A card holding the 44px Confirm box: 4px vertical padding keeps it a
+    // 56-62 card instead of 64+ (same trick as EntityRow's action rows).
+    actionCard: { paddingVertical: SPACE.xs },
+    trailingRow: { flexDirection: 'row', alignItems: 'center' },
+    menuBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    menuGlyph: { fontSize: FONT.size.xl, fontWeight: '900', color: c.textSub },
+    pressed: { opacity: 0.6 },
+
+    scoreInputRow: { flexDirection: 'row', gap: SPACE.sm, alignItems: 'center', marginTop: SPACE.sm, marginBottom: SPACE.xs },
+    scoreInput: {
+      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.xl, fontWeight: '700',
+      backgroundColor: c.surface, color: c.text, textAlign: 'center',
+    },
+    scoreInputDash: { fontSize: FONT.size.xl, fontWeight: '800', color: c.textMuted },
+    scoreInputLabel: { marginTop: SPACE.sm },
+  });
 }

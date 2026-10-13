@@ -1,15 +1,36 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+// A league event (plan section 5, "Event"). One section order per state:
+//
+//   Voting     identity chips (status · league › · court) → You card ("Your
+//              vote: none · 1d left") → slot cards (tap to vote) → Can't make
+//              it → min-players note → Manage
+//   Confirmed  identity → time card (the You card: date, place, N in, I'm in /
+//              Can't make it, Record match, Add to calendar) → Who's in →
+//              Matches recorded → Vote results (collapsed) → Manage
+//   Cancelled  identity ("Cancelled") → Vote results (collapsed)
+//
+// Manage (collapsed) holds every organiser tool: invite guests, nudge and the
+// webhook setup, close voting, edit details. Each is shown only to who can
+// actually use it (see the gates below). Arriving with `focus` scrolls to that
+// control; a push's openNudge / openClose opens Manage and scrolls to it.
+// "Done" is a text link at the end that pops back to Home.
+import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Platform, TextInput,
+  View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Platform, TextInput, PixelRatio,
+  type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
-import { RouteProp, useFocusEffect } from '@react-navigation/native';
+import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  AvatarPile, Badge, Chip, CollapsibleSection, Panel, SectionHeader, StatusBanner,
+  StickyActionBar, useBottomChromeInset,
+} from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
-import { LeagueEvent, EventSlot, Profile, RootStackParamList } from '../types';
+import { LeagueEvent, EventSlot, SlotVoter, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 import ConfirmModal from '../components/ConfirmModal';
 import ContactPickerModal from '../components/ContactPickerModal';
 import { sendSmsInvite, shareViaWhatsApp } from '../lib/sms';
@@ -24,38 +45,52 @@ import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
-import StatusBanner from '../components/StatusBanner';
+import EmptyState from '../components/EmptyState';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { optionNumbers } from '../lib/eventVote';
+import { displayCourtName } from '../lib/courtNickname';
+import { entityGlyph } from '../lib/entityGlyph';
+import { trackSectionToggle } from '../lib/analytics';
 import { sbCall, friendlySbMessage, insertIgnoringDuplicate, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
+import EventSlotCard from '../components/event/EventSlotCard';
+import EventTimeCard from '../components/event/EventTimeCard';
+import VoterChips from '../components/event/VoterChips';
+import {
+  categorizeEvent, eventStatusLabel, eventStatusTone, timeLeftLabel, LIVE_WINDOW_MS,
+} from '../components/event/eventModel';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EventDetail'>;
   route: RouteProp<RootStackParamList, 'EventDetail'>;
 };
 
-function useCountdown(endsAt: string) {
-  const [label, setLabel] = useState('');
+const ANALYTICS_SCREEN = 'EventDetail';
+
+/** Re-render on a clock so countdowns and the live / RSVP windows stay true. */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    function tick() {
-      const diff = new Date(endsAt).getTime() - Date.now();
-      if (diff <= 0) { setLabel('Voting closed'); return; }
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      if (h >= 24) setLabel(`${Math.floor(h / 24)}d ${h % 24}h remaining`);
-      else setLabel(`${h}h ${m}m remaining`);
-    }
-    tick();
-    const id = setInterval(tick, 30000);
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(id);
-  }, [endsAt]);
-  return label;
+  }, [intervalMs]);
+  return now;
 }
 
+// A web refresh turns a boolean route param into the string 'true'.
+const flag = (v: unknown) => v === true || v === 'true';
+
+type ScrollTarget = 'vote' | 'rsvp' | 'manage';
+
 export default function EventDetailScreen({ navigation, route }: Props) {
-  const { eventId, openNudge, openClose } = route.params;
+  const { eventId, focus } = route.params;
+  const openNudge = flag(route.params.openNudge);
+  const openClose = flag(route.params.openClose);
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const S = makeStyles(c);
+  const isFocused = useIsFocused();
+  const bottomInset = useBottomChromeInset(SPACE.xl);
+  const now = useNow(30_000);
 
   const [event, setEvent] = useState<LeagueEvent | null>(null);
   const [leagueName, setLeagueName] = useState<string>('');
@@ -66,13 +101,12 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [slots, setSlots] = useState<EventSlot[]>([]);
   const [memberCount, setMemberCount] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [creatorProfile, setCreatorProfile] = useState<Profile | null>(null);
-  const [confirmedAttendees, setConfirmedAttendees] = useState<Profile[]>([]);
+  const [confirmedAttendees, setConfirmedAttendees] = useState<SlotVoter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [voting, setVoting] = useState<string | null>(null); // slot id being toggled
+  const [voting, setVoting] = useState<string | null>(null); // slot id / 'decline' / 'rsvp_in' / 'rsvp_out'
   // "Can't make it" — informational only. It lives in its own table, so it can
   // never be picked as the winning slot no matter how many people choose it.
-  const [decliners, setDecliners] = useState<Profile[]>([]);
+  const [decliners, setDecliners] = useState<SlotVoter[]>([]);
   const [iDeclined, setIDeclined] = useState(false);
   const [nudging, setNudging] = useState(false);
   // League chat webhook (Discord/Slack). Null when unset OR unreadable — RLS
@@ -88,6 +122,12 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [editDesc, setEditDesc] = useState('');
   const [editLoc, setEditLoc] = useState<CourtResult | null>(null);
   const [detailsSaving, setDetailsSaving] = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
+  // Native: whether the description needs more than its 2-line clamp, measured
+  // from an unclamped hidden twin (see the description block).
+  const [descOverflows, setDescOverflows] = useState(false);
+  // Manage is controlled so a push (openNudge / openClose) can open it.
+  const [manageOpen, setManageOpen] = useState(openNudge || openClose);
   type EventMatchRow = {
     id: string;
     match_type: 'singles' | 'doubles';
@@ -110,6 +150,29 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   // would race each other's reload and leave the UI showing the wrong state.
   const voteInFlight = useRef(false);
 
+  // ── Scroll anchors ──────────────────────────────────────────────
+  // `pendingScroll` is what this visit arrived for (focus param or a push
+  // intent); it's consumed once, when its anchor has laid out.
+  //
+  // The vote and RSVP blocks are placed from the HEIGHTS of what sits above
+  // them (the identity head, and the "Your vote" card), not from their own
+  // onLayout y: react-native-web fires onLayout only from a ResizeObserver, so
+  // a block that moves without resizing (the description's more/less, the
+  // "Link copied" banner) never reports its new y, and the sticky RSVP bar
+  // would switch on at a stale offset. A height change does fire, on web and
+  // native. Manage keeps its onLayout y: it's read once, at arrival, before
+  // anything above it can have moved.
+  const scrollRef = useRef<ScrollView>(null);
+  const headH = useRef<number | null>(null);
+  const youCardH = useRef<number | null>(null);
+  const rsvpH = useRef<number | null>(null);
+  const voteSeen = useRef(false);
+  const manageY = useRef<number | null>(null);
+  const pendingScroll = useRef<ScrollTarget | null>(
+    openNudge || openClose ? 'manage' : focus === 'vote' || focus === 'rsvp' ? focus : null,
+  );
+  const [timeCardOff, setTimeCardOff] = useState(false);
+
   useFocusEffect(useCallback(() => { load(); }, []));
   const refresh = useRefresh(load);
 
@@ -121,7 +184,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     setCurrentUserId(uid);
 
     const { data: ev } = await supabase.from('league_events').select('*').eq('id', eventId).single();
-    if (!ev) return;
+    if (!ev) { setLoading(false); return; }
     setEvent(ev);
     // The header is the event's own title, never the push that opened it
     // ('🗳️ New vote: ...' used to leak into it).
@@ -179,11 +242,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     setDecliners((declineRows ?? []).map((d: any) => d.profile).filter(Boolean));
     setIDeclined((declineRows ?? []).some((d: any) => d.user_id === uid));
 
-    // Confirmed attendees (if voting is closed)
+    // Who's in = the votes on the confirmed time. Avatar fields feed the pile.
     if (ev.confirmed_slot_id) {
       const { data: winnerVotes } = await supabase
         .from('event_slot_votes')
-        .select('user_id, profile:profiles(id, full_name, username)')
+        .select('user_id, profile:profiles(id, full_name, avatar_emoji, avatar_bg_color)')
         .eq('slot_id', ev.confirmed_slot_id);
       setConfirmedAttendees((winnerVotes ?? []).map((v: any) => v.profile).filter(Boolean));
     }
@@ -464,15 +527,16 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  const countdown = useCountdown(event?.vote_ends_at ?? new Date().toISOString());
-  const votingIsOpen = event?.status === 'voting' && new Date(event.vote_ends_at) > new Date();
+  const votingIsOpen = event?.status === 'voting' && new Date(event.vote_ends_at).getTime() > now;
   const nudgeKind = event
     ? pickNudgeKind(event, slots.find(s => s.id === event.confirmed_slot_id) ?? null)
     : null;
+  const isEventCreator = !!event && !!currentUserId && event.created_by === currentUserId;
   // A push button opened this screen to do one thing: Text group (openNudge)
   // opens the group-text composer, Close vote (openClose) opens the close
   // confirm. Once per visit, after the event has loaded, and only for the
   // organizer; the confirm dialog and the composer still need their own tap.
+  // (Manage is opened and scrolled to separately, via pendingScroll.)
   const pushIntentDone = useRef(false);
   useEffect(() => {
     if (pushIntentDone.current || loading || !event || !currentUserId) return;
@@ -483,12 +547,14 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     else if (openNudge && nudgeKind) void sendNudge('sms');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, event, currentUserId, openNudge, openClose, nudgeKind]);
+  // League admins / co-admins: invite guests and nudge. Named for what it was
+  // first used for; it no longer gates close voting (see canCloseVote).
   const [canClose, setCanClose] = React.useState(false);
   React.useEffect(() => {
     if (event?.league_id) getLeagueRole(event.league_id).then(r => {
       // 'unknown' means the role read failed, not that the user lacks the role —
-      // demoting an admin because their WiFi blipped would hide "close voting"
-      // from the only person who can use it. Keep whatever we last knew.
+      // demoting an admin because their WiFi blipped would hide the organiser
+      // tools from the only person who can use them. Keep whatever we last knew.
       if (r !== 'unknown') setCanClose(isPrivileged(r));
     }).catch(() => { /* keep the last known privilege */ });
   }, [event?.league_id]);
@@ -544,9 +610,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     if (!event || contacts.length === 0) return;
     setInvitingGuests(true);
     try {
-      const token = await createGuestInvite(contacts.map(c => c.name), contacts.map(c => c.phone));
+      const token = await createGuestInvite(contacts.map(ct => ct.name), contacts.map(ct => ct.phone));
       if (token) {
-        await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(c => c.phone) });
+        await sendSmsInvite({ message: buildGuestMessage(token), recipients: contacts.map(ct => ct.phone) });
       }
     } finally {
       // Always clear busy state so the button/modal never lock up on an error.
@@ -576,26 +642,13 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
-  if (!event) return <Text style={{ padding: 24, color: c.text }}>Event not found.</Text>;
-
-  const confirmedSlot = event.confirmed_slot_id ? slots.find((s) => s.id === event.confirmed_slot_id) : null;
-  // "Live": the confirmed slot has started and is still within its 24h open
-  // window — the event is open for recording matches and gets the red treatment.
-  const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
-  const slotStart = confirmedSlot ? new Date(confirmedSlot.starts_at).getTime() : null;
-  const isLive = slotStart != null && Date.now() >= slotStart && Date.now() < slotStart + LIVE_WINDOW_MS;
-  // RSVP stays open from confirmation until the confirmed time ends. Not on a
-  // cancelled event, and not while the time vote itself is still running.
-  const rsvpOpen = !!confirmedSlot && !votingIsOpen && event.status !== 'cancelled'
-    && Date.now() < new Date(confirmedSlot.ends_at).getTime();
-  const iAmIn = confirmedSlot?.my_vote ?? false;
-
-  return (
-    <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
-      {/* Header */}
-      <View style={S.header}>
-        <View style={{ position: 'absolute', top: 8, right: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+  // Header bar (slot 0): [Share] [Bookmark]. Both get a real 44 box — RNW
+  // ignores the hitSlop BookmarkButton relies on.
+  useLayoutEffect(() => {
+    if (!event) return;
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={S.headerActions}>
           {/* The event URL serves a live OG snapshot card, so wherever this
               lands — Discord, WhatsApp, iMessage — it unfurls into the poll. */}
           <ShareLinkButton
@@ -603,556 +656,588 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             title={event.title}
             message={votingIsOpen ? `Vote on a time for "${event.title}"` : `"${event.title}" on Pickleague`}
             onCopied={() => status.success('Link copied — paste it anywhere; it unfurls into the vote card.')}
+            style={S.headerShare}
           />
-          <BookmarkButton targetType="event" targetId={eventId} />
+          <BookmarkButton targetType="event" targetId={eventId} style={S.headerIconBox} />
         </View>
-        {event.location_name ? <Text style={S.locationLine}>📍 {event.location_name}</Text> : null}
-        {event.description ? <Text style={S.desc}>{event.description}</Text> : null}
-        {/* Only the creator may edit — matches RLS ("Event creator can update"). */}
-        {canClose && (
-          <TouchableOpacity onPress={openDetailsEdit}>
-            <Text style={S.editDetailsLink}>✏️ Edit location & description</Text>
-          </TouchableOpacity>
-        )}
-        <View style={S.statusRow}>
-          {votingIsOpen ? (
-            <>
-              <View style={S.dotOpen} />
-              <Text style={S.statusOpen}>Voting open · {countdown}</Text>
-            </>
-          ) : isLive ? (
-            <>
-              <View style={S.dotLive} />
-              <Text style={S.statusLive}>Live now · record your matches</Text>
-            </>
-          ) : event.status === 'scheduled' ? (
-            <>
-              <View style={S.dotScheduled} />
-              <Text style={S.statusScheduled}>Confirmed</Text>
-            </>
-          ) : (
-            <>
-              <View style={S.dotClosed} />
-              <Text style={S.statusClosed}>Voting closed · {countdown}</Text>
-            </>
-          )}
-        </View>
-        {votingIsOpen && (
-          <Text style={S.voteDeadline}>
-            Deadline: {new Date(event.vote_ends_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-          </Text>
-        )}
+      ),
+    });
+    // S is rebuilt per render from the same colors; status is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, event?.id, event?.title, votingIsOpen, eventId, c]);
+
+  // ── Scrolling to what this visit is for ─────────────────────────
+  function tryPendingScroll() {
+    const want = pendingScroll.current;
+    if (!want || loading || !event) return;
+    // A link can name a control this state doesn't have (an RSVP push after
+    // the event was cancelled, a vote link after it was confirmed): fall back
+    // to the control that does exist, else give up quietly.
+    const order: ScrollTarget[] = want === 'manage' ? ['manage'] : want === 'vote' ? ['vote', 'rsvp'] : ['rsvp', 'vote'];
+    for (const target of order) {
+      const y = anchorY(target);
+      if (y == null) continue;
+      pendingScroll.current = null;
+      // Next frame: the anchor's own layout pass may still be settling.
+      requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - SPACE.sm), animated: true }));
+      return;
+    }
+  }
+  // Content offset of an anchor (null until it, and what's above it, laid out).
+  // SPACE.lg = S.content's top padding.
+  function anchorY(target: ScrollTarget): number | null {
+    if (target === 'manage') return manageY.current;
+    if (headH.current == null) return null;
+    if (target === 'rsvp') return rsvpH.current == null ? null : SPACE.lg + headH.current;
+    return voteSeen.current && youCardH.current != null ? SPACE.lg + headH.current + youCardH.current : null;
+  }
+  // The scroll offset past which the time card is off screen (sticky bar on).
+  function timeCardBottom(): number | null {
+    const top = anchorY('rsvp');
+    return top == null || rsvpH.current == null ? null : top + rsvpH.current;
+  }
+  const anchorLayout = (target: ScrollTarget) => (e: LayoutChangeEvent) => {
+    if (target === 'manage') manageY.current = e.nativeEvent.layout.y;
+    else if (target === 'rsvp') rsvpH.current = e.nativeEvent.layout.height;
+    else voteSeen.current = true;
+    tryPendingScroll();
+  };
+  const heightLayout = (ref: { current: number | null }) => (e: LayoutChangeEvent) => {
+    ref.current = e.nativeEvent.layout.height;
+    tryPendingScroll();
+  };
+  // Manage is reachable only for its users; anyone else arriving via a push
+  // link simply lands at the top.
+  useEffect(() => { tryPendingScroll(); });
+
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const y = e.nativeEvent.contentOffset.y;
+    const bottom = timeCardBottom();
+    const off = bottom != null && y > bottom;
+    setTimeCardOff(prev => (prev === off ? prev : off));
+  }
+
+  function onSectionToggle(section: string, open: boolean) {
+    trackSectionToggle({ screen: ANALYTICS_SCREEN, section, open });
+  }
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} variant="row" /></View>;
+  if (!event) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.bg }}>
+        <EmptyState icon="🔍" title="Event not found." actionLabel="Retry" onAction={() => { setLoading(true); void load(); }} />
       </View>
+    );
+  }
 
-      {detailsEditOpen && (
-        <View style={S.detailsEditBox}>
-          <Text style={S.detailsEditLabel}>Location</Text>
-          <CourtPicker
-            value={editLoc}
-            onSelect={setEditLoc}
-            active={detailsEditOpen}
-            showNoneOption
-            placeholder="Search for a court or venue…"
-          />
-          <Text style={S.detailsEditLabel}>Description</Text>
-          <TextInput
-            style={[S.webhookInput, { minHeight: 70, textAlignVertical: 'top' }]}
-            placeholder="Notes, what to bring..."
-            placeholderTextColor={c.textMuted}
-            value={editDesc}
-            onChangeText={setEditDesc}
-            multiline
-          />
-          <View style={S.nudgeBtnRow}>
-            <TouchableOpacity
-              style={[S.nudgeBtn, S.nudgeBtnSms]}
-              onPress={saveDetails}
-              disabled={detailsSaving}
-            >
-              <Text style={S.nudgeBtnText}>{detailsSaving ? 'Saving…' : 'Save'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.nudgeBtn, S.nudgeBtnCancel]}
-              onPress={() => setDetailsEditOpen(false)}
-              disabled={detailsSaving}
-            >
-              <Text style={[S.nudgeBtnText, { color: c.textSub }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+  const confirmedSlot = event.confirmed_slot_id ? slots.find((s) => s.id === event.confirmed_slot_id) ?? null : null;
+  const category = categorizeEvent(event, confirmedSlot?.starts_at ?? null, now);
+  const cancelled = category === 'cancelled';
+  // "Live": the confirmed slot has started and is still within its 24h open
+  // window — the event is open for recording matches.
+  const slotStart = confirmedSlot ? new Date(confirmedSlot.starts_at).getTime() : null;
+  const isLive = slotStart != null && now >= slotStart && now < slotStart + LIVE_WINDOW_MS;
+  // RSVP stays open from confirmation until the confirmed time ends. Not on a
+  // cancelled event, and not while the time vote itself is still running.
+  const rsvpOpen = !!confirmedSlot && !votingIsOpen && !cancelled
+    && now < new Date(confirmedSlot.ends_at).getTime();
+  const iAmIn = confirmedSlot?.my_vote ?? false;
+  const myVoteCount = slots.filter(s => s.my_vote).length;
+  const timeLeft = timeLeftLabel(event.vote_ends_at, now);
+  const place = event.location_name ? displayCourtName(event.location_name) : null;
+  const optionNo = optionNumbers(slots);
+
+  // ── Who may use which organiser tool ──
+  // Invite guests + nudge: league admins / co-admins (the RPC allows any member
+  // to invite; the UI keeps it to organisers, as before).
+  const canInvite = canClose && votingIsOpen;
+  const canNudge = canClose && !!nudgeKind;
+  // Close voting: the event's creator. close_event_vote raises for anyone
+  // else, so showing it to other admins only produced an error.
+  const canCloseVote = isEventCreator && votingIsOpen;
+  // Edit details: the creator only — RLS "Event creator can update".
+  const canEdit = isEventCreator;
+  // Webhook setup: the league creator only — RLS hides and rejects it for
+  // anyone else.
+  const canSetupWebhook = isLeagueCreator && !chatWebhookUrl;
+  const showManage = !cancelled && (canInvite || canNudge || canCloseVote || canEdit || canSetupWebhook);
+
+  const description = event.description?.trim() || '';
+  // Whether "more" shows. Native measures the real line count (descOverflows),
+  // so large text sizes, narrow phones and long URLs can't hide text behind the
+  // clamp with no "more". react-native-web has no onTextLayout, so web keeps a
+  // length check, scaled by the font scale (~50 characters a line at 1x).
+  // FOUNDATION-TODO: ClampText (measured N-line clamp with more/less; length + fontScale fallback on web)
+  const descLong = Platform.OS === 'web'
+    ? description.includes('\n') || description.length > Math.floor(90 / Math.max(1, PixelRatio.getFontScale()))
+    : descOverflows;
+
+  // ── Sticky bar: repeats the time card's primary once it scrolls away ──
+  const rsvpUnanswered = rsvpOpen && !iAmIn && !iDeclined;
+  const stickyVisible = !!confirmedSlot && timeCardOff && (rsvpUnanswered || isLive);
+
+  const recordMatch = () => navigation.navigate('MatchEntry', { leagueId: event.league_id, eventId });
+
+  const voteResults = slots.length > 0 && (
+    <CollapsibleSection
+      compact
+      title="Vote results"
+      count={slots.length}
+      summary={confirmedSlot
+        ? `${confirmedSlot.vote_count ?? 0} voted for the confirmed time`
+        : `${slots.length} time${slots.length === 1 ? '' : 's'} proposed`}
+      onToggle={(next) => onSectionToggle('vote_results', next)}
+    >
+      {slots.map(slot => (
+        <EventSlotCard
+          key={slot.id}
+          slot={slot}
+          optionNo={slots.length > 1 ? optionNo.get(slot.id) : null}
+          memberCount={memberCount}
+          isWinner={slot.id === event.confirmed_slot_id}
+          votable={false}
+          busy={false}
+          onToggle={() => {}}
+        />
+      ))}
+      {decliners.length > 0 && (
+        <View>
+          <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {decliners.length} can't make it
+          </Text>
+          <VoterChips voters={decliners} />
         </View>
       )}
+    </CollapsibleSection>
+  );
 
-      {status.value && (
-        <View style={S.bannerWrap}>
-          <StatusBanner status={status.value} />
+  return (
+    <View style={S.root}>
+      <ScrollView
+        ref={scrollRef}
+        style={S.container}
+        contentContainerStyle={[S.content, { paddingBottom: bottomInset }]}
+        refreshControl={<AppRefreshControl {...refresh} />}
+        onScroll={onScroll}
+        scrollEventThrottle={32}
+      >
+        {/* ── 1. Identity: status · league › · court, then the description ──
+            One wrapper (with the banner) whose height places the blocks below;
+            see the scroll-anchor note. The content has no gap, so the wrapper
+            changes no spacing. */}
+        <View onLayout={heightLayout(headH)}>
+        <View style={S.chipRow}>
+          <Badge label={eventStatusLabel(category)} tone={eventStatusTone(category)} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          {leagueName ? (
+            <Chip
+              label={`${entityGlyph('league')} ${leagueName} ›`}
+              size="sm"
+              hitBox
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+              onPress={() => {
+                // Back to the league, not a second copy of it. popTo matches by
+                // name only (no getId) and lands on the NEAREST LeagueDetail
+                // below us, so use it only when that route is this event's
+                // league; otherwise (cold link, push, opened from Home) navigate
+                // pushes a fresh one.
+                const params = { leagueId: event.league_id, leagueName };
+                const nearest = [...navigation.getState().routes].reverse().find(r => r.name === 'LeagueDetail');
+                if ((nearest?.params as { leagueId?: string } | undefined)?.leagueId === event.league_id) {
+                  navigation.popTo('LeagueDetail', params);
+                } else {
+                  navigation.navigate('LeagueDetail', params);
+                }
+              }}
+            />
+          ) : null}
+          {place ? <Badge label={`📍 ${place}`} tone="neutral" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} /> : null}
         </View>
-      )}
-
-      {/* Confirmed slot banner */}
-      {confirmedSlot && (
-        <View style={[S.confirmedBanner, isLive && S.confirmedBannerLive]}>
-          <Text style={S.confirmedLabel}>{isLive ? '🔴 Live now' : 'Confirmed Time'}</Text>
-          <Text style={S.confirmedDate}>
-            {new Date(confirmedSlot.starts_at).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
-          </Text>
-          <Text style={S.confirmedTime}>
-            {new Date(confirmedSlot.starts_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-            {' – '}
-            {new Date(confirmedSlot.ends_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-          </Text>
-          <Text style={S.confirmedAttendeeCount}>{confirmedAttendees.length} player{confirmedAttendees.length !== 1 ? 's' : ''} confirmed</Text>
-          {rsvpOpen && (
-            <>
-              <Text style={S.rsvpState}>
-                {iAmIn ? "✅ You're in" : iDeclined ? "🚫 You can't make it" : 'Are you coming?'}
-              </Text>
-              <View style={S.rsvpRow}>
-                <TouchableOpacity
-                  style={[S.rsvpBtn, iAmIn && S.rsvpBtnActive]}
-                  activeOpacity={0.85}
-                  onPress={() => { if (!iAmIn) respondToConfirmed('in'); }}
-                  disabled={voting != null}
-                >
-                  <Text style={[S.rsvpBtnText, iAmIn && S.rsvpBtnTextActive]}>
-                    {voting === 'rsvp_in' ? 'Saving…' : "👍 I'm in"}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[S.rsvpBtn, iDeclined && S.rsvpBtnActive]}
-                  activeOpacity={0.85}
-                  onPress={() => { if (!iDeclined) respondToConfirmed('out'); }}
-                  disabled={voting != null}
-                >
-                  <Text style={[S.rsvpBtnText, iDeclined && S.rsvpBtnTextDeclined]}>
-                    {voting === 'rsvp_out' ? 'Saving…' : "🚫 Can't make it"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-          <TouchableOpacity
-            style={S.recordBtn}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('MatchEntry', { leagueId: event.league_id, eventId })}
-          >
-            <Text style={S.recordBtnText}>📝 Record a match for this event</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={S.calBtn}
-            activeOpacity={0.85}
-            onPress={() => addToCalendar({
-              title: event.title,
-              startsAt: confirmedSlot.starts_at,
-              endsAt: confirmedSlot.ends_at,
-              location: leagueName || null,
-              description: event.description || (leagueName ? `${leagueName} event on Pickleague` : 'Pickleague event'),
-            })}
-          >
-            <Text style={S.calBtnText}>📅 Add to calendar</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Matches recorded for this event */}
-      {eventMatches.length > 0 && (
-        <View style={S.matchesSection}>
-          <Text style={S.matchesSectionTitle}>Matches recorded ({eventMatches.length})</Text>
-          {eventMatches.map(m => {
-            const teamA = [m.p1?.full_name, m.pn1?.full_name].filter(Boolean).join(' & ') || '?';
-            const teamB = [m.p2?.full_name, m.pn2?.full_name].filter(Boolean).join(' & ') || '?';
-            const scoreLabel = m.player1_score != null && m.player2_score != null
-              ? `${m.player1_score}–${m.player2_score}`
-              : '—';
-            const winSuffix = m.winner_team === 'team1' ? ' ✓ Team A' : m.winner_team === 'team2' ? ' ✓ Team B' : '';
-            return (
-              <View key={m.id} style={S.matchRow}>
-                <Text style={S.matchRowTeams} numberOfLines={2}>{teamA} vs {teamB}</Text>
-                <Text style={S.matchRowMeta}>
-                  {scoreLabel}{winSuffix} · {m.status === 'completed' ? 'final' : m.status}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      {/* Voting instruction */}
-      {votingIsOpen && (
-        <Text style={S.voteInstruction}>
-          Tap the slots you're available for. You can select multiple.
-        </Text>
-      )}
-
-      {/* Invite guests (league admins / co-admins only, while voting is open) */}
-      {votingIsOpen && canClose && (
-        <TouchableOpacity style={S.inviteGuestsBtn} onPress={onInviteGuests} disabled={invitingGuests}>
-          <Text style={S.inviteGuestsText}>📲  Invite guests to vote</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Slot cards */}
-      {slots.map((slot) => {
-        // Matches the numbered times (and 1st / 2nd / 3rd time buttons) in the vote push.
-        const optionNo = optionNumbers(slots).get(slot.id);
-        const isWinner = slot.id === event.confirmed_slot_id;
-        const pct = memberCount > 0 ? Math.min((slot.vote_count ?? 0) / memberCount, 1) : 0;
-        const isMyVote = slot.my_vote ?? false;
-        const isTogglingThis = voting === slot.id;
-
-        return (
-          <TouchableOpacity
-            key={slot.id}
-            style={[S.slotCard, isWinner && S.slotCardWinner, isMyVote && S.slotCardVoted]}
-            onPress={() => toggleVote(slot)}
-            disabled={!votingIsOpen || isTogglingThis}
-            activeOpacity={votingIsOpen ? 0.7 : 1}
-          >
-            <View style={S.slotTop}>
-              <View style={S.slotDateBlock}>
-                {slots.length > 1 && optionNo ? <Text style={S.slotOption}>Option {optionNo}</Text> : null}
-                <Text style={S.slotDay}>
-                  {new Date(slot.starts_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                </Text>
-                <Text style={S.slotTime}>
-                  {new Date(slot.starts_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                  {' – '}
-                  {new Date(slot.ends_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                </Text>
-              </View>
-              <View style={S.slotRight}>
-                {isWinner && <Text style={S.winnerStar}>★</Text>}
-                {isMyVote && !isWinner && (
-                  <View style={S.myVoteBadge}>
-                    <Text style={S.myVoteText}>✓ Available</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-            {/* Progress bar */}
-            <View style={S.progressBg}>
-              <View style={[S.progressFill, { width: `${pct * 100}%` as any }, isWinner && S.progressFillWinner]} />
-            </View>
-            <Text style={S.voteCount}>
-              {slot.vote_count} / {memberCount} {memberCount === 1 ? 'player' : 'players'} available
-            </Text>
-
-            {/* Who voted for this slot */}
-            {(slot.voters?.length ?? 0) > 0 && (
-              <View style={S.voterWrap}>
-                {slot.voters!.map((vp) => {
-                  const first = (vp.full_name ?? '?').trim().split(' ')[0] || '?';
-                  return (
-                    <View key={vp.id} style={S.voterChip}>
-                      <View style={[S.voterAvatar, vp.avatar_bg_color ? { backgroundColor: vp.avatar_bg_color } : null]}>
-                        <Text style={S.voterAvatarText}>{vp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
-                      </View>
-                      <Text style={S.voterName} numberOfLines={1}>{first}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </TouchableOpacity>
-        );
-      })}
-
-      {/* "Can't make it" — deliberately outside the slot list. It is not a time
-          option and can never win; it just tells the organiser who is out.
-          Once a time is confirmed the RSVP row above is the one place to
-          answer, so this shrinks to a read-only list of who is out. */}
-      {confirmedSlot && !votingIsOpen ? (
-        decliners.length > 0 && (
-          <View style={S.declineCard}>
-            <Text style={S.declineSub}>
-              {`${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make it`}
-            </Text>
-            <View style={S.voterWrap}>
-              {decliners.map((dp) => {
-                const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
-                return (
-                  <View key={dp.id} style={S.voterChip}>
-                    <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
-                      <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
-                    </View>
-                    <Text style={S.voterName}>{first}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )
-      ) : (
-        <TouchableOpacity
-          style={[S.declineCard, iDeclined && S.declineCardActive]}
-          onPress={toggleDecline}
-          disabled={!votingIsOpen || voting === 'decline'}
-          activeOpacity={0.8}
-        >
-          <Text style={[S.declineTitle, iDeclined && S.declineTitleActive]}>
-            {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
-          </Text>
-          <Text style={S.declineSub}>
-            {decliners.length > 0
-              ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
-              : 'None of these times work for you?'}
-          </Text>
-
-          {decliners.length > 0 && (
-            <View style={S.voterWrap}>
-              {decliners.map((dp) => {
-                const first = (dp.full_name ?? '?').trim().split(' ')[0] || '?';
-                return (
-                  <View key={dp.id} style={S.voterChip}>
-                    <View style={[S.voterAvatar, dp.avatar_bg_color ? { backgroundColor: dp.avatar_bg_color } : null]}>
-                      <Text style={S.voterAvatarText}>{dp.avatar_emoji ?? (first[0]?.toUpperCase() ?? '?')}</Text>
-                    </View>
-                    <Text style={S.voterName}>{first}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
-
-      {/* What the threshold means, while it can still change the outcome. */}
-      {event.min_players != null && votingIsOpen && (
-        <Text style={S.minPlayersNote}>
-          Needs {event.min_players} players on one time — otherwise this event is
-          cancelled when voting closes.
-        </Text>
-      )}
-
-      {/* Nudge the group. Creator only — they are the one who has the thread. */}
-      {canClose && nudgeKind && (
-        <View style={S.nudgeCard}>
-          <Text style={S.nudgeTitle}>
-            {nudgeKind === 'vote' ? '📣 Chase the stragglers'
-              : nudgeKind === 'today' ? '📣 Remind them it’s today'
-              : '📣 Tell them it’s locked in'}
-          </Text>
-          <Text style={S.nudgeSub}>
-            Opens your messaging app with the group and the message ready — you tap send.
-          </Text>
-          <View style={S.nudgeBtnRow}>
-            <TouchableOpacity
-              style={[S.nudgeBtn, S.nudgeBtnSms]}
-              onPress={() => sendNudge('sms')}
-              disabled={nudging}
-            >
-              <Text style={S.nudgeBtnText}>{nudging ? '…' : '💬 Text'}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.nudgeBtn, S.nudgeBtnWa]}
-              onPress={() => sendNudge('whatsapp')}
-              disabled={nudging}
-            >
-              <Text style={S.nudgeBtnText}>{nudging ? '…' : '🟢 WhatsApp'}</Text>
-            </TouchableOpacity>
-            {chatWebhookUrl && (
-              <TouchableOpacity
-                style={[S.nudgeBtn, S.nudgeBtnChat]}
-                onPress={() => sendNudge('chat')}
-                disabled={nudging}
+        {description ? (
+          <View style={S.descBlock}>
+            <Text style={t.sub} numberOfLines={descExpanded ? undefined : 2}>{description}</Text>
+            {Platform.OS !== 'web' && (
+              // Unclamped, invisible twin at the same width: a clamped Text
+              // reports its truncated line count, so measure this one instead.
+              <Text
+                style={[t.sub, S.measureTwin]}
+                onTextLayout={(e) => { const over = e.nativeEvent.lines.length > 2; setDescOverflows(prev => (prev === over ? prev : over)); }}
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                pointerEvents="none"
               >
-                <Text style={S.nudgeBtnText}>{nudging ? '…' : '📢 League chat'}</Text>
-              </TouchableOpacity>
+                {description}
+              </Text>
+            )}
+            {descLong && (
+              <Pressable onPress={() => setDescExpanded(v => !v)} style={S.moreBox} accessibilityRole="button">
+                <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {descExpanded ? 'less' : 'more'}
+                </Text>
+              </Pressable>
             )}
           </View>
-          {/* Setup is offered only to the league creator: RLS would reject the
-              write (and hide the row) for anyone else. */}
-          {!chatWebhookUrl && isLeagueCreator && !webhookSetupOpen && (
-            <TouchableOpacity onPress={() => setWebhookSetupOpen(true)}>
-              <Text style={S.webhookSetupLink}>
-                Connect a Discord/Slack webhook to post nudges with one tap →
+        ) : null}
+
+        {status.value ? <StatusBanner status={status.value} style={S.banner} /> : null}
+        </View>
+
+        {/* ── Voting ─────────────────────────────────────────────── */}
+        {(category === 'voting_open' || category === 'vote_closed') && (
+          <>
+            <View onLayout={heightLayout(youCardH)}>
+            <Panel style={[S.youCard, { borderLeftColor: c.primary }]}>
+              <Text style={t.label} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Your vote</Text>
+              <Text style={[t.title, S.youTitle]}>
+                {iDeclined ? "You can't make it"
+                  : myVoteCount > 0 ? `Available for ${myVoteCount} time${myVoteCount === 1 ? '' : 's'}`
+                  : "You haven't voted"}
               </Text>
-            </TouchableOpacity>
-          )}
-          {webhookSetupOpen && (
-            <View style={S.webhookSetupBox}>
-              <Text style={S.webhookSetupHint}>
-                Discord: channel → Edit → Integrations → Webhooks → Copy URL.
-                Anyone with this URL can post to the channel, so it stays
-                visible only to you.
+              <Text style={t.sub} numberOfLines={2}>
+                {votingIsOpen
+                  ? `${timeLeft ?? 'Closing soon'} · tap every time that works for you`
+                  : 'Voting has ended · the organizer is picking the time'}
               </Text>
-              <TextInput
-                style={S.webhookInput}
-                placeholder="https://discord.com/api/webhooks/…"
-                placeholderTextColor={c.textMuted}
-                value={webhookInput}
-                onChangeText={setWebhookInput}
-                autoCapitalize="none"
-                autoCorrect={false}
+            </Panel>
+            </View>
+
+            <View onLayout={anchorLayout('vote')} style={S.block}>
+              {slots.map((slot) => (
+                <EventSlotCard
+                  key={slot.id}
+                  slot={slot}
+                  // Matches the numbered times (and 1st / 2nd / 3rd time buttons) in the vote push.
+                  optionNo={slots.length > 1 ? optionNo.get(slot.id) : null}
+                  memberCount={memberCount}
+                  isWinner={slot.id === event.confirmed_slot_id}
+                  votable={votingIsOpen}
+                  busy={voting === slot.id}
+                  onToggle={() => toggleVote(slot)}
+                />
+              ))}
+
+              {/* "Can't make it" — deliberately outside the slot list. It is not a
+                  time option and can never win; it just tells the organiser who is out. */}
+              <TouchableOpacity
+                style={[S.declineCard, iDeclined && S.declineCardActive]}
+                onPress={toggleDecline}
+                disabled={!votingIsOpen || voting === 'decline'}
+                activeOpacity={0.8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: iDeclined }}
+              >
+                <Text style={[t.title, { color: iDeclined ? c.danger : c.textSub }]}>
+                  {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
+                </Text>
+                <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  {decliners.length > 0
+                    ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
+                    : 'None of these times work for you?'}
+                </Text>
+                <VoterChips voters={decliners} />
+              </TouchableOpacity>
+
+              {/* What the threshold means, while it can still change the outcome. */}
+              {event.min_players != null && votingIsOpen && (
+                <Text style={[t.hint, S.note]}>
+                  Needs {event.min_players} players on one time — otherwise this event is cancelled when voting closes.
+                </Text>
+              )}
+            </View>
+          </>
+        )}
+
+        {/* ── Confirmed (scheduled / live / past) ────────────────── */}
+        {confirmedSlot && !cancelled && category !== 'voting_open' && category !== 'vote_closed' && (
+          <>
+            <View onLayout={anchorLayout('rsvp')} style={S.block}>
+              <EventTimeCard
+                startsAt={confirmedSlot.starts_at}
+                endsAt={confirmedSlot.ends_at}
+                isLive={isLive}
+                place={place}
+                inCount={confirmedAttendees.length}
+                outCount={decliners.length}
+                rsvpOpen={rsvpOpen}
+                iAmIn={iAmIn}
+                iDeclined={iDeclined}
+                busy={voting === 'rsvp_in' || voting === 'rsvp_out' ? voting : voting ? 'other' : null}
+                onRsvp={respondToConfirmed}
+                onRecord={recordMatch}
+                onAddToCalendar={() => addToCalendar({
+                  title: event.title,
+                  startsAt: confirmedSlot.starts_at,
+                  endsAt: confirmedSlot.ends_at,
+                  location: event.location_name || leagueName || null,
+                  description: event.description || (leagueName ? `${leagueName} event on Pickleague` : 'Pickleague event'),
+                })}
               />
-              <View style={S.nudgeBtnRow}>
-                <TouchableOpacity
-                  style={[S.nudgeBtn, S.nudgeBtnChat]}
-                  onPress={saveChatWebhook}
-                  disabled={webhookSaving}
-                >
-                  <Text style={S.nudgeBtnText}>{webhookSaving ? 'Saving…' : 'Save'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[S.nudgeBtn, S.nudgeBtnCancel]}
-                  onPress={() => setWebhookSetupOpen(false)}
-                  disabled={webhookSaving}
-                >
-                  <Text style={[S.nudgeBtnText, { color: c.textSub }]}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
             </View>
-          )}
-        </View>
-      )}
 
-      {/* Creator actions */}
-      {canClose && votingIsOpen && (
-        <TouchableOpacity style={S.closeVoteBtn} onPress={closeVoting}>
-          <Text style={S.closeVoteText}>Close Voting & Confirm Top Slot</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Done — back to home */}
-      <TouchableOpacity style={S.doneBtn} onPress={() => navigation.navigate('Home')}>
-        <Text style={S.doneBtnText}>Done</Text>
-      </TouchableOpacity>
-
-      {/* Confirmed attendees */}
-      {confirmedAttendees.length > 0 && (
-        <View style={S.attendeesSection}>
-          <Text style={S.attendeesTitle}>Confirmed Players ({confirmedAttendees.length})</Text>
-          {confirmedAttendees.map((p) => (
-            <View key={p.id} style={S.attendeeRow}>
-              <View style={S.attendeeAvatar}>
-                <Text style={S.attendeeInitial}>{p.full_name[0].toUpperCase()}</Text>
+            {confirmedAttendees.length > 0 && (
+              <View style={S.block}>
+                <SectionHeader title="Who's in" count={confirmedAttendees.length} />
+                <Panel>
+                  <AvatarPile
+                    items={confirmedAttendees}
+                    keyOf={(p) => p.id}
+                    labelOf={(p) => p.full_name || 'Player'}
+                    // 44: each avatar is its own tap target (tap shows the name).
+                    size={44}
+                    maxVisible={10}
+                    renderAvatar={(p, size) => (
+                      <View style={[S.pileAvatar, { width: size, height: size }, p.avatar_bg_color ? { backgroundColor: p.avatar_bg_color } : null]}>
+                        <Text style={t.title} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                          {p.avatar_emoji ?? (p.full_name?.trim()[0]?.toUpperCase() || '?')}
+                        </Text>
+                      </View>
+                    )}
+                  />
+                  {decliners.length > 0 && (
+                    <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                      Can't make it: {decliners.map(d => (d.full_name ?? '').trim().split(' ')[0] || 'Player').join(', ')}
+                    </Text>
+                  )}
+                </Panel>
               </View>
-              <Text style={S.attendeeName}>{p.full_name}</Text>
-              <Text style={S.attendeeRating}>{p.rating}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+            )}
+          </>
+        )}
 
-      <ConfirmModal
-        visible={!!closeWinner}
-        title="Close voting & confirm?"
-        body={closeWinner ? `The winning slot (${closeWinner.vote_count} votes) will be set as the confirmed time. This cannot be undone.` : ''}
-        primaryLabel="Confirm"
-        variant="primary"
-        busy={closing}
-        onConfirm={confirmCloseVoting}
-        onClose={() => setCloseWinner(null)}
-      />
+        {/* ── Matches recorded for this event ── */}
+        {!cancelled && eventMatches.length > 0 && (
+          <View style={S.block}>
+            <SectionHeader title="Matches recorded" count={eventMatches.length} />
+            <Panel padded={false}>
+              {eventMatches.map((m, i) => {
+                const teamA = [m.p1?.full_name, m.pn1?.full_name].filter(Boolean).join(' & ') || 'Player';
+                const teamB = [m.p2?.full_name, m.pn2?.full_name].filter(Boolean).join(' & ') || 'Player';
+                const scoreLabel = m.player1_score != null && m.player2_score != null
+                  ? `${m.player1_score}–${m.player2_score}`
+                  : null;
+                const winSuffix = m.winner_team === 'team1' ? '✓ Team A' : m.winner_team === 'team2' ? '✓ Team B' : null;
+                return (
+                  <View key={m.id} style={[S.matchRow, i < eventMatches.length - 1 && S.divider]}>
+                    <Text style={t.title} numberOfLines={1}>{teamA} vs {teamB}</Text>
+                    <Text style={t.sub} numberOfLines={1}>
+                      {[scoreLabel, winSuffix, m.status === 'completed' ? 'final' : m.status].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                );
+              })}
+            </Panel>
+          </View>
+        )}
 
-      <ContactPickerModal
-        visible={showGuestPicker}
-        busy={invitingGuests}
-        onConfirm={sendGuestInvites}
-        onClose={() => setShowGuestPicker(false)}
+        {/* ── Vote results (collapsed) — confirmed and cancelled ── */}
+        {category !== 'voting_open' && category !== 'vote_closed' && voteResults}
+
+        {/* ── Manage ─────────────────────────────────────────────── */}
+        {showManage && (
+          <View onLayout={anchorLayout('manage')}>
+            <CollapsibleSection
+              compact
+              title="Manage"
+              summary={[
+                canCloseVote && 'Close voting',
+                canNudge && 'Nudge',
+                canInvite && 'Invite guests',
+                canEdit && 'Edit details',
+              ].filter(Boolean).join(' · ') || 'League chat'}
+              open={manageOpen}
+              onToggle={(next) => { setManageOpen(next); onSectionToggle('manage', next); }}
+            >
+              {canCloseVote && (
+                <View style={S.manageRow}>
+                  <View style={S.manageText}>
+                    <Text style={t.title}>Close voting</Text>
+                    <Text style={t.sub} numberOfLines={2}>Confirms the time with the most votes now.</Text>
+                  </View>
+                  <Button size="sm" title="Close" onPress={closeVoting} />
+                </View>
+              )}
+
+              {canNudge && (
+                <View style={S.manageGroup}>
+                  <Text style={t.title}>
+                    {nudgeKind === 'vote' ? '📣 Chase the stragglers'
+                      : nudgeKind === 'today' ? '📣 Remind them it’s today'
+                      : '📣 Tell them it’s locked in'}
+                  </Text>
+                  <Text style={t.sub} numberOfLines={2}>
+                    Opens your messaging app with the group and the message ready — you tap send.
+                  </Text>
+                  <View style={S.btnRow}>
+                    <Button size="sm" title="💬 Text" loading={nudging} onPress={() => sendNudge('sms')} />
+                    <Button size="sm" variant="success" title="WhatsApp" disabled={nudging} onPress={() => sendNudge('whatsapp')} />
+                    {chatWebhookUrl && (
+                      <Button size="sm" variant="outline" title="📢 League chat" disabled={nudging} onPress={() => sendNudge('chat')} />
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Setup is offered only to the league creator: RLS would reject the
+                  write (and hide the row) for anyone else. */}
+              {canSetupWebhook && (
+                webhookSetupOpen ? (
+                  <View style={S.manageGroup}>
+                    <Text style={t.hint}>
+                      Discord: channel → Edit → Integrations → Webhooks → Copy URL.
+                      Anyone with this URL can post to the channel, so it stays
+                      visible only to you.
+                    </Text>
+                    <TextInput
+                      style={S.input}
+                      placeholder="https://discord.com/api/webhooks/…"
+                      placeholderTextColor={c.textMuted}
+                      value={webhookInput}
+                      onChangeText={setWebhookInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <View style={S.btnRow}>
+                      <Button size="sm" title="Save" loading={webhookSaving} onPress={saveChatWebhook} />
+                      <Button size="sm" variant="outline" title="Cancel" disabled={webhookSaving} onPress={() => setWebhookSetupOpen(false)} />
+                    </View>
+                  </View>
+                ) : (
+                  <Pressable onPress={() => setWebhookSetupOpen(true)} style={S.linkBox} accessibilityRole="button">
+                    <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                      Connect a Discord/Slack webhook to post nudges with one tap →
+                    </Text>
+                  </Pressable>
+                )
+              )}
+
+              {canInvite && (
+                <View style={S.manageRow}>
+                  <View style={S.manageText}>
+                    <Text style={t.title}>📲 Invite guests to vote</Text>
+                    <Text style={t.sub} numberOfLines={2}>No account needed — a 7-day guest pass.</Text>
+                  </View>
+                  <Button size="sm" variant="outline" title="Invite" loading={invitingGuests} onPress={onInviteGuests} />
+                </View>
+              )}
+
+              {/* Only the creator may edit — matches RLS ("Event creator can update"). */}
+              {canEdit && (
+                detailsEditOpen ? (
+                  <View style={S.manageGroup}>
+                    <Text style={t.fieldLabel}>Location</Text>
+                    <CourtPicker
+                      value={editLoc}
+                      onSelect={setEditLoc}
+                      active={detailsEditOpen}
+                      showNoneOption
+                      placeholder="Search for a court or venue…"
+                    />
+                    <Text style={t.fieldLabel}>Description</Text>
+                    <TextInput
+                      style={[S.input, S.inputMulti]}
+                      placeholder="Notes, what to bring..."
+                      placeholderTextColor={c.textMuted}
+                      value={editDesc}
+                      onChangeText={setEditDesc}
+                      multiline
+                    />
+                    <View style={S.btnRow}>
+                      <Button size="sm" title="Save" loading={detailsSaving} onPress={saveDetails} />
+                      <Button size="sm" variant="outline" title="Cancel" disabled={detailsSaving} onPress={() => setDetailsEditOpen(false)} />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={S.manageRow}>
+                    <View style={S.manageText}>
+                      <Text style={t.title}>✏️ Edit details</Text>
+                      <Text style={t.sub} numberOfLines={1}>Location and description</Text>
+                    </View>
+                    <Button size="sm" variant="outline" title="Edit" onPress={openDetailsEdit} />
+                  </View>
+                )
+              )}
+            </CollapsibleSection>
+          </View>
+        )}
+
+        {/* Done — a text link at the end. popTo, not navigate: under React
+            Navigation 7 navigate('Home') pushes a second Home, and with
+            linking's initialRouteName Home is always in the stack. */}
+        <Pressable onPress={() => navigation.popTo('Home')} style={S.doneBox} accessibilityRole="button">
+          <Text style={[t.title, { color: c.primary }]}>Done</Text>
+        </Pressable>
+
+        <ConfirmModal
+          visible={!!closeWinner}
+          title="Close voting & confirm?"
+          body={closeWinner ? `The winning slot (${closeWinner.vote_count} votes) will be set as the confirmed time. This cannot be undone.` : ''}
+          primaryLabel="Confirm"
+          variant="primary"
+          busy={closing}
+          onConfirm={confirmCloseVoting}
+          onClose={() => setCloseWinner(null)}
+        />
+
+        <ContactPickerModal
+          visible={showGuestPicker}
+          busy={invitingGuests}
+          onConfirm={sendGuestInvites}
+          onClose={() => setShowGuestPicker(false)}
+        />
+      </ScrollView>
+
+      {/* Last child of the root, outside the ScrollView (foundation rule). */}
+      <StickyActionBar
+        visible={stickyVisible}
+        active={isFocused}
+        summary={rsvpUnanswered ? 'Are you coming?' : 'Live now'}
+        secondary={rsvpUnanswered
+          ? { title: "Can't make it", onPress: () => respondToConfirmed('out'), disabled: voting != null }
+          : undefined}
+        primary={rsvpUnanswered
+          ? { title: "I'm in", onPress: () => respondToConfirmed('in'), loading: voting === 'rsvp_in', disabled: voting != null }
+          : { title: 'Record match', onPress: recordMatch }}
       />
-    </ScrollView>
+    </View>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bg },
-    bannerWrap: { paddingHorizontal: 16, paddingTop: 12 },
-    header: { backgroundColor: c.surface, padding: 16, marginBottom: 8 },
-    desc: { fontSize: 14, color: c.textSub, marginBottom: 8 },
-    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    dotOpen: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.primary },
-    dotScheduled: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1565c0' },
-    dotClosed: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#e65100' },
-    dotLive: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.danger },
-    statusOpen: { fontSize: 14, color: c.primary, fontWeight: '600' },
-    statusLive: { fontSize: 14, color: c.danger, fontWeight: '700' },
-    statusScheduled: { fontSize: 14, color: '#1565c0', fontWeight: '600' },
-    statusClosed: { fontSize: 14, color: '#e65100', fontWeight: '600' },
-    voteDeadline: { fontSize: 12, color: c.textMuted, marginTop: 4 },
-    confirmedBanner: { backgroundColor: '#1565c0', margin: 12, borderRadius: 14, padding: 18, alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4 },
-    confirmedBannerLive: { backgroundColor: c.danger },
-    confirmedLabel: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-    confirmedDate: { fontSize: 20, fontWeight: '800', color: '#fff' },
-    confirmedTime: { fontSize: 16, color: 'rgba(255,255,255,0.9)', marginTop: 2 },
-    confirmedAttendeeCount: { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 6 },
-
-    recordBtn:      { marginTop: 12, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
-    recordBtnText:  { color: '#fff', fontSize: 14, fontWeight: '700' },
-    calBtn:         { marginTop: 8, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
-    calBtnText:     { color: '#fff', fontSize: 14, fontWeight: '700' },
-    rsvpState:      { marginTop: 12, fontSize: 14, fontWeight: '700', color: '#fff' },
-    rsvpRow:        { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 8 },
-    rsvpBtn:        { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)' },
-    rsvpBtnActive:  { backgroundColor: '#fff', borderColor: '#fff' },
-    rsvpBtnText:    { color: '#fff', fontSize: 14, fontWeight: '700' },
-    rsvpBtnTextActive:   { color: '#1565c0' },
-    rsvpBtnTextDeclined: { color: c.danger },
-
-    matchesSection:       { marginHorizontal: 12, marginTop: 4, marginBottom: 12, padding: 14, borderRadius: 12, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-    matchesSectionTitle:  { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 },
-    matchRow:             { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
-    matchRowTeams:        { fontSize: 14, fontWeight: '700', color: c.text },
-    matchRowMeta:         { fontSize: 12, color: c.textSub, marginTop: 2 },
-    voteInstruction: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginVertical: 8, paddingHorizontal: 16 },
-    inviteGuestsBtn: { marginHorizontal: 12, marginBottom: 8, borderWidth: 1.5, borderColor: c.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center', backgroundColor: c.primaryLight },
-    inviteGuestsText: { color: c.primary, fontSize: 14, fontWeight: '700' },
-    slotCard: { backgroundColor: c.surface, marginHorizontal: 12, marginBottom: 10, borderRadius: 14, padding: 14, borderWidth: 2, borderColor: 'transparent', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
-    slotCardVoted: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    slotCardWinner: { borderColor: '#1565c0', backgroundColor: '#e8eaf6' },
-    slotTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 },
-    slotDateBlock: {},
-    slotOption: { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
-    slotDay: { fontSize: 15, fontWeight: '700', color: c.text },
-    slotTime: { fontSize: 14, color: c.textSub, marginTop: 2 },
-    slotRight: { alignItems: 'flex-end' },
-    winnerStar: { fontSize: 22, color: '#1565c0' },
-    myVoteBadge: { backgroundColor: c.primaryLight, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-    myVoteText: { fontSize: 12, color: c.primary, fontWeight: '700' },
-    progressBg: { height: 6, backgroundColor: c.border, borderRadius: 3, overflow: 'hidden', marginBottom: 6 },
-    progressFill: { height: 6, backgroundColor: c.primary, borderRadius: 3 },
-    progressFillWinner: { backgroundColor: '#1565c0' },
-    voteCount: { fontSize: 12, color: c.textMuted },
-    voterWrap:       { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-    voterChip:       { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: c.surfaceAlt, borderRadius: 12, paddingVertical: 3, paddingHorizontal: 7, borderWidth: 1, borderColor: c.border },
-    voterAvatar:     { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight },
-    voterAvatarText: { fontSize: 11, fontWeight: '700', color: c.primary },
-    voterName:       { fontSize: 12, color: c.textSub, maxWidth: 90 },
-    nudgeCard:       { marginHorizontal: 12, marginTop: 12, padding: 14, borderRadius: 12, backgroundColor: c.primaryLight },
-    nudgeTitle:      { fontSize: 15, fontWeight: '800', color: c.primary },
-    nudgeSub:        { fontSize: 12, color: c.textSub, marginTop: 3, lineHeight: 17 },
-    nudgeBtnRow:     { flexDirection: 'row', gap: 10, marginTop: 12 },
-    nudgeBtn:        { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
-    nudgeBtnSms:     { backgroundColor: c.primary },
-    nudgeBtnWa:      { backgroundColor: '#25D366' },
-    nudgeBtnChat:    { backgroundColor: '#5865F2' },
-    nudgeBtnCancel:  { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    nudgeBtnText:    { color: '#fff', fontWeight: '800', fontSize: 13 },
-    webhookSetupLink:{ fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 10 },
-    webhookSetupBox: { marginTop: 10 },
-    locationLine:    { fontSize: 14, fontWeight: '600', color: c.textSub, marginTop: 6 },
-    editDetailsLink: { fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 8 },
-    detailsEditBox:  { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
-    detailsEditLabel:{ fontSize: 12, fontWeight: '700', color: c.textSub, marginBottom: 6 },
-    webhookSetupHint:{ fontSize: 11, color: c.textMuted, lineHeight: 16, marginBottom: 8 },
-    webhookInput:    { borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, fontSize: 13, color: c.text, backgroundColor: c.surface, marginBottom: 10 },
-    declineCard:      { marginHorizontal: 12, marginTop: 10, padding: 14, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
-    declineCardActive:{ borderColor: c.danger, backgroundColor: c.surfaceAlt },
-    declineTitle:     { fontSize: 15, fontWeight: '800', color: c.textSub },
-    declineTitleActive:{ color: c.danger },
-    declineSub:       { fontSize: 12, color: c.textMuted, marginTop: 3 },
-    minPlayersNote:   { marginHorizontal: 12, marginTop: 8, fontSize: 12, color: c.textMuted, textAlign: 'center', lineHeight: 17 },
-    closeVoteBtn: { marginHorizontal: 12, marginTop: 8, marginBottom: 4, backgroundColor: '#e65100', borderRadius: 12, padding: 16, alignItems: 'center' },
-    doneBtn:      { marginHorizontal: 12, marginTop: 12, marginBottom: 4, backgroundColor: c.primary, borderRadius: 12, padding: 16, alignItems: 'center' },
-    doneBtnText:  { color: '#fff', fontWeight: '700', fontSize: 15 },
-    closeVoteText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    attendeesSection: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 3 },
-    attendeesTitle: { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 12 },
-    attendeeRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.bg },
-    attendeeAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-    attendeeInitial: { fontSize: 16, fontWeight: '700', color: c.primary },
-    attendeeName: { flex: 1, fontSize: 15, fontWeight: '500', color: c.text },
-    attendeeRating: { fontSize: 14, fontWeight: '700', color: c.primary },
+    root:        { flex: 1, backgroundColor: c.bg },
+    container:   { flex: 1, backgroundColor: c.bg },
+    content:     { padding: SPACE.lg },
+    headerActions: { flexDirection: 'row', alignItems: 'center' },
+    // ShareLinkButton's pill becomes a text button in a 44 box in the header.
+    headerShare: { borderWidth: 0, backgroundColor: 'transparent', minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.sm },
+    headerIconBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    chipRow:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, minHeight: 44 },
+    descBlock:   { marginBottom: SPACE.sm },
+    measureTwin: { position: 'absolute', left: 0, right: 0, top: 0, opacity: 0 },
+    moreBox:     { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+    banner:      { marginTop: 0, marginBottom: SPACE.md },
+    youCard:     { borderLeftWidth: 3, borderRadius: RADIUS.lg, marginBottom: SPACE.md },
+    youTitle:    { marginTop: SPACE.xxs },
+    block:       { marginBottom: SPACE.md },
+    declineCard: {
+      minHeight: 56, padding: SPACE.md, gap: SPACE.xxs, borderRadius: RADIUS.md,
+      borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surface,
+    },
+    declineCardActive: { borderColor: c.danger, backgroundColor: c.dangerLight },
+    note:        { marginTop: SPACE.sm, textAlign: 'center' },
+    pileAvatar:  { alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight },
+    matchRow:    { minHeight: 56, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, justifyContent: 'center' },
+    divider:     { borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    manageRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56 },
+    manageText:  { flex: 1, minWidth: 0 },
+    manageGroup: { gap: SPACE.xs },
+    btnRow:      { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
+    linkBox:     { minHeight: 44, justifyContent: 'center' },
+    input: {
+      borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: 13, color: c.text, backgroundColor: c.surface,
+      minHeight: 44,
+    },
+    inputMulti:  { minHeight: 72, textAlignVertical: 'top' },
+    doneBox:     { minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: SPACE.sm },
   });
 }

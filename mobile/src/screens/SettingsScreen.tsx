@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, Switch,
-  TextInput, TouchableOpacity, ActivityIndicator, Linking, Platform,
+  TextInput, TouchableOpacity, Linking, Platform,
 } from 'react-native';
 import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,14 @@ import {
   friendlySbMessage,
   signOutSafely,
 } from '@just-messin-around/expo-foundation/supabase';
+import {
+  Panel,
+  SectionHeader,
+  CollapsibleSection,
+  SegmentedToggle,
+} from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import ConfirmModal from '../components/ConfirmModal';
@@ -23,23 +31,105 @@ import { WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
+import { trackSectionToggle } from '../lib/analytics';
 import {
   DEFAULT_PREFS,
   loadUserPreferencesResult,
   saveUserPreferences,
   type Prefs,
-  type MatchType,
-  type ScoreLimit,
 } from '../lib/userPreferences';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'> };
+
+type Colors = ReturnType<typeof useTheme>['colors'];
+type Styles = ReturnType<typeof makeStyles>;
+
+// The per-type push switches. One list drives both the collapsed section's
+// "n of N on" summary and the rows, so adding a type can't skew the count.
+// (The old "Match Defaults" section is gone: defaultMatchType /
+// defaultScoreLimit were written here and read nowhere — MatchEntry starts
+// from its route prefill or doubles, and no SQL reads the keys. They stay in
+// the prefs blob untouched.)
+type PushTypeKey =
+  | 'notifyMatchResults'
+  | 'notifyMatchConfirms'
+  | 'notifyEventReminders'
+  | 'notifyLeagueUpdates'
+  | 'notifyTournamentUpdates'
+  | 'notifyChallenges'
+  | 'notifyDrillRequests';
+
+const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
+  { key: 'notifyMatchResults', label: 'Match results', desc: 'When a match you played is recorded' },
+  // Its own switch, not folded into "Match results", because the consequence
+  // of muting it is different in kind: unconfirmed matches are deleted after
+  // an hour, so a missed confirm request loses a game you actually played.
+  // The copy says so plainly, and short enough that the 2-line clamp on
+  // ToggleRow never cuts the consequence off.
+  { key: 'notifyMatchConfirms', label: 'Match confirmations', desc: 'Score confirm requests. Unconfirmed matches are dropped after an hour' },
+  { key: 'notifyEventReminders', label: 'Event reminders', desc: 'Before a league event starts, and before a scheduling vote closes' },
+  { key: 'notifyLeagueUpdates', label: 'League announcements', desc: 'Admin posts and league news' },
+  { key: 'notifyTournamentUpdates', label: 'Tournament updates', desc: 'Bracket results and schedule changes' },
+  { key: 'notifyChallenges', label: 'Match challenges', desc: 'When someone challenges you to a match' },
+  { key: 'notifyDrillRequests', label: 'Drilling', desc: 'Drill requests, answers and session reminders' },
+];
+
+// ── Rows ──────────────────────────────────────────────────────────────
+// Module-level (not declared inside the screen) so a state change re-renders
+// them instead of remounting them: a remounted Switch drops its animation and
+// a remounted row loses its press feedback mid-tap.
+
+function Divider({ S }: { S: Styles }) {
+  return <View style={S.divider} />;
+}
+
+function ToggleRow({ S, c, label, desc, value, onChange, disabled, inset = true }: {
+  S: Styles; c: Colors;
+  label: string; desc?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean;
+  /** false inside a CollapsibleSection, whose body already pads its content. */
+  inset?: boolean;
+}) {
+  return (
+    <View style={[S.row, !inset && S.rowFlush, disabled && S.dim]}>
+      <View style={S.rowText}>
+        <Text style={S.rowLabel}>{label}</Text>
+        {/* Clamped at 2 lines with no "more": every desc passed here is written
+            to fit 2 lines at phone width (~80 chars), so keep new ones that short. */}
+        {desc ? <Text style={S.rowDesc} numberOfLines={2}>{desc}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        disabled={disabled}
+        trackColor={{ false: c.border, true: c.primary }}
+        thumbColor={c.textInverse}
+        accessibilityLabel={label}
+      />
+    </View>
+  );
+}
+
+function ActionRow({ S, label, desc, onPress, danger, detail }: {
+  S: Styles;
+  label: string; desc?: string; onPress: () => void; danger?: boolean; detail?: string;
+}) {
+  return (
+    <TouchableOpacity style={S.row} onPress={onPress} activeOpacity={0.7} accessibilityRole="button">
+      <View style={S.rowText}>
+        <Text style={[S.rowLabel, danger && S.dangerText]} numberOfLines={1}>{label}</Text>
+        {desc ? <Text style={S.rowDesc} numberOfLines={1}>{desc}</Text> : null}
+      </View>
+      {detail ? <Text style={S.rowDetail} numberOfLines={1}>{detail}</Text> : null}
+      <Text style={S.chevron}>›</Text>
+    </TouchableOpacity>
+  );
+}
 
 // TODO: smoke-test in browser — toggle Theme (System/Light/Dark) and confirm
 // the Settings body flips between light and dark with no leftover light cards.
 export default function SettingsScreen({ navigation }: Props) {
   const { colors, themeMode, setThemeMode } = useTheme();
-  const styles = makeStyles(colors);
-  const GREEN = colors.primary;
+  const S = makeStyles(colors);
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
   // Prefs are stored as one blob, so showing DEFAULT_PREFS after a failed read
   // and then saving would overwrite everything the user had. Until a read
@@ -48,9 +138,6 @@ export default function SettingsScreen({ navigation }: Props) {
   const [pushBusy, setPushBusy]       = useState(false);
   const [badgesPublic, setBadgesPublic] = useState(true);
   const [isGuest, setIsGuest]           = useState(false);
-  const [displayName, setDisplayName] = useState('');
-  const [savedName, setSavedName]     = useState('');
-  const [savingName, setSavingName]   = useState(false);
   const [email, setEmail]             = useState('');
   const [resetSent, setResetSent]     = useState(false);
   const [userId, setUserId]           = useState<string | null>(null);
@@ -152,21 +239,21 @@ export default function SettingsScreen({ navigation }: Props) {
 
   async function loadProfile() {
     // LOCAL session read — getUser() is a network call, so offline this bailed
-    // and Settings rendered with a blank name/email and no godmode section.
+    // and Settings rendered with a blank email and no godmode section.
     const uid = await currentUserId(supabase);
     if (!uid) return;
     setUserId(uid);
     try {
+      // The display name moved to Profile's Edit sheet (one Save for every
+      // profile field), so this screen no longer reads or writes full_name.
       const data = await sbCall(() =>
         supabase
           .from('profiles')
-          .select('full_name, badges_public, is_guest')
+          .select('badges_public, is_guest')
           .eq('id', uid)
           .single(),
       );
       if (data) {
-        setDisplayName(data.full_name ?? '');
-        setSavedName(data.full_name ?? '');
         setBadgesPublic(data.badges_public ?? true);
         setIsGuest(!!data.is_guest);
       }
@@ -177,23 +264,6 @@ export default function SettingsScreen({ navigation }: Props) {
     // still fills in offline.
     const { data: sessionData } = await supabase.auth.getSession();
     setEmail(sessionData.session?.user.email ?? '');
-  }
-
-  async function updateDisplayName() {
-    if (!userId || !displayName.trim() || displayName.trim() === savedName) return;
-    setSavingName(true);
-    try {
-      await sbCall(() =>
-        supabase.from('profiles').update({ full_name: displayName.trim() }).eq('id', userId),
-      );
-      setSavedName(displayName.trim());
-      status.success('Display name updated.');
-    } catch (e) {
-      status.error(friendlySbMessage(e, "Couldn't update your display name."));
-    } finally {
-      // Always: the old early-return path left the Save button spinning.
-      setSavingName(false);
-    }
   }
 
   async function sendPasswordReset() {
@@ -304,381 +374,263 @@ export default function SettingsScreen({ navigation }: Props) {
     }
   }
 
-  // ── Sub-components ──────────────────────────────────────────────
-
-  function SectionHeader({ title }: { title: string }) {
-    return <Text style={styles.sectionHeader}>{title}</Text>;
-  }
-
-  function Divider() {
-    return <View style={styles.divider} />;
-  }
-
-  function ToggleRow({ label, desc, value, onChange, disabled }: {
-    label: string; desc?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean;
-  }) {
-    return (
-      <View style={[styles.row, disabled && { opacity: 0.5 }]}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={styles.rowLabel}>{label}</Text>
-          {desc ? <Text style={styles.rowDesc}>{desc}</Text> : null}
-        </View>
-        <Switch
-          value={value}
-          onValueChange={onChange}
-          disabled={disabled}
-          trackColor={{ false: colors.border, true: GREEN }}
-          thumbColor="#fff"
-        />
-      </View>
-    );
-  }
-
-  function ActionRow({ label, desc, onPress, danger, detail }: {
-    label: string; desc?: string; onPress: () => void; danger?: boolean; detail?: string;
-  }) {
-    return (
-      <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.rowLabel, danger && styles.dangerText]}>{label}</Text>
-          {desc ? <Text style={styles.rowDesc}>{desc}</Text> : null}
-        </View>
-        {detail ? <Text style={styles.rowDetail}>{detail}</Text> : null}
-        <Text style={styles.chevron}>›</Text>
-      </TouchableOpacity>
-    );
-  }
-
-  function SegmentRow<T extends string | number>({ label, options, value, onSelect, disabled }: {
-    label: string;
-    options: { label: string; value: T }[];
-    value: T;
-    onSelect: (v: T) => void;
-    disabled?: boolean;
-  }) {
-    return (
-      <View style={[styles.segmentRow, disabled && { opacity: 0.5 }]}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <View style={styles.segmentGroup}>
-          {options.map((o) => (
-            <TouchableOpacity
-              key={String(o.value)}
-              style={[styles.segmentBtn, value === o.value && [styles.segmentBtnActive, { backgroundColor: GREEN }]]}
-              onPress={() => onSelect(o.value)}
-              disabled={disabled}
-            >
-              <Text style={[styles.segmentText, value === o.value && styles.segmentTextActive]}>
-                {o.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-    );
-  }
-
-  const nameChanged = displayName.trim() !== savedName;
+  const pushTypesOn = PUSH_TYPES.filter((p) => prefs[p.key]).length;
+  // Collapsed, the section still says what it holds. Before the read lands the
+  // switches show defaults, so the summary says so instead of a fake count.
+  const pushTypesSummary = !prefsReady
+    ? 'Not loaded yet'
+    : pushTypesOn === PUSH_TYPES.length
+      ? 'All on'
+      : pushTypesOn === 0
+        ? 'All off'
+        : `${pushTypesOn} of ${PUSH_TYPES.length} on`;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView style={S.screen} contentContainerStyle={S.container}>
 
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
+      <StatusBanner status={status.value} style={{ marginBottom: SPACE.sm }} />
 
       {/* ── Account ──────────────────────────── */}
       <SectionHeader title="Account" />
-      <View style={styles.card}>
+      <Panel padded={false} style={S.card}>
         {isGuest && (
           <>
             <ActionRow
+              S={S}
               label="✨ Create your account"
               desc="Add an email & password so you don't lose access"
               onPress={() => navigation.navigate('UpgradeAccount')}
             />
-            <Divider />
+            <Divider S={S} />
           </>
         )}
-        {/* Display name */}
-        <View style={styles.row}>
-          <Text style={[styles.rowLabel, { minWidth: 110 }]}>Display name</Text>
-          <TextInput
-            style={styles.nameInput}
-            value={displayName}
-            onChangeText={setDisplayName}
-            placeholder="Your name"
-            placeholderTextColor={colors.textMuted}
-            returnKeyType="done"
-            onSubmitEditing={updateDisplayName}
-          />
-          {nameChanged && (
-            <TouchableOpacity onPress={updateDisplayName} style={styles.saveBtn}>
-              {savingName
-                ? <ActivityIndicator size="small" color={GREEN} />
-                : <Text style={[styles.saveBtnText, { color: GREEN }]}>Save</Text>}
-            </TouchableOpacity>
-          )}
-        </View>
-        <Divider />
+        {/* The display name is edited on Profile now (its Edit sheet saves
+            name, username, tagline and avatar together); this is the pointer. */}
+        <ActionRow
+          S={S}
+          label="Edit your name on your profile"
+          onPress={() => navigation.navigate('Profile', {})}
+        />
+        <Divider S={S} />
         {/* Email (read-only) */}
-        <View style={styles.row}>
-          <Text style={[styles.rowLabel, { flex: 1 }]}>Email</Text>
-          <Text style={styles.rowDetail}>{email}</Text>
+        <View style={S.row}>
+          <Text style={[S.rowLabel, S.rowText]}>Email</Text>
+          <Text style={S.rowDetail} numberOfLines={1}>{email}</Text>
         </View>
-        <Divider />
+        <Divider S={S} />
         {/* Password reset */}
         <ActionRow
+          S={S}
           label={resetSent ? 'Reset email sent ✓' : 'Reset password'}
           desc="We'll email you a link to set a new password"
           onPress={sendPasswordReset}
         />
         {WAGERS_ENABLED && (
           <>
-            <Divider />
+            <Divider S={S} />
             <ActionRow
+              S={S}
               label="🎲 My Wagers"
               desc="View open, won, and lost pickle wagers"
               onPress={() => navigation.navigate('MyWagers')}
             />
           </>
         )}
-      </View>
+      </Panel>
 
       {/* ── Notifications ────────────────────── */}
-      <SectionHeader title="Push Notifications" />
-      <View style={styles.card}>
+      <SectionHeader title="Push notifications" />
+      <Panel padded={false} style={S.cardTight}>
         {!prefsReady && (
           <>
             {/* Without a successful read these switches would show defaults, and
                 saving one would overwrite every other setting with them. */}
             <ActionRow
+              S={S}
               label="Settings not loaded"
-              desc="Tap to try again — switches stay locked until they load"
+              desc="Tap to retry; switches stay locked"
               onPress={loadPrefs}
             />
-            <Divider />
+            <Divider S={S} />
           </>
         )}
         <ToggleRow
+          S={S}
+          c={colors}
           label="Push notifications"
-          desc="Get these on your phone. Turning a type off keeps it in the in-app bell — it just won't push."
+          desc="Phone alerts. A type turned off still shows in the in-app bell."
           value={prefs.pushEnabled}
           onChange={togglePush}
           disabled={!prefsReady || pushBusy}
         />
-        <Divider />
-        <ToggleRow
-          label="Match results"
-          desc="When a match you played is recorded"
-          value={prefs.notifyMatchResults}
-          onChange={(v) => savePrefs({ ...prefs, notifyMatchResults: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        {/* Its own switch, not folded into "Match results", because the
-            consequence of muting it is different in kind: unconfirmed matches
-            are deleted after an hour, so a missed confirm request loses a game
-            you actually played. The copy says so plainly. */}
-        <ToggleRow
-          label="Match confirmations"
-          desc="When your team must confirm a score — unconfirmed matches are dropped after an hour"
-          value={prefs.notifyMatchConfirms}
-          onChange={(v) => savePrefs({ ...prefs, notifyMatchConfirms: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <ToggleRow
-          label="Event reminders"
-          desc="Before a league event starts, and before a scheduling vote closes"
-          value={prefs.notifyEventReminders}
-          onChange={(v) => savePrefs({ ...prefs, notifyEventReminders: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <ToggleRow
-          label="League announcements"
-          desc="Admin posts and league news"
-          value={prefs.notifyLeagueUpdates}
-          onChange={(v) => savePrefs({ ...prefs, notifyLeagueUpdates: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <ToggleRow
-          label="Tournament updates"
-          desc="Bracket results and schedule changes"
-          value={prefs.notifyTournamentUpdates}
-          onChange={(v) => savePrefs({ ...prefs, notifyTournamentUpdates: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <ToggleRow
-          label="Match challenges"
-          desc="When someone challenges you to a match"
-          value={prefs.notifyChallenges}
-          onChange={(v) => savePrefs({ ...prefs, notifyChallenges: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <ToggleRow
-          label="Drilling"
-          desc="Drill requests, answers and session reminders"
-          value={prefs.notifyDrillRequests}
-          onChange={(v) => savePrefs({ ...prefs, notifyDrillRequests: v })}
-          disabled={!prefsReady}
-        />
-      </View>
+      </Panel>
+      {/* The seven per-type switches are reference settings most people set
+          once, so they sit collapsed under one line that still says how many
+          are on. Children unmount on close (nothing inside keeps state). */}
+      <CollapsibleSection
+        compact
+        title="Notification types"
+        summary={pushTypesSummary}
+        onToggle={(open) => trackSectionToggle({ screen: 'Settings', section: 'push_types', open })}
+      >
+        {PUSH_TYPES.map((p, i) => (
+          <React.Fragment key={p.key}>
+            {i > 0 ? <View style={S.dividerFlush} /> : null}
+            <ToggleRow
+              S={S}
+              c={colors}
+              inset={false}
+              label={p.label}
+              desc={p.desc}
+              value={prefs[p.key]}
+              onChange={(v) => savePrefs({ ...prefs, [p.key]: v })}
+              disabled={!prefsReady}
+            />
+          </React.Fragment>
+        ))}
+      </CollapsibleSection>
 
       {Platform.OS !== 'web' && (
         <>
-          <SectionHeader title="Court Arrival Alerts" />
-          <View style={styles.card}>
+          <SectionHeader title="Court arrival alerts" />
+          <Panel padded={false} style={S.card}>
             <ToggleRow
+              S={S}
+              c={colors}
               label="Ask me to check in at the courts"
-              desc="When you arrive at your home court or a court you play at, get a notification with a Check in button. Never checks you in on its own. Needs location set to Always."
+              desc="A Check in prompt at your courts — never automatic. Needs location set to Always."
               value={courtAlerts}
               onChange={toggleCourtAlerts}
               disabled={courtAlertsBusy}
             />
-          </View>
+          </Panel>
         </>
       )}
 
-      {/* ── Match Defaults ───────────────────── */}
-      <SectionHeader title="Match Defaults" />
-      <View style={styles.card}>
-        <SegmentRow<MatchType>
-          label="Default match type"
-          options={[
-            { label: 'Singles', value: 'singles' },
-            { label: 'Doubles', value: 'doubles' },
-          ]}
-          value={prefs.defaultMatchType}
-          onSelect={(v) => savePrefs({ ...prefs, defaultMatchType: v })}
-          disabled={!prefsReady}
-        />
-        <Divider />
-        <SegmentRow<ScoreLimit>
-          label="Default score limit"
-          options={[
-            { label: '11', value: 11 },
-            { label: '15', value: 15 },
-            { label: '21', value: 21 },
-          ]}
-          value={prefs.defaultScoreLimit}
-          onSelect={(v) => savePrefs({ ...prefs, defaultScoreLimit: v })}
-          disabled={!prefsReady}
-        />
-      </View>
-
       {/* ── Privacy ──────────────────────────── */}
       <SectionHeader title="Privacy" />
-      <View style={styles.card}>
+      <Panel padded={false} style={S.card}>
         <ToggleRow
+          S={S}
+          c={colors}
           label="Show badges publicly"
           desc="Other players can see your badges on your profile"
           value={badgesPublic}
           onChange={toggleBadgesPublic}
         />
-        <Divider />
+        <Divider S={S} />
         <ActionRow
+          S={S}
           label="Manage profile visibility"
           desc="Control what other players can see"
           onPress={() => navigation.navigate('Profile', {})}
         />
-        <Divider />
+        <Divider S={S} />
         <ActionRow
+          S={S}
           label="Blocked players"
           desc="Review or undo the players you've blocked"
           onPress={() => navigation.navigate('BlockedPlayers')}
         />
-      </View>
+      </Panel>
 
       {/* ── About ────────────────────────────── */}
       <SectionHeader title="App" />
-      <View style={styles.card}>
+      <Panel padded={false} style={S.card}>
         <ActionRow
+          S={S}
           label="About Pickleague"
           desc="Our mission and story"
           onPress={() => navigation.navigate('About')}
         />
-        <Divider />
+        <Divider S={S} />
         <ActionRow
+          S={S}
           label="Scoring Algo"
           desc="How PLUPR is calculated"
           onPress={() => navigation.navigate('ScoringAlgo')}
         />
-        <Divider />
+        <Divider S={S} />
         <ActionRow
+          S={S}
           label="Privacy Policy"
           desc="What we collect, and what we don't"
           onPress={() => Linking.openURL('https://www.pickleague.club/privacy')}
         />
-        <Divider />
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>Version</Text>
-          <Text style={styles.rowDetail}>{Constants.expoConfig?.version ?? '—'}</Text>
+        <Divider S={S} />
+        <View style={S.row}>
+          <Text style={[S.rowLabel, S.rowText]}>Version</Text>
+          <Text style={S.rowDetail}>{Constants.expoConfig?.version ?? '—'}</Text>
         </View>
-      </View>
+      </Panel>
 
       {/* ── Godmode (only shown to godmode user) ─────── */}
       {isGodmodeUserId(userId) && (
         <>
           <SectionHeader title="🛠️ Godmode" />
-          <View style={styles.card}>
+          <Panel padded={false} style={S.card}>
             <ActionRow
+              S={S}
               label="Godmode Console"
               desc="Admin utilities (create test accounts, etc.)"
               onPress={() => navigation.navigate('Godmode')}
             />
-            <Divider />
+            <Divider S={S} />
             <ActionRow
+              S={S}
               label="Gift Pickles"
               desc="Send pickles to any user"
               onPress={() => navigation.navigate('GiftPickles')}
             />
-            <Divider />
+            <Divider S={S} />
             <ActionRow
+              S={S}
               label="Review Submitted Venues"
               desc="Confirm or reject user-added courts"
               onPress={() => navigation.navigate('AdminVenueReview')}
             />
-            <Divider />
+            <Divider S={S} />
             <ActionRow
+              S={S}
               label="Reported Content"
               desc="Act on player reports within 24 hours"
               onPress={() => navigation.navigate('ModerationQueue')}
             />
-          </View>
+          </Panel>
         </>
       )}
 
       {/* ── Appearance ───────────────────────── */}
       <SectionHeader title="Appearance" />
-      <View style={styles.card}>
-        <SegmentRow<ThemeMode>
-          label="Theme"
+      <Panel padded={false} style={S.card}>
+        {/* The underline strip: 44-tall tabs, tablist/tab roles on web. */}
+        <SegmentedToggle<ThemeMode>
+          variant="underline"
+          size="sm"
           options={[
-            { label: '⚙️ System', value: 'system' },
-            { label: '☀️ Light',  value: 'light' },
-            { label: '🌙 Dark',   value: 'dark' },
+            { label: 'System', icon: '⚙️', value: 'system' },
+            { label: 'Light',  icon: '☀️', value: 'light' },
+            { label: 'Dark',   icon: '🌙', value: 'dark' },
           ]}
           value={themeMode}
-          onSelect={setThemeMode}
+          onChange={setThemeMode}
+          style={S.themeTabs}
         />
-      </View>
+      </Panel>
 
       {/* ── Danger zone ──────────────────────── */}
-      <SectionHeader title="Account Actions" />
-      <View style={styles.card}>
-        <ActionRow label="Sign out" onPress={openSignOut} />
-        <Divider />
+      <SectionHeader title="Account actions" />
+      <Panel padded={false} style={S.card}>
+        <ActionRow S={S} label="Sign out" onPress={openSignOut} />
+        <Divider S={S} />
         <ActionRow
+          S={S}
           label="Delete account"
           desc="Permanently remove your account and all data"
           onPress={openDeleteAccount}
           danger
         />
-      </View>
-
-      <View style={{ height: 48 }} />
+      </Panel>
 
       <ConfirmModal
         visible={signOutOpen}
@@ -702,7 +654,7 @@ export default function SettingsScreen({ navigation }: Props) {
         primaryDisabled={!deletePassword}
         extraField={
           <TextInput
-            style={styles.passwordInput}
+            style={S.passwordInput}
             value={deletePassword}
             onChangeText={(t) => { setDeletePassword(t); setDeleteError(''); }}
             placeholder="Current password"
@@ -720,27 +672,29 @@ export default function SettingsScreen({ navigation }: Props) {
   );
 }
 
-function makeStyles(colors: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(c: Colors) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:          { backgroundColor: colors.bg },
-    sectionHeader:      { fontSize: 12, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 28, marginBottom: 6, marginHorizontal: 20 },
-    card:               { backgroundColor: colors.surface, marginHorizontal: 16, borderRadius: 12, overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
-    row:                { flexDirection: 'row', alignItems: 'center', paddingVertical: 13, paddingHorizontal: 16, minHeight: 52 },
-    rowLabel:           { fontSize: 15, fontWeight: '600', color: colors.text },
-    rowDesc:            { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-    rowDetail:          { fontSize: 13, color: colors.textMuted, marginRight: 6 },
-    chevron:            { fontSize: 22, color: colors.textMuted },
-    divider:            { height: 1, backgroundColor: colors.border, marginHorizontal: 16 },
-    dangerText:         { color: colors.danger },
-    nameInput:          { flex: 1, fontSize: 14, color: colors.text, textAlign: 'right', paddingHorizontal: 8 },
-    saveBtn:            { marginLeft: 8, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: colors.primaryLight, borderRadius: 8 },
-    saveBtnText:        { color: colors.primary, fontWeight: '700', fontSize: 13 },
-    segmentRow:         { paddingVertical: 12, paddingHorizontal: 16 },
-    segmentGroup:       { flexDirection: 'row', marginTop: 8, borderRadius: 8, overflow: 'hidden', borderWidth: 1.5, borderColor: colors.border },
-    segmentBtn:         { flex: 1, paddingVertical: 8, alignItems: 'center', backgroundColor: colors.surfaceAlt },
-    segmentBtnActive:   { backgroundColor: colors.primary },
-    segmentText:        { fontSize: 13, fontWeight: '600', color: colors.textSub },
-    segmentTextActive:  { color: '#fff' },
-    passwordInput:      { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: colors.text, backgroundColor: colors.surfaceAlt, marginBottom: 6 },
+    screen:        { flex: 1, backgroundColor: c.bg },
+    // 16 gutter on every screen; 48 of bottom room so the last card clears the
+    // home indicator / browser chrome.
+    container:     { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xl * 2 },
+    card:          { marginBottom: SPACE.md, overflow: 'hidden' },
+    // The master push card sits right on top of its collapsed types section.
+    cardTight:     { marginBottom: SPACE.sm, overflow: 'hidden' },
+    // A one-line row is 44; a row with a description lands at 56 on its own.
+    row:           { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 44 },
+    rowFlush:      { paddingHorizontal: 0 },
+    rowText:       { flex: 1, minWidth: 0 },
+    rowLabel:      t.title,
+    rowDesc:       { ...t.sub, marginTop: SPACE.xxs },
+    rowDetail:     { ...t.sub, color: c.textMuted, flexShrink: 1 },
+    chevron:       { fontSize: FONT.size.h2, color: c.textMuted },
+    dim:           { opacity: 0.5 },
+    divider:       { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
+    dividerFlush:  { height: HAIRLINE, backgroundColor: c.border },
+    dangerText:    { color: c.danger },
+    themeTabs:     { borderBottomWidth: 0 },
+    passwordInput: { borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: SPACE.xs },
   });
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { getActionFromState, getStateFromPath } from '@react-navigation/core';
+import { StackRouter } from '@react-navigation/routers';
 import { defineNotificationCatalog } from '@just-messin-around/expo-foundation/push/catalog';
 import { CATALOG } from '../notificationCatalog.data';
 import { linkForAction, linkOf, pushRoutes } from '../pushLinks';
+import { linking } from '../../navigation/linking';
 
 const routes = pushRoutes({ wagersEnabled: false });
 
@@ -102,5 +105,93 @@ describe('routes', () => {
   it('wager links stay unrouted while wagering is off', () => {
     expect(route('wager/w1')).toBeNull();
     expect(pushRoutes({ wagersEnabled: true })['wager/']).toBeTypeOf('function');
+  });
+});
+
+describe('optional focus params (ui-compaction P1)', () => {
+  // Home's Up next rows pass EventDetail {focus:'vote'|'rsvp'} and
+  // TournamentDetail {focus:'invite'|'next_match'}. Pushes never do: every
+  // existing link must keep resolving exactly as before, with no focus key.
+  it('push links resolve without focus', () => {
+    for (const link of ['event/e1', 'event_nudge/e1', 'event_close/e1', 'tournament/t1', 'league/l1']) {
+      const r = route(link);
+      expect(r, link).toBeTruthy();
+      expect(r![1], link).not.toHaveProperty('focus');
+    }
+    expect(route('tournament/t1')).toEqual(['TournamentDetail', { tournamentId: 't1', tournamentName: 'Tournament' }]);
+  });
+
+  it('a focus-less EventDetail / TournamentDetail URL still resolves', () => {
+    const ev = getStateFromPath('events/e1', linking.config);
+    expect(ev?.routes.at(-1)).toMatchObject({ name: 'EventDetail', params: { eventId: 'e1' } });
+    expect(ev?.routes.at(-1)?.params).not.toHaveProperty('focus');
+    const t = getStateFromPath('tournaments/t1', linking.config);
+    expect(t?.routes.at(-1)).toMatchObject({ name: 'TournamentDetail', params: { tournamentId: 't1' } });
+    expect(t?.routes.at(-1)?.params).not.toHaveProperty('focus');
+  });
+
+  it('a focus query param rides along on a URL', () => {
+    const ev = getStateFromPath('events/e1?focus=vote', linking.config);
+    expect(ev?.routes.at(-1)?.params).toEqual({ eventId: 'e1', focus: 'vote' });
+  });
+});
+
+describe('linking: Home under every cold deep link', () => {
+  const names = (path: string) => getStateFromPath(path, linking.config)?.routes.map((r) => r.name);
+
+  it('the config names Home as the root initial route', () => {
+    expect(linking.config?.initialRouteName).toBe('Home');
+  });
+
+  it('a cold /leagues/:id or /events/:id has Home underneath', () => {
+    const s = getStateFromPath('leagues/l1', linking.config);
+    expect(s?.index).toBe(1);
+    expect(s?.routes.map((r) => r.name)).toEqual(['Home', 'LeagueDetail']);
+    expect(s?.routes[1].params).toEqual({ leagueId: 'l1' });
+    expect(names('events/e1')).toEqual(['Home', 'EventDetail']);
+    expect(names('tournaments/t1/members')).toEqual(['Home', 'TournamentMembers']);
+  });
+
+  it('existing paths resolve to the same screens', () => {
+    const cases: [string, string][] = [
+      ['play', 'Play'],
+      ['leagues', 'Leagues'],
+      ['leagues/l1/members', 'LeagueMembers'],
+      ['leagues/l1/events/new', 'CreateEvent'],
+      ['tournaments', 'Tournaments'],
+      ['tournaments/new', 'CreateTournament'],
+      ['tournaments/t1/matches', 'TournamentMatchHistory'],
+      ['seasons/s1/standings', 'SeasonStandings'],
+      ['profile', 'Profile'],
+      ['players/u1', 'PlayerProfile'],
+      ['g/tok', 'GuestJoin'],
+      ['drill/requests', 'DrillRequests'],
+    ];
+    for (const [path, screen] of cases) expect(names(path)?.at(-1), path).toBe(screen);
+    // Play's tab still rides in the query string.
+    expect(getStateFromPath('play?initialTab=tournaments', linking.config)?.routes.at(-1)?.params).toEqual({
+      initialTab: 'tournaments',
+    });
+  });
+
+  it('Home itself stays a single route', () => {
+    expect(names('')).toEqual(['Home']);
+  });
+
+  it('signed out, the stack drops the unregistered Home (login and guest links unchanged)', () => {
+    const router = StackRouter({});
+    const routeNames = ['Login', 'Register', 'GuestJoin'];
+    const rehydrate = (path: string) =>
+      router.getRehydratedState(getStateFromPath(path, linking.config) as never, { routeNames, routeParamList: {}, routeGetIdList: {} });
+    expect(rehydrate('login').routes.map((r) => r.name)).toEqual(['Login']);
+    const guest = rehydrate('g/tok');
+    expect(guest.routes.map((r) => r.name)).toEqual(['GuestJoin']);
+    expect(guest.routes[guest.index].name).toBe('GuestJoin');
+  });
+
+  it('a warm link still navigates (no stack reset)', () => {
+    const state = getStateFromPath('leagues/l1', linking.config)!;
+    const action = getActionFromState(state, linking.config);
+    expect(action).toMatchObject({ type: 'NAVIGATE', payload: { name: 'LeagueDetail', params: { leagueId: 'l1' } } });
   });
 });

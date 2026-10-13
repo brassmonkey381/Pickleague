@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Text, StyleSheet, TouchableOpacity, View, ActivityIndicator } from 'react-native';
-import { useTheme } from '../lib/ThemeContext';
+import { View, StyleSheet } from 'react-native';
+import { ListCard } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { supabase } from '../lib/supabase';
 
 type Match = {
@@ -41,7 +43,7 @@ function refusalMessage(reason: string | undefined): string {
 }
 
 /**
- * "We found your DUPR rating — import it?" nudge.
+ * "We found your DUPR rating — import it?" offer.
  *
  * Shown only when the signed-in user's CONFIRMED email appears on an imported
  * DUPR club roster (see public.my_dupr_match). Everything is opt-in: we never
@@ -56,10 +58,25 @@ function refusalMessage(reason: string | undefined): string {
  * every reload, which is exactly what it did in production: an account with match
  * history could never claim, and the refusal was swallowed silently.
  *
- * Rendered inline near the top of Home, same as GuestUpgradeBanner.
+ * Split into a hook + a row so Home's Get started panel can count the offer as
+ * one of its rows (plan section 3: never a separate banner). The hook keeps the
+ * outcome line ("PLUPR set to 4.12" / why it couldn't link) after the offer
+ * goes, so the player sees what happened.
  */
-export default function DuprImportBanner() {
-  const { colors: c } = useTheme();
+export type DuprImportOffer = {
+  match: Match | null;
+  busy: boolean;
+  /** Success copy after Import. */
+  done: string | null;
+  /** Why the link was refused (terminal). */
+  failed: string | null;
+  /** Anything to render: the offer, or its outcome. */
+  visible: boolean;
+  onImport: () => Promise<void>;
+  onDismiss: () => Promise<void>;
+};
+
+export function useDuprImportOffer(): DuprImportOffer {
   const [match, setMatch] = useState<Match | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -121,68 +138,64 @@ export default function DuprImportBanner() {
     await supabase.rpc('dismiss_dupr_import');
   }, []);
 
-  if (done) {
-    return (
-      <View style={[styles.banner, { backgroundColor: c.primary }]}>
-        <Text style={styles.title}>✅  DUPR profile linked</Text>
-        <Text style={styles.sub}>{done}</Text>
-      </View>
-    );
-  }
+  return { match, busy, done, failed, visible: !!(match || done || failed), onImport, onDismiss };
+}
 
-  if (failed) {
-    return (
-      <View style={[styles.banner, { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border }]}>
-        <Text style={[styles.title, { color: c.text }]}>DUPR link unavailable</Text>
-        <Text style={[styles.sub, { color: c.textSub }]}>{failed}</Text>
-      </View>
-    );
-  }
+type RowProps = {
+  offer: DuprImportOffer;
+  /** The Panel's final row (no divider under it). */
+  lastRow?: boolean;
+  /** Analytics hook for the two buttons. */
+  onPressed?: (target: 'dupr_import' | 'dupr_dismiss') => void;
+};
 
+/** The offer (or its outcome) as a Get started row inside a <Panel padded={false}>. */
+export function DuprImportRow({ offer, lastRow, onPressed }: RowProps) {
+  if (offer.done) {
+    return <ListCard variant="row" lastRow={lastRow} title="✅ DUPR profile linked" subtitle={offer.done} subtitleLines={2} />;
+  }
+  if (offer.failed) {
+    return <ListCard variant="row" lastRow={lastRow} title="DUPR link unavailable" subtitle={offer.failed} subtitleLines={2} />;
+  }
+  const match = offer.match;
   if (!match) return null;
-
   const rating = match.doubles ?? match.singles;
-
   return (
-    <View style={[styles.banner, { backgroundColor: c.primary }]}>
-      <Text style={styles.title}>🎾  We found your DUPR rating</Text>
-      <Text style={styles.sub}>
-        {match.club_name ? `${match.club_name} — ` : ''}
-        {Number(rating).toFixed(2)} doubles. Start your PLUPR here?
-      </Text>
-      <View style={styles.row}>
-        <TouchableOpacity
-          activeOpacity={0.85}
-          disabled={busy}
-          style={[styles.btn, { backgroundColor: '#fff' }]}
-          onPress={onImport}
-        >
-          {busy
-            ? <ActivityIndicator size="small" color={c.primary} />
-            : <Text style={[styles.btnText, { color: c.primary }]}>Import</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.85} style={styles.dismiss} onPress={onDismiss}>
-          <Text style={styles.dismissText}>Not me</Text>
-        </TouchableOpacity>
+    <ListCard
+      variant="row"
+      lastRow={lastRow}
+      title="🎾 We found your DUPR rating"
+      subtitle={`${Number(rating).toFixed(2)} doubles${match.club_name ? ` · ${match.club_name}` : ''}. Start your PLUPR here?`}
+      subtitleLines={2}
+    >
+      <View style={styles.actions}>
+        <Button
+          size="sm"
+          title="Import"
+          loading={offer.busy}
+          disabled={offer.busy}
+          onPress={() => { onPressed?.('dupr_import'); void offer.onImport(); }}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          title="Not me"
+          disabled={offer.busy}
+          onPress={() => { onPressed?.('dupr_dismiss'); void offer.onDismiss(); }}
+        />
       </View>
-    </View>
+    </ListCard>
   );
 }
 
+/** Self-contained variant: the hook and the row together. */
+export default function DuprImportBanner({ lastRow }: { lastRow?: boolean }) {
+  const offer = useDuprImportOffer();
+  if (!offer.visible) return null;
+  return <DuprImportRow offer={offer} lastRow={lastRow} />;
+}
+
 const styles = StyleSheet.create({
-  banner: {
-    marginHorizontal: 16,
-    marginTop: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  title: { color: '#fff', fontSize: 15, fontWeight: '800' },
-  sub: { color: '#fff', fontSize: 12, marginTop: 2, opacity: 0.95, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12 },
-  btn: { paddingVertical: 7, paddingHorizontal: 22, borderRadius: 8 },
-  btnText: { fontSize: 14, fontWeight: '800' },
-  dismiss: { paddingVertical: 7, paddingHorizontal: 10 },
-  dismissText: { color: '#fff', fontSize: 13, fontWeight: '600', opacity: 0.9 },
+  // sm buttons hug their labels (style targets the 44 box).
+  actions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, alignSelf: 'flex-start' },
 });

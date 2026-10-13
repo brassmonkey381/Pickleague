@@ -1,11 +1,23 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, TouchableOpacity, Pressable, StyleSheet, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import {
+  Panel,
+  Badge,
+  FilterPill,
+  ListCard,
+  SectionHeader,
+  SegmentedToggle,
+  CollapsibleSection,
+} from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillRequest, DrillRequestMessage, DrillSession, RootStackParamList } from '../types';
@@ -22,6 +34,7 @@ import { SkeletonList } from '../components/Skeleton';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { trackSectionToggle } from '../lib/analytics';
 import DrillUpcomingSessions from '../components/DrillUpcomingSessions';
 
 type Props = {
@@ -34,13 +47,24 @@ type Tab = 'incoming' | 'outgoing';
 // A past, not-yet-reviewed drill session the current user can review for pickles.
 type ReviewableSession = DrillSession & { partner_name: string };
 
+// A request message longer than this gets the 2-line clamp plus "more"
+// (content rule 1). A character count, because react-native-web has no
+// onTextLayout to tell us the rendered line count.
+const MESSAGE_CLAMP_CHARS = 90;
+
+type GroupKey = 'open' | 'accepted' | 'closed';
+const GROUP_ORDER: GroupKey[] = ['open', 'accepted', 'closed'];
+
 export default function DrillRequestsScreen({ route }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const t = textStyles(colors);
   // From a push: a drill request or session to show (and maybe open its chat).
   const focusId = route.params?.focusId;
   const openChat = !!route.params?.openChat;
   const chatOpenedFor = useRef<string | null>(null);
+  // Same once-per-push guard for auto-opening the Closed section.
+  const closedOpenedFor = useRef<string | null>(null);
   const [sessionsKey, setSessionsKey] = useState(0);
 
   const [tab, setTab] = useState<Tab>('incoming');
@@ -53,6 +77,11 @@ export default function DrillRequestsScreen({ route }: Props) {
   // Per-request slot selection for the incoming Accept flow.
   // Key = request.id, value = index into proposed_slots that the receiver picked.
   const [selectedSlotIdx, setSelectedSlotIdx] = useState<Record<string, number>>({});
+  // Request ids whose long message is expanded past its 2-line clamp.
+  const [expandedMsgs, setExpandedMsgs] = useState<Record<string, boolean>>({});
+  // Declined / cancelled requests sit in a collapsed "Closed" section, opened
+  // for the visit when a push points at one of them.
+  const [closedOpen, setClosedOpen] = useState(false);
 
   // Chat modal state
   const [chatRequest, setChatRequest] = useState<DrillRequest | null>(null);
@@ -276,11 +305,44 @@ export default function DrillRequestsScreen({ route }: Props) {
     }
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+  // Grouped by what the request needs: open ones first (the only group with
+  // actions on someone's clock), then accepted, then the closed ones folded
+  // away. The request a push pointed at goes first within its group, and its
+  // group renders first (see groupOrder), so a push lands with it in view the
+  // way the old flat list put it at the very top.
+  const groups = useMemo(() => {
+    const byFocus = (a: DrillRequest, b: DrillRequest) =>
+      (a.id === focusId ? -1 : b.id === focusId ? 1 : 0);
+    const open = requests.filter(r => r.status === 'pending').sort(byFocus);
+    const accepted = requests.filter(r => r.status === 'accepted').sort(byFocus);
+    const closed = requests.filter(r => r.status === 'declined' || r.status === 'cancelled').sort(byFocus);
+    return { open, accepted, closed };
+  }, [requests, focusId]);
+
+  const focusGroup: GroupKey | null = !focusId ? null
+    : groups.open.some(r => r.id === focusId) ? 'open'
+    : groups.accepted.some(r => r.id === focusId) ? 'accepted'
+    : groups.closed.some(r => r.id === focusId) ? 'closed'
+    : null;
+  const groupOrder: GroupKey[] = focusGroup
+    ? [focusGroup, ...GROUP_ORDER.filter(k => k !== focusGroup)]
+    : GROUP_ORDER;
+
+  // A push for a closed request opens the Closed section once it's listed —
+  // once per focusId, so a later reload (focus, pull-to-refresh, onChanged)
+  // doesn't re-open it after the user collapsed it.
+  useEffect(() => {
+    if (!focusId || closedOpenedFor.current === focusId) return;
+    if (!groups.closed.some(r => r.id === focusId)) return;
+    closedOpenedFor.current = focusId;
+    setClosedOpen(true);
+  }, [focusId, groups.closed]);
+
+  if (loading) return <View style={S.container}><SkeletonList rows={6} variant="row" /></View>;
 
   if (loadError && requests.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View style={S.container}>
         <EmptyState
           icon="📡"
           title="Couldn't load drill requests"
@@ -292,57 +354,239 @@ export default function DrillRequestsScreen({ route }: Props) {
     );
   }
 
+  // ── One request ─────────────────────────────────────────────────────────
+  function renderRequest(item: DrillRequest) {
+    const otherProfile = tab === 'incoming' ? item.from_profile : item.to_profile;
+    const avatar = AVATARS.find(a => a.id === (otherProfile?.avatar_id ?? 1)) ?? AVATARS[0];
+    const isPending  = item.status === 'pending';
+    const isAccepted = item.status === 'accepted';
+    const isClosed   = !isPending && !isAccepted;
+    const length = durationLabel(item.length_minutes ?? 60);
+    const firstName = otherProfile?.full_name?.split(' ')[0] ?? 'them';
+
+    // The status is the group's heading, so the card only says it when the
+    // group mixes two (Closed: declined + cancelled).
+    const subFacts = [
+      `${formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR`,
+      isClosed ? (item.status === 'declined' ? 'Declined' : 'Cancelled') : null,
+      timeAgo(item.created_at),
+    ].filter(Boolean).join(' · ');
+
+    const chatButton = (
+      <Button
+        size="sm"
+        variant="outline"
+        title={tab === 'incoming' && isPending ? `💬 Reply to ${firstName}` : '💬 Chat'}
+        onPress={() => setChatRequest(item)}
+      />
+    );
+
+    const header = (
+      <View style={S.cardTop}>
+        <View style={[S.avatar, { backgroundColor: avatar.bgColor }]} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Text style={S.avatarEmoji} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{avatar.emoji}</Text>
+        </View>
+        <View style={S.cardTopText}>
+          {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
+          <FlairName
+            name={otherProfile?.full_name ?? 'Player'}
+            nameColor={otherProfile?.name_color}
+            styleId={otherProfile?.list_name_style_id ?? null}
+            mode="list"
+            style={t.title}
+          />
+          <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{subFacts}</Text>
+        </View>
+        {/* Accepted and closed requests: Chat is the one action, so it sits
+            on the header line instead of a row of its own. */}
+        {!isPending ? chatButton : null}
+        {otherProfile?.id ? (
+          <PlayerModerationMenu
+            userId={otherProfile.id}
+            userName={otherProfile.full_name ?? 'this player'}
+            meId={userId}
+            subjectType="message"
+            subjectId={item.id}
+            snapshot={{ request_message: item.message ?? null }}
+            onChanged={() => { void load(); }}
+            compact
+          />
+        ) : null}
+      </View>
+    );
+
+    // Closed: the header line is the whole card.
+    if (isClosed) {
+      return (
+        <ListCard
+          key={item.id}
+          variant="row"
+          highlighted={focusId === item.id}
+          title={header}
+          style={S.closedRow}
+        />
+      );
+    }
+
+    const long = !!item.message && item.message.length > MESSAGE_CLAMP_CHARS;
+    const expanded = !!expandedMsgs[item.id];
+    const interactable = tab === 'incoming' && isPending;
+    const slots = isAccepted && item.accepted_slot ? [item.accepted_slot] : item.proposed_slots;
+
+    return (
+      <Panel key={item.id} style={[S.card, focusId === item.id && S.cardFocused]}>
+        {header}
+
+        {item.message ? (
+          <View style={S.messageBox}>
+            <Text style={S.messageText} numberOfLines={long && !expanded ? 2 : undefined}>"{item.message}"</Text>
+            {long ? (
+              <Pressable
+                onPress={() => setExpandedMsgs(prev => ({ ...prev, [item.id]: !expanded }))}
+                style={S.linkBox}
+                accessibilityRole="button"
+                accessibilityLabel={expanded ? 'Show less of the message' : 'Show the whole message'}
+              >
+                <Text style={S.linkText}>{expanded ? 'less' : 'more'}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Slots: pick one to enable Accept (incoming), or read them. */}
+        <Text style={S.slotsLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          {isAccepted && item.accepted_slot
+            ? `Confirmed time · ${length} drill`
+            : interactable
+              ? `Pick a time to enable Accept · ${length} drill`
+              : `Proposed times · ${length} drill`}
+        </Text>
+        <View style={S.slotsWrap} accessibilityRole={interactable ? 'radiogroup' : undefined}>
+          {(slots ?? []).map((s, i) => {
+            const label = `${dateLabel(s.date)} ${dateSubLabel(s.date)} · ${slotLabel(s.slot)}`;
+            if (interactable) {
+              const selected = selectedSlotIdx[item.id] === i;
+              return (
+                <FilterPill
+                  key={i}
+                  label={selected ? `✓ ${label}` : label}
+                  active={selected}
+                  onPress={() => setSelectedSlotIdx(prev => ({ ...prev, [item.id]: i }))}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={label}
+                />
+              );
+            }
+            return (
+              <Badge
+                key={i}
+                label={label}
+                tone={isAccepted ? 'brand' : 'neutral'}
+                maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+              />
+            );
+          })}
+        </View>
+
+        {/* Location — both parties can set/change a confirmed court */}
+        {item.location_name ? (
+          <View style={S.locationRow}>
+            <Text style={S.locationText} numberOfLines={1}>📍 {item.location_name}</Text>
+            <Pressable
+              onPress={() => openLocationPicker(item)}
+              style={S.linkBox}
+              accessibilityRole="button"
+              accessibilityLabel="Change the location"
+            >
+              <Text style={S.linkText}>Change</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => openLocationPicker(item)}
+            style={({ pressed }) => [S.locationRow, pressed && S.pressed]}
+            accessibilityRole="button"
+          >
+            <Text style={S.linkText}>📍 Set a location</Text>
+          </Pressable>
+        )}
+
+        {/* Actions */}
+        {tab === 'incoming' && isPending && (
+          <View style={S.actions}>
+            <Button
+              size="sm"
+              title="✓ Accept"
+              onPress={() => acceptWithSelectedSlot(item)}
+              disabled={selectedSlotIdx[item.id] == null}
+            />
+            <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(item, 'decline')} />
+            {chatButton}
+          </View>
+        )}
+        {tab === 'outgoing' && isPending && (
+          <View style={S.actions}>
+            {chatButton}
+            <Pressable
+              onPress={() => cancelRequest(item)}
+              style={({ pressed }) => [S.linkBox, pressed && S.pressed]}
+              accessibilityRole="button"
+            >
+              <Text style={[S.linkText, S.dangerText]}>Cancel request</Text>
+            </Pressable>
+          </View>
+        )}
+      </Panel>
+    );
+  }
+
+  const openTitle = tab === 'incoming' ? 'Waiting on you' : 'Waiting on them';
+
   return (
     <View style={S.container}>
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
-      <View style={S.tabs}>
-        {(['incoming', 'outgoing'] as Tab[]).map(t => (
-          <TouchableOpacity
-            key={t}
-            style={[S.tab, tab === t && S.tabActive]}
-            onPress={() => setTab(t)}
-          >
-            <Text style={[S.tabText, tab === t && S.tabTextActive]}>
-              {t === 'incoming' ? '📥 Incoming' : '📤 Outgoing'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <StatusBanner status={status.value} style={{ marginHorizontal: SPACE.lg, marginTop: SPACE.sm }} />
+      <SegmentedToggle<Tab>
+        variant="underline"
+        options={[
+          { value: 'incoming', label: 'Incoming', icon: '📥' },
+          { value: 'outgoing', label: 'Outgoing', icon: '📤' },
+        ]}
+        value={tab}
+        onChange={setTab}
+        style={S.tabs}
+      />
 
-      <FlatList
-        // The request a push pointed at goes first, highlighted.
-        data={focusId ? [...requests].sort((a, b) => (a.id === focusId ? -1 : b.id === focusId ? 1 : 0)) : requests}
-        keyExtractor={r => r.id}
-        contentContainerStyle={{ padding: 16 }}
+      <ScrollView
+        contentContainerStyle={S.listContent}
         refreshControl={<AppRefreshControl {...refresh} />}
-        ListHeaderComponent={
-          <>
-          <DrillUpcomingSessions userId={userId} focusId={focusId} refreshKey={sessionsKey} />
-          {reviewable.length > 0 ? (
-            // TODO: smoke-test in browser — review-your-drills section + bonus modal
-            <View style={S.reviewSection}>
-              <Text style={S.reviewSectionTitle}>📝 Review your drills</Text>
-              <Text style={S.reviewSectionSub}>
-                Rate 5 aspects (5 🥒 each) and add a self-review (up to 50 🥒) to claim your bonus.
-              </Text>
-              {reviewable.map(s => (
-                <View key={s.id} style={S.reviewCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={S.reviewCardName}>Drill with {s.partner_name}</Text>
-                    <Text style={S.reviewCardSub}>
-                      {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotLabel(s.session_slot)} · {durationLabel(s.length_minutes ?? 60)}
-                    </Text>
-                  </View>
-                  <TouchableOpacity style={S.reviewCardBtn} onPress={() => setReviewTarget(s)}>
-                    <Text style={S.reviewCardBtnText}>📝 Review</Text>
-                  </TouchableOpacity>
-                </View>
+      >
+        <DrillUpcomingSessions userId={userId} focusId={focusId} refreshKey={sessionsKey} />
+
+        {reviewable.length > 0 ? (
+          // TODO: smoke-test in browser — review-your-drills section + bonus modal
+          <View style={S.section}>
+            <SectionHeader title="Review your drills" count={reviewable.length} />
+            <Text style={S.sectionHint} numberOfLines={2}>
+              Rate 5 aspects (5 🥒 each) and add a self-review (up to 50 🥒) to claim your bonus.
+            </Text>
+            <Panel padded={false}>
+              {reviewable.map((s, i) => (
+                <ListCard
+                  key={s.id}
+                  variant="row"
+                  lastRow={i === reviewable.length - 1}
+                  title={`Drill with ${s.partner_name}`}
+                  subtitle={`${dateLabel(s.session_date)} ${dateSubLabel(s.session_date)} · ${slotLabel(s.session_slot)} · ${durationLabel(s.length_minutes ?? 60)}`}
+                  trailing={<Button size="sm" title="📝 Review" onPress={() => setReviewTarget(s)} />}
+                  style={S.actionRow}
+                />
               ))}
-            </View>
-          ) : null}
-          </>
-        }
-        ListEmptyComponent={
+            </Panel>
+          </View>
+        ) : null}
+
+        {requests.length === 0 ? (
           <EmptyState
             icon="📭"
             title={`No ${tab} requests yet.`}
@@ -350,168 +594,43 @@ export default function DrillRequestsScreen({ route }: Props) {
               ? 'When someone wants to drill with you, you\'ll see it here.'
               : 'Find a partner from the Drill page to send your first request.'}
           />
-        }
-        renderItem={({ item }) => {
-          const otherProfile = tab === 'incoming' ? item.from_profile : item.to_profile;
-          const avatar = AVATARS.find(a => a.id === (otherProfile?.avatar_id ?? 1)) ?? AVATARS[0];
-          const isPending  = item.status === 'pending';
-          const isAccepted = item.status === 'accepted';
-          const isDeclined = item.status === 'declined';
-          const isCancelled = item.status === 'cancelled';
+        ) : null}
 
-          return (
-            <View style={[S.card, focusId === item.id && S.cardFocused]}>
-              <View style={S.cardTop}>
-                <View style={[S.avatar, { backgroundColor: avatar.bgColor }]}>
-                  <Text style={S.avatarEmoji}>{avatar.emoji}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  {/* TODO: smoke-test in browser — list mode FlairName wire-up */}
-                  <FlairName
-                    name={otherProfile?.full_name ?? 'Unknown'}
-                    nameColor={otherProfile?.name_color}
-                    styleId={otherProfile?.list_name_style_id ?? null}
-                    mode="list"
-                    style={S.name}
-                  />
-                  <Text style={S.sub}>
-                    {formatPlupr(otherProfile?.rating, (otherProfile as any)?.total_matches_played)} PLUPR · {timeAgo(item.created_at)}
-                  </Text>
-                </View>
-                {otherProfile?.id ? (
-                  <PlayerModerationMenu
-                    userId={otherProfile.id}
-                    userName={otherProfile.full_name ?? 'this player'}
-                    meId={userId}
-                    subjectType="message"
-                    subjectId={item.id}
-                    snapshot={{ request_message: item.message ?? null }}
-                    onChanged={() => { void load(); }}
-                    compact
-                  />
-                ) : null}
-                <View style={[
-                  S.statusPill,
-                  isAccepted && S.statusAccepted,
-                  isDeclined && S.statusDeclined,
-                  isCancelled && S.statusCancelled,
-                ]}>
-                  <Text style={[
-                    S.statusText,
-                    isAccepted && S.statusTextAccepted,
-                    isDeclined && S.statusTextDeclined,
-                    isCancelled && S.statusTextCancelled,
-                  ]}>
-                    {isPending ? 'Pending' : isAccepted ? '✓ Accepted' : isDeclined ? '✗ Declined' : 'Cancelled'}
-                  </Text>
-                </View>
+        {groupOrder.map((k) => {
+          if (k === 'open') {
+            return groups.open.length > 0 ? (
+              <View key={k} style={S.section}>
+                <SectionHeader title={openTitle} count={groups.open.length} />
+                {groups.open.map(renderRequest)}
               </View>
-
-              {item.message && (
-                <View style={S.messageBox}>
-                  <Text style={S.messageText}>"{item.message}"</Text>
-                </View>
-              )}
-
-              {/* Slots display */}
-              <Text style={S.slotsLabel}>
-                {isAccepted && item.accepted_slot
-                  ? `Confirmed time · ${durationLabel(item.length_minutes ?? 60)} drill`
-                  : tab === 'incoming' && isPending
-                    ? `Pick a time below to enable Accept · ${durationLabel(item.length_minutes ?? 60)} drill`
-                    : `Proposed times · ${durationLabel(item.length_minutes ?? 60)} drill`}
-              </Text>
-              <View style={S.slotsWrap}>
-                {(isAccepted && item.accepted_slot
-                  ? [item.accepted_slot]
-                  : item.proposed_slots
-                ).map((s, i) => {
-                  const interactable = tab === 'incoming' && isPending && !isAccepted;
-                  const selected = selectedSlotIdx[item.id] === i;
-                  const showAsAccepted = isAccepted || (interactable && selected);
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      style={[S.slotChip, showAsAccepted && S.slotChipAccepted]}
-                      onPress={interactable ? () => setSelectedSlotIdx(prev => ({ ...prev, [item.id]: i })) : undefined}
-                      activeOpacity={interactable ? 0.7 : 1}
-                      disabled={!interactable}
-                    >
-                      <Text style={[S.slotChipText, showAsAccepted && S.slotChipTextAccepted]}>
-                        {selected ? '✓ ' : ''}{dateLabel(s.date)} {dateSubLabel(s.date)} · {slotLabel(s.slot)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            ) : null;
+          }
+          if (k === 'accepted') {
+            return groups.accepted.length > 0 ? (
+              <View key={k} style={S.section}>
+                <SectionHeader title="Accepted" count={groups.accepted.length} />
+                {groups.accepted.map(renderRequest)}
               </View>
-
-              {/* Location — both parties can set/change a confirmed court */}
-              {(isAccepted || isPending) && (
-                <View style={S.locationSection}>
-                  {item.location_name ? (
-                    <View style={S.locationConfirmedRow}>
-                      <Text style={S.locationConfirmedText} numberOfLines={2}>
-                        📍 {item.location_name}
-                      </Text>
-                      <TouchableOpacity onPress={() => openLocationPicker(item)}>
-                        <Text style={S.locationChangeText}>Change</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={S.locationSetBtn} onPress={() => openLocationPicker(item)}>
-                      <Text style={S.locationSetText}>📍 Set a location</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              {/* Actions */}
-              {tab === 'incoming' && isPending && (
-                <>
-                  <View style={S.actions}>
-                    <TouchableOpacity
-                      style={[
-                        S.actionBtn,
-                        S.acceptBtn,
-                        selectedSlotIdx[item.id] == null && S.actionBtnDim,
-                      ]}
-                      onPress={() => acceptWithSelectedSlot(item)}
-                      disabled={selectedSlotIdx[item.id] == null}
-                    >
-                      <Text style={S.acceptText}>✓ Accept</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[S.actionBtn, S.declineBtn]}
-                      onPress={() => respondToRequest(item, 'decline')}
-                    >
-                      <Text style={S.declineText}>Decline</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
-                    <Text style={S.replyBtnText}>💬 Reply to {otherProfile?.full_name?.split(' ')[0] ?? 'them'}</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              {tab === 'outgoing' && isPending && (
-                <>
-                  <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
-                    <Text style={S.replyBtnText}>💬 Open chat</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={S.cancelBtn} onPress={() => cancelRequest(item)}>
-                    <Text style={S.cancelText}>Cancel request</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-              {/* Chat is available even after accept/decline so the pair can coordinate */}
-              {!isPending && (
-                <TouchableOpacity style={S.replyBtn} onPress={() => setChatRequest(item)}>
-                  <Text style={S.replyBtnText}>💬 Chat</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        }}
-      />
+            ) : null;
+          }
+          return groups.closed.length > 0 ? (
+            <CollapsibleSection
+              key={k}
+              compact
+              title="Closed"
+              count={groups.closed.length}
+              summary="Declined and cancelled requests"
+              open={closedOpen}
+              onToggle={(next) => {
+                setClosedOpen(next);
+                trackSectionToggle({ screen: 'DrillRequests', section: 'closed', open: next });
+              }}
+            >
+              {groups.closed.map(renderRequest)}
+            </CollapsibleSection>
+          ) : null;
+        })}
+      </ScrollView>
 
       <DrillChatModal
         visible={!!chatRequest}
@@ -706,7 +825,7 @@ function DrillChatModal({
           }}
           compact
         />
-        <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close chat">
+        <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close chat">
           <Text style={S.close}>✕</Text>
         </TouchableOpacity>
       </View>
@@ -730,7 +849,6 @@ function DrillChatModal({
             <TouchableOpacity
               style={S.locationPromptDismiss}
               onPress={() => onDismissLocationPrompt?.()}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss location prompt"
             >
@@ -743,7 +861,7 @@ function DrillChatModal({
       <ScrollView
         ref={listRef}
         style={S.messageList}
-        contentContainerStyle={{ padding: 12 }}
+        contentContainerStyle={{ padding: SPACE.md }}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
       >
         {loadingMsgs ? (
@@ -789,7 +907,7 @@ function DrillChatModal({
           disabled={!draft.trim() || sending}
         >
           {sending
-            ? <ActivityIndicator color="#fff" size="small" />
+            ? <ActivityIndicator color={colors.textInverse} size="small" />
             : <Text style={S.sendBtnText}>Send</Text>}
         </TouchableOpacity>
       </View>
@@ -803,16 +921,16 @@ function DrillChatModal({
               <Text style={S.locationPickerTitle}>
                 {locationPickerMode === 'confirm' ? 'Where are you playing?' : 'Suggest a court'}
               </Text>
-              <TouchableOpacity onPress={() => setLocationPickerMode(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close location picker">
+              <TouchableOpacity onPress={() => setLocationPickerMode(null)} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close location picker">
                 <Text style={S.close}>✕</Text>
               </TouchableOpacity>
             </View>
             {courtsLoading ? (
-              <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
+              <ActivityIndicator style={{ marginVertical: SPACE.xl }} color={colors.primary} />
             ) : courts.length === 0 ? (
               <EmptyState title="No courts found in the database yet." />
             ) : (
-              <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
+              <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: SPACE.sm }}>
                 {courts.map(c2 => (
                   <TouchableOpacity
                     key={c2.id}
@@ -866,16 +984,16 @@ function CourtPickerModal({
         <View style={S.panel}>
           <View style={S.header}>
             <Text style={S.title}>📍 Pick a location</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close location picker">
+            <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close location picker">
               <Text style={S.close}>✕</Text>
             </TouchableOpacity>
           </View>
           {loading ? (
-            <ActivityIndicator style={{ marginVertical: 24 }} color={colors.primary} />
+            <ActivityIndicator style={{ marginVertical: SPACE.xl }} color={colors.primary} />
           ) : courts.length === 0 ? (
             <EmptyState title="No courts found in the database yet." />
           ) : (
-            <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: 8 }}>
+            <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ padding: SPACE.sm }}>
               {courts.map(court => (
                 <TouchableOpacity key={court.id} style={S.row} onPress={() => onPick(court)}>
                   <Text style={S.rowName}>{court.nickname ?? court.name}</Text>
@@ -892,61 +1010,65 @@ function CourtPickerModal({
 }
 
 function makeCourtPickerStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    panel:   { backgroundColor: c.bg, borderRadius: 12, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
-    header:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    title:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
-    close:   { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
-    row:     { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
-    rowName: { fontSize: 14, fontWeight: '700', color: c.text },
-    rowSub:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    overlay: { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
+    panel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
+    header:  { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    title:   { ...t.title, flex: 1 },
+    close:   { fontSize: FONT.size.h2, color: c.textSub, fontWeight: '700' },
+    closeBox:{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    row:     { minHeight: 44, justifyContent: 'center', paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, marginBottom: SPACE.xs },
+    rowName: { ...t.title },
+    rowSub:  { ...t.meta, fontWeight: '400', marginTop: SPACE.xxs },
   });
 }
 
 function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    sheet:       { backgroundColor: c.bg, borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '85%', minHeight: 420 },
-    header:      { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    title:       { flex: 1, fontSize: 16, fontWeight: '800', color: c.text },
-    close:       { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
+    backdrop:    { flex: 1, backgroundColor: c.backdrop, justifyContent: 'flex-end' },
+    sheet:       { backgroundColor: c.bg, borderTopLeftRadius: RADIUS.lg, borderTopRightRadius: RADIUS.lg, maxHeight: '85%', minHeight: 420 },
+    header:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    title:       { ...t.title, flex: 1 },
+    close:       { fontSize: FONT.size.h2, color: c.textSub, fontWeight: '700' },
+    closeBox:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     messageList: { flex: 1 },
-    bubbleRow:   { flexDirection: 'row', marginBottom: 6 },
+    bubbleRow:   { flexDirection: 'row', marginBottom: SPACE.xs },
     bubbleRowMine: { justifyContent: 'flex-end' },
-    bubble:      { maxWidth: '80%', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 },
-    bubbleMine:  { backgroundColor: c.primary, borderBottomRightRadius: 4 },
-    bubbleTheirs:{ backgroundColor: c.surfaceAlt, borderBottomLeftRadius: 4 },
-    bubbleText:  { fontSize: 14, color: c.text, lineHeight: 19 },
-    bubbleTextMine: { color: '#fff' },
-    bubbleTime:  { fontSize: 10, color: c.textMuted, marginTop: 2 },
-    bubbleTimeMine: { color: 'rgba(255,255,255,0.7)' },
-    composer:    { flexDirection: 'row', padding: 10, gap: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface, alignItems: 'flex-end' },
-    input:       { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, maxHeight: 100, fontSize: 14, color: c.text, backgroundColor: c.bg },
-    sendBtn:     { backgroundColor: c.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
+    bubble:      { maxWidth: '80%', paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.lg },
+    bubbleMine:  { backgroundColor: c.primary, borderBottomRightRadius: RADIUS.sm },
+    bubbleTheirs:{ backgroundColor: c.surfaceAlt, borderBottomLeftRadius: RADIUS.sm },
+    bubbleText:  { ...t.sub, color: c.text },
+    bubbleTextMine: { color: c.textInverse },
+    bubbleTime:  { ...t.meta, marginTop: SPACE.xxs },
+    bubbleTimeMine: { color: c.textInverse, opacity: 0.7 },
+    composer:    { flexDirection: 'row', padding: SPACE.sm, gap: SPACE.sm, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface, alignItems: 'flex-end' },
+    input:       { flex: 1, minHeight: 44, borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, maxHeight: 100, fontSize: FONT.size.md, color: c.text, backgroundColor: c.bg },
+    sendBtn:     { backgroundColor: c.primary, paddingHorizontal: SPACE.lg, minHeight: 44, borderRadius: RADIUS.md, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
     sendBtnDim:  { opacity: 0.5 },
-    sendBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-    sendErrorRow:{ paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.surface },
-    sendErrorText:{ color: '#c62828', fontSize: 12, fontWeight: '600' },
+    sendBtnText: { color: c.textInverse, fontWeight: '800', fontSize: FONT.size.base },
+    sendErrorRow:{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, backgroundColor: c.surface },
+    sendErrorText:{ ...t.meta, color: c.danger },
 
-    locationPrompt:        { padding: 12, backgroundColor: c.surfaceAlt, borderBottomWidth: 1, borderBottomColor: c.border },
-    locationPromptText:    { fontSize: 13, fontWeight: '700', color: c.text, marginBottom: 8 },
-    locationPromptRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    locationPromptBtn:     { flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1 },
+    locationPrompt:        { padding: SPACE.md, backgroundColor: c.surfaceAlt, borderBottomWidth: 1, borderBottomColor: c.border },
+    locationPromptText:    { ...t.sub, fontWeight: '700', color: c.text, marginBottom: SPACE.sm },
+    locationPromptRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    locationPromptBtn:     { flex: 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1 },
     locationPromptBtnYes:  { backgroundColor: c.primary, borderColor: c.primary },
     locationPromptBtnNo:   { backgroundColor: c.bg, borderColor: c.border },
-    locationPromptBtnTextYes: { color: '#fff', fontWeight: '700', fontSize: 12 },
-    locationPromptBtnTextNo:  { color: c.text, fontWeight: '700', fontSize: 12 },
-    locationPromptDismiss:    { paddingHorizontal: 6 },
-    locationPromptDismissText:{ color: c.textMuted, fontSize: 16, fontWeight: '700' },
+    locationPromptBtnTextYes: { color: c.textInverse, fontWeight: '700', fontSize: FONT.size.sm },
+    locationPromptBtnTextNo:  { color: c.text, fontWeight: '700', fontSize: FONT.size.sm },
+    locationPromptDismiss:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    locationPromptDismissText:{ color: c.textMuted, fontSize: FONT.size.lg, fontWeight: '700' },
 
-    locationPickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    locationPickerPanel:   { backgroundColor: c.bg, borderRadius: 12, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
-    locationPickerHeader:  { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    locationPickerTitle:   { flex: 1, fontSize: 15, fontWeight: '800', color: c.text },
-    courtRow:              { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4 },
-    courtRowName:          { fontSize: 14, fontWeight: '700', color: c.text },
-    courtRowSub:           { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    locationPickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
+    locationPickerPanel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
+    locationPickerHeader:  { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    locationPickerTitle:   { ...t.title, flex: 1 },
+    courtRow:              { minHeight: 44, justifyContent: 'center', paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, marginBottom: SPACE.xs },
+    courtRowName:          { ...t.title },
+    courtRowSub:           { ...t.meta, fontWeight: '400', marginTop: SPACE.xxs },
   });
 }
 
@@ -961,74 +1083,42 @@ function timeAgo(iso: string): string {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     container:   { flex: 1, backgroundColor: c.bg },
-    tabs:        { flexDirection: 'row', backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    tab:         { flex: 1, paddingVertical: 14, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
-    tabActive:   { borderBottomColor: c.primary },
-    tabText:     { fontSize: 14, color: c.textMuted, fontWeight: '600' },
-    tabTextActive:{ color: c.primary, fontWeight: '800' },
+    tabs:        { backgroundColor: c.surface, borderBottomColor: c.border },
+    listContent: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xl },
+    section:     { marginBottom: SPACE.md },
+    sectionHint: { ...t.sub, marginBottom: SPACE.sm },
+    pressed:     { opacity: 0.6 },
 
-    emptyWrap:   { alignItems: 'center', padding: 40, marginTop: 60 },
-    emptyEmoji:  { fontSize: 56, marginBottom: 12 },
-    emptyText:   { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 22 },
+    // A row whose trailing slot is a 44 sm-button box: 4px vertical padding
+    // keeps it at the row's 56 instead of 64 (EntityRow does the same).
+    actionRow:   { paddingVertical: SPACE.xs },
 
-    reviewSection:      { backgroundColor: c.primaryLight, borderRadius: 14, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: c.primary },
-    reviewSectionTitle: { fontSize: 15, fontWeight: '800', color: c.primary },
-    reviewSectionSub:   { fontSize: 12, color: c.textSub, marginTop: 2, marginBottom: 10 },
-    reviewCard:         { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.surface, borderRadius: 10, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: c.border },
-    reviewCardName:     { fontSize: 14, fontWeight: '700', color: c.text },
-    reviewCardSub:      { fontSize: 11, color: c.textMuted, marginTop: 2 },
-    reviewCardBtn:      { backgroundColor: c.primary, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 },
-    reviewCardBtnText:  { color: '#fff', fontWeight: '800', fontSize: 12 },
+    // One request: a Panel (hairline, no shadow), 8 apart.
+    card:        { marginBottom: SPACE.sm, gap: SPACE.sm },
+    cardFocused: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    closedRow:   { paddingVertical: SPACE.xs, paddingHorizontal: 0 },
+    cardTop:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
+    cardTopText: { flex: 1, minWidth: 0 },
+    avatar:      { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    avatarEmoji: { fontSize: FONT.size.h2 },
 
-    card:        {
-      backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
-    },
-    cardFocused: { borderWidth: 2, borderColor: c.primary },
-    cardTop:     { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-    avatar:      { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji: { fontSize: 22 },
-    name:        { fontSize: 15, fontWeight: '800', color: c.text },
-    sub:         { fontSize: 11, color: c.textMuted, marginTop: 2 },
+    messageBox:  { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm },
+    messageText: { ...t.sub, fontStyle: 'italic' },
 
-    statusPill:  { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: c.surfaceAlt },
-    statusAccepted: { backgroundColor: c.primaryLight },
-    statusDeclined: { backgroundColor: c.bg },
-    statusCancelled: { backgroundColor: c.bg },
-    statusText:  { fontSize: 11, fontWeight: '800', color: c.textSub },
-    statusTextAccepted: { color: c.primary },
-    statusTextDeclined: { color: c.danger },
-    statusTextCancelled: { color: c.textMuted },
+    slotsLabel:  t.fieldLabel,
+    // Interactive slots are FilterPills (28 pill in a 44 box), so the rows
+    // touch vertically and read as 16 apart; read-only slots are Badges.
+    slotsWrap:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs },
 
-    messageBox:  { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10, marginBottom: 10 },
-    messageText: { fontSize: 13, color: c.textSub, fontStyle: 'italic', lineHeight: 18 },
+    locationRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
+    locationText:{ ...t.sub, flex: 1, color: c.text, fontWeight: '600' },
+    linkBox:     { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+    linkText:    { fontSize: FONT.size.base, fontWeight: '700', color: c.primary },
+    dangerText:  { color: c.danger },
 
-    slotsLabel:  { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
-    slotsWrap:   { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
-    slotChip:    { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    slotChipAccepted: { backgroundColor: c.primaryLight, borderColor: c.primary },
-    slotChipText:{ fontSize: 12, color: c.textSub, fontWeight: '600' },
-    slotChipTextAccepted: { color: c.primary, fontWeight: '800' },
-
-    locationSection:       { marginBottom: 12 },
-    locationConfirmedRow:  { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.primaryLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: c.primary },
-    locationConfirmedText: { flex: 1, fontSize: 13, fontWeight: '700', color: c.primary },
-    locationChangeText:    { fontSize: 12, fontWeight: '700', color: c.primary, textDecorationLine: 'underline' },
-    locationSetBtn:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: c.border, backgroundColor: c.surfaceAlt },
-    locationSetText:       { fontSize: 13, fontWeight: '700', color: c.textSub },
-
-    actions:     { flexDirection: 'row', gap: 10 },
-    actionBtn:   { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center' },
-    actionBtnDim:{ opacity: 0.4 },
-    acceptBtn:   { backgroundColor: c.primary },
-    acceptText:  { color: '#fff', fontWeight: '800', fontSize: 14 },
-    declineBtn:  { backgroundColor: c.surfaceAlt, borderWidth: 1.5, borderColor: c.border },
-    declineText: { color: c.textSub, fontWeight: '700', fontSize: 14 },
-    replyBtn:    { marginTop: 10, padding: 10, borderRadius: 10, alignItems: 'center', backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    replyBtnText:{ color: c.primary, fontWeight: '700', fontSize: 13 },
-    cancelBtn:   { padding: 10, alignItems: 'center' },
-    cancelText:  { color: c.danger, fontSize: 13, fontWeight: '600' },
+    actions:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm },
   });
 }

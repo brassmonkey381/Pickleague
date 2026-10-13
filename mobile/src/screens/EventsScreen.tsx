@@ -1,10 +1,20 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+// A league's events (plan section 5, "Events list"):
+//   (All)(Needs your vote 1)(Upcoming 3)(Past 8)   single-select, 0-count chips hidden
+//   [📅] Thu play day   (Vote needed)       1d left
+//        3 times proposed · Lake Merritt
+//   ...sorted by event date: live, then upcoming soonest first, then ended newest first
+// Each row shows the viewer's own vote / RSVP state. "+ New Event" lives in the
+// header for admins and co-admins only (same gate as the old floating button).
+import React, { useState, useCallback, useMemo, useLayoutEffect } from 'react';
+import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
+import { FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { LeagueEvent, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
@@ -12,136 +22,144 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import EntityRow, { type EntityRowChip } from '../components/EntityRow';
+import { joinFacts } from '../lib/entityGlyph';
+import { displayCourtName } from '../lib/courtNickname';
+import {
+  categorizeEvent, eventStatusLabel, eventStatusTone, timeLeftLabel, myEventState, myEventChip,
+  matchesEventFilter, countEventFilters, sortEventsByDate,
+  type EventCategory, type EventListFilter, type MyEventState,
+} from '../components/event/eventModel';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Events'>;
   route: RouteProp<RootStackParamList, 'Events'>;
 };
 
-type ConfirmedSlot = { id: string; starts_at: string; ends_at: string };
+/** A proposed time, with whether the viewer marked it. */
+type SlotLite = { id: string; starts_at: string; ends_at: string; mine: boolean };
 
-type Category = 'voting_open' | 'vote_closed' | 'scheduled' | 'live' | 'past' | 'cancelled';
-
-const CATEGORY_META: Record<Category, { label: string; emoji: string; color: string }> = {
-  voting_open:  { label: 'Voting open',  emoji: '🗳',  color: '#2e7d32' },
-  vote_closed:  { label: 'Vote closed',  emoji: '🔒', color: '#e65100' },
-  scheduled:    { label: 'Scheduled',    emoji: '📅', color: '#1565c0' },
-  live:         { label: 'Live now',     emoji: '🔴', color: '#c62828' },
-  past:         { label: 'Past',         emoji: '⏳', color: '#888'    },
-  cancelled:    { label: 'Cancelled',    emoji: '✖',  color: '#999'    },
+type EventsData = {
+  events: LeagueEvent[];
+  /** event id -> its proposed times. */
+  slots: Record<string, SlotLite[]>;
+  /** Event ids the viewer said "Can't make it" to. */
+  declined: string[];
 };
 
-const ALL_CATEGORIES: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'live', 'past', 'cancelled'];
-const DEFAULT_ENABLED: Category[] = ['voting_open', 'vote_closed', 'scheduled', 'live', 'cancelled']; // past hidden by default
+type Row = {
+  event: LeagueEvent;
+  category: EventCategory;
+  myState: MyEventState;
+  dateIso: string | null;
+  slotCount: number;
+  confirmed: SlotLite | null;
+};
 
-// Once a confirmed slot reaches its start time, the event stays "live" (open for
-// recording matches) for this long before it rolls over to "past".
-const LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const FILTER_LABELS: Record<EventListFilter, string> = {
+  all: 'All',
+  needs_vote: 'Needs your vote',
+  upcoming: 'Upcoming',
+  past: 'Past',
+};
+const FILTERS: EventListFilter[] = ['all', 'needs_vote', 'upcoming', 'past'];
 
-const DATE_OPTS = {
-  weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-  hour: '2-digit', minute: '2-digit',
-} as const;
-
-function categorize(event: LeagueEvent, confirmedStartsAt: string | null): Category {
-  if (event.status === 'cancelled') return 'cancelled';
-
-  // Clock-based detection for any event with a confirmed slot. Applies
-  // regardless of `status`, so a confirmed event is always categorized by where
-  // "now" sits relative to its start time (and stale "voting" events that ended
-  // up confirmed don't get stuck reading "vote closed" forever):
-  //   • before start                  → scheduled (falls through below)
-  //   • start ≤ now < start + 24h      → live (open for recording matches)
-  //   • now ≥ start + 24h              → past
-  if (confirmedStartsAt) {
-    const start = new Date(confirmedStartsAt).getTime();
-    const now = Date.now();
-    if (now >= start + LIVE_WINDOW_MS) return 'past';
-    if (now >= start) return 'live';
+// PostgREST takes `in` lists in the URL; chunk so a long-running league never
+// builds a URL a proxy truncates.
+const IN_CHUNK = 100;
+async function inChunks<T>(ids: string[], run: (chunk: string[]) => Promise<T[] | null>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    out.push(...((await run(ids.slice(i, i + IN_CHUNK))) ?? []));
   }
-
-  if (event.status === 'scheduled') return 'scheduled';
-  // status === 'voting'
-  return new Date(event.vote_ends_at) > new Date() ? 'voting_open' : 'vote_closed';
+  return out;
 }
 
-function timeUntil(iso: string): string {
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return 'Ended';
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
-  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h left`;
-  return `${h}h ${m}m left`;
-}
-
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bg },
-    filterBar: { backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border, paddingVertical: 10 },
-    filterScroll: { paddingHorizontal: 12, gap: 8, alignItems: 'center' },
-    filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.bg, marginRight: 8 },
-    filterChipActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    filterChipText: { fontSize: 13, color: c.textMuted, fontWeight: '600' },
-    filterChipTextActive: { color: c.primary },
-    countBar: { paddingHorizontal: 16, paddingVertical: 6, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    countText: { fontSize: 12, color: c.textMuted },
-    card: { backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-    cardLive: { backgroundColor: c.danger + '1F', borderWidth: 1.5, borderColor: c.danger },
-    liveHint: { fontSize: 12, color: c.danger, fontWeight: '700', marginTop: 4 },
-    cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-    eventTitle: { fontSize: 17, fontWeight: '700', color: c.text, flex: 1, marginRight: 8 },
-    badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 },
-    badgeText: { fontSize: 12, fontWeight: '700' },
-    desc: { fontSize: 13, color: c.textSub, marginBottom: 6 },
-    meta: { fontSize: 12, color: c.textMuted, marginTop: 4 },
-    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15, lineHeight: 22 },
-    fab: { position: 'absolute', bottom: 24, right: 24, backgroundColor: c.primary, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 30, elevation: 4 },
-    fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  });
-}
+const fmtWhen = (iso: string) => new Date(iso).toLocaleString(undefined, {
+  weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+});
 
 export default function EventsScreen({ navigation, route }: Props) {
   const { leagueId } = route.params;
-  const [myRole, setMyRole] = useState<LeagueRole>(null);
-  const [enabled, setEnabled] = useState<Set<Category>>(new Set(DEFAULT_ENABLED));
+  // 'unknown' until the first role read lands: no "+ New Event" yet, and the
+  // viewer's own vote state still shows (a member is the common case).
+  const [myRole, setMyRole] = useState<LeagueRole>('unknown');
+  const [filter, setFilter] = useState<EventListFilter>('all');
   const { colors } = useTheme();
+  const t = textStyles(colors);
   const S = makeStyles(colors);
 
-  const loadEvents = useCallback(async () => {
-    const evs = ((await sbCall(() => supabase
-      .from('league_events')
-      .select('*')
-      .eq('league_id', leagueId)
-      .order('created_at', { ascending: false }))) ?? []) as LeagueEvent[];
+  const loadEvents = useCallback(async (): Promise<EventsData> => {
+    const [evRows, uid] = await Promise.all([
+      sbCall(() => supabase
+        .from('league_events')
+        .select('*')
+        .eq('league_id', leagueId)
+        .order('created_at', { ascending: false })),
+      currentUserId(supabase),
+    ]);
+    const evs = (evRows ?? []) as LeagueEvent[];
+    const ids = evs.map(e => e.id);
+    if (ids.length === 0) return { events: evs, slots: {}, declined: [] };
 
-    const slotIds = evs.map(e => e.confirmed_slot_id).filter(Boolean) as string[];
-    const slots: Record<string, ConfirmedSlot> = {};
-    if (slotIds.length > 0) {
-      const rows = await sbCall(() => supabase
-        .from('event_slots')
-        .select('id, starts_at, ends_at')
-        .in('id', slotIds));
-      (rows ?? []).forEach((s: any) => { slots[s.id] = s; });
+    // Every proposed time (the confirmed one among them), with the viewer's own
+    // vote embedded: the embedded filter narrows event_slot_votes to this user
+    // without dropping slots nobody voted for. Votes and slots are readable by
+    // everyone (RLS), same reads EventDetail makes.
+    const [slotRows, declineRows] = await Promise.all([
+      inChunks<any>(ids, chunk => sbCall(() => {
+        let q = supabase
+          .from('event_slots')
+          .select('id, event_id, starts_at, ends_at, event_slot_votes(user_id)')
+          .in('event_id', chunk);
+        if (uid) q = q.eq('event_slot_votes.user_id', uid);
+        return q;
+      })),
+      uid
+        ? inChunks<any>(ids, chunk => sbCall(() => supabase
+            .from('event_declines')
+            .select('event_id')
+            .eq('user_id', uid)
+            .in('event_id', chunk)))
+        : Promise.resolve([]),
+    ]);
+
+    const slots: Record<string, SlotLite[]> = {};
+    for (const s of slotRows) {
+      (slots[s.event_id] ??= []).push({
+        id: s.id,
+        starts_at: s.starts_at,
+        ends_at: s.ends_at,
+        mine: !!uid && Array.isArray(s.event_slot_votes) && s.event_slot_votes.some((v: any) => v.user_id === uid),
+      });
     }
-    return { events: evs, confirmedSlots: slots };
+    return { events: evs, slots, declined: declineRows.map((d: any) => d.event_id) };
   }, [leagueId]);
 
-  const query = useCachedQuery(`league:${leagueId}:events`, loadEvents, {
+  // v2: the cached shape changed (all slots + the viewer's answers), so a 24h
+  // persisted v1 entry is never read into it.
+  const query = useCachedQuery(`league:${leagueId}:events:v2`, loadEvents, {
     ttlMs: 30_000,
     persistMs: 24 * 60 * 60 * 1000,
   });
-  const events: LeagueEvent[] = query.data?.events ?? [];
-  const confirmedSlots: Record<string, ConfirmedSlot> = query.data?.confirmedSlots ?? {};
   // Nothing cached AND the fetch failed — the one case where we genuinely have
   // nothing to show. Anything cached keeps rendering instead of blanking.
   const loadFailed = query.error != null && query.data === undefined;
 
-  // A failed role read must not strip the admin's "+ New Event" FAB, so an
-  // unknown/errored outcome leaves the last known role in place.
+  // A failed role read must not strip the admin's "+ New Event", so an
+  // unknown/errored outcome leaves the last known role in place. A cold web
+  // URL (/leagues/:id/events) carries no league name: fetch it for the title.
+  const hasRouteName = typeof route.params.leagueName === 'string' && route.params.leagueName !== 'undefined';
   const loadMyRole = useCallback(async () => {
-    const role = await getLeagueRole(leagueId).catch(() => 'unknown' as const);
+    const [role, league] = await Promise.all([
+      getLeagueRole(leagueId).catch(() => 'unknown' as const),
+      hasRouteName
+        ? Promise.resolve(null)
+        : sbCall(() => supabase.from('leagues').select('name').eq('id', leagueId).maybeSingle()).catch(() => null),
+    ]);
     if (role !== 'unknown') setMyRole(role);
-  }, [leagueId]);
+    if ((league as any)?.name) navigation.setOptions({ title: `${(league as any).name} Events` });
+  }, [leagueId, hasRouteName, navigation]);
 
   const reload = useCallback(
     () => Promise.all([query.refresh(), loadMyRole()]),
@@ -151,105 +169,140 @@ export default function EventsScreen({ navigation, route }: Props) {
 
   useFocusEffect(useCallback(() => { void reload(); }, [reload]));
 
-  // Annotate every event with its category once, so filter & render share the result.
-  const categorized = useMemo(() => {
-    return events.map(e => {
-      const slot = e.confirmed_slot_id ? confirmedSlots[e.confirmed_slot_id] : null;
-      return { event: e, slot, category: categorize(e, slot?.starts_at ?? null) };
+  const privileged = isPrivileged(myRole);
+  const openCreate = useCallback(() => navigation.navigate('CreateEvent', { leagueId }), [navigation, leagueId]);
+
+  // "+ New Event" in the header (was a floating button), admins/co-admins only.
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: privileged
+        ? () => (
+            <Pressable
+              onPress={openCreate}
+              accessibilityRole="button"
+              accessibilityLabel="New event"
+              style={({ pressed }) => [S.headerBtn, pressed && S.pressed]}
+            >
+              <Text style={[t.title, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>+ New Event</Text>
+            </Pressable>
+          )
+        : undefined,
     });
-  }, [events, confirmedSlots]);
+    // S / t are rebuilt per render from the same colors.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, privileged, openCreate, colors]);
 
-  const counts = useMemo(() => {
-    const c: Record<Category, number> = {
-      voting_open: 0, vote_closed: 0, scheduled: 0, live: 0, past: 0, cancelled: 0,
-    };
-    for (const row of categorized) c[row.category]++;
-    return c;
-  }, [categorized]);
-
-  const visible = useMemo(() => {
-    const rows = categorized.filter(row => enabled.has(row.category));
-    // Surface live events (started, within the 24h window) at the top — they're
-    // the time-sensitive call to action. sort() is stable, so everything else
-    // keeps its existing load order.
-    return rows.sort((a, b) => Number(b.category === 'live') - Number(a.category === 'live'));
-  }, [categorized, enabled]);
-
-  function toggleCategory(cat: Category) {
-    setEnabled(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat);
-      else next.add(cat);
-      return next;
+  const rows: Row[] = useMemo(() => {
+    const data = query.data;
+    if (!data) return [];
+    const declined = new Set(data.declined);
+    const now = Date.now();
+    // A definite non-member has nothing to vote on; anyone else sees their state.
+    const answers = myRole !== null;
+    const built = data.events.map((e): Row => {
+      const slots = data.slots[e.id] ?? [];
+      const confirmed = e.confirmed_slot_id ? slots.find(s => s.id === e.confirmed_slot_id) ?? null : null;
+      const category = categorizeEvent(e, confirmed?.starts_at ?? null, now);
+      const earliest = slots.reduce<string | null>((min, s) => (min == null || s.starts_at < min ? s.starts_at : min), null);
+      const rsvpOpen = !!confirmed && now < new Date(confirmed.ends_at).getTime();
+      const myState = answers
+        ? myEventState(category, {
+            votes: slots.filter(s => s.mine).length,
+            inConfirmed: !!confirmed?.mine,
+            declined: declined.has(e.id),
+          }, rsvpOpen)
+        : null;
+      return {
+        event: e,
+        category,
+        myState,
+        dateIso: confirmed?.starts_at ?? earliest ?? e.vote_ends_at ?? null,
+        slotCount: slots.length,
+        confirmed,
+      };
     });
+    return sortEventsByDate(built);
+  }, [query.data, myRole]);
+
+  const counts = useMemo(() => countEventFilters(rows), [rows]);
+  // A chip whose count fell to 0 (you just voted) falls back to All, so the
+  // list never sits empty behind a chip that is no longer shown.
+  const activeFilter: EventListFilter = filter !== 'all' && counts[filter] === 0 ? 'all' : filter;
+  const visible = useMemo(() => rows.filter(r => matchesEventFilter(r, activeFilter)), [rows, activeFilter]);
+
+  const chipOptions: FilterChipOption<EventListFilter>[] = FILTERS.map(f => ({
+    value: f,
+    label: FILTER_LABELS[f],
+    count: f === 'all' ? undefined : counts[f],
+  }));
+  // Chips earn their row only when they split the list.
+  const showChips = FILTERS.filter(f => f !== 'all' && counts[f] > 0 && counts[f] < counts.all).length > 0;
+
+  function rowSubtitle(r: Row): string {
+    const where = r.event.location_name ? displayCourtName(r.event.location_name) : null;
+    switch (r.category) {
+      case 'voting_open':
+        return joinFacts([r.slotCount > 0 ? `${r.slotCount} time${r.slotCount === 1 ? '' : 's'} proposed` : 'Vote on a time', where]);
+      // vote_closed and live carry a status chip ('Picking a time' / 'Live
+      // now'), so the subtitle doesn't repeat it; the short lead keeps the
+      // line from going blank when there's no court.
+      case 'vote_closed':
+        return joinFacts(['Voting ended', where]);
+      case 'live':
+        return joinFacts(['Tap to record matches', where]);
+      default:
+        return joinFacts([r.confirmed ? fmtWhen(r.confirmed.starts_at) : null, where]);
+    }
+  }
+
+  function rowChips(r: Row): EntityRowChip[] {
+    const chips: EntityRowChip[] = [];
+    // The status chip only where the subtitle doesn't already say it.
+    if (r.category === 'live' || r.category === 'cancelled' || r.category === 'vote_closed' || r.category === 'past') {
+      chips.push({ label: eventStatusLabel(r.category), tone: eventStatusTone(r.category) });
+    }
+    const mine = myEventChip(r.myState);
+    if (mine) chips.push(mine);
+    return chips;
   }
 
   return (
     <View style={S.container}>
-      {/* Filter chips */}
-      <View style={S.filterBar}>
-        <ScrollView horizontal contentContainerStyle={S.filterScroll} showsHorizontalScrollIndicator={false}>
-          {ALL_CATEGORIES.map(cat => {
-            const meta = CATEGORY_META[cat];
-            const active = enabled.has(cat);
-            return (
-              <TouchableOpacity
-                key={cat}
-                style={[S.filterChip, active && S.filterChipActive]}
-                onPress={() => toggleCategory(cat)}
-                activeOpacity={0.8}
-              >
-                <Text style={[S.filterChipText, active && S.filterChipTextActive]}>
-                  {meta.emoji} {meta.label} ({counts[cat]})
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <View style={S.countBar}>
-        <Text style={S.countText}>
-          Showing {visible.length} of {categorized.length} event{categorized.length !== 1 ? 's' : ''}
-          {!enabled.has('past') && counts.past > 0 ? ` · ${counts.past} past hidden` : ''}
-        </Text>
-      </View>
+      {showChips && (
+        <View style={S.chipBar}>
+          <FilterChipRow
+            size="md"
+            options={chipOptions}
+            value={activeFilter}
+            onChange={setFilter}
+            hideZero
+            pinnedKeys={['all']}
+            wrapAtWidth={600}
+          />
+        </View>
+      )}
 
       <FlatList
         data={visible}
-        keyExtractor={(row) => row.event.id}
-        contentContainerStyle={{ padding: 16 }}
+        keyExtractor={(r) => r.event.id}
+        contentContainerStyle={S.list}
         refreshControl={<AppRefreshControl {...refresh} />}
-        renderItem={({ item: row }) => {
-          const meta = CATEGORY_META[row.category];
-          return (
-            <TouchableOpacity
-              style={[S.card, row.category === 'live' && S.cardLive]}
-              onPress={() => navigation.navigate('EventDetail', { eventId: row.event.id, title: row.event.title })}
-            >
-              <View style={S.cardTop}>
-                <Text style={S.eventTitle}>{row.event.title}</Text>
-                <View style={[S.badge, { backgroundColor: meta.color + '22' }]}>
-                  <Text style={[S.badgeText, { color: meta.color }]}>{meta.label}</Text>
-                </View>
-              </View>
-              {row.event.description ? <Text style={S.desc}>{row.event.description}</Text> : null}
-              {(row.category === 'scheduled' || row.category === 'past' || row.category === 'live') && row.slot && (
-                <Text style={S.meta}>
-                  📅  {new Date(row.slot.starts_at).toLocaleString(undefined, DATE_OPTS)}
-                </Text>
-              )}
-              {row.category === 'live' && (
-                <Text style={S.liveHint}>🔴  Happening now · tap to record matches</Text>
-              )}
-              {row.event.status === 'voting' && (
-                <Text style={S.meta}>
-                  🗳  Vote deadline: {new Date(row.event.vote_ends_at).toLocaleString(undefined, DATE_OPTS)} · {timeUntil(row.event.vote_ends_at)}
-                </Text>
-              )}
-            </TouchableOpacity>
-          );
-        }}
+        renderItem={({ item: r }) => (
+          <EntityRow
+            kind="event"
+            title={r.event.title}
+            subtitle={rowSubtitle(r)}
+            chips={rowChips(r)}
+            trailingText={r.category === 'voting_open' ? timeLeftLabel(r.event.vote_ends_at) : null}
+            highlighted={r.category === 'live'}
+            onPress={() => navigation.navigate('EventDetail', {
+              eventId: r.event.id,
+              title: r.event.title,
+              // Land on the control the row is asking about.
+              ...(r.myState === 'needs_vote' ? { focus: 'vote' as const } : r.myState === 'rsvp_needed' ? { focus: 'rsvp' as const } : {}),
+            })}
+          />
+        )}
         ListEmptyComponent={
           loadFailed
             ? <EmptyState
@@ -259,19 +312,26 @@ export default function EventsScreen({ navigation, route }: Props) {
                 actionLabel="Retry"
                 onAction={() => { void reload(); }}
               />
-            : query.loading
-            ? <SkeletonList rows={4} />
-            : categorized.length === 0
-            ? <EmptyState icon="📅" title="No events yet" subtitle="Create one to start scheduling league play." />
-            : <EmptyState icon="🔍" title="No events match your filters" subtitle="Try enabling more categories above." />
+            : query.loading && rows.length === 0
+            ? <SkeletonList rows={4} variant="row" />
+            : rows.length === 0
+            ? privileged
+              ? <EmptyState icon="📅" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
+              : <EmptyState icon="📅" title="No events yet." subtitle="Your league admin schedules play days." />
+            : <EmptyState compact icon="🔍" title="Nothing here" actionLabel="Show all" onAction={() => setFilter('all')} />
         }
       />
-
-      {isPrivileged(myRole) && (
-        <TouchableOpacity style={S.fab} onPress={() => navigation.navigate('CreateEvent', { leagueId })}>
-          <Text style={S.fabText}>+ New Event</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
+}
+
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: c.bg },
+    // Fixed chrome outside the FlatList (no sticky headers under RNW).
+    chipBar: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.xs, backgroundColor: c.bg },
+    list: { padding: SPACE.lg, paddingTop: SPACE.sm },
+    headerBtn: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.sm, alignItems: 'center', justifyContent: 'center' },
+    pressed: { opacity: 0.6 },
+  });
 }

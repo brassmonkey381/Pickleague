@@ -1,37 +1,66 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet,
   Platform, Pressable,
 } from 'react-native';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { PLAY_TAGS, TagDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 
-const FUNNY_COLOR = '#e65100';
 const IS_WEB = Platform.OS === 'web';
 
 type Props = {
+  /** Modal mode only. A page is shown whenever its host renders it. */
   visible: boolean;
   selectedTags: string[];
   maxSlots: number;
   earnedBadgeNames: string[];
   onSave: (tags: string[]) => void;
+  /** Modal: Cancel / backdrop / Escape. Page: the back arrow. */
   onClose: () => void;
+  /**
+   * 'modal' (default): its own Modal with Cancel / Done, as before.
+   * 'page': just the picker, for a host that is already a Modal (the Edit
+   * profile sheet), so no second Modal opens on top. The header becomes a back
+   * arrow, every toggle is reported live through `onChange`, and the host owns
+   * Escape / Android back.
+   */
+  presentation?: 'modal' | 'page';
+  /** Every change of the selection, either mode. */
+  onChange?: (tags: string[]) => void;
 };
 
 export default function TagPickerModal({
   visible, selectedTags, maxSlots, earnedBadgeNames, onSave, onClose,
+  presentation = 'modal', onChange,
 }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const isPage = presentation === 'page';
+  // Tag accents from the theme (were hex): funny = warning orange, the
+  // badge-earned group = the rare purple.
+  const FUNNY_COLOR = colors.warning;
   const [selected, setSelected]         = useState<string[]>(selectedTags);
   const [lockedHint, setLockedHint]     = useState<TagDef | null>(null);
 
   useEffect(() => {
-    if (!IS_WEB || !visible) return;
+    // A page's host owns Escape (it steps back to its form instead of closing).
+    if (!IS_WEB || !visible || isPage) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
+  }, [visible, onClose, isPage]);
+
+  // Report every change (not the initial value); the ref keeps an inline arrow
+  // from the host from re-firing it.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const firstChange = useRef(true);
+  useEffect(() => {
+    if (firstChange.current) { firstChange.current = false; return; }
+    onChangeRef.current?.(selected);
+  }, [selected]);
 
   const isUnlocked = (t: TagDef) =>
     !t.unlock || earnedBadgeNames.includes(t.unlock.badge);
@@ -65,20 +94,27 @@ export default function TagPickerModal({
             return (
               <TouchableOpacity
                 key={tag.slug}
-                style={[
-                  S.chip,
-                  isOn && S.chipOn,
-                  !unlocked && S.chipLocked,
-                  atMax && !isOn && !unlocked && S.chipDim,
-                  atMax && !isOn && unlocked && S.chipDim,
-                ]}
+                style={S.chipBox}
                 onPress={() => toggle(tag)}
                 activeOpacity={0.7}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: isOn }}
+                accessibilityLabel={unlocked ? tag.label : `${tag.label}, locked`}
               >
-                {!unlocked && <Text style={S.chipLock}>🔒 </Text>}
-                <Text style={[S.chipText, isOn && S.chipTextOn, !unlocked && S.chipTextLocked]}>
-                  {tag.label}
-                </Text>
+                <View
+                  style={[
+                    S.chip,
+                    isOn && S.chipOn,
+                    !unlocked && S.chipLocked,
+                    atMax && !isOn && !unlocked && S.chipDim,
+                    atMax && !isOn && unlocked && S.chipDim,
+                  ]}
+                >
+                  {!unlocked && <Text style={S.chipLock}>🔒 </Text>}
+                  <Text style={[S.chipText, isOn && S.chipTextOn, !unlocked && S.chipTextLocked]}>
+                    {tag.label}
+                  </Text>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -88,19 +124,38 @@ export default function TagPickerModal({
   }
 
   const content = (
-    <View style={S.root}>
-      <View style={S.header}>
-        <TouchableOpacity onPress={onClose} style={S.headerBtn}>
-          <Text style={S.headerBtnText}>Cancel</Text>
-        </TouchableOpacity>
-        <View style={S.headerCenter}>
-          <Text style={S.headerTitle}>Play Style Tags</Text>
-          <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
+    <View style={isPage ? S.page : S.root}>
+      {isPage ? (
+        // Back keeps the selection: it is already in the host's draft (onChange).
+        <View style={S.header}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={S.pageBackBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <Text style={S.pageBackText}>‹ Back</Text>
+          </TouchableOpacity>
+          <View style={S.headerCenter}>
+            <Text style={S.headerTitle}>Play Style Tags</Text>
+            <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
+          </View>
+          <View style={S.pageBackBtn} />
         </View>
-        <TouchableOpacity onPress={() => onSave(selected)} style={S.headerBtn}>
-          <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
-        </TouchableOpacity>
-      </View>
+      ) : (
+        <View style={S.header}>
+          <TouchableOpacity onPress={onClose} style={S.headerBtn}>
+            <Text style={S.headerBtnText}>Cancel</Text>
+          </TouchableOpacity>
+          <View style={S.headerCenter}>
+            <Text style={S.headerTitle}>Play Style Tags</Text>
+            <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
+          </View>
+          <TouchableOpacity onPress={() => onSave(selected)} style={S.headerBtn}>
+            <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={S.scroll} showsVerticalScrollIndicator={false}>
         <View style={S.meterRow}>
@@ -114,7 +169,7 @@ export default function TagPickerModal({
 
         <Section title="Serious" tags={freeTags}  accentColor={colors.primary} />
         <Section title="Funny"   tags={funnyTags}  accentColor={FUNNY_COLOR} />
-        <Section title="🔒 Earn by Badge" tags={unlockableTags} accentColor="#7b5ea7" />
+        <Section title="🔒 Earn by Badge" tags={unlockableTags} accentColor={colors.rarityRare} />
 
         {lockedHint && (
           <View style={S.hintCard}>
@@ -126,7 +181,12 @@ export default function TagPickerModal({
                   {lockedHint.unlock!.description}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setLockedHint(null)}>
+              <TouchableOpacity
+                onPress={() => setLockedHint(null)}
+                style={S.closeBox}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              >
                 <Text style={S.hintClose}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -139,6 +199,9 @@ export default function TagPickerModal({
       </ScrollView>
     </View>
   );
+
+  // The host is already a Modal: render in place.
+  if (isPage) return content;
 
   return (
     <Modal
@@ -162,62 +225,78 @@ export default function TagPickerModal({
   );
 }
 
+// Section 6 scales only: SPACE / RADIUS / HAIRLINE tokens and the textStyles
+// presets (title 15/700, sub 13, meta 12/600, fieldLabel/label 11 caps).
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     root:       { flex: 1, backgroundColor: c.surface },
+    page:       { flex: 1, minHeight: 0, backgroundColor: c.surface },
+    // Page header buttons: real 44 boxes (react-native-web ignores hitSlop).
+    pageBackBtn:{ minWidth: 72, minHeight: 44, justifyContent: 'center' },
+    pageBackText:{ ...t.title, color: c.primary },
     backdrop:   {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: c.backdrop,
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 16,
+      padding: SPACE.lg,
     },
     card:       {
       width: '100%',
       maxWidth: 520,
       maxHeight: '85%',
       backgroundColor: c.surface,
-      borderRadius: 12,
+      borderRadius: RADIUS.lg,
       overflow: 'hidden',
-      shadowColor: '#000',
+      // An overlay card: the one place a shadow is allowed. Its colour is the
+      // theme's backdrop tint rather than a hex.
+      shadowColor: c.backdrop,
       shadowOpacity: 0.25,
       shadowRadius: 16,
       shadowOffset: { width: 0, height: 8 },
     },
-    header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
-    headerTitle:{ fontSize: 17, fontWeight: '700', color: c.text },
+    header:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: SPACE.lg, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    headerTitle:t.title,
     headerCenter:{ alignItems: 'center', flex: 1 },
-    slotCount:  { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    headerBtn:  { minWidth: 60, alignItems: 'center' },
-    headerBtnText: { fontSize: 15, color: c.textMuted },
+    slotCount:  { ...t.meta, marginTop: SPACE.xxs },
+    // Modal-mode Cancel / Done: real 44 boxes too.
+    headerBtn:  { minWidth: 60, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    headerBtnText: { ...t.sub, color: c.textMuted },
 
-    scroll:     { padding: 16, paddingBottom: 40 },
+    scroll:     { padding: SPACE.lg, paddingBottom: SPACE.xl },
 
-    meterRow:   { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20, padding: 12, backgroundColor: c.bg, borderRadius: 10 },
+    meterRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.lg, padding: SPACE.md, backgroundColor: c.bg, borderRadius: RADIUS.md },
     meterDot:   { width: 18, height: 18, borderRadius: 9, backgroundColor: c.border },
     meterDotFilled: { backgroundColor: c.primary },
-    meterHint:  { fontSize: 12, color: c.textMuted, flex: 1, marginLeft: 4 },
+    meterHint:  { ...t.hint, flex: 1, marginLeft: SPACE.xs },
 
-    sectionLabel:{ fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 16, marginBottom: 8 },
+    // Colour comes from each section's accent.
+    sectionLabel:{ ...t.label, marginTop: SPACE.lg, marginBottom: SPACE.sm },
 
-    tagsRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    chip:       { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt, flexDirection: 'row', alignItems: 'center' },
+    // Chips sit in 44-tall boxes; the column gap shrinks so rows stay as tight as
+    // before (the box's transparent padding does the spacing).
+    tagsRow:    { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm, rowGap: 0 },
+    chipBox:    { minHeight: 44, justifyContent: 'center' },
+    chip:       { paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.pill, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surfaceAlt, flexDirection: 'row', alignItems: 'center' },
     chipOn:     { borderColor: c.primary, backgroundColor: c.primaryLight },
     chipLocked: { borderColor: c.border, backgroundColor: c.bg },
     chipDim:    { opacity: 0.5 },
-    chipText:   { fontSize: 13, color: c.text, fontWeight: '500' },
+    chipText:   { ...t.sub, color: c.text },
     chipTextOn: { color: c.primary, fontWeight: '700' },
     chipTextLocked: { color: c.textMuted },
-    chipLock:   { fontSize: 11 },
+    chipLock:   { fontSize: FONT.size.xs },
 
-    hintCard:   { backgroundColor: '#f3e5f5', borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1, borderColor: '#ce93d8' },
-    hintRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    hintCard:   { backgroundColor: c.rarityRareLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.lg, borderWidth: HAIRLINE, borderColor: c.rarityRare },
+    hintRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },
     hintBody:   { flex: 1 },
-    hintTitle:  { fontSize: 14, fontWeight: '700', color: '#4a148c', marginBottom: 4 },
-    hintText:   { fontSize: 13, color: '#6a1b9a', lineHeight: 18 },
+    hintTitle:  { ...t.title, marginBottom: SPACE.xs },
+    hintText:   t.sub,
     hintBold:   { fontWeight: '700' },
-    hintClose:  { fontSize: 16, color: c.textMuted, padding: 4 },
+    hintClose:  { fontSize: FONT.size.lg, color: c.textMuted },
+    // The ✕ in a real 44 box, pulled into the card's corner padding.
+    closeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: -SPACE.md, marginRight: -SPACE.md },
 
-    footnote:   { textAlign: 'center', fontSize: 12, color: c.textMuted, marginTop: 24 },
+    footnote:   { ...t.hint, textAlign: 'center', marginTop: SPACE.xl },
   });
 }
