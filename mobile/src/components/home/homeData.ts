@@ -29,16 +29,17 @@
 // not "something new"). Both are soft: a failed read is "none", never a blank
 // Home. Their RLS is listed in lib/inboxRequests.ts.
 //
-// P4 adds "You #N" on YOURS rows (rule 3): for the shown leagues in an active
-// season, my live-period rank from lib/seasonSummary, read the way
-// LeagueDetail's season strip reads it (season_snapshots and league_members are
-// readable by everyone; matches by league members). It runs beside the events
-// wave and is soft per league: a failed read is "no rank", never a blank Home.
+// The LEAGUE SPOTLIGHT (it replaced YOURS) reads its header and "Next" line
+// from here: each league's season name, its next event and soonest-closing open
+// vote, and (in 2+ leagues, for picking the default league) its newest match
+// (matches are readable by everyone), in parallel with the events wave and
+// soft per league. Its standings load separately, for the selected league only
+// (components/home/LeagueSpotlight.tsx), so they never slow this payload.
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../../lib/supabase';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
-import { EVENT_LIVE_WINDOW_MS, YOURS_CAP } from '../../lib/agenda';
+import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
 import type { AgendaDrillInput, AgendaEventInput, AgendaTournamentInput, SeasonInput } from '../../lib/agenda';
 import {
   EMPTY_INBOX,
@@ -47,16 +48,7 @@ import {
   type InboxRequestRows,
   type NotificationLite,
 } from '../../lib/inboxRequests';
-import {
-  STANDINGS_MATCH_COLUMNS,
-  addDaysIso,
-  livePeriodNumber,
-  periodWindow,
-  summarizeSeason,
-  type SeasonInput as SummarySeason,
-  type StandingsMatch,
-  type StandingsMember,
-} from '../../lib/seasonSummary';
+import type { SeasonInput as SummarySeason } from '../../lib/seasonSummary';
 import type { Profile } from '../../types';
 
 export const HOME_KEY = 'home:overview:v2';
@@ -75,10 +67,15 @@ export type HomeLeague = {
   nextEventAt: string | null;
   /** Active season, else the upcoming one. */
   season: SeasonInput | null;
-  /** My rank in the active season's live period ("You #2"), null when unknown
-   *  or before anyone has played. Absent in a payload persisted before it
-   *  existed: read it as null. */
-  myRank: number | null;
+  /** The open vote closing soonest (the spotlight's "Next" line opens it).
+   *  Absent in a payload persisted before it existed: read it as null. */
+  openVote?: { id: string; title: string; endsAt: string | null } | null;
+  /** The next confirmed event I haven't declined (nextEventAt's event). Absent
+   *  in an older payload: read it as null. */
+  nextEvent?: { id: string; title: string; startsAt: string } | null;
+  /** The league's newest match (ISO), read only in 2+ leagues (the
+   *  spotlight's default pick). Absent / null = unknown. */
+  lastMatchAt?: string | null;
 };
 
 export type HomeTournament = AgendaTournamentInput & {
@@ -162,6 +159,8 @@ const LEAGUE_FETCH_LIMIT = 40;
 const OPEN_TOURNAMENT_LIMIT = 25;
 /** Newest unread notices checked for a live target (the bell's dot). */
 const UNREAD_PROBE = 50;
+/** Leagues whose newest match is read for the spotlight's default pick. */
+const LAST_MATCH_LEAGUES = 12;
 
 type EventRow = {
   id: string;
@@ -241,42 +240,26 @@ function drillStart(r: { starts_at: string | null; session_date: string; session
   return d.toISOString();
 }
 
-/** My live-period rank per league ("You #N"), computed exactly as LeagueDetail's
- *  season strip does (lib/seasonSummary), so the row and the strip agree:
- *  the locked periods and the members, then the live period's matches. Each
- *  league is soft: a failed read leaves it out (unknown, never guessed). */
-async function loadMyRanks(uid: string, seasons: SeasonRow[]): Promise<Map<string, number | null>> {
-  // The same UTC "today" the strip and SeasonStandings rank with.
-  const today = new Date().toISOString().slice(0, 10);
-  const ranks = new Map<string, number | null>();
-  await Promise.all(seasons.map(async (season) => {
-    if (season.status !== 'active' || today < season.start_date) return;
+/** Newest match per league (the spotlight's last tie-break), at most
+ *  LAST_MATCH_LEAGUES leagues, one limit-1 read each. Soft per league: a
+ *  failed read leaves it unknown. */
+async function loadLastMatches(leagueIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  await Promise.all(leagueIds.slice(0, LAST_MATCH_LEAGUES).map(async (id) => {
     try {
-      const [snaps, members] = await Promise.all([
-        sbCall(() => supabase.from('season_snapshots').select('period_number').eq('season_id', season.id)),
-        sbCall(() => supabase.from('league_members').select('user_id').eq('league_id', season.league_id)),
-      ]);
-      const locked = new Set(((snaps ?? []) as { period_number: number }[]).map(r => r.period_number));
-      const period = livePeriodNumber(season, locked, today);
-      let matches: StandingsMatch[] = [];
-      if (period != null) {
-        // A day of slack each side, as the strip reads it: summarizeSeason
-        // applies the exact window.
-        const w = periodWindow(season, period, today);
-        matches = ((await sbCall(() => supabase.from('matches')
-          .select(STANDINGS_MATCH_COLUMNS)
-          .eq('league_id', season.league_id)
-          .gte('played_at', addDaysIso(w.start, -1))
-          .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
-      }
-      ranks.set(season.league_id, summarizeSeason({
-        season, lockedPeriods: locked, members: (members ?? []) as StandingsMember[], matches, myUserId: uid, today,
-      }).myRank);
+      const rows = (await sbCall(() => supabase
+        .from('matches')
+        .select('played_at')
+        .eq('league_id', id)
+        .order('played_at', { ascending: false })
+        .limit(1))) as { played_at: string | null }[] | null;
+      const at = rows?.[0]?.played_at;
+      if (at) out.set(id, at);
     } catch {
-      // No rank for this league.
+      // Unknown for this league.
     }
   }));
-  return ranks;
+  return out;
 }
 
 /** My votes on these events' slots. Filtered through the slot's event with an
@@ -321,7 +304,7 @@ export async function loadHome(): Promise<HomeData> {
       .limit(UNREAD_PROBE))
       .catch(() => null),
     // Doubles as FtueChecklistCard's membership check (Home passes it down),
-    // the YOURS rows (name, court, role) and the league filter for events.
+    // the spotlight (name, role, chips) and the league filter for events.
     sbCall(() => supabase
       .from('league_members')
       .select('league_id, role, league:leagues(id, name, home_court, is_active, is_open)')
@@ -376,7 +359,7 @@ export async function loadHome(): Promise<HomeData> {
     const role: HomeRole = m.role === 'admin' ? 'admin' : m.role === 'co-admin' ? 'co-admin' : 'member';
     myLeagues.push({
       id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role,
-      openVotes: 0, nextEventAt: null, season: null, myRank: null,
+      openVotes: 0, nextEventAt: null, season: null, openVote: null, nextEvent: null, lastMatchAt: null,
     });
   }
   const leagueById = new Map(myLeagues.map(l => [l.id, l]));
@@ -481,21 +464,17 @@ export async function loadHome(): Promise<HomeData> {
   for (const l of (extraLeagueRows ?? []) as { id: string; name: string }[]) knownNames.set(l.id, l.name);
 
   // Seasons: active wins over upcoming (the earliest upcoming otherwise).
-  const activeSeasons = new Map<string, SeasonRow>();
   for (const s of (seasonRows ?? []) as SeasonRow[]) {
     const l = leagueById.get(s.league_id);
     if (!l) continue;
-    const next: SeasonInput = { status: s.status, startDate: s.start_date, totalWeeks: s.total_weeks };
+    const next: SeasonInput = { status: s.status, startDate: s.start_date, totalWeeks: s.total_weeks, name: s.name ?? null };
     if (!l.season || (l.season.status !== 'active' && (s.status === 'active' || s.start_date < l.season.startDate))) {
       l.season = next;
-      if (s.status === 'active') activeSeasons.set(l.id, s);
     }
   }
-  // Ranks for the rows YOURS shows (it lists myLeagues in order, capped), in
+  // Newest matches, only when there is a default to pick (2+ leagues), in
   // parallel with the events wave below. Never rejects.
-  const ranksP = loadMyRanks(uid, myLeagues.slice(0, YOURS_CAP)
-    .map(l => activeSeasons.get(l.id))
-    .filter((s): s is SeasonRow => !!s));
+  const lastMatchesP = myLeagueIds.length >= 2 ? loadLastMatches(myLeagueIds) : Promise.resolve(new Map<string, string>());
 
   // ── Events: slots, my votes, my declines ──
   // Open votes need every slot (a vote on any of them counts); scheduled events
@@ -523,8 +502,8 @@ export async function loadHome(): Promise<HomeData> {
     slotRows = [...votingSlots, ...scheduled.slots];
   }
 
-  const ranks = await ranksP;
-  for (const l of myLeagues) l.myRank = ranks.get(l.id) ?? null;
+  const lastMatches = await lastMatchesP;
+  for (const l of myLeagues) l.lastMatchAt = lastMatches.get(l.id) ?? null;
 
   const slotById = new Map<string, SlotRow>();
   for (const s of slotRows) slotById.set(s.id, s);
@@ -551,11 +530,19 @@ export async function loadHome(): Promise<HomeData> {
       iVoted: e.status === 'voting' ? votedEvents.has(e.id) : !!e.confirmed_slot_id && myVotedSlots.has(e.confirmed_slot_id),
       iDeclined: declined.has(e.id),
     });
-    // YOURS facts.
+    // Spotlight facts.
     if (!league) continue;
-    if (e.status === 'voting') league.openVotes += 1;
-    else if (slot && slot.starts_at > nowIso && !declined.has(e.id)) {
-      if (!league.nextEventAt || slot.starts_at < league.nextEventAt) league.nextEventAt = slot.starts_at;
+    if (e.status === 'voting') {
+      league.openVotes += 1;
+      const cur = league.openVote;
+      if (!cur || (e.vote_ends_at != null && (cur.endsAt == null || e.vote_ends_at < cur.endsAt))) {
+        league.openVote = { id: e.id, title: e.title, endsAt: e.vote_ends_at };
+      }
+    } else if (slot && slot.starts_at > nowIso && !declined.has(e.id)) {
+      if (!league.nextEventAt || slot.starts_at < league.nextEventAt) {
+        league.nextEventAt = slot.starts_at;
+        league.nextEvent = { id: e.id, title: e.title, startsAt: slot.starts_at };
+      }
     }
   }
 

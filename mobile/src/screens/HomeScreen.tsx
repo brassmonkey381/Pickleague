@@ -8,7 +8,9 @@
 //   UP NEXT ...... votes, RSVPs, tournaments, drills, and the requests waiting
 //                  on me: scores to confirm, invites, drill and join requests
 //                  (lib/agenda.ts + lib/inboxRequests.ts)
-//   YOURS ........ my leagues + tournaments, one live fact each
+//   YOUR LEAGUE .. one league's standings at a glance (chips in 2+ leagues),
+//                  its next event / open vote, "All my leagues", "My tournaments"
+//                  (components/home/LeagueSpotlight.tsx)
 //     or JOIN A LEAGUE (no league yet): code, browse, 3 leagues with [Join]
 //   quick row .... Record · Play · Drill · Shop · History
 //   court row .... "At the courts?  Find my court ›" (idle check-in)
@@ -52,7 +54,6 @@ import {
   tournamentAgendaItems,
   type AgendaItem,
   type AgendaTarget,
-  YOURS_CAP,
 } from '../lib/agenda';
 import { inboxAgendaItems } from '../lib/inboxRequests';
 import {
@@ -71,12 +72,12 @@ import { useIsGuest } from '../components/GuestUpgradeBanner';
 import { useDuprImportOffer } from '../components/DuprImportBanner';
 import CourtCheckinCard, { type CourtCardMode } from '../components/CourtCheckinCard';
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
-import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData, type HomeLeague } from '../components/home/homeData';
+import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData } from '../components/home/homeData';
 import HomeGreeting from '../components/home/HomeGreeting';
 import GetStartedPanel from '../components/home/GetStartedPanel';
 import NowPanel from '../components/home/NowPanel';
 import UpNextSection from '../components/home/UpNextSection';
-import YoursSection from '../components/home/YoursSection';
+import LeagueSpotlight, { useLeagueSpotlight } from '../components/home/LeagueSpotlight';
 import JoinLeagueSection from '../components/home/JoinLeagueSection';
 import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
@@ -124,7 +125,17 @@ export default function HomeScreen({ navigation }: Props) {
     setNow(Date.now());
     void reload();
   }, [reload]));
-  const refresh = useRefresh(reload);
+
+  // YOUR LEAGUE: the chosen league and its standings (loaded apart from the
+  // payload above, for that league only). Pull-to-refresh reloads both; focus
+  // revalidates the table under its TTL.
+  const spotlight = useLeagueSpotlight(myLeagues, profile?.id ?? null, now);
+  const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
+  useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  const pullReload = useCallback(async () => {
+    await Promise.all([reload(), refreshSpotlight()]);
+  }, [reload, refreshSpotlight]);
+  const refresh = useRefresh(pullReload);
 
   // Local patches (welcome pickles, FTUE claim, dismissed drill reminder) write
   // through the cache so the next revalidation doesn't clobber them mid-flight.
@@ -273,14 +284,14 @@ export default function HomeScreen({ navigation }: Props) {
   }, []));
 
   // ── Joining (JOIN A LEAGUE) ──
-  const [justJoinedId, setJustJoinedId] = useState<string | null>(null);
   const leagueJoin = useLeagueJoin({
     status: { clear() {}, error: toast.error, success: toast.success },
     onJoined: async (e: LeagueJoinedEvent) => {
-      if (e.via === 'join') setJustJoinedId(e.leagueId);
-      else if (e.scopeType === 'league' && e.scopeId) setJustJoinedId(e.scopeId);
+      // The league just joined is the one YOUR LEAGUE shows (and remembers).
+      if (e.via === 'join') spotlight.select(e.leagueId);
+      else if (e.scopeType === 'league' && e.scopeId) spotlight.select(e.scopeId);
       // Awaited by the hook while the row stays busy, so it doesn't flash
-      // back to [Join] before the league moves into YOURS.
+      // back to [Join] before the league moves into YOUR LEAGUE.
       await reloadFresh();
     },
     onRequested: () => reloadFresh(),
@@ -523,25 +534,36 @@ export default function HomeScreen({ navigation }: Props) {
     }
 
     if (isMember || myTournaments.length > 0) {
+      // Not in a league, only the "My tournaments" link renders (above JOIN).
       sections.push(
-        <YoursSection
-          key="yours"
+        <LeagueSpotlight
+          key="spotlight"
           leagues={myLeagues}
-          tournaments={myTournaments}
+          spotlight={spotlight}
+          tournamentCount={myTournaments.length}
           now={now}
-          highlightId={justJoinedId}
-          onLeague={(l: HomeLeague, i) => { tap('yours', 'league', i); openLeague(l); }}
-          onTournament={(tr, i) => {
-            tap('yours', 'tournament', i);
-            navigation.navigate('TournamentDetail', { tournamentId: tr.id, tournamentName: tr.name });
+          onSelect={(_id, i) => tap('spotlight', 'league_chip', i)}
+          onHeader={(l) => { tap('spotlight', 'header'); openLeague(l); }}
+          onRow={(row) => {
+            tap('spotlight', 'row', row.rank - 1);
+            if (row.isMe) navigation.navigate('Profile', {});
+            else navigation.navigate('PlayerProfile', { userId: row.userId, userName: row.name || 'Player' });
           }}
-          onFindMore={() => { tap('yours', 'find_more'); navigation.navigate('Play', { initialTab: 'leagues' }); }}
-          // YOURS lists leagues first, so with fewer than YOURS_CAP leagues every
-          // hidden row is a tournament: open the tab that holds the overflow.
-          onAllYours={() => {
-            tap('yours', 'all_yours');
-            navigation.navigate('Play', { mine: true, initialTab: myLeagues.length >= YOURS_CAP ? 'leagues' : 'tournaments' });
+          onSeeAll={(l, d) => {
+            tap('spotlight', 'see_all');
+            // Real standings page through the full table; a by-PLUPR list
+            // through the members (as LeagueDetail's Standings section does).
+            const ranked = d.kind === 'live' || d.kind === 'locked' || d.kind === 'final';
+            if (ranked && d.seasonId) {
+              navigation.navigate('SeasonStandings', { seasonId: d.seasonId, leagueId: l.id, leagueName: l.name });
+            } else {
+              navigation.navigate('LeagueMembers', { leagueId: l.id, leagueName: l.name });
+            }
           }}
+          onNext={(target) => { tap('spotlight', 'next'); go(target); }}
+          onStartSeason={(l) => { tap('spotlight', 'start_season'); openLeague(l); }}
+          onAllLeagues={() => { tap('spotlight', 'all_leagues'); navigation.navigate('Play', { initialTab: 'leagues', mine: true }); }}
+          onMyTournaments={() => { tap('spotlight', 'my_tournaments'); navigation.navigate('Play', { initialTab: 'tournaments', mine: true }); }}
         />,
       );
     }
@@ -650,7 +672,7 @@ export default function HomeScreen({ navigation }: Props) {
           tap('join', 'code_redeemed');
           closeCodeSheet();
           // A tournament code registers you there: open it. A league code's
-          // league moves into YOURS on the reload the hook already runs.
+          // league moves into YOUR LEAGUE on the reload the hook already runs.
           if (r.scopeType === 'tournament' && r.scopeId) {
             navigation.navigate('TournamentDetail', { tournamentId: r.scopeId, tournamentName: r.scopeName });
           }

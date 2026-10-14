@@ -1,5 +1,6 @@
-// Home's UP NEXT list and the one live fact on each YOURS row (plan section 3,
-// data rule 2 and 3).
+// Home's UP NEXT list and the LEAGUE SPOTLIGHT's facts (plan section 3, data
+// rule 2 and 3): which league the spotlight opens on, its header line and its
+// one "Next: ... · 1 vote open" line.
 //
 // PURE: no React, no Supabase, no clock of its own (every function takes
 // `now`). HomeScreen's loader turns rows from league_events / event_slots /
@@ -33,8 +34,6 @@ import { bucketByTime } from '@just-messin-around/expo-foundation/scheduling/buc
 export const AGENDA_PREVIEW = 3;
 /** "Show N more" expands inline up to this many rows (no agenda screen). */
 export const AGENDA_CAP = 10;
-/** YOURS shows this many rows, then "All yours (N) >". */
-export const YOURS_CAP = 4;
 /** A confirmed event counts as live for this long after its slot starts
  *  (EventDetailScreen's LIVE_WINDOW_MS). */
 export const EVENT_LIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -213,8 +212,8 @@ function tournamentTarget(id: string, name: string, focus?: 'invite' | 'next_mat
 /** My live tournament registrations -> agenda items. A pending invite is a
  *  request (needs-you, due when registration closes, else at the start) until
  *  that deadline passes; with `now` omitted the deadline isn't checked. An
- *  undated registration that needs nothing is "later" and so only shows in
- *  YOURS. */
+ *  undated registration that needs nothing is "later" and so only shows under
+ *  the spotlight's "My tournaments (N)". */
 export function tournamentAgendaItems(regs: readonly AgendaTournamentInput[], now?: number): AgendaItem[] {
   const out: AgendaItem[] = [];
   for (const r of regs) {
@@ -426,13 +425,15 @@ export function agendaWhen(row: AgendaRow, now: number): { top: string; bottom: 
   return { top: dayLabel(d, new Date(now)), bottom: shortTime(d) };
 }
 
-// ── YOURS: the one live fact per league ─────────────────────────────────────
+// ── LEAGUE SPOTLIGHT: which league, and its one-line facts ──────────────────
 
 export type SeasonInput = {
   status: 'active' | 'upcoming' | string;
   /** league_seasons.start_date (a Postgres date, "YYYY-MM-DD"). */
   startDate: string;
   totalWeeks: number;
+  /** league_seasons.name ("Fall"). Absent in a payload cached before it existed. */
+  name?: string | null;
 };
 
 function dateOnly(s: string): Date | null {
@@ -452,37 +453,75 @@ export function seasonWeek(season: SeasonInput, now: number): { week: number; to
   return { week, total };
 }
 
-export type LeagueFactInput = {
+export type SpotlightLeagueInput = {
+  id: string;
   /** Open votes in this league that end in the future. */
   openVotes: number;
+  /** When the soonest-ending open vote closes (ISO). */
+  openVoteEndsAt?: string | null;
   /** The next confirmed event's start (ISO), if any. */
   nextEventAt: string | null;
   /** The league's active season, else its upcoming one. */
   season: SeasonInput | null;
-  /** My rank in the active season's live period, null/absent when unknown. */
-  myRank?: number | null;
+  /** The league's newest match (ISO). Absent = unknown. */
+  lastMatchAt?: string | null;
 };
 
+/** Ascending, unknowns last. */
+function ascNullsLast(a: number | null, b: number | null): number {
+  if (a === b) return 0;
+  if (a == null) return 1;
+  if (b == null) return -1;
+  return a - b;
+}
+
 /**
- * One live fact for a YOURS league row (rule 3): open vote, then next event,
- * then the season. `subtitle` null = keep the row's built subtitle (the court);
- * `trailing` is the season badge: the week, then my rank ("Wk 7/12 · You #2").
+ * The league the spotlight opens on when the user hasn't picked one: the most
+ * active. An open vote first (the one closing soonest), else the soonest next
+ * event, else an active season, else the most recent match; ties go to the
+ * newest match, then to list order. null only for no leagues.
  */
-export function leagueLiveFact(f: LeagueFactInput, now: number): { subtitle: string | null; trailing: string | null } {
-  const wk = f.season ? seasonWeek(f.season, now) : null;
-  const trailing = [
-    wk ? `Wk ${wk.week}/${wk.total}` : null,
-    f.myRank != null ? `You #${f.myRank}` : null,
-  ].filter(Boolean).join(' · ') || null;
-  const next = f.nextEventAt ? whenPhrase(f.nextEventAt, now) : null;
-  if (f.openVotes > 0) {
-    const votes = f.openVotes === 1 ? '1 vote open' : `${f.openVotes} votes open`;
-    return { subtitle: next ? `${votes} · next ${next}` : votes, trailing };
+export function pickSpotlightLeague(leagues: readonly SpotlightLeagueInput[], now: number): string | null {
+  if (leagues.length === 0) return null;
+  const ranked = leagues.map((l, i) => {
+    const next = ms(l.nextEventAt);
+    const upcoming = next != null && next > now ? next : null;
+    const tier = l.openVotes > 0 ? 0 : upcoming != null ? 1 : l.season?.status === 'active' ? 2 : 3;
+    return { l, i, tier, upcoming, voteEnds: ms(l.openVoteEndsAt), last: ms(l.lastMatchAt) };
+  });
+  ranked.sort((a, b) =>
+    a.tier - b.tier
+    || (a.tier === 0 ? ascNullsLast(a.voteEnds, b.voteEnds) : 0)
+    || (a.tier <= 1 ? ascNullsLast(a.upcoming, b.upcoming) : 0)
+    // Newest match first: negate so "ascending" means latest.
+    || ascNullsLast(a.last == null ? null : -a.last, b.last == null ? null : -b.last)
+    || a.i - b.i);
+  return ranked[0].l.id;
+}
+
+/** The card's header line: "Dinks · Fall · Wk 7/12", "Dinks · Spring · starts
+ *  Nov 2", or just the league's name with no season. */
+export function spotlightHeaderLine(l: { name: string; season: SeasonInput | null }, now: number): string {
+  const parts = [l.name];
+  const s = l.season;
+  if (s) {
+    if (s.name && s.name.trim()) parts.push(s.name.trim());
+    const wk = seasonWeek(s, now);
+    if (wk) parts.push(`Wk ${wk.week}/${wk.total}`);
+    else if (s.status === 'upcoming') {
+      const start = dateOnly(s.startDate);
+      if (start) parts.push(`starts ${MONTHS[start.getMonth()]} ${start.getDate()}`);
+    }
   }
-  if (next) return { subtitle: `Next: ${next}`, trailing };
-  if (f.season && f.season.status === 'upcoming') {
-    const start = dateOnly(f.season.startDate);
-    if (start) return { subtitle: `Season starts ${MONTHS[start.getMonth()]} ${start.getDate()}`, trailing };
-  }
-  return { subtitle: null, trailing };
+  return parts.join(' · ');
+}
+
+/** The card's one "what's next" line: "Next: Thu 6 PM · 1 vote open", "Next:
+ *  today 6 PM", "2 votes open", or null with neither. */
+export function spotlightNextLine(f: { openVotes: number; nextEventAt: string | null }, now: number): string | null {
+  const t = ms(f.nextEventAt);
+  const next = t != null && t > now ? whenPhrase(f.nextEventAt as string, now) : null;
+  const votes = f.openVotes > 0 ? (f.openVotes === 1 ? '1 vote open' : `${f.openVotes} votes open`) : null;
+  if (next) return votes ? `Next: ${next} · ${votes}` : `Next: ${next}`;
+  return votes;
 }

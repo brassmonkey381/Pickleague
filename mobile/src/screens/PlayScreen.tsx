@@ -16,9 +16,10 @@
 // Params passed through to the lists:
 //   - prefillInviteCode (invite_code push / links): the Leagues body opens
 //     Join-with-Code, exactly like the standalone 'Leagues' route.
-//   - mine === true (Home's "All yours (N) >"): turns the Mine chip on for this
-//     visit only. Strict `=== true`: on web the param round-trips through the
-//     URL as the string 'true', and a refreshed page must not re-apply it.
+//   - mine === true (Home's spotlight links, "All my leagues" / "My
+//     tournaments"): turns the Mine chip on for this visit only. Strict
+//     `=== true`: on web the param round-trips through the URL as the string
+//     'true', and a refreshed page must not re-apply it.
 import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -55,9 +56,10 @@ export default function PlayScreen({ navigation, route }: Props) {
     navigation.setParams({ initialTab: next });
   }, [navigation]);
 
-  // Home's "All yours (N) >": consume the param into a token the lists turn
-  // into an in-memory Mine chip, then drop it so a later visit with the same
-  // param fires again and a web refresh doesn't keep it.
+  // Home's spotlight links ("All my leagues" / "My tournaments"): consume the
+  // param into a token the lists turn into an in-memory Mine chip, then drop
+  // it so a later visit with the same param fires again and a web refresh
+  // doesn't keep it.
   const [routeMineToken, setRouteMineToken] = useState(0);
   useEffect(() => {
     if (route.params?.mine !== true) return;

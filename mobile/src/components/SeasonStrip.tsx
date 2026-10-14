@@ -1,143 +1,143 @@
-// The season status strip on LeagueDetail (plan section 5, slot 3):
+// LeagueDetail's Standings section (plan section 5, slot 3). It replaced the
+// one-pressable season strip ("headline + top 3 + you") when the owner found
+// the compacted league page too thin: the one expanded section on the page,
+// open by default.
 //
-//   Fall · Wk 7 of 12 · You #2 · locks Oct 20                 ›   56
-//   #1  Alice                                   5-1    3.82       44
-//   #2  You                                     4-2    3.71       44
-//   #3  Bob                                     3-3    3.55       44
-//   (#5 You, when you're below the top 3)                         44
+//   STANDINGS  Fall · Wk 7 of 12                       Full table ›   44
+//   You #2 · locks Oct 20                                             one line
+//   ┌ #  Player                         W-L     PLUPR ┐
+//   │ 🥇 (av) Alice                     5-1     3.82 +0.32 │          56 each
+//   │ ...top 10, your row pinned under a heavier rule  │
+//   └ See all 18 ›                                      ┘          44
 //
-// The whole strip is ONE pressable that opens SeasonStandings: a single tap
-// target with a single label is easier on a screen reader than five rows that
-// all go to the same place. Numbers come from lib/seasonSummary.ts, which ranks
-// exactly like SeasonStandings' live tab.
-//
-// No season:
-//   - privileged viewer: one 44 line, "No active season · Start in Manage";
-//   - anyone else: nothing (an empty section doesn't render, plan section 6).
+// What it ranks (live period, locked period, upcoming preview, last season's
+// final standings, or a members-by-PLUPR leaderboard) is decided by
+// components/league/useLeagueStandings.ts; the header line is its
+// leagueStandingsHeader, so the strip's old facts (week, You #N, lock date)
+// are each said once. It never renders an empty section: loading is a row
+// skeleton, a failed first load is one compact line with Retry, and no rows
+// at all renders nothing.
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Panel } from '@just-messin-around/expo-foundation/ui';
-import { HAIRLINE, SPACE, SMALL_TEXT_MAX_SCALE, RADIUS } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Panel, SectionHeader, ROW_MIN_HEIGHT } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { seasonHeadline, shortDate, type SeasonStandingRow, type SeasonSummary } from '../lib/seasonSummary';
+import { SkeletonList } from './Skeleton';
+import EmptyState from './EmptyState';
+import StandingsPreview, { type StandingsPreviewRow } from './league/StandingsPreview';
+import { leagueStandingsHeader, type LeagueStandings } from './league/useLeagueStandings';
+
+/** Rows the section shows before "your row" and "See all". */
+export const LEAGUE_STANDINGS_ROWS = 10;
 
 export type SeasonStripProps = {
-  /** null = no active or upcoming season. */
-  summary: SeasonSummary | null;
-  /** Admin / co-admin: sees the "Start in Manage" line when there's no season. */
+  /** null until the first load lands (or after a failed first load). */
+  data: LeagueStandings | null;
+  loading: boolean;
+  /** The last load's error; shown only when there's no data to keep showing. */
+  error: unknown;
+  /** Admin / co-admin: "Lock due" in the status line, and "Start a season" with no season. */
   privileged: boolean;
-  myUserId: string | null;
-  /** Opens SeasonStandings for the strip's season. */
-  onOpen: () => void;
-  /** The privileged no-season line (opens the season setup). */
+  onRetry: () => void;
+  /** Opens SeasonStandings for a season. */
+  onOpenTable: (seasonId: string) => void;
+  /** Opens LeagueMembers (the by-PLUPR lists' "See all"). */
+  onOpenMembers: () => void;
+  /** Privileged, no active or upcoming season: opens the season setup (the header
+   *  action with no season ever; a "Start a season" line under last season's finals). */
   onStartSeason?: () => void;
+  onPressRow: (row: StandingsPreviewRow) => void;
 };
 
-export default function SeasonStrip({ summary, privileged, myUserId, onOpen, onStartSeason }: SeasonStripProps) {
+export default function SeasonStrip({
+  data, loading, error, privileged, onRetry, onOpenTable, onOpenMembers, onStartSeason, onPressRow,
+}: SeasonStripProps) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
 
-  if (!summary) {
-    if (!privileged || !onStartSeason) return null;
-    return (
-      <TouchableOpacity
-        onPress={onStartSeason}
-        activeOpacity={0.75}
-        accessibilityRole="button"
-        accessibilityLabel="No active season. Start one in Manage."
-        style={[styles.emptyLine, { borderColor: c.border, backgroundColor: c.surface }]}
-      >
-        <Text style={[t.sub, styles.flex]} numberOfLines={1}>
-          No active season · <Text style={{ color: c.primary, fontWeight: FONT.weight.bold }}>Start in Manage</Text>
-        </Text>
-        <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
-      </TouchableOpacity>
-    );
+  if (!data) {
+    if (loading) {
+      return (
+        <View style={styles.section}>
+          <SectionHeader title="Standings" />
+          <Panel padded={false} radius={RADIUS.lg}>
+            <SkeletonList rows={3} variant="row" rowHeight={ROW_MIN_HEIGHT.double} />
+          </Panel>
+        </View>
+      );
+    }
+    if (error) {
+      return (
+        <View style={styles.section}>
+          <SectionHeader title="Standings" />
+          <EmptyState
+            compact
+            icon="📡"
+            title="Couldn't load standings"
+            subtitle={friendlySbMessage(error)}
+            actionLabel="Retry"
+            onAction={onRetry}
+          />
+        </View>
+      );
+    }
+    return null;
   }
+  if (data.rows.length === 0) return null;
 
-  const headline = seasonHeadline(summary, shortDate, { privileged });
-  const rows: SeasonStandingRow[] = summary.me ? [...summary.top, summary.me] : summary.top;
+  const head = leagueStandingsHeader(data, { privileged });
+  const ranked = data.kind === 'live' || data.kind === 'locked' || data.kind === 'final';
+  const seasonId = data.seasonId;
+  const action = seasonId
+    ? { label: 'Full table ›', a11yLabel: 'Full standings table', onPress: () => onOpenTable(seasonId) }
+    : privileged && onStartSeason
+      ? { label: 'Start a season ›', a11yLabel: 'Start a season', onPress: onStartSeason }
+      : { label: 'Members ›', a11yLabel: 'All members', onPress: onOpenMembers };
+  // Real standings page through the full table; a by-PLUPR list through Members.
+  const seeAll = ranked && seasonId ? () => onOpenTable(seasonId) : onOpenMembers;
+  // Between seasons the header keeps "Full table ›" for last season's finals, so
+  // the start prompt (plan section 5, slot 3) gets its own line; Home's "Start a
+  // season" lands here.
+  const startLine = privileged && !!onStartSeason && data.kind === 'final';
 
   return (
-    <TouchableOpacity
-      onPress={onOpen}
-      activeOpacity={0.8}
-      accessibilityRole="button"
-      accessibilityLabel={`${headline}. Open season standings.`}
-    >
-      <Panel padded={false}>
-        <View style={styles.head}>
-          <Text style={[t.title, styles.flex]} numberOfLines={2}>{headline}</Text>
-          <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
-        </View>
-        {rows.map((r, i) => {
-          const mine = !!myUserId && r.user_id === myUserId;
-          const gap = summary.me && i === rows.length - 1;
-          return (
-            <View
-              key={r.user_id}
-              style={[
-                styles.row,
-                { borderTopColor: c.border },
-                mine && { backgroundColor: c.primaryLight },
-                i === rows.length - 1 && styles.lastRow,
-                gap && styles.gapRow,
-              ]}
-            >
-              <Text style={[t.meta, styles.rank, mine && { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                #{r.rank}
-              </Text>
-              <Text style={[t.sub, styles.flex, { color: c.text }, mine && styles.bold]} numberOfLines={1}>
-                {mine ? 'You' : r.full_name}
-              </Text>
-              <Text style={[t.meta, styles.num]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {r.wins}-{r.losses}
-              </Text>
-              <Text style={[t.meta, styles.num, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {r.rating.toFixed(2)}
-              </Text>
-            </View>
-          );
-        })}
-      </Panel>
-    </TouchableOpacity>
+    <View style={styles.section}>
+      <SectionHeader title={head.title} count={head.label ?? undefined} action={action} />
+      {head.subtitle ? (
+        <Text style={[t.meta, styles.subtitle]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          {head.subtitle}
+        </Text>
+      ) : null}
+      {startLine ? (
+        <TouchableOpacity
+          style={styles.startLine}
+          onPress={onStartSeason}
+          accessibilityRole="button"
+          accessibilityLabel="No active season. Start one."
+        >
+          <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            No active season · <Text style={{ color: c.primary }}>Start a season ›</Text>
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+      <StandingsPreview
+        rows={data.rows}
+        maxRows={LEAGUE_STANDINGS_ROWS}
+        pinMe
+        middleLabel={data.middleLabel}
+        medals={data.medals}
+        onPressRow={onPressRow}
+        onSeeAll={seeAll}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, minWidth: 0 },
-  head: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACE.sm,
-    paddingHorizontal: SPACE.md,
-    paddingVertical: SPACE.sm,
-  },
-  row: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACE.sm,
-    paddingHorizontal: SPACE.md,
-    borderTopWidth: HAIRLINE,
-  },
-  // The Panel's 14 radius clips nothing on its own; round the last row's tint to match.
-  lastRow: { borderBottomLeftRadius: RADIUS.lg, borderBottomRightRadius: RADIUS.lg },
-  // "Your row" under the top 3 is not adjacent in rank: a heavier rule says so.
-  gapRow: { borderTopWidth: HAIRLINE * 3 },
-  rank: { minWidth: 28 },
-  num: { minWidth: 36, textAlign: 'right' },
-  bold: { fontWeight: FONT.weight.bold },
-  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
-  emptyLine: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACE.sm,
-    paddingHorizontal: SPACE.md,
-    borderRadius: RADIUS.lg,
-    borderWidth: HAIRLINE,
-  },
+  section: { gap: SPACE.xs },
+  // Sits under the 44 header, above the table: tucked up to read as its caption.
+  subtitle: { marginTop: -SPACE.xs, marginBottom: SPACE.xxs },
+  startLine: { minHeight: 44, justifyContent: 'center' },
 });

@@ -6,7 +6,9 @@
 //                   + the description, clamped to 2 lines with "more"
 //   2 you ......... quick row [+Record] [Standings] [Events] [Members]
 //                   (non-members: the shared LeagueJoinCard + [Standings] [Events] [Members])
-//   3 status ...... SeasonStrip: "Fall · Wk 7 of 12 · You #2 · locks Oct 20 ›" + top 3 + your row
+//   3 standings ... SeasonStrip, the one expanded section (open, not a row):
+//                   STANDINGS Fall · Wk 7 of 12 [Full table ›], "You #2 · locks Oct 20",
+//                   then the top 10 (+ your row pinned) and "See all N ›"
 //   4 coming up ... votes (needs-you) first, then events and tournaments by date,
 //                   max 3, then "Show N more"
 //   5 more ........ History · Calendar · Tournaments · Past (n)
@@ -54,12 +56,12 @@ import { useTour } from '../lib/TourContext';
 import { trackSectionToggle } from '../lib/analytics';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
 import { tournamentStatusChip } from '../lib/entityGlyph';
-import {
-  STANDINGS_MATCH_COLUMNS, addDaysIso, livePeriodNumber, localIsoDate, periodWindow, standingsTargetSeasonId,
-  summarizeSeason, type SeasonSummary, type StandingsMatch, type StandingsMember,
-} from '../lib/seasonSummary';
+import { standingsTargetSeasonId } from '../lib/seasonSummary';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import SeasonStrip from '../components/SeasonStrip';
+import {
+  STANDINGS_PROFILE_COLUMNS, loadLeagueStandings, type LeagueStandings, type LeagueStandingsMember,
+} from '../components/league/useLeagueStandings';
 import LeagueIdentity from '../components/league/LeagueIdentity';
 import LeagueQuickRow from '../components/league/LeagueQuickRow';
 import LeagueComingUp, { type LeagueChampion, type LeagueComingUpItem } from '../components/league/LeagueComingUp';
@@ -74,7 +76,7 @@ type Props = {
   route: RouteProp<RootStackParamList, 'LeagueDetail'>;
 };
 
-type MemberRow = StandingsMember & { role?: string | null };
+type MemberRow = LeagueStandingsMember & { role?: string | null };
 
 /** "Jan 5, 2026 → Mar 30, 2026" for a past-season row. */
 function seasonRange(s: LeagueSeason): string {
@@ -125,12 +127,13 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const [activeSeason, setActiveSeason] = useState<LeagueSeason | null>(null);
   const [pastSeasons, setPastSeasons]   = useState<LeagueSeason[]>([]);
   const [members, setMembers]           = useState<MemberRow[] | null>(null);
-  const [seasonSummary, setSeasonSummary] = useState<SeasonSummary | null>(null);
-  // Which season `seasonSummary` describes (SeasonSummary carries no id). A
-  // failed strip load may keep the previous summary only for the SAME season,
-  // never show season A's ranks and lock date under season B.
-  const summarySeasonId = useRef<string | null>(null);
-  // Latest strip load: an older, slower load must not overwrite a newer one.
+  // The Standings section (components/league/useLeagueStandings). A failed
+  // reload keeps what's showing only for the SAME season, never shows season
+  // A's ranks and lock date under season B.
+  const [standings, setStandings] = useState<LeagueStandings | null>(null);
+  const [standingsLoading, setStandingsLoading] = useState(true);
+  const [standingsError, setStandingsError] = useState<unknown>(null);
+  // Latest standings load: an older, slower load must not overwrite a newer one.
   const stripSeq = useRef(0);
   const [godmode, setGodmode]           = useState(false);
   const [champion, setChampion]         = useState<LeagueChampion | null>(null);
@@ -213,20 +216,22 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           .eq('league_id', leagueId)
           .eq('status', 'completed')
           .order('end_date', { ascending: false })),
-        // Members (readable by everyone): the "N members" chip and the season
-        // strip's names. Decorative, so a failure leaves them out instead of
-        // failing the screen.
+        // Members (readable by everyone): the "N members" chip and the
+        // Standings rows' names, flair and PLUPR. Decorative, so a failure
+        // leaves them out instead of failing the screen (the standings load
+        // then reads them itself).
         sbCall(() => supabase.from('league_members')
-          .select('user_id, role, profile:profiles(full_name)')
+          .select(`user_id, role, profile:profiles(${STANDINGS_PROFILE_COLUMNS})`)
           .eq('league_id', leagueId))
           .catch(() => null),
       ]);
       if (role !== 'unknown') { setMyRole(role); setRoleKnown(true); }
       const season = (seasonRow as LeagueSeason) ?? null;
+      const completed = (completedRows ?? []) as LeagueSeason[];
       const memberList = memberRows ? (memberRows as unknown as MemberRow[]) : null;
       setLeague(leagueRow as League);
       setActiveSeason(season);
-      setPastSeasons((completedRows ?? []) as LeagueSeason[]);
+      setPastSeasons(completed);
       if (memberList) setMembers(memberList);
       setMyUserId(uid);
       setGodmode(isGodmodeUserId(uid));
@@ -235,7 +240,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       // Secondary loaders run after the main render. Errors in them are
       // non-fatal: their sections just don't render (or keep what they had).
       const effectiveRole = role === 'unknown' ? myRole : role;
-      void loadSeasonStrip(season, uid, memberList);
+      void loadStandings(season, completed, uid, memberList);
       void loadLatestChampion();
       void loadComingUp(isPrivileged(effectiveRole));
       void loadRequests(role, uid, memberList);
@@ -248,53 +253,33 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     }
   }
 
-  // ── Season strip ──────────────────────────────────────────────
-  async function loadSeasonStrip(season: LeagueSeason | null, uid: string | null, memberList: MemberRow[] | null) {
+  // ── Standings section ─────────────────────────────────────────
+  async function loadStandings(
+    season: LeagueSeason | null,
+    completed: LeagueSeason[],
+    uid: string | null,
+    memberList: MemberRow[] | null,
+  ) {
     const seq = ++stripSeq.current;
-    if (!season) { summarySeasonId.current = null; setSeasonSummary(null); return; }
-    // The same UTC "today" SeasonStandings uses, so the strip and the screen
-    // it opens agree on the live period (see lib/seasonSummary.ts). The lock
-    // flag uses the LOCAL date, as SeasonStandings' Lock button does.
-    const now = new Date();
-    const today = now.toISOString().slice(0, 10);
-    const lockToday = localIsoDate(now);
-    const s = season as LeagueSeason & { baseline_plupr?: number | null };
+    // The season the section will rank (the loader's own choice order).
+    const targetId = season?.id ?? completed[0]?.id ?? null;
     try {
-      const snaps = await sbCall(() => supabase.from('season_snapshots')
-        .select('period_number')
-        .eq('season_id', season.id));
-      const locked = new Set(((snaps ?? []) as { period_number: number }[]).map((r) => r.period_number));
-      let matches: StandingsMatch[] = [];
-      const period = today >= season.start_date ? livePeriodNumber(season, locked, today) : null;
-      if (period != null) {
-        const w = periodWindow(season, period, today);
-        // A day of slack on each side of the window: summarizeSeason filters
-        // with SeasonStandings' exact string compare, so the server bound only
-        // has to be wide enough, never exact.
-        matches = ((await sbCall(() => supabase.from('matches')
-          .select(STANDINGS_MATCH_COLUMNS)
-          .eq('league_id', leagueId)
-          .gte('played_at', addDaysIso(w.start, -1))
-          .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
-      }
+      const next = await loadLeagueStandings({
+        leagueId,
+        myUserId: uid,
+        season: season as (LeagueSeason & { baseline_plupr?: number | null }) | null,
+        completedSeasons: completed,
+        members: memberList,
+      });
       if (seq !== stripSeq.current) return;
-      setSeasonSummary(summarizeSeason({
-        season: s, lockedPeriods: locked, members: memberList ?? [], matches, myUserId: uid, today, lockToday,
-      }));
-      summarySeasonId.current = season.id;
-    } catch {
+      setStandings(next);
+      setStandingsError(null);
+    } catch (e) {
       if (seq !== stripSeq.current) return;
-      // Keep a strip that was already showing for THIS season; otherwise show
-      // the headline without lock or rank facts (unknown is left out, never
-      // guessed).
-      const fallback: SeasonSummary = {
-        ...summarizeSeason({ season: s, lockedPeriods: [], members: [], matches: [], myUserId: uid, today, lockToday }),
-        nextLockOn: null,
-        lockDue: false,
-      };
-      const sameSeason = summarySeasonId.current === season.id;
-      setSeasonSummary((prev) => (prev && sameSeason ? prev : fallback));
-      summarySeasonId.current = season.id;
+      setStandings((prev) => (prev && prev.seasonId === targetId ? prev : null));
+      setStandingsError(e);
+    } finally {
+      if (seq === stripSeq.current) setStandingsLoading(false);
     }
   }
 
@@ -597,7 +582,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
 
   // Manage opens itself when a step is pending (join requests waiting, a
   // period lock due), unless the user has already opened or closed it.
-  const managePending = isPrivileged(myRole) && (pendingRequests > 0 || !!seasonSummary?.lockDue);
+  const managePending = isPrivileged(myRole) && (pendingRequests > 0 || !!standings?.summary?.lockDue);
   useEffect(() => {
     if (managePending && !manageTouched.current) {
       manageTouched.current = true;
@@ -632,7 +617,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const requested = myRequestPending || stickyJoin.requestedIds.has(leagueId);
   const standingsSeasonId = standingsTargetSeasonId(activeSeason, pastSeasons);
   const memberCount = members ? members.length : null;
-  const lockDue = privileged && !!seasonSummary?.lockDue;
+  const lockDue = privileged && !!standings?.summary?.lockDue;
 
   const goStandings = (seasonId: string) =>
     navigation.navigate('SeasonStandings', { seasonId, leagueId, leagueName });
@@ -761,18 +746,21 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           />
         </View>
 
-        {/* 3 · Season status strip. While an active season's numbers are
-            still loading, render nothing rather than flash an admin the
-            "No active season" line. */}
-        {!activeSeason || seasonSummary ? (
-          <SeasonStrip
-            summary={activeSeason ? seasonSummary : null}
-            privileged={privileged}
-            myUserId={myUserId}
-            onOpen={() => { if (activeSeason) goStandings(activeSeason.id); }}
-            onStartSeason={() => setSeasonModal(true)}
-          />
-        ) : null}
+        {/* 3 · Standings: the one expanded section, open by default. */}
+        <SeasonStrip
+          data={standings}
+          loading={standingsLoading}
+          error={standingsError}
+          privileged={privileged}
+          onRetry={() => { void loadStandings(activeSeason, pastSeasons, myUserId, members); }}
+          onOpenTable={goStandings}
+          onOpenMembers={goMembers}
+          onStartSeason={privileged ? () => setSeasonModal(true) : undefined}
+          onPressRow={(row) => {
+            if (row.isMe) navigation.navigate('Profile', {});
+            else navigation.navigate('PlayerProfile', { userId: row.userId, userName: row.name || 'Player' });
+          }}
+        />
 
         {/* 4 · Coming up (renders nothing when empty) */}
         <LeagueComingUp items={comingUp} champion={champion} />

@@ -246,7 +246,8 @@ export type SeasonSummary = {
    *  before the first match everyone sits on the baseline and "#2" means nothing. */
   hasMatches: boolean;
   myRank: number | null;
-  /** The first SEASON_STRIP_TOP_N rows (empty without matches). */
+  /** The first SEASON_STRIP_TOP_N rows (empty without matches). Only the unit
+   *  tests read `top`/`me` now (the strip ranks via useLeagueStandings). */
   top: SeasonStandingRow[];
   /** The viewer's row when it isn't already in `top`. */
   me: SeasonStandingRow | null;
@@ -344,6 +345,9 @@ export function shortDate(iso: string): string {
  * fixed one; the app uses the device locale). "Lock due" is an admin to-do:
  * pass `privileged: false` for members, who get the live period's lock date
  * instead (or no lock part when every unlocked period is overdue).
+ * No screen renders this line any more (the strip composes the parts in
+ * useLeagueStandings' leagueStandingsHeader); it is kept on purpose as the
+ * tested composition of seasonWeekPart/seasonLockPart and the rank.
  */
 export function seasonHeadline(
   s: SeasonSummary,
@@ -354,12 +358,33 @@ export function seasonHeadline(
   if (s.phase === 'upcoming') {
     parts.push(s.startsOn ? `Starts ${fmt(s.startsOn)}` : null);
   } else {
-    parts.push(s.week != null ? `Wk ${s.week} of ${s.totalWeeks}` : null);
+    parts.push(seasonWeekPart(s));
     parts.push(s.myRank != null ? `You #${s.myRank}` : null);
-    const lockOn = s.lockDue ? s.liveLockOn : s.nextLockOn;
-    parts.push(s.lockDue && opts.privileged !== false ? 'Lock due' : lockOn ? `locks ${fmt(lockOn)}` : null);
+    parts.push(seasonLockPart(s, fmt, opts));
   }
   return parts.filter((p): p is string => !!p && !!p.trim()).join(' · ');
+}
+
+/** "Wk 7 of 12", or null before the season starts (the strip header's week part). */
+export function seasonWeekPart(s: Pick<SeasonSummary, 'phase' | 'week' | 'totalWeeks'>): string | null {
+  if (s.phase === 'upcoming' || s.week == null) return null;
+  return `Wk ${s.week} of ${s.totalWeeks}`;
+}
+
+/**
+ * The strip header's lock part: "Lock due" (privileged viewers, once the next
+ * lock's date has arrived), else "locks Oct 20", else null. Members read the
+ * live period's lock date while a lock is overdue, as SeasonStandings' header
+ * does for them.
+ */
+export function seasonLockPart(
+  s: Pick<SeasonSummary, 'phase' | 'lockDue' | 'liveLockOn' | 'nextLockOn'>,
+  fmt: (iso: string) => string = shortDate,
+  opts: { privileged?: boolean } = {},
+): string | null {
+  if (s.phase === 'upcoming') return null;
+  const lockOn = s.lockDue ? s.liveLockOn : s.nextLockOn;
+  return s.lockDue && opts.privileged !== false ? 'Lock due' : lockOn ? `locks ${fmt(lockOn)}` : null;
 }
 
 /**

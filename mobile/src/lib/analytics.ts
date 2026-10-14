@@ -699,7 +699,9 @@ export type HomeSection =
   | 'now'
   | 'get_started'
   | 'up_next'
-  | 'yours'
+  // YOUR LEAGUE (it replaced 'yours'): league_chip, header, row, see_all, next,
+  // start_season, all_leagues, my_tournaments.
+  | 'spotlight'
   | 'join'
   | 'quick'
   | 'court'
@@ -708,8 +710,8 @@ export type HomeSection =
 
 export type HomeTapProps = {
   section: HomeSection;
-  /** What was tapped, as a slug: 'row' | 'vote' | 'rsvp' | 'join' | 'request' | 'find_more' |
-   *  'all_yours' | 'show_more' | 'bell' | 'saved' | 'settings' | 'record' | ... Never a name. */
+  /** What was tapped, as a slug: 'row' | 'vote' | 'rsvp' | 'join' | 'request' | 'league_chip' |
+   *  'all_leagues' | 'show_more' | 'bell' | 'saved' | 'settings' | 'record' | ... Never a name. */
   target: string;
   /** 0-based index of the row within its section; omit for a one-off control (sent as null). */
   position?: number;

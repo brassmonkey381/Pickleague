@@ -31,17 +31,35 @@
 //   also expands on tap.
 // - A failed "mark all read" / delete puts every chip's cached page back as
 //   it was (a refetch alone can't, offline, and only covers the current chip).
+// - "Clear all" (header right, shown while there is anything to clear) deletes
+//   EVERY notification of mine in one delete, behind a ConfirmModal: not just
+//   the loaded page or the current chip. It waits for the server (no
+//   optimistic wipe: it can't be undone, and a failure leaves the list as it
+//   was), then empties every chip's cached page and zeroes Home's cached
+//   unread so the bell's dot goes at once (Home also refetches on focus).
+//   Pending requests themselves survive: Up next's needs-you items come from
+//   their own tables (lib/inboxRequests, lib/agenda), never from notification
+//   rows. But the Requests chip IS notification rows, so it empties, and Up
+//   next's "+N more" (which lands there) then shows nothing for requests cut
+//   past its cap; the confirm says so rather than promising "they stay in Up
+//   next". The one thing that lives ONLY in a notification is a league invite
+//   code (the invite-code broadcast; tournament codes also make a
+//   registration), and the confirm says that too.
+//   A list fetch (focus refresh, chip fetch, Load more) still in flight when
+//   Clear all lands read its rows before the delete: `clearGen` makes it hand
+//   back the cleared page instead of writing the deleted rows back.
 // - initialChip ('requests'): Home's Up next "+N more" lands on Requests.
 // - A tap goes where the same push would (lib/pushLinks.ts linkOf + routeLink),
 //   and an invite with an embedded code auto-redeems first, as before.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, type RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
-import { FilterChipRow, ListCard, SectionHeader, SkeletonList } from '@just-messin-around/expo-foundation/ui';
+import { ConfirmModal, FilterChipRow, ListCard, SectionHeader, SkeletonList } from '@just-messin-around/expo-foundation/ui';
+import { HOME_KEY, type HomeData } from '../components/home/homeData';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
@@ -100,6 +118,10 @@ type NotificationPage = {
   hasMore: boolean;
   /** Every unread notification (all chips), for "Mark all read". */
   unreadTotal: number;
+  /** Every notification (all chips), for "Clear all". Absent in a page cached
+   *  before it, or when the count query failed (then only the All chip's
+   *  fully loaded rows can stand in for it). */
+  total?: number;
 };
 
 type Cursor = { created_at: string; id: string };
@@ -113,6 +135,16 @@ const COLUMNS = 'id, title, body, type, entity_id, entity_type, category, is_rea
 const KEY_PREFIX = 'notifications:v3';
 const keyFor = (chip: NotificationChip) => `${KEY_PREFIX}:${chip}`;
 const DB = { client: supabase, call: sbCall };
+/** Every chip's page right after "Clear all". */
+const EMPTY_PAGE: NotificationPage = {
+  rows: [], missing: [], fetched: 0, cursor: null, hasMore: false, unreadTotal: 0, total: 0,
+};
+/** Bumped by "Clear all" (before and after its delete). A list fetch that
+ *  began before a bump read rows the delete then removed, so its result is
+ *  dropped: the foundation cache writes whatever a fetch returns, with no
+ *  check for a setQueryData that landed meanwhile. Module-level, so it also
+ *  covers a fetch still running for another chip's key. */
+let clearGen = 0;
 
 /** A chip's rows, newest first, with `id` breaking created_at ties (one
  *  transaction's notifications share now()), so the order is total. The
@@ -164,13 +196,18 @@ function cursorOf(raw: readonly Notification[]): Cursor | null {
 }
 
 async function loadPage(chip: NotificationChip): Promise<NotificationPage> {
+  const gen = clearGen;
   // Keep what is showing on a refresh (the cached page's row count), else one page.
   const showing = peekQuery<NotificationPage>(keyFor(chip))?.fetched ?? PAGE;
   const count = Math.min(MAX_REFETCH, Math.max(PAGE, showing));
-  const [{ raw, rows, missing }, unreadRes] = await Promise.all([
+  const [{ raw, rows, missing }, unreadRes, totalRes] = await Promise.all([
     fetchRows(chip, count, null),
     supabase.from('notifications').select('id', { count: 'exact', head: true }).eq('is_read', false),
+    supabase.from('notifications').select('id', { count: 'exact', head: true }),
   ]);
+  // A Clear all landed while this was in flight: these rows were read before
+  // the delete, so keep the cleared page rather than writing them back.
+  if (gen !== clearGen) return peekQuery<NotificationPage>(keyFor(chip)) ?? EMPTY_PAGE;
   return {
     rows,
     missing: [...missing],
@@ -178,6 +215,7 @@ async function loadPage(chip: NotificationChip): Promise<NotificationPage> {
     cursor: cursorOf(raw),
     hasMore: raw.length === count,
     unreadTotal: unreadRes.count ?? rows.filter(n => !n.is_read).length,
+    total: totalRes.error ? undefined : (totalRes.count ?? undefined),
   };
 }
 
@@ -260,7 +298,11 @@ export default function NotificationsScreen({ navigation, route }: Props) {
   // Local edits write through every chip's cached list (a row read or deleted
   // under Unread is also read or deleted under All), not component state,
   // which the next revalidation would overwrite.
-  function patchAll(fn: (n: Notification) => Notification | null, unreadDelta: (p: NotificationPage) => number) {
+  function patchAll(
+    fn: (n: Notification) => Notification | null,
+    unreadDelta: (p: NotificationPage) => number,
+    totalDelta = 0,
+  ) {
     for (const { value } of NOTIFICATION_CHIPS) {
       const key = keyFor(value);
       const cur = peekQuery<NotificationPage>(key);
@@ -270,7 +312,12 @@ export default function NotificationsScreen({ navigation, route }: Props) {
         const m = fn(n);
         if (m) next.push(m);
       }
-      setQueryData(key, { ...cur, rows: next, unreadTotal: Math.max(0, cur.unreadTotal + unreadDelta(cur)) });
+      setQueryData(key, {
+        ...cur,
+        rows: next,
+        unreadTotal: Math.max(0, cur.unreadTotal + unreadDelta(cur)),
+        total: cur.total == null ? undefined : Math.max(0, cur.total + totalDelta),
+      });
     }
   }
 
@@ -318,7 +365,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     const id = n.id;
     const wasUnread = !n.is_read;
     const snap = snapshotAll();
-    patchAll(x => (x.id === id ? null : x), () => (wasUnread ? -1 : 0));
+    patchAll(x => (x.id === id ? null : x), () => (wasUnread ? -1 : 0), -1);
     try {
       await sbCall(() => supabase.from('notifications').delete().eq('id', id));
     } catch (e) {
@@ -328,14 +375,68 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     }
   }
 
+  // "Clear all": every notification of mine, whatever is loaded or filtered.
+  // `clearCount` is the N the confirm shows, read when it opens (null: unknown,
+  // so it says "all your notifications"). Without a `total` (a page cached
+  // before it, or a failed count) only the All chip's rows can stand in, and
+  // only when fully loaded: another chip's rows are a filtered subset, and the
+  // delete takes every chip's.
+  const [clearCount, setClearCount] = useState<number | null | undefined>(undefined);
+  const [clearing, setClearing] = useState(false);
+  const confirmOpen = clearCount !== undefined;
+
+  function openClearAll() {
+    const p = peekQuery<NotificationPage>(keyFor(chip));
+    setClearCount(p?.total ?? (chip === 'all' && p && !p.hasMore ? p.rows.length : null));
+  }
+
+  async function clearAll() {
+    if (clearing) return;
+    setClearing(true);
+    // Before the delete is sent, so a fetch whose read races it is dropped too.
+    clearGen += 1;
+    try {
+      const uid = await currentUserId(supabase);
+      if (!uid) throw new Error('Not signed in.');
+      // One delete, keyed on the owner (RLS "Users delete own notifications"
+      // allows exactly these rows), so it reaches past the loaded page.
+      await sbCall(() => supabase.from('notifications').delete().eq('user_id', uid));
+    } catch (e) {
+      // Nothing was touched locally, so the list is already as it was.
+      setClearing(false);
+      setClearCount(undefined);
+      status.error(friendlySbMessage(e, "Couldn't clear your notifications."));
+      // The bump above may have dropped a refresh that was in flight.
+      void reload();
+      return;
+    }
+    // Again after it: a fetch that started while the delete ran may have read
+    // the rows before it committed.
+    clearGen += 1;
+    // Every chip's page is now empty: set them all (an unvisited chip too, so
+    // it doesn't flash a persisted list before its first fetch).
+    for (const { value } of NOTIFICATION_CHIPS) setQueryData(keyFor(value), EMPTY_PAGE);
+    // Home's bell dot reads its cached unread; zero it now rather than on
+    // Home's next focus fetch. The number (what needs you) is not from here.
+    const home = peekQuery<HomeData>(HOME_KEY);
+    if (home) setQueryData(HOME_KEY, { ...home, unreadCount: 0, unreadLive: 0 });
+    setExpanded(new Set());
+    setClearing(false);
+    setClearCount(undefined);
+    status.success('Notifications cleared.');
+  }
+
   async function loadMore() {
     if (!page || !page.hasMore || !page.cursor || loadingMore) return;
     const key = keyFor(chip);
     setLoadingMore(true);
+    const gen = clearGen;
     try {
       // One row past the page says whether another page exists, so the last
       // "Load more" is never an empty one.
       const next = await fetchRows(chip, PAGE + 1, page.cursor);
+      // Cleared meanwhile: this page's rows are gone on the server.
+      if (gen !== clearGen) return;
       const raw = next.raw.slice(0, PAGE);
       const inPage = new Set(raw.map(n => n.id));
       const cur = peekQuery<NotificationPage>(key) ?? page;
@@ -418,6 +519,42 @@ export default function NotificationsScreen({ navigation, route }: Props) {
 
   const unreadTotal = page?.unreadTotal ?? 0;
   const chipLabel = NOTIFICATION_CHIPS.find(x => x.value === chip)?.label ?? 'All';
+  // Anything to clear at all (every chip's rows, not just this chip's). With
+  // no total, an empty filtered chip says nothing about the others: show it.
+  const canClear = page?.total != null ? page.total > 0 : chip === 'all' ? rows.length > 0 : true;
+
+  // Header right: "Clear all", a real 44 box (RNW ignores hitSlop).
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: canClear
+        ? () => (
+            <TouchableOpacity
+              style={styles.headerAction}
+              onPress={openClearAll}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel="Clear all notifications"
+            >
+              <Text style={[t.meta, { color: c.danger }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                Clear all
+              </Text>
+            </TouchableOpacity>
+          )
+        : undefined,
+    });
+    // openClearAll reads the live cache, so a stale closure is harmless; t is
+    // rebuilt per render from the same colors.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigation, canClear, chip, c]);
+
+  const clearBody =
+    (clearCount == null
+      ? 'This deletes all your notifications.'
+      : clearCount === 1
+        ? 'This deletes your 1 notification.'
+        : `This deletes all ${clearCount} notifications.`) +
+    " This also empties the Requests tab. Pending requests aren't deleted: answer them from Up next on Home" +
+    ' or from the league or match screen. A league invite code is only in its notification, so it goes too.';
 
   const renderItem = ({ item }: { item: DayGroupItem<Notification> }) => {
     if (item.kind === 'header') {
@@ -585,6 +722,16 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           }
         />
       )}
+      <ConfirmModal
+        visible={confirmOpen}
+        title="Clear all notifications?"
+        body={clearBody}
+        primaryLabel="Clear all"
+        variant="danger"
+        busy={clearing}
+        onConfirm={() => { void clearAll(); }}
+        onClose={() => { if (!clearing) setClearCount(undefined); }}
+      />
     </View>
   );
 }
@@ -596,6 +743,7 @@ const styles = StyleSheet.create({
   banner: { marginHorizontal: SPACE.lg, marginTop: SPACE.sm },
   chips: { paddingHorizontal: SPACE.lg },
   markAll: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingHorizontal: SPACE.sm },
+  headerAction: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.sm },
   skeleton: { paddingHorizontal: SPACE.lg },
   list: { paddingHorizontal: SPACE.lg, paddingBottom: SPACE.xl },
   dayHeader: { marginTop: SPACE.sm },

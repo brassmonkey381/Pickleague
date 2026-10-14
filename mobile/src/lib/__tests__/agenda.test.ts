@@ -8,10 +8,12 @@ import {
   dayLabel,
   drillAgendaItems,
   eventAgendaItems,
-  leagueLiveFact,
   needsYouCount,
+  pickSpotlightLeague,
   seasonWeek,
   shortTime,
+  spotlightHeaderLine,
+  spotlightNextLine,
   timeAgoShort,
   timeLeft,
   tournamentAgendaItems,
@@ -336,8 +338,10 @@ describe('needsYouCount (the Home bell)', () => {
   });
 });
 
-describe('YOURS live fact', () => {
+describe('league spotlight', () => {
   const active = { status: 'active', startDate: '2026-08-25', totalWeeks: 12 };
+  const lg = (id: string, over: Partial<Parameters<typeof pickSpotlightLeague>[0][number]> = {}) =>
+    ({ id, openVotes: 0, nextEventAt: null, season: null, ...over });
 
   it('seasonWeek counts from the start date and clamps to the season', () => {
     // Aug 25 -> Oct 13 is 49 days: week 8.
@@ -348,30 +352,50 @@ describe('YOURS live fact', () => {
     expect(seasonWeek({ ...active, startDate: 'garbage' }, NOW)).toBeNull();
   });
 
-  it('open vote beats the next event, with the week as the trailing badge', () => {
-    expect(leagueLiveFact({ openVotes: 1, nextEventAt: at(2, 18), season: active }, NOW))
-      .toEqual({ subtitle: '1 vote open · next Thu 6 PM', trailing: 'Wk 8/12' });
-    expect(leagueLiveFact({ openVotes: 2, nextEventAt: null, season: null }, NOW))
-      .toEqual({ subtitle: '2 votes open', trailing: null });
+  it('picks an open vote first (closing soonest), then the soonest event, then a season, then the newest match', () => {
+    expect(pickSpotlightLeague([], NOW)).toBeNull();
+    expect(pickSpotlightLeague([
+      lg('event', { nextEventAt: at(1, 18) }),
+      lg('vote-late', { openVotes: 1, openVoteEndsAt: at(3, 9) }),
+      lg('vote-soon', { openVotes: 1, openVoteEndsAt: at(1, 9) }),
+    ], NOW)).toBe('vote-soon');
+    expect(pickSpotlightLeague([
+      lg('season', { season: active }),
+      lg('later', { nextEventAt: at(4, 18) }),
+      lg('sooner', { nextEventAt: at(2, 18) }),
+    ], NOW)).toBe('sooner');
+    // An event that already started is not "next".
+    expect(pickSpotlightLeague([
+      lg('started', { nextEventAt: at(0, 9) }),
+      lg('season', { season: active }),
+    ], NOW)).toBe('season');
+    expect(pickSpotlightLeague([
+      lg('old', { lastMatchAt: at(-9, 18) }),
+      lg('recent', { lastMatchAt: at(-1, 18) }),
+      lg('never'),
+    ], NOW)).toBe('recent');
+    // Two active seasons: the newer match wins; no facts at all: list order.
+    expect(pickSpotlightLeague([
+      lg('a', { season: active, lastMatchAt: at(-5, 18) }),
+      lg('b', { season: active, lastMatchAt: at(-2, 18) }),
+    ], NOW)).toBe('b');
+    expect(pickSpotlightLeague([lg('first'), lg('second')], NOW)).toBe('first');
   });
 
-  it('next event, then an upcoming season, then nothing (the row keeps its court)', () => {
-    expect(leagueLiveFact({ openVotes: 0, nextEventAt: at(0, 18), season: null }, NOW).subtitle).toBe('Next: today 6 PM');
-    expect(leagueLiveFact({ openVotes: 0, nextEventAt: null, season: { status: 'upcoming', startDate: '2026-11-02', totalWeeks: 8 } }, NOW))
-      .toEqual({ subtitle: 'Season starts Nov 2', trailing: null });
-    expect(leagueLiveFact({ openVotes: 0, nextEventAt: null, season: null }, NOW)).toEqual({ subtitle: null, trailing: null });
+  it('header line: league, season name, then the week or the start date', () => {
+    expect(spotlightHeaderLine({ name: 'Dinks', season: { ...active, name: 'Fall' } }, NOW)).toBe('Dinks · Fall · Wk 8/12');
+    expect(spotlightHeaderLine({ name: 'Dinks', season: active }, NOW)).toBe('Dinks · Wk 8/12');
+    expect(spotlightHeaderLine({ name: 'Dinks', season: { status: 'upcoming', startDate: '2026-11-02', totalWeeks: 8, name: 'Spring' } }, NOW))
+      .toBe('Dinks · Spring · starts Nov 2');
+    expect(spotlightHeaderLine({ name: 'Dinks', season: null }, NOW)).toBe('Dinks');
   });
 
-  it('my rank follows the week in the trailing badge and never changes the subtitle', () => {
-    expect(leagueLiveFact({ openVotes: 0, nextEventAt: at(2, 18), season: active, myRank: 2 }, NOW))
-      .toEqual({ subtitle: 'Next: Thu 6 PM', trailing: 'Wk 8/12 · You #2' });
-    // No week to show: the rank alone.
-    expect(leagueLiveFact({ openVotes: 0, nextEventAt: null, season: null, myRank: 1 }, NOW))
-      .toEqual({ subtitle: null, trailing: 'You #1' });
-    // Unknown rank (null, or absent in an older cached payload): unchanged.
-    expect(leagueLiveFact({ openVotes: 1, nextEventAt: null, season: active, myRank: null }, NOW))
-      .toEqual({ subtitle: '1 vote open', trailing: 'Wk 8/12' });
-    expect(leagueLiveFact({ openVotes: 1, nextEventAt: null, season: active }, NOW))
-      .toEqual({ subtitle: '1 vote open', trailing: 'Wk 8/12' });
+  it('next line: the next event, then the open votes', () => {
+    expect(spotlightNextLine({ openVotes: 1, nextEventAt: at(2, 18) }, NOW)).toBe('Next: Thu 6 PM · 1 vote open');
+    expect(spotlightNextLine({ openVotes: 0, nextEventAt: at(0, 18) }, NOW)).toBe('Next: today 6 PM');
+    expect(spotlightNextLine({ openVotes: 2, nextEventAt: null }, NOW)).toBe('2 votes open');
+    // Started already (it lives in NOW), and nothing at all.
+    expect(spotlightNextLine({ openVotes: 0, nextEventAt: at(0, 9) }, NOW)).toBeNull();
+    expect(spotlightNextLine({ openVotes: 0, nextEventAt: null }, NOW)).toBeNull();
   });
 });
