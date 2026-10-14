@@ -72,6 +72,14 @@ describe('live period + lock', () => {
     expect(isLockDue(season, 1, new Date('2026-09-08T12:00:00'))).toBe(true);
     expect(isLockDue(season, 13, new Date('2027-01-01T12:00:00'))).toBe(false);
   });
+
+  it('is due at local midnight of the lock date even across a DST change', () => {
+    // US DST ends Sun Nov 1 2026: P2 locks Mon Nov 9. 14 x 24 h from local
+    // midnight Oct 26 would land at 11 PM Nov 8 (PST).
+    const dst = { ...season, start_date: '2026-10-26' };
+    expect(isLockDue(dst, 2, new Date('2026-11-08T23:30:00'))).toBe(false);
+    expect(isLockDue(dst, 2, new Date('2026-11-09T00:00:00'))).toBe(true);
+  });
 });
 
 describe('seasonHeaderLine', () => {

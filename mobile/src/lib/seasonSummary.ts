@@ -15,12 +15,14 @@
 // computeStandings here.
 //
 // Dates are ISO "YYYY-MM-DD" strings throughout, compared as strings, exactly as
-// SeasonStandings does. `today` is passed in (the caller uses the same UTC date
-// SeasonStandings uses: `new Date().toISOString().slice(0, 10)`), which keeps
-// every function here deterministic and testable. The one exception is the
-// lock-due flag: SeasonStandings' Lock button (standingsModel's isLockDue) turns
-// on at LOCAL midnight of the snapshot date, so lockDue takes a local date
-// (`lockToday`, see SummarizeSeasonArgs) and compares with >=.
+// SeasonStandings does. Every date is a LOCAL calendar day: `today` is passed in
+// (callers use localIsoDate(new Date()), as SeasonStandings does), and a match
+// belongs to the local day it was played on (playedLocalDay), so a 6:30 PM PDT
+// match on a lock day counts in that period, not the next. The server agrees in
+// the league's zone (migration_local_day_boundaries.sql: auto_lock_due_periods
+// locks at 00:05 local on the lock date, and the snapshot's W-L buckets
+// played_at by local day), which is the device zone for a league's own members.
+// Passing `today` in keeps every function here deterministic and testable.
 
 /** The season columns this file reads (a LeagueSeason row fits). */
 export type SeasonInput = {
@@ -84,6 +86,23 @@ export function localIsoDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** The local calendar day ("YYYY-MM-DD") a match was played on. played_at is a
+ *  real instant (timestamptz, e.g. "2026-10-14T01:30:00+00:00"); its UTC date
+ *  is the next day for every US evening match. */
+export function playedLocalDay(playedAt: string): string {
+  return localIsoDate(new Date(playedAt));
+}
+
+/** Whether a match played at `playedAt` falls in the [start, end] window, by
+ *  local day. Either bound may be a date or a date-time (periodWindow's end is
+ *  "YYYY-MM-DDT23:59:59"); only its date part is compared. Both inclusive. */
+export function playedInWindow(playedAt: string, start?: string, end?: string): boolean {
+  const day = playedLocalDay(playedAt);
+  if (start && day < start.slice(0, 10)) return false;
+  if (end && day > end.slice(0, 10)) return false;
+  return true;
+}
+
 /** Shift an ISO date by whole days. Local-midnight parse, so DST never moves the day. */
 export function addDaysIso(iso: string, days: number): string {
   const d = new Date(iso + 'T00:00:00');
@@ -139,7 +158,7 @@ export function livePeriodNumber(
 
 /**
  * Season standings over league members, optionally windowed to
- * [startIso, endIso] on played_at (string compare, as SeasonStandings does).
+ * [startIso, endIso] by the local day of played_at (playedInWindow).
  * Rating = baseline + the player's summed per-match deltas; each game of a
  * multi-game match counts as its own W/L. Sort: rating desc, then (W-L) desc,
  * then W desc. standingsModel's computeStandings wraps this.
@@ -151,12 +170,7 @@ export function computeSeasonStandings(
   startIso?: string,
   endIso?: string,
 ): SeasonStandingRow[] {
-  const inRange = matches.filter((m) => {
-    if (!m.played_at) return false;
-    if (startIso && m.played_at < startIso) return false;
-    if (endIso && m.played_at > endIso) return false;
-    return true;
-  });
+  const inRange = matches.filter((m) => !!m.played_at && playedInWindow(m.played_at, startIso, endIso));
   return members
     .map((m) => {
       const uid = m.user_id;
@@ -205,7 +219,8 @@ export function computeSeasonStandings(
     .map((r, i) => ({ ...r, rank: i + 1 }));
 }
 
-/** The [start, end] played_at window SeasonStandings uses for an unlocked period. */
+/** The [start, end] window (local days, see playedInWindow) SeasonStandings uses
+ *  for an unlocked period. */
 export function periodWindow(
   s: Pick<SeasonInput, 'start_date' | 'lock_frequency_weeks'>,
   n: number,
@@ -254,11 +269,8 @@ export type SummarizeSeasonArgs = {
   /** Matches covering at least the ranked period's window (extra rows are filtered out). */
   matches: ReadonlyArray<StandingsMatch>;
   myUserId: string | null;
+  /** The viewer's LOCAL calendar date (localIsoDate). */
   today: string;
-  /** The LOCAL calendar date for the lock-due check (lib's localIsoDate), to
-   *  match isLockDue's local-midnight due time; defaults to `today`. The period
-   *  windows keep using the UTC `today`, as SeasonStandings' tabs do. */
-  lockToday?: string;
   topN?: number;
 };
 
@@ -269,7 +281,6 @@ export function summarizeSeason({
   matches,
   myUserId,
   today,
-  lockToday,
   topN = SEASON_STRIP_TOP_N,
 }: SummarizeSeasonArgs): SeasonSummary {
   const locked = new Set(lockedPeriods);
@@ -302,12 +313,12 @@ export function summarizeSeason({
     nextPeriod: next,
     nextLockOn,
     // >=, not >: due on the snapshot date itself, like isLockDue (now >= due).
-    lockDue: nextLockOn != null && season.status !== 'completed' && (lockToday ?? today) >= nextLockOn,
+    lockDue: nextLockOn != null && season.status !== 'completed' && today >= nextLockOn,
   };
   if (period == null) return summary;
 
   const { start, end } = periodWindow(season, period, today);
-  const inWindow = matches.some((m) => !!m.played_at && m.played_at >= start && m.played_at <= end);
+  const inWindow = matches.some((m) => !!m.played_at && playedInWindow(m.played_at, start, end));
   if (!inWindow) return summary;
 
   const baseline = Number(season.baseline_plupr ?? DEFAULT_BASELINE_PLUPR);

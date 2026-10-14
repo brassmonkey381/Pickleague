@@ -27,7 +27,7 @@ import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supab
 import { supabase } from '../../lib/supabase';
 import {
   STANDINGS_MATCH_COLUMNS, DEFAULT_BASELINE_PLUPR, addDaysIso, computeSeasonStandings, localIsoDate,
-  periodEndDate, periodStartDate, periodWindow, seasonDatePart, seasonStatusLine, summarizeSeason,
+  periodEndDate, periodStartDate, periodWindow, playedInWindow, seasonDatePart, seasonStatusLine, summarizeSeason,
   type SeasonInput, type SeasonSummary, type StandingsMatch,
 } from '../../lib/seasonSummary';
 import {
@@ -189,17 +189,15 @@ export async function loadLeagueStandings(args: LoadLeagueStandingsArgs): Promis
       : sbCall(() => supabase.from('league_members').select(STANDINGS_MEMBER_SELECT).eq('league_id', leagueId)),
   ]);
   const members = (memberRows ?? []) as unknown as LeagueStandingsMember[];
-  // The same UTC "today" SeasonStandings ranks with; the lock-due flag uses
-  // the LOCAL date, as its Lock button does (see lib/seasonSummary.ts).
+  // The same LOCAL "today" SeasonStandings ranks with (see lib/seasonSummary.ts).
   const now = args.now ?? new Date();
-  const today = now.toISOString().slice(0, 10);
-  const lockToday = localIsoDate(now);
+  const today = localIsoDate(now);
   const base = { myRank: null, period: null, medals: true, middleLabel: 'W-L' as string | null };
 
   if (season) {
     const baseline = Number(season.baseline_plupr ?? DEFAULT_BASELINE_PLUPR);
     const summarize = (locked: Iterable<number>, matches: StandingsMatch[]) => summarizeSeason({
-      season, lockedPeriods: locked, members, matches, myUserId, today, lockToday,
+      season, lockedPeriods: locked, members, matches, myUserId, today,
     });
     const preview = (kind: 'upcoming' | 'noMatches', summary: SeasonSummary): LeagueStandings => ({
       ...base, kind, seasonId: season.id, seasonName: season.name, summary,
@@ -236,15 +234,15 @@ export async function loadLeagueStandings(args: LoadLeagueStandingsArgs): Promis
 
     const w = periodWindow(season, ranked, today);
     // A day of slack on each side of the window: computeSeasonStandings
-    // filters with SeasonStandings' exact string compare, so the server bound
-    // only has to be wide enough, never exact.
+    // filters by local day (playedInWindow), so the server bound (UTC
+    // midnights) only has to be wide enough, never exact.
     const matches = ((await sbCall(() => supabase.from('matches')
       .select(STANDINGS_MATCH_COLUMNS)
       .eq('league_id', leagueId)
       .gte('played_at', addDaysIso(w.start, -1))
       .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
     const summary = summarize(locked, matches);
-    const inWindow = matches.some((m) => !!m.played_at && m.played_at >= w.start && m.played_at <= w.end);
+    const inWindow = matches.some((m) => !!m.played_at && playedInWindow(m.played_at, w.start, w.end));
     if (!inWindow) return preview('noMatches', summary);
 
     const byId = new Map(members.map((m) => [m.user_id, m.profile ?? null]));

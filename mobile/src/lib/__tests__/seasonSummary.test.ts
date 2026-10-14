@@ -8,6 +8,8 @@ import {
   periodEndDate,
   periodStartDate,
   periodWindow,
+  playedInWindow,
+  playedLocalDay,
   relativeShortDate,
   seasonDateFacts,
   seasonDatePart,
@@ -47,6 +49,12 @@ const members: StandingsMember[] = [
 const L = 'en-US';
 const on = (y: number, m: number, d: number, h = 12, min = 0) => new Date(y, m - 1, d, h, min);
 const OCT13 = on(2026, 10, 13);
+/** A match's played_at (an ISO instant, as Supabase returns it) for a LOCAL
+ *  wall-clock hour on `day`, so the fixtures mean the same day in any zone. */
+const localAt = (day: string, h: number, min = 0) => {
+  const [y, m, d] = day.split('-').map(Number);
+  return on(y, m, d, h, min).toISOString();
+};
 /** The status line for a summary over the 5 test members. */
 const line = (s: SeasonStatusFacts & { myRank: number | null }, now = OCT13, isAdmin = false) =>
   seasonStatusLine({ summary: s, myRank: s.myRank, rankedCount: members.length, isAdmin, now, locale: L });
@@ -102,9 +110,9 @@ describe('live period', () => {
 describe('computeSeasonStandings', () => {
   it('ranks by season PLUPR, then W-L, then W, and counts each game of a multi-game match', () => {
     const matches: StandingsMatch[] = [
-      singles('a', 'b', 'team1', '2026-09-01T18:00:00+00:00', 0.2, -0.2),
+      singles('a', 'b', 'team1', localAt('2026-09-01', 18), 0.2, -0.2),
       {
-        ...singles('c', 'd', 'team1', '2026-09-02T18:00:00+00:00', 0, 0),
+        ...singles('c', 'd', 'team1', localAt('2026-09-02', 18), 0, 0),
         game_scores: [{ t1: 11, t2: 5 }, { t1: 8, t2: 11 }, { t1: 11, t2: 9 }],
       },
     ];
@@ -125,6 +133,30 @@ describe('computeSeasonStandings', () => {
     expect(rows.find((r) => r.user_id === 'c')).toMatchObject({ losses: 1 });
     expect(computeSeasonStandings(members, [m], 3.5, '2026-09-15')[0].wins).toBe(0);
   });
+
+  it('buckets a match by the LOCAL day it was played, not its UTC date', () => {
+    // 10:30 PM on the lock day (Sep 14): in the US its UTC date is Sep 15,
+    // the next period's first day. It still counts in P1, and not in P2.
+    const late = singles('a', 'b', 'team1', localAt('2026-09-14', 22, 30), 0.2, -0.2);
+    expect(playedLocalDay(late.played_at!)).toBe('2026-09-14');
+    const p1 = periodWindow(SEASON, 1, '2026-10-13');
+    const p2 = periodWindow(SEASON, 2, '2026-10-13');
+    expect(computeSeasonStandings(members, [late], 3.5, p1.start, p1.end)[0]).toMatchObject({ user_id: 'a', wins: 1 });
+    expect(computeSeasonStandings(members, [late], 3.5, p2.start, p2.end).every((r) => r.wins === 0)).toBe(true);
+    // 12:30 AM on the start day counts; 11:59 PM the night before does not.
+    expect(playedInWindow(localAt('2026-08-31', 0, 30), '2026-08-31')).toBe(true);
+    expect(playedInWindow(localAt('2026-08-30', 23, 59), '2026-08-31')).toBe(false);
+  });
+
+  it('reads a UTC played_at as the local day (Pacific: 01:30Z is 6:30 PM the day before)', () => {
+    // Only meaningful where the test runs west of UTC; elsewhere it checks the
+    // same instant against the device's own day.
+    const iso = '2026-10-14T01:30:00+00:00';
+    const d = new Date(iso);
+    const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    expect(playedLocalDay(iso)).toBe(local);
+    if (d.getTimezoneOffset() >= 120) expect(playedLocalDay(iso)).toBe('2026-10-13');
+  });
 });
 
 describe('summarizeSeason + status line', () => {
@@ -136,9 +168,9 @@ describe('summarizeSeason + status line', () => {
       lockedPeriods: [1, 2, 3],
       members,
       matches: [
-        singles('a', 'me', 'team1', '2026-10-13T17:00:00+00:00', 0.3, -0.05),
-        singles('me', 'b', 'team1', '2026-10-13T18:00:00+00:00', 0.1, -0.2),
-        singles('c', 'd', 'team1', '2026-09-01T18:00:00+00:00', 0.9, -0.9), // outside the window
+        singles('a', 'me', 'team1', localAt('2026-10-13', 17), 0.3, -0.05),
+        singles('me', 'b', 'team1', localAt('2026-10-13', 18), 0.1, -0.2),
+        singles('c', 'd', 'team1', localAt('2026-09-01', 18), 0.9, -0.9), // outside the window
       ],
       myUserId: 'me',
       today,
@@ -155,8 +187,8 @@ describe('summarizeSeason + status line', () => {
       lockedPeriods: [1, 2, 3],
       members,
       matches: [
-        singles('a', 'me', 'team1', '2026-10-13T17:00:00+00:00', 0.3, -0.3),
-        singles('b', 'c', 'team1', '2026-10-13T18:00:00+00:00', 0.2, -0.1),
+        singles('a', 'me', 'team1', localAt('2026-10-13', 17), 0.3, -0.3),
+        singles('b', 'c', 'team1', localAt('2026-10-13', 18), 0.2, -0.1),
       ],
       myUserId: 'me',
       today,
@@ -172,7 +204,7 @@ describe('summarizeSeason + status line', () => {
 
     const stranger = summarizeSeason({
       season: SEASON, lockedPeriods: [1, 2, 3], members,
-      matches: [singles('a', 'b', 'team1', '2026-10-13T17:00:00+00:00')],
+      matches: [singles('a', 'b', 'team1', localAt('2026-10-13', 17))],
       myUserId: 'zz', today,
     });
     expect(stranger.myRank).toBeNull();
@@ -190,7 +222,7 @@ describe('summarizeSeason + status line', () => {
   it('never shows members "Lock due": the due period is "locking soon", date-free', () => {
     const s = summarizeSeason({
       season: SEASON, lockedPeriods: [1, 2], members,
-      matches: [singles('me', 'a', 'team1', '2026-10-13T17:00:00+00:00', 0.2, -0.2)],
+      matches: [singles('me', 'a', 'team1', localAt('2026-10-13', 17), 0.2, -0.2)],
       myUserId: 'me', today,
     });
     expect(s.lockDue).toBe(true);
@@ -211,18 +243,15 @@ describe('summarizeSeason + status line', () => {
   });
 
   it('a lock is due ON its snapshot date (local), the day SeasonStandings enables Lock', () => {
-    // Next lock is period 4 on Oct 26; the windows still use the UTC `today`.
-    const at = (lockToday: string) => summarizeSeason({
-      season: SEASON, lockedPeriods: [1, 2, 3], members, matches: [], myUserId: 'me', today, lockToday,
+    // Next lock is period 4 on Oct 26.
+    const at = (localToday: string) => summarizeSeason({
+      season: SEASON, lockedPeriods: [1, 2, 3], members, matches: [], myUserId: 'me', today: localToday,
     });
     expect(at('2026-10-26').lockDue).toBe(true);
     expect(line(at('2026-10-26'), on(2026, 10, 26, 0, 5), true)).toBe('5 players · Lock due');
     expect(line(at('2026-10-26'), on(2026, 10, 26, 0, 5))).toBe('5 players · Period 4 locking soon');
     expect(at('2026-10-25').lockDue).toBe(false);
     expect(line(at('2026-10-25'), on(2026, 10, 25, 23, 59))).toBe('5 players · Period 4 locks tomorrow');
-    // Without lockToday the UTC `today` decides, still inclusive.
-    const onDay = summarizeSeason({ season: SEASON, lockedPeriods: [1, 2, 3], members, matches: [], myUserId: 'me', today: '2026-10-26' });
-    expect(onDay.lockDue).toBe(true);
   });
 
   it('ranks the last period when every unlocked period is overdue, like the tab it opens', () => {
@@ -233,8 +262,8 @@ describe('summarizeSeason + status line', () => {
       lockedPeriods: [1, 2],
       members,
       matches: [
-        singles('a', 'b', 'team1', '2026-10-01T17:00:00+00:00', 0.4, -0.4), // P3 (Sep 29 - Oct 12)
-        singles('me', 'c', 'team1', '2026-10-20T17:00:00+00:00', 0.2, -0.2), // P4 (Oct 13 - Oct 26)
+        singles('a', 'b', 'team1', localAt('2026-10-01', 17), 0.4, -0.4), // P3 (Sep 29 - Oct 12)
+        singles('me', 'c', 'team1', localAt('2026-10-20', 17), 0.2, -0.2), // P4 (Oct 13 - Oct 26)
       ],
       myUserId: 'me',
       today: '2026-11-10',
@@ -255,7 +284,7 @@ describe('summarizeSeason + status line', () => {
   it('defaults the baseline when the season row has none', () => {
     const s = summarizeSeason({
       season: { ...SEASON, baseline_plupr: null }, lockedPeriods: [1, 2, 3], members,
-      matches: [singles('a', 'b', 'team1', '2026-10-13T17:00:00+00:00', 0.25, -0.25)],
+      matches: [singles('a', 'b', 'team1', localAt('2026-10-13', 17), 0.25, -0.25)],
       myUserId: 'a', today,
     });
     expect(s.top[0]).toMatchObject({ user_id: 'a', rating: 3.75 });

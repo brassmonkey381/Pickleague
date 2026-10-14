@@ -47,9 +47,11 @@ const rest = createRestFetcher({
 // Alameda game is worse than useless. So a card prints its times in the
 // organizer's zone (og_card_tz: the event's or tournament's creator), falls
 // back to Pacific, and every time names its zone ("4:00 PM PDT") so a reader
-// somewhere else can tell.
+// somewhere else can tell. A season card has no time to print, but "period N"
+// is the league's calendar day (its creator's zone), the day the server's
+// auto-lock uses.
 const TZ = 'America/Los_Angeles';
-async function cardTz(type: 'event' | 'tournament', id: string): Promise<string> {
+async function cardTz(type: 'event' | 'tournament' | 'season', id: string): Promise<string> {
   // A scalar RPC answers with a bare JSON string. Any failure (including a
   // database without the RPC yet) comes back from rest() as [].
   const tz: unknown = await rest(`rpc/og_card_tz?p_type=${type}&p_id=${encodeURIComponent(id)}`);
@@ -72,6 +74,19 @@ const DAY_TIME: Intl.DateTimeFormatOptions =
 const fmtDateOnly = (d: string) => {
   const [y, m, dd] = d.split('-').map(Number);
   return new Date(y, m - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+};
+/** Today's calendar date ("YYYY-MM-DD") in `tz`. */
+const todayIn = (tz: string): string => {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(new Date());
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+};
+/** Whole days from one ISO date to another (calendar math, no DST hour). */
+const daysFrom = (fromIso: string, toIso: string): number => {
+  const [fy, fm, fd] = fromIso.split('-').map(Number);
+  const [ty, tm, td] = toIso.split('-').map(Number);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000);
 };
 const dayDotTime = (iso: string, tz: string) =>
   `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' }, tz)} · ${fmt(iso, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }, tz)}`;
@@ -434,6 +449,7 @@ async function leagueCard(id: string): Promise<Card | null> {
 
 async function seasonCard(id: string): Promise<Card | null> {
   const sid = encodeURIComponent(id);
+  const tzP = cardTz('season', id);
   const s = (await rest(
     `league_seasons?id=eq.${sid}`
     + `&select=id,name,league_id,status,start_date,end_date,total_periods,lock_frequency_weeks,prize_pool&limit=1`,
@@ -457,11 +473,12 @@ async function seasonCard(id: string): Promise<Card | null> {
   const complete = s.status === 'completed' || podium.length > 0;
 
   // Current period from the calendar (mirrors SeasonStandingsScreen's math):
-  // period N covers [start + (N-1)·freq weeks, start + N·freq weeks).
+  // period N covers [start + (N-1)·freq weeks, start + N·freq weeks), counted
+  // in whole days of the league's zone (Vercel runs in UTC, which turned the
+  // period over at 5 PM PDT).
   let currentPeriod: number | null = null;
   if (!complete && s.start_date && s.lock_frequency_weeks) {
-    const [y, m, d] = String(s.start_date).split('-').map(Number);
-    const elapsedDays = Math.floor((Date.now() - new Date(y, m - 1, d).getTime()) / 86_400_000);
+    const elapsedDays = daysFrom(String(s.start_date).slice(0, 10), todayIn(await tzP));
     currentPeriod = Math.min(
       s.total_periods ?? 99,
       Math.max(1, Math.floor(elapsedDays / (s.lock_frequency_weeks * 7)) + 1),

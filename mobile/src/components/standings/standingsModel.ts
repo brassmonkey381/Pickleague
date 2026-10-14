@@ -43,7 +43,8 @@ export type SnapshotPeriod = {
 };
 
 // Compute season-scoped standings for league members against an in-league
-// match list, optionally windowed by [startIso, endIso] on played_at.
+// match list, optionally windowed by [startIso, endIso] on the local day of
+// played_at (seasonSummary's playedInWindow).
 //
 // "Season PLUPR" is computed from the season's baseline plus the sum of
 // each player's per-match team deltas (player1_rating_after - _before for
@@ -164,8 +165,9 @@ export function nextLockPeriod(lockedPeriods: ReadonlySet<number>): number {
   return lockedPeriods.size === 0 ? 1 : Math.max(...lockedPeriods) + 1;
 }
 
-/** Whether period `n`'s lock is due at `now` (its snapshot date has arrived).
- *  Same date math the Lock button has always used. */
+/** Whether period `n`'s lock is due at `now`: local midnight of its snapshot
+ *  date has arrived (the server's auto-lock runs at 00:05 in the league's zone).
+ *  Calendar-day math, so a DST change in the period never moves it an hour. */
 export function isLockDue(
   season: Pick<LeagueSeason, 'start_date' | 'lock_frequency_weeks' | 'total_periods' | 'status'>,
   n: number,
@@ -173,8 +175,7 @@ export function isLockDue(
 ): boolean {
   if (season.status === 'completed') return false;
   if (n > season.total_periods) return false;
-  const start = new Date(season.start_date + 'T00:00:00');
-  const due = new Date(start.getTime() + n * season.lock_frequency_weeks * 7 * 86400000);
+  const due = new Date(computePeriodDate(season, n) + 'T00:00:00');
   return now >= due;
 }
 

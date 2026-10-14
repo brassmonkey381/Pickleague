@@ -55,6 +55,7 @@ import {
   findLivePeriod, nextLockPeriod, isLockDue, seasonHeaderLine, formatPluprChange,
   RANK_BONUSES, type SnapshotPeriod,
 } from '../components/standings/standingsModel';
+import { localIsoDate } from '../lib/seasonSummary';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SeasonStandings'>;
@@ -220,7 +221,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     ((wagerRows ?? []) as any[]).forEach((w: any) => { if (w.user_id) wMap[w.user_id] = w.total; });
     setWagerTotals(wMap);
 
-    const todayIsoDate = new Date().toISOString().slice(0, 10);
+    // The LOCAL calendar day: periods and matches are bucketed by local day
+    // (lib/seasonSummary.ts), as the server's lock is (league's zone).
+    const todayIsoDate = localIsoDate(new Date());
 
     // Group locked snapshots by period
     const lockedByPeriod = new Map<number, SeasonSnapshot[]>();
@@ -311,7 +314,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     if (!season) return;
     const n = nextPeriod;
     setLocking(true);
-    const today = new Date().toISOString().split('T')[0];
+    const today = localIsoDate(new Date());
     const { error } = await supabase.rpc('lock_season_period', {
       p_season_id: seasonId, p_period_number: n, p_snapshot_date: today,
     });
@@ -409,7 +412,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   // Finals are "real" only when every period is locked AND the season is completed.
   // Otherwise it's a historical preview computed from match data.
   const finalsAreComputed = !(lockedCount >= totalPeriods && season.status === 'completed');
-  const todayDateOnly = new Date().toISOString().slice(0, 10);
+  const todayDateOnly = localIsoDate(new Date());
   const livePeriodNumber = findLivePeriod(season, lockedSet, todayDateOnly);
   const lockDue = canLock();
   const pool = season.prize_pool ?? 0;
