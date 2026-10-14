@@ -44,11 +44,13 @@ function timeAgo(iso: string): string {
 
 const STATUS_LABEL: Record<string, string> = { open: 'Open', won: 'Won', lost: 'Lost' };
 
-// Date-only, formatted in UTC so date-based ends (season / period / tournament,
-// returned at UTC midnight) don't shift a day in the local timezone.
-function fmtEndDate(iso: string): string {
+// Season and period ends are dates returned at UTC midnight, so they format in
+// UTC to keep from shifting a day in the local timezone. A tournament's end
+// (start + length) is a real moment, so it formats in the device zone.
+function fmtEndDate(iso: string, subjectType: string): string {
+  const dateOnly = subjectType === 'season_rank' || subjectType === 'period_rank';
   return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+    month: 'short', day: 'numeric', year: 'numeric', ...(dateOnly ? { timeZone: 'UTC' } : {}),
   });
 }
 
@@ -59,7 +61,7 @@ function wagerContext(w: WagerOnPlayer): string | null {
   if (w.league_name && w.league_name !== w.scope_name) parts.push(`Under ${w.league_name}`);
   if (w.expected_end_at) {
     const settled = w.status === 'won' || w.status === 'lost';
-    parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at)}`);
+    parts.push(`${settled ? 'Ended' : 'Ends'} ${fmtEndDate(w.expected_end_at, w.subject_type)}`);
   }
   return parts.length ? parts.join(' · ') : null;
 }

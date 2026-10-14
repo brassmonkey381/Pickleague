@@ -18,7 +18,8 @@ import EmptyState from '../components/EmptyState';
 import EntityRow, { type EntityRowChip } from '../components/EntityRow';
 import { joinFacts, tournamentStatusChip, type EntityKind } from '../lib/entityGlyph';
 import { displayCourtName } from '../lib/courtNickname';
-import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
+import { dateLabel, dateSubLabel, durationLabel } from '../lib/drillTime';
+import { drillWhen } from '../lib/drillWhen';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Bookmarks'> };
 
@@ -254,7 +255,7 @@ async function enrich(rows: Bookmark[]): Promise<EnrichedBookmark[]> {
       ? sbCall(() => supabase.from('league_events').select('id, title, status, vote_ends_at').in('id', byType.event))
       : Promise.resolve([] as any[]),
     byType.drill_session.length
-      ? sbCall(() => supabase.from('drill_sessions').select('id, session_date, session_slot, length_minutes').in('id', byType.drill_session))
+      ? sbCall(() => supabase.from('drill_sessions').select('id, session_date, session_slot, length_minutes, starts_at').in('id', byType.drill_session))
       : Promise.resolve([] as any[]),
     byType.profile.length
       ? sbCall(() => supabase.from('profiles').select('id, full_name, tagline').in('id', byType.profile))
@@ -293,12 +294,16 @@ async function enrich(rows: Bookmark[]): Promise<EnrichedBookmark[]> {
       case 'drill_session': {
         const d = dMap.get(b.target_id);
         if (!d) return gone(b, 'drill session');
-        const day = d.session_date ? `${dateLabel(d.session_date)} ${dateSubLabel(d.session_date)}` : null;
+        // starts_at on this device's clock; the wall-clock slot is the fallback.
+        const w = d.session_date && d.session_slot != null
+          ? drillWhen(d.starts_at, { date: d.session_date, slot: d.session_slot })
+          : null;
+        const day = w ? `${dateLabel(w.date)} ${dateSubLabel(w.date)}` : null;
         return {
           ...b,
           title: day ? `Drill ${day}` : 'Drill session',
           subtitle: joinFacts([
-            d.session_slot != null ? slotLabel(d.session_slot) : null,
+            w ? w.time : null,
             d.length_minutes ? durationLabel(d.length_minutes) : null,
           ]) || null,
         };

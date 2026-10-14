@@ -17,7 +17,7 @@ import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
 import { endSession, resetSessionUser, trackScreen } from '../lib/analytics';
 import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
-import { useBootstrapSession, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
+import { useBootstrapSession, signOutSafely, useTimeZoneSync } from '@just-messin-around/expo-foundation/supabase';
 import { getNativeBuild, startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
 import { OfflineBanner, UpdateReadyBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
 import { APP_STORE_URL } from '../lib/appStore';
@@ -25,7 +25,6 @@ import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
 import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
-import { syncMyTimeZone } from '../data/timeZone';
 import PlayIsland from '../components/PlayIsland';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
@@ -109,6 +108,11 @@ export default function AppNavigator() {
   // unbounded network call. `phase === 'error'` gets a retry screen instead of
   // the blank void this used to render.
   const { session, phase, retry } = useBootstrapSession(supabase);
+  // Times in push bodies and drill start times use the player's zone
+  // (supabase/migration_time_zones.sql). Checked against the stored zone on
+  // sign-in and on every return to the foreground, so it heals after another
+  // device or a UTC-reporting browser overwrote it.
+  useTimeZoneSync(supabase, { prefix: 'pickleague', enabled: !!session, userId: session?.user.id });
   const [splashDone, setSplashDone] = useState(false);
 
   // Minimum-version gate. Starts false and only ever flips true, so startup is
@@ -203,8 +207,6 @@ export default function AppNavigator() {
     // Re-pick the fenced courts for arrival alerts (no-op unless turned on in
     // Settings; never shows a permission sheet here).
     void syncCourtGeofences();
-    // Times in push bodies and drill start times use the player's zone.
-    void syncMyTimeZone();
     (async () => {
       // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
       // have lapsed, or if the profile is gone entirely (the hourly cleanup

@@ -38,6 +38,7 @@
 import type { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import type { supabase as SupabaseSingleton } from './supabase';
 import { calendarDayDiff, type AgendaItem } from './agenda';
+import { loadDrillSlotStarts } from './drillWhen';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -147,10 +148,15 @@ export type DrillRequestRow = {
   proposed_slots: unknown;
   created_at: string | null;
   from_profile?: NameEmbed;
+  /** The proposed times' real instants (drill_request_slot_starts: the
+   *  requester's wall clock in the requester's zone). Absent when that read
+   *  failed. */
+  slot_starts?: readonly string[] | null;
 };
 
 /** proposed_slots entries ({date: 'YYYY-MM-DD', slot: 0..47}) -> start times
- *  (ms, the device's zone, like every drill time in the app). Malformed
+ *  (ms), reading the wall clock in the device's zone: right only when the
+ *  requester shares it, so it is requestSlotStarts' fallback. Malformed
  *  entries drop out. */
 export function proposedSlotStarts(raw: unknown): number[] {
   if (!Array.isArray(raw)) return [];
@@ -171,6 +177,13 @@ export function proposedSlotStarts(raw: unknown): number[] {
   return out.sort((a, b) => a - b);
 }
 
+/** A request's proposed times (ms, sorted): the server's real instants when
+ *  the loader got them, else proposedSlotStarts' device-zone reading. */
+export function requestSlotStarts(r: { proposed_slots: unknown; slot_starts?: readonly string[] | null }): number[] {
+  const real = (r.slot_starts ?? []).map((s) => Date.parse(s)).filter((t) => Number.isFinite(t));
+  return real.length ? real.sort((a, b) => a - b) : proposedSlotStarts(r.proposed_slots);
+}
+
 /**
  * Drill requests sent to me -> "Drill request from Sam" rows. Due at the
  * first proposed time still ahead; once every proposed time has passed the
@@ -181,7 +194,7 @@ export function drillRequestItems(rows: readonly DrillRequestRow[], now: number)
   const out: AgendaItem[] = [];
   for (const r of rows) {
     if (r.status !== 'pending') continue;
-    const starts = proposedSlotStarts(r.proposed_slots);
+    const starts = requestSlotStarts(r);
     const ahead = starts.filter((t) => t > now);
     if (starts.length > 0 && ahead.length === 0) continue;
     const who = firstName(one(r.from_profile)?.full_name) ?? 'a player';
@@ -211,6 +224,8 @@ export type SentDrillRequestRow = {
   proposed_slots: unknown;
   created_at: string | null;
   to_profile?: NameEmbed;
+  /** As on DrillRequestRow. */
+  slot_starts?: readonly string[] | null;
 };
 
 /**
@@ -223,7 +238,7 @@ export function drillWaitingItems(rows: readonly SentDrillRequestRow[], now: num
   const out: AgendaItem[] = [];
   for (const r of rows) {
     if (r.status !== 'pending') continue;
-    const next = proposedSlotStarts(r.proposed_slots).find((t) => t > now);
+    const next = requestSlotStarts(r).find((t) => t > now);
     if (next == null || calendarDayDiff(new Date(next), new Date(now)) >= 7) continue;
     const who = firstName(one(r.to_profile)?.full_name) ?? 'your partner';
     const startsAt = new Date(next).toISOString();
@@ -747,7 +762,22 @@ export async function loadInboxRequests(
       .order('created_at', { ascending: false })
       .limit(REQUEST_LIMIT)) as unknown as Promise<SentDrillRequestRow[]>, []),
   ]);
-  return { matches, drills, joins, pairInvites, teamInvites, sentDrills };
+  // The proposed times' real instants (a proposed slot is the requester's
+  // wall clock). One more round trip, and only when there are requests; if it
+  // fails, the rows keep their wall-clock times.
+  const starts = await loadDrillSlotStarts(db, [...drills, ...sentDrills].map((r) => r.id));
+  const withStarts = <R extends { id: string }>(r: R): R => {
+    const times = starts.get(r.id);
+    return times ? { ...r, slot_starts: [...times.values()] } : r;
+  };
+  return {
+    matches,
+    drills: drills.map(withStarts),
+    joins,
+    pairInvites,
+    teamInvites,
+    sentDrills: sentDrills.map(withStarts),
+  };
 }
 
 /** Ids per `in` filter: keeps the request URL short. */

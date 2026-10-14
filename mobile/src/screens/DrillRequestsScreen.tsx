@@ -22,7 +22,8 @@ import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillRequest, DrillRequestMessage, DrillSession, RootStackParamList } from '../types';
-import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
+import { durationLabel } from '../lib/drillTime';
+import { drillWhenLabel, loadDrillSlotStarts, slotKey } from '../lib/drillWhen';
 import { formatPlupr } from '../lib/plupr';
 import { AVATARS } from '../data/profileCustomization';
 import ConfirmModal from '../components/ConfirmModal';
@@ -50,6 +51,8 @@ type ReviewableSession = DrillSession & { partner_name: string };
 
 type GroupKey = 'open' | 'accepted' | 'closed';
 const GROUP_ORDER: GroupKey[] = ['open', 'accepted', 'closed'];
+
+const DB = { client: supabase, call: sbCall };
 
 export default function DrillRequestsScreen({ route }: Props) {
   const { colors } = useTheme();
@@ -89,6 +92,9 @@ export default function DrillRequestsScreen({ route }: Props) {
   const [loading, setLoading] = useState(true);
   // A failed read must not render as "no drill requests".
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Request id -> each proposed time's real instant (loadDrillSlotStarts).
+  // Empty until it lands, or if it fails: the labels keep the wall clock.
+  const [slotStarts, setSlotStarts] = useState<Map<string, Map<string, string>>>(new Map());
 
   // Per-request slot selection for the incoming Accept flow.
   // Key = request.id, value = index into proposed_slots that the receiver picked.
@@ -163,14 +169,21 @@ export default function DrillRequestsScreen({ route }: Props) {
       : 'to_profile:profiles!drill_requests_to_user_id_fkey(id, full_name, avatar_id, avatar_url, rating, total_matches_played, name_color, list_name_style_id)';
 
     try {
+      // session: an accepted request's drill session, for its real start.
       const data = await sbCall(() => supabase
         .from('drill_requests')
-        .select(`*, ${fkField}`)
+        .select(`*, ${fkField}, session:drill_sessions(starts_at)`)
         .eq(tab === 'incoming' ? 'to_user_id' : 'from_user_id', uid)
         .order('created_at', { ascending: false }));
 
-      setRequests((data ?? []) as unknown as DrillRequest[]);
+      const rows = (data ?? []) as unknown as DrillRequest[];
+      setRequests(rows);
       setLoadError(null);
+      // The proposed times are the requester's wall clock: fetch their real
+      // instants for the cards that show times. Merged, so a slow answer
+      // from the other tab can't wipe this tab's.
+      void loadDrillSlotStarts(DB, rows.filter(r => r.status === 'pending' || r.status === 'accepted').map(r => r.id))
+        .then(m => { if (m.size) setSlotStarts(prev => new Map([...prev, ...m])); });
     } catch (e) {
       // A pending drill invite hidden behind "no requests" gets ignored and
       // expires — say the read failed instead.
@@ -389,6 +402,16 @@ export default function DrillRequestsScreen({ route }: Props) {
     );
   }
 
+  // One of a request's times on this device's clock: the session's start once
+  // it's accepted (what the lock-in push and Home show), else the server's
+  // instant for the proposed time, else the stored wall clock.
+  function whenLabel(item: DrillRequest, s: { date: string; slot: number }): string {
+    const session = Array.isArray(item.session) ? item.session[0] : item.session;
+    const startsAt = (item.status === 'accepted' ? session?.starts_at : null)
+      ?? slotStarts.get(item.id)?.get(slotKey(s));
+    return drillWhenLabel(startsAt, s);
+  }
+
   function renderRequestBody(item: DrillRequest) {
     const otherProfile = tab === 'incoming' ? item.from_profile : item.to_profile;
     const avatar = AVATARS.find(a => a.id === (otherProfile?.avatar_id ?? 1)) ?? AVATARS[0];
@@ -488,7 +511,7 @@ export default function DrillRequestsScreen({ route }: Props) {
         </Text>
         <View style={S.slotsWrap} accessibilityRole={interactable ? 'radiogroup' : undefined}>
           {(slots ?? []).map((s, i) => {
-            const label = `${dateLabel(s.date)} ${dateSubLabel(s.date)} · ${slotLabel(s.slot)}`;
+            const label = whenLabel(item, s);
             if (interactable) {
               const selected = selectedSlotIdx[item.id] === i;
               return (
@@ -520,7 +543,7 @@ export default function DrillRequestsScreen({ route }: Props) {
           <View style={S.locationRow}>
             <Text style={S.locationText} numberOfLines={isAccepted && item.accepted_slot ? 2 : 1}>
               {isAccepted && item.accepted_slot
-                ? `📍 We're playing at ${item.location_name} · ${dateLabel(item.accepted_slot.date)} ${dateSubLabel(item.accepted_slot.date)} · ${slotLabel(item.accepted_slot.slot)}`
+                ? `📍 We're playing at ${item.location_name} · ${whenLabel(item, item.accepted_slot)}`
                 : `📍 ${item.location_name}`}
             </Text>
             <Pressable
@@ -613,7 +636,7 @@ export default function DrillRequestsScreen({ route }: Props) {
                   variant="row"
                   lastRow={i === reviewable.length - 1}
                   title={`Drill with ${s.partner_name}`}
-                  subtitle={`${dateLabel(s.session_date)} ${dateSubLabel(s.session_date)} · ${slotLabel(s.session_slot)} · ${durationLabel(s.length_minutes ?? 60)}`}
+                  subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })} · ${durationLabel(s.length_minutes ?? 60)}`}
                   trailing={<Button size="sm" title="📝 Review" onPress={() => setReviewTarget(s)} />}
                   style={S.actionRow}
                 />

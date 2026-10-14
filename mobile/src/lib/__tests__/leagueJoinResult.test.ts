@@ -55,11 +55,11 @@ describe('requestJoinCopy', () => {
     expect(c.message).toContain('Dinks');
   });
 
-  it("'denied' names the date you may ask again", () => {
-    const retryAt = new Date(2026, 9, 21, 12, 0, 0); // local noon, Oct 21
+  it("'denied' names the moment you may ask again, on the device clock", () => {
+    const retryAt = new Date(2026, 9, 21, 18, 30, 0); // local 6:30 PM, Wed Oct 21
     expect(requestJoinCopy({ kind: 'denied', retryAt }, 'Dinks')).toEqual({
       tone: 'error',
-      message: 'An admin declined your request. You can ask again after Oct 21.',
+      message: 'An admin declined your request. You can ask again from Wed Oct 21, 6:30 PM.',
     });
     expect(requestJoinCopy({ kind: 'denied', retryAt: null }, 'Dinks').message).toBe('An admin declined your request.');
   });

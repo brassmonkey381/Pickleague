@@ -6,8 +6,9 @@
 // Home's Up next drill row) lands here with the session highlighted (focusId);
 // the focused row reports its node so the screen can scroll it into view.
 //
-// Times come from the session's wall-clock slot (session_date + session_slot),
-// the same labels the request showed, so they never depend on starts_at.
+// Times are starts_at on this device's clock (the same instant the lock-in
+// push and Home show). session_date + session_slot is the requester's wall
+// clock, so it is only the fallback.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -16,7 +17,8 @@ import { SPACE, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { dateLabel, dateSubLabel, durationLabel, slotLabel } from '../lib/drillTime';
+import { durationLabel } from '../lib/drillTime';
+import { drillWhenLabel } from '../lib/drillWhen';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from './StatusBanner';
 
@@ -126,7 +128,7 @@ export default function DrillUpcomingSessions({
           const theirs = rsvps.find((r) => r.user_id === partnerId)?.status;
           const focused = !!focusId && focusId === s.id;
           const busy = saving === s.id;
-          const when = `${dateLabel(s.session_date)} ${dateSubLabel(s.session_date)} · ${slotLabel(s.session_slot)}`;
+          const when = drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot });
           const place = s.req?.location_name;
           return (
             <View

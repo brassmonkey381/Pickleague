@@ -43,14 +43,29 @@ const rest = createRestFetcher({
   key: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
 });
 
-// Fixed to Pacific: the server cannot know the reader's zone, and "9:00 AM
-// UTC" for a 9am Alameda game is worse than useless.
+// The server cannot know the reader's zone, and "9:00 AM UTC" for a 9am
+// Alameda game is worse than useless. So a card prints its times in the
+// organizer's zone (og_card_tz: the event's or tournament's creator), falls
+// back to Pacific, and every time names its zone ("4:00 PM PDT") so a reader
+// somewhere else can tell.
 const TZ = 'America/Los_Angeles';
-const fmt = (iso: string, o: Intl.DateTimeFormatOptions) =>
-  new Date(iso).toLocaleString('en-US', { ...o, timeZone: TZ });
+async function cardTz(type: 'event' | 'tournament', id: string): Promise<string> {
+  // A scalar RPC answers with a bare JSON string. Any failure (including a
+  // database without the RPC yet) comes back from rest() as [].
+  const tz: unknown = await rest(`rpc/og_card_tz?p_type=${type}&p_id=${encodeURIComponent(id)}`);
+  if (typeof tz !== 'string' || !tz) return TZ;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return tz;
+  } catch {
+    return TZ; // a zone this engine doesn't know (RangeError)
+  }
+}
+const fmt = (iso: string, o: Intl.DateTimeFormatOptions, tz: string) =>
+  new Date(iso).toLocaleString('en-US', { ...o, timeZone: tz });
 const DAY_TIME: Intl.DateTimeFormatOptions =
-  { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
-/** "Sat, Aug 15 · 9:00 AM" — date and time always together. A weekday alone
+  { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' };
+/** "Sat, Aug 15 · 9:00 AM PDT" — date and time always together. A weekday alone
  *  ("Fri") is ambiguous the moment a link outlives the week it was shared. */
 /** Date-ONLY strings ('2026-05-01') must not go through the TZ formatter —
  *  they parse as UTC midnight, which is the previous day in Pacific. */
@@ -58,8 +73,8 @@ const fmtDateOnly = (d: string) => {
   const [y, m, dd] = d.split('-').map(Number);
   return new Date(y, m - 1, dd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
-const dayDotTime = (iso: string) =>
-  `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' })} · ${fmt(iso, { hour: 'numeric', minute: '2-digit' })}`;
+const dayDotTime = (iso: string, tz: string) =>
+  `${fmt(iso, { weekday: 'short', month: 'short', day: 'numeric' }, tz)} · ${fmt(iso, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }, tz)}`;
 
 export type Card = {
   title: string;
@@ -161,6 +176,7 @@ async function playerCard(id: string): Promise<Card | null> {
 
 async function eventCard(id: string): Promise<Card | null> {
   const eid = encodeURIComponent(id);
+  const tzP = cardTz('event', id);
   const ev = (await rest(
     `league_events?id=eq.${eid}&select=id,title,status,vote_ends_at,confirmed_slot_id,min_players,league_id,location_name&limit=1`,
   ))[0];
@@ -201,10 +217,12 @@ async function eventCard(id: string): Promise<Card | null> {
     return simple(`${ev.title} — cancelled`, 'Not enough players could agree on a time.');
   }
 
+  const tz = await tzP;
+
   if (ev.status === 'scheduled') {
     const slot = slots.find((s: any) => s.id === ev.confirmed_slot_id);
     const when = slot
-      ? fmt(slot.starts_at, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      ? fmt(slot.starts_at, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }, tz)
       : 'Time confirmed';
     const going: string[] = slot?.voters ?? [];
     return {
@@ -253,10 +271,10 @@ async function eventCard(id: string): Promise<Card | null> {
   ];
   if (ev.location_name) parts.push(`at ${ev.location_name}`);
   if (leader && leader.voters.length > 0) {
-    parts.push(`${dayDotTime(leader.starts_at)} leading (${leader.voters.length})`);
+    parts.push(`${dayDotTime(leader.starts_at, tz)} leading (${leader.voters.length})`);
   }
   if (ev.min_players != null) parts.push(`needs ${ev.min_players} on one time`);
-  parts.push(closed ? 'voting closed' : `closes ${dayDotTime(ev.vote_ends_at)}`);
+  parts.push(closed ? 'voting closed' : `closes ${dayDotTime(ev.vote_ends_at, tz)}`);
   if (nonResponders?.length) parts.push(`waiting on ${clampNames(nonResponders, 4)}`);
 
   // The header carries the deadline and threshold; the roll-call under the
@@ -282,7 +300,7 @@ async function eventCard(id: string): Promise<Card | null> {
           </div>
           <div style={{ display: 'flex', fontSize: 24, color: PALETTE.muted }}>
             {ev.location_name ? `at ${ev.location_name} · ` : ''}
-            {closed ? 'voting closed' : `voting closes ${dayDotTime(ev.vote_ends_at)}`}
+            {closed ? 'voting closed' : `voting closes ${dayDotTime(ev.vote_ends_at, tz)}`}
             {ev.min_players != null ? ` · needs ${ev.min_players} on one time` : ''}
           </div>
         </div>
@@ -294,7 +312,7 @@ async function eventCard(id: string): Promise<Card | null> {
             return (
               <OgBarBlock
                 key={s.id}
-                label={dayDotTime(s.starts_at)}
+                label={dayDotTime(s.starts_at, tz)}
                 caption={n === 0 ? 'no votes yet'
                   : `${n} ${n === 1 ? 'vote' : 'votes'}${hit ? ' — enough to play' : ''} · ${clampNames(s.voters, many ? 3 : 5)}`}
                 frac={n / most}
@@ -558,6 +576,7 @@ const FORMAT_LABEL: Record<string, string> = {
 
 async function tournamentCard(id: string): Promise<Card | null> {
   const tid = encodeURIComponent(id);
+  const tzP = cardTz('tournament', id);
   const t = (await rest(
     `tournaments?id=eq.${tid}`
     + `&select=id,name,status,format,match_type,start_time,location_name,max_players,registration_closes_at&limit=1`,
@@ -620,7 +639,7 @@ async function tournamentCard(id: string): Promise<Card | null> {
 
   const format = FORMAT_LABEL[t.format] ?? t.format ?? '—';
   const matchType = t.match_type ? String(t.match_type)[0].toUpperCase() + String(t.match_type).slice(1) : '—';
-  const when = t.start_time ? fmt(t.start_time, DAY_TIME) : 'TBD';
+  const when = t.start_time ? fmt(t.start_time, DAY_TIME, await tzP) : 'TBD';
   // What "n/m" means depends on the format: MLP fields teams, everything else
   // fields players.
   const fieldCount = teams.length ? `${teams.length}` : `${players.length}`;

@@ -18,6 +18,7 @@ import {
   notificationDayLabel,
   notificationTime,
   proposedSlotStarts,
+  requestSlotStarts,
   targetLookups,
   teamInviteItems,
   type MatchConfirmRow,
@@ -155,6 +156,17 @@ describe('drillRequestItems', () => {
     expect(items.map((i) => i.key)).toEqual(['drill-request-undated']);
     expect(items[0]).toMatchObject({ title: 'Drill request from a player', deadline: null, status: 'pick a time', requestedAt: iso(-3 * H) });
   });
+
+  it("uses the server's instants (the requester's zone) over the device reading of the wall clock", () => {
+    // A requester an hour east proposes 9 AM Thu: on this device that is 8 AM.
+    const real = new Date(2026, 9, 15, 8, 0).toISOString();
+    const row = { id: 'r2', status: 'pending', proposed_slots: [{ date: '2026-10-15', slot: 18 }], slot_starts: [real], created_at: null };
+    expect(requestSlotStarts(row)).toEqual([Date.parse(real)]);
+    expect(drillRequestItems([row], NOW)[0].deadline).toBe(real);
+    // Without them (the read failed): the wall clock, as before.
+    expect(requestSlotStarts({ ...row, slot_starts: [] })).toEqual([new Date(2026, 9, 15, 9, 0).getTime()]);
+    expect(requestSlotStarts({ ...row, slot_starts: undefined })).toEqual([new Date(2026, 9, 15, 9, 0).getTime()]);
+  });
 });
 
 describe('drillWaitingItems', () => {
@@ -179,6 +191,15 @@ describe('drillWaitingItems', () => {
       { id: 'undated', status: 'pending', created_at: null, proposed_slots: [] },
     ], NOW);
     expect(items).toEqual([]);
+  });
+
+  it("sits at the server's instant when the loader got one", () => {
+    const real = new Date(2026, 9, 15, 17, 0).toISOString();
+    const [d] = drillWaitingItems([{
+      id: 'w2', status: 'pending', created_at: null,
+      proposed_slots: [{ date: '2026-10-15', slot: 36 }], slot_starts: [real],
+    }], NOW);
+    expect(d.startsAt).toBe(real);
   });
 
   it('inboxAgendaItems includes them (absent in an old payload is none)', () => {

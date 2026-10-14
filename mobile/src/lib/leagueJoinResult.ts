@@ -5,6 +5,7 @@
 // functions decide what it meant. The RPC returns text:
 //   'sent' | 'pending' | 'joined' | 'member' | 'denied:<ISO UTC timestamp>'
 // ('denied:<iso>' = when the requester may ask again, 7 days after the denial).
+import { deviceTimeZone, formatOptionLabel } from '@just-messin-around/expo-foundation/push/optionVote';
 
 export type RequestJoinResult =
   | { kind: 'sent' }
@@ -58,7 +59,9 @@ export function requestJoinCopy(result: RequestJoinResult, leagueName: string): 
       return {
         tone: 'error',
         message: result.retryAt
-          ? `An admin declined your request. You can ask again after ${shortDate(result.retryAt)}.`
+          // The moment, on this device's clock, in the denial push's format
+          // ("from Wed Oct 21, 6:30 PM").
+          ? `An admin declined your request. You can ask again from ${formatOptionLabel(result.retryAt, deviceTimeZone())}.`
           : 'An admin declined your request.',
       };
   }

@@ -53,6 +53,8 @@ export type DrillRequest = {
   responded_at: string | null;
   from_profile?: { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number; name_color?: string | null; list_name_style_id?: string | null };
   to_profile?:   { id: string; full_name: string; avatar_id: number; avatar_url: string | null; rating: number; name_color?: string | null; list_name_style_id?: string | null };
+  /** Embedded drill_sessions row(s) of an accepted request (request_id FK). */
+  session?: { starts_at: string | null }[] | { starts_at: string | null } | null;
 };
 
 export type DrillRequestMessage = {

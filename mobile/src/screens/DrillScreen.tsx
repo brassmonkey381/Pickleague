@@ -13,7 +13,8 @@ import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
 import StatusBanner from '../components/StatusBanner';
 import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
-import { isoDate, rollingDates, slotRangeLabel, durationLabel, spanToDailyOverlays, dateLabel, dateSubLabel, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
+import { isoDate, rollingDates, durationLabel, spanToDailyOverlays, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
+import { drillWhenRangeLabel } from '../lib/drillWhen';
 import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
 import { DumbbellIcon } from '../components/PickleIcons';
 import { useRefresh } from '../lib/useRefresh';
@@ -358,7 +359,8 @@ export default function DrillScreen({ navigation }: Props) {
                     <View style={{ flex: 1 }}>
                       <Text style={S.sessionTitle}>{s.partner_name}</Text>
                       <Text style={S.sessionSub}>
-                        {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotRangeLabel(s.session_slot, s.length_minutes ?? 60)} · {durationLabel(s.length_minutes ?? 60)}
+                        {/* starts_at on this device's clock; the wall-clock slot is the fallback. */}
+                        {drillWhenRangeLabel(s.starts_at, { date: s.session_date, slot: s.session_slot }, s.length_minutes ?? 60)} · {durationLabel(s.length_minutes ?? 60)}
                       </Text>
                     </View>
                     {sessionFilter === 'past' && (

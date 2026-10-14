@@ -15,6 +15,7 @@ import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/sty
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useStatusMessage } from '../../lib/useStatusMessage';
+import { addDaysIso, localIsoDate } from '../../lib/seasonSummary';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import AppDateTimePicker from '../AppDateTimePicker';
@@ -108,10 +109,11 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
     if (!uid) { status.error('Please sign in again.'); return; }
 
     setCreating(true);
-    const startStr = start.toISOString().split('T')[0];
-    const endDate = new Date(start);
-    endDate.setDate(endDate.getDate() + effectiveWeeks * 7);
-    const endStr = endDate.toISOString().split('T')[0];
+    // The LOCAL day the admin picked (start_date is a date). toISOString()
+    // gave the UTC day: a season set up on an evening west of UTC started
+    // the next day.
+    const startStr = localIsoDate(start);
+    const endStr = addDaysIso(startStr, effectiveWeeks * 7);
 
     const { error } = await supabase.from('league_seasons').insert({
       league_id:            leagueId,
@@ -121,7 +123,7 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
       total_weeks:          effectiveWeeks,
       lock_frequency_weeks: effectiveLock,
       baseline_plupr:       baselineN,
-      status:               new Date() >= start ? 'active' : 'upcoming',
+      status:               localIsoDate(new Date()) >= startStr ? 'active' : 'upcoming',
       created_by:           uid,
     });
     setCreating(false);

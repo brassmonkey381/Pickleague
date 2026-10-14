@@ -7,6 +7,7 @@ import {
   currentUserId as sessionUserId,
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
+import { isoDate } from '@just-messin-around/expo-foundation/scheduling/drillTime';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
@@ -94,7 +95,9 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
 
     const map: Record<string, DayRecord> = {};
     for (const match of matches) {
-      const dateKey = match.played_at.slice(0, 10);
+      // The device's day: played_at comes back in UTC, so its first 10
+      // characters put an evening match on the next day.
+      const dateKey = isoDate(new Date(match.played_at));
       if (!map[dateKey]) map[dateKey] = { wins: 0, losses: 0, ratingDelta: 0, matches: [] };
       map[dateKey].matches.push(match);
 

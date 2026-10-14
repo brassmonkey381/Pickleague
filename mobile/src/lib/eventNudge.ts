@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { EventSlot, LeagueEvent } from '../types';
+import { calendarDayDiff } from './agenda';
 
 /**
  * Follow-up nudges for the group an organiser invited by text.
@@ -33,14 +34,19 @@ function dayLabel(iso: string): string {
 export function pickNudgeKind(
   event: Pick<LeagueEvent, 'status' | 'vote_ends_at'>,
   confirmedSlot: Pick<EventSlot, 'starts_at'> | null,
+  now: number = Date.now(),
 ): NudgeKind | null {
-  if (event.status === 'voting' && new Date(event.vote_ends_at) > new Date()) return 'vote';
+  if (event.status === 'voting' && new Date(event.vote_ends_at).getTime() > now) return 'vote';
   if (event.status !== 'scheduled' || !confirmedSlot) return null;
 
-  const startsIn = new Date(confirmedSlot.starts_at).getTime() - Date.now();
+  const start = new Date(confirmedSlot.starts_at);
+  const startsIn = start.getTime() - now;
   if (startsIn <= 0) return null;
-  const hours = startsIn / 3_600_000;
-  return hours <= 14 ? 'today' : hours <= 48 ? 'tomorrow' : null;
+  // "Today" is the device's calendar day, not a count of hours: a 9 AM game
+  // texted about at 8 PM the night before is tomorrow. The "locked in" copy
+  // names the day, so it fits any start in the next two days.
+  if (calendarDayDiff(start, new Date(now)) === 0) return 'today';
+  return startsIn <= 48 * 3_600_000 ? 'tomorrow' : null;
 }
 
 export function buildNudgeMessage(input: {
@@ -71,7 +77,9 @@ export function buildNudgeMessage(input: {
     if (event.min_players != null) {
       lines.push(`We need ${event.min_players} on the same time or it's off.`);
     }
-    lines.push(`Voting closes ${timeLabel(event.vote_ends_at)} — lock in your times: ${link}`);
+    // With the day: a vote can close a day or two after the text goes out,
+    // and a bare clock time reads as today.
+    lines.push(`Voting closes ${dayLabel(event.vote_ends_at)} at ${timeLabel(event.vote_ends_at)} — lock in your times: ${link}`);
     return lines.join('\n');
   }
 
