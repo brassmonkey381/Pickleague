@@ -60,6 +60,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
   const t = textStyles(colors);
   const styles = makeStyles(colors);
   const [profile, setProfile]             = useState<Profile | null>(null);
+  // "+N" on the tag row expands it to every tag; "Show less" folds it back.
+  const [tagsExpanded, setTagsExpanded]   = useState(false);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
   const [cosmeticPurchases, setCosmeticPurchases] = useState<{
     id: string; shop_item_id: string; purchased_at: string;
@@ -256,6 +258,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     .map(slug => PLAY_TAGS.find(tg => tg.slug === slug)?.label)
     .filter((l): l is string => !!l);
   const tagOverflow = tagLabels.length - TAG_CHIPS_SHOWN;
+  const tagsShown = tagsExpanded ? tagLabels : tagLabels.slice(0, TAG_CHIPS_SHOWN);
   const isOther = !!meId && meId !== userId;
 
   const shownCommon = showAllCommon ? commonLeagues : commonLeagues.slice(0, COMMON_CAP);
@@ -301,11 +304,20 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           {profile.dupr_id ? (
             <Chip label={`DUPR ${profile.dupr_id}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
           ) : null}
-          {tagLabels.slice(0, TAG_CHIPS_SHOWN).map(label => (
+          {tagsShown.map(label => (
             <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
           ))}
           {tagOverflow > 0 ? (
-            <Chip label={`+${tagOverflow}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+            <Chip
+              label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
+              tone="neutral"
+              size="sm"
+              hitBox
+              onPress={() => setTagsExpanded(v => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+            />
           ) : null}
         </View>
         <View style={styles.utilities}>

@@ -360,6 +360,8 @@ export default function ProfileScreen({ navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const status = useStatusMessage();
   const [profile, setProfile]             = useState<Profile | null>(null);
+  // "+N" on the tag row expands it to every tag; "Show less" folds it back.
+  const [tagsExpanded, setTagsExpanded]   = useState(false);
   const [locationRatings, setLocationRatings] = useState<PlayerLocationRating[]>([]);
   const [badges, setBadges]               = useState<BadgeItem[]>([]);
   const [defaultPaddle, setDefaultPaddle] = useState<(PaddleSelection & { paddleId: string }) | null>(null);
@@ -890,6 +892,7 @@ export default function ProfileScreen({ navigation }: Props) {
     .map(slug => PLAY_TAGS.find(tg => tg.slug === slug)?.label)
     .filter((l): l is string => !!l);
   const tagOverflow = tagLabels.length - TAG_CHIPS_SHOWN;
+  const tagsShown = tagsExpanded ? tagLabels : tagLabels.slice(0, TAG_CHIPS_SHOWN);
 
   // Coming up: tournaments first (they have a date), then leagues.
   const comingCount = comingTournaments.length + comingLeagues.length;
@@ -981,11 +984,20 @@ export default function ProfileScreen({ navigation }: Props) {
             </Text>
           </View>
         </TouchableOpacity>
-        {tagLabels.slice(0, TAG_CHIPS_SHOWN).map(label => (
+        {tagsShown.map(label => (
           <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
         ))}
         {tagOverflow > 0 ? (
-          <Chip label={`+${tagOverflow}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          <Chip
+            label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
+            tone="neutral"
+            size="sm"
+            hitBox
+            onPress={() => setTagsExpanded(v => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={tagsExpanded ? 'Show fewer tags' : `Show ${tagOverflow} more tags`}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          />
         ) : null}
       </View>
 

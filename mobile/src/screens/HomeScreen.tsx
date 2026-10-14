@@ -241,6 +241,8 @@ export default function HomeScreen({ navigation }: Props) {
 
   // Streak count straight from the claim, until the reload brings it in.
   const [claimedStreak, setClaimedStreak] = useState<number | null>(null);
+  // The session's streak result, kept so tapping 🔥 can reopen the pop-up.
+  const streakResultRef = useRef<StreakResult | null>(null);
 
   async function claimWelcomePicklesOnce() {
     const { data: rpc, error } = await supabase.rpc('claim_welcome_pickles');
@@ -261,11 +263,22 @@ export default function HomeScreen({ navigation }: Props) {
     // pickles are credited even on days the modal stays shut.
     const result = await claimDailyLoginStreak();
     if (!result) return;
+    streakResultRef.current = result;
     setClaimedStreak(result.streak_after);
     if (result.claimed_today) void reloadFresh();
     if (!streakRewardClaimable(result)) return;
     if (await wasStreakModalShownToday(uid)) return;
     // Marked shown once it is on screen (the effect above), not here.
+    enqueue({ kind: 'streak', result });
+  }
+
+  // Tapping 🔥 reopens the streak pop-up (streak, stats, milestone road map).
+  // Reuses this session's result; otherwise asks the day-idempotent claim RPC,
+  // which only returns today's state once the reward has been credited.
+  async function openStreak() {
+    const result = streakResultRef.current ?? (await claimDailyLoginStreak());
+    if (!result) return;
+    streakResultRef.current = result;
     enqueue({ kind: 'streak', result });
   }
 
@@ -452,6 +465,7 @@ export default function HomeScreen({ navigation }: Props) {
       streak={claimedStreak ?? data.streak}
       onProfile={() => { tap('greeting', 'profile'); navigation.navigate('Profile', {}); }}
       onShop={() => { tap('greeting', 'shop'); navigation.navigate('Shop'); }}
+      onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
     />,
   );
 

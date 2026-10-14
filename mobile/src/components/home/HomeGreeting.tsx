@@ -21,11 +21,13 @@ type Props = {
   streak: number;
   onProfile: () => void;
   onShop: () => void;
+  /** Opens the streak pop-up (current streak + upcoming milestone rewards). */
+  onStreak: () => void;
 };
 
 const AVATAR = 28;
 
-export default function HomeGreeting({ profile, streak, onProfile, onShop }: Props) {
+export default function HomeGreeting({ profile, streak, onProfile, onShop, onStreak }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const firstName = profile?.full_name?.trim().split(/\s+/)[0] ?? '';
@@ -59,13 +61,19 @@ export default function HomeGreeting({ profile, streak, onProfile, onShop }: Pro
       </TouchableOpacity>
 
       {streak > 0 ? (
-        <Text
-          style={[t.meta, { color: c.textSub }]}
-          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+        // Tappable: opens the streak pop-up with the road map of upcoming
+        // milestone rewards, so the number leads somewhere.
+        <TouchableOpacity
+          style={styles.pillBox}
+          onPress={onStreak}
+          accessibilityRole="button"
           accessibilityLabel={`${streak} day login streak`}
+          accessibilityHint="Shows your streak and upcoming rewards"
         >
-          🔥 {streak}
-        </Text>
+          <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            🔥 {streak}
+          </Text>
+        </TouchableOpacity>
       ) : null}
 
       <TouchableOpacity
