@@ -103,6 +103,7 @@ delete from public.notifications n
 
 delete from public.notifications n
  where n.entity_id is not null
+   and n.title not ilike '%refund%'
    and n.entity_type = 'drill'
    and not exists (select 1 from public.drill_requests dr where dr.id = n.entity_id)
    and not exists (select 1 from public.drill_sessions ds where ds.id = n.entity_id);
