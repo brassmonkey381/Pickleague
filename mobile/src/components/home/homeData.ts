@@ -28,11 +28,17 @@
 // unread notice whose league / tournament / event / match / drill is gone is
 // not "something new"). Both are soft: a failed read is "none", never a blank
 // Home. Their RLS is listed in lib/inboxRequests.ts.
+//
+// P4 adds "You #N" on YOURS rows (rule 3): for the shown leagues in an active
+// season, my live-period rank from lib/seasonSummary, read the way
+// LeagueDetail's season strip reads it (season_snapshots and league_members are
+// readable by everyone; matches by league members). It runs beside the events
+// wave and is soft per league: a failed read is "no rank", never a blank Home.
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../../lib/supabase';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
-import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
+import { EVENT_LIVE_WINDOW_MS, YOURS_CAP } from '../../lib/agenda';
 import type { AgendaDrillInput, AgendaEventInput, AgendaTournamentInput, SeasonInput } from '../../lib/agenda';
 import {
   EMPTY_INBOX,
@@ -41,6 +47,16 @@ import {
   type InboxRequestRows,
   type NotificationLite,
 } from '../../lib/inboxRequests';
+import {
+  STANDINGS_MATCH_COLUMNS,
+  addDaysIso,
+  livePeriodNumber,
+  periodWindow,
+  summarizeSeason,
+  type SeasonInput as SummarySeason,
+  type StandingsMatch,
+  type StandingsMember,
+} from '../../lib/seasonSummary';
 import type { Profile } from '../../types';
 
 export const HOME_KEY = 'home:overview:v2';
@@ -59,6 +75,10 @@ export type HomeLeague = {
   nextEventAt: string | null;
   /** Active season, else the upcoming one. */
   season: SeasonInput | null;
+  /** My rank in the active season's live period ("You #2"), null when unknown
+   *  or before anyone has played. Absent in a payload persisted before it
+   *  existed: read it as null. */
+  myRank: number | null;
 };
 
 export type HomeTournament = AgendaTournamentInput & {
@@ -152,6 +172,8 @@ type EventRow = {
   confirmed_slot_id: string | null;
 };
 type SlotRow = { id: string; event_id: string; starts_at: string; ends_at: string | null };
+/** A league_seasons row (select *): the agenda's fields plus what summarizeSeason ranks with. */
+type SeasonRow = SummarySeason & { id: string; league_id: string };
 
 /** Scheduled events in these leagues whose confirmed slot started at or after
  *  `cutoffIso` (agenda keeps an event live for EVENT_LIVE_WINDOW_MS after it
@@ -217,6 +239,44 @@ function drillStart(r: { starts_at: string | null; session_date: string; session
   if (!m || !Number.isFinite(r.session_slot)) return null;
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, r.session_slot * 30);
   return d.toISOString();
+}
+
+/** My live-period rank per league ("You #N"), computed exactly as LeagueDetail's
+ *  season strip does (lib/seasonSummary), so the row and the strip agree:
+ *  the locked periods and the members, then the live period's matches. Each
+ *  league is soft: a failed read leaves it out (unknown, never guessed). */
+async function loadMyRanks(uid: string, seasons: SeasonRow[]): Promise<Map<string, number | null>> {
+  // The same UTC "today" the strip and SeasonStandings rank with.
+  const today = new Date().toISOString().slice(0, 10);
+  const ranks = new Map<string, number | null>();
+  await Promise.all(seasons.map(async (season) => {
+    if (season.status !== 'active' || today < season.start_date) return;
+    try {
+      const [snaps, members] = await Promise.all([
+        sbCall(() => supabase.from('season_snapshots').select('period_number').eq('season_id', season.id)),
+        sbCall(() => supabase.from('league_members').select('user_id').eq('league_id', season.league_id)),
+      ]);
+      const locked = new Set(((snaps ?? []) as { period_number: number }[]).map(r => r.period_number));
+      const period = livePeriodNumber(season, locked, today);
+      let matches: StandingsMatch[] = [];
+      if (period != null) {
+        // A day of slack each side, as the strip reads it: summarizeSeason
+        // applies the exact window.
+        const w = periodWindow(season, period, today);
+        matches = ((await sbCall(() => supabase.from('matches')
+          .select(STANDINGS_MATCH_COLUMNS)
+          .eq('league_id', season.league_id)
+          .gte('played_at', addDaysIso(w.start, -1))
+          .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
+      }
+      ranks.set(season.league_id, summarizeSeason({
+        season, lockedPeriods: locked, members: (members ?? []) as StandingsMember[], matches, myUserId: uid, today,
+      }).myRank);
+    } catch {
+      // No rank for this league.
+    }
+  }));
+  return ranks;
 }
 
 /** My votes on these events' slots. Filtered through the slot's event with an
@@ -316,7 +376,7 @@ export async function loadHome(): Promise<HomeData> {
     const role: HomeRole = m.role === 'admin' ? 'admin' : m.role === 'co-admin' ? 'co-admin' : 'member';
     myLeagues.push({
       id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role,
-      openVotes: 0, nextEventAt: null, season: null,
+      openVotes: 0, nextEventAt: null, season: null, myRank: null,
     });
   }
   const leagueById = new Map(myLeagues.map(l => [l.id, l]));
@@ -386,7 +446,7 @@ export async function loadHome(): Promise<HomeData> {
     myLeagueIds.length
       ? sbCall(() => supabase
           .from('league_seasons')
-          .select('league_id, status, start_date, total_weeks')
+          .select('*')
           .in('league_id', myLeagueIds)
           .in('status', ['active', 'upcoming']))
       : Promise.resolve([]),
@@ -421,14 +481,21 @@ export async function loadHome(): Promise<HomeData> {
   for (const l of (extraLeagueRows ?? []) as { id: string; name: string }[]) knownNames.set(l.id, l.name);
 
   // Seasons: active wins over upcoming (the earliest upcoming otherwise).
-  for (const s of (seasonRows ?? []) as { league_id: string; status: string; start_date: string; total_weeks: number }[]) {
+  const activeSeasons = new Map<string, SeasonRow>();
+  for (const s of (seasonRows ?? []) as SeasonRow[]) {
     const l = leagueById.get(s.league_id);
     if (!l) continue;
     const next: SeasonInput = { status: s.status, startDate: s.start_date, totalWeeks: s.total_weeks };
     if (!l.season || (l.season.status !== 'active' && (s.status === 'active' || s.start_date < l.season.startDate))) {
       l.season = next;
+      if (s.status === 'active') activeSeasons.set(l.id, s);
     }
   }
+  // Ranks for the rows YOURS shows (it lists myLeagues in order, capped), in
+  // parallel with the events wave below. Never rejects.
+  const ranksP = loadMyRanks(uid, myLeagues.slice(0, YOURS_CAP)
+    .map(l => activeSeasons.get(l.id))
+    .filter((s): s is SeasonRow => !!s));
 
   // ── Events: slots, my votes, my declines ──
   // Open votes need every slot (a vote on any of them counts); scheduled events
@@ -455,6 +522,9 @@ export async function loadHome(): Promise<HomeData> {
     ]);
     slotRows = [...votingSlots, ...scheduled.slots];
   }
+
+  const ranks = await ranksP;
+  for (const l of myLeagues) l.myRank = ranks.get(l.id) ?? null;
 
   const slotById = new Map<string, SlotRow>();
   for (const s of slotRows) slotById.set(s.id, s);

@@ -136,15 +136,6 @@ export default function AvatarPickerModal({
   const isUnlocked = (av: AvatarDef) =>
     !av.unlock || earnedBadgeNames.includes(av.unlock.badge);
 
-  useEffect(() => {
-    // A page's host owns Escape (it steps back to its form instead of closing).
-    if (!isWeb || !visible || isPage) return;
-    // Escape must not dismiss mid-upload — the outcome would have nowhere to go.
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !uploadInFlight.current) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose, isWeb, isPage]);
-
   // Report every change of the selection (not the initial values). Refs hold
   // the latest callbacks so an inline arrow from the host doesn't re-fire it.
   const onChangeRef = useRef(onChange);
@@ -483,6 +474,8 @@ export default function AvatarPickerModal({
       animationType={isWeb ? 'fade' : 'slide'}
       transparent={isWeb}
       presentationStyle={isWeb ? undefined : 'pageSheet'}
+      // Escape (web, via RNW's Modal) and Android back: not mid-upload, the
+      // outcome would have nowhere to go.
       onRequestClose={() => { if (!uploading) onClose(); }}
     >
       {isWeb ? (

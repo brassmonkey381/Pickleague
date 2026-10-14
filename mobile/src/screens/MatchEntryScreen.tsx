@@ -1020,9 +1020,6 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
       {/* One player picker for the four slots. A Modal only ever opens from a
           tap on this screen, never on top of another one. */}
-      {/* FOUNDATION-TODO: SingleSelectModal should show emptyText when a
-          search has no hits even with noneLabel set (it always prepends the
-          none row); until then noneLabel is passed only when a slot is set. */}
       <SingleSelectModal
         visible={pickerSlot != null}
         title={pickerSlot ? SLOT_LABEL[pickerSlot] : ''}
@@ -1034,9 +1031,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         }}
         onClose={() => setPickerSlot(null)}
         searchPlaceholder="Search players…"
-        // The clear row only when there's something to clear: the modal always
-        // prepends it, which would otherwise keep emptyText from ever showing.
-        noneLabel={pickerSlot && slotValue[pickerSlot] ? 'No player' : null}
+        // The clear row stays first; emptyText shows under it when nothing
+        // matches (foundation 1.42).
+        noneLabel="No player"
         emptyText={members.length === 0
           ? (pickLeagueInline ? 'Join a league to record a match with league-mates.' : 'No players to pick from yet.')
           : 'No matches.'}

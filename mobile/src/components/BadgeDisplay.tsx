@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView, Platform } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BadgeItem = {
@@ -55,13 +55,6 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
   });
 
   const closeDetail = useCallback(() => setShowDetail(false), []);
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !showDetail) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDetail(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showDetail, closeDetail]);
 
   return (
     <>

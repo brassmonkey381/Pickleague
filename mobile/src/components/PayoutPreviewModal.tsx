@@ -82,20 +82,14 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
     onPaid();
   }
 
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (!busy && e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, busy, onClose]);
-
   const totalDistributed = rows.reduce(
     (sum, r) => sum + (r.share_per_user || 0) * (r.uids?.length ?? 0),
     0,
   );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    // Escape (web) and Android back both arrive here; neither closes mid-payout.
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={() => { if (!busy) onClose(); }}>
       <Pressable
         style={S.backdrop}
         onPress={Platform.OS === 'web' ? (e: any) => {

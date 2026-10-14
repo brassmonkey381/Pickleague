@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, Modal, TextInput, ScrollView,
-  StyleSheet, ActivityIndicator, Pressable, Platform,
+  StyleSheet, ActivityIndicator, Pressable,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
@@ -167,13 +167,6 @@ function ContributeModal({
   const bonus = Number.isFinite(n) && n > 0 ? Math.floor(n * 0.25) : 0;
   const added = (Number.isFinite(n) && n > 0 ? n : 0) + bonus;
 
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
-
   async function submit() {
     if (inFlight.current) return;
     if (!valid) return;
@@ -279,13 +272,6 @@ function AwardModal({
 
   const n = parseInt(amount, 10);
   const valid = !!recipientId && Number.isFinite(n) && n > 0 && n <= pool;
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
 
   async function submit() {
     if (inFlight.current) return;
@@ -395,13 +381,6 @@ function DistributeModal({
   const [busy, setBusy] = useState(false);
   const inFlight        = useRef(false);
   const status          = useStatusMessage();
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
 
   async function submit() {
     if (inFlight.current) return;

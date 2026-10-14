@@ -4,15 +4,13 @@
 import React, { useEffect, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Platform, Pressable, ActivityIndicator,
+  StyleSheet, Pressable, ActivityIndicator,
 } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import {
   REPORT_REASONS, ReportReason, ReportSubjectType, submitReport, SUPPORT_EMAIL,
 } from '../lib/moderation';
-
-const IS_WEB = Platform.OS === 'web';
 
 type Props = {
   visible:       boolean;
@@ -44,13 +42,6 @@ export default function ReportPlayerModal({
   useEffect(() => {
     if (visible) { setReason(null); setDetails(''); setError(null); setDone(false); }
   }, [visible, subjectUserId]);
-
-  useEffect(() => {
-    if (!IS_WEB || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, busy, onClose]);
 
   async function send() {
     if (!reason || busy) return;

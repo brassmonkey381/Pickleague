@@ -18,8 +18,8 @@
 // the <button> RNW renders for them on web nests nothing); plain chips are
 // just pills.
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, useWindowDimensions } from 'react-native';
-import { Chip } from '@just-messin-around/expo-foundation/ui';
+import { View, StyleSheet } from 'react-native';
+import { Chip, ClampText } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -49,26 +49,6 @@ export type LeagueIdentityProps = {
   onSetCourt?: () => void;
 };
 
-/** "more" is decided by an estimate of how many characters fit on 2 lines, from
- *  the window width and the OS text size (the description is body text, so it
- *  scales uncapped). RN-web never fires onTextLayout, so a measured line count
- *  isn't available on every platform. The estimate errs toward showing "more":
- *  a "more" that expands to the same text costs nothing, clipped text with no
- *  "more" can't be read anywhere else on the screen.
- *
- * FOUNDATION-TODO: foundation 1.41's ClampText measures overflow for real, but
- * its text View has no flex, so "more" can only sit under the text (+44px when
- * clamped) or in a fixed right inset that narrows every description. Add a
- * `textContainerStyle` (or `toggleBeside`) option to ClampText, then use it here
- * with a row containerStyle and drop this estimate. */
-const DESC_FONT_SIZE = 13; // t.sub
-const AVG_CHAR_EM = 0.55;
-const MORE_BOX = 44;
-/** Web renders the app in a centred 720px column (AppNavigator's WebMaxWidth),
- *  so the window width overstates the text width there. Capping everywhere only
- *  makes a wide tablet show "more" a little sooner, which is the safe side. */
-const CONTENT_MAX_WIDTH = 720;
-
 /** A raw Places name (no nickname, or the nickname cache isn't loaded yet) can
  *  pass a phone's width; Chip's one-line label then overflows the gutter on web
  *  and ellipsizes away the "· N here ›" cue on native. Cap the court part. */
@@ -86,8 +66,6 @@ export default function LeagueIdentity({
   const t = textStyles(c);
   const presence = useCourtPresence(league.home_court_lat, league.home_court_lng);
   const [rosterOpen, setRosterOpen] = useState(false);
-  const [descOpen, setDescOpen] = useState(false);
-  const { width, fontScale } = useWindowDimensions();
   // Subscribes, so the chip re-renders to the (shorter) nickname once the cache loads.
   const courtName = useCourtName();
 
@@ -96,11 +74,6 @@ export default function LeagueIdentity({
   const hereCount = presence.count != null && presence.count > 0 ? presence.count : null;
   const roleChip = myRole && myRole !== 'unknown' ? leagueRoleChip(myRole) : null;
   const desc = league.description?.trim() ?? '';
-  // Text width beside the "more" box: the screen gutters (SPACE.lg each side),
-  // the row gap and the 44 box. Floored so a tiny window still gets a sane bar.
-  const textWidth = Math.max(120, Math.min(width, CONTENT_MAX_WIDTH) - 2 * SPACE.lg - SPACE.sm - MORE_BOX);
-  const charsPerLine = Math.max(1, Math.floor(textWidth / (DESC_FONT_SIZE * AVG_CHAR_EM * Math.max(1, fontScale))));
-  const longDesc = desc.length > 2 * charsPerLine || desc.includes('\n');
 
   const chipProps = { size: 'sm' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE };
 
@@ -159,21 +132,15 @@ export default function LeagueIdentity({
       {desc ? (
         // "more" sits beside the text, not under it, so a clamped description
         // costs one 44 line and the quick row's Record stays above y=200.
-        <View style={styles.descRow}>
-          <Text style={[t.sub, styles.descText]} numberOfLines={descOpen ? undefined : 2}>{desc}</Text>
-          {longDesc ? (
-            <TouchableOpacity
-              onPress={() => setDescOpen((v) => !v)}
-              style={styles.more}
-              accessibilityRole="button"
-              accessibilityLabel={descOpen ? 'Show less of the description' : 'Show the full description'}
-            >
-              <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {descOpen ? 'less' : 'more'}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        // ClampText measures the real overflow (no character estimate).
+        <ClampText
+          style={t.sub}
+          togglePlacement="beside"
+          moreA11yLabel="Show the full description"
+          lessA11yLabel="Show less of the description"
+        >
+          {desc}
+        </ClampText>
       ) : null}
     </View>
   );
@@ -183,8 +150,4 @@ const styles = StyleSheet.create({
   wrap: { gap: SPACE.xs },
   // Pills and 44 tap boxes share one row; alignItems keeps the pills on one line.
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm },
-  descRow: { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.sm },
-  descText: { flex: 1, minWidth: 0 },
-  // A real 44 box at the end of the clamped text.
-  more: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'flex-end', paddingBottom: SPACE.xxs },
 });

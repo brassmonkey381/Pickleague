@@ -4,7 +4,6 @@ import {
   ActivityIndicator, StyleSheet, Platform,
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
-import { useEscapeKey } from '../lib/useEscapeKey';
 import {
   WagerSubject, fetchOdds, placeWager, subjectLabel,
 } from '../lib/wager';
@@ -41,8 +40,6 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
   const [placed, setPlaced]         = useState(false);
   const inFlight                    = useRef(false);
   const dismissTimer                = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEscapeKey(() => { if (!placing) onClose(); }, visible);
 
   useEffect(() => () => { if (dismissTimer.current) clearTimeout(dismissTimer.current); }, []);
 

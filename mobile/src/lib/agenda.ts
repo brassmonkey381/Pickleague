@@ -459,16 +459,21 @@ export type LeagueFactInput = {
   nextEventAt: string | null;
   /** The league's active season, else its upcoming one. */
   season: SeasonInput | null;
+  /** My rank in the active season's live period, null/absent when unknown. */
+  myRank?: number | null;
 };
 
 /**
  * One live fact for a YOURS league row (rule 3): open vote, then next event,
  * then the season. `subtitle` null = keep the row's built subtitle (the court);
- * `trailing` is the season week badge ("Wk 7/12"). "You #2" arrives in Phase 4.
+ * `trailing` is the season badge: the week, then my rank ("Wk 7/12 · You #2").
  */
 export function leagueLiveFact(f: LeagueFactInput, now: number): { subtitle: string | null; trailing: string | null } {
   const wk = f.season ? seasonWeek(f.season, now) : null;
-  const trailing = wk ? `Wk ${wk.week}/${wk.total}` : null;
+  const trailing = [
+    wk ? `Wk ${wk.week}/${wk.total}` : null,
+    f.myRank != null ? `You #${f.myRank}` : null,
+  ].filter(Boolean).join(' · ') || null;
   const next = f.nextEventAt ? whenPhrase(f.nextEventAt, now) : null;
   if (f.openVotes > 0) {
     const votes = f.openVotes === 1 ? '1 vote open' : `${f.openVotes} votes open`;

@@ -1,8 +1,8 @@
 // YOURS (plan section 3): each of my leagues and live tournaments as one 56px
 // row with ONE live fact (lib/agenda leagueLiveFact: open vote, then next
-// event, then the season; "Wk 7/12" as the trailing badge). At most 4 rows,
-// then "All yours (N) ›" opens Play with Mine on for that visit only; the
-// header's "Find more ›" opens Play on Discover.
+// event, then the season; "Wk 7/12 · You #2" as the trailing badge). At most
+// 4 rows, then "All yours (N) ›" opens Play with Mine on for that visit only;
+// the header's "Find more ›" opens Play on Discover.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
@@ -60,7 +60,7 @@ export default function YoursSection({
       />
       <Panel padded={false}>
         {shownLeagues.map((l, i) => {
-          const fact = leagueLiveFact({ openVotes: l.openVotes, nextEventAt: l.nextEventAt, season: l.season }, now);
+          const fact = leagueLiveFact({ openVotes: l.openVotes, nextEventAt: l.nextEventAt, season: l.season, myRank: l.myRank }, now);
           return (
             <LeagueRow
               key={`l-${l.id}`}

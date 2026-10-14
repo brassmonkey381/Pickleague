@@ -44,14 +44,6 @@ export default function TagPickerModal({
   const [selected, setSelected]         = useState<string[]>(selectedTags);
   const [lockedHint, setLockedHint]     = useState<TagDef | null>(null);
 
-  useEffect(() => {
-    // A page's host owns Escape (it steps back to its form instead of closing).
-    if (!IS_WEB || !visible || isPage) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose, isPage]);
-
   // Report every change (not the initial value); the ref keeps an inline arrow
   // from the host from re-firing it.
   const onChangeRef = useRef(onChange);

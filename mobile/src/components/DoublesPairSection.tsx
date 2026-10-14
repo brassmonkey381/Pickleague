@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Modal, TextInput, Pressable, Platform,
+  Modal, TextInput, Pressable,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -71,13 +71,6 @@ export default function DoublesPairSection({
     setNewPairName('');
     setCreateError(null);
   }, []);
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !showCreate) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreateModal(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showCreate, closeCreateModal]);
 
   async function load() {
     setLoading(true);

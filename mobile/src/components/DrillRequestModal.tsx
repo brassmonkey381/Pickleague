@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, ActivityIndicator,
   Platform, Pressable,
@@ -100,14 +100,6 @@ export default function DrillRequestModal({
     setMessage('');
     onClose();
   }, [onClose]);
-
-  // Escape key closes modal on web
-  useEffect(() => {
-    if (!IS_WEB || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, handleClose]);
 
   const content = (
     <View style={S.root}>

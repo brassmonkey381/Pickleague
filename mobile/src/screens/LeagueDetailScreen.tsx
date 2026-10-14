@@ -55,8 +55,8 @@ import { trackSectionToggle } from '../lib/analytics';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
 import { tournamentStatusChip } from '../lib/entityGlyph';
 import {
-  addDaysIso, livePeriodNumber, localIsoDate, periodWindow, standingsTargetSeasonId, summarizeSeason,
-  type SeasonSummary, type StandingsMatch, type StandingsMember,
+  STANDINGS_MATCH_COLUMNS, addDaysIso, livePeriodNumber, localIsoDate, periodWindow, standingsTargetSeasonId,
+  summarizeSeason, type SeasonSummary, type StandingsMatch, type StandingsMember,
 } from '../lib/seasonSummary';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import SeasonStrip from '../components/SeasonStrip';
@@ -75,11 +75,6 @@ type Props = {
 };
 
 type MemberRow = StandingsMember & { role?: string | null };
-
-// The columns the season strip's live standings read (SeasonStandings' list).
-const STANDINGS_MATCH_COLUMNS =
-  'player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
-  + ' player1_rating_before, player1_rating_after, player2_rating_before, player2_rating_after';
 
 /** "Jan 5, 2026 → Mar 30, 2026" for a past-season row. */
 function seasonRange(s: LeagueSeason): string {

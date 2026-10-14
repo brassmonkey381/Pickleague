@@ -361,4 +361,17 @@ describe('YOURS live fact', () => {
       .toEqual({ subtitle: 'Season starts Nov 2', trailing: null });
     expect(leagueLiveFact({ openVotes: 0, nextEventAt: null, season: null }, NOW)).toEqual({ subtitle: null, trailing: null });
   });
+
+  it('my rank follows the week in the trailing badge and never changes the subtitle', () => {
+    expect(leagueLiveFact({ openVotes: 0, nextEventAt: at(2, 18), season: active, myRank: 2 }, NOW))
+      .toEqual({ subtitle: 'Next: Thu 6 PM', trailing: 'Wk 8/12 · You #2' });
+    // No week to show: the rank alone.
+    expect(leagueLiveFact({ openVotes: 0, nextEventAt: null, season: null, myRank: 1 }, NOW))
+      .toEqual({ subtitle: null, trailing: 'You #1' });
+    // Unknown rank (null, or absent in an older cached payload): unchanged.
+    expect(leagueLiveFact({ openVotes: 1, nextEventAt: null, season: active, myRank: null }, NOW))
+      .toEqual({ subtitle: '1 vote open', trailing: 'Wk 8/12' });
+    expect(leagueLiveFact({ openVotes: 1, nextEventAt: null, season: active }, NOW))
+      .toEqual({ subtitle: '1 vote open', trailing: 'Wk 8/12' });
+  });
 });

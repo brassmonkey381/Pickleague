@@ -70,13 +70,6 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
     }
   }, [visible]);
 
-  useEffect(() => {
-    if (!IS_WEB || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
-
   async function loadBrands() {
     setLoading(true);
     setLoadError(null);

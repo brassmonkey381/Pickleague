@@ -344,7 +344,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     // shows that same button then (one place per action). Check out stays: the
     // island's End stops the session, it doesn't check you out.
     return (
-      <Panel padded={false} emphasis style={PANEL_INSET}>
+      <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
           <Text style={[t.title, S.flex]} numberOfLines={1}>
             📍 {current.venueName}
@@ -393,7 +393,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
 
   if (nearby) {
     return (
-      <Panel padded={false} emphasis style={PANEL_INSET}>
+      <Panel padded={false} emphasis style={S.panel}>
         <View style={S.line}>
           <Text style={t.title} numberOfLines={2}>
             📍 Check in at {nearby.name} for 2 hours?
@@ -425,7 +425,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   // Idle: the 48px court row. "Just play" keeps the old "Start a session
   // without checking in" reachable; it hides while a session already runs.
   return (
-    <Panel padded={false} style={PANEL_INSET}>
+    <Panel padded={false} style={S.panel}>
       <View style={S.courtRow}>
         <Text style={[t.title, S.flex]} numberOfLines={1}>
           📍 At the courts?
@@ -465,18 +465,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   );
 }
 
-// Panel's chrome (radius 14) with this card's own inset. A plain object, not a
-// StyleSheet entry: Panel sets `padding` inline, and on web an inline style
-// beats a compiled class whatever the array order, so a StyleSheet inset would
-// render as 0. As a plain object it merges into Panel's inline style, where
-// paddingHorizontal/Vertical override `padding` on web and native alike.
-// Checked in or offering a check-in it is the Emphasis variant (one per
-// screen; HomeScreen gives NOW's other panel none while this one shows).
-// FOUNDATION-TODO: Panel could omit `padding` when padded === false.
-const PANEL_INSET = { paddingHorizontal: SPACE.md, paddingVertical: SPACE.xxs } as const;
-
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    // Panel's chrome (radius 14) with this card's own inset. `padded={false}`
+    // sets no padding of its own (foundation 1.42), so this applies on web too.
+    // Checked in or offering a check-in it is the Emphasis variant (one per
+    // screen; HomeScreen gives NOW's other panel none while this one shows).
+    panel: { paddingHorizontal: SPACE.md, paddingVertical: SPACE.xxs },
     // The court row: 48 tall (44 tap boxes inside the 2px inset).
     courtRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
     line: { minHeight: 44, justifyContent: 'center' },

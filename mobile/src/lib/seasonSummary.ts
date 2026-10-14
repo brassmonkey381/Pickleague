@@ -65,6 +65,11 @@ export type SeasonStandingRow = {
   rank: number;
 };
 
+/** The match columns StandingsMatch reads, as a select list (SeasonStandings' list). */
+export const STANDINGS_MATCH_COLUMNS =
+  'player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
+  + ' player1_rating_before, player1_rating_after, player2_rating_before, player2_rating_after';
+
 /** The baseline when a season row predates baseline_plupr (SeasonStandings' default). */
 export const DEFAULT_BASELINE_PLUPR = 3.5;
 

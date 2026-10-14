@@ -14,10 +14,10 @@
 // ("(A)(B)(C) +4 here"), and PlayersHereRoster (the PresenceCard) only once the
 // pile is tapped.
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { usePollWhileActive } from '@just-messin-around/expo-foundation/hooks';
-import { PresenceCard } from '@just-messin-around/expo-foundation/ui';
+import { AvatarPile, PresenceCard } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { formatPluprShort } from '../lib/plupr';
@@ -91,11 +91,9 @@ export function PlayersHereRoster({ players, maxRows }: { players: PlayerHere[];
  * "N here" / "No one else here yet", in a 44 tap box that shows or hides the
  * full roster (`onPress`). Flexes and truncates its caption; never wraps.
  *
- * Not AvatarPile `inline` (1.41): that spaces its avatars 6px apart (no
- * overlap), adds its own "+N" chip beside this caption, and makes only the
- * avatars the button, where this whole line (caption included) is one.
- * FOUNDATION-TODO: AvatarPile `inline` overlap option (negative spacing with
- * the surface-coloured ring) plus a trailing caption inside its button.
+ * AvatarPile `inline` with `overlap` and the caption as `trailing`, so the
+ * whole line is one button. No `maxVisible`: the caption carries "+N here"
+ * instead of a "+N" chip.
  */
 export function PlayersHerePile({
   players,
@@ -125,41 +123,36 @@ export function PlayersHerePile({
     );
   }
   const n = players.length;
-  const shown = players.slice(0, PILE_MAX);
   const caption = n === 0 ? 'No one else here yet' : n > PILE_MAX ? `+${n - PILE_MAX} here` : `${n} here`;
-  const pile = (
-    <>
-      {shown.map((p, i) => (
-        <View
-          key={p.checkin_id}
-          style={[S.avatar, S.pileAvatar, { backgroundColor: c.surfaceAlt, borderColor: c.surface }, i > 0 && S.overlap]}
-        >
+  const captionText = (
+    <Text style={[t.meta, S.shrink]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+      {caption}
+    </Text>
+  );
+  // Nobody to list: nothing to expand, so not a button (and AvatarPile renders
+  // nothing for an empty list).
+  if (n === 0) return <View style={[S.pile, style]}>{captionText}</View>;
+  return (
+    <AvatarPile
+      inline
+      items={players.slice(0, PILE_MAX)}
+      keyOf={(p) => p.checkin_id}
+      labelOf={(p) => p.full_name ?? 'Player'}
+      size={AVATAR}
+      // The ring in the panel colour keeps the stacked avatars apart (no shadow).
+      overlap={SPACE.sm}
+      renderAvatar={(p) => (
+        <View style={[S.pileFill, { backgroundColor: c.surfaceAlt }]}>
           <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
         </View>
-      ))}
-      <Text
-        style={[t.meta, S.shrink, shown.length > 0 && S.captionGap]}
-        numberOfLines={1}
-        maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-      >
-        {caption}
-      </Text>
-    </>
-  );
-  // Nobody to list: nothing to expand, so not a button.
-  if (n === 0) return <View style={[S.pile, style]}>{pile}</View>;
-  return (
-    <TouchableOpacity
-      style={[S.pile, style]}
-      activeOpacity={0.6}
+      )}
+      trailing={captionText}
       onPress={onPress}
-      accessibilityRole="button"
+      expanded={expanded}
       accessibilityLabel={`${n} player${n === 1 ? '' : 's'} here`}
       accessibilityHint={expanded ? 'Hides the list' : 'Shows who is here'}
-      accessibilityState={{ expanded }}
-    >
-      {pile}
-    </TouchableOpacity>
+      style={style}
+    />
   );
 }
 
@@ -208,9 +201,7 @@ const S = StyleSheet.create({
     justifyContent: 'center',
   },
   pile: { flexDirection: 'row', alignItems: 'center', minHeight: 44, minWidth: 0 },
-  // A ring in the panel colour keeps overlapping avatars apart (no shadow).
-  pileAvatar: { borderWidth: 2 },
-  overlap: { marginLeft: -SPACE.sm },
-  captionGap: { marginLeft: SPACE.xs },
+  // Fills the pile's ringed circle (it clips to round), centring the emoji.
+  pileFill: { flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   shrink: { flexShrink: 1 },
 });

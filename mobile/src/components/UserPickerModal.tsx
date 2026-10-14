@@ -51,13 +51,6 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
       });
   }, [visible]);
 
-  useEffect(() => {
-    if (!IS_WEB || !visible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [visible, onClose]);
-
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
   const filtered = useMemo(() => {

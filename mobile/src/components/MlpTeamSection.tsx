@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Modal, TextInput, ScrollView, Pressable, Platform,
+  Modal, TextInput, ScrollView, Pressable,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -525,14 +525,6 @@ export default function MlpTeamSection({
     setNewTeamName('');
     setCreateError(null);
   }, []);
-
-  // Escape key dismisses the create-team modal on web.
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !showCreate) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeCreateModal(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showCreate, closeCreateModal]);
 
   if (loading) return <ActivityIndicator size="large" color={c.primary} style={{ marginVertical: 24 }} />;
 
