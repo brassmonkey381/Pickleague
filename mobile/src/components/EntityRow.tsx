@@ -47,7 +47,7 @@ export type EntityRowProps = {
   subtitle?: string | null;
   /** Falsy entries drop out; only the first MAX_ROW_CHIPS truthy ones render. */
   chips?: ReadonlyArray<EntityRowChip | null | undefined | false>;
-  /** The one trailing badge, as meta text ("Wk 7/12", "Sat 9 AM"). Hidden when `action` is set. */
+  /** The one trailing badge, as meta text ("Season ends Dec 1", "Sat 9 AM"). Hidden when `action` is set. */
   trailingText?: string | null;
   /** Trailing action (a Button size='sm' [Join] / [Request] / [Register]). Replaces the chevron. */
   action?: ReactNode;
@@ -127,7 +127,7 @@ export default function EntityRow({
     );
   }
 
-  // A pressable row names itself as one button ("Ladder night, Live, Wk 7/12").
+  // A pressable row names itself as one button ("Ladder night, Live, Season ends Dec 1").
   // Not with an action: on web RNW renders a role=button as <button>, and the
   // card would then hold the action's <button> (invalid nesting).
   const a11y =

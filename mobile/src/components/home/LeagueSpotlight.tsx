@@ -2,7 +2,8 @@
 // of my leagues, with a glance at its standings.
 //
 //   YOUR LEAGUE        [Dinks] [Sean Lg]      chips only in 2+ leagues   44
-//   ┌ Dinks · Fall · Wk 7/12              › ┐  header -> LeagueDetail     44
+//   ┌ Dinks · Fall                        › ┐  header -> LeagueDetail     44
+//   │ You #2 of 14 · Period 7 locks Oct 20   │  status line (LeagueDetail's)
 //   │ 🥇 Sean K.          8-2   1,512        │  StandingsPreview compact,
 //   │ 🥈 You              7-3   1,488  +12   │  top 3, your row pinned     44 each
 //   │ 🥉 Ana P.           6-4   1,470        │
@@ -16,7 +17,9 @@
 // active season, newest match).
 //
 // Data: the header and the "Next" line come from Home's own payload
-// (homeData), so they paint with it. The standings are loaded for the
+// (homeData), so they paint with it. The status line under the header is
+// LeagueDetail's (leagueStandingsHeader over the same loader result), so
+// "You #N of M" can never disagree between the two. The standings are loaded for the
 // SELECTED league only (components/league/useLeagueStandings'
 // loadLeagueStandings), lazily on a chip switch, each league under its own
 // cache key so switching back is instant (and persisted, so a cold start
@@ -39,7 +42,7 @@ import {
   type AgendaTarget,
 } from '../../lib/agenda';
 import StandingsPreview, { type StandingsPreviewRow } from '../league/StandingsPreview';
-import { loadLeagueStandings, type LeagueStandings } from '../league/useLeagueStandings';
+import { leagueStandingsHeader, loadLeagueStandings, type LeagueStandings } from '../league/useLeagueStandings';
 import type { HomeLeague } from './homeData';
 
 /** Standings rows on the card before your pinned row and "See all". */
@@ -127,18 +130,6 @@ export function useLeagueSpotlight(leagues: HomeLeague[], userId: string | null,
 
 function chipLabel(name: string): string {
   return name.length > CHIP_LABEL_MAX ? `${name.slice(0, CHIP_LABEL_MAX - 1).trimEnd()}…` : name;
-}
-
-/** The small line under the header for anything but a live period table. */
-function standingsCaption(d: LeagueStandings): string | null {
-  switch (d.kind) {
-    case 'locked': return d.period != null ? `Period ${d.period} locked` : null;
-    case 'noMatches': return 'No matches yet · by PLUPR';
-    case 'upcoming': return 'Members by PLUPR';
-    case 'final': return d.seasonName ? `${d.seasonName} final standings` : 'Final standings';
-    case 'leaderboard': return 'No season yet · members by PLUPR';
-    default: return null;
-  }
 }
 
 type Props = {
@@ -249,8 +240,9 @@ export default function LeagueSpotlight({
   const l = selected;
   const privileged = l.role === 'admin' || l.role === 'co-admin';
   const data = standings.data;
-  const headLine = spotlightHeaderLine(l, now);
-  const caption = data ? standingsCaption(data) : null;
+  // The loader's season name first: between seasons it is last season's finals.
+  const headLine = spotlightHeaderLine(l.name, data ? data.seasonName : l.season?.name);
+  const caption = data ? leagueStandingsHeader(data, { privileged, now: new Date(now) }).subtitle : null;
 
   const nextText = spotlightNextLine({ openVotes: l.openVotes, nextEventAt: l.nextEventAt }, now);
   const vote = l.openVote ?? null;

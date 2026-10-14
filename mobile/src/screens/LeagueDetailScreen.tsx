@@ -7,7 +7,7 @@
 //   2 you ......... quick row [+Record] [Standings] [Events] [Members]
 //                   (non-members: the shared LeagueJoinCard + [Standings] [Events] [Members])
 //   3 standings ... SeasonStrip, the one expanded section (open, not a row):
-//                   STANDINGS Fall · Wk 7 of 12 [Full table ›], "You #2 · locks Oct 20",
+//                   STANDINGS Fall [Full table ›], "You #2 of 14 · Period 7 locks Oct 20",
 //                   then the top 10 (+ your row pinned) and "See all N ›"
 //   4 coming up ... votes (needs-you) first, then events and tournaments by date,
 //                   max 3, then "Show N more"

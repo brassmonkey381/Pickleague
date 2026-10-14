@@ -10,7 +10,6 @@ import {
   eventAgendaItems,
   needsYouCount,
   pickSpotlightLeague,
-  seasonWeek,
   shortTime,
   spotlightHeaderLine,
   spotlightNextLine,
@@ -339,18 +338,9 @@ describe('needsYouCount (the Home bell)', () => {
 });
 
 describe('league spotlight', () => {
-  const active = { status: 'active', startDate: '2026-08-25', totalWeeks: 12 };
+  const active = { status: 'active', startDate: '2026-08-25' };
   const lg = (id: string, over: Partial<Parameters<typeof pickSpotlightLeague>[0][number]> = {}) =>
     ({ id, openVotes: 0, nextEventAt: null, season: null, ...over });
-
-  it('seasonWeek counts from the start date and clamps to the season', () => {
-    // Aug 25 -> Oct 13 is 49 days: week 8.
-    expect(seasonWeek(active, NOW)).toEqual({ week: 8, total: 12 });
-    expect(seasonWeek({ ...active, startDate: '2026-01-01' }, NOW)).toEqual({ week: 12, total: 12 });
-    expect(seasonWeek({ ...active, startDate: '2026-10-20' }, NOW)).toEqual({ week: 1, total: 12 });
-    expect(seasonWeek({ ...active, status: 'upcoming' }, NOW)).toBeNull();
-    expect(seasonWeek({ ...active, startDate: 'garbage' }, NOW)).toBeNull();
-  });
 
   it('picks an open vote first (closing soonest), then the soonest event, then a season, then the newest match', () => {
     expect(pickSpotlightLeague([], NOW)).toBeNull();
@@ -382,12 +372,11 @@ describe('league spotlight', () => {
     expect(pickSpotlightLeague([lg('first'), lg('second')], NOW)).toBe('first');
   });
 
-  it('header line: league, season name, then the week or the start date', () => {
-    expect(spotlightHeaderLine({ name: 'Dinks', season: { ...active, name: 'Fall' } }, NOW)).toBe('Dinks · Fall · Wk 8/12');
-    expect(spotlightHeaderLine({ name: 'Dinks', season: active }, NOW)).toBe('Dinks · Wk 8/12');
-    expect(spotlightHeaderLine({ name: 'Dinks', season: { status: 'upcoming', startDate: '2026-11-02', totalWeeks: 8, name: 'Spring' } }, NOW))
-      .toBe('Dinks · Spring · starts Nov 2');
-    expect(spotlightHeaderLine({ name: 'Dinks', season: null }, NOW)).toBe('Dinks');
+  it('header line: league, then the season name (no week count)', () => {
+    expect(spotlightHeaderLine('Dinks', 'Fall')).toBe('Dinks · Fall');
+    expect(spotlightHeaderLine('Dinks', '  ')).toBe('Dinks');
+    expect(spotlightHeaderLine('Dinks', null)).toBe('Dinks');
+    expect(spotlightHeaderLine('Dinks', undefined)).toBe('Dinks');
   });
 
   it('next line: the next event, then the open votes', () => {

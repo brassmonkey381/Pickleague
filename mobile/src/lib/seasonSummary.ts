@@ -1,6 +1,7 @@
-// Pure season math for LeagueDetail's season strip (plan section 5, slot 3):
+// Pure season math for LeagueDetail's Standings section and Home's league
+// spotlight (plan section 5, slot 3):
 //
-//   Fall · Wk 7 of 12 · You #2 · locks Oct 20 >
+//   You #2 of 14 · Period 7 locks Oct 20
 //   #1 Alice   5-1   3.82
 //   #2 You     4-2   3.71
 //   #3 Bob     3-3   3.55
@@ -108,14 +109,6 @@ export function periodEndDate(s: Pick<SeasonInput, 'start_date' | 'lock_frequenc
 export function periodStartDate(s: Pick<SeasonInput, 'start_date' | 'lock_frequency_weeks'>, n: number): string {
   if (n <= 1) return s.start_date;
   return addDaysIso(periodEndDate(s, n - 1), 1);
-}
-
-/** 1-based season week on `today`, clamped to the season's length; null before it starts. */
-export function seasonWeek(s: Pick<SeasonInput, 'start_date' | 'total_weeks'>, today: string): number | null {
-  const days = daysBetween(s.start_date, today);
-  if (days < 0) return null;
-  const week = Math.floor(days / 7) + 1;
-  return Math.max(1, Math.min(week, Math.max(1, s.total_weeks)));
 }
 
 /** The lowest period that hasn't been locked yet (the next lock), or null when all are. */
@@ -228,20 +221,20 @@ export type SeasonSummary = {
   /** 'upcoming' until the start date, by date (a season row's status can lag). */
   phase: 'upcoming' | 'active';
   startsOn: string | null;
-  week: number | null;
-  totalWeeks: number;
   /** The ranked period (see livePeriodNumber), null once every period is locked. */
   period: number | null;
   totalPeriods: number;
+  /** The next lock (the lowest unlocked period), null once every period is locked. */
+  nextPeriod: number | null;
   /** The next lock's date (the lowest unlocked period's snapshot date). */
   nextLockOn: string | null;
+  /** The season's end_date. The last lock falls on it only when the weeks
+   *  divide evenly (total_periods is total_weeks / lock_frequency_weeks,
+   *  integer division), so the status line checks before saying "Season ends". */
+  endsOn: string | null;
   /** That lock's date has arrived and it still isn't locked: due ON the date
    *  itself (local), exactly when SeasonStandings enables its Lock button. */
   lockDue: boolean;
-  /** The ranked period's lock date while it hasn't passed (SeasonStandings'
-   *  findLivePeriod), else null. "Lock due" is admin information, so members
-   *  read this instead, as SeasonStandings' header does for them. */
-  liveLockOn: string | null;
   /** At least one match counted in the ranked period. Ranks show only then:
    *  before the first match everyone sits on the baseline and "#2" means nothing. */
   hasMatches: boolean;
@@ -284,13 +277,12 @@ export function summarizeSeason({
     seasonName: season.name,
     phase: 'active',
     startsOn: null,
-    week: null,
-    totalWeeks: season.total_weeks,
     period: null,
     totalPeriods: season.total_periods,
+    nextPeriod: null,
     nextLockOn: null,
+    endsOn: season.end_date ? season.end_date.slice(0, 10) : null,
     lockDue: false,
-    liveLockOn: null,
     hasMatches: false,
     myRank: null,
     top: [],
@@ -304,16 +296,13 @@ export function summarizeSeason({
   const next = nextUnlockedPeriod(season, locked);
   const nextLockOn = next != null ? periodEndDate(season, next) : null;
   const period = livePeriodNumber(season, locked, today);
-  const periodLockOn = period != null ? periodEndDate(season, period) : null;
   const summary: SeasonSummary = {
     ...base,
-    week: seasonWeek(season, today),
     period,
+    nextPeriod: next,
     nextLockOn,
     // >=, not >: due on the snapshot date itself, like isLockDue (now >= due).
     lockDue: nextLockOn != null && season.status !== 'completed' && (lockToday ?? today) >= nextLockOn,
-    // Null when livePeriodNumber fell back to an overdue last period.
-    liveLockOn: periodLockOn != null && today <= periodLockOn ? periodLockOn : null,
   };
   if (period == null) return summary;
 
@@ -334,57 +323,128 @@ export function summarizeSeason({
   };
 }
 
-/** "Oct 20" for an ISO date, in the device locale. */
-export function shortDate(iso: string): string {
-  return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+/** "Oct 20" for an ISO date, in the device locale (or `locale`). */
+export function shortDate(iso: string, locale?: string): string {
+  return new Date(iso + 'T00:00:00').toLocaleDateString(locale, { month: 'short', day: 'numeric' });
 }
 
 /**
- * The strip's one line, e.g. "Fall · Wk 7 of 12 · You #2 · locks Oct 20".
- * Upcoming: "Fall · Starts Nov 3". `fmt` formats an ISO date (tests pass a
- * fixed one; the app uses the device locale). "Lock due" is an admin to-do:
- * pass `privileged: false` for members, who get the live period's lock date
- * instead (or no lock part when every unlocked period is overdue).
- * No screen renders this line any more (the strip composes the parts in
- * useLeagueStandings' leagueStandingsHeader); it is kept on purpose as the
- * tested composition of seasonWeekPart/seasonLockPart and the rank.
+ * A date as the status line says it, from the viewer's local `today`:
+ * "today", "tomorrow", "Thu Oct 16" within the next 6 days, else "Oct 20".
+ * Whole calendar days (daysBetween), so a DST change never shifts the cut.
  */
-export function seasonHeadline(
-  s: SeasonSummary,
-  fmt: (iso: string) => string = shortDate,
-  opts: { privileged?: boolean } = {},
-): string {
-  const parts: (string | null)[] = [s.seasonName];
-  if (s.phase === 'upcoming') {
-    parts.push(s.startsOn ? `Starts ${fmt(s.startsOn)}` : null);
-  } else {
-    parts.push(seasonWeekPart(s));
-    parts.push(s.myRank != null ? `You #${s.myRank}` : null);
-    parts.push(seasonLockPart(s, fmt, opts));
+export function relativeShortDate(iso: string, today: string, locale?: string): string {
+  const days = daysBetween(today, iso);
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  const md = shortDate(iso, locale);
+  if (days > 1 && days <= 6) {
+    return `${new Date(iso + 'T00:00:00').toLocaleDateString(locale, { weekday: 'short' })} ${md}`;
   }
-  return parts.filter((p): p is string => !!p && !!p.trim()).join(' · ');
+  return md;
 }
 
-/** "Wk 7 of 12", or null before the season starts (the strip header's week part). */
-export function seasonWeekPart(s: Pick<SeasonSummary, 'phase' | 'week' | 'totalWeeks'>): string | null {
-  if (s.phase === 'upcoming' || s.week == null) return null;
-  return `Wk ${s.week} of ${s.totalWeeks}`;
+/** The season facts the status line reads (a SeasonSummary fits). */
+export type SeasonStatusFacts = Pick<SeasonSummary, 'phase' | 'startsOn' | 'nextPeriod' | 'nextLockOn' | 'endsOn' | 'totalPeriods' | 'lockDue'>;
+
+type StatusDateOpts = {
+  isAdmin?: boolean;
+  now: Date;
+  locale?: string;
+  /** A list row's short form (LeaguesScreen, a 1-line subtitle): "P7 locks
+   *  Oct 20", "Ends Dec 1", "P7 locking soon", no weekday or "tomorrow". */
+  compact?: boolean;
+};
+
+/**
+ * The status line's date part: the next date that matters. Upcoming: "Starts
+ * Nov 3". Mid-season: "Period 7 locks Oct 20"; when that lock is the last
+ * period's and falls on end_date, it IS the season end: "Season ends Dec 1"
+ * (a season whose weeks don't divide evenly reads "Final lock Nov 17", since
+ * it still runs to end_date). A lock that is due (its date has arrived,
+ * local) is admin information, so admins read "Lock due" (it drives Manage)
+ * and members the date-free "Period 7 locking soon" / "Season ending soon" /
+ * "Final lock soon". Every period locked but the season not completed yet:
+ * "Final standings soon". Due is re-checked against `now`, so a cached
+ * summary never says "locks today" for a lock that is already due.
+ * `compact` gives the short forms ("P7 locks Oct 20", "Ends Dec 1").
+ */
+export function seasonDatePart(s: SeasonStatusFacts, { isAdmin = false, now, locale, compact = false }: StatusDateOpts): string {
+  const today = localIsoDate(now);
+  const fmt = (iso: string) => (compact ? shortDate(iso, locale) : relativeShortDate(iso, today, locale));
+  const period = compact ? `P${s.nextPeriod}` : `Period ${s.nextPeriod}`;
+  if (s.phase === 'upcoming') {
+    return s.startsOn ? `Starts ${fmt(s.startsOn)}` : 'Starts soon';
+  }
+  if (s.nextPeriod == null || s.nextLockOn == null) return compact ? 'Final soon' : 'Final standings soon';
+  const last = s.nextPeriod >= s.totalPeriods;
+  // The last lock is the season's end only when the weeks divide evenly
+  // (total_periods is total_weeks / lock_frequency_weeks, integer division).
+  const endsWithLock = last && (s.endsOn == null || s.endsOn === s.nextLockOn);
+  if (s.lockDue || s.nextLockOn <= today) {
+    if (isAdmin) return 'Lock due';
+    if (endsWithLock) return compact ? 'Ending soon' : 'Season ending soon';
+    return last ? 'Final lock soon' : `${period} locking soon`;
+  }
+  const when = fmt(s.nextLockOn);
+  if (endsWithLock) return compact ? `Ends ${when}` : `Season ends ${when}`;
+  return last ? `Final lock ${when}` : `${period} locks ${when}`;
+}
+
+export type SeasonStatusArgs = StatusDateOpts & {
+  /** The active / upcoming season's facts; null for a completed season's final standings. */
+  summary: SeasonStatusFacts | null;
+  /** The viewer's rank in the standings shown beside the line, null when unranked. */
+  myRank: number | null;
+  /** Rows in those SAME standings: the "of 14". */
+  rankedCount: number;
+};
+
+/**
+ * The season's one status line (LeagueDetail's Standings section and Home's
+ * spotlight), your rank out of everyone ranked + the next date that matters:
+ *   "You #2 of 14 · Period 7 locks Oct 20"     mid-season
+ *   "You #2 of 14 · Season ends Dec 1"         last period (on end_date)
+ *   "You #2 of 14 · Final lock Nov 17"         last period, before end_date
+ *   "14 players · Period 7 locks Oct 20"       not ranked (no matches / not in the table)
+ *   "Starts Nov 3"                             upcoming
+ *   "Final · You #3 of 14" / "Final · 14 players"   completed
+ * See seasonDatePart for the due / admin forms.
+ */
+export function seasonStatusLine({ summary, myRank, rankedCount, ...opts }: SeasonStatusArgs): string {
+  const who = myRank != null
+    ? `You #${myRank} of ${rankedCount}`
+    : `${rankedCount} player${rankedCount === 1 ? '' : 's'}`;
+  if (!summary) return `Final · ${who}`;
+  if (summary.phase === 'upcoming') return seasonDatePart(summary, opts);
+  return `${who} · ${seasonDatePart(summary, opts)}`;
 }
 
 /**
- * The strip header's lock part: "Lock due" (privileged viewers, once the next
- * lock's date has arrived), else "locks Oct 20", else null. Members read the
- * live period's lock date while a lock is overdue, as SeasonStandings' header
- * does for them.
+ * A season's status facts from its dates alone, for a list row that doesn't
+ * read the season's locks (LeaguesScreen): the next lock is the first period
+ * whose lock date hasn't passed, and one that has passed reads as due.
+ * `today` is the viewer's local date.
  */
-export function seasonLockPart(
-  s: Pick<SeasonSummary, 'phase' | 'lockDue' | 'liveLockOn' | 'nextLockOn'>,
-  fmt: (iso: string) => string = shortDate,
-  opts: { privileged?: boolean } = {},
-): string | null {
-  if (s.phase === 'upcoming') return null;
-  const lockOn = s.lockDue ? s.liveLockOn : s.nextLockOn;
-  return s.lockDue && opts.privileged !== false ? 'Lock due' : lockOn ? `locks ${fmt(lockOn)}` : null;
+export function seasonDateFacts(
+  s: Pick<SeasonInput, 'start_date' | 'lock_frequency_weeks' | 'total_periods'> & { end_date?: string | null },
+  today: string,
+): SeasonStatusFacts {
+  const endsOn = s.end_date ? s.end_date.slice(0, 10) : null;
+  if (today < s.start_date) {
+    return { phase: 'upcoming', startsOn: s.start_date, nextPeriod: null, nextLockOn: null, endsOn, totalPeriods: s.total_periods, lockDue: false };
+  }
+  const next = livePeriodNumber(s, new Set(), today);
+  const nextLockOn = next != null ? periodEndDate(s, next) : null;
+  return {
+    phase: 'active',
+    startsOn: null,
+    nextPeriod: next,
+    nextLockOn,
+    endsOn,
+    totalPeriods: s.total_periods,
+    lockDue: nextLockOn != null && nextLockOn <= today,
+  };
 }
 
 /**

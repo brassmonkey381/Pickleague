@@ -431,27 +431,9 @@ export type SeasonInput = {
   status: 'active' | 'upcoming' | string;
   /** league_seasons.start_date (a Postgres date, "YYYY-MM-DD"). */
   startDate: string;
-  totalWeeks: number;
   /** league_seasons.name ("Fall"). Absent in a payload cached before it existed. */
   name?: string | null;
 };
-
-function dateOnly(s: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-}
-
-/** The active season's week, 1-based and clamped to the season: {7, 12}. */
-export function seasonWeek(season: SeasonInput, now: number): { week: number; total: number } | null {
-  if (season.status !== 'active') return null;
-  const start = dateOnly(season.startDate);
-  const total = Math.floor(season.totalWeeks);
-  if (!start || !Number.isFinite(total) || total < 1) return null;
-  const days = calendarDayDiff(new Date(now), start);
-  const week = Math.min(total, Math.max(1, Math.floor(days / 7) + 1));
-  return { week, total };
-}
 
 export type SpotlightLeagueInput = {
   id: string;
@@ -499,21 +481,11 @@ export function pickSpotlightLeague(leagues: readonly SpotlightLeagueInput[], no
   return ranked[0].l.id;
 }
 
-/** The card's header line: "Dinks · Fall · Wk 7/12", "Dinks · Spring · starts
- *  Nov 2", or just the league's name with no season. */
-export function spotlightHeaderLine(l: { name: string; season: SeasonInput | null }, now: number): string {
-  const parts = [l.name];
-  const s = l.season;
-  if (s) {
-    if (s.name && s.name.trim()) parts.push(s.name.trim());
-    const wk = seasonWeek(s, now);
-    if (wk) parts.push(`Wk ${wk.week}/${wk.total}`);
-    else if (s.status === 'upcoming') {
-      const start = dateOnly(s.startDate);
-      if (start) parts.push(`starts ${MONTHS[start.getMonth()]} ${start.getDate()}`);
-    }
-  }
-  return parts.join(' · ');
+/** The card's header line: "Dinks · Fall", or just the league's name with no
+ *  season. The status line under it (rank, next lock) is the standings'. */
+export function spotlightHeaderLine(leagueName: string, seasonName: string | null | undefined): string {
+  const season = seasonName?.trim();
+  return season ? `${leagueName} · ${season}` : leagueName;
 }
 
 /** The card's one "what's next" line: "Next: Thu 6 PM · 1 vote open", "Next:

@@ -1,7 +1,7 @@
 // A league as one compact row (plan section 4 mockups, section 6 Compact/Row).
 // One component for every list of leagues:
 //   - Home YOURS        layout='row', role chip, `subtitle` = the live fact
-//                       ("1 vote open · next Thu 6 PM"), trailingText "Wk 7/12"
+//                       ("1 vote open · next Thu 6 PM"), trailingText "Season ends Dec 1"
 //   - Home JOIN A LEAGUE layout='row', court · players · fact, action =
 //                       <LeagueJoinButton> (inline Join / Request via useLeagueJoin)
 //   - Play Mine/Discover layout='compact' (the default), same pieces
@@ -49,7 +49,7 @@ export type LeagueRowProps = {
   showCourt?: boolean;
   /** Extra chips after the role / Private / Requested chips. Only 2 chips render in total. */
   chips?: ReadonlyArray<EntityRowChip | null | undefined | false>;
-  /** The one trailing badge ("Wk 7/12"). Hidden when `action` is set. */
+  /** The one trailing badge ("Season ends Dec 1"). Hidden when `action` is set. */
   trailingText?: string | null;
   /** Trailing action, e.g. <LeagueJoinButton />. Replaces the chevron. */
   action?: ReactNode;

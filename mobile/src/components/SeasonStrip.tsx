@@ -3,8 +3,8 @@
 // the compacted league page too thin: the one expanded section on the page,
 // open by default.
 //
-//   STANDINGS  Fall · Wk 7 of 12                       Full table ›   44
-//   You #2 · locks Oct 20                                             one line
+//   STANDINGS  Fall                                    Full table ›   44
+//   You #2 of 14 · Period 7 locks Oct 20                              one line
 //   ┌ #  Player                         W-L     PLUPR ┐
 //   │ 🥇 (av) Alice                     5-1     3.82 +0.32 │          56 each
 //   │ ...top 10, your row pinned under a heavier rule  │
@@ -13,8 +13,9 @@
 // What it ranks (live period, locked period, upcoming preview, last season's
 // final standings, or a members-by-PLUPR leaderboard) is decided by
 // components/league/useLeagueStandings.ts; the header line is its
-// leagueStandingsHeader, so the strip's old facts (week, You #N, lock date)
-// are each said once. It never renders an empty section: loading is a row
+// leagueStandingsHeader (Home's spotlight shows the same status line), so
+// the season's facts (You #N of M, the next lock or the season end) are each
+// said once. It never renders an empty section: loading is a row
 // skeleton, a failed first load is one compact line with Retry, and no rows
 // at all renders nothing.
 import React from 'react';

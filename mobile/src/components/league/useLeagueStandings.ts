@@ -27,7 +27,7 @@ import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supab
 import { supabase } from '../../lib/supabase';
 import {
   STANDINGS_MATCH_COLUMNS, DEFAULT_BASELINE_PLUPR, addDaysIso, computeSeasonStandings, localIsoDate,
-  periodEndDate, periodStartDate, periodWindow, seasonLockPart, seasonWeekPart, shortDate, summarizeSeason,
+  periodEndDate, periodStartDate, periodWindow, seasonDatePart, seasonStatusLine, summarizeSeason,
   type SeasonInput, type SeasonSummary, type StandingsMatch,
 } from '../../lib/seasonSummary';
 import {
@@ -65,7 +65,7 @@ export type LeagueStandings = {
   /** The season the rows belong to ("Full table" opens it); null for 'leaderboard'. */
   seasonId: string | null;
   seasonName: string | null;
-  /** The active / upcoming season's facts (week, lock dates, lockDue); null for 'final' / 'leaderboard'. */
+  /** The active / upcoming season's facts (next lock, lockDue); null for 'final' / 'leaderboard'. */
   summary: SeasonSummary | null;
   /** The period the rows rank ('live' / 'locked'), else null. */
   period: number | null;
@@ -345,54 +345,57 @@ async function loadFinalRows(
 }
 
 export type LeagueStandingsHeader = {
-  /** SectionHeader title: "Standings" / "Final standings" / "Leaderboard". */
+  /** SectionHeader title: "Standings" / "Leaderboard". */
   title: string;
-  /** SectionHeader count: "Fall · Wk 7 of 12", the season name, "12 members". */
+  /** SectionHeader count: the season name, "12 members". */
   label: string | null;
-  /** The one status line under the header: "You #2 · locks Oct 20". */
+  /** The one status line under the header (seasonStatusLine): "You #2 of 14 ·
+   *  Period 7 locks Oct 20". Home's spotlight shows the same line. The
+   *  preview kinds say their rows are by PLUPR: "14 players by PLUPR · Period
+   *  1 locks Oct 20", "Starts Nov 3 · by PLUPR". */
   subtitle: string | null;
 };
 
 /**
- * The section's header facts, from the old season strip's one line ("Fall ·
- * Wk 7 of 12 · You #2 · locks Oct 20"), split so nothing is said twice:
- * season + week in the header, rank + lock under it. "Lock due" is admin
- * information: pass `privileged: false` for members (seasonLockPart).
+ * The section's header facts: the season's name in the header, and under it
+ * your rank out of THESE rows plus the next date that matters (lib/
+ * seasonSummary's seasonStatusLine). "Lock due" is admin information: pass
+ * `privileged: false` for members.
  */
 export function leagueStandingsHeader(
   d: LeagueStandings,
-  opts: { privileged?: boolean; fmt?: (iso: string) => string } = {},
+  opts: { privileged?: boolean; now?: Date; locale?: string } = {},
 ): LeagueStandingsHeader {
-  const fmt = opts.fmt ?? shortDate;
-  const join = (parts: (string | null | false | undefined)[]) =>
-    parts.filter((p): p is string => !!p && !!p.trim()).join(' · ') || null;
-  const s = d.summary;
+  const dateOpts = { isAdmin: !!opts.privileged, now: opts.now ?? new Date(), locale: opts.locale };
+  const status = (summary: SeasonSummary | null) => seasonStatusLine({
+    summary,
+    myRank: d.myRank,
+    rankedCount: d.rows.length,
+    ...dateOpts,
+  });
+  const n = d.rows.length;
   switch (d.kind) {
     case 'live':
     case 'locked':
+      return { title: 'Standings', label: d.seasonName, subtitle: d.summary ? status(d.summary) : null };
+    // The preview rows are the members by PLUPR, not season results (no
+    // season match has counted yet), so the line says so.
     case 'noMatches':
       return {
         title: 'Standings',
-        label: join([d.seasonName, s && seasonWeekPart(s)]),
-        subtitle: join([
-          d.myRank != null ? `You #${d.myRank}` : null,
-          d.kind === 'locked' && d.period != null ? `P${d.period} locked` : null,
-          d.kind === 'noMatches' ? 'No matches yet · by PLUPR' : null,
-          s && seasonLockPart(s, fmt, { privileged: opts.privileged }),
-        ]),
+        label: d.seasonName,
+        subtitle: d.summary
+          ? `${n} player${n === 1 ? '' : 's'} by PLUPR · ${seasonDatePart(d.summary, dateOpts)}`
+          : 'Members by PLUPR',
       };
     case 'upcoming':
       return {
         title: 'Standings',
         label: d.seasonName,
-        subtitle: join([s?.startsOn ? `Season starts ${fmt(s.startsOn)}` : 'Season starts soon', 'members by PLUPR']),
+        subtitle: d.summary ? `${status(d.summary)} · by PLUPR` : 'Members by PLUPR',
       };
     case 'final':
-      return {
-        title: 'Final standings',
-        label: d.seasonName,
-        subtitle: d.myRank != null ? `You finished #${d.myRank}` : null,
-      };
+      return { title: 'Standings', label: d.seasonName, subtitle: status(null) };
     case 'leaderboard':
     default:
       return {

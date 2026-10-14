@@ -171,7 +171,7 @@ type EventRow = {
   confirmed_slot_id: string | null;
 };
 type SlotRow = { id: string; event_id: string; starts_at: string; ends_at: string | null };
-/** A league_seasons row (select *): the agenda's fields plus what summarizeSeason ranks with. */
+/** A league_seasons row (select *): the agenda's fields read from it. */
 type SeasonRow = SummarySeason & { id: string; league_id: string };
 
 /** Scheduled events in these leagues whose confirmed slot started at or after
@@ -467,7 +467,7 @@ export async function loadHome(): Promise<HomeData> {
   for (const s of (seasonRows ?? []) as SeasonRow[]) {
     const l = leagueById.get(s.league_id);
     if (!l) continue;
-    const next: SeasonInput = { status: s.status, startDate: s.start_date, totalWeeks: s.total_weeks, name: s.name ?? null };
+    const next: SeasonInput = { status: s.status, startDate: s.start_date, name: s.name ?? null };
     if (!l.season || (l.season.status !== 'active' && (s.status === 'active' || s.start_date < l.season.startDate))) {
       l.season = next;
     }

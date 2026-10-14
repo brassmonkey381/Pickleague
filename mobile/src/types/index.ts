@@ -142,8 +142,10 @@ export type LeagueWithStats = League & {
   featuredSeasonStatus: 'active' | 'upcoming' | null;
   featuredSeasonStart: string | null;
   featuredSeasonEnd: string | null;
-  // The featured season's length in weeks (league_seasons.total_weeks), for "Wk 7/12".
-  featuredSeasonTotalWeeks?: number | null;
+  // The featured season's lock cadence and period count (league_seasons
+  // lock_frequency_weeks / total_periods), for "Period 7 locks Oct 20".
+  featuredSeasonLockWeeks?: number | null;
+  featuredSeasonPeriods?: number | null;
 };
 
 export type LeagueJoinRequest = {

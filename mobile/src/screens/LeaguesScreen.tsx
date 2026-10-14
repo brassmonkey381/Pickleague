@@ -38,7 +38,7 @@ import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-me
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { LeagueWithStats, RootStackParamList } from '../types';
 import { useCourtName } from '../lib/courtNickname';
-import { seasonWeek } from '../lib/agenda';
+import { localIsoDate, seasonDateFacts, seasonDatePart } from '../lib/seasonSummary';
 import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { isGodmodeUserId, countActiveAdminLeagues } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
@@ -113,20 +113,27 @@ function fmtShort(iso: string): string {
   return new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-/** The row's live facts after court and players, at most two: a vote, the
- *  season, an open tournament. Never "TBD" (content rule 3). A member sees how
- *  far the season is ("Wk 7/12", the same helper Home's YOURS uses); Discover
- *  rows keep "In season". */
+/** The row's live facts after court and players, at most two: the season, a
+ *  vote, an open tournament. Never "TBD" (content rule 3). A member sees the
+ *  season's next date in the short form ("P7 locks Oct 20", "Ends Dec 1": the
+ *  date part of LeagueDetail's status line, from the dates alone); Discover
+ *  rows keep "In season". The season goes first so a 1-line subtitle that
+ *  clips loses the vote flag, not the date. */
 function leagueFacts(l: PlayLeagueRow, now: number): string[] {
   const facts: string[] = [];
-  if (l.openVoteCount > 0) facts.push('Vote open');
   if (l.featuredSeasonStatus === 'active') {
-    const wk = l.myRole && l.featuredSeasonStart && l.featuredSeasonTotalWeeks
-      ? seasonWeek({ status: 'active', startDate: l.featuredSeasonStart, totalWeeks: l.featuredSeasonTotalWeeks }, now)
+    const next = l.myRole && l.featuredSeasonStart && l.featuredSeasonLockWeeks && l.featuredSeasonPeriods
+      ? seasonDatePart(seasonDateFacts({
+        start_date: l.featuredSeasonStart.slice(0, 10),
+        end_date: l.featuredSeasonEnd,
+        lock_frequency_weeks: l.featuredSeasonLockWeeks,
+        total_periods: l.featuredSeasonPeriods,
+      }, localIsoDate(new Date(now))), { now: new Date(now), compact: true })
       : null;
-    facts.push(wk ? `Wk ${wk.week}/${wk.total}` : 'In season');
+    facts.push(next ?? 'In season');
   }
   else if (l.featuredSeasonStatus === 'upcoming' && l.featuredSeasonStart) facts.push(`Season starts ${fmtShort(l.featuredSeasonStart)}`);
+  if (l.openVoteCount > 0) facts.push('Vote open');
   if (l.openRegistrationTournamentCount > 0) facts.push('Tournament open');
   return facts.slice(0, 2);
 }
@@ -165,7 +172,7 @@ async function loadLeaguesData(): Promise<LeaguesData> {
       ? sbCall(() => supabase.from('league_join_requests').select('league_id').eq('user_id', uid).eq('status', 'pending').in('league_id', ids))
       : Promise.resolve([]),
     sbCall(() => supabase.from('league_seasons')
-      .select('league_id, status, baseline_plupr, start_date, end_date, total_weeks')
+      .select('league_id, status, baseline_plupr, start_date, end_date, lock_frequency_weeks, total_periods')
       .in('league_id', ids)
       .in('status', ['active', 'upcoming'])),
     sbCall(() => supabase.from('tournaments')
@@ -193,7 +200,7 @@ async function loadLeaguesData(): Promise<LeaguesData> {
   const matchRows      = (matchRes ?? []) as any[];
   const myMembers      = (myMemberRes ?? []) as any[];
   const myRequests     = (myRequestRes ?? []) as any[];
-  const seasonRows     = (seasonRes ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null; total_weeks: number | null }[];
+  const seasonRows     = (seasonRes ?? []) as { league_id: string; status: string; baseline_plupr: number | null; start_date: string; end_date: string | null; lock_frequency_weeks: number | null; total_periods: number | null }[];
   const tournamentRows = (tournamentRes ?? []) as { league_id: string; status: string; start_time: string | null }[];
   const adminRows      = (adminRes ?? []) as any[];
   const eventRows      = (eventRes ?? []) as { id: string; league_id: string; status: string; vote_ends_at: string; confirmed_slot_id: string | null }[];
@@ -278,7 +285,8 @@ async function loadLeaguesData(): Promise<LeaguesData> {
       featuredSeasonStatus: featuredStatus,
       featuredSeasonStart: featuredSeason?.start_date ?? null,
       featuredSeasonEnd:   featuredSeason?.end_date ?? null,
-      featuredSeasonTotalWeeks: featuredSeason?.total_weeks ?? null,
+      featuredSeasonLockWeeks: featuredSeason?.lock_frequency_weeks ?? null,
+      featuredSeasonPeriods: featuredSeason?.total_periods ?? null,
       saved: savedIds.has(l.id),
       recentMatchCount,
     };
