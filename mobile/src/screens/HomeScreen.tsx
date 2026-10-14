@@ -341,9 +341,10 @@ export default function HomeScreen({ navigation }: Props) {
   const agendaItems: AgendaItem[] = useMemo(() => [
     ...eventAgendaItems(data.events, now),
     ...tournamentAgendaItems(myTournaments, now),
-    ...drillAgendaItems(data.drillsToday),
+    // This week's sessions by stage; a payload cached before `drills` has today's.
+    ...drillAgendaItems(data.drills ?? data.drillsToday, now),
     ...inboxAgendaItems(data.inbox, profile?.id ?? null, privilegedLeagues, now),
-  ], [data.events, data.drillsToday, data.inbox, myTournaments, profile?.id, privilegedLeagues, now]);
+  ], [data.events, data.drills, data.drillsToday, data.inbox, myTournaments, profile?.id, privilegedLeagues, now]);
   // The bell's number. Counted before NOW takes the live events out of UP
   // NEXT: an RSVP still open on a live event still needs you.
   const needYou = useMemo(() => needsYouCount(agendaItems, now), [agendaItems, now]);
@@ -424,7 +425,11 @@ export default function HomeScreen({ navigation }: Props) {
   async function dismissDrill(sessionId: string) {
     const uid = await currentUserId(supabase);
     if (!uid) return;
-    patchHome(d => ({ ...d, drillsToday: d.drillsToday.filter(s => s.id !== sessionId) }));
+    patchHome(d => ({
+      ...d,
+      drillsToday: d.drillsToday.filter(s => s.id !== sessionId),
+      ...(d.drills ? { drills: d.drills.filter(s => s.id !== sessionId) } : {}),
+    }));
     try {
       // Append to the dismissed list without clobbering the partner's entry.
       const row = await sbCall(() => supabase
@@ -439,6 +444,21 @@ export default function HomeScreen({ navigation }: Props) {
       // Couldn't persist the dismissal — the row returns on the next load.
       toast.error(friendlySbMessage(e, "Couldn't hide that drill just now."));
     }
+  }
+
+  /** Up next's inline [Confirm] on a locked-in drill (court + time): the
+   *  same RPC as the drill screen and the lock-screen button ('on_my_way' is
+   *  the stored value behind Confirm). Throws so the row can roll back its
+   *  optimistic "✓ Confirmed"; the error toast is here. */
+  async function confirmDrill(sessionId: string) {
+    try {
+      // Idempotent: the RPC returns 'already' for a repeat answer.
+      await sbCall(() => supabase.rpc('rsvp_drill_session', { p_session: sessionId, p_status: 'on_my_way' }), { retries: 1, timeoutMs: 9_000 });
+    } catch (e) {
+      toast.error(friendlySbMessage(e, "Couldn't confirm that drill. Tap Confirm to try again."));
+      throw e;
+    }
+    void reloadFresh();
   }
 
   function onQuick(target: QuickTarget, position: number) {
@@ -540,6 +560,7 @@ export default function HomeScreen({ navigation }: Props) {
           navigate={go}
           onProposePlayDay={(leagueId) => navigation.navigate('CreateEvent', { leagueId })}
           onDismissDrill={(id) => { void dismissDrill(id); }}
+          onConfirmDrill={confirmDrill}
           onTap={(target, position) => tap('up_next', target, position)}
           onPickerOpenChange={onPickerOpenChange}
           onSeeAll={(requests) => navigation.navigate('Notifications', requests ? { initialChip: 'requests' } : undefined)}

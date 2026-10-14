@@ -10,6 +10,8 @@
 // names the league, and either a button (opens the detail screen AT that
 // control via a `focus` param; never an inline write, decision 1), a bookmark
 // + ✕ (drill rows: the old drill banner's dismiss, moved here), or a chevron.
+// A locked-in drill (court + time) I haven't answered gets an inline [Confirm]
+// instead, the one inline write on Up next; once tapped it reads "✓ Confirmed".
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ListCard } from '@just-messin-around/expo-foundation/ui';
@@ -27,6 +29,10 @@ type Props = {
   lastRow?: boolean;
   onPress: () => void;
   onAction?: () => void;
+  /** Inline drill Confirm (row.confirmDrillId). */
+  onConfirm?: () => void;
+  /** Confirmed from here, waiting for the reload: show the done state. */
+  confirmed?: boolean;
   onDismiss?: () => void;
 };
 
@@ -36,7 +42,7 @@ type Props = {
 // the one fact it exists to show (section 6: rows grow, they don't clip).
 const WHEN_MIN_WIDTH = 60;
 
-export default function AgendaRow({ row, now, lastRow, onPress, onAction, onDismiss }: Props) {
+export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConfirm, confirmed, onDismiss }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const when = agendaWhen(row, now);
@@ -61,7 +67,17 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onDism
   );
 
   let trailing: React.ReactNode;
-  if (row.action && onAction) {
+  if (row.confirmDrillId && confirmed) {
+    trailing = (
+      <View style={styles.box}>
+        <Text style={[t.meta, { color: c.success }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          ✓ Confirmed
+        </Text>
+      </View>
+    );
+  } else if (row.confirmDrillId && onConfirm) {
+    trailing = <Button size="sm" title="Confirm" onPress={onConfirm} />;
+  } else if (row.action && onAction) {
     trailing = <Button size="sm" title={row.action.label} onPress={onAction} />;
   } else if (row.dismissibleDrillId && onDismiss) {
     // The bookmark stays (Home's drill row is the only place a drill session
@@ -95,7 +111,7 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onDism
       onPress={onPress}
       // A 44 action box plus the row's 10/10 padding would make a 64 row; 4px
       // keeps it 56 (same rule as EntityRow) with the box inside the row.
-      style={row.action || row.dismissibleDrillId ? styles.actionRow : undefined}
+      style={row.action || row.confirmDrillId || row.dismissibleDrillId ? styles.actionRow : undefined}
     />
   );
 }

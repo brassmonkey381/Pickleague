@@ -40,7 +40,7 @@ import { supabase } from '../../lib/supabase';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
 import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
-import type { AgendaDrillInput, AgendaEventInput, AgendaTournamentInput, SeasonInput } from '../../lib/agenda';
+import type { AgendaDrillInput, AgendaEventInput, AgendaTournamentInput, DrillRsvp, SeasonInput } from '../../lib/agenda';
 import {
   EMPTY_INBOX,
   findMissingTargets,
@@ -126,7 +126,12 @@ export type HomeData = {
   myTournaments: HomeTournament[];
   /** Agenda inputs for my leagues' events. */
   events: AgendaEventInput[];
+  /** Today's drill sessions only (kept for a payload cached before `drills`). */
   drillsToday: AgendaDrillInput[];
+  /** Drill sessions from yesterday through the next 7 days (not dismissed),
+   *  with their court and both RSVPs: Up next's drill stages. Absent in a
+   *  payload cached before it existed: read `drillsToday` instead. */
+  drills?: AgendaDrillInput[];
   openLeagues: HomeOpenLeague[];
   openTournaments: HomeOpenTournament[];
   /** A candidate fetch hit its row limit, so the open totals are a floor
@@ -145,6 +150,7 @@ export const EMPTY_HOME: HomeData = {
   myTournaments: [],
   events: [],
   drillsToday: [],
+  // `drills` stays absent here: its absence is how an old payload is told apart.
   openLeagues: [],
   openTournaments: [],
   openCapped: false,
@@ -286,6 +292,57 @@ async function loadMyVotes(uid: string, eventIds: string[], slotsP: Promise<unkn
   }
 }
 
+/** A drill_sessions row as Home reads it (select below). */
+type DrillSessionRow = {
+  id: string;
+  player1_id: string;
+  player2_id: string;
+  session_date: string;
+  session_slot: number;
+  starts_at: string | null;
+  length_minutes: number | null;
+  reminder_dismissed_by: string[] | null;
+  p1?: { full_name: string | null } | { full_name: string | null }[] | null;
+  p2?: { full_name: string | null } | { full_name: string | null }[] | null;
+  drill_session_rsvps?: { user_id: string; status: string }[] | null;
+  req?: { id: string; status: string | null; location_name: string | null }
+    | { id: string; status: string | null; location_name: string | null }[] | null;
+};
+
+const DRILL_SESSION_LIMIT = 30;
+
+/** My drill sessions from yesterday (one still running past midnight) through
+ *  the next week (drill dates are local calendar days; agenda trims to the
+ *  exact window), with both players' answers and the request's court in the
+ *  same request (drill_sessions and drill_session_rsvps: the two players
+ *  read both rows; drill_requests: participants). If PostgREST refuses the
+ *  embeds (the RSVP table not applied, say), it falls back to the bare
+ *  sessions: plain rows, the pre-stage behaviour. */
+async function loadDrillSessions(uid: string): Promise<DrillSessionRow[]> {
+  const day = (offset: number) => { const d = new Date(); d.setDate(d.getDate() + offset); return isoDate(d); };
+  const base = 'id, player1_id, player2_id, session_date, session_slot, starts_at, length_minutes, reminder_dismissed_by,'
+    + ' p1:profiles!drill_sessions_player1_id_fkey(full_name),'
+    + ' p2:profiles!drill_sessions_player2_id_fkey(full_name)';
+  const run = (select: string) => sbCall(() => supabase
+    .from('drill_sessions')
+    .select(select)
+    .gte('session_date', day(-1))
+    .lte('session_date', day(7))
+    .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+    .order('session_date')
+    .order('session_slot')
+    .limit(DRILL_SESSION_LIMIT));
+  try {
+    return ((await run(`${base}, drill_session_rsvps(user_id, status), req:drill_requests(id, status, location_name)`)) ?? []) as unknown as DrillSessionRow[];
+  } catch {
+    return ((await run(base)) ?? []) as unknown as DrillSessionRow[];
+  }
+}
+
+function asRsvp(v: string | null | undefined): DrillRsvp | null {
+  return v === 'on_my_way' || v === 'cant_make_it' ? v : null;
+}
+
 export async function loadHome(): Promise<HomeData> {
   const uid = await currentUserId(supabase);
   if (!uid) return EMPTY_HOME;
@@ -309,16 +366,7 @@ export async function loadHome(): Promise<HomeData> {
       .from('league_members')
       .select('league_id, role, league:leagues(id, name, home_court, is_active, is_open)')
       .eq('user_id', uid)),
-    sbCall(() => supabase
-      .from('drill_sessions')
-      .select(`
-        *,
-        p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
-        p2:profiles!drill_sessions_player2_id_fkey(id, full_name)
-      `)
-      .eq('session_date', today)
-      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
-      .order('session_slot')),
+    loadDrillSessions(uid),
     // Tournaments I'm registered for, invited to or waitlisted on (still live).
     sbCall(() => supabase
       .from('tournament_registrations')
@@ -365,18 +413,36 @@ export async function loadHome(): Promise<HomeData> {
   const leagueById = new Map(myLeagues.map(l => [l.id, l]));
   const myLeagueIds = myLeagues.map(l => l.id);
 
-  // ── Drills today (hide ones I've dismissed) ──
+  // ── Drill sessions this week (hide ones I've dismissed) ──
+  const drills: AgendaDrillInput[] = [];
   const drillsToday: AgendaDrillInput[] = [];
-  for (const r of (drillRows ?? []) as any[]) {
+  for (const r of (drillRows ?? []) as DrillSessionRow[]) {
     if ((r.reminder_dismissed_by ?? []).includes(uid)) continue;
+    const req = Array.isArray(r.req) ? r.req[0] ?? null : r.req ?? null;
+    // A request that was cancelled or declined after it was accepted.
+    if (req && req.status && req.status !== 'accepted') continue;
     const startsAt = drillStart(r);
     if (!startsAt) continue;
-    drillsToday.push({
+    const iAmP1 = r.player1_id === uid;
+    const partner = iAmP1 ? r.p2 : r.p1;
+    const partnerName = (Array.isArray(partner) ? partner[0] : partner)?.full_name ?? 'your partner';
+    const partnerId = iAmP1 ? r.player2_id : r.player1_id;
+    const rsvps = r.drill_session_rsvps;
+    const row: AgendaDrillInput = {
       id: r.id,
-      partnerName: r.player1_id === uid ? r.p2?.full_name ?? 'your partner' : r.p1?.full_name ?? 'your partner',
+      partnerName,
       startsAt,
       lengthMinutes: r.length_minutes ?? 60,
-    });
+    };
+    // Only when the embeds came back: otherwise the row stays a plain one.
+    if (rsvps !== undefined || r.req !== undefined) {
+      row.requestId = req?.id ?? null;
+      row.court = req ? (req.location_name?.trim() || null) : undefined;
+      row.myRsvp = asRsvp((rsvps ?? []).find(x => x.user_id === uid)?.status);
+      row.partnerRsvp = asRsvp((rsvps ?? []).find(x => x.user_id === partnerId)?.status);
+    }
+    drills.push(row);
+    if (r.session_date === today) drillsToday.push(row);
   }
 
   // ── My tournaments ──
@@ -609,6 +675,7 @@ export async function loadHome(): Promise<HomeData> {
     myTournaments,
     events: agendaEvents,
     drillsToday,
+    drills,
     openLeagues,
     openTournaments,
     openCapped: ((openTourRows ?? []) as unknown[]).length >= OPEN_TOURNAMENT_LIMIT

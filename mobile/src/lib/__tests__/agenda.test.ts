@@ -164,6 +164,76 @@ describe('drillAgendaItems', () => {
     expect(d.dismissibleDrillId).toBe('d1');
     expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'd1' } });
   });
+
+  // Stage inputs: a session Thursday 6 PM (2 days out) on request r1.
+  const stage = (over: Partial<Parameters<typeof drillAgendaItems>[0][number]> = {}) => ({
+    id: 's1', partnerName: 'Sam Kim', startsAt: at(2, 18), lengthMinutes: 60,
+    requestId: 'r1', court: 'Lake Merritt', myRsvp: null, partnerRsvp: null, ...over,
+  });
+
+  it('accepted with no court: "Drill with Sam" · pick a court, needs me, opens the request', () => {
+    const [d] = drillAgendaItems([stage({ court: null })], NOW);
+    expect(d).toMatchObject({ title: 'Drill with Sam', status: 'pick a court', needsYou: true, deadline: at(2, 18) });
+    expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'r1' } });
+    expect(d.confirmDrillId).toBeUndefined();
+    const [row] = buildAgenda([d], NOW).rows;
+    expect(row.bucket).toBe('needsYou');
+    expect(agendaWhen(row, NOW)).toEqual({ top: 'Thu', bottom: '6 PM' });
+  });
+
+  it('locked (court + time), unanswered: names the court and carries the inline Confirm', () => {
+    const [d] = drillAgendaItems([stage()], NOW);
+    expect(d).toMatchObject({ title: 'Drill with Sam at Lake Merritt', needsYou: true, deadline: at(2, 18), confirmDrillId: 's1', action: null });
+    expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 's1' } });
+    // Not today: no ✕, and never a ✕ next to Confirm.
+    expect(d.dismissibleDrillId).toBeUndefined();
+    const [partnerIn] = drillAgendaItems([stage({ partnerRsvp: 'on_my_way' })], NOW);
+    expect(partnerIn.status).toBe('Sam confirmed');
+    const [todayLocked] = drillAgendaItems([stage({ startsAt: at(0, 18) })], NOW);
+    expect(todayLocked.dismissibleDrillId).toBeUndefined();
+  });
+
+  it('locked and I confirmed: ✓ Confirmed, scheduled, no button', () => {
+    const [d] = drillAgendaItems([stage({ myRsvp: 'on_my_way' })], NOW);
+    expect(d).toMatchObject({ title: 'Drill with Sam at Lake Merritt', status: '✓ Confirmed', needsYou: false, deadline: null });
+    expect(d.confirmDrillId).toBeUndefined();
+    expect(buildAgenda([d], NOW).rows[0].bucket).toBe('thisWeek');
+    expect(needsYouCount([d], NOW)).toBe(0);
+  });
+
+  it("my partner can't make it: needs me, opens the request to reschedule", () => {
+    for (const mine of [null, 'on_my_way'] as const) {
+      const [d] = drillAgendaItems([stage({ myRsvp: mine, partnerRsvp: 'cant_make_it' })], NOW);
+      expect(d).toMatchObject({ title: "Sam can't make it", status: 'reschedule', needsYou: true, deadline: at(2, 18) });
+      expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'r1' } });
+      expect(d.confirmDrillId).toBeUndefined();
+    }
+  });
+
+  it("today's scheduled session keeps its ✕; ended and 7+ day sessions drop", () => {
+    const items = drillAgendaItems([
+      stage({ id: 'today', startsAt: at(0, 18), myRsvp: 'on_my_way' }),
+      stage({ id: 'ended', startsAt: at(0, 10) }),
+      stage({ id: 'far', startsAt: at(7, 9) }),
+      stage({ id: 'edge', startsAt: at(6, 21) }),
+    ], NOW);
+    expect(items.map((i) => i.key)).toEqual(['drill-today', 'drill-edge']);
+    expect(items[0].dismissibleDrillId).toBe('today');
+    expect(items[1].dismissibleDrillId).toBeUndefined();
+  });
+
+  it('a running session that needs an answer sorts live; needs-you drills order by start', () => {
+    const items = drillAgendaItems([
+      stage({ id: 'later', startsAt: at(3, 18) }),
+      stage({ id: 'soon', startsAt: at(1, 9), court: null }),
+      stage({ id: 'now', startsAt: at(0, 13, 30), myRsvp: 'on_my_way' }),
+    ], NOW);
+    expect(buildAgenda(items, NOW).rows.map((r) => [r.key, r.bucket])).toEqual([
+      ['drill-now', 'live'],
+      ['drill-soon', 'needsYou'],
+      ['drill-later', 'needsYou'],
+    ]);
+  });
 });
 
 describe('buildAgenda ordering', () => {

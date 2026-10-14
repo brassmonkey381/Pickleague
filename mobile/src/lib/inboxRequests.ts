@@ -9,6 +9,8 @@
 //          confirm_match fires the ratings / payout cascade (decision 1).
 //        - a drill request sent to me (drill_requests pending, to_user_id =
 //          me, a proposed time still ahead), which opens DrillRequests on it.
+//        - (not a request, a plain scheduled row) a drill request I sent that
+//          is still waiting, when a proposed time falls inside the week.
 //        - for a league I run (admin / co-admin), its pending join requests,
 //          one row per league, which opens LeagueMembers (pending first).
 //        - a doubles-partner or MLP-team invite to me (pending, direction
@@ -193,10 +195,51 @@ export function drillRequestItems(rows: readonly DrillRequestRow[], now: number)
       endsAt: null,
       needsYou: true,
       deadline: ahead.length ? new Date(ahead[0]).toISOString() : null,
-      status: ahead.length === 1 ? '1 time offered' : ahead.length > 1 ? `${ahead.length} times offered` : null,
+      status: 'pick a time',
       requestedAt: r.created_at,
       target,
       action: { label: 'Respond', target, slug: 'drill_request' },
+    });
+  }
+  return out;
+}
+
+/** A drill request I sent (drill_requests pending, from_user_id = me). */
+export type SentDrillRequestRow = {
+  id: string;
+  status: string;
+  proposed_slots: unknown;
+  created_at: string | null;
+  to_profile?: NameEmbed;
+};
+
+/**
+ * Drill requests I sent that are still waiting -> "Waiting on Sam" rows: plain
+ * scheduled rows (nothing for me to do) at the first proposed time still
+ * ahead, shown only when that time is inside the week (7 calendar days). A
+ * zero-length span so a proposed time that passes never reads as live.
+ */
+export function drillWaitingItems(rows: readonly SentDrillRequestRow[], now: number): AgendaItem[] {
+  const out: AgendaItem[] = [];
+  for (const r of rows) {
+    if (r.status !== 'pending') continue;
+    const next = proposedSlotStarts(r.proposed_slots).find((t) => t > now);
+    if (next == null || calendarDayDiff(new Date(next), new Date(now)) >= 7) continue;
+    const who = firstName(one(r.to_profile)?.full_name) ?? 'your partner';
+    const startsAt = new Date(next).toISOString();
+    out.push({
+      key: `drill-waiting-${r.id}`,
+      kind: 'drill_waiting',
+      title: `Waiting on ${who}`,
+      leagueName: null,
+      startsAt,
+      endsAt: startsAt,
+      needsYou: false,
+      deadline: null,
+      status: 'drill request sent',
+      requestedAt: r.created_at,
+      target: { screen: 'DrillRequests', params: { focusId: r.id } },
+      action: null,
     });
   }
   return out;
@@ -331,9 +374,11 @@ export type InboxRequestRows = {
   pairInvites?: TeamInviteRow[];
   /** MLP team invites to me (same). */
   teamInvites?: TeamInviteRow[];
+  /** Drill requests I sent, still pending (same). */
+  sentDrills?: SentDrillRequestRow[];
 };
 
-export const EMPTY_INBOX: InboxRequestRows = { matches: [], drills: [], joins: [], pairInvites: [], teamInvites: [] };
+export const EMPTY_INBOX: InboxRequestRows = { matches: [], drills: [], joins: [], pairInvites: [], teamInvites: [], sentDrills: [] };
 
 /** All the request rows for Up next, mapped (tournament invites aside). */
 export function inboxAgendaItems(
@@ -349,6 +394,7 @@ export function inboxAgendaItems(
     ...joinRequestItems(inbox.joins ?? [], adminLeagues),
     ...teamInviteItems(inbox.pairInvites ?? [], 'pair', now),
     ...teamInviteItems(inbox.teamInvites ?? [], 'team', now),
+    ...drillWaitingItems(inbox.sentDrills ?? [], now),
   ];
 }
 
@@ -627,7 +673,7 @@ export async function loadInboxRequests(
   adminLeagueIds: readonly string[],
 ): Promise<InboxRequestRows> {
   const { client, call } = db;
-  const [matches, drills, joins, pairInvites, teamInvites] = await Promise.all([
+  const [matches, drills, joins, pairInvites, teamInvites, sentDrills] = await Promise.all([
     soft<MatchConfirmRow[]>(call(() => client
       .from('matches')
       .select(`
@@ -672,8 +718,16 @@ export async function loadInboxRequests(
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(REQUEST_LIMIT)) as unknown as Promise<TeamInviteRow[]>, []),
+    // Drill requests I sent that are still waiting ("Waiting on Sam").
+    soft<SentDrillRequestRow[]>(call(() => client
+      .from('drill_requests')
+      .select('id, status, proposed_slots, created_at, to_profile:profiles!drill_requests_to_user_id_fkey(full_name)')
+      .eq('from_user_id', uid)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(REQUEST_LIMIT)) as unknown as Promise<SentDrillRequestRow[]>, []),
   ]);
-  return { matches, drills, joins, pairInvites, teamInvites };
+  return { matches, drills, joins, pairInvites, teamInvites, sentDrills };
 }
 
 /** Ids per `in` filter: keeps the request URL short. */

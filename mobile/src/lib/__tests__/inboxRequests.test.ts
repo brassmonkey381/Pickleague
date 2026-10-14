@@ -5,6 +5,7 @@ import {
   NOTIFICATION_CHIPS,
   chipServerFilter,
   drillRequestItems,
+  drillWaitingItems,
   firstName,
   groupByDay,
   inboxAgendaItems,
@@ -139,7 +140,7 @@ describe('drillRequestItems', () => {
     const [d] = drillRequestItems([{ id: 'r1', status: 'pending', proposed_slots: slots, created_at: iso(-H), from_profile: { full_name: 'Sam Kim' } }], NOW);
     expect(d.title).toBe('Drill request from Sam');
     expect(d.deadline).toBe(new Date(2026, 9, 14, 10, 0).toISOString());
-    expect(d.status).toBe('2 times offered');
+    expect(d.status).toBe('pick a time');
     expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'r1' } });
     expect(d.action).toMatchObject({ label: 'Respond', slug: 'drill_request' });
   });
@@ -151,7 +152,38 @@ describe('drillRequestItems', () => {
       { id: 'undated', status: 'pending', proposed_slots: [], created_at: iso(-3 * H), from_profile: null },
     ], NOW);
     expect(items.map((i) => i.key)).toEqual(['drill-request-undated']);
-    expect(items[0]).toMatchObject({ title: 'Drill request from a player', deadline: null, status: null, requestedAt: iso(-3 * H) });
+    expect(items[0]).toMatchObject({ title: 'Drill request from a player', deadline: null, status: 'pick a time', requestedAt: iso(-3 * H) });
+  });
+});
+
+describe('drillWaitingItems', () => {
+  it('my pending request: "Waiting on Sam", a scheduled row at the first time ahead', () => {
+    const [d] = drillWaitingItems([{
+      id: 'w1', status: 'pending', created_at: iso(-H), to_profile: { full_name: 'Sam Kim' },
+      proposed_slots: [{ date: '2026-10-12', slot: 20 }, { date: '2026-10-16', slot: 36 }, { date: '2026-10-15', slot: 36 }],
+    }], NOW);
+    expect(d).toMatchObject({ kind: 'drill_waiting', title: 'Waiting on Sam', needsYou: false, action: null });
+    expect(d.startsAt).toBe(new Date(2026, 9, 15, 18, 0).toISOString());
+    expect(d.target).toEqual({ screen: 'DrillRequests', params: { focusId: 'w1' } });
+    const [row] = buildAgenda([d], NOW).rows;
+    expect(row.bucket).toBe('thisWeek');
+    expect(needsYouCount([d], NOW)).toBe(0);
+  });
+
+  it('drops answered requests, ones with every time passed, and ones only 7+ days out', () => {
+    const items = drillWaitingItems([
+      { id: 'answered', status: 'accepted', created_at: null, proposed_slots: [{ date: '2026-10-15', slot: 36 }] },
+      { id: 'past', status: 'pending', created_at: null, proposed_slots: [{ date: '2026-10-12', slot: 20 }] },
+      { id: 'far', status: 'pending', created_at: null, proposed_slots: [{ date: '2026-10-30', slot: 20 }] },
+      { id: 'undated', status: 'pending', created_at: null, proposed_slots: [] },
+    ], NOW);
+    expect(items).toEqual([]);
+  });
+
+  it('inboxAgendaItems includes them (absent in an old payload is none)', () => {
+    const sent = [{ id: 'w', status: 'pending', created_at: null, proposed_slots: [{ date: '2026-10-15', slot: 36 }] }];
+    expect(inboxAgendaItems({ matches: [], drills: [], joins: [], sentDrills: sent }, ME, [], NOW).map((i) => i.key)).toEqual(['drill-waiting-w']);
+    expect(inboxAgendaItems({ matches: [], drills: [], joins: [] }, ME, [], NOW)).toEqual([]);
   });
 });
 

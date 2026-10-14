@@ -8,7 +8,9 @@
 // the inbox (on its Requests chip when the cut rows include requests, which
 // sort last in needs-you when undated, so they are the first to be cut).
 // Rows are plain navigation; their buttons open the detail screen at the
-// control (decision 1).
+// control (decision 1). The one exception is a locked-in drill's [Confirm]
+// (an RSVP, nothing rating-related): it answers inline, flips to
+// "✓ Confirmed" at once, and rolls back if the call fails.
 //
 // Empty (nothing this week):
 //   - admin / co-admin: "Nothing this week · Propose a play day ›", which
@@ -16,7 +18,7 @@
 //     leagues). Same gate as Events' "+ New Event".
 //   - member: "Nothing this week".
 //   - non-member: HomeScreen doesn't render the section at all.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Panel, SectionHeader, EmptyState } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -34,6 +36,8 @@ type Props = {
   navigate: (target: AgendaTarget) => void;
   onProposePlayDay: (leagueId: string) => void;
   onDismissDrill: (sessionId: string) => void;
+  /** Inline drill Confirm. Rejects on failure (the caller shows the error). */
+  onConfirmDrill: (sessionId: string) => Promise<void>;
   /** home.tap: target slug + 0-based position. */
   onTap: (target: string, position?: number) => void;
   /** Lets HomeScreen hold back queued pop-ups while the picker is open. */
@@ -50,6 +54,7 @@ export default function UpNextSection({
   navigate,
   onProposePlayDay,
   onDismissDrill,
+  onConfirmDrill,
   onTap,
   onPickerOpenChange,
   onSeeAll,
@@ -63,6 +68,27 @@ export default function UpNextSection({
     onPickerOpenChange?.(open);
   };
   const { shown, moreInline, beyondCap } = agendaVisible(agenda, expanded);
+  // Drill sessions confirmed from here, shown as "✓ Confirmed" until the
+  // reload brings the answer in (the row then has no confirmDrillId).
+  const [confirmed, setConfirmed] = useState<ReadonlySet<string>>(() => new Set());
+  const busy = useRef(new Set<string>());
+  const confirmDrill = async (sessionId: string, i: number) => {
+    if (busy.current.has(sessionId)) return;
+    busy.current.add(sessionId);
+    onTap('drill_confirm', i);
+    setConfirmed(prev => new Set(prev).add(sessionId));
+    try {
+      await onConfirmDrill(sessionId);
+    } catch {
+      setConfirmed(prev => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+    } finally {
+      busy.current.delete(sessionId);
+    }
+  };
 
   const propose = () => {
     onTap('propose_play_day');
@@ -98,6 +124,8 @@ export default function UpNextSection({
                   onTap(row.action!.slug ?? 'action', i);
                   navigate(row.action!.target);
                 } : undefined}
+                onConfirm={row.confirmDrillId ? () => { void confirmDrill(row.confirmDrillId!, i); } : undefined}
+                confirmed={!!row.confirmDrillId && confirmed.has(row.confirmDrillId)}
                 onDismiss={row.dismissibleDrillId ? () => {
                   onTap('dismiss_drill', i);
                   onDismissDrill(row.dismissibleDrillId!);

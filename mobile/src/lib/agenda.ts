@@ -48,6 +48,8 @@ export type AgendaKind =
   | 'drill'
   | 'match_confirm'
   | 'drill_request'
+  // A drill request I sent, still waiting on the other player (lib/inboxRequests).
+  | 'drill_waiting'
   | 'join_request'
   // A doubles-partner / MLP-team invite to me (lib/inboxRequests).
   | 'team_invite';
@@ -97,6 +99,10 @@ export type AgendaItem = {
   action: { label: string; target: AgendaTarget; /** home.tap target slug. */ slug?: string } | null;
   /** A drill session the viewer may hide from Home (its ✕). */
   dismissibleDrillId?: string;
+  /** A locked-in drill session (court + time) I haven't answered: the row's
+   *  inline [Confirm] (rsvp_drill_session 'on_my_way'). The one inline write on
+   *  Up next: an RSVP, nothing rating-related. Takes the place of `action`. */
+  confirmDrillId?: string;
 };
 
 export type AgendaBucket = 'live' | 'needsYou' | 'today' | 'thisWeek';
@@ -134,11 +140,23 @@ export type AgendaTournamentInput = {
   registrationClosesAt?: string | null;
 };
 
+/** drill_session_rsvps.status: 'on_my_way' is the stored value behind "Confirm". */
+export type DrillRsvp = 'on_my_way' | 'cant_make_it';
+
 export type AgendaDrillInput = {
   id: string;
   partnerName: string;
   startsAt: string;
   lengthMinutes: number;
+  // The fields below are absent in a payload cached before the drill stages
+  // (today's sessions only): such a row maps to the plain "Drill with Sam".
+  /** The accepted drill_requests row behind the session (its chat, its court). */
+  requestId?: string | null;
+  /** drill_requests.location_name. null = accepted with no court yet. */
+  court?: string | null;
+  /** My answer and my partner's (drill_session_rsvps). */
+  myRsvp?: DrillRsvp | null;
+  partnerRsvp?: DrillRsvp | null;
 };
 
 function ms(iso: string | null | undefined): number | null {
@@ -256,27 +274,75 @@ export function tournamentAgendaItems(regs: readonly AgendaTournamentInput[], no
   return out;
 }
 
-/** Today's drill sessions -> agenda items, each with its own ✕ (the old
- *  duplicate drill banners are gone; their dismiss lives on the row). */
-export function drillAgendaItems(drills: readonly AgendaDrillInput[]): AgendaItem[] {
-  return drills.map((d) => {
+function firstWord(name: string): string {
+  return name.trim().split(/\s+/)[0] || name;
+}
+
+/**
+ * Drill sessions -> agenda items, by stage (the request side lives in
+ * lib/inboxRequests: a request sent to me, or one I sent that's waiting):
+ *   - accepted, no court yet:        "Drill with Sam" · pick a court   (needs you)
+ *   - court + time, I haven't said:  "Drill with Sam at Lake Merritt" [Confirm] (needs you)
+ *   - I confirmed:                   same title · ✓ Confirmed           (scheduled)
+ *   - my partner can't make it:      "Sam can't make it" · reschedule   (needs you)
+ * Needs-you rows are due at the start. With `now`, sessions that have ended
+ * or start 7+ calendar days out drop (a needs-you row would otherwise skip
+ * buildAgenda's week rule), and only today's rows without a Confirm get the
+ * ✕; without it (an old caller with today's sessions) every row keeps it.
+ */
+export function drillAgendaItems(drills: readonly AgendaDrillInput[], now?: number): AgendaItem[] {
+  const out: AgendaItem[] = [];
+  for (const d of drills) {
     const start = ms(d.startsAt);
     const len = Number.isFinite(d.lengthMinutes) && d.lengthMinutes > 0 ? d.lengthMinutes : 60;
-    return {
+    const end = start != null ? start + len * 60_000 : null;
+    if (now != null) {
+      if (start == null || end == null || end <= now) continue;
+      if (calendarDayDiff(new Date(start), new Date(now)) >= 7) continue;
+    }
+    const first = firstWord(d.partnerName);
+    const sessionTarget: AgendaTarget = { screen: 'DrillRequests', params: { focusId: d.id } };
+    const requestTarget: AgendaTarget = d.requestId ? { screen: 'DrillRequests', params: { focusId: d.requestId } } : sessionTarget;
+    const court = d.court?.trim() || null;
+    const base = {
       key: `drill-${d.id}`,
       kind: 'drill' as const,
-      title: `Drill with ${d.partnerName}`,
       leagueName: null,
       startsAt: d.startsAt,
-      endsAt: start != null ? new Date(start + len * 60_000).toISOString() : null,
-      needsYou: false,
-      deadline: null,
-      status: null,
-      target: { screen: 'DrillRequests' as const, params: { focusId: d.id } },
+      endsAt: end != null ? new Date(end).toISOString() : null,
       action: null,
-      dismissibleDrillId: d.id,
     };
-  });
+    let item: AgendaItem;
+    if (d.partnerRsvp === 'cant_make_it' && d.myRsvp !== 'cant_make_it') {
+      item = { ...base, title: `${first} can't make it`, needsYou: true, deadline: d.startsAt, status: 'reschedule', target: requestTarget };
+    } else if (d.court === null && d.requestId) {
+      // Accepted, but nobody has picked a court (either side can).
+      item = { ...base, title: `Drill with ${first}`, needsYou: true, deadline: d.startsAt, status: 'pick a court', target: requestTarget };
+    } else if (court && !d.myRsvp) {
+      item = {
+        ...base,
+        title: `Drill with ${first} at ${court}`,
+        needsYou: true,
+        deadline: d.startsAt,
+        status: d.partnerRsvp === 'on_my_way' ? `${first} confirmed` : null,
+        target: sessionTarget,
+        confirmDrillId: d.id,
+      };
+    } else {
+      item = {
+        ...base,
+        title: court ? `Drill with ${first} at ${court}` : `Drill with ${first}`,
+        needsYou: false,
+        deadline: null,
+        status: d.myRsvp === 'on_my_way' ? '✓ Confirmed' : d.myRsvp === 'cant_make_it' ? "you can't make it" : null,
+        target: sessionTarget,
+      };
+    }
+    const today = now == null || (start != null && calendarDayDiff(new Date(start), new Date(now)) === 0);
+    if (today && !item.confirmDrillId) item.dismissibleDrillId = d.id;
+    out.push(item);
+  }
+  return out;
 }
 
 // ── Ordering ────────────────────────────────────────────────────────────────
