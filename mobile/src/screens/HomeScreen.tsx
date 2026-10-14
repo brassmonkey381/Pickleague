@@ -308,6 +308,7 @@ export default function HomeScreen({ navigation }: Props) {
       await reloadFresh();
     },
     onRequested: () => reloadFresh(),
+    onWithdrawn: () => reloadFresh(),
   });
 
   // ── Starter quests + offers (Get started) ──

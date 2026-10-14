@@ -235,7 +235,7 @@ export type PlayLeague = {
   is_open?: boolean | null;
   created_at: string;
   myRole: 'admin' | 'co-admin' | 'member' | null;
-  /** A pending join request: the league counts as Mine. */
+  /** A pending join request: a PRIVATE league counts as Mine (see isMineLeague). */
   hasRequested?: boolean;
   memberCount: number;
   adminName?: string | null;
@@ -249,8 +249,11 @@ export type PlayLeague = {
   recentMatchCount?: number;
 };
 
+/** Member leagues, plus private leagues I've asked to join. A pending request
+ *  to an OPEN league doesn't count: that league was private when I asked and
+ *  has since opened, so it belongs in Discover with a plain [Join] (D8). */
 export function isMineLeague(l: PlayLeague): boolean {
-  return l.myRole != null || !!l.hasRequested;
+  return l.myRole != null || (!!l.hasRequested && l.is_open === false);
 }
 
 /** Search fields: name, raw court, the court's display nickname, admin name. */

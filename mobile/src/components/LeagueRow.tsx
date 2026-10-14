@@ -20,6 +20,7 @@ import { useCourtName } from '../lib/courtNickname';
 import { joinFacts, leagueRoleChip, playerCountLabel } from '../lib/entityGlyph';
 import type { UseLeagueJoin } from '../lib/useLeagueJoin';
 import EntityRow, { type EntityRowChip, type EntityRowLayout } from './EntityRow';
+import RequestedWithdraw from './RequestedWithdraw';
 
 export type LeagueRowLeague = {
   id: string;
@@ -138,9 +139,9 @@ export type LeagueJoinButtonProps = {
 
 /**
  * The inline [Join] / [Request] for a non-member's league row, wired to
- * useLeagueJoin. After a request it reads "Requested"; after a join, "Joined"
- * until the caller's reload moves the row into YOURS / Mine. Both states are
- * plain text in a 44px box (not pressable), so a second request can't be sent.
+ * useLeagueJoin. After a request it reads "Requested · Withdraw"; after a join, "Joined"
+ * until the caller's reload moves the row into YOURS / Mine. Neither state
+ * offers the request again (Withdraw asks first), so a second request can't be sent.
  */
 export function LeagueJoinButton({
   league,
@@ -157,18 +158,17 @@ export function LeagueJoinButton({
   const isPrivate = league.is_open === false;
   const busy = leagueJoin.isBusy(league.id);
 
-  const doneLabel = leagueJoin.joinedIds.has(league.id)
-    ? 'Joined'
-    : isPrivate && (requested || leagueJoin.requestedIds.has(league.id))
-      ? 'Requested'
-      : null;
+  const joined = leagueJoin.joinedIds.has(league.id);
+  const isRequested = !joined && isPrivate && leagueJoin.isRequested(league.id, requested);
 
   return (
     <View ref={anchorRef} onLayout={onAnchorLayout} collapsable={false}>
-      {doneLabel ? (
+      {isRequested ? (
+        <RequestedWithdraw leagueId={league.id} leagueName={league.name} leagueJoin={leagueJoin} />
+      ) : joined ? (
         <View style={styles.doneBox}>
           <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            {doneLabel}
+            Joined
           </Text>
         </View>
       ) : (

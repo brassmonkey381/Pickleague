@@ -1,10 +1,15 @@
 // Redeem a league invite code, for the push's Join button and its tap (the same
 // auto-redeem the in-app Notifications list does).
 //
-// Replay-safe: redeem_invite_code checks max_uses BEFORE "already a member", so
-// the second press of a single-use code (delivery is at-least-once) comes back
-// success=false "reached its max uses" although the first press joined. On a
-// refusal we check membership before calling it a failure.
+// The one league-code redeem path: the push's Join button and tap
+// (lib/push.ts, lib/notificationActions.ts) and the in-app Notifications list.
+//
+// Replay-safe: redeem_invite_code used to check max_uses BEFORE "already a
+// member", so the second press of a single-use code (delivery is
+// at-least-once) came back success=false "reached its max uses" although the
+// first press joined. migration_league_join_resolution.sql moves the member
+// check first; until that is verified live, a refusal still checks
+// membership before calling it a failure.
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 

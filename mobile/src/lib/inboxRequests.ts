@@ -618,6 +618,31 @@ export function notificationTime(iso: string | null | undefined, now: number): s
   return `${h % 12 === 0 ? 12 : h % 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
+// ── Stale join requests ──────────────────────────────────────────────────────
+
+/** A (league, user) pair: a join request or a league_members row. */
+export type LeagueUserKey = { league_id: string; user_id: string };
+
+/**
+ * Join requests minus those whose requester is already a member. `members`:
+ * the league_members rows (league_id + user_id) covering these requests;
+ * null = the members read failed, so keep the raw list.
+ *
+ * Belt and braces: migration_league_join_resolution.sql now deletes the
+ * request when its requester joins by any path, so on a migrated database
+ * this drops nothing. Keep it until that migration (and its backfill) is
+ * verified live; then it can go. Used by LeagueMembersScreen.load,
+ * LeagueDetailScreen.loadRequests and loadOpenJoinRequests below.
+ */
+export function dropJoinedRequests<T extends LeagueUserKey>(
+  rows: readonly T[],
+  members: readonly LeagueUserKey[] | null | undefined,
+): T[] {
+  if (!members) return [...rows];
+  const joined = new Set(members.map((m) => `${m.league_id}:${m.user_id}`));
+  return rows.filter((r) => !joined.has(`${r.league_id}:${r.user_id}`));
+}
+
 // ── Loaders (the client is passed in; see the file header) ──────────────────
 
 export type InboxDb = { client: typeof SupabaseSingleton; call: typeof sbCall };
@@ -634,11 +659,9 @@ const TEAM_TOURNAMENT = 'tournament:tournaments(id, name, status, registration_c
 
 /**
  * Pending join requests to the leagues I run, minus requesters who are
- * already members. Nothing resolves a request when the requester joins
- * another way (redeeming an invite code leaves the row 'pending' forever),
- * so without this a stale request would sit in Up next and on the bell for
- * good -- the same rule as LeagueDetailScreen.loadRequests. If the members
- * read fails, keep the raw list.
+ * already members (dropJoinedRequests; the database now resolves these
+ * itself, this stays as a belt-and-braces filter). If the members read
+ * fails, keep the raw list.
  */
 async function loadOpenJoinRequests(db: InboxDb, adminLeagueIds: readonly string[]): Promise<JoinRequestRow[]> {
   if (!adminLeagueIds.length) return [];
@@ -651,15 +674,12 @@ async function loadOpenJoinRequests(db: InboxDb, adminLeagueIds: readonly string
     .order('created_at', { ascending: true })
     .limit(50)) as unknown as Promise<JoinRequestRow[]>, []);
   if (!rows.length) return rows;
-  type MemberKey = { league_id: string; user_id: string };
-  const members = await soft<MemberKey[] | null>(call(() => client
+  const members = await soft<LeagueUserKey[] | null>(call(() => client
     .from('league_members')
     .select('league_id, user_id')
     .in('league_id', [...new Set(rows.map((r) => r.league_id))])
-    .in('user_id', [...new Set(rows.map((r) => r.user_id))])) as unknown as Promise<MemberKey[]>, null);
-  if (!members) return rows;
-  const joined = new Set(members.map((m) => `${m.league_id}:${m.user_id}`));
-  return rows.filter((r) => !joined.has(`${r.league_id}:${r.user_id}`));
+    .in('user_id', [...new Set(rows.map((r) => r.user_id))])) as unknown as Promise<LeagueUserKey[]>, null);
+  return dropJoinedRequests(rows, members);
 }
 
 /**

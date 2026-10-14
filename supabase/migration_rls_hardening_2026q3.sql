@@ -93,11 +93,12 @@ begin
       and p.prosecdef
       -- Allowlist: every RPC the mobile/web client calls via supabase.rpc().
       and p.proname not in (
-        'admin_complete_tournament','auto_payout_tournament','award_pickles_from_pool',
+        'admin_complete_tournament','approve_league_join_request','auto_payout_tournament','award_pickles_from_pool',
         'calculate_wager_odds','cancel_wager','claim_daily_login_streak','claim_ftue_step',
         'claim_welcome_pickles','complete_guest_upgrade','complete_season','confirm_match',
         'contribute_pickles_to_pool','create_doubles_pair','create_guest_invite',
         'create_invite_code','create_mlp_team','current_real_world_discounts','delete_my_account',
+        'deny_league_join_request',
         'distribute_season_pool','distribute_tournament_pool','generate_mlp_bracket',
         'generate_mlp_playoff','generate_playoff_bracket','generate_random_mlp_teams',
         'generate_random_pairs','get_guest_invite_preview','get_league_wager_totals',
@@ -112,9 +113,10 @@ begin
         'mlp_set_slot','mlp_team_standings','pair_invite','pair_leave_pair','pair_lock_pair',
         'pair_request_join','pair_respond_to_join','pair_set_slot','persist_random_doubles_pairs',
         'place_wager','preview_tournament_payout','purchase_shop_item','redeem_guest_invite',
-        'redeem_invite_code','redeem_real_world_item','revoke_invite_code',
+        'redeem_invite_code','redeem_real_world_item','request_league_join','revoke_invite_code',
         'send_invite_code_to_users','set_purchase_hidden','submit_drill_review',
-        'tournament_invite_player','tournament_respond_to_invite'
+        'tournament_invite_player','tournament_respond_to_invite',
+        'withdraw_league_join_request'
       )
   loop
     execute format('revoke execute on function %s from public, anon, authenticated', f.sig);

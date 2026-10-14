@@ -66,6 +66,7 @@ import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { linkOf } from '../lib/pushLinks';
 import { routeLink } from '../lib/push';
+import { redeemLeagueInvite } from '../data/leagueInvites';
 import { entityTileColors, type EntityKind } from '../lib/entityGlyph';
 import {
   NOTIFICATION_CHIPS,
@@ -100,7 +101,7 @@ type Notification = {
   is_read: boolean;
   created_at: string;
   /** Generator hints (migration_push_data.sql); kind refines where a tap goes. */
-  push_data?: { deep_link?: unknown; kind?: unknown } | null;
+  push_data?: { deep_link?: unknown; kind?: unknown; invite_code?: unknown } | null;
 };
 
 /** One chip's loaded list, as cached. */
@@ -230,10 +231,14 @@ const isLongBody = (body: string) => body.length > LONG_BODY_CHARS || body.inclu
 /** A row's screen-reader actions: the same delete as its visible ✕. */
 const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
-// Invite-broadcast bodies contain "...invite code TOKEN" (followed by "." or " to join.").
-// Server format lives in supabase/migration_invite_code_broadcast.sql.
-function extractInviteCode(body: string): string | null {
-  const m = body.match(/invite code ([A-Z0-9-]+)/i);
+// The invite code on a notice: push_data.invite_code (league invites from
+// send_invite_code_to_users, migration_push_actions_match_tournament.sql),
+// else the body's "...invite code TOKEN" (older notices and tournament
+// invites; format in migration_invite_code_broadcast.sql).
+function extractInviteCode(n: { body: string; push_data?: Record<string, unknown> | null }): string | null {
+  const fromData = n.push_data?.invite_code;
+  if (typeof fromData === 'string' && fromData.trim()) return fromData.trim();
+  const m = n.body.match(/invite code ([A-Z0-9-]+)/i);
   return m ? m[1] : null;
 }
 
@@ -463,9 +468,23 @@ export default function NotificationsScreen({ navigation, route }: Props) {
   // redeem fails (revoked/expired/etc.) we fall back to the manual Join-with-Code
   // page so the user can retry. Returns true if it handled an invite code.
   async function tryAutoAcceptInvite(n: Notification): Promise<boolean> {
-    const code = extractInviteCode(n.body);
+    const code = extractInviteCode(n);
     if (!code) return false;
 
+    // League codes take the one shared path (data/leagueInvites, also the
+    // push's Join button): it treats "already a member" as success.
+    if (n.entity_type === 'league') {
+      let res: Awaited<ReturnType<typeof redeemLeagueInvite>> | null = null;
+      try { res = await redeemLeagueInvite(code); } catch { res = null; }
+      if (!res?.joined) {
+        navigation.navigate('Leagues', { prefillInviteCode: code });
+        return true;
+      }
+      navigation.navigate('LeagueDetail', { leagueId: res.leagueId, leagueName: res.leagueName ?? 'League' });
+      return true;
+    }
+
+    // Tournaments: the raw RPC.
     const { data, error } = await supabase.rpc('redeem_invite_code', { p_token: code });
     const row = Array.isArray(data) ? data[0] : data;
 

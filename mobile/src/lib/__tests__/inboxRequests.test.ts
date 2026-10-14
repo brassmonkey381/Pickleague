@@ -6,6 +6,7 @@ import {
   chipServerFilter,
   drillRequestItems,
   drillWaitingItems,
+  dropJoinedRequests,
   firstName,
   groupByDay,
   inboxAgendaItems,
@@ -433,5 +434,22 @@ describe('day groups', () => {
     expect(notificationTime(iso(-5 * 60_000), NOW)).toBe('5m ago');
     expect(notificationTime(iso(-3 * H), NOW)).toBe('3h ago');
     expect(notificationTime(at(-1, 18), NOW)).toBe('6 PM');
+  });
+});
+
+describe('dropJoinedRequests', () => {
+  const rows = [
+    { id: 'a', league_id: 'L1', user_id: 'sam' },
+    { id: 'b', league_id: 'L1', user_id: 'kim' },
+    { id: 'c', league_id: 'L2', user_id: 'sam' },
+  ];
+
+  it('drops requesters who are already members of THAT league', () => {
+    const out = dropJoinedRequests(rows, [{ league_id: 'L1', user_id: 'sam' }]);
+    expect(out.map((r) => r.id)).toEqual(['b', 'c']);
+  });
+
+  it('keeps the raw list when the members read failed (null)', () => {
+    expect(dropJoinedRequests(rows, null).map((r) => r.id)).toEqual(['a', 'b', 'c']);
   });
 });

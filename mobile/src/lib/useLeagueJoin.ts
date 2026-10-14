@@ -1,23 +1,36 @@
-// Joining a league: the open-league Join, the private-league "request a code",
-// and redeeming an invite code. One hook so every surface that offers a Join
-// (Play > Leagues, Home's JOIN A LEAGUE rows, the shared LeagueJoinCard on
-// LeagueDetail / LeagueMembers) runs the same queries with the same copy.
+// Joining a league: the open-league Join, the private-league request (and its
+// withdraw), and redeeming an invite code. One hook so every surface that
+// offers a Join (Play > Leagues, Home's JOIN A LEAGUE rows, the shared
+// LeagueJoinCard on LeagueDetail / LeagueMembers) runs the same queries with
+// the same copy.
 //
-// Extracted from LeaguesScreen (joinLeague / requestCode / joinWithCode) with
-// the queries, error copy and success copy unchanged. Joining never touches the
-// ratings / payout trigger cascade (a league_members upsert, a
-// league_join_requests upsert, or the redeem_invite_code RPC), which is why it
-// is the one data-changing action allowed inline on Home (plan decision 1).
+// Extracted from LeaguesScreen (joinLeague / requestCode / joinWithCode).
+// Joining never touches the ratings / payout trigger cascade (a league_members
+// upsert, the request_league_join / withdraw_league_join_request RPCs, or
+// redeem_invite_code), which is why it is the one data-changing action allowed
+// inline on Home (plan decision 1).
 //
-// RLS (supabase/schema.sql + migration_rls_hardening_2026q3.sql):
+// RLS / RPCs (migration_rls_hardening_2026q3.sql,
+// migration_league_join_resolution.sql):
 //   - league_members insert: a user may add THEMSELVES as role 'member' to an
 //     open league (private leagues go through a code or an admin).
-//   - league_join_requests insert: user_id = auth.uid().
+//   - request_league_join / withdraw_league_join_request: SECURITY DEFINER
+//     RPCs granted to authenticated. The request RPC answers member / joined /
+//     pending / denied:<when> / sent (parsed in lib/leagueJoinResult.ts).
 //   - redeem_invite_code: SECURITY DEFINER RPC granted to authenticated.
 import { useCallback, useRef, useState } from 'react';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import type { UseStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { supabase } from './supabase';
+import {
+  isJoinedResult,
+  isRequestOutstanding,
+  parseRequestJoinResult,
+  requestJoinCopy,
+  type RequestJoinResult,
+} from './leagueJoinResult';
+
+export { requestSentMessage } from './leagueJoinResult';
 
 /** Where join/request copy goes. A `useStatusMessage()` result fits as-is; Home
  *  can adapt a toast: `{ clear() {}, error: toast.error, success: toast.success }`. */
@@ -44,6 +57,9 @@ export type UseLeagueJoinOptions = {
   /** After a request was sent (e.g. reload so `hasRequested` comes back true).
    *  Not awaited: `requestedIds` already flips the UI to "Request sent". */
   onRequested?: (leagueId: string) => void | Promise<unknown>;
+  /** After a request was withdrawn (reload so `hasRequested` comes back false).
+   *  Not awaited: `withdrawnIds` already flips the UI back to [Request]. */
+  onWithdrawn?: (leagueId: string) => void | Promise<unknown>;
   /** Join / request copy goes here. Without it, errors land in `error` and the
    *  success copy in `notice`. Code-redeem errors ALWAYS land in `error` (they
    *  render inline in the code form), its success copy in the sink/`notice`. */
@@ -53,8 +69,11 @@ export type UseLeagueJoinOptions = {
 export type UseLeagueJoin = {
   /** Join an open league. Resolves true when the membership row was written. */
   join: (leagueId: string) => Promise<boolean>;
-  /** Ask a private league's admins for a code. Resolves true when sent. */
+  /** Ask a private league's admins to let me in. Resolves true when a request
+   *  is with the admins (new or already there) or the league let me in. */
   request: (leagueId: string, leagueName: string) => Promise<boolean>;
+  /** Take back my pending request. Resolves true when it is gone. */
+  withdraw: (leagueId: string) => Promise<boolean>;
   /** Redeem an invite code (dashes/case/spaces ignored). The result on
    *  success (the caller closes its code form), null on any failure. */
   redeemCode: (code: string) => Promise<RedeemedInviteCode | null>;
@@ -69,16 +88,15 @@ export type UseLeagueJoin = {
   setError: (msg: string) => void;
   /** Success copy when no `status` sink was given. '' = none. */
   notice: string;
-  /** Leagues joined / requested through THIS hook instance (optimistic UI until
-   *  the caller's reload says the same). */
+  /** Leagues joined / requested / withdrawn through THIS hook instance
+   *  (optimistic UI until the caller's reload says the same). */
   joinedIds: ReadonlySet<string>;
   requestedIds: ReadonlySet<string>;
+  withdrawnIds: ReadonlySet<string>;
+  /** The viewer has an outstanding request to this league: this instance's
+   *  request / withdraw overrides what the server last said (`serverSays`). */
+  isRequested: (leagueId: string, serverSays: boolean | undefined) => boolean;
 };
-
-/** The request-sent copy, shared so every surface says the same thing. */
-export function requestSentMessage(leagueName: string): string {
-  return `Request sent. The admins of "${leagueName}" have been notified — they'll share an invite code with you.`;
-}
 
 /** Invite codes are shown as XXXX-XXXX; the RPC takes the bare uppercase token. */
 export function normalizeInviteCode(code: string): string {
@@ -96,6 +114,13 @@ function fireAndForget(fn: () => void | Promise<unknown> | undefined): void {
   }
 }
 
+function without(set: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  if (!set.has(id)) return set;
+  const next = new Set(set);
+  next.delete(id);
+  return next;
+}
+
 export function useLeagueJoin(opts: UseLeagueJoinOptions = {}): UseLeagueJoin {
   // Latest callbacks without re-creating join/request every render.
   const optsRef = useRef(opts);
@@ -108,8 +133,9 @@ export function useLeagueJoin(opts: UseLeagueJoinOptions = {}): UseLeagueJoin {
   const [notice, setNotice] = useState('');
   const [joinedIds, setJoinedIds] = useState<ReadonlySet<string>>(new Set());
   const [requestedIds, setRequestedIds] = useState<ReadonlySet<string>>(new Set());
+  const [withdrawnIds, setWithdrawnIds] = useState<ReadonlySet<string>>(new Set());
   // Synchronous double-tap guard: state updates land a render late, so two
-  // quick taps would otherwise both fire the upsert.
+  // quick taps would otherwise both fire the write.
   const inFlight = useRef(new Set<string>());
 
   const clearCopy = () => {
@@ -148,7 +174,14 @@ export function useLeagueJoin(opts: UseLeagueJoinOptions = {}): UseLeagueJoin {
       try {
         const uid = await currentUserId(supabase);
         if (!uid) { fail('Please sign in again.'); return false; }
-        await sbCall(() => supabase.from('league_members').upsert({ league_id: leagueId, user_id: uid, role: 'member' }));
+        // On (league_id, user_id), not the id PK: a second tap or device that
+        // is already in the league is a no-op instead of a 23505.
+        await sbCall(() => supabase
+          .from('league_members')
+          .upsert(
+            { league_id: leagueId, user_id: uid, role: 'member' },
+            { onConflict: 'league_id,user_id', ignoreDuplicates: true },
+          ));
       } catch (e) {
         fail(friendlySbMessage(e, "Couldn't join the league."));
         return false;
@@ -165,19 +198,53 @@ export function useLeagueJoin(opts: UseLeagueJoinOptions = {}): UseLeagueJoin {
     if (!begin(leagueId)) return false;
     clearCopy();
     try {
-      const uid = await currentUserId(supabase);
-      if (!uid) { fail('Please sign in again.'); return false; }
-      await sbCall(() => supabase
-        .from('league_join_requests')
-        .upsert({ league_id: leagueId, user_id: uid, status: 'pending' }));
-      setRequestedIds((prev) => new Set(prev).add(leagueId));
-      // As LeaguesScreen did: kick off the reload (refreshes hasRequested),
-      // then show the copy without waiting for it.
-      fireAndForget(() => optsRef.current.onRequested?.(leagueId));
-      succeed(requestSentMessage(leagueName));
+      let result: RequestJoinResult | null;
+      try {
+        const raw = await sbCall(() => supabase.rpc('request_league_join', { p_league_id: leagueId }));
+        result = parseRequestJoinResult(raw);
+      } catch (e) {
+        fail(friendlySbMessage(e, "Couldn't send the request."));
+        return false;
+      }
+      if (!result) { fail("Couldn't send the request."); return false; }
+
+      const copy = requestJoinCopy(result, leagueName);
+      if (isJoinedResult(result)) {
+        // The league has since opened (or I was already in): a join.
+        setJoinedIds((prev) => new Set(prev).add(leagueId));
+        try { await optsRef.current.onJoined?.({ via: 'join', leagueId }); } catch { /* the join itself worked */ }
+        succeed(copy.message);
+        return true;
+      }
+      if (isRequestOutstanding(result)) {
+        setRequestedIds((prev) => new Set(prev).add(leagueId));
+        setWithdrawnIds((prev) => without(prev, leagueId));
+        // As LeaguesScreen did: kick off the reload (refreshes hasRequested),
+        // then show the copy without waiting for it.
+        fireAndForget(() => optsRef.current.onRequested?.(leagueId));
+        succeed(copy.message);
+        return true;
+      }
+      fail(copy.message); // denied, inside the cooldown
+      return false;
+    } finally {
+      end(leagueId);
+    }
+  }, []);
+
+  const withdraw = useCallback(async (leagueId: string): Promise<boolean> => {
+    if (!begin(leagueId)) return false;
+    clearCopy();
+    try {
+      // 'withdrawn', or 'none' when nothing was pending: either way no request.
+      await sbCall(() => supabase.rpc('withdraw_league_join_request', { p_league_id: leagueId }));
+      setWithdrawnIds((prev) => new Set(prev).add(leagueId));
+      setRequestedIds((prev) => without(prev, leagueId));
+      fireAndForget(() => optsRef.current.onWithdrawn?.(leagueId));
+      succeed('Request withdrawn.');
       return true;
     } catch (e) {
-      fail(friendlySbMessage(e, "Couldn't send the request."));
+      fail(friendlySbMessage(e, "Couldn't withdraw the request."));
       return false;
     } finally {
       end(leagueId);
@@ -228,11 +295,16 @@ export function useLeagueJoin(opts: UseLeagueJoinOptions = {}): UseLeagueJoin {
   }, []);
 
   const isBusy = useCallback((leagueId: string) => busyIds.has(leagueId), [busyIds]);
+  const isRequested = useCallback(
+    (leagueId: string, serverSays: boolean | undefined) =>
+      requestedIds.has(leagueId) || (!!serverSays && !withdrawnIds.has(leagueId)),
+    [requestedIds, withdrawnIds],
+  );
 
   return {
-    join, request, redeemCode,
+    join, request, withdraw, redeemCode,
     busyId, isBusy, joining,
     error, setError, notice,
-    joinedIds, requestedIds,
+    joinedIds, requestedIds, withdrawnIds, isRequested,
   };
 }

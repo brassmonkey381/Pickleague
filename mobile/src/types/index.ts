@@ -153,7 +153,7 @@ export type LeagueJoinRequest = {
   league_id: string;
   user_id: string;
   message: string | null;
-  status: 'pending' | 'denied';
+  status: 'pending' | 'denied' | 'withdrawn';
   created_at: string;
   profile?: Profile;
 };

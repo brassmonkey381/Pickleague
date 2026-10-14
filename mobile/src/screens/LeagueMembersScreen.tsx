@@ -1,7 +1,7 @@
 // A league's roster (plan section 5, "LeagueMembers"):
 //   [Join this league  [Join]]        non-members: the shared LeagueJoinCard
 //   JOIN REQUESTS 2                   admins/co-admins, FIRST — the
-//     Sam wants to join  [Send code] [Deny]     league_members/ push lands here
+//     Sam wants to join  [Approve] [Deny]       league_members/ push lands here
 //   MEMBERS 14 · avg 3.62      Suggest
 //   [Q search]  (Role)(PLUPR)(Name)   only once the league has > 10 members
 //   56px rows: avatar · name · PLUPR · role chip · ⋮ (admin tools)
@@ -38,6 +38,7 @@ import FlairName from '../components/FlairName';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { dropJoinedRequests } from '../lib/inboxRequests';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
@@ -91,6 +92,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [isOpen, setIsOpen]     = useState<boolean | null>(null);
   const [myRequestPending, setMyRequestPending] = useState(false);
+  // Requests with an Approve / Deny in flight (double-tap guard).
+  const [answering, setAnswering] = useState<ReadonlySet<string>>(new Set());
   const [loading, setLoading]   = useState(true);
   // A failed roster read must not render as an empty league.
   const [loadError, setLoadError]           = useState<string | null>(null);
@@ -155,11 +158,16 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           : Promise.resolve(null),
       ]);
 
-      setMembers((memberRows ?? []) as LeagueMember[]);
+      const memberList = (memberRows ?? []) as LeagueMember[];
+      setMembers(memberList);
       // 'unknown' = the role read failed, so the requests query was skipped:
       // keep the last list rather than hiding an admin's pending requests
-      // (the block a league_members push opens this screen for).
-      if (role !== 'unknown') setRequests((requestRows ?? []) as LeagueJoinRequest[]);
+      // (the block a league_members push opens this screen for). Requesters
+      // who are already members are dropped (belt and braces: the database
+      // now deletes their request when they join).
+      if (role !== 'unknown') {
+        setRequests(dropJoinedRequests((requestRows ?? []) as LeagueJoinRequest[], memberList));
+      }
       if (role === null) setMyRequestPending(!!mine);
       setLoadError(null);
 
@@ -297,13 +305,33 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
     return list;
   }
 
-  async function denyRequest(request: LeagueJoinRequest) {
+  // One-tap Approve / Deny (migration_league_join_resolution.sql). Both RPCs
+  // check the caller is an admin / co-admin; the database clears every
+  // admin's notice for the request and tells the requester.
+  async function approveRequest(request: LeagueJoinRequest) {
+    if (answering.has(request.id)) return;
+    setAnswering((prev) => new Set(prev).add(request.id));
     try {
-      await sbCall(() =>
-        supabase.from('league_join_requests').update({ status: 'denied' }).eq('id', request.id),
-      );
+      const res = await sbCall(() => supabase.rpc('approve_league_join_request', { p_request_id: request.id }));
+      const who = request.profile?.full_name || 'They';
+      status.success(res === 'member' ? `${who} was already in the league.` : `${who} is in.`);
+    } catch (e) {
+      status.error(friendlySbMessage(e, "Couldn't approve that request."));
+    } finally {
+      setAnswering((prev) => { const n = new Set(prev); n.delete(request.id); return n; });
+    }
+    load();
+  }
+
+  async function denyRequest(request: LeagueJoinRequest) {
+    if (answering.has(request.id)) return;
+    setAnswering((prev) => new Set(prev).add(request.id));
+    try {
+      await sbCall(() => supabase.rpc('deny_league_join_request', { p_request_id: request.id }));
     } catch (e) {
       status.error(friendlySbMessage(e, "Couldn't deny that request."));
+    } finally {
+      setAnswering((prev) => { const n = new Set(prev); n.delete(request.id); return n; });
     }
     load();
   }
@@ -373,6 +401,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
             requested={myRequestPending}
             onJoined={() => load()}
             onRequested={() => setMyRequestPending(true)}
+            onWithdrawn={() => setMyRequestPending(false)}
             style={S.joinCard}
           />
 
@@ -401,10 +430,17 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                     </View>
                     <Button
                       size="sm"
-                      title="Send code"
-                      onPress={() => navigation.navigate('Invite', { leagueId, leagueName })}
+                      title="Approve"
+                      loading={answering.has(req.id)}
+                      onPress={() => approveRequest(req)}
                     />
-                    <Button size="sm" variant="outline" title="Deny" onPress={() => denyRequest(req)} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="Deny"
+                      disabled={answering.has(req.id)}
+                      onPress={() => denyRequest(req)}
+                    />
                   </View>
                 ))}
               </Panel>

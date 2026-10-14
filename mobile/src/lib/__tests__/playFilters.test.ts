@@ -88,6 +88,12 @@ describe('splitLeagues: Mine is structural', () => {
     expect(s.discover).toHaveLength(0);
   });
 
+  it('a pending request to a league that has since opened does NOT count as Mine', () => {
+    const s = splitLeagues([league({ id: 'o', is_open: true, hasRequested: true })], base);
+    expect(s.mine).toHaveLength(0);
+    expect(s.discover.map((l) => l.id)).toEqual(['o']);
+  });
+
   it('Discover-only chips never hide a Mine row', () => {
     for (const chip of ['open', 'in_season', 'has_tournaments', 'saved']) {
       const s = splitLeagues(TODAY, { ...base, chips: [chip] });

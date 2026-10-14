@@ -2,7 +2,7 @@
 // 5: slot 2, the one Emphasis card per screen). Replaces the two hand-rolled
 // join cards those screens had, with the join logic from useLeagueJoin:
 //   open league    -> "Join this league"  [Join]
-//   private league -> "Want in?"          [Request]  -> "Request sent"
+//   private league -> "Want in?"          [Request]  -> "Request sent · Withdraw"
 //
 // It renders NOTHING until the viewer's membership is known (`roleKnown`): a
 // failed or in-flight role read must not hand an existing member a Join button
@@ -20,6 +20,7 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { useTheme } from '../lib/ThemeContext';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
+import RequestedWithdraw from './RequestedWithdraw';
 
 export type LeagueJoinCardProps = {
   leagueId: string;
@@ -39,6 +40,8 @@ export type LeagueJoinCardProps = {
   onJoined?: () => void | Promise<unknown>;
   /** After a request was sent. */
   onRequested?: () => void;
+  /** After the request was withdrawn (flip `requested` back off). */
+  onWithdrawn?: () => void;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -51,6 +54,7 @@ export default function LeagueJoinCard({
   requested,
   onJoined,
   onRequested,
+  onWithdrawn,
   style,
 }: LeagueJoinCardProps) {
   const { colors: c } = useTheme();
@@ -60,18 +64,19 @@ export default function LeagueJoinCard({
     status,
     onJoined: () => onJoined?.(),
     onRequested: () => onRequested?.(),
+    onWithdrawn: () => onWithdrawn?.(),
   });
 
   if (!roleKnown || isMember || isOpen == null) return null;
 
   const busy = leagueJoin.isBusy(leagueId);
   const joined = leagueJoin.joinedIds.has(leagueId);
-  const sent = !isOpen && (requested || leagueJoin.requestedIds.has(leagueId));
+  const sent = !isOpen && !joined && leagueJoin.isRequested(leagueId, requested);
 
   const title = isOpen ? 'Join this league' : 'Want in?';
   const sub = isOpen
     ? 'Join to record matches, see standings, and play in events.'
-    : 'This league is private — request to join and an admin will share an invite code.';
+    : 'This league is private — request to join and an admin will review it.';
 
   return (
     <Panel emphasis style={style}>
@@ -80,10 +85,12 @@ export default function LeagueJoinCard({
           <Text style={t.title} numberOfLines={1} accessibilityRole="header">{title}</Text>
           <Text style={[t.sub, styles.sub]} numberOfLines={2}>{sub}</Text>
         </View>
-        {joined || sent ? (
+        {sent ? (
+          <RequestedWithdraw leagueId={leagueId} leagueName={leagueName} leagueJoin={leagueJoin} label="Request sent" />
+        ) : joined ? (
           <View style={styles.doneBox}>
             <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              {joined ? 'Joined' : 'Request sent'}
+              Joined
             </Text>
           </View>
         ) : (

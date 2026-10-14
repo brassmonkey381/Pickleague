@@ -42,6 +42,7 @@ import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
+import { dropJoinedRequests, type LeagueUserKey } from '../lib/inboxRequests';
 import { isGodmodeUserId } from '../lib/godmode';
 import ConfirmModal from '../components/ConfirmModal';
 import ActionSheetModal from '../components/ActionSheetModal';
@@ -287,19 +288,18 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   async function loadRequests(role: LeagueRole, uid: string | null, memberList: MemberRow[] | null) {
     try {
       if (isPrivileged(role)) {
-        // RLS: admins and co-admins can read their league's requests. Nothing
-        // resolves a request when the requester joins another way (redeeming
-        // an invite code leaves the row 'pending' forever), so requesters who
-        // are already members don't count as waiting; otherwise Manage would
-        // flag a stale request and open itself on every visit. If the members
-        // read failed, fall back to the raw count.
+        // RLS: admins and co-admins can read their league's requests.
+        // Requesters who are already members don't count as waiting
+        // (dropJoinedRequests: belt and braces now that the database deletes
+        // a request when its requester joins). If the members read failed,
+        // fall back to the raw count.
         const { data } = await supabase.from('league_join_requests')
-          .select('user_id')
+          .select('league_id, user_id')
           .eq('league_id', leagueId)
           .eq('status', 'pending');
-        const pending = (data ?? []) as { user_id: string }[];
-        const memberIds = memberList ? new Set(memberList.map((m) => m.user_id)) : null;
-        setPendingRequests(memberIds ? pending.filter((r) => !memberIds.has(r.user_id)).length : pending.length);
+        const pending = (data ?? []) as LeagueUserKey[];
+        const members = memberList ? memberList.map((m) => ({ league_id: leagueId, user_id: m.user_id })) : null;
+        setPendingRequests(dropJoinedRequests(pending, members).length);
       } else if (role === null && uid) {
         // RLS: a user can read their own requests.
         const { data } = await supabase.from('league_join_requests')
@@ -734,6 +734,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             requested={requested}
             onJoined={() => load()}
             onRequested={() => setMyRequestPending(true)}
+            onWithdrawn={() => setMyRequestPending(false)}
           />
           <LeagueQuickRow
             showRecord={!nonMember}

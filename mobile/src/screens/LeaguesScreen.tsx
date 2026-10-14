@@ -419,6 +419,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     status,
     onJoined: () => reload(),
     onRequested: () => reload(),
+    onWithdrawn: () => reload(),
   });
 
   const openCreate = useCallback(() => {
@@ -557,7 +558,13 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   function renderRow(l: PlayLeagueRow, section: 'mine' | 'discover') {
     const isMember = l.myRole != null;
     let action: React.ReactNode;
-    if (section === 'discover' && !isMember) {
+    // A pending request sits in MINE: its button reads "Requested · Withdraw".
+    const pendingMine = section === 'mine' && !isMember && !!l.hasRequested && !isFixtureId(l.id);
+    if (pendingMine) {
+      action = (
+        <LeagueJoinButton league={l} leagueJoin={leagueJoin} requested={l.hasRequested} requestLabel="Request code" />
+      );
+    } else if (section === 'discover' && !isMember) {
       action = isFixtureId(l.id) ? (
         <Button
           size="sm"
@@ -580,9 +587,9 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       <LeagueRow
         league={l}
         role={l.myRole}
-        // A pending request sits in MINE with its chip; in DISCOVER the
-        // button says "Requested" itself (no chip, so it isn't said twice).
-        requested={section === 'mine' && !isMember && l.hasRequested}
+        // The button says "Requested" itself (MINE and DISCOVER alike), so no
+        // chip; a dev fixture row in MINE has no button and keeps the chip.
+        requested={section === 'mine' && !isMember && !pendingMine && l.hasRequested}
         memberCount={l.memberCount}
         facts={leagueFacts(l, Date.now())}
         action={action}
