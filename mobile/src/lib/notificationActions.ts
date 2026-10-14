@@ -291,7 +291,8 @@ const HANDLERS: Record<string, ActionHandler> = {
     },
   },
   drill_on_my_way: {
-    success: (_res, d) => ({ title: 'Sent', body: `${subjectOf(d) ?? 'Your partner'} knows you are on the way.` }),
+    // Label "Confirm"; the id and the stored 'on_my_way' value stay for 1.0.3/1.0.4.
+    success: (_res, d) => ({ title: titleWith('Confirmed', subjectOf(d)), body: "Your partner knows you're confirmed." }),
     run: async (d) => {
       const id = needs(d.entity_id, 'Open Pickleague to answer.');
       await requireUser();

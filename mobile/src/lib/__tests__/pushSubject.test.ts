@@ -28,12 +28,18 @@ describe('pushSubject', () => {
     expect(pushSubject('💬 Sam Himmelstein replied')).toBe('Sam Himmelstein');
     expect(pushSubject('✅ Sam Himmelstein accepted!')).toBe('Sam Himmelstein');
     expect(pushSubject('🥒 Sam is on the way')).toBe('Sam');
+    expect(pushSubject('🥒 Sam confirmed')).toBe('Sam');
     expect(pushSubject("🥒 Sam can't make it")).toBe('Sam');
+  });
+
+  it('reads the court out of the drill lock-in title', () => {
+    expect(pushSubject("📍 We're playing at Moose Park (Riverside Courts)")).toBe('Moose Park (Riverside Courts)');
   });
 
   it('gives null for the generators\' no-name fallbacks', () => {
     expect(pushSubject('🥒 Someone wants to drill')).toBeNull();
     expect(pushSubject('🥒 Your partner is on the way')).toBeNull();
+    expect(pushSubject('🥒 Your partner confirmed')).toBeNull();
     expect(pushSubject('Your drill partner declined')).toBeNull();
     expect(pushSubject('Invite accepted')).toBeNull();
     expect(pushSubject('Invite declined')).toBeNull();

@@ -18,7 +18,9 @@ const LABELLED =
 const TRAILING = /^(.+?)\s+is (?:today|tomorrow)$/i;
 const BRACKET = /^Bracket Set\s*[—–-]\s*(.+)$/i;
 // Drill pushes name the other player: "🥒 Sam wants to drill", "💬 Sam replied".
-const PERSON = /^(.+?)\s+(?:wants to drill|replied|accepted!|declined|is on the way|can['’]t make it)$/i;
+const PERSON = /^(.+?)\s+(?:wants to drill|replied|accepted!|declined|confirmed|is on the way|can['’]t make it)$/i;
+// The drill lock-in notice names the court: "📍 We're playing at Moose Park".
+const PLACE = /^We['’]re playing at\s+(.+)$/i;
 // What the generators write when they have no name, and "Invite accepted" /
 // "Invite declined" (tournament pushes that PERSON would otherwise read as a name).
 const NO_NAME = new Set(['someone', 'your partner', 'your drill partner', 'invite']);
@@ -33,7 +35,7 @@ export function pushSubject(title: unknown): string | null {
   if (typeof title !== 'string') return null;
   const t = title.replace(/\s+/g, ' ').replace(LEAD, '').trim();
   if (!t) return null;
-  const m = LABELLED.exec(t) ?? BRACKET.exec(t) ?? TRAILING.exec(t) ?? PERSON.exec(t);
+  const m = LABELLED.exec(t) ?? BRACKET.exec(t) ?? TRAILING.exec(t) ?? PLACE.exec(t) ?? PERSON.exec(t);
   const s = m?.[1]?.trim();
   if (!s || NO_NAME.has(s.toLowerCase())) return null;
   return s;

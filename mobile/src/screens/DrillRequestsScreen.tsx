@@ -296,6 +296,9 @@ export default function DrillRequestsScreen({ route }: Props) {
     setRequests(prev => prev.map(r =>
       r.id === req.id ? { ...r, location_name: label, location_id: court.id } : r
     ));
+    // On an accepted request this locks it in: the server marks the setter
+    // confirmed, so reload the sessions to show ✓ Confirmed.
+    if (req.status === 'accepted') load();
   }
 
   function cancelRequest(req: DrillRequest) {
@@ -511,10 +514,15 @@ export default function DrillRequestsScreen({ route }: Props) {
           })}
         </View>
 
-        {/* Location — both parties can set/change a confirmed court */}
+        {/* Location — both parties can set/change a confirmed court. With an
+            accepted time it is locked in: "We're playing at X · <time>". */}
         {item.location_name ? (
           <View style={S.locationRow}>
-            <Text style={S.locationText} numberOfLines={1}>📍 {item.location_name}</Text>
+            <Text style={S.locationText} numberOfLines={isAccepted && item.accepted_slot ? 2 : 1}>
+              {isAccepted && item.accepted_slot
+                ? `📍 We're playing at ${item.location_name} · ${dateLabel(item.accepted_slot.date)} ${dateSubLabel(item.accepted_slot.date)} · ${slotLabel(item.accepted_slot.slot)}`
+                : `📍 ${item.location_name}`}
+            </Text>
             <Pressable
               onPress={() => openLocationPicker(item)}
               style={S.linkBox}
@@ -666,7 +674,8 @@ export default function DrillRequestsScreen({ route }: Props) {
         currentUserId={userId}
         showLocationPrompt={chatLocationPrompt}
         onDismissLocationPrompt={() => setChatLocationPrompt(false)}
-        onClose={() => { setChatRequest(null); setChatLocationPrompt(false); }}
+        // The chat can lock in a court (the server marks the setter confirmed): reload on close.
+        onClose={() => { setChatRequest(null); setChatLocationPrompt(false); void load(); }}
       />
 
       <CourtPickerModal

@@ -123,7 +123,7 @@ export const CATALOG = {
   },
   drill_reminder: {
     actions: {
-      drill_on_my_way: { buttonTitle: 'On my way' },
+      drill_on_my_way: { buttonTitle: 'Confirm' },
       drill_cant_make_it: { buttonTitle: "Can't make it", destructive: true },
     },
   },

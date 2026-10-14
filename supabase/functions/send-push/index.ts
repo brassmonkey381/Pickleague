@@ -253,7 +253,9 @@ async function drillButtons(row: Row, data: Data, kind: string | null): Promise<
   const id = row.entity_id!;
   const me = row.recipient_id;
   // entity_id is a drill request (request, response and chat pushes) or a
-  // drill session (reminders, partner RSVPs).
+  // drill session (reminders, partner RSVPs, and 'drill_locked': the court +
+  // time lock-in notice, which takes the Confirm / Can't make it buttons below
+  // like a reminder does).
   const { data: req } = await admin
     .from('drill_requests')
     .select('status, from_user_id, to_user_id, proposed_slots')
@@ -302,7 +304,7 @@ async function drillButtons(row: Row, data: Data, kind: string | null): Promise<
   if (!ses || (me !== ses.player1_id && me !== ses.player2_id)) return { data };
   const partner = me === ses.player1_id ? ses.player2_id : ses.player1_id;
 
-  // "Your partner can't make it": find a new time with them, never "On my way".
+  // "Your partner can't make it": find a new time with them, never "Confirm".
   if (kind === 'drill_rsvp' && data.rsvp_status === 'cant_make_it') {
     const { data: theirs } = await admin
       .from('drill_session_rsvps')

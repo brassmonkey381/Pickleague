@@ -1,6 +1,8 @@
 // "Upcoming drill sessions" on the Drill Requests screen: when, with whom, both
-// players' answers, and On my way / Can't make it in the app (the drill
-// reminder push offers the same two on the lock screen). A reminder tap (or
+// players' answers, and Confirm / Can't make it in the app (the drill
+// reminder and lock-in pushes offer the same two on the lock screen). Once the
+// pair has a court, the row reads "We're playing at <court> · <time>".
+// 'on_my_way' is the stored value behind "Confirm" (kept for older apps). A reminder tap (or
 // Home's Up next drill row) lands here with the session highlighted (focusId);
 // the focused row reports its node so the screen can scroll it into view.
 //
@@ -31,6 +33,7 @@ type SessionRow = {
   p1: { full_name: string | null } | null;
   p2: { full_name: string | null } | null;
   drill_session_rsvps: { user_id: string; status: Rsvp }[] | null;
+  req: { location_name: string | null } | null;
 };
 
 const BOUND = { retries: 1, timeoutMs: 9_000 };
@@ -70,7 +73,8 @@ export default function DrillUpcomingSessions({
               'id, player1_id, player2_id, session_date, session_slot, length_minutes, starts_at,'
               + ' p1:profiles!drill_sessions_player1_id_fkey(full_name),'
               + ' p2:profiles!drill_sessions_player2_id_fkey(full_name),'
-              + ' drill_session_rsvps(user_id, status)',
+              + ' drill_session_rsvps(user_id, status),'
+              + ' req:drill_requests(location_name)',
             )
             .or(`player1_id.eq.${userId},player2_id.eq.${userId}`)
             .gt('starts_at', since)
@@ -95,7 +99,7 @@ export default function DrillUpcomingSessions({
     try {
       // Idempotent: the RPC returns 'already' for the same answer.
       await sbCall(() => supabase.rpc('rsvp_drill_session', { p_session: s.id, p_status: next }), BOUND);
-      status.success(next === 'on_my_way' ? 'Your partner knows you are on the way.' : "Your partner knows you can't make it.");
+      status.success(next === 'on_my_way' ? "Your partner knows you're confirmed." : "Your partner knows you can't make it.");
       await load();
     } catch (e) {
       status.error(friendlySbMessage(e, "Couldn't send that. Tap again to retry."));
@@ -122,6 +126,8 @@ export default function DrillUpcomingSessions({
           const theirs = rsvps.find((r) => r.user_id === partnerId)?.status;
           const focused = !!focusId && focusId === s.id;
           const busy = saving === s.id;
+          const when = `${dateLabel(s.session_date)} ${dateSubLabel(s.session_date)} · ${slotLabel(s.session_slot)}`;
+          const place = s.req?.location_name;
           return (
             <View
               key={s.id}
@@ -131,8 +137,8 @@ export default function DrillUpcomingSessions({
               style={[S.row, i < sessions.length - 1 && S.rowDivider, focused && S.rowFocused]}
             >
               <Text style={t.title} numberOfLines={1}>Drill with {partner}</Text>
-              <Text style={t.sub} numberOfLines={1}>
-                {dateLabel(s.session_date)} {dateSubLabel(s.session_date)} · {slotLabel(s.session_slot)} · {durationLabel(s.length_minutes ?? 60)}
+              <Text style={t.sub} numberOfLines={place ? 2 : 1}>
+                {place ? `📍 We're playing at ${place} · ` : ''}{when} · {durationLabel(s.length_minutes ?? 60)}
               </Text>
               <Text
                 style={[t.meta, theirs === 'cant_make_it' && { color: c.danger }]}
@@ -140,7 +146,7 @@ export default function DrillUpcomingSessions({
                 maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
               >
                 {theirs === 'on_my_way'
-                  ? `${first} is on the way`
+                  ? `${first} confirmed`
                   : theirs === 'cant_make_it'
                     ? `${first} can't make it`
                     : `${first} hasn't answered yet`}
@@ -148,12 +154,12 @@ export default function DrillUpcomingSessions({
               {/* Your answer: a 2-option radio of FilterPills (28 pill, 44 box). */}
               <View style={S.answers} accessibilityRole="radiogroup">
                 <FilterPill
-                  label={mine === 'on_my_way' ? '✓ On my way' : 'On my way'}
+                  label={mine === 'on_my_way' ? '✓ Confirmed' : 'Confirm'}
                   active={mine === 'on_my_way'}
                   onPress={busy || mine === 'on_my_way' ? undefined : () => answer(s, 'on_my_way')}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: mine === 'on_my_way', disabled: busy }}
-                  accessibilityLabel="On my way"
+                  accessibilityLabel="Confirm"
                 />
                 <FilterPill
                   label={mine === 'cant_make_it' ? "✓ Can't make it" : "Can't make it"}
