@@ -699,7 +699,7 @@ export type HomeSection =
   | 'now'
   | 'get_started'
   | 'up_next'
-  // YOUR LEAGUE (it replaced 'yours'): league_chip, header, row, see_all, next,
+  // YOUR LEAGUES (it replaced 'yours'): league_chip, header, row, see_all, next,
   // start_season, all_leagues, my_tournaments.
   | 'spotlight'
   | 'join'

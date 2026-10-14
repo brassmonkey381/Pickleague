@@ -1,7 +1,7 @@
 // LEAGUE SPOTLIGHT (it replaced YOURS, which repeated Play's "Mine" list): one
 // of my leagues, with a glance at its standings.
 //
-//   YOUR LEAGUE        [Dinks] [Sean Lg]      chips only in 2+ leagues   44
+//   YOUR LEAGUES       [Dinks] [Sean Lg]      chips only in 2+ leagues   44
 //   ┌ Dinks · Fall                        › ┐  header -> LeagueDetail     44
 //   │ You #2 of 14 · Period 7 locks Oct 20   │  status line (LeagueDetail's)
 //   │ 🥇 Sean K.          8-2   1,512        │  StandingsPreview compact,
@@ -205,7 +205,7 @@ export default function LeagueSpotlight({
 
   const header = (
     <View style={styles.headRow}>
-      <SectionHeader title="Your league" style={styles.headTitle} />
+      <SectionHeader title="Your leagues" style={styles.headTitle} />
       {leagues.length >= 2 ? (
         <FilterChipRow
           size="md"

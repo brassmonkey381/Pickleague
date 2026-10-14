@@ -8,7 +8,7 @@
 //   UP NEXT ...... votes, RSVPs, tournaments, drills, and the requests waiting
 //                  on me: scores to confirm, invites, drill and join requests
 //                  (lib/agenda.ts + lib/inboxRequests.ts)
-//   YOUR LEAGUE .. one league's standings at a glance (chips in 2+ leagues),
+//   YOUR LEAGUES .. one league's standings at a glance (chips in 2+ leagues),
 //                  its next event / open vote, "All my leagues", "My tournaments"
 //                  (components/home/LeagueSpotlight.tsx)
 //     or JOIN A LEAGUE (no league yet): code, browse, 3 leagues with [Join]
@@ -126,7 +126,7 @@ export default function HomeScreen({ navigation }: Props) {
     void reload();
   }, [reload]));
 
-  // YOUR LEAGUE: the chosen league and its standings (loaded apart from the
+  // YOUR LEAGUES: the chosen league and its standings (loaded apart from the
   // payload above, for that league only). Pull-to-refresh reloads both; focus
   // revalidates the table under its TTL.
   const spotlight = useLeagueSpotlight(myLeagues, profile?.id ?? null, now);
@@ -287,11 +287,11 @@ export default function HomeScreen({ navigation }: Props) {
   const leagueJoin = useLeagueJoin({
     status: { clear() {}, error: toast.error, success: toast.success },
     onJoined: async (e: LeagueJoinedEvent) => {
-      // The league just joined is the one YOUR LEAGUE shows (and remembers).
+      // The league just joined is the one YOUR LEAGUES shows (and remembers).
       if (e.via === 'join') spotlight.select(e.leagueId);
       else if (e.scopeType === 'league' && e.scopeId) spotlight.select(e.scopeId);
       // Awaited by the hook while the row stays busy, so it doesn't flash
-      // back to [Join] before the league moves into YOUR LEAGUE.
+      // back to [Join] before the league moves into YOUR LEAGUES.
       await reloadFresh();
     },
     onRequested: () => reloadFresh(),
@@ -672,7 +672,7 @@ export default function HomeScreen({ navigation }: Props) {
           tap('join', 'code_redeemed');
           closeCodeSheet();
           // A tournament code registers you there: open it. A league code's
-          // league moves into YOUR LEAGUE on the reload the hook already runs.
+          // league moves into YOUR LEAGUES on the reload the hook already runs.
           if (r.scopeType === 'tournament' && r.scopeId) {
             navigation.navigate('TournamentDetail', { tournamentId: r.scopeId, tournamentName: r.scopeName });
           }
