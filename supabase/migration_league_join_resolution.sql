@@ -154,11 +154,17 @@ begin
 
     -- Notify the admins now unless they were notified about this pair
     -- within the window (withdraw then request again).
+    -- A denied row coming back (request_league_join already enforced the
+    -- 7-day wait) always notifies: the anti-spam window is for withdraw ->
+    -- request again, not for a fresh ask after a decline. clock_timestamp(),
+    -- not now(): the notify trigger fires only when notified_at moves, and
+    -- now() is frozen for the whole transaction.
     if tg_op = 'INSERT' then
-      new.notified_at := now();
-    elsif old.notified_at is null
+      new.notified_at := clock_timestamp();
+    elsif old.status = 'denied'
+       or old.notified_at is null
        or old.notified_at <= now() - public._league_join_renotify_window() then
-      new.notified_at := now();
+      new.notified_at := clock_timestamp();
     else
       new.notified_at := old.notified_at;
     end if;
