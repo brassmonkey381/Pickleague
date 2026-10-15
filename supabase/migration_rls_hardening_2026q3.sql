@@ -94,7 +94,7 @@ begin
       -- Allowlist: every RPC the mobile/web client calls via supabase.rpc().
       and p.proname not in (
         'admin_complete_tournament','approve_league_join_request','auto_payout_tournament','award_pickles_from_pool',
-        'calculate_wager_odds','cancel_wager','claim_daily_login_streak','claim_ftue_step',
+        'calculate_wager_odds','cancel_league_event','cancel_wager','claim_daily_login_streak','claim_ftue_step',
         'claim_welcome_pickles','complete_guest_upgrade','complete_season','confirm_match',
         'contribute_pickles_to_pool','create_doubles_pair','create_guest_invite',
         'create_invite_code','create_mlp_team','current_real_world_discounts','delete_my_account',

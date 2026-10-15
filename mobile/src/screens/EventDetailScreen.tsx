@@ -98,6 +98,14 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const [invitingGuests, setInvitingGuests] = useState(false);
   const [closeWinner, setCloseWinner] = useState<EventSlot | null>(null);
   const [closing, setClosing]         = useState(false);
+  // Cancel event: the organizer chooses each time whether the league hears
+  // about it and whether it stays in the events list (a mistake being remade
+  // should do neither).
+  const [cancelOpen, setCancelOpen]       = useState(false);
+  const [cancelNotify, setCancelNotify]   = useState(true);
+  const [cancelRemove, setCancelRemove]   = useState(false);
+  const [cancelling, setCancelling]       = useState(false);
+  const [cancelError, setCancelError]     = useState<string | null>(null);
   const [slots, setSlots] = useState<EventSlot[]>([]);
   const [memberCount, setMemberCount] = useState(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -523,6 +531,41 @@ export default function EventDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  function openCancel() {
+    setCancelNotify(true);
+    setCancelRemove(false);
+    setCancelError(null);
+    setCancelOpen(true);
+  }
+  async function confirmCancel() {
+    if (cancelling || !event) return;
+    setCancelling(true);
+    setCancelError(null);
+    // An already-cancelled event only offers Remove; it was announced (or not) back then.
+    const alreadyCancelled = event.status === 'cancelled';
+    const notify = !alreadyCancelled && cancelNotify;
+    try {
+      const outcome = await sbCall(() => supabase.rpc('cancel_league_event', {
+        p_event_id: event.id,
+        p_notify: notify,
+        p_remove: alreadyCancelled || cancelRemove,
+      })) as unknown as string | null;
+      setCancelOpen(false);
+      if (outcome === 'removed') {
+        // Nothing left to show here.
+        if (navigation.canGoBack()) navigation.goBack();
+        else navigation.popTo('Home');
+        return;
+      }
+      status.success(notify ? 'Event cancelled. The league has been told.' : 'Event cancelled. Nobody was notified.');
+      await load();
+    } catch (e) {
+      setCancelError(friendlySbMessage(e, 'Could not cancel the event. Please try again.'));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const votingIsOpen = event?.status === 'voting' && new Date(event.vote_ends_at).getTime() > now;
   const nudgeKind = event
     ? pickNudgeKind(event, slots.find(s => s.id === event.confirmed_slot_id) ?? null)
@@ -754,16 +797,21 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   // Invite guests + nudge: league admins / co-admins (the RPC allows any member
   // to invite; the UI keeps it to organisers, as before).
   const canInvite = canClose && votingIsOpen;
-  const canNudge = canClose && !!nudgeKind;
+  const canNudge = canClose && !!nudgeKind && !cancelled;
   // Close voting: the event's creator. close_event_vote raises for anyone
   // else, so showing it to other admins only produced an error.
   const canCloseVote = isEventCreator && votingIsOpen;
   // Edit details: the creator only — RLS "Event creator can update".
-  const canEdit = isEventCreator;
+  const canEdit = isEventCreator && !cancelled;
   // Webhook setup: the league creator only — RLS hides and rejects it for
   // anyone else.
-  const canSetupWebhook = isLeagueCreator && !chatWebhookUrl;
-  const showManage = !cancelled && (canInvite || canNudge || canCloseVote || canEdit || canSetupWebhook);
+  const canSetupWebhook = isLeagueCreator && !chatWebhookUrl && !cancelled;
+  // Cancel: the creator or a league admin (cancel_league_event's rule). A
+  // cancelled event keeps only Remove, so it can be cleared from the list.
+  const canCancel = (isEventCreator || canClose) && !cancelled;
+  const canRemove = (isEventCreator || canClose) && cancelled;
+  const showManage = canRemove
+    || (!cancelled && (canInvite || canNudge || canCloseVote || canEdit || canSetupWebhook || canCancel));
 
   const description = event.description?.trim() || '';
 
@@ -1017,6 +1065,8 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 canNudge && 'Nudge',
                 canInvite && 'Invite guests',
                 canEdit && 'Edit details',
+                canCancel && 'Cancel event',
+                canRemove && 'Remove',
               ].filter(Boolean).join(' · ') || 'League chat'}
               open={manageOpen}
               onToggle={(next) => { setManageOpen(next); onSectionToggle('manage', next); }}
@@ -1130,6 +1180,20 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                   </View>
                 )
               )}
+
+              {(canCancel || canRemove) && (
+                <View style={S.manageRow}>
+                  <View style={S.manageText}>
+                    <Text style={[t.title, { color: c.danger }]}>
+                      {canRemove ? '🗑️ Remove from history' : '🚫 Cancel event'}
+                    </Text>
+                    <Text style={t.sub} numberOfLines={2}>
+                      {canRemove ? 'Takes it off the events list for everyone.' : 'You choose whether the league is told.'}
+                    </Text>
+                  </View>
+                  <Button size="sm" variant="danger" title={canRemove ? 'Remove' : 'Cancel'} onPress={openCancel} />
+                </View>
+              )}
             </CollapsibleSection>
           </View>
         )}
@@ -1150,6 +1214,37 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           busy={closing}
           onConfirm={confirmCloseVoting}
           onClose={() => setCloseWinner(null)}
+        />
+
+        <ConfirmModal
+          visible={cancelOpen}
+          title={cancelled ? 'Remove this event?' : 'Cancel this event?'}
+          body={cancelled
+            ? 'It disappears from the events list for everyone. This cannot be undone.'
+            : 'Voting and RSVPs stop. This cannot be undone.'}
+          primaryLabel={cancelled || cancelRemove ? 'Remove event' : 'Cancel event'}
+          cancelLabel="Keep it"
+          variant="danger"
+          busy={cancelling}
+          error={cancelError}
+          extraField={cancelled ? undefined : (
+            <View style={S.checkGroup}>
+              <CheckRow
+                label="Notify league members"
+                sub={cancelNotify ? 'Everyone gets an “Event cancelled” push.' : 'Nobody is told. Good for fixing a mistake.'}
+                checked={cancelNotify}
+                onToggle={() => setCancelNotify(v => !v)}
+              />
+              <CheckRow
+                label="Remove from history"
+                sub={cancelRemove ? 'Deleted, along with its vote notices.' : 'Stays in the events list as Cancelled.'}
+                checked={cancelRemove}
+                onToggle={() => setCancelRemove(v => !v)}
+              />
+            </View>
+          )}
+          onConfirm={confirmCancel}
+          onClose={() => { if (!cancelling) setCancelOpen(false); }}
         />
 
         <ContactPickerModal
@@ -1173,6 +1268,36 @@ export default function EventDetailScreen({ navigation, route }: Props) {
           : { title: 'Record match', onPress: recordMatch }}
       />
     </View>
+  );
+}
+
+// A tappable checkbox row for the cancel dialog's two choices.
+function CheckRow({ label, sub, checked, onToggle }: {
+  label: string; sub: string; checked: boolean; onToggle: () => void;
+}) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  return (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked }}
+      accessibilityLabel={label}
+      style={{ flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, minHeight: 44 }}
+    >
+      <View style={{
+        width: 22, height: 22, marginTop: 1, borderRadius: RADIUS.sm, borderWidth: 2,
+        borderColor: checked ? c.primary : c.border,
+        backgroundColor: checked ? c.primary : 'transparent',
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        {checked && <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 }}>✓</Text>}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={t.title}>{label}</Text>
+        <Text style={t.sub}>{sub}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -1203,6 +1328,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     manageRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 56 },
     manageText:  { flex: 1, minWidth: 0 },
     manageGroup: { gap: SPACE.xs },
+    checkGroup:  { gap: SPACE.sm, marginBottom: SPACE.md },
     btnRow:      { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
     linkBox:     { minHeight: 44, justifyContent: 'center' },
     input: {
