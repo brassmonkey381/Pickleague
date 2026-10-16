@@ -24,11 +24,10 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
 - **"Members of closed leagues you share"** counts a membership only if it was made while the league was closed
   (`league_members.admitted_closed`, set by the server). Closing an open league later names nobody who joined it
   instantly; and no one can be moved into a league they never joined (clients may change only a member's role).
-- **"Blocked pairs never see each other"** means never by **name**: to each other they are an anonymous "Player",
-  counted like any stranger. Leaving them out entirely would single the blocker out against a second account's or
-  a guest's view of the same court.
-- **"Guests see counts only"**: today guests get anonymous rows (no ids, rounded times), not just numbers. Whether
-  they should get only `venue_crowd` numbers is an open product question (follow-up).
+- **"Blocked pairs never see each other"** (confirmed by the user 2026-10-16): no row and no count, either way.
+  Accepted trade-off: someone with a second account could notice the count differs by one.
+- **"Guests see counts only"** (confirmed 2026-10-16): guests get `venue_crowd` numbers and their own row, never
+  anyone else's row, in `court_presence` and in the 1.0.4 `venue_players_here`.
 - Anonymous rows carry only what a count needs (random per-call id, hour-rounded times, no session), so a pause or
   a hide-from can't be undone by matching rows later. Residual, by design: someone watching at the very moment of
   a pause sees one named row become one more "Player" with the count unchanged.
