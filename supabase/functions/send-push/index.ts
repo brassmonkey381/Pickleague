@@ -59,6 +59,8 @@ const KNOWN_PREF_KEYS = new Set([
   'notifyTournamentUpdates',
   'notifyChallenges',
   'notifyDrillRequests',
+  // Friend requests and "accepted your friend request" (presence Phase 1).
+  'notifyFriendRequests',
 ]);
 
 type Row = OutboxRow & {
@@ -375,6 +377,21 @@ async function leagueButtons(row: Row, data: Data, kind: string | null): Promise
   return { data };
 }
 
+// ── Friends ─────────────────────────────────────────────────────────────────
+async function friendButtons(row: Row, data: Data, kind: string | null): Promise<Buttons> {
+  // "Sam wants to be friends" (entity_id = the requester): Accept / Decline,
+  // only while that request to this recipient is still pending.
+  if (kind !== 'friend_request') return { data };
+  const { data: req } = await admin
+    .from('friendships')
+    .select('status')
+    .eq('requester_id', row.entity_id!)
+    .eq('addressee_id', row.recipient_id)
+    .maybeSingle();
+  if (req?.status === 'pending') return { category: CATEGORY.friend_request, data };
+  return { data };
+}
+
 async function resolveButtons(row: Row): Promise<Buttons> {
   const data = baseData(row);
   if (!row.entity_id) return { data };
@@ -390,6 +407,8 @@ async function resolveButtons(row: Row): Promise<Buttons> {
       return tournamentButtons(row, data, kind);
     case 'league':
       return leagueButtons(row, data, kind);
+    case 'friend':
+      return friendButtons(row, data, kind);
     default:
       return { data };
   }

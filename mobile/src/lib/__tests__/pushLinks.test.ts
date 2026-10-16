@@ -36,6 +36,9 @@ describe('notification catalog', () => {
     expect(CATALOG.match_confirm.actions.match_confirm).toMatchObject({ authenticationRequired: true });
     expect(CATALOG.tournament_invite.actions.tournament_accept).toMatchObject({ authenticationRequired: true });
     expect(CATALOG.league_invite.actions.league_join).toMatchObject({ authenticationRequired: true });
+    // Accepting a friend lets them see you at the courts.
+    expect(CATALOG.friend_request.actions.friend_accept).toMatchObject({ authenticationRequired: true });
+    expect(Object.keys(CATALOG.friend_request.actions)).toEqual(['friend_accept', 'friend_decline']);
     expect(CATALOG.event_organizer_vote.actions.event_close_vote).toMatchObject({ opensApp: true, link: true });
   });
 
@@ -100,6 +103,19 @@ describe('routes', () => {
     expect(route('home/-')).toEqual(['Home']);
     expect(route('shop/-')).toEqual(['Shop']);
     expect(route('match/m1')?.[0]).toBe('MatchHistory');
+  });
+
+  it('friend links: Friends only while friends are on; a player link always', () => {
+    expect(route('player/u1')).toEqual(['PlayerProfile', { userId: 'u1', userName: 'Player' }]);
+    expect(route('player/-')).toBeNull();
+    expect(route('friends/-')).toBeNull();
+    const on = pushRoutes({ wagersEnabled: false, friendsEnabled: true });
+    expect(on['friends/']('-', '')).toEqual(['Friends', { tab: 'requests' }]);
+    expect(on['friends/']('find', '')).toEqual(['Friends', { tab: 'find' }]);
+    expect(on['friend/']('u1', '')).toEqual(['Friends', { tab: 'requests' }]);
+    // "Accepted your friend request" without its own link opens their profile.
+    expect(linkOf({ entity_type: 'friend', entity_id: 'u1', kind: 'friend_accepted' })).toBe('player/u1');
+    expect(linkOf({ entity_type: 'friend', entity_id: 'u1', deepLink: 'friends/-', kind: 'friend_request' })).toBe('friends/-');
   });
 
   it('wager links stay unrouted while wagering is off', () => {

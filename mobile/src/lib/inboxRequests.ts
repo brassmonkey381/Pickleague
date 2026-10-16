@@ -16,6 +16,9 @@
 //        - a doubles-partner or MLP-team invite to me (pending, direction
 //          'invite', its pair / team still forming), which opens the
 //          tournament, where its Pairs / Teams section answers it.
+//        - friend requests to me (list_friend_requests, incoming), one row
+//          for all of them, which opens Friends on its Requests tab. Only
+//          while FRIENDS_AT_COURTS_ENABLED is on.
 //      Tournament invites are requests too; they come from my registrations,
 //      which Home already loads, so agenda.tournamentAgendaItems maps them.
 //   2. NOTIFICATIONS: the filter chips (keyed on entity_type / category /
@@ -34,11 +37,14 @@
 // participant). league_join_requests: "Admins can view league requests"
 // (league_members role admin / co-admin). doubles_pairs,
 // doubles_pair_join_requests, mlp_teams, mlp_team_join_requests: readable by
-// everyone. notifications: own rows.
+// everyone. notifications: own rows. list_friend_requests: SECURITY DEFINER,
+// the caller's own requests.
 import type { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import type { supabase as SupabaseSingleton } from './supabase';
 import { calendarDayDiff, type AgendaItem } from './agenda';
 import { loadDrillSlotStarts } from './drillWhen';
+import { FRIENDS_AT_COURTS_ENABLED } from './features';
+import { friendRequestItems, type FriendRequestRow } from './friendship';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -391,9 +397,14 @@ export type InboxRequestRows = {
   teamInvites?: TeamInviteRow[];
   /** Drill requests I sent, still pending (same). */
   sentDrills?: SentDrillRequestRow[];
+  /** Friend requests both ways (same; [] while friends are off). Mapped by
+   *  lib/friendship's friendRequestItems. */
+  friendRequests?: FriendRequestRow[];
 };
 
-export const EMPTY_INBOX: InboxRequestRows = { matches: [], drills: [], joins: [], pairInvites: [], teamInvites: [], sentDrills: [] };
+export const EMPTY_INBOX: InboxRequestRows = {
+  matches: [], drills: [], joins: [], pairInvites: [], teamInvites: [], sentDrills: [], friendRequests: [],
+};
 
 /** All the request rows for Up next, mapped (tournament invites aside). */
 export function inboxAgendaItems(
@@ -410,6 +421,7 @@ export function inboxAgendaItems(
     ...teamInviteItems(inbox.pairInvites ?? [], 'pair', now),
     ...teamInviteItems(inbox.teamInvites ?? [], 'team', now),
     ...drillWaitingItems(inbox.sentDrills ?? [], now),
+    ...friendRequestItems(inbox.friendRequests ?? []),
   ];
 }
 
@@ -426,16 +438,22 @@ export type NotificationLite = {
   created_at?: string | null;
 };
 
-export type NotificationChip = 'all' | 'requests' | 'unread' | 'leagues' | 'tournaments' | 'rewards';
+export type NotificationChip = 'all' | 'requests' | 'unread' | 'leagues' | 'tournaments' | 'rewards' | 'friends';
 
-export const NOTIFICATION_CHIPS: ReadonlyArray<{ value: NotificationChip; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'requests', label: 'Requests' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'leagues', label: 'Leagues' },
-  { value: 'tournaments', label: 'Tournaments' },
-  { value: 'rewards', label: 'Rewards' },
-];
+/** The chips, in order. Friends (after Requests) only while friends are on. */
+export function notificationChips(opts: { friends: boolean }): ReadonlyArray<{ value: NotificationChip; label: string }> {
+  return [
+    { value: 'all', label: 'All' },
+    { value: 'requests', label: 'Requests' },
+    ...(opts.friends ? [{ value: 'friends' as const, label: 'Friends' }] : []),
+    { value: 'unread', label: 'Unread' },
+    { value: 'leagues', label: 'Leagues' },
+    { value: 'tournaments', label: 'Tournaments' },
+    { value: 'rewards', label: 'Rewards' },
+  ];
+}
+
+export const NOTIFICATION_CHIPS = notificationChips({ friends: FRIENDS_AT_COURTS_ENABLED });
 
 /** entity_type values per chip, from the generators in supabase/:
  *  - 'league' (announcements, join requests, refunds) and 'event' (votes,
@@ -451,9 +469,12 @@ export const NOTIFICATION_CHIPS: ReadonlyArray<{ value: NotificationChip; label:
 export const LEAGUE_ENTITY_TYPES = ['league', 'event'] as const;
 export const TOURNAMENT_ENTITY_TYPES = ['tournament'] as const;
 export const REWARD_ENTITY_TYPES = ['shop', 'shop_item', 'profile', 'plupr_history'] as const;
+/** Friend requests and "accepted your friend request" (entity friend/<the
+ *  other player>, docs/play-sessions-presence-api.md) -> Friends. */
+export const FRIEND_ENTITY_TYPES = ['friend'] as const;
 
 /** push_data.kind values that ask the recipient for something. */
-const REQUEST_KINDS = ['league_join_request', 'drill_request'] as const;
+const REQUEST_KINDS = ['league_join_request', 'drill_request', 'friend_request'] as const;
 /** notifications.category of the match-confirm notice
  *  (migration_match_confirm_notify_category.sql). */
 const MATCH_CONFIRM_CATEGORY = 'notifyMatchConfirms';
@@ -489,6 +510,7 @@ export function matchesNotificationChip(n: NotificationLite, chip: NotificationC
     case 'leagues': return (LEAGUE_ENTITY_TYPES as readonly string[]).includes(type);
     case 'tournaments': return (TOURNAMENT_ENTITY_TYPES as readonly string[]).includes(type);
     case 'rewards': return (REWARD_ENTITY_TYPES as readonly string[]).includes(type);
+    case 'friends': return (FRIEND_ENTITY_TYPES as readonly string[]).includes(type);
   }
 }
 
@@ -511,6 +533,7 @@ export function chipServerFilter(chip: NotificationChip): ChipServerFilter {
     case 'leagues': return { kind: 'in', column: 'entity_type', values: LEAGUE_ENTITY_TYPES };
     case 'tournaments': return { kind: 'in', column: 'entity_type', values: TOURNAMENT_ENTITY_TYPES };
     case 'rewards': return { kind: 'in', column: 'entity_type', values: REWARD_ENTITY_TYPES };
+    case 'friends': return { kind: 'in', column: 'entity_type', values: FRIEND_ENTITY_TYPES };
     case 'requests':
       return {
         kind: 'or',
@@ -708,7 +731,7 @@ export async function loadInboxRequests(
   adminLeagueIds: readonly string[],
 ): Promise<InboxRequestRows> {
   const { client, call } = db;
-  const [matches, drills, joins, pairInvites, teamInvites, sentDrills] = await Promise.all([
+  const [matches, drills, joins, pairInvites, teamInvites, sentDrills, friendRequests] = await Promise.all([
     soft<MatchConfirmRow[]>(call(() => client
       .from('matches')
       .select(`
@@ -761,6 +784,12 @@ export async function loadInboxRequests(
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(REQUEST_LIMIT)) as unknown as Promise<SentDrillRequestRow[]>, []),
+    // Friend requests (both ways; the mapper keeps mine to answer). Not
+    // called while friends are off: the RPC ships with the presence SQL.
+    FRIENDS_AT_COURTS_ENABLED
+      ? soft<FriendRequestRow[]>(call(() => client
+        .rpc('list_friend_requests')) as unknown as Promise<FriendRequestRow[]>, [])
+      : Promise.resolve<FriendRequestRow[]>([]),
   ]);
   // The proposed times' real instants (a proposed slot is the requester's
   // wall clock). One more round trip, and only when there are requests; if it
@@ -777,6 +806,7 @@ export async function loadInboxRequests(
     pairInvites,
     teamInvites,
     sentDrills: sentDrills.map(withStarts),
+    friendRequests,
   };
 }
 

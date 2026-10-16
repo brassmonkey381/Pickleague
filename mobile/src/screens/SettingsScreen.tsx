@@ -27,7 +27,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
-import { WAGERS_ENABLED } from '../lib/features';
+import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
@@ -57,7 +57,8 @@ type PushTypeKey =
   | 'notifyLeagueUpdates'
   | 'notifyTournamentUpdates'
   | 'notifyChallenges'
-  | 'notifyDrillRequests';
+  | 'notifyDrillRequests'
+  | 'notifyFriendRequests';
 
 const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyMatchResults', label: 'Match results', desc: 'When a match you played is recorded' },
@@ -72,6 +73,9 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyTournamentUpdates', label: 'Tournament updates', desc: 'Bracket results and schedule changes' },
   { key: 'notifyChallenges', label: 'Match challenges', desc: 'When someone challenges you to a match' },
   { key: 'notifyDrillRequests', label: 'Drilling', desc: 'Drill requests, answers and session reminders' },
+  ...(FRIENDS_AT_COURTS_ENABLED
+    ? [{ key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' }]
+    : []),
 ];
 
 // ── Rows ──────────────────────────────────────────────────────────────
@@ -463,7 +467,7 @@ export default function SettingsScreen({ navigation }: Props) {
           disabled={!prefsReady || pushBusy}
         />
       </Panel>
-      {/* The seven per-type switches are reference settings most people set
+      {/* The per-type switches are reference settings most people set
           once, so they sit collapsed under one line that still says how many
           are on. Children unmount on close (nothing inside keeps state). */}
       <CollapsibleSection

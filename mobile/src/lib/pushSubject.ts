@@ -18,7 +18,9 @@ const LABELLED =
 const TRAILING = /^(.+?)\s+is (?:today|tomorrow)$/i;
 const BRACKET = /^Bracket Set\s*[—–-]\s*(.+)$/i;
 // Drill pushes name the other player: "🥒 Sam wants to drill", "💬 Sam replied".
-const PERSON = /^(.+?)\s+(?:wants to drill|replied|accepted!|declined|confirmed|is on the way|can['’]t make it)$/i;
+// So do friend requests: "🤝 Sam wants to be friends", "🤝 Sam accepted your
+// friend request".
+const PERSON = /^(.+?)\s+(?:wants to drill|wants to be friends|accepted your friend request|replied|accepted!|declined|confirmed|is on the way|can['’]t make it)$/i;
 // The drill lock-in notice names the court: "📍 We're playing at Moose Park".
 const PLACE = /^We['’]re playing at\s+(.+)$/i;
 // What the generators write when they have no name, and "Invite accepted" /
