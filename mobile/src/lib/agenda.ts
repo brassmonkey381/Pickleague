@@ -52,12 +52,14 @@ export type AgendaKind =
   | 'drill_waiting'
   | 'join_request'
   // A doubles-partner / MLP-team invite to me (lib/inboxRequests).
-  | 'team_invite';
+  | 'team_invite'
+  // Friend requests to me, one row for all of them (lib/friendship).
+  | 'friend_request';
 
 /** Needs-you kinds that are someone's request of me (the ones Notifications'
  *  Requests chip files). A vote or an RSVP needs me too, but nobody sent it. */
 const REQUEST_AGENDA_KINDS: ReadonlySet<AgendaKind> = new Set<AgendaKind>([
-  'tournament', 'match_confirm', 'drill_request', 'join_request', 'team_invite',
+  'tournament', 'match_confirm', 'drill_request', 'join_request', 'team_invite', 'friend_request',
 ]);
 
 /** Where a row (or its button) goes. Mirrors RootStackParamList's params. */
@@ -70,7 +72,9 @@ export type AgendaTarget =
   // is never inline: it fires the ratings / payout cascade (decision 1).
   | { screen: 'MatchHistory'; params: { title: string; initialMyMatchesOnly: true; highlightMatchId: string } }
   // Pending join requests for a league I run (the 'league_members/' landing).
-  | { screen: 'LeagueMembers'; params: { leagueId: string; leagueName: string } };
+  | { screen: 'LeagueMembers'; params: { leagueId: string; leagueName: string } }
+  // Friend requests to me (the 'friends/' landing).
+  | { screen: 'Friends'; params: { tab: 'requests' } };
 
 export type AgendaItem = {
   key: string;

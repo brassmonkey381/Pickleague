@@ -241,6 +241,19 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
 `supabase/functions/send-push/index.ts`: add `notifyFriendRequests` to `KNOWN_PREF_KEYS`; `resolveButtons` for
 `friend` returns buttons only while the request is still pending. Needs a redeploy with `--no-verify-jwt` (the user runs it).
 
+Client side (friends stream, `feat/presence-p1-friends`), for the SQL to match:
+- send-push (done in that branch): `friendButtons` attaches category `friend_request` when `push_data.kind =
+  'friend_request'` and `friendships` has `requester_id = entity_id`, `addressee_id = recipient`, `status = 'pending'`.
+- `friend_accepted` gets **no catalog category**: it has no buttons, and the kit's `catalogProblems` rejects a
+  category without actions. Its tap uses the `player/<id>` deep link (a `friend/<id>` row without a link is
+  mapped there by `push_data.kind`).
+- Lock-screen buttons `friend_accept` / `friend_decline` call `respond_friend_request(entity_id, accept)` and, on
+  `'gone'`, `friendship_status_with(entity_id)` to tell a replay ("Already friends") from a cancelled request.
+- Home's Up next counts incoming `list_friend_requests` rows on the bell (one row, "Sam wants to be friends" /
+  "3 friend requests"), so that RPC runs on every Home load while the flag is on.
+- Copy the SQL should match: notice titles start with the requester's display name and end with "wants to be
+  friends" / "accepted your friend request" (the lock-screen notice reads the name back out of the title).
+
 ## Hygiene
 
 - `delete_my_account` (and the godmode delete) deletes venue_checkins, play_sessions, presence_settings,

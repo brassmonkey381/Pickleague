@@ -32,6 +32,11 @@ describe('pushSubject', () => {
     expect(pushSubject("🥒 Sam can't make it")).toBe('Sam');
   });
 
+  it('reads the other player out of friend titles', () => {
+    expect(pushSubject('🤝 Sam Himmelstein wants to be friends')).toBe('Sam Himmelstein');
+    expect(pushSubject('🤝 Sam accepted your friend request')).toBe('Sam');
+  });
+
   it('reads the court out of the drill lock-in title', () => {
     expect(pushSubject("📍 We're playing at Moose Park (Riverside Courts)")).toBe('Moose Park (Riverside Courts)');
   });

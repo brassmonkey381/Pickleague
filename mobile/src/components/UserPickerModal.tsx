@@ -21,13 +21,17 @@ type Props = {
   visible: boolean;
   title: string;
   excludeUserIds?: string[];     // hide self / already-owners
+  /** Only people who can answer: leaves out unclaimed DUPR placeholders (472
+   *  of 524 profiles; claiming one deletes it) and guest passes. Friends >
+   *  Find sets it; every other picker keeps listing them. */
+  realPeopleOnly?: boolean;
   onPick: (u: PickedUser) => void;
   onClose: () => void;
 };
 
 const IS_WEB = Platform.OS === 'web';
 
-export default function UserPickerModal({ visible, title, excludeUserIds, onPick, onClose }: Props) {
+export default function UserPickerModal({ visible, title, excludeUserIds, realPeopleOnly = false, onPick, onClose }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const [users, setUsers]     = useState<PickedUser[]>([]);
@@ -37,19 +41,21 @@ export default function UserPickerModal({ visible, title, excludeUserIds, onPick
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
-    supabase
+    let q = supabase
       .from('profiles')
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
       // Deleted accounts survive as [deleted account] tombstones so shared
       // match history stays intact — they are not people you can pick.
-      .is('deleted_at', null)
-      .order('full_name')
+      .is('deleted_at', null);
+    // Both columns are not null default false.
+    if (realPeopleOnly) q = q.eq('is_unclaimed', false).eq('is_guest', false);
+    q.order('full_name')
       .limit(500)
       .then(({ data }) => {
         setUsers((data ?? []) as PickedUser[]);
         setLoading(false);
       });
-  }, [visible]);
+  }, [visible, realPeopleOnly]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 

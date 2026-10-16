@@ -421,6 +421,7 @@ export default function HomeScreen({ navigation }: Props) {
       case 'DrillRequests': navigation.navigate('DrillRequests', target.params); break;
       case 'MatchHistory': navigation.navigate('MatchHistory', target.params); break;
       case 'LeagueMembers': navigation.navigate('LeagueMembers', target.params); break;
+      case 'Friends': navigation.navigate('Friends', target.params); break;
     }
   }, [navigation]);
   const openLeague = (l: { id: string; name: string }) =>

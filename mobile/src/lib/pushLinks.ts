@@ -19,8 +19,9 @@ const NO_ID = '-';
 const has = (id: string | undefined | null): string | undefined => (id && id !== NO_ID ? id : undefined);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 
-/** The route table. `wagersEnabled`: the wager screens exist only when the flag is on. */
-export function pushRoutes(opts: { wagersEnabled: boolean }): Routes {
+/** The route table. `wagersEnabled` / `friendsEnabled`: the wager screens and
+ *  the Friends screen exist only when their flag is on. */
+export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: boolean }): Routes {
   const routes: Routes = {
     'tournament/': (id) => (has(id) ? ['TournamentDetail', { tournamentId: id, tournamentName: 'Tournament' }] : null),
     'league/': (id) => (has(id) ? ['LeagueDetail', { leagueId: id, leagueName: 'League' }] : null),
@@ -46,6 +47,8 @@ export function pushRoutes(opts: { wagersEnabled: boolean }): Routes {
     // A gifted shop item.
     'shop_item/': () => ['Shop'],
     'profile/': (id) => ['Profile', { userId: has(id) }],
+    // Another player's profile ("Sam accepted your friend request").
+    'player/': (id) => (has(id) ? ['PlayerProfile', { userId: id, userName: 'Player' }] : null),
     'plupr_history/': (id) => ['CalendarAnalytics', { userId: has(id), title: 'My PLUPR History' }],
     // Court check-in reminder and arrival notice: Home's court card.
     'home/': () => ['Home'],
@@ -56,6 +59,13 @@ export function pushRoutes(opts: { wagersEnabled: boolean }): Routes {
   if (opts.wagersEnabled) {
     routes['wager_on_me/'] = (id) => (has(id) ? ['PlayerWagers', { userId: id, userName: 'You' }] : ['MyWagers']);
     routes['wager/'] = () => ['MyWagers'];
+  }
+  // Likewise the Friends screen (FRIENDS_AT_COURTS_ENABLED). A friend request
+  // ('friends/-') opens its Requests tab.
+  if (opts.friendsEnabled) {
+    routes['friends/'] = (id) => ['Friends', { tab: id === 'friends' || id === 'find' ? id : 'requests' }];
+    // A friend notice without its own link (entity friend/<the other player>).
+    routes['friend/'] = () => ['Friends', { tab: 'requests' }];
   }
   return routes;
 }
@@ -69,6 +79,8 @@ const KIND_LINKS: Record<string, { from: string; to: string }> = {
   event_nudge_vote: { from: 'event/', to: 'event_nudge/' },
   event_nudge_tomorrow: { from: 'event/', to: 'event_nudge/' },
   event_nudge_today: { from: 'event/', to: 'event_nudge/' },
+  // Its link is player/<id> already; this covers a row written without one.
+  friend_accepted: { from: 'friend/', to: 'player/' },
 };
 
 /** The push's own link (or one built from entity_type / entity_id), refined by its kind. */

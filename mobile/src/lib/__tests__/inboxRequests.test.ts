@@ -15,6 +15,7 @@ import {
   matchConfirmItems,
   matchesNotificationChip,
   missingTargetIds,
+  notificationChips,
   notificationDayLabel,
   notificationTime,
   proposedSlotStarts,
@@ -25,6 +26,8 @@ import {
   type TeamInviteRow,
   type NotificationLite,
 } from '../inboxRequests';
+import { friendRequestItems } from '../friendship';
+import { FRIENDS_AT_COURTS_ENABLED } from '../features';
 
 // A Tuesday afternoon in the device zone (same anchor as agenda.test.ts).
 const NOW = new Date(2026, 9, 13, 14, 0, 0).getTime();
@@ -305,6 +308,42 @@ describe('inboxAgendaItems + the bell', () => {
     expect(needsYouCount(items, NOW)).toBe(2);
   });
 
+  it('incoming friend requests are one needs-you row that opens Friends > Requests', () => {
+    const one = friendRequestItems([
+      { user_id: 'sam', full_name: 'Sam Kim', direction: 'incoming', created_at: iso(-2 * H) },
+      { user_id: 'ana', full_name: 'Ana Ruiz', direction: 'outgoing', created_at: iso(-H) },
+    ]);
+    expect(one).toHaveLength(1);
+    expect(one[0]).toMatchObject({
+      key: 'friend-requests',
+      kind: 'friend_request',
+      title: 'Sam wants to be friends',
+      needsYou: true,
+      deadline: null,
+      requestedAt: iso(-2 * H),
+      target: { screen: 'Friends', params: { tab: 'requests' } },
+    });
+    const many = friendRequestItems([
+      { user_id: 'sam', full_name: 'Sam Kim', direction: 'incoming', created_at: iso(-2 * H) },
+      { user_id: 'lee', full_name: null, direction: 'incoming', created_at: iso(-5 * H) },
+    ]);
+    expect(many[0].title).toBe('2 friend requests');
+    // Oldest first: the row ages from the first request still waiting.
+    expect(many[0].requestedAt).toBe(iso(-5 * H));
+    expect(friendRequestItems([{ user_id: 'lee', full_name: null, direction: 'incoming', created_at: null }])[0].title)
+      .toBe('A player wants to be friends');
+    // Only requests I sent: nothing waits on me.
+    expect(friendRequestItems([{ user_id: 'ana', full_name: 'Ana', direction: 'outgoing', created_at: iso(-H) }])).toEqual([]);
+    // Counted by the bell with the rest.
+    const items = inboxAgendaItems({ ...EMPTY_INBOX, friendRequests: [
+      {
+        user_id: 'sam', full_name: 'Sam Kim', avatar_url: null, avatar_emoji: null, avatar_bg_color: null,
+        doubles_rating: null, direction: 'incoming', created_at: iso(-2 * H),
+      },
+    ] }, ME, [], NOW);
+    expect(needsYouCount(items, NOW)).toBe(1);
+  });
+
   it('no payload, an old payload without the field, or no user: nothing', () => {
     expect(inboxAgendaItems(null, ME, [], NOW)).toEqual([]);
     expect(inboxAgendaItems({}, ME, [], NOW)).toEqual([]);
@@ -327,8 +366,19 @@ const N = (over: Partial<NotificationLite> & { id: string }): NotificationLite =
 });
 
 describe('notification chips', () => {
-  it('has the six chips, in order', () => {
-    expect(NOTIFICATION_CHIPS.map((c) => c.label)).toEqual(['All', 'Requests', 'Unread', 'Leagues', 'Tournaments', 'Rewards']);
+  it('has the six chips, in order (seven with friends on)', () => {
+    expect(notificationChips({ friends: false }).map((c) => c.label))
+      .toEqual(['All', 'Requests', 'Unread', 'Leagues', 'Tournaments', 'Rewards']);
+    expect(NOTIFICATION_CHIPS).toEqual(notificationChips({ friends: FRIENDS_AT_COURTS_ENABLED }));
+  });
+
+  it('with friends on, a Friends chip follows Requests and files friend notices', () => {
+    expect(notificationChips({ friends: true }).map((c) => c.label))
+      .toEqual(['All', 'Requests', 'Friends', 'Unread', 'Leagues', 'Tournaments', 'Rewards']);
+    expect(notificationChips({ friends: false }).map((c) => c.value)).not.toContain('friends');
+    expect(matchesNotificationChip(N({ id: 'f', entity_type: 'friend' }), 'friends')).toBe(true);
+    expect(matchesNotificationChip(N({ id: 'l', entity_type: 'league' }), 'friends')).toBe(false);
+    expect(chipServerFilter('friends')).toEqual({ kind: 'in', column: 'entity_type', values: ['friend'] });
   });
 
   it('keys on entity_type, not type: a payout pickle notice (type tournament) is a Reward', () => {
@@ -356,6 +406,9 @@ describe('notification chips', () => {
   it('Requests: kind, category, and the legacy titles; the inviter replies are not requests', () => {
     expect(isRequestNotification(N({ id: '1', push_data: { kind: 'league_join_request' } }))).toBe(true);
     expect(isRequestNotification(N({ id: '2', push_data: { kind: 'drill_request' } }))).toBe(true);
+    expect(isRequestNotification(N({ id: '2b', title: '🤝 Sam wants to be friends', push_data: { kind: 'friend_request' } }))).toBe(true);
+    // The reply asks nothing.
+    expect(isRequestNotification(N({ id: '2c', title: '🤝 Sam accepted your friend request', push_data: { kind: 'friend_accepted' } }))).toBe(false);
     expect(isRequestNotification(N({ id: '3', category: 'notifyMatchConfirms' }))).toBe(true);
     expect(isRequestNotification(N({ id: '4', title: '🥒 Match needs your team to confirm' }))).toBe(true);
     expect(isRequestNotification(N({ id: '5', title: '🥒 Sam wants to drill' }))).toBe(true);
@@ -382,7 +435,7 @@ describe('notification chips', () => {
     const f = chipServerFilter('requests');
     expect(f.kind).toBe('or');
     if (f.kind !== 'or') return;
-    expect(f.filter).toContain('push_data->>kind.in.(league_join_request,drill_request)');
+    expect(f.filter).toContain('push_data->>kind.in.(league_join_request,drill_request,friend_request)');
     expect(f.filter).toContain('category.eq.notifyMatchConfirms');
     expect(f.filter).toContain('title.ilike."*to confirm*"');
     expect(f.filter).toContain('title.ilike."*invite*"');

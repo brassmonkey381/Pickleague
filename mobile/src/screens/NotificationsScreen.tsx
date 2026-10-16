@@ -83,6 +83,7 @@ import StatusBanner from '../components/StatusBanner';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import EmptyState from '../components/EmptyState';
+import FriendsLink from '../components/FriendsLink';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Notifications'>;
@@ -256,6 +257,7 @@ function glyphFor(entityType: string | null): { glyph: string; kind: EntityKind 
     case 'plupr_history': return { glyph: '📈', kind: 'player' };
     case 'wager':
     case 'wager_on_me': return { glyph: '🎲', kind: 'pickles' };
+    case 'friend': return { glyph: '🤝', kind: 'player' };
     default: return { glyph: '📣', kind: 'shop' };
   }
 }
@@ -709,6 +711,11 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           refreshControl={<AppRefreshControl {...refresh} />}
+          // Requests / Friends: a way to answer friend requests in one place
+          // (FriendsLink renders nothing while friends are off).
+          ListHeaderComponent={chip === 'requests' || chip === 'friends' ? (
+            <FriendsLink style={styles.friendsLink} />
+          ) : null}
           ListFooterComponent={page?.hasMore ? (
             <TouchableOpacity
               style={styles.more}
@@ -766,6 +773,7 @@ const styles = StyleSheet.create({
   skeleton: { paddingHorizontal: SPACE.lg },
   list: { paddingHorizontal: SPACE.lg, paddingBottom: SPACE.xl },
   dayHeader: { marginTop: SPACE.sm },
+  friendsLink: { marginTop: SPACE.sm },
   tile: {
     minWidth: TILE,
     minHeight: TILE,

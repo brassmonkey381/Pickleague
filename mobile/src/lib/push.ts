@@ -25,7 +25,7 @@ import { supabase } from './supabase';
 import { navigationRef, navigateWhenReady } from './navigationRef';
 import { catalog, handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
 import { linkForAction, linkOf, pushRoutes } from './pushLinks';
-import { WAGERS_ENABLED } from './features';
+import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from './features';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { loadUserPreferencesResult } from './userPreferences';
 // Side effect: registers the check-in / play-session buttons' handlers and
@@ -33,6 +33,7 @@ import { loadUserPreferencesResult } from './userPreferences';
 // they exist wherever responses are wired.
 import './courtCheckin';
 import './playSession';
+import './friendActions';
 import { RootStackParamList } from '../types';
 
 // Show notifications while the app is foregrounded too.
@@ -161,7 +162,10 @@ const go = (name: string, params?: Record<string, unknown>) => {
 
 // The route table lives in lib/pushLinks.ts (pure, tested). Mirrors
 // NotificationsScreen.handleTap, which routes through routeNotification too.
-const router = createDeepLinkRouter(pushRoutes({ wagersEnabled: WAGERS_ENABLED }), go);
+const router = createDeepLinkRouter(
+  pushRoutes({ wagersEnabled: WAGERS_ENABLED, friendsEnabled: FRIENDS_AT_COURTS_ENABLED }),
+  go,
+);
 
 /** A league invite push: tapping it joins, the same auto-redeem as the in-app
  *  list. Anything short of a join opens Join-with-Code with the code filled in. */

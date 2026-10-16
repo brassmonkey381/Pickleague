@@ -206,4 +206,14 @@ export const CATALOG = {
       play_start: { buttonTitle: 'Start session', opensApp: true },
     },
   },
+  // "🤝 Sam wants to be friends", while the request is still pending
+  // (lib/friendActions.ts). Accept needs unlock: it lets the requester see
+  // you at the courts. "Sam accepted your friend request" (friend_accepted)
+  // has no buttons, so no category: one without actions is a catalog problem.
+  friend_request: {
+    actions: {
+      friend_accept: { buttonTitle: 'Accept', authenticationRequired: true },
+      friend_decline: { buttonTitle: 'Decline', destructive: true },
+    },
+  },
 } as const;

@@ -59,8 +59,8 @@ const KNOWN_PREF_KEYS = new Set([
   'notifyTournamentUpdates',
   'notifyChallenges',
   'notifyDrillRequests',
-  // Friend requests and "accepted" (migration_presence_p1_friends.sql). Without
-  // it they fell back to TYPE_TO_PREF.info: the master switch only.
+  // Friend requests and "accepted your friend request" (migration_presence_p1_friends.sql).
+  // Without it they fell back to TYPE_TO_PREF.info: the master switch only.
   'notifyFriendRequests',
 ]);
 
@@ -380,23 +380,19 @@ async function leagueButtons(row: Row, data: Data, kind: string | null): Promise
 
 // ── Friends ─────────────────────────────────────────────────────────────────
 // entity_id is the requester (friend_request) or the accepter (friend_accepted,
-// no buttons). Accept / Decline only while that request to the recipient is
-// still pending: a held push for a request that was cancelled, answered on
-// another device or ended by a block must not offer them. The category comes
-// from the app's catalog (friend_request: Accept + Decline); it is read loosely
-// so this deploys before the catalog has it, and until then the push goes out
-// without buttons.
-const FRIEND_REQUEST_CATEGORY = (CATEGORY as Record<string, string | undefined>).friend_request;
-
+// no buttons). Accept / Decline (catalog friend_request) only while that
+// request to the recipient is still pending: a held push for a request that
+// was cancelled, answered on another device or ended by a block must not
+// offer them.
 async function friendButtons(row: Row, data: Data, kind: string | null): Promise<Buttons> {
-  if (kind !== 'friend_request' || !FRIEND_REQUEST_CATEGORY) return { data };
+  if (kind !== 'friend_request') return { data };
   const { data: req } = await admin
     .from('friendships')
     .select('status')
     .eq('requester_id', row.entity_id!)
     .eq('addressee_id', row.recipient_id)
     .maybeSingle();
-  return req?.status === 'pending' ? { category: FRIEND_REQUEST_CATEGORY, data } : { data };
+  return req?.status === 'pending' ? { category: CATEGORY.friend_request, data } : { data };
 }
 
 async function resolveButtons(row: Row): Promise<Buttons> {

@@ -34,6 +34,9 @@ export type Prefs = {
   notifyChallenges:         boolean;
   /** Drill requests, answers, session reminders and partner RSVPs. */
   notifyDrillRequests:      boolean;
+  /** Friend requests and "accepted your friend request" (category
+   *  notifyFriendRequests on both). */
+  notifyFriendRequests:     boolean;
   defaultMatchType:         MatchType;
   defaultScoreLimit:        ScoreLimit;
 };
@@ -47,6 +50,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifyTournamentUpdates:  true,
   notifyChallenges:         true,
   notifyDrillRequests:      true,
+  notifyFriendRequests:     true,
   defaultMatchType:         'doubles',
   defaultScoreLimit:        11,
 };
