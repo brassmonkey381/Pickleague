@@ -219,7 +219,8 @@ declare
     'public.checkout_venue(uuid,text,timestamptz,double precision,double precision,double precision,double precision)',
     'public.extend_checkin(uuid,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
     'public.start_play_session(uuid,text,uuid,text,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
-    'public.end_play_session(uuid,timestamptz)',
+    -- Phase 1.5 added the optional check-out fix to End too.
+    'public.end_play_session(uuid,timestamptz,double precision,double precision,double precision,double precision)',
     'public.resolve_court(double precision,double precision,double precision,text)',
     'public.venue_players_here(text)', 'public.court_presence(text)', 'public.venue_crowd(text[])',
     'public.friends_at_courts(integer)', 'public.get_my_presence_settings()',
@@ -285,6 +286,8 @@ begin
   perform pg_temp.ok('T1 old 2-arg checkout_venue is gone', to_regprocedure('public.checkout_venue(uuid,text)') is null);
   perform pg_temp.ok('T1 Phase 1 3-arg checkout_venue is gone (Phase 1.5 replaced it)',
     to_regprocedure('public.checkout_venue(uuid,text,timestamptz)') is null);
+  perform pg_temp.ok('T1 Phase 1 2-arg end_play_session is gone (Phase 1.5 replaced it)',
+    to_regprocedure('public.end_play_session(uuid,timestamptz)') is null);
   perform pg_temp.ok('T1 old 5-arg start_play_session is gone',
     to_regprocedure('public.start_play_session(uuid,text,uuid,text,timestamptz)') is null);
   perform pg_temp.ok('T1 venue_players_here is SECURITY DEFINER',
@@ -302,7 +305,7 @@ begin
     (select bool_and(qual ilike '%auth.uid()%') and count(*) = 2 from pg_policies
       where schemaname = 'public' and policyname in ('venue_checkins_read', 'play_sessions_read')));
   perform pg_temp.ok('T1 ...and the presence End / expiry (they close the session''s check-in)',
-    (select prosrc like '%presence_closed_ids%' from pg_proc where oid = 'public.end_play_session(uuid,timestamptz)'::regprocedure)
+    (select prosrc like '%presence_closed_ids%' from pg_proc where oid = 'public.end_play_session(uuid,timestamptz,double precision,double precision,double precision,double precision)'::regprocedure)
     and (select prosrc like '%venue_checkins%' from pg_proc where oid = 'public.expire_play_sessions()'::regprocedure));
   -- Clients may change a member's role and nothing else (league_members).
   perform pg_temp.ok('T1 league_members: clients may update role only',

@@ -8,7 +8,8 @@
 //    in apply order>
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql>
 //                                                        (re-runs: Phase 1 must not put its
-//                                                         3-arg checkout_venue back; 1.5 is
+//                                                         3-arg checkout_venue or 2-arg
+//                                                         end_play_session back; 1.5 is
 //                                                         re-runnable)
 //   <migration_rls_hardening_2026q3.sql>                 (a re-run must take nothing offline)
 //   <migration_venue_checkins.sql, migration_play_sessions.sql>
@@ -45,8 +46,8 @@ export const MIGRATIONS = [
   'migration_validity_rules.sql',
 ];
 // Run again after all of the above, before the hardening re-run: the Phase 1
-// check-ins file must keep the Phase 1.5 checkout_venue (its guard skips its
-// own), and the Phase 1.5 file must be re-runnable.
+// check-ins file must keep the Phase 1.5 checkout_venue and end_play_session
+// (its guards skip its own), and the Phase 1.5 file must be re-runnable.
 const RERUN = ['migration_presence_p1_checkins.sql', 'migration_validity_rules.sql'];
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 // Applied long before presence and partly superseded by it: re-running them

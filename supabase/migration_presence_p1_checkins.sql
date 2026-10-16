@@ -575,6 +575,24 @@ grant execute on function public.start_play_session(uuid, text, uuid, text, time
 -- Also closes the check-in this session opened (an adopted one stays open),
 -- even when the session itself was already closed. An id never stored is
 -- remembered as ended, so its Start, if still on its way, lands ended.
+--
+-- SUPERSEDED by migration_validity_rules.sql (Phase 1.5), which replaces this
+-- with the same function plus optional check-out fix arguments (End is the
+-- check-out of the session's own check-in). Re-running this file after that
+-- one must not add this 2-argument version back beside it: a call naming only
+-- p_id and p_at would match both ("not unique") and every End would fail. So
+-- this section runs only while venue_checkins.stay_confirmed (added by that
+-- file) does not exist yet.
+do $guard$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'venue_checkins'
+                and column_name = 'stay_confirmed') then
+    raise notice 'migration_presence_p1_checkins.sql: kept the Phase 1.5 end_play_session (migration_validity_rules.sql)';
+    return;
+  end if;
+
+  execute $s$
 create or replace function public.end_play_session(p_id uuid, p_at timestamptz default null)
 returns int
 language plpgsql
@@ -603,8 +621,10 @@ begin
    where id = p_id and user_id = v_uid and source = 'session' and checked_out_at is null;
   return v_n;  -- 0 on a replay
 end $$;
-revoke execute on function public.end_play_session(uuid, timestamptz) from public, anon;
-grant execute on function public.end_play_session(uuid, timestamptz) to authenticated;
+$s$;
+  execute 'revoke execute on function public.end_play_session(uuid, timestamptz) from public, anon';
+  execute 'grant execute on function public.end_play_session(uuid, timestamptz) to authenticated';
+end $guard$;
 
 -- Close sessions nobody ended (phone died, app deleted) after 6 hours, and any
 -- session check-in still open after its session ended.
