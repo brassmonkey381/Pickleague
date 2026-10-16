@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
 import { navigateWhenReady } from '../lib/navigationRef';
+import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
 import { sbCall, friendlySbMessage, signOutSafely } from '@just-messin-around/expo-foundation/supabase';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
@@ -127,8 +128,12 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
       // half-signed-in, and so a retry starts from a clean slate.
       // signOutSafely: the client refuses session removal while offline, so a
       // deliberate rollback has to identify itself or the throwaway anon session
-      // would linger and the retry would start dirty.
-      if (signedIn) { try { await signOutSafely(supabase); } catch { /* already gone */ } }
+      // would linger and the retry would start dirty. Presence first, under the
+      // session being rolled back (bounded, never throws).
+      if (signedIn) {
+        await endPresenceForSignOut();
+        try { await signOutSafely(supabase); } catch { /* already gone */ }
+      }
       setError(friendlySbMessage(e, 'Could not start your guest session.'));
     } finally {
       inFlight.current = false;
