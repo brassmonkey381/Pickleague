@@ -1,6 +1,9 @@
-// The "⋯" on another player: Report, Block, Unblock.
+// The "⋯" on another player: Report, Block, Unblock, and (with
+// FRIENDS_AT_COURTS_ENABLED) "Hide my presence from <name>": they see "a
+// player" instead of your name at the courts, whatever your setting. Undone
+// here or in Settings > Privacy > Hidden from.
 //
-// One component so every surface that shows a player offers the same two
+// One component so every surface that shows a player offers the same
 // actions in the same order with the same wording — a profile, a drill thread,
 // a search result. Renders nothing at all on your own row.
 import React, { useState } from 'react';
@@ -12,6 +15,8 @@ import ReportPlayerModal from './ReportPlayerModal';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { blockUser, unblockUser, useBlockedIds, ReportSubjectType } from '../lib/moderation';
+import { FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
+import { hidePresenceFrom, usePresenceHiddenIds } from '../data/presenceSettings';
 
 type Props = {
   userId:       string;
@@ -46,8 +51,23 @@ export default function PlayerModerationMenu({
   // One small cached query shared app-wide, so this is a cache read on every
   // surface but the first — and blocking here updates every other mounted list.
   const blocked = useBlockedIds().has(userId);
+  // Same pattern for the hide-from list (shared with Settings > Hidden from).
+  const presenceHidden = usePresenceHiddenIds(FRIENDS_AT_COURTS_ENABLED && !!meId && meId !== userId).has(userId);
 
   if (!meId || meId === userId) return null;
+
+  async function doHidePresence(hide: boolean) {
+    try {
+      await hidePresenceFrom(userId, hide);
+      toast.success(
+        hide
+          ? `${userName} won't see you at the courts. They'll see "a player" instead.`
+          : `${userName} can see you at the courts again, as your setting allows.`,
+      );
+    } catch (e) {
+      toast.error(friendlySbMessage(e, "We couldn't change that just now."));
+    }
+  }
 
   async function doBlock() {
     setBusy(true);
@@ -101,6 +121,12 @@ export default function PlayerModerationMenu({
       // Unblocking opens nothing, so it can run as the sheet closes.
       ? { label: `Unblock ${userName}`, onPress: () => { void doUnblock(); } }
       : { label: `Block ${userName}`, style: 'destructive', onPress: () => setQueued('block') },
+    // A block already hides everything both ways, so it isn't offered then.
+    ...(FRIENDS_AT_COURTS_ENABLED && !blocked
+      ? [presenceHidden
+        ? { label: `Show my presence to ${userName}`, onPress: () => { void doHidePresence(false); } }
+        : { label: `Hide my presence from ${userName}`, onPress: () => { void doHidePresence(true); } }]
+      : []),
   ];
 
   return (

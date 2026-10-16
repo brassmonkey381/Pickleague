@@ -6,6 +6,7 @@ import { ThemeProvider } from './src/lib/ThemeContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import EmailConfirmedBanner from './src/components/EmailConfirmedBanner';
 import BadgeToast from './src/components/BadgeToast';
+import { PresenceConsentHost } from './src/components/presence/ConsentSheet';
 import { AppErrorBoundary } from './src/lib/StartupErrorScreen';
 
 export default function App() {
@@ -19,6 +20,8 @@ export default function App() {
           <AppNavigator />
           <EmailConfirmedBanner />
           <BadgeToast />
+          {/* The one-time "who sees you at the courts" sheet (lib/presenceConsent). */}
+          <PresenceConsentHost />
         </View>
       </ThemeProvider>
       </SafeAreaProvider>
