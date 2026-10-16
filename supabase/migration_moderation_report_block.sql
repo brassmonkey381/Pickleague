@@ -57,8 +57,10 @@ create policy "Users remove their own blocks" on public.user_blocks
 -- that call it run as the querying user, so `authenticated` must be able to
 -- execute it. It reads the half of user_blocks that the caller's own SELECT
 -- policy deliberately hides (blocks made AGAINST them) and returns only a
--- boolean about a pair the caller is already part of — it cannot be used to
--- enumerate anything.
+-- boolean. This version does NOT check that the caller is one of the pair, so
+-- a signed-in account could ask about two other people;
+-- migration_presence_p1_schema.sql redefines it to answer a user JWT only for
+-- pairs that include the caller.
 create or replace function public.blocked_between(a uuid, b uuid)
 returns boolean
 language sql

@@ -13,6 +13,12 @@
 -- One open check-in per player: checking in somewhere closes the previous one.
 --
 -- Apply:  supabase db query --linked -f supabase/migration_venue_checkins.sql
+--
+-- SUPERSEDED in part by migration_presence_p1_*.sql (location-confirmed
+-- check-ins, owner-only rows, privacy-aware venue_players_here). Once those are
+-- applied, re-running this file keeps the table, its indexes and the expiry
+-- cron as they are and skips the read policy and the four RPCs (see the guard
+-- below).
 -- ============================================================
 
 create table if not exists public.venue_checkins (
@@ -32,11 +38,36 @@ create index if not exists venue_checkins_open_user_idx on public.venue_checkins
   where checked_out_at is null;
 alter table public.venue_checkins enable row level security;
 
-drop policy if exists venue_checkins_read on public.venue_checkins;
-create policy venue_checkins_read on public.venue_checkins
-  for select to authenticated using (true);
--- No insert/update/delete policies: writes go through the RPCs.
+-- SUPERSEDED by migration_presence_p1_schema.sql (owner-only read policy),
+-- migration_presence_p1_checkins.sql (checkin_venue, extend_checkin and
+-- checkout_venue with the device fix) and migration_presence_p1_reads.sql
+-- (venue_players_here as SECURITY DEFINER with per-viewer privacy). Re-running
+-- this file after those must not put these older versions back: checkin_venue
+-- and checkout_venue would get second overloads next to the new ones (1.0.4's
+-- named-argument calls then fail as "not unique"), every check-in row (the
+-- stored fix included) would be readable by every signed-in account again, and
+-- venue_players_here would show every name, ignoring blocks. So this section
+-- runs only while venue_checkins.location_confirmed (added by the presence
+-- files) does not exist yet.
+do $guard$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'venue_checkins'
+                and column_name = 'location_confirmed') then
+    raise notice 'migration_venue_checkins.sql: kept the presence versions (migration_presence_p1_*.sql)';
+    return;
+  end if;
 
+  execute $s$
+drop policy if exists venue_checkins_read on public.venue_checkins
+$s$;
+  execute $s$
+create policy venue_checkins_read on public.venue_checkins
+  for select to authenticated using (true)
+$s$;
+  -- No insert/update/delete policies: writes go through the RPCs.
+
+  execute $s$
 create or replace function public.checkin_venue(
   p_id      uuid,
   p_venue   text,
@@ -80,11 +111,13 @@ begin
           p_source)
   returning * into v_row;
   return v_row;
-end $$;
-revoke execute on function public.checkin_venue(uuid, text, int, text, timestamptz) from public, anon;
-grant execute on function public.checkin_venue(uuid, text, int, text, timestamptz) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.checkin_venue(uuid, text, int, text, timestamptz) from public, anon';
+  execute 'grant execute on function public.checkin_venue(uuid, text, int, text, timestamptz) to authenticated';
 
--- Absolute end time: a replay cannot extend twice. Capped 4 hours from now.
+  -- Absolute end time: a replay cannot extend twice. Capped 4 hours from now.
+  execute $s$
 create or replace function public.extend_checkin(p_id uuid, p_until timestamptz)
 returns public.venue_checkins
 language plpgsql
@@ -102,13 +135,15 @@ begin
   returning * into v_row;
   if v_row.id is null then raise exception 'Check-in is no longer open'; end if;
   return v_row;
-end $$;
-revoke execute on function public.extend_checkin(uuid, timestamptz) from public, anon;
-grant execute on function public.extend_checkin(uuid, timestamptz) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.extend_checkin(uuid, timestamptz) from public, anon';
+  execute 'grant execute on function public.extend_checkin(uuid, timestamptz) to authenticated';
 
--- Close one check-in (p_id) or, with null, every open one of mine. With
--- p_source, only check-ins that source opened (geofence exit must not close a
--- manual check-in). Returns how many were closed; 0 on a replay.
+  -- Close one check-in (p_id) or, with null, every open one of mine. With
+  -- p_source, only check-ins that source opened (geofence exit must not close a
+  -- manual check-in). Returns how many were closed; 0 on a replay.
+  execute $s$
 create or replace function public.checkout_venue(p_id uuid default null, p_source text default null)
 returns int
 language plpgsql
@@ -128,11 +163,13 @@ begin
      and (p_source is null or source = p_source);
   get diagnostics v_n = row_count;
   return v_n;
-end $$;
-revoke execute on function public.checkout_venue(uuid, text) from public, anon;
-grant execute on function public.checkout_venue(uuid, text) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.checkout_venue(uuid, text) from public, anon';
+  execute 'grant execute on function public.checkout_venue(uuid, text) to authenticated';
 
--- Who is here now, with the profile fields a roster needs.
+  -- Who is here now, with the profile fields a roster needs.
+  execute $s$
 create or replace function public.venue_players_here(p_venue text)
 returns table (
   checkin_id     uuid,
@@ -160,9 +197,11 @@ as $$
      and c.expires_at > now()
      and p.deleted_at is null
    order by c.checked_in_at;
-$$;
-revoke execute on function public.venue_players_here(text) from public, anon;
-grant execute on function public.venue_players_here(text) to authenticated;
+$$
+$s$;
+  execute 'revoke execute on function public.venue_players_here(text) from public, anon';
+  execute 'grant execute on function public.venue_players_here(text) to authenticated';
+end $guard$;
 
 -- Close lapsed check-ins so "open" in the table matches reality.
 create or replace function public.expire_venue_checkins() returns void

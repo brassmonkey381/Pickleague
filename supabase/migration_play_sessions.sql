@@ -9,6 +9,11 @@
 -- when they stopped, not when the phone got signal back.
 --
 -- Apply:  supabase db query --linked -f supabase/migration_play_sessions.sql
+--
+-- SUPERSEDED in part by migration_presence_p1_*.sql (a session at a court
+-- checks you in there). Once those are applied, re-running this file keeps the
+-- table, its index and the expiry cron as they are and skips the read policy
+-- and the three RPCs (see the guard below).
 -- ============================================================
 
 create table if not exists public.play_sessions (
@@ -25,11 +30,35 @@ create table if not exists public.play_sessions (
 create index if not exists play_sessions_open_idx on public.play_sessions (user_id) where ended_at is null;
 alter table public.play_sessions enable row level security;
 
-drop policy if exists play_sessions_read on public.play_sessions;
-create policy play_sessions_read on public.play_sessions
-  for select to authenticated using (true);
--- No write policies: writes go through the RPCs.
+-- SUPERSEDED by migration_presence_p1_schema.sql (owner-only read policy) and
+-- migration_presence_p1_checkins.sql (start_play_session with the device fix,
+-- end_play_session and expire_play_sessions that also close the session's
+-- check-in). Re-running this file after those must not put these older
+-- versions back: start_play_session would get a second overload (1.0.4's
+-- named-argument call then fails as "not unique"), every session would be
+-- readable by every signed-in account again, and End would leave the session's
+-- check-in open. So this section runs only while
+-- venue_checkins.location_confirmed (added in the same presence transaction)
+-- does not exist yet.
+do $guard$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'venue_checkins'
+                and column_name = 'location_confirmed') then
+    raise notice 'migration_play_sessions.sql: kept the presence versions (migration_presence_p1_*.sql)';
+    return;
+  end if;
 
+  execute $s$
+drop policy if exists play_sessions_read on public.play_sessions
+$s$;
+  execute $s$
+create policy play_sessions_read on public.play_sessions
+  for select to authenticated using (true)
+$s$;
+  -- No write policies: writes go through the RPCs.
+
+  execute $s$
 create or replace function public.start_play_session(
   p_id     uuid,
   p_kind   text,
@@ -65,10 +94,12 @@ begin
           v_at)
   returning * into v_row;
   return v_row;
-end $$;
-revoke execute on function public.start_play_session(uuid, text, uuid, text, timestamptz) from public, anon;
-grant execute on function public.start_play_session(uuid, text, uuid, text, timestamptz) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.start_play_session(uuid, text, uuid, text, timestamptz) from public, anon';
+  execute 'grant execute on function public.start_play_session(uuid, text, uuid, text, timestamptz) to authenticated';
 
+  execute $s$
 create or replace function public.end_play_session(p_id uuid, p_at timestamptz default null)
 returns int
 language plpgsql
@@ -85,17 +116,21 @@ begin
    where id = p_id and user_id = v_uid and ended_at is null;
   get diagnostics v_n = row_count;
   return v_n;  -- 0 on a replay
-end $$;
-revoke execute on function public.end_play_session(uuid, timestamptz) from public, anon;
-grant execute on function public.end_play_session(uuid, timestamptz) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.end_play_session(uuid, timestamptz) from public, anon';
+  execute 'grant execute on function public.end_play_session(uuid, timestamptz) to authenticated';
 
--- Close sessions nobody ended (phone died, app deleted) after 6 hours.
+  -- Close sessions nobody ended (phone died, app deleted) after 6 hours.
+  execute $s$
 create or replace function public.expire_play_sessions() returns void
 language sql security definer set search_path = '' as $$
   update public.play_sessions set ended_at = started_at + interval '6 hours'
    where ended_at is null and started_at < now() - interval '6 hours';
-$$;
-revoke execute on function public.expire_play_sessions() from public, anon, authenticated;
+$$
+$s$;
+  execute 'revoke execute on function public.expire_play_sessions() from public, anon, authenticated';
+end $guard$;
 
 do $$ begin
   if exists (select 1 from cron.job where jobname = 'pickleague-expire-play-sessions') then
