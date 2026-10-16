@@ -73,6 +73,10 @@ checkout_venue(p_id uuid, p_source text default 'manual', p_at timestamptz defau
 ```
 - Replaces the 2-arg version. `checked_out_at = greatest(checked_in_at + 1s, least(coalesce(p_at, now()), now(), expires_at))`.
 - `p_id` that matches no open row falls back to the caller's open row (any venue); `p_id is null` closes all of the caller's open rows.
+- (checkin stream) `p_source` keeps today's meaning: a FILTER on which source opened the row, `null` = any source. The
+  client always passes it explicitly (`null` for a plain check-out, `'geofence'` when leaving a fenced court must not
+  close a manual check-in), and the "no matching open row" fallback above applies the same filter. The `'manual'`
+  default only affects callers that omit the argument (none in the 1.0.4 or Phase 1 JS).
 
 ```
 start_play_session(p_id uuid, p_kind text, p_source uuid, p_venue text, p_at timestamptz,
@@ -181,5 +185,18 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
 - `delete_my_account` (and the godmode delete) deletes venue_checkins, play_sessions, presence_settings,
   presence_hidden_from (both columns), friendships, close_friends (both), court_favorites for the user.
 - Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days.
-- Client: before `signOutSafely`, best-effort `checkout_venue(null, 'signout', now)` and `end_play_session` for the open
-  session, each bounded to 3 s, never blocking sign-out (SettingsScreen doSignOut, GuestJoinScreen).
+- Client: before `signOutSafely`, best-effort `checkout_venue(null, null, now)` and `end_play_session` for the open
+  session, each bounded to 3 s, never blocking sign-out (SettingsScreen doSignOut, GuestJoinScreen;
+  `mobile/src/lib/signOutPresence.ts`). (checkin stream: `p_source` is `null`, not `'signout'`, because it is a
+  source filter and no row has source `'signout'`; `null` closes every open row whatever opened it.)
+
+## Client notes (checkin stream)
+
+- Every `checkin_venue` call sends the four fix arguments (no manual check-ins). A check-in queued offline carries
+  the fix taken at tap time; when the server refuses it on replay, the client drops it and tells the player the next
+  time the court card shows. A queued check-in from an older build that has no fix is dropped without being sent.
+- `start_play_session` sends the fix only with a court (`p_venue`); a session with no court sends four nulls.
+- `resolve_court` is always called with `p_sport` from `mobile/src/sports/registry.ts` (`getSport().courtSport`).
+- League home-court pickers write `leagues.home_venue_id` (the picked catalog venue, else null) alongside `home_court*`.
+- The start sheet reads `get_my_presence_settings` (for its "who sees you" line) and `list_my_court_favorites`, and
+  treats either failing as "defaults / none".
