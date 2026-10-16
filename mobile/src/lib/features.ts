@@ -31,3 +31,12 @@
  * apps/pickleague/app.yaml lists wagering under doNotMarket).
  */
 export const WAGERS_ENABLED = false;
+
+/**
+ * Friends at the courts (docs/play-sessions-presence.md, Phase 1): the Friends
+ * screen, friend requests, Home "Friends at the courts", the crowd line and the
+ * court privacy settings. Off until the presence SQL is live and its persona
+ * tests pass; then flipped by OTA. Location-confirmed check-ins and session
+ * check-ins are NOT behind this flag.
+ */
+export const FRIENDS_AT_COURTS_ENABLED = false;
