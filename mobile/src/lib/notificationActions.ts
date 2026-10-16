@@ -144,6 +144,10 @@ export type ActionHandler = {
   queued?: NoticeCopy;
   /** Where a tap on the success notice goes. Default: the pressed push's own link. */
   link?: (d: ActionPushData, result: unknown) => string | null | undefined;
+  /** Deadline for this button's write (default 10 s, the foundation's). Longer when the
+   *  write waits for something first, e.g. a location fix, so a slow write isn't
+   *  reported as "May not have saved" while it still lands. */
+  timeoutMs?: number;
 };
 
 // ── Drill slot picks ────────────────────────────────────────────────────────
@@ -454,6 +458,7 @@ export async function handleNotificationAction(r: ParsedNotificationResponse): P
   const pushLink = linkOf(r.data);
   await runNotificationAction((key) => h.run(d, key, r), {
     idempotencyKey: r.idempotencyKey,
+    timeoutMs: h.timeoutMs,
     // Every notice opens what the push was about (overridden per notice below).
     noticeData: pushLink ? { deepLink: pushLink } : undefined,
     success: (result) => {

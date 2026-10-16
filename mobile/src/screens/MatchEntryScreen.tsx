@@ -27,8 +27,8 @@ import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-m
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useToast } from '../lib/useToast';
 import { shortTime } from '../lib/agenda';
-import { noteMatchRecorded } from '../lib/playSession';
-import { isMissingColumnError, validityNote } from '../lib/sessionValidity';
+import { noteMatchRecorded, playSession } from '../lib/playSession';
+import { isMissingColumnError, shouldNoteRecorded, validityNote } from '../lib/sessionValidity';
 import { getMySessionValidity } from '../data/playSessions';
 
 type Props = {
@@ -581,6 +581,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       const isOnTeam2 = enteringUid === p2 || (matchType === 'doubles' && enteringUid === partner2);
       const isGod = isGodmodeUserId(enteringUid);
       const deadline = isGod ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      // The server links a match to my session, and counts it for my sessions,
+      // only when I played in it (Phase 1.5).
+      const iPlayed = isOnTeam1 || isOnTeam2;
+      const linkTo = playSessionId && iPlayed ? playSessionId : null;
 
       // Deliberately NOT retried. A timeout can't distinguish "never landed"
       // from "landed, reply lost", and a second `matches` row re-runs the whole
@@ -616,20 +620,27 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         partner2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
         // Played in this play session: the match makes it count (Phase 1.5).
         // The server keeps the link only for my own session.
-        ...(playSessionId ? { play_session_id: playSessionId } : {}),
+        ...(linkTo ? { play_session_id: linkTo } : {}),
       };
+      // A linked insert reads the link back, to learn whether the server kept
+      // it; an unlinked one never names the column (a server without
+      // migration_validity_rules.sql doesn't have it).
       const insertOnce = (r: Record<string, unknown>) =>
-        sbCall(() => supabase.from('matches').insert(r).select('id').single(), { retries: 0, timeoutMs: 30_000 }) as
-          Promise<{ id: string } | null>;
-      let inserted: { id: string } | null;
+        sbCall(
+          () => supabase.from('matches').insert(r).select('play_session_id' in r ? 'id, play_session_id' : 'id').single(),
+          { retries: 0, timeoutMs: 30_000 },
+        ) as Promise<{ id: string; play_session_id?: string | null } | null>;
+      let inserted: { id: string; play_session_id?: string | null } | null;
+      let sentLink = !!linkTo;
       try {
         inserted = await insertOnce(row);
       } catch (e) {
         // A server without migration_validity_rules.sql refuses the unknown
         // column before writing anything (PGRST204), so this second attempt
         // can't make a second match.
-        if (!playSessionId || !isMissingColumnError(e, 'play_session_id')) throw e;
+        if (!linkTo || !isMissingColumnError(e, 'play_session_id')) throw e;
         const { play_session_id: _unlinked, ...unlinked } = row;
+        sentLink = false;
         inserted = await insertOnce(unlinked);
       }
 
@@ -637,11 +648,25 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // point may put the user back in a position to insert it again.
       setSubmitted(true);
 
-      // From a play session: End won't ask for a match again, and the player
-      // hears whether the session counts now (best-effort, never blocks).
-      if (playSessionId && inserted?.id) {
-        noteMatchRecorded(playSessionId);
-        void withTimeout(getMySessionValidity(playSessionId), 5_000)
+      // A match I played in, recorded for my play session (linked, or while
+      // one runs, from any entry point): End won't ask for it again. Not when
+      // the server dropped the link it was sent (that session isn't stored
+      // yet, was refused, or ended over 2 h ago): End asks the server then.
+      const running = playSession.get();
+      const forSession = playSessionId ?? (running.status !== 'idle' ? running.id : null);
+      if (
+        forSession && inserted?.id &&
+        shouldNoteRecorded({ iPlayed, sessionId: forSession, sentLink, linkedBack: inserted.play_session_id })
+      ) {
+        noteMatchRecorded(forSession);
+      }
+      if (playSessionId && inserted?.id && !iPlayed) {
+        toast.info("This match doesn't count for your play session: you're not one of the players.");
+      }
+      // From a play session: the player hears whether it counts now
+      // (best-effort, never blocks).
+      if (linkTo && inserted?.id) {
+        void withTimeout(getMySessionValidity(linkTo), 5_000)
           .then((v) => {
             const note = validityNote(v, Date.now(), shortTime);
             if (!note) return;

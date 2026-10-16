@@ -399,6 +399,8 @@ export async function clearCheckinForSignOut(): Promise<void> {
 // ── Lock-screen buttons on the "5 minutes left" reminder ────────────────────
 registerActionHandler('checkin_extend', {
   // The reminder carries venue_name, so the notice names the court.
+  // Waits up to 5 s for a fix, then the 9 s write.
+  timeoutMs: 15_000,
   success: (_res, d) => ({ title: titleWith('Extended', d.venue_name), body: 'Checked in for another hour.' }),
   run: async (d) => {
     await requireUser();
@@ -416,6 +418,8 @@ registerActionHandler('checkin_extend', {
   },
 });
 registerActionHandler('checkin_out', {
+  // Waits up to CHECKOUT_FIX_WAIT_MS for the stay-proof fix, then the 9 s write.
+  timeoutMs: 10_000 + CHECKOUT_FIX_WAIT_MS,
   success: (_res, d) => ({ title: titleWith('Checked out', d.venue_name), body: 'See you next time.' }),
   queued: { title: 'Checked out', body: 'Saved. It syncs when you are back online.' },
   run: async (d) => {

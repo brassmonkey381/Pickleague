@@ -332,6 +332,8 @@ export default function HomeScreen({ navigation }: Props) {
   // ── NOW ──
   const [courtMode, setCourtMode] = useState<CourtCardMode>('idle');
   const live = playSession.useLiveSession();
+  // The running play session's id: a match recorded from Home is linked to it (Phase 1.5).
+  const liveSessionId = live.status !== 'idle' ? live.id ?? undefined : undefined;
   const session = live.status !== 'idle' && live.meta
     ? { label: live.meta.label ?? 'Playing', venueName: live.meta.venueName ?? null }
     : null;
@@ -469,7 +471,7 @@ export default function HomeScreen({ navigation }: Props) {
   function onQuick(target: QuickTarget, position: number) {
     tap('quick', target, position);
     switch (target) {
-      case 'record': navigation.navigate('MatchEntry', { fromHome: true }); break;
+      case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
       case 'play': navigation.navigate('Play'); break;
       case 'drill': navigation.navigate('Drill'); break;
       case 'shop': navigation.navigate('Shop'); break;
@@ -513,7 +515,7 @@ export default function HomeScreen({ navigation }: Props) {
         liveEvents={liveEvents}
         now={now}
         emphasis={courtMode === 'idle'}
-        onEnterScore={() => { tap('now', 'enter_score'); navigation.navigate('MatchEntry', { fromHome: true }); }}
+        onEnterScore={() => { tap('now', 'enter_score'); navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); }}
         onEvent={(row, i) => { tap('now', 'live_event', i); go(row.target); }}
       />,
     );

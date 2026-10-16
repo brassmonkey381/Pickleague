@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { noteDrillReviewed } from '../lib/playSession';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
 export type ReviewableDrill = { id: string; partner_name: string };
@@ -81,6 +82,8 @@ export default function DrillReviewModal({
     if (!row?.success) { setError(row?.message ?? 'Could not submit your review.'); return; }
     const got = row.pickles_granted ?? preview;
     setEarned(got);
+    // A drill held during my running play session makes it count: End won't ask again.
+    void noteDrillReviewed();
     const sid = session.id;
     setTimeout(() => onSubmitted(sid, got), 1300);
   }

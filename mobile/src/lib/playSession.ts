@@ -8,9 +8,12 @@
 // A session at a court is presence: Start sends the fix taken at Start, and
 // when it confirms the court the server checks me in there too (a 'session'
 // check-in with the session's id, or it adopts the check-in I already had).
-// End closes only a check-in the session opened. A queued End must never
-// bring the island back, so End records a pending-End entry first, keeps it
-// after the End lands, and the resume check skips it (./playEndPending).
+// End closes only a check-in the session opened, and is its check-out: it
+// sends a fresh fix when one comes back within 3 s (the stay proof, Phase
+// 1.5), taken in the background so the island still clears at once. A queued
+// End must never bring the island back, so End records a pending-End entry
+// first, keeps it after the End lands, and the resume check skips it
+// (./playEndPending).
 // When a Start at a court does not check me in (the fix didn't confirm it),
 // the island stops naming the court and says so once (playStartUntracked).
 //
@@ -18,28 +21,36 @@
 // (components/play/PlayStartSheet): openPlayStart() opens it, or expands the
 // island when a session already runs. Ending emits playEnded, and the end
 // sheet (components/play/PlayEndSheet) asks for the match or drill that makes
-// the session count (Phase 1.5).
+// the session count (Phase 1.5), unless this device or the server already
+// knows something counts.
 //
 // Also schedules a local "starting now" notice (with a Start session button)
 // for my upcoming drill sessions and scheduled matches.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
+import { isNetworkError, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { createLiveSession } from '@just-messin-around/expo-foundation/session';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { catalog, registerActionHandler, requireUser } from './notificationActions';
-import { forgetCheckin, peekCurrentCheckin, refreshCurrentCheckin, type CurrentCheckin } from './courtCheckin';
-import type { DeviceFix } from './courtCheckinRules';
+import {
+  forgetCheckin,
+  peekCurrentCheckin,
+  refreshCurrentCheckin,
+  takeFixIfAllowed,
+  type CurrentCheckin,
+} from './courtCheckin';
+import { CHECKOUT_FIX_WAIT_MS, fixWithin, isValidFix, type DeviceFix } from './courtCheckinRules';
 import { isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
-import type { EndedPlay } from './sessionValidity';
+import type { EndedPlay, RecordedForSession } from './sessionValidity';
 import {
   endPlaySession,
   getMyActivePlaySession,
+  getMySessionValidity,
   getMyUpcomingPlay,
   startPlaySession,
   type PlayKind,
@@ -54,6 +65,8 @@ export type PlayMeta = {
   sourceId: string | null;
   venueId: string | null;
   venueName: string | null;
+  /** Something already makes this session count (see noteMatchRecorded); kept across restarts. */
+  recorded?: 'match' | 'drill';
 };
 
 export const playSession = createLiveSession<PlayMeta>({
@@ -79,7 +92,8 @@ type StartPayload = {
   /** Taken at Start, so a late replay is judged by where I was then. */
   fix?: DeviceFix | null;
 };
-type EndPayload = { id: string; at: string };
+/** `fix`: taken at the tap when one came back in time, the session check-in's stay proof. */
+type EndPayload = { id: string; at: string; fix?: DeviceFix };
 
 registerMutationHandler(MUTATION_START, {
   run: async (p) => {
@@ -122,9 +136,10 @@ async function noteUntrackedStart(sessionId: string, venueId: string, row: PlayS
 
 registerMutationHandler(MUTATION_END, {
   run: async (p) => {
-    const { id, at } = p as EndPayload;
+    const { id, at, fix } = p as EndPayload;
     try {
-      await endPlaySession(id, at);
+      // An End queued by an older build has no fix: the Phase 1 call.
+      await endPlaySession(id, at, isValidFix(fix) ? fix : null);
     } catch (e) {
       // Network: still queued, so still pending. Anything else won't succeed.
       if (!isNetworkError(e)) await clearEndPending(id);
@@ -172,22 +187,30 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
  * The pending-End entry is written BEFORE that write and kept after it lands
  * (a tombstone that ages out), so neither a resume check that runs while it is
  * queued nor one already in flight when End was tapped can bring the island
- * back.
+ * back. At a court, End is the check-out of the session's check-in: alongside
+ * that entry it takes a fresh fix (never a prompt, at most 3 s, as Check out
+ * does) and sends it with the End, so the server can confirm the stay.
  */
 export function endPlay(): EndedPlay | null {
   const s = playSession.get();
   if (!s.id) return null;
   const payload: EndPayload = { id: s.id, at: new Date().toISOString() };
+  const atCourt = !!s.meta?.venueId;
   playSession.clear();
   // The server closes the session's own check-in; an adopted one stays.
   void forgetCheckin(payload.id);
-  void markEndPending(payload.id, Date.parse(payload.at))
-    .catch(() => {}) // the guard is best-effort; the End goes out regardless
-    .then(() => runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at)))
+  void Promise.all([
+    markEndPending(payload.id, Date.parse(payload.at)).catch(() => {}), // best-effort; the End goes out regardless
+    atCourt ? fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS) : Promise.resolve(null),
+  ])
+    .then(([, fix]) => {
+      const sent: EndPayload = fix ? { ...payload, fix } : payload;
+      return runOrQueue(MUTATION_END, sent, () => endPlaySession(sent.id, sent.at, sent.fix ?? null));
+    })
     // Not a network failure (those queue): retrying won't help, nothing is pending.
     .catch(() => clearEndPending(payload.id));
   if (!s.meta || s.startedAtMs == null) return null;
-  const recorded = recordedFor.has(s.id);
+  const recorded: RecordedForSession = recordedFor.get(s.id) ?? s.meta.recorded ?? null;
   recordedFor.delete(s.id);
   const ended: EndedPlay = {
     id: s.id,
@@ -209,13 +232,44 @@ export function endPlay(): EndedPlay | null {
 /** Emits the session the player just ended. */
 export const playEnded = createSignal<EndedPlay>();
 
-// Sessions a match was already recorded from (the island's Enter score), so
-// End doesn't ask again. Memory only: after a restart it may ask, harmlessly.
-const recordedFor = new Set<string>();
+// Sessions this device already knows count, so End doesn't ask again (asking
+// would invite a duplicate match). Also kept on the running session's meta,
+// which is persisted per user, so a restart between recording and End
+// remembers it. Anything else (a match a partner recorded, one from before
+// this build) End asks the server about.
+const recordedFor = new Map<string, 'match' | 'drill'>();
 
-/** MatchEntry recorded a match linked to this session. */
+function noteSessionCounts(sessionId: string, what: 'match' | 'drill'): void {
+  if (recordedFor.get(sessionId) === 'match') return;
+  recordedFor.set(sessionId, what);
+  const s = playSession.get();
+  if (s.id === sessionId && s.status !== 'idle' && s.meta?.recorded !== 'match') playSession.patchMeta({ recorded: what });
+}
+
+/**
+ * MatchEntry recorded a match I played in, for this session (linked to it, or
+ * recorded while it runs). MatchEntry decides (lib/sessionValidity
+ * shouldNoteRecorded): the server counts a match only when I played in it.
+ */
 export function noteMatchRecorded(sessionId: string): void {
-  recordedFor.add(sessionId);
+  noteSessionCounts(sessionId, 'match');
+}
+
+/**
+ * I just reviewed a drill. When a session is running and the server now says
+ * it needs nothing more (the drill was held during it), End won't ask again.
+ * Best-effort, bounded at 5 s; never throws.
+ */
+export async function noteDrillReviewed(): Promise<void> {
+  const s = playSession.get();
+  if (!s.id || s.status === 'idle') return;
+  const id = s.id;
+  try {
+    const v = await withTimeout(getMySessionValidity(id), 5_000);
+    if (v && v.reason === 'open' && v.needs === null) noteSessionCounts(id, 'drill');
+  } catch {
+    // End asks the server again anyway.
+  }
 }
 
 /** For useResumeLiveSession: the server's view of my active session. */

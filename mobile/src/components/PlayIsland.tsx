@@ -12,7 +12,7 @@ import { useResumeLiveSession } from '@just-messin-around/expo-foundation/sessio
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useToast } from '../lib/useToast';
-import { navigateWhenReady } from '../lib/navigationRef';
+import { openMatchEntryForSession } from '../lib/navigationRef';
 import {
   endPlay,
   getActivePlay,
@@ -71,8 +71,9 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const actions: IslandAction[] = [
     {
       label: 'Enter score',
-      // Linked to this session: a match recorded from it makes it count.
-      onPress: () => navigateWhenReady('MatchEntry', { fromHome: true, playSessionId: s.id ?? undefined }),
+      // Linked to this session: a match recorded from it makes it count. A
+      // MatchEntry already open (from an event, say) keeps its form and gains the link.
+      onPress: () => openMatchEntryForSession(s.id ?? undefined),
     },
     ...(checkin && !checkin.queued
       ? [

@@ -6,10 +6,11 @@
 // A session at a court is presence: with a fix that confirms the court, the
 // server also checks me in there (a 'session' check-in with the session's id,
 // or it adopts the check-in I already had), and End closes only the one it
-// opened. Without a fix it is just my timer.
-import { sbCall } from '@just-messin-around/expo-foundation/supabase';
+// opened. Without a fix it is just my timer. End is the check-out of that
+// check-in, so it may carry the fix taken at the tap (the stay proof, Phase 1.5).
+import { classifySbError, sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
-import { fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
+import { checkoutFixArgs, fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 import type { SessionValidity } from '../lib/sessionValidity';
 
 export type PlayKind = 'open_play' | 'drill' | 'match' | 'event';
@@ -49,8 +50,28 @@ export async function startPlaySession(p: {
   ) as Promise<PlaySessionRow>;
 }
 
-export async function endPlaySession(id: string, at?: string): Promise<number> {
-  return sbCall(() => supabase.rpc('end_play_session', { p_id: id, p_at: at ?? null }), BOUND) as Promise<number>;
+/**
+ * End my session (and the check-in it opened). `fix`, taken at the tap, is
+ * that check-in's stay proof: the same optional arguments as checkout_venue,
+ * its age measured at each send. Without a fix: the Phase 1 call shape
+ * ({p_id, p_at}). A server without the Phase 1.5 SQL doesn't know the fix
+ * arguments (PGRST202): the End then goes again without them, so it never
+ * fails for the sake of the fix.
+ */
+export async function endPlaySession(id: string, at?: string, fix?: DeviceFix | null): Promise<number> {
+  const base = { p_id: id, p_at: at ?? null };
+  const call = (withFix: boolean) =>
+    sbCall(
+      () => supabase.rpc('end_play_session', withFix ? { ...base, ...checkoutFixArgs(fix, Date.now()) } : base),
+      BOUND,
+    ) as Promise<number>;
+  if (!fix) return call(false);
+  try {
+    return await call(true);
+  } catch (e) {
+    if (classifySbError(e) === 'missingFunction') return call(false);
+    throw e;
+  }
 }
 
 /**

@@ -1,8 +1,8 @@
 # Play sessions + court presence (ported from Doggle)
 
 **Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
-Phase 1.5 (validity rules) built on `feat/validity` 2026-10-16, persona-tested against live in a rolled-back
-transaction (388/388), not applied or shipped yet · **Source:** a 13-agent study of Doggle's walks /
+Phase 1.5 (validity rules) built on `feat/validity` 2026-10-16, hardened after an anti-gaming review the same day,
+persona-tested against live in a rolled-back transaction (440/440), not applied or shipped yet · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -17,7 +17,7 @@ planned for later, or there on a regular schedule.
 | 2 | Does starting a play session check you in | **Yes.** A session at a court creates a `source='session'` check-in that ends with the session. An existing check-in at that court is adopted, not duplicated. |
 | 3 | Automatic check-in on arrival | **Build 1.0.5 in Phase 2.** Opt-in, default off, server-confirmed 10-min dwell, leaving cancels it. Needs new permission strings and App Store review. Phase 1 is prompt-only, as the shipped 1.0.4 permission text promises. |
 | 4 | Who gets a push when a friend shows up | **Close friends only.** A ⭐ close-friend star on accepted friends (Doggle's model). Everyone else who can see you finds you in the in-app feed. |
-| 5 | Rewards for showing up | **Kept plans + streaks:** +25 pickles per kept plan (max 1/day, made at least 1 h ahead); sessions of 20+ min count toward the play streak. **Only location-confirmed presence earns anything.** |
+| 5 | Rewards for showing up | **Kept plans + streaks:** +25 pickles per kept plan (max 1/day, made at least 1 h ahead); valid sessions count toward the play streak (Phase 1.5 replaced the original 20+ min rule). **Only location-confirmed presence earns anything.** |
 | 6 | **No manual check-ins** | A check-in needs a GPS fix inside the court's fence, verified on the server. No fix: no check-in (start an untracked session instead, or make a plan). Rewards therefore only ever pay on confirmed presence. Say "keep manual" to revisit. |
 | 7 | Android background location | Deferred to the Phase 2 native build (the first Android release). Recommendation: ship Android without it. |
 
@@ -128,22 +128,54 @@ never presence (an invalid session still shows you at the court).
 
 **Built (`feat/validity`, 2026-10-16; contract: [API, Phase 1.5](./play-sessions-presence-api.md#phase-15-validity-rules)):**
 
-- [x] 1. Stay proof: `venue_checkins.stay_confirmed` + check-out fix columns; `checkout_venue` gains optional fix
-  arguments (1.0.4 and current calls still resolve); the app sends a fix only when one comes back within 3 s.
-- [x] 2. Valid session: `play_sessions.valid` / `valid_reason` / `validated_at` / `rewards_pending_confirmation`,
-  `matches.play_session_id`, recomputed by triggers on End, matches and drill reviews; `my_session_validity`.
-- [x] 3. End flow: `components/play/PlayEndSheet` (Record match / Review drill / Not now), MatchEntry links the match.
+- [x] 1. Stay proof: `venue_checkins.stay_confirmed` + `arrival_fix_at` + check-out fix columns; `checkout_venue`
+  and `end_play_session` gain optional fix arguments (1.0.4 and current calls still resolve); the app sends a fix
+  from Check out and from End (at a court) only when one comes back within 3 s.
+- [x] 2. Valid session: `play_sessions.valid` / `valid_reason` / `validated_at` / `rewards_pending_confirmation` /
+  `at_court`, `matches.play_session_id`, recomputed by triggers on Start, End, matches and drill reviews;
+  `my_session_validity`. A matches insert guard (server time, server-side confirmations), no overlapping sessions,
+  one session per match or drill, drill schedules locked to the server.
+- [x] 3. End flow: `components/play/PlayEndSheet` (Record match / Review drill / Not now), shown only when neither
+  the device nor the server (`my_session_validity`, 2 s) already counts the session; MatchEntry links the match.
 - [ ] Apply `supabase/migration_validity_rules.sql`, then merge and OTA.
 
 How the build reads the rules (say so to change any):
 
 - **Stay proof** also accepts any later confirming fix stored on the check-in (extend, a repeat check-in or a
-  session start at the same court), not only check-out and extend: each of those already proves the court.
+  session start at the same court), not only check-out and extend: each of those already proves the court. End
+  sends the same fix for the session's own check-in (an adopted one stays open and gets none).
+- **The 5 minutes of a stay run from the arrival fix**, not from the check-in time the app sends (`p_at`, which may
+  be backdated for an offline check-in): `arrival_fix_at` is when the arrival fix was taken, on the server clock.
+- **"Recorded" is the server's clock:** every signed-in match insert gets `created_at = now()`, and the 2 h window
+  reads only that (never `played_at`, which the app still sets for display).
+- **Confirmations are the server's:** a client insert of a played match is stored pending, due within the hour,
+  with only the recorder's own team confirmed (never both teams by one caller); godmode keeps its confirmed insert.
+  So `rewards_pending_confirmation` can be trusted.
+- **Recorded counts until the confirm deadline:** a pending match counts at once, but the existing 1-hour expiry
+  (`expire_pending_matches`) deletes a match nobody confirms, and the session then stops counting. In practice a
+  session keeps counting through a match only when the other team confirms within the hour. A drill needs no
+  confirmation.
+- **"Recorded by the player" is read as "with the player in it":** a match counts toward the sessions of all four
+  of its players, whoever recorded it (partner, opponent, or a league member who didn't play). Only linking checks
+  the recorder.
 - **A drill is completed** when the player submits their drill review (drills have no status); it counts when
-  that review lands in the session's window.
+  that review lands in the session's window AND the drill was held during the session (scheduled to overlap it,
+  give or take 30 minutes). A review of an older drill never counts, and clients can no longer move a drill's time.
 - **A match can be linked** only to the recorder's own session, open or ended under 2 h ago, with the recorder
   among the players; anything else is stored unlinked (never refused).
-- **Open:** one match validates every overlapping session of its players. Decide before per-session pickles.
+- **One match or drill counts for one session** of each player (this closes the old "Open" item): a match for the
+  session it is linked to, else the one it was recorded during, else the latest one that ended before it; a drill
+  for the session started from it, else the one that started closest to it. A session under 5 minutes never takes
+  one. A player's sessions never overlap: a Start dated before the end of an earlier session starts when it ended.
+- **Valid means played; rewards need presence too.** `valid` says the player played (it drives the End copy, so
+  an untracked session can be valid). `at_court` says a location-confirmed check-in at the session's court
+  overlapped it. Decisions 5 and 6 ("only location-confirmed presence earns anything") are kept by paying rewards
+  and streak credit only on **valid AND at_court**. Say "valid is enough" to drop the location requirement instead.
+- **Still open (your call):** the 5-minute floor is measured on the session's own start and end, which the app
+  sends (a Start may be backdated up to 12 h for offline use). Each such session still needs its own match or
+  drill now, so the damage is bounded. To close it fully, count duration from server time and accept an earlier
+  start only with a confirmed stay; the cost is that a fully offline session (Start and End both queued) would
+  never count.
 
 Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are
 stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;
@@ -164,7 +196,8 @@ duration-only walks save but never count.
   cell-level fixes on Android) and iOS `accuracyAuthorization`, so "Precise Location off" isn't guessed from the
   accuracy number.
 - Court screen (`court/<venueId>`), court check-in sheet, On my way + Need players, Play island presence actions.
-- Session summary, Discard, MatchEntry "Players here" + `matches.play_session_id`, session history.
+- Session summary (builds on the Phase 1.5 end sheet `PlayEndSheet`), Discard, MatchEntry "Players here"
+  (`matches.play_session_id` already exists from Phase 1.5), session history.
 - Kit 1.45: symmetric geofence region state (Exit only after a recorded Enter), `weekdayMask` hoist,
   `registerBeforeSignOut`, VenuePicker row-meta prop, PrivacySettingsPanel level overrides.
 - **Build 1.0.5:** opt-in auto check-in on arrival (server dwell 10 min, home/regular/favorite courts, default off),
@@ -184,7 +217,8 @@ RegularsScreen, "Plays regularly" on profiles, plan- and routine-aware arrival p
 
 ### Phase 5: polish once there is real usage
 
-Badges and play-streak credit for 20+ min confirmed sessions, court conditions (3 h decay), long-lived court notes,
+Badges and play-streak credit for valid, at-the-court sessions only (Phase 1.5: `play_sessions.valid` AND
+`at_court`; pickles wait while `rewards_pending_confirmation`), court conditions (3 h decay), long-lived court notes,
 league "Where we play", busy times (5+ players, 20+ visits), regular-game suggestions, "Looking to play tonight"
 status, field debug logger.
 
