@@ -1,13 +1,13 @@
 // QR wallet: save the QR code a club asks for at the front desk, tied to its
 // court. With court arrival alerts on, walking up to that court posts a
 // notice whose tap opens the code full screen (QrPass). Codes stay on this
-// phone (lib/qrWallet).
+// phone (lib/qrWallet). My invite link sits on top as a built-in code.
 import React, { useCallback, useState } from 'react';
 import { View, Text, Image, ScrollView, Pressable, StyleSheet, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { Panel, SectionHeader, ConfirmModal } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, ConfirmModal, QrCode } from '@just-messin-around/expo-foundation/ui';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -16,7 +16,9 @@ import { useToast } from '../lib/useToast';
 import { RootStackParamList } from '../types';
 import EmptyState from '../components/EmptyState';
 import CourtPicker, { type CourtResult } from '../components/CourtPicker';
-import { addPass, getPassImage, listPasses, removePass, type WalletPass } from '../lib/qrWallet';
+import { addPass, getPassImage, INVITE_PASS_ID, inviteUrl, listPasses, removePass, type WalletPass } from '../lib/qrWallet';
+import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import { supabase } from '../lib/supabase';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled, syncCourtGeofences } from '../lib/courtGeofence';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'QrWallet'> };
@@ -28,6 +30,7 @@ export default function QrWalletScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
   const toast = useToast();
   const [passes, setPasses] = useState<WalletPass[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [alertsOn, setAlertsOn] = useState(false);
   const [alertsBusy, setAlertsBusy] = useState(false);
@@ -39,6 +42,7 @@ export default function QrWalletScreen({ navigation }: Props) {
   const [removing, setRemoving] = useState<WalletPass | null>(null);
 
   async function load() {
+    setMeId(await currentUserId(supabase).catch(() => null));
     const list = await listPasses();
     setPasses(list);
     const pairs = await Promise.all(list.map(async (p) => [p.id, await getPassImage(p.id)] as const));
@@ -143,6 +147,21 @@ export default function QrWalletScreen({ navigation }: Props) {
         </Panel>
       ) : null}
 
+      <Pressable
+        onPress={() => navigation.navigate('QrPass', { passId: INVITE_PASS_ID })}
+        style={[styles.row, { backgroundColor: c.surface, borderColor: c.border }]}
+        accessibilityRole="button"
+        accessibilityLabel="My Pickleague invite. Open the code"
+      >
+        <View style={[styles.thumb, styles.inviteThumb]}>
+          <QrCode value={inviteUrl(meId)} size={42} color="#000" backgroundColor="#fff" />
+        </View>
+        <View style={styles.flex}>
+          <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>My Pickleague invite</Text>
+          <Text style={[styles.sub, { color: c.textSub }]} numberOfLines={1}>Scan to see my profile and join</Text>
+        </View>
+      </Pressable>
+
       {passes.length === 0 && !adding ? (
         <EmptyState
           icon="🎟️"
@@ -221,6 +240,7 @@ const styles = StyleSheet.create({
   start: { alignSelf: 'flex-start', marginTop: SPACE.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: 1 },
   thumb: { width: 48, height: 48, borderRadius: 6, backgroundColor: '#fff' },
+  inviteThumb: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
   title: { fontSize: 15, fontWeight: FONT.weight.semibold },
   sub: { fontSize: 13, marginTop: 2 },

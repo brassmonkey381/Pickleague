@@ -37,6 +37,7 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
+import { inviteUrl } from '../lib/qrWallet';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { shareInvite } from '../lib/share';
@@ -215,7 +216,7 @@ export default function FriendsScreen({ navigation, route }: Props) {
       const res = await shareInvite({
         title: 'Join me on Pickleague',
         message: "I'm on Pickleague. Add me as a friend so we can see when we're at the courts:",
-        url: meId ? `https://www.pickleague.club/players/${meId}` : 'https://www.pickleague.club',
+        url: inviteUrl(meId),
       });
       if (res.copied) toast.success('Invite link copied. Paste it into a text.');
     } catch {

@@ -22,6 +22,14 @@ export type WalletPass = {
   addedAt: string;
 };
 
+/** The built-in pass: my invite link, drawn as a QR code (never stored). */
+export const INVITE_PASS_ID = 'invite';
+
+/** My invite link: my profile page. It unfurls into my card and opens my profile in the app. */
+export function inviteUrl(uid: string | null): string {
+  return uid ? `https://www.pickleague.club/players/${uid}` : 'https://www.pickleague.club';
+}
+
 const INDEX_PREFIX = 'pickleague_qr_wallet_v1:';
 const IMAGE_PREFIX = 'pickleague_qr_wallet_img_v1:';
 /** About 1.5 MB of base64. A cropped QR screenshot is far smaller. */
