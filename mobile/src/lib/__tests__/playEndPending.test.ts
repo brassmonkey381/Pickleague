@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   PLAY_END_PENDING_MAX_AGE_MS,
+  PLAY_END_RESEND_AFTER_MS,
   addPendingEnd,
+  endNeedsResend,
   isEndPending,
   prunePendingEnds,
   removePendingEnd,
@@ -60,5 +62,20 @@ describe('prunePendingEnds (reading the stored map)', () => {
 
   it('takes an already-parsed object too', () => {
     expect(prunePendingEnds({ s1: NOW }, NOW)).toEqual({ s1: NOW });
+  });
+});
+
+describe('endNeedsResend (an End that never left the phone)', () => {
+  it('waits out the normal send before calling an End lost', () => {
+    const m = addPendingEnd({}, 's1', NOW);
+    expect(endNeedsResend(m, 's1', NOW + 30_000)).toBe(false);
+    expect(endNeedsResend(m, 's1', NOW + PLAY_END_RESEND_AFTER_MS - 1)).toBe(false);
+    expect(endNeedsResend(m, 's1', NOW + PLAY_END_RESEND_AFTER_MS)).toBe(true);
+  });
+
+  it('never resends an End that is not pending or has aged out', () => {
+    const m = addPendingEnd({}, 's1', NOW);
+    expect(endNeedsResend(m, 's2', NOW + DAY)).toBe(false);
+    expect(endNeedsResend(m, 's1', NOW + PLAY_END_PENDING_MAX_AGE_MS)).toBe(false);
   });
 });

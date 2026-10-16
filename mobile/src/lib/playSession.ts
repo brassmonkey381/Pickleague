@@ -44,7 +44,7 @@ import {
   type CurrentCheckin,
 } from './courtCheckin';
 import { CHECKOUT_FIX_WAIT_MS, fixWithin, isValidFix, type DeviceFix } from './courtCheckinRules';
-import { isEndPending } from './playEndPending';
+import { endNeedsResend, isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
 import type { EndedPlay, RecordedForSession } from './sessionValidity';
 import {
@@ -272,13 +272,27 @@ export async function noteDrillReviewed(): Promise<void> {
   }
 }
 
+// Ends sent again this run (once each; a repeat End is a no-op server side).
+const resentEnds = new Set<string>();
+
+/** The app died between End and its write: send it again, with the tap time
+ *  and no fix (that fix is gone, so this stay goes unconfirmed). */
+function resendLostEnd(id: string, tapMs: number): void {
+  if (resentEnds.has(id)) return;
+  resentEnds.add(id);
+  const payload: EndPayload = { id, at: new Date(tapMs).toISOString() };
+  void runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at, null)).catch(() => {});
+}
+
 /** For useResumeLiveSession: the server's view of my active session. */
 export async function getActivePlay() {
   const uid = await currentUserId(supabase);
   if (!uid) return null;
   const found = await getMyActivePlaySession(uid);
   // An End still on its way to the server: that session is over.
-  const row = found && !isEndPending(await readPendingEnds(), found.id, Date.now()) ? found : null;
+  const pending = await readPendingEnds();
+  const row = found && !isEndPending(pending, found.id, Date.now()) ? found : null;
+  if (found && endNeedsResend(pending, found.id, Date.now())) resendLostEnd(found.id, pending[found.id]);
   if (!row) {
     // A start still sitting in the offline queue is not "none".
     const local = playSession.get();
