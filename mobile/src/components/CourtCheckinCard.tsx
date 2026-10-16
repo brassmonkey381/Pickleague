@@ -41,6 +41,7 @@ import {
 import { resolveVenueAt, type NearbyVenue } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
+import CrowdLine from './court/CrowdLine';
 import { noteGoodMoment } from '../lib/ratingPrompt';
 import { playSession, startPlay } from '../lib/playSession';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
@@ -419,6 +420,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             onPress={tap('not_here', () => setNearby(null))}
           />
         </HereLine>
+        <CrowdLine venueId={nearby.id} venueName={nearby.name} star />
         {footer}
       </Panel>
     );

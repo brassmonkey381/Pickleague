@@ -8,6 +8,9 @@
 // The region label ("East Bay") those cards showed is gone: the court chip
 // names the actual court (lib/regions.ts was retired, plan section 4).
 //
+// Tapping the court chip opens who's here: the crowd line ("6 playing now ·
+// mostly 3.5–4.0 · 2 friends") with the ☆ "my courts" star, then the roster.
+//
 // Content rules: no "Not set" / "Unknown" / zero values for non-admins. A
 // league without a home court shows nothing there to members; an admin gets a
 // "No home court" chip that opens Edit. A 0 or unknown member count is left out.
@@ -27,6 +30,7 @@ import { useCourtName } from '../../lib/courtNickname';
 import { roleLabel, type LeagueRole } from '../../lib/leagueRole';
 import { leagueRoleChip } from '../../lib/entityGlyph';
 import PlayersHereList from '../PlayersHereList';
+import CrowdLine from '../court/CrowdLine';
 import { useCourtPresence } from './useCourtPresence';
 
 export type LeagueIdentityProps = {
@@ -37,6 +41,9 @@ export type LeagueIdentityProps = {
     home_court: string | null;
     home_court_lat: number | null;
     home_court_lng: number | null;
+    /** The stored home court (leagues.home_venue_id), when set: used as is
+     *  instead of the closest court to the coordinates. */
+    home_venue_id?: string | null;
   };
   myRole: LeagueRole;
   /** null = not loaded / failed: the chip is left out. */
@@ -64,7 +71,7 @@ export default function LeagueIdentity({
 }: LeagueIdentityProps) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const presence = useCourtPresence(league.home_court_lat, league.home_court_lng);
+  const presence = useCourtPresence(league.home_court_lat, league.home_court_lng, league.home_venue_id);
   const [rosterOpen, setRosterOpen] = useState(false);
   // Subscribes, so the chip re-renders to the (shorter) nickname once the cache loads.
   const courtName = useCourtName();
@@ -126,7 +133,10 @@ export default function LeagueIdentity({
       </View>
 
       {rosterOpen && presence.venueId ? (
-        <PlayersHereList venueId={presence.venueId} venueName={court || undefined} />
+        <View>
+          <CrowdLine venueId={presence.venueId} venueName={court || null} star />
+          <PlayersHereList venueId={presence.venueId} venueName={court || undefined} />
+        </View>
       ) : null}
 
       {desc ? (
