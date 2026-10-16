@@ -218,14 +218,17 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     kind: NonNullable<typeof busy>,
     fn: () => Promise<void>,
     failMsg: string,
-    opts: { boundMs?: number; askLocation?: boolean } = {},
+    opts: { boundMs?: number; askLocation?: boolean; consent?: boolean } = {},
   ) {
     setBusy(kind);
     setMessage(null);
     setOfferUntracked(false);
     setAlertsResult(null);
     try {
-      // The permission sheet sits outside the bound; the fix and the write don't.
+      // The one-time "who sees you at the courts" sheet and the permission
+      // sheet wait on the player, so they sit outside the bound; the fix and
+      // the write don't. Not now on the consent sheet: nothing happens.
+      if (opts.consent && !(await ensurePresenceConsent())) return;
       if (opts.askLocation) await askForLocation();
       await withTimeout(fn(), opts.boundMs ?? BOUND_MS);
     } catch (e) {
@@ -267,7 +270,6 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     run(
       'checkin',
       async () => {
-        if (!(await ensurePresenceConsent())) return;
         const fix = isFixFresh(lastFix.current, Date.now(), FIX_REUSE_MS) ? lastFix.current : await takeCheckinFix(6_000);
         if (!fix) return noFix();
         lastFix.current = fix;
@@ -283,7 +285,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         }
       },
       "Couldn't check you in.",
-      { boundMs: CHECKIN_BOUND_MS, askLocation: true },
+      { boundMs: CHECKIN_BOUND_MS, askLocation: true, consent: true },
     );
 
   // The untracked session: a timer only I see, no court, no presence.

@@ -24,6 +24,7 @@ import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
+import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
 import PlayIsland from '../components/PlayIsland';
 import PlayStartSheetHost from '../components/play/PlayStartSheet';
@@ -224,6 +225,9 @@ export default function AppNavigator() {
       const expiredGuest = !!prof?.is_guest && !!prof.guest_expires_at
         && new Date(prof.guest_expires_at) < new Date();
       if (expiredGuest || (!profErr && !prof)) {
+        // An expired guest still has a profile: end their court presence first,
+        // under their session (3 s max, never throws).
+        if (expiredGuest) await endPresenceForSignOut();
         // signOutSafely, not auth.signOut: the client now refuses session
         // removal while offline (so a captive portal can't log anyone out), and
         // a deliberate sign-out has to say so to get through that guard.

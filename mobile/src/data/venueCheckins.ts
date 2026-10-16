@@ -1,9 +1,10 @@
-// Court check-ins: "I'm at this court until <expires_at>", and who else is.
-// Thin wrappers over the RPCs in supabase/migration_venue_checkins.sql and the
-// presence migration (docs/play-sessions-presence-api.md). Every write is
-// idempotent server-side (client id, absolute end time), so callers may retry
-// or queue them. A check-in always carries a device fix: the server confirms
-// it is inside the court's fence (no manual check-ins).
+// Court check-ins: "I'm at this court until <expires_at>". Thin wrappers over
+// the RPCs in supabase/migration_venue_checkins.sql and the presence migration
+// (docs/play-sessions-presence-api.md). Who else is here, the crowd and my
+// starred courts live in data/courtPresence, venueCrowd and courtFavorites.
+// Every write is idempotent server-side (client id, absolute end time), so
+// callers may retry or queue them. A check-in always carries a device fix: the
+// server confirms it is inside the court's fence (no manual check-ins).
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
@@ -30,19 +31,6 @@ export type ResolvedCourt = {
   distance_m: number;
   /** The point is inside the court's mapped boundary. */
   inside: boolean;
-};
-
-export type PlayerHere = {
-  checkin_id: string;
-  user_id: string;
-  full_name: string | null;
-  avatar_url: string | null;
-  avatar_emoji: string | null;
-  avatar_bg_color: string | null;
-  rating: number | null;
-  doubles_rating: number | null;
-  checked_in_at: string;
-  expires_at: string;
 };
 
 const BOUND = { timeoutMs: 9_000 };
@@ -101,10 +89,6 @@ export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | n
   return rows?.[0] ?? null;
 }
 
-export async function getPlayersHere(venueId: string): Promise<PlayerHere[]> {
-  return ((await sbCall(() => supabase.rpc('venue_players_here', { p_venue: venueId }), BOUND)) ?? []) as PlayerHere[];
-}
-
 /**
  * The pickleball court at a point: the one whose boundary contains it, else the
  * nearest within `radiusM`, or null. Duplicates resolve to the canonical row.
@@ -156,37 +140,6 @@ export async function getMyLeagueCourts(userId: string): Promise<MyLeagueCourt[]
     BOUND,
   )) ?? []) as unknown as { leagues: (MyLeagueCourt & { is_active: boolean }) | null }[];
   return rows.flatMap((m) => (m.leagues?.is_active ? [m.leagues] : []));
-}
-
-/** My starred courts (court_favorites, max 5). [] when there are none or the read fails. */
-export async function getMyFavoriteCourts(): Promise<{ venue_id: string; venue_name: string }[]> {
-  try {
-    return ((await sbCall(() => supabase.rpc('list_my_court_favorites'), BOUND)) ?? []) as {
-      venue_id: string;
-      venue_name: string;
-    }[];
-  } catch {
-    return [];
-  }
-}
-
-/** Who sees my check-ins (get_my_presence_settings), as far as the start sheet needs it. */
-export type CheckinVisibility = { level: string | null; pausedUntil: string | null };
-
-/**
- * Who sees my check-ins. null when it can't be read; callers then assume the
- * default (friends and league-mates).
- */
-export async function getMyCheckinVisibility(): Promise<CheckinVisibility | null> {
-  try {
-    const s = (await sbCall(() => supabase.rpc('get_my_presence_settings'), BOUND)) as {
-      checkins_level?: string | null;
-      paused_until?: string | null;
-    } | null;
-    return s ? { level: s.checkins_level ?? null, pausedUntil: s.paused_until ?? null } : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Courts I checked in at recently, most recent first, one row per court. */

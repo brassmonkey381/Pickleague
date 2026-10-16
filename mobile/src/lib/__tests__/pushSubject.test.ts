@@ -35,6 +35,8 @@ describe('pushSubject', () => {
   it('reads the other player out of friend titles', () => {
     expect(pushSubject('🤝 Sam Himmelstein wants to be friends')).toBe('Sam Himmelstein');
     expect(pushSubject('🤝 Sam accepted your friend request')).toBe('Sam');
+    // _pl_display_name's fallback for a profile with no name.
+    expect(pushSubject('🤝 A player wants to be friends')).toBeNull();
   });
 
   it('reads the court out of the drill lock-in title', () => {

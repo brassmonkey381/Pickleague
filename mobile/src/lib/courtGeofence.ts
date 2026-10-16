@@ -21,6 +21,7 @@ import { supabase } from './supabase';
 import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { checkInAt, checkOut, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
 import { isNotAtCourtError } from './courtCheckinRules';
+import { hasPresenceConsent } from './presenceConsent';
 import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
 
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
@@ -75,6 +76,11 @@ registerActionHandler('court_checkin', {
   run: async (d) => {
     await requireUser();
     if (!d.venue_id) throw new Error('missing venue');
+    // The one-time "who sees you at the courts" sheet can't show on the lock
+    // screen: until it was accepted, check in from the app.
+    if (!(await hasPresenceConsent())) {
+      throw new NeedsApp('Open Pickleague to check in. First choose who sees you at the courts.');
+    }
     // Arrival alerts run on "Always" location, so this reads a fix without a
     // dialog. 5 s leaves the write its share of the 10 s the button gets.
     const fix = await takeCheckinFix(5_000);

@@ -14,7 +14,9 @@
 //
 // The host is mounted once at the app root next to PlayIsland
 // (navigation/AppNavigator), outside the navigator, so it navigates through
-// navigateWhenReady.
+// navigateWhenReady. The one-time "who sees you at the courts" sheet
+// (lib/presenceConsent) is asked BEFORE this sheet opens: it is a Modal too,
+// and iOS won't present a second Modal over this one.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -43,18 +45,18 @@ import {
   courtNote,
   mergeCourtCandidates,
   visibilityLine,
+  type CheckinVisibility,
   type CourtCandidate,
   type CourtReason,
 } from '../../lib/playStartCourts';
 import {
-  getMyCheckinVisibility,
-  type CheckinVisibility,
-  getMyFavoriteCourts,
   getMyLeagueCourts,
   getMyRecentCourts,
   getVenuesByIds,
   resolveCourtAt,
 } from '../../data/venueCheckins';
+import { listMyCourtFavorites } from '../../data/courtFavorites';
+import { loadPresenceSettings } from '../../data/presenceSettings';
 import type { PlayKind } from '../../data/playSessions';
 
 type ChipKind = Extract<PlayKind, 'open_play' | 'drill' | 'match'>;
@@ -69,6 +71,8 @@ const NO_COURT = 'none';
 /** Mounted once at the app root: shows the sheet for each openPlayStart(). */
 export default function PlayStartSheetHost({ signedIn }: { signedIn: boolean }) {
   const [request, setRequest] = useState<PlayStartRequest | null>(null);
+  const signedInRef = useRef(signedIn);
+  signedInRef.current = signedIn;
 
   const take = useCallback(() => {
     if (!signedIn) return; // kept until sign-in
@@ -79,7 +83,16 @@ export default function PlayStartSheetHost({ signedIn }: { signedIn: boolean }) 
       playIslandExpand.emit();
       return;
     }
-    setRequest(r);
+    // First the one-time consent sheet (answers at once once accepted, or
+    // while the flag is off). Not now: no start sheet, nothing shared.
+    void ensurePresenceConsent().then((ok) => {
+      if (!ok || !signedInRef.current) return;
+      if (playSession.get().status !== 'idle') {
+        playIslandExpand.emit();
+        return;
+      }
+      setRequest(r);
+    });
   }, [signedIn]);
 
   // A request made before this mounted (a cold start from the notice).
@@ -155,7 +168,7 @@ export function PlayStartSheet({ request, onClose }: { request: PlayStartRequest
       if (!uid) return;
       const [leagues, favorites, recent] = await Promise.all([
         getMyLeagueCourts(uid).catch(() => []),
-        getMyFavoriteCourts(),
+        listMyCourtFavorites().catch(() => []),
         getMyRecentCourts(uid).catch(() => []),
       ]);
       const homeIds = [...new Set(leagues.map((l) => l.home_venue_id).filter((id): id is string => !!id))];
@@ -164,7 +177,10 @@ export function PlayStartSheet({ request, onClose }: { request: PlayStartRequest
       groups.recent = recent;
       publish();
     })();
-    void getMyCheckinVisibility().then((v) => alive && setVisibility(v));
+    // Unreadable: the line falls back to the default level.
+    void loadPresenceSettings()
+      .then((s) => alive && setVisibility({ level: s.checkins_level, pausedUntil: s.paused_until }))
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -191,7 +207,7 @@ export function PlayStartSheet({ request, onClose }: { request: PlayStartRequest
     }
     setBusy(true);
     try {
-      if (!(await ensurePresenceConsent())) return;
+      // Consent was asked before the sheet opened (the host, above).
       // The fix from opening the sheet when it is still recent, else a fresh
       // one (asking for location first, outside the fix's 6 s).
       const fix = isFixFresh(fixRef.current, Date.now(), FIX_REUSE_MS)

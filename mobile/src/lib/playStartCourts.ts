@@ -1,6 +1,8 @@
 // The "Where are you playing?" sheet's court list and its "who sees you" line
 // (components/play/PlayStartSheet). Pure, so vitest pins the order.
-import type { CheckinVisibility } from '../data/venueCheckins';
+
+/** Who sees my check-ins, as far as the line needs it (get_my_presence_settings). */
+export type CheckinVisibility = { level: string | null; pausedUntil: string | null };
 
 export type CourtReason = 'checked_in' | 'here' | 'home' | 'favorite' | 'recent';
 export type CourtCandidate = { id: string; name: string; reason: CourtReason };

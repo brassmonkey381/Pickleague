@@ -23,9 +23,10 @@ const BRACKET = /^Bracket Set\s*[—–-]\s*(.+)$/i;
 const PERSON = /^(.+?)\s+(?:wants to drill|wants to be friends|accepted your friend request|replied|accepted!|declined|confirmed|is on the way|can['’]t make it)$/i;
 // The drill lock-in notice names the court: "📍 We're playing at Moose Park".
 const PLACE = /^We['’]re playing at\s+(.+)$/i;
-// What the generators write when they have no name, and "Invite accepted" /
-// "Invite declined" (tournament pushes that PERSON would otherwise read as a name).
-const NO_NAME = new Set(['someone', 'your partner', 'your drill partner', 'invite']);
+// What the generators write when they have no name ("A player": the friend
+// notices' _pl_display_name fallback), and "Invite accepted" / "Invite
+// declined" (tournament pushes that PERSON would otherwise read as a name).
+const NO_NAME = new Set(['someone', 'a player', 'your partner', 'your drill partner', 'invite']);
 
 // Leading emoji and symbols: astral emoji (surrogate pairs), dingbats like
 // ✅ ❌ ⏳, variation selectors and joiners. Spelled as ranges, not \p{...},
