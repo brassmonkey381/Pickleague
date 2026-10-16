@@ -5,16 +5,33 @@
 // row is written through the offline queue; neither Start nor End ever waits
 // on the network to update what the user sees.
 //
+// A session at a court is presence: Start sends the fix taken at Start, and
+// when it confirms the court the server checks me in there too (a 'session'
+// check-in with the session's id, or it adopts the check-in I already had).
+// End closes only a check-in the session opened. A queued End must never
+// bring the island back, so End records a pending-End entry first and the
+// resume check skips it (./playEndPending).
+//
+// Starting goes through one sheet, "Where are you playing?"
+// (components/play/PlayStartSheet): openPlayStart() opens it, or expands the
+// island when a session already runs.
+//
 // Also schedules a local "starting now" notice (with a Start session button)
 // for my upcoming drill sessions and scheduled matches.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
+import { createSignal } from '@just-messin-around/expo-foundation/hooks';
+import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
 import { createLiveSession } from '@just-messin-around/expo-foundation/session';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { catalog, registerActionHandler, requireUser } from './notificationActions';
+import { forgetCheckin, refreshCurrentCheckin } from './courtCheckin';
+import type { DeviceFix } from './courtCheckinRules';
+import { isEndPending } from './playEndPending';
+import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
 import {
   endPlaySession,
   getMyActivePlaySession,
@@ -47,51 +64,97 @@ export const PLAY_LABEL: Record<PlayKind, string> = {
 
 const MUTATION_START = 'play:start';
 const MUTATION_END = 'play:end';
-type StartPayload = { id: string; kind: PlayKind; sourceId: string | null; venueId: string | null; at: string };
+type StartPayload = {
+  id: string;
+  kind: PlayKind;
+  sourceId: string | null;
+  venueId: string | null;
+  at: string;
+  /** Taken at Start, so a late replay is judged by where I was then. */
+  fix?: DeviceFix | null;
+};
 type EndPayload = { id: string; at: string };
 
 registerMutationHandler(MUTATION_START, {
   run: async (p) => {
-    await startPlaySession(p as StartPayload);
+    const payload = p as StartPayload;
+    await startPlaySession(payload);
+    // The session may have checked me in (or adopted my check-in).
+    if (payload.venueId) void refreshCurrentCheckin().catch(() => {});
   },
 });
 registerMutationHandler(MUTATION_END, {
   run: async (p) => {
     const { id, at } = p as EndPayload;
-    await endPlaySession(id, at);
+    try {
+      await endPlaySession(id, at);
+    } catch (e) {
+      // Network: still queued, so still pending. Anything else won't succeed.
+      if (!isNetworkError(e)) await clearEndPending(id);
+      throw e;
+    }
+    await clearEndPending(id);
   },
 });
 
-/** Start a session. Shows immediately; the server write queues when offline. */
-export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string }): string {
+// ── Start / End ─────────────────────────────────────────────────────────────
+/**
+ * Start a session. Shows immediately; the server write queues when offline.
+ * With a court, pass the fix taken at Start: it is what checks me in there.
+ */
+export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null }): string {
   const id = uuidv4();
   const at = new Date().toISOString();
-  playSession.start(id, { ...meta, label: meta.label ?? PLAY_LABEL[meta.kind] }, Date.parse(at));
-  const payload: StartPayload = { id, kind: meta.kind, sourceId: meta.sourceId, venueId: meta.venueId, at };
-  void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload)).catch(() => {
-    // A rejected start (not a network failure) has nothing to retry; the
-    // session still runs locally and End is a no-op server side.
-  });
+  const { fix, ...rest } = meta;
+  playSession.start(id, { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] }, Date.parse(at));
+  const payload: StartPayload = {
+    id,
+    kind: meta.kind,
+    sourceId: meta.sourceId,
+    venueId: meta.venueId,
+    at,
+    ...(meta.venueId && fix ? { fix } : {}),
+  };
+  void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload))
+    .then(({ queued }) => {
+      // The court card shows the session's check-in once it exists.
+      if (!queued && meta.venueId) void refreshCurrentCheckin().catch(() => {});
+    })
+    .catch(() => {
+      // A rejected start (not a network failure) has nothing to retry; the
+      // session still runs locally and End is a no-op server side.
+    });
   return id;
 }
 
 /**
  * End the session. Resolves without the network: the island clears now, the
  * server write (with the real end time) is sent or queued in the background.
+ * The pending-End entry is written BEFORE that write, so a resume check that
+ * runs while it is queued can't bring the island back.
  */
 export function endPlay(): void {
   const s = playSession.get();
   if (!s.id) return;
   const payload: EndPayload = { id: s.id, at: new Date().toISOString() };
   playSession.clear();
-  void runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at)).catch(() => {});
+  // The server closes the session's own check-in; an adopted one stays.
+  void forgetCheckin(payload.id);
+  void markEndPending(payload.id, Date.parse(payload.at))
+    .catch(() => {}) // the guard is best-effort; the End goes out regardless
+    .then(() => runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at)))
+    .then(({ queued }) => (queued ? undefined : clearEndPending(payload.id)))
+    // Not a network failure (those queue): retrying won't help, nothing is pending.
+    .catch(() => clearEndPending(payload.id));
 }
 
 /** For useResumeLiveSession: the server's view of my active session. */
 export async function getActivePlay() {
   const uid = await currentUserId(supabase);
   if (!uid) return null;
-  const row = await getMyActivePlaySession(uid);
+  const found = await getMyActivePlaySession(uid);
+  // An End still on its way to the server: that session is over.
+  const row = found && !isEndPending(await readPendingEnds(), found.id, Date.now()) ? found : null;
   if (!row) {
     // A start still sitting in the offline queue is not "none".
     const local = playSession.get();
@@ -112,6 +175,35 @@ export async function getActivePlay() {
           venueName: row.venue_id ? await getVenueName(row.venue_id).catch(() => null) : null,
         };
   return { id: row.id, startedAtMs: Date.parse(row.started_at), meta };
+}
+
+// ── "Where are you playing?" and the island ─────────────────────────────────
+/** What the start sheet opens with (all optional: it fills in the rest). */
+export type PlayStartRequest = { kind?: PlayKind; sourceId?: string | null };
+
+/** Emits when the start sheet should open (its host takes the request). */
+export const playStartRequested = createSignal<void>();
+/** Emits when the island should expand (a session already runs). */
+export const playIslandExpand = createSignal<void>();
+// Held until the host takes it: a cold start from the "starting now" notice
+// asks before the host is mounted.
+let pendingStart: PlayStartRequest | null = null;
+
+/** Open the start sheet, or expand the island when a session already runs. */
+export function openPlayStart(req: PlayStartRequest = {}): void {
+  if (playSession.get().status !== 'idle') {
+    playIslandExpand.emit();
+    return;
+  }
+  pendingStart = req;
+  playStartRequested.emit();
+}
+
+/** For the sheet's host: the request waiting to be shown (cleared on read). */
+export function takePlayStartRequest(): PlayStartRequest | null {
+  const r = pendingStart;
+  pendingStart = null;
+  return r;
 }
 
 // ── "Starting now" notices for my upcoming drills and matches ───────────────
@@ -161,14 +253,14 @@ export async function clearPlayForSignOut(): Promise<void> {
   await AsyncStorage.removeItem(SCHEDULED_KEY).catch(() => {});
 }
 
-// "Start session" on the starting-now notice (opens the app).
+// "Start session" on the starting-now notice (opens the app): the start sheet,
+// with the drill or match as the session's source.
 registerActionHandler('play_start', {
-  success: { title: 'Session started', body: 'It is on your screen. Tap End when you finish.' },
+  success: { title: 'Where are you playing?', body: 'Pick your court in Pickleague, then tap Start.' },
   run: async (d) => {
     await requireUser();
     const raw = d as Record<string, unknown>;
     const kind = raw.play_kind === 'match' ? 'match' : raw.play_kind === 'drill' ? 'drill' : 'open_play';
-    if (playSession.get().status !== 'idle') return;
-    startPlay({ kind, sourceId: typeof raw.source_id === 'string' ? raw.source_id : null, venueId: null, venueName: null });
+    openPlayStart({ kind, sourceId: typeof raw.source_id === 'string' ? raw.source_id : null });
   },
 });

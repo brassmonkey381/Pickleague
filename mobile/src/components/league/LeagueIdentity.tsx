@@ -37,6 +37,7 @@ export type LeagueIdentityProps = {
     home_court: string | null;
     home_court_lat: number | null;
     home_court_lng: number | null;
+    home_venue_id?: string | null;
   };
   myRole: LeagueRole;
   /** null = not loaded / failed: the chip is left out. */
@@ -64,7 +65,7 @@ export default function LeagueIdentity({
 }: LeagueIdentityProps) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const presence = useCourtPresence(league.home_court_lat, league.home_court_lng);
+  const presence = useCourtPresence(league.home_court_lat, league.home_court_lng, league.home_venue_id);
   const [rosterOpen, setRosterOpen] = useState(false);
   // Subscribes, so the chip re-renders to the (shorter) nickname once the cache loads.
   const courtName = useCourtName();

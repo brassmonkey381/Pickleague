@@ -1,23 +1,53 @@
 // Court check-in, app side: check in / extend / check out, the offline queue,
 // the "5 minutes left" reminder and its lock-screen buttons.
 //
+// No manual check-ins: every check-in carries a fresh device fix (lat, lng,
+// accuracy, fix time) and the server confirms it is inside the court's fence
+// (docs/play-sessions-presence.md, rule 1). No fix, no check-in: callers offer
+// an untracked play session instead. The pure rules live in ./courtCheckinRules.
+//
 // The current check-in is cached locally (per user) so a check-in made with no
 // signal shows straight away and the reminder can be rescheduled. The server
-// row is the truth once it lands; refreshCurrentCheckin() reconciles.
+// row is the truth once it lands; refreshCurrentCheckin() reconciles, and the
+// id the server returns is adopted (it may hand back a check-in I already had
+// at that court).
 //
 // Queued writes: a check-in is safe to apply late because it carries its real
-// time (`at`) and a client id (replays land once). Extend is NOT queued: an
-// extension that lands after the check-in lapsed would be refused anyway, so
-// it fails loudly instead.
+// time (`at`), the fix taken at tap time, and a client id (replays land once).
+// The server refuses a fix older than 2 minutes, so a long-offline replay is
+// dropped and the player is told the next time the app is open. A check-out
+// carries when I really left. Extend is NOT queued: an extension that lands
+// after the check-in lapsed would be refused anyway, so it fails loudly instead.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
+import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
+import {
+  getCurrentCoords,
+  getForegroundLocationStatus,
+  requestForegroundLocationPermission,
+} from '@just-messin-around/expo-foundation/platform/location';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
+import { shortTime } from './agenda';
 import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { titleWith } from './pushSubject';
+import { isEndPending } from './playEndPending';
+import { readPendingEnds } from './playEndPendingStore';
+import {
+  checkoutPayload,
+  fixFromCoords,
+  isFixFresh,
+  isValidFix,
+  noFixMessage,
+  rejectedCheckinNotice,
+  type CheckinPayload,
+  type CheckoutPayload,
+  type DeviceFix,
+} from './courtCheckinRules';
 import {
   checkinVenue,
   checkoutVenue,
@@ -25,6 +55,7 @@ import {
   getMyOpenCheckin,
   getVenueName,
   type CheckinSource,
+  type VenueCheckin,
 } from '../data/venueCheckins';
 
 export type CurrentCheckin = {
@@ -39,26 +70,48 @@ export type CurrentCheckin = {
 };
 
 const STORAGE_KEY = 'pickleague_current_checkin_v1';
+const REJECTED_KEY = 'pickleague_checkin_rejected_v1';
 const REMINDER_ID = 'checkin-extend';
 const MUTATION_CHECKIN = 'venue:checkin';
 const MUTATION_CHECKOUT = 'venue:checkout';
 const HOUR_MS = 60 * 60_000;
+// Long enough that a replay always reaches the handler (and so the "didn't go
+// through" notice), instead of aging out silently after the default 24 h.
+const QUEUED_CHECKIN_MAX_AGE_MS = 7 * 24 * HOUR_MS;
+const REJECTED_KEEP_MS = 3 * 24 * HOUR_MS;
 
 /** Emits whenever the current check-in changes (null = not checked in). */
 export const checkinChanged = createSignal<CurrentCheckin | null>();
-
-type CheckinPayload = { id: string; venueId: string; minutes: number; source: CheckinSource; at: string };
-type CheckoutPayload = { id: string | null; source?: CheckinSource };
+/** Emits the notice when a queued check-in is refused on replay. */
+export const checkinRejected = createSignal<string>();
 
 registerMutationHandler(MUTATION_CHECKIN, {
+  maxAgeMs: QUEUED_CHECKIN_MAX_AGE_MS,
   run: async (p) => {
-    await checkinVenue(p as CheckinPayload);
+    const payload = p as CheckinPayload;
+    // Queued by a build that sent no fix: it can't be confirmed, so it is
+    // never sent (the throw makes the queue drop it).
+    if (!isValidFix(payload.fix)) {
+      await noteRejected(payload, null);
+      throw new Error('Queued check-in has no location fix');
+    }
+    let row: VenueCheckin;
+    try {
+      row = await checkinVenue(payload);
+    } catch (e) {
+      if (!isNetworkError(e)) await noteRejected(payload, e);
+      throw e; // network: stays queued; anything else: the queue drops it
+    }
+    await adoptReplayed(payload.id, row);
   },
 });
 registerMutationHandler(MUTATION_CHECKOUT, {
   run: async (p) => {
-    const { id, source } = p as CheckoutPayload;
-    await checkoutVenue(id, source);
+    const { id, source, at } = p as Partial<CheckoutPayload>;
+    // A check-out of a check-in the server refused: nothing to close, and the
+    // server's "no such row" fallback must not close a later one instead.
+    if (id && (await wasRejected(id))) return;
+    await checkoutVenue(id ?? null, source, at);
   },
 });
 
@@ -97,6 +150,93 @@ function scheduleReminder(c: CurrentCheckin): Promise<boolean> {
 
 const live = (c: CurrentCheckin | null) => (c && new Date(c.expiresAt).getTime() > Date.now() ? c : null);
 
+/** A queued check-in that landed: take the server's id and end time (it may be a check-in I already had there). */
+async function adoptReplayed(clientId: string, row: VenueCheckin): Promise<void> {
+  const cached = await readStored();
+  if (cached?.id !== clientId) return;
+  await setCurrent({ ...cached, id: row.id, venueId: row.venue_id, expiresAt: row.expires_at, source: row.source, queued: undefined });
+}
+
+// ── Queued check-ins the server refused ─────────────────────────────────────
+type Rejected = { id: string; notice: string; atMs: number; shown?: boolean };
+
+async function readRejected(): Promise<Rejected[]> {
+  try {
+    const raw = await AsyncStorage.getItem(REJECTED_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v)
+      ? (v as Rejected[]).filter((r) => r && typeof r.id === 'string' && Date.now() - r.atMs < REJECTED_KEEP_MS)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeRejected(list: Rejected[]): Promise<void> {
+  await AsyncStorage.setItem(REJECTED_KEY, JSON.stringify(list)).catch(() => {});
+}
+
+async function wasRejected(id: string): Promise<boolean> {
+  return (await readRejected()).some((r) => r.id === id);
+}
+
+/** Remember the refusal for the next time the app is open, and drop the "saved offline" check-in it left behind. */
+async function noteRejected(payload: CheckinPayload, error: unknown): Promise<void> {
+  const cached = await readStored();
+  const venueName =
+    cached?.id === payload.id ? cached.venueName : (await getVenueName(payload.venueId).catch(() => null)) ?? 'the court';
+  const notice = rejectedCheckinNotice({
+    venueName,
+    timeLabel: shortTime(new Date(payload.at)),
+    fixWasStale: !isFixFresh(payload.fix, Date.now()),
+    error,
+  });
+  const list = (await readRejected()).filter((r) => r.id !== payload.id);
+  await writeRejected([...list, { id: payload.id, notice, atMs: Date.now() }]);
+  if (cached?.id === payload.id) await setCurrent(null);
+  checkinRejected.emit(notice);
+}
+
+/** The oldest refusal not shown yet (now marked shown), or null. */
+export async function takeRejectedCheckinNotice(): Promise<string | null> {
+  const list = await readRejected();
+  const next = list.find((r) => !r.shown);
+  if (!next) return null;
+  await writeRejected(list.map((r) => (r === next ? { ...r, shown: true } : r)));
+  return next.notice;
+}
+
+// ── Device fix ──────────────────────────────────────────────────────────────
+/**
+ * A fresh fix for a check-in, or null: no permission, no fix within
+ * `timeoutMs`, or an unusable reading. Never the remembered spot, which can't
+ * confirm I am at the court now. May show the OS / browser permission prompt.
+ */
+export async function takeCheckinFix(timeoutMs = 6_000): Promise<DeviceFix | null> {
+  return fixFromCoords(await getCurrentCoords({ timeoutMs }), Date.now());
+}
+
+/**
+ * Ask for location: the OS / browser sheet when it hasn't been answered, else
+ * an instant answer. Not bounded (the player may take a while to read the
+ * sheet), so callers ask first and bound only the fix after it.
+ */
+export async function askForLocation(): Promise<boolean> {
+  return requestForegroundLocationPermission().catch(() => false);
+}
+
+/** Like takeCheckinFix, but only when location is already allowed (never prompts). */
+export async function takeFixIfAllowed(timeoutMs = 6_000): Promise<DeviceFix | null> {
+  if ((await getForegroundLocationStatus()) !== 'granted') return null;
+  return takeCheckinFix(timeoutMs);
+}
+
+/** Why there is no check-in after takeCheckinFix came back empty. */
+export async function noFixReason(): Promise<string> {
+  return noFixMessage(await getForegroundLocationStatus(), Platform.OS);
+}
+
+// ── Reads ───────────────────────────────────────────────────────────────────
 /** The signed-in player's current check-in from the local cache (no network). */
 export async function peekCurrentCheckin(): Promise<CurrentCheckin | null> {
   const [c, uid] = await Promise.all([readStored(), currentUserId(supabase)]);
@@ -112,7 +252,10 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   const uid = await currentUserId(supabase);
   if (!uid) return null;
   const cached = await peekCurrentCheckin();
-  const row = await getMyOpenCheckin(uid);
+  const open = await getMyOpenCheckin(uid);
+  // A play session's check-in whose End is still queued is over already.
+  const ended = open?.source === 'session' && isEndPending(await readPendingEnds(), open.id, Date.now());
+  const row = ended ? null : open;
   if (!row) {
     if (cached?.queued) return cached;
     if (cached) await setCurrent(null);
@@ -132,9 +275,15 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   return next;
 }
 
-/** Check in now. Queues when offline (the result has `queued: true`). */
+// ── Writes ──────────────────────────────────────────────────────────────────
+/**
+ * Check in now with the fix just taken. Queues when offline (the result has
+ * `queued: true`). Rejects with the server's "You need to be at the court to
+ * check in (about N m away)." when the fix is outside the fence.
+ */
 export async function checkInAt(
   venue: { id: string; name: string },
+  fix: DeviceFix,
   opts: { source?: CheckinSource; minutes?: number } = {},
 ): Promise<CurrentCheckin> {
   const uid = await requireUser();
@@ -145,15 +294,18 @@ export async function checkInAt(
     minutes,
     source: opts.source ?? 'manual',
     at: new Date().toISOString(),
+    fix,
   };
   const { queued, result } = await runOrQueue(MUTATION_CHECKIN, payload, () => checkinVenue(payload));
   const c: CurrentCheckin = {
-    id: payload.id,
+    // The server may hand back a check-in I already had at this court (and
+    // the canonical court id when this one is a duplicate).
+    id: result?.id ?? payload.id,
     userId: uid,
-    venueId: venue.id,
+    venueId: result?.venue_id ?? venue.id,
     venueName: venue.name,
     expiresAt: result?.expires_at ?? new Date(Date.now() + minutes * 60_000).toISOString(),
-    source: payload.source,
+    source: result?.source ?? payload.source,
     ...(queued ? { queued: true } : {}),
   };
   await setCurrent(c);
@@ -171,18 +323,25 @@ export async function extendCheckinByHour(c: Pick<CurrentCheckin, 'id' | 'expire
   return next;
 }
 
-/** Check out (one check-in, or all of mine). Queues when offline. */
+/** Check out (one check-in, or all of mine). Queues when offline, with the real leave time. */
 export async function checkOut(id: string | null, source?: CheckinSource): Promise<{ queued: boolean }> {
-  const payload: CheckoutPayload = { id, source };
-  const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () => checkoutVenue(id, source));
+  const payload = checkoutPayload(id, source, Date.now());
+  const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () => checkoutVenue(id, source, payload.at));
   const cached = await readStored();
   if (cached && (id === null || cached.id === id) && (!source || cached.source === source)) await setCurrent(null);
   return { queued };
 }
 
-/** Sign-out: forget the local check-in and its reminder (the server row expires on its own). */
+/** Forget a check-in the server closes on its own (a play session's, which End closes). Local only. */
+export async function forgetCheckin(id: string): Promise<void> {
+  const cached = await readStored();
+  if (cached?.id === id) await setCurrent(null);
+}
+
+/** Sign-out: forget the local check-in, its reminder and any refusal notices (lib/signOutPresence closes the server row). */
 export async function clearCheckinForSignOut(): Promise<void> {
   await setCurrent(null);
+  await AsyncStorage.removeItem(REJECTED_KEY).catch(() => {});
 }
 
 // ── Lock-screen buttons on the "5 minutes left" reminder ────────────────────

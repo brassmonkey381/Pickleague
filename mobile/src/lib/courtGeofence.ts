@@ -1,11 +1,14 @@
 // Court arrival alerts (work order 7f): when the phone enters a fenced court,
 // post a local "You're at <court>" notice with a Check in button. It never
 // checks in on its own (lower App Store review risk, and no surprise presence).
-// Leaving the court checks out only check-ins this feature opened.
+// The button takes a fresh fix like every check-in (no manual check-ins), and
+// the server confirms it. Leaving the court checks out only check-ins this
+// feature opened.
 //
 // Opt-in per device (Settings), because it needs "Always" location. Fences:
-// my leagues' home courts first, then the courts I check in at most; at most
-// 20 (the iOS per-app limit).
+// my leagues' home courts first (the stored leagues.home_venue_id, else the
+// pickleball court at the league's coordinates), then the courts I check in at
+// most; at most 20 (the iOS per-app limit).
 //
 // defineCourtGeofenceTask() must run at the entry module's scope (index.ts):
 // the OS can wake the app headless to deliver an event. Native only.
@@ -15,9 +18,10 @@ import { defineGeofenceTask, syncGeofences, type GeofenceRegion } from '@just-me
 import { postLocalNotice } from '@just-messin-around/expo-foundation/platform/push';
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
-import { catalog, registerActionHandler, requireUser } from './notificationActions';
-import { checkInAt, checkOut, peekCurrentCheckin } from './courtCheckin';
-import { resolveVenueAt } from '../data/venueCheckins';
+import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
+import { checkInAt, checkOut, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
+import { isNotAtCourtError } from './courtCheckinRules';
+import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
 
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
 const ENABLED_KEY = 'pickleague_court_alerts_enabled_v1';
@@ -67,12 +71,22 @@ export function defineCourtGeofenceTask(): void {
 
 registerActionHandler('court_checkin', {
   success: { title: 'Checked in', body: 'Other players can see you are here.' },
-  queued: { title: 'Checked in', body: 'Saved. It syncs when you are back online.' },
+  queued: { title: 'Checked in', body: 'Saved. It counts if it syncs within 2 minutes.' },
   run: async (d) => {
     await requireUser();
     if (!d.venue_id) throw new Error('missing venue');
-    const c = await checkInAt({ id: d.venue_id, name: d.venue_name ?? 'the courts' }, { source: 'geofence' });
-    return c.queued ? { queued: true } : c;
+    // Arrival alerts run on "Always" location, so this reads a fix without a
+    // dialog. 5 s leaves the write its share of the 10 s the button gets.
+    const fix = await takeCheckinFix(5_000);
+    if (!fix) throw new NeedsApp("Open Pickleague to check in. It couldn't get your location to confirm you're at the court.");
+    try {
+      const c = await checkInAt({ id: d.venue_id, name: d.venue_name ?? 'the courts' }, fix, { source: 'geofence' });
+      return c.queued ? { queued: true } : c;
+    } catch (e) {
+      // "You need to be at the court to check in (about N m away)." as the notice.
+      if (isNotAtCourtError(e)) throw new NeedsApp((e as Error).message);
+      throw e;
+    }
   },
 });
 
@@ -92,18 +106,18 @@ async function pickRegions(): Promise<{ regions: GeofenceRegion[]; names: Record
     regions.push({ id: v.id, lat: v.lat, lng: v.lng, radiusM: v.radius ?? 100 });
   };
 
-  const leagues = ((await sbCall(
-    () =>
-      supabase
-        .from('league_members')
-        .select('leagues(home_court_lat, home_court_lng, is_active)')
-        .eq('user_id', uid),
-    { timeoutMs: 9_000 },
-  )) ?? []) as unknown as { leagues: { home_court_lat: number | null; home_court_lng: number | null; is_active: boolean } | null }[];
-  for (const m of leagues) {
-    const l = m.leagues;
-    if (!l?.is_active || l.home_court_lat == null || l.home_court_lng == null) continue;
-    const v = await resolveVenueAt(l.home_court_lat, l.home_court_lng, 200).catch(() => null);
+  const leagues = await getMyLeagueCourts(uid);
+  const stored = await getVenuesByIds([
+    ...new Set(leagues.map((l) => l.home_venue_id).filter((id): id is string => !!id)),
+  ]).catch(() => []);
+  for (const l of leagues) {
+    const home = l.home_venue_id ? stored.find((v) => v.id === l.home_venue_id) : null;
+    if (home) {
+      add({ id: home.id, name: home.name, lat: home.lat, lng: home.lng, radius: home.geofence_radius_m });
+      continue;
+    }
+    if (l.home_court_lat == null || l.home_court_lng == null) continue;
+    const v = await resolveCourtAt(l.home_court_lat, l.home_court_lng, 200).catch(() => null);
     if (v) add({ id: v.id, name: v.name, lat: v.lat, lng: v.lng });
   }
 
