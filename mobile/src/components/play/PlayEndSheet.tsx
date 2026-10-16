@@ -12,7 +12,10 @@
 // drills", which lists today's drill) for a drill session, and Not now (or
 // closing the sheet) leaves a note that it still counts when one is recorded
 // within 2 hours. Without a server answer the copy is hedged ("If you haven't
-// recorded it yet"). lib/sessionValidity decides; presence never depends on
+// recorded it yet"). Every line says why it doesn't count yet and by when to
+// fix that (rule 11): nothing recorded, or what the player recorded counts
+// for another session; a pending match "counts once the other team confirms
+// (within the hour)". lib/sessionValidity decides; presence never depends on
 // any of this.
 //
 // Mounted once at the app root next to PlayIsland (navigation/AppNavigator),
@@ -29,7 +32,7 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { navigateWhenReady, openMatchEntryForSession } from '../../lib/navigationRef';
-import { shortTime } from '../../lib/agenda';
+import { whenLabel } from '../../lib/refusals';
 import { playEnded } from '../../lib/playSession';
 import {
   END_CHECK_MS,
@@ -95,7 +98,8 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
   }, [signedIn]);
 
   const notNow = () => {
-    if (shown) toast.info(notNowNote(shown.ask.windowEndsAtMs, shortTime, !!shown.ask.unsure));
+    // The deadline may fall after midnight: "Fri 12:40 AM" then.
+    if (shown) toast.info(notNowNote(shown.ask.windowEndsAtMs, (d) => whenLabel(d), !!shown.ask.unsure));
     setShown(null);
   };
   const recordMatch = () => {

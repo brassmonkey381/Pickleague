@@ -15,7 +15,12 @@
 // first, keeps it after the End lands, and the resume check skips it
 // (./playEndPending).
 // When a Start at a court does not check me in (the fix didn't confirm it),
-// the island stops naming the court and says so once (playStartUntracked).
+// the island stops naming the court and says why once (playStartUntracked).
+// Every refusal reaches the player (rule 11): a Start or End the server
+// refused, live or replayed from the queue, is said (lib/refusalNotices);
+// signed out, it waits in the queue like an offline one; a session the
+// server ended without this device (the 6-hour expiry, another device) is
+// explained on the next resume (playLost).
 //
 // Starting goes through one sheet, "Where are you playing?"
 // (components/play/PlayStartSheet): openPlayStart() opens it, or expands the
@@ -27,9 +32,9 @@
 // Also schedules a local "starting now" notice (with a Start session button)
 // for my upcoming drill sessions and scheduled matches.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
+import { enqueueMutation, registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { isNetworkError, withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { TimeoutError, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { createLiveSession } from '@just-messin-around/expo-foundation/session';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -43,13 +48,24 @@ import {
   takeFixIfAllowed,
   type CurrentCheckin,
 } from './courtCheckin';
-import { CHECKOUT_FIX_WAIT_MS, fixWithin, isValidFix, type DeviceFix } from './courtCheckinRules';
+import {
+  CHECKOUT_FIX_WAIT_MS,
+  FIX_MAX_AGE_MS,
+  fixAgeMs,
+  fixWithin,
+  isPreciseFix,
+  isValidFix,
+  type DeviceFix,
+} from './courtCheckinRules';
 import { endNeedsResend, isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
-import type { EndedPlay, RecordedForSession } from './sessionValidity';
+import { isRetryLater, noteRefusalNotice } from './refusalNotices';
+import { queuedRefusalNotice, type UntrackedStartReason } from './refusals';
+import { drillReviewNote, type EndedPlay, type RecordedForSession, type LostPlayReason } from './sessionValidity';
 import {
   endPlaySession,
   getMyActivePlaySession,
+  getMyPlaySession,
   getMySessionValidity,
   getMyUpcomingPlay,
   startPlaySession,
@@ -65,8 +81,12 @@ export type PlayMeta = {
   sourceId: string | null;
   venueId: string | null;
   venueName: string | null;
-  /** Something already makes this session count (see noteMatchRecorded); kept across restarts. */
-  recorded?: 'match' | 'drill';
+  /**
+   * Something already makes this session count (see noteMatchRecorded); kept
+   * across restarts. 'match' from a build before 2026-10-16 meant a match of
+   * either kind, so it reads as 'match_pending' (lib/sessionValidity).
+   */
+  recorded?: 'match' | 'match_pending' | 'match_confirmed' | 'drill';
 };
 
 export const playSession = createLiveSession<PlayMeta>({
@@ -95,54 +115,159 @@ type StartPayload = {
 /** `fix`: taken at the tap when one came back in time, the session check-in's stay proof. */
 type EndPayload = { id: string; at: string; fix?: DeviceFix };
 
+// A Start waits at most a day for a signal; past that it is dropped, and said
+// so. (The queue's own age-out never reaches the handler, so it would be silent:
+// the handler sees every entry for a week instead.)
+const START_MAX_WAIT_MS = 24 * 3600_000;
+
 registerMutationHandler(MUTATION_START, {
-  run: async (p) => {
+  maxAgeMs: 7 * 24 * 3600_000,
+  run: async (p, meta) => {
     const payload = p as StartPayload;
-    const row = await startPlaySession(payload);
+    if (Date.now() - Date.parse(meta.queuedAt) > START_MAX_WAIT_MS) {
+      await noteStartRefused(
+        payload,
+        null,
+        'It waited more than a day for a signal, too long to save it. Start a new one when you play.',
+      );
+      throw new Error('Queued Start is over a day old');
+    }
+    let row: PlaySessionRow;
+    try {
+      row = await startPlaySession(payload);
+    } catch (e) {
+      // No signal / signed out: stays queued. Refused: the player hears why.
+      if (isRetryLater(e)) throw asRetry(e);
+      await noteStartRefused(payload, e);
+      throw e;
+    }
+    await unmarkQueuedStart(payload.id);
     // The session may have checked me in (or adopted my check-in), or, with
     // a fix that no longer confirms the court, not.
-    if (payload.venueId) void noteUntrackedStart(payload.id, payload.venueId, row);
+    if (payload.venueId) void noteUntrackedStart(payload, row);
   },
 });
 
-/** Emits when a Start at a court did not check me in there (the island says so once). */
-export const playStartUntracked = createSignal<{ venueName: string | null }>();
+/** The queue keeps only "network" failures: a signed-out one waits too. */
+function asRetry(e: unknown): unknown {
+  return e instanceof TimeoutError ? e : new TimeoutError('Waiting to send again');
+}
+
+// ── Starts still in the offline queue ───────────────────────────────────────
+// While a Start waits in the queue the server has no session, and that is
+// not "none": the island stays (getActivePlay), however long the wait.
+const QUEUED_STARTS_KEY = 'pickleague_play_start_queued_v1';
+
+async function readQueuedStarts(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(QUEUED_STARTS_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Is this session's Start still waiting in the offline queue? */
+export async function isPlayStartQueued(id: string): Promise<boolean> {
+  return (await readQueuedStarts()).includes(id);
+}
+
+async function markQueuedStart(id: string): Promise<void> {
+  const list = await readQueuedStarts();
+  if (list.includes(id)) return;
+  await AsyncStorage.setItem(QUEUED_STARTS_KEY, JSON.stringify([...list, id].slice(-20))).catch(() => {});
+}
+
+async function unmarkQueuedStart(id: string): Promise<void> {
+  const list = await readQueuedStarts();
+  if (!list.includes(id)) return;
+  await AsyncStorage.setItem(QUEUED_STARTS_KEY, JSON.stringify(list.filter((x) => x !== id))).catch(() => {});
+}
+
+/**
+ * The server refused a Start (live or replayed): nothing recorded for this
+ * session can count, and nobody sees it. Stop the island and say why.
+ */
+async function noteStartRefused(payload: StartPayload, error: unknown, reason?: string): Promise<void> {
+  await unmarkQueuedStart(payload.id);
+  const s = playSession.get();
+  if (s.id === payload.id && s.status !== 'idle') playSession.clear();
+  await noteRefusalNotice({
+    key: `start:${payload.id}`,
+    title: 'Play session not saved',
+    body: queuedRefusalNotice({ what: 'start', tapMs: Date.parse(payload.at), error, reason }),
+  });
+}
+
+/** The server refused an End: the session is still open there, and the island comes back. */
+async function noteEndRefused(payload: EndPayload, error: unknown): Promise<void> {
+  await clearEndPending(payload.id);
+  await noteRefusalNotice({
+    key: `end:${payload.id}`,
+    title: 'Session still running',
+    body: queuedRefusalNotice({ what: 'end', tapMs: Date.parse(payload.at), error }),
+  });
+}
+
+/** Emits when a Start at a court did not check me in there (the island says so once, and why). */
+export const playStartUntracked = createSignal<{ venueName: string | null; reason: UntrackedStartReason }>();
 
 /** Is `cur` the check-in a session at `venueId` gave me (its own, or the one it adopted)? */
 function sessionCheckedIn(cur: CurrentCheckin | null, sessionId: string, venueIds: (string | null | undefined)[]): boolean {
   return !!cur && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
 }
 
+/** The reason, from what the Start sent and what came back (the server only returns the row). */
+function untrackedReason(payload: StartPayload, row: PlaySessionRow | null | undefined): UntrackedStartReason {
+  if (row && payload.venueId && !row.venue_id) return 'court_gone';
+  const fix = payload.fix;
+  if (!fix || !isValidFix(fix)) return 'no_fix';
+  if (!isPreciseFix(fix)) return 'imprecise';
+  if (fixAgeMs(fix, Date.now()) > FIX_MAX_AGE_MS) return 'stale';
+  return 'not_at_court';
+}
+
+// A check that couldn't be made (offline): tried again on the next resume.
+let untrackedCheckPending: { payload: StartPayload; row: PlaySessionRow | null | undefined } | null = null;
+
 /**
  * After a Start at a court lands: if it did not check me in (the fix didn't
  * confirm the court: the server starts it untracked, no error), stop naming
- * the court on the island and say so, instead of implying friends see me
- * there. Quiet when the check can't be made (offline) or the session is over.
+ * the court on the island and say why, instead of implying friends see me
+ * there. When the check can't be made (offline) it is tried again on the
+ * next resume; quiet once the session is over.
  */
-async function noteUntrackedStart(sessionId: string, venueId: string, row: PlaySessionRow | null | undefined): Promise<void> {
+async function noteUntrackedStart(payload: StartPayload, row: PlaySessionRow | null | undefined): Promise<void> {
+  const sessionId = payload.id;
   let cur: CurrentCheckin | null;
   try {
     cur = await refreshCurrentCheckin();
   } catch {
+    untrackedCheckPending = { payload, row };
     return;
   }
+  if (untrackedCheckPending?.payload.id === sessionId) untrackedCheckPending = null;
   const s = playSession.get();
   if (s.id !== sessionId || s.status === 'idle' || !s.meta?.venueId) return;
-  if (sessionCheckedIn(cur, sessionId, [row?.venue_id, venueId])) return;
+  if (sessionCheckedIn(cur, sessionId, [row?.venue_id, payload.venueId])) return;
   const venueName = s.meta.venueName;
   playSession.patchMeta({ venueName: null });
-  playStartUntracked.emit({ venueName });
+  playStartUntracked.emit({ venueName, reason: untrackedReason(payload, row) });
 }
 
 registerMutationHandler(MUTATION_END, {
   run: async (p) => {
-    const { id, at, fix } = p as EndPayload;
+    const payload = p as EndPayload;
+    const { id, at, fix } = payload;
     try {
       // An End queued by an older build has no fix: the Phase 1 call.
       await endPlaySession(id, at, isValidFix(fix) ? fix : null);
     } catch (e) {
-      // Network: still queued, so still pending. Anything else won't succeed.
-      if (!isNetworkError(e)) await clearEndPending(id);
+      // No signal / signed out: still queued, so still pending. Refused: the
+      // session is still open on the server; the player hears why.
+      if (isRetryLater(e)) throw asRetry(e);
+      await noteEndRefused(payload, e);
       throw e;
     }
     // Landed: the entry stays as a tombstone (./playEndPending) until it ages out.
@@ -169,16 +294,32 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
   };
   void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload))
     .then(({ queued, result }) => {
+      if (queued) return markQueuedStart(id);
       // The court card shows the session's check-in once it exists; a court
       // that didn't check me in stops being named (the queued replay checks
       // the same way when it lands).
-      if (!queued && meta.venueId) void noteUntrackedStart(id, meta.venueId, result);
+      if (meta.venueId) void noteUntrackedStart(payload, result);
     })
-    .catch(() => {
-      // A rejected start (not a network failure) has nothing to retry; the
-      // session still runs locally and End is a no-op server side.
+    .catch(async (e: unknown) => {
+      // Signed out right now: wait in the queue like an offline Start.
+      if (isRetryLater(e)) {
+        await enqueueMutation(MUTATION_START, payload).catch(() => {});
+        await markQueuedStart(id);
+        return;
+      }
+      // Refused: nothing recorded for it could count. Say why, stop the island.
+      await noteStartRefused(payload, e);
     });
   return id;
+}
+
+/** An End refused live (not a network failure: those queue). Signed out: it waits; else the player hears why. */
+async function onEndFailed(payload: EndPayload, e: unknown): Promise<void> {
+  if (isRetryLater(e)) {
+    await enqueueMutation(MUTATION_END, payload).catch(() => clearEndPending(payload.id));
+    return;
+  }
+  await noteEndRefused(payload, e);
 }
 
 /**
@@ -203,11 +344,15 @@ export function endPlay(): EndedPlay | null {
     markEndPending(payload.id, Date.parse(payload.at)).catch(() => {}), // best-effort; the End goes out regardless
     atCourt ? fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS) : Promise.resolve(null),
   ])
-    .then(([, fix]) => {
+    .then(async ([, fix]) => {
       const sent: EndPayload = fix ? { ...payload, fix } : payload;
-      return runOrQueue(MUTATION_END, sent, () => endPlaySession(sent.id, sent.at, sent.fix ?? null));
+      try {
+        await runOrQueue(MUTATION_END, sent, () => endPlaySession(sent.id, sent.at, sent.fix ?? null));
+      } catch (e) {
+        // Not a network failure (those queue): signed out waits, else say why.
+        await onEndFailed(sent, e);
+      }
     })
-    // Not a network failure (those queue): retrying won't help, nothing is pending.
     .catch(() => clearEndPending(payload.id));
   if (!s.meta || s.startedAtMs == null) return null;
   const recorded: RecordedForSession = recordedFor.get(s.id) ?? s.meta.recorded ?? null;
@@ -220,9 +365,14 @@ export function endPlay(): EndedPlay | null {
     endedAtMs: Date.parse(payload.at),
     recorded,
   };
+  lastEnded = ended;
   playEnded.emit(ended);
   return ended;
 }
+
+// The session ended last on this device: a drill reviewed in its 2 hours
+// after End can still make it count (noteDrillReviewed asks about it too).
+let lastEnded: EndedPlay | null = null;
 
 // ── Ending: "Record a match or drill?" ──────────────────────────────────────
 // A session counts once a match or drill is recorded for it (Phase 1.5,
@@ -237,38 +387,51 @@ export const playEnded = createSignal<EndedPlay>();
 // which is persisted per user, so a restart between recording and End
 // remembers it. Anything else (a match a partner recorded, one from before
 // this build) End asks the server about.
-const recordedFor = new Map<string, 'match' | 'drill'>();
+type Recorded = NonNullable<RecordedForSession>;
+const recordedFor = new Map<string, Recorded>();
+// What wins when two things count: a confirmed match, then a pending one, then a drill.
+const RANK: Record<Recorded, number> = { match_confirmed: 3, match: 2, match_pending: 2, drill: 1 };
 
-function noteSessionCounts(sessionId: string, what: 'match' | 'drill'): void {
-  if (recordedFor.get(sessionId) === 'match') return;
+function noteSessionCounts(sessionId: string, what: Recorded): void {
+  const had = recordedFor.get(sessionId);
+  if (had && RANK[had] >= RANK[what]) return;
   recordedFor.set(sessionId, what);
   const s = playSession.get();
-  if (s.id === sessionId && s.status !== 'idle' && s.meta?.recorded !== 'match') playSession.patchMeta({ recorded: what });
+  const meta = s.meta?.recorded;
+  if (s.id === sessionId && s.status !== 'idle' && (!meta || RANK[meta] < RANK[what])) playSession.patchMeta({ recorded: what });
 }
 
 /**
  * MatchEntry recorded a match I played in, for this session (linked to it, or
  * recorded while it runs). MatchEntry decides (lib/sessionValidity
  * shouldNoteRecorded): the server counts a match only when I played in it.
+ * `confirmed`: stored confirmed (godmode); every other match is pending until
+ * the other team confirms, and stops counting if nobody does within the hour.
  */
-export function noteMatchRecorded(sessionId: string): void {
-  noteSessionCounts(sessionId, 'match');
+export function noteMatchRecorded(sessionId: string, opts: { confirmed?: boolean } = {}): void {
+  noteSessionCounts(sessionId, opts.confirmed ? 'match_confirmed' : 'match_pending');
 }
 
 /**
- * I just reviewed a drill. When a session is running and the server now says
- * it needs nothing more (the drill was held during it), End won't ask again.
- * Best-effort, bounded at 5 s; never throws.
+ * I just reviewed a drill. Asks the server about my running session, or the
+ * one I ended under 2 hours ago (the end sheet's Review drill), and returns
+ * the line to show: it counts now, or why the drill doesn't count for it.
+ * When the running session now needs nothing more, End won't ask again.
+ * Best-effort, bounded at 5 s; never throws (null: nothing to say).
  */
-export async function noteDrillReviewed(): Promise<void> {
+export async function noteDrillReviewed(): Promise<string | null> {
   const s = playSession.get();
-  if (!s.id || s.status === 'idle') return;
-  const id = s.id;
+  const running = !!s.id && s.status !== 'idle';
+  const recent = lastEnded && Date.now() - lastEnded.endedAtMs < 2 * 3600_000 ? lastEnded : null;
+  const id = running ? s.id : recent?.id;
+  if (!id) return null;
   try {
     const v = await withTimeout(getMySessionValidity(id), 5_000);
-    if (v && v.reason === 'open' && v.needs === null) noteSessionCounts(id, 'drill');
+    if (running && v && v.reason === 'open' && v.needs === null) noteSessionCounts(id, 'drill');
+    return drillReviewNote(v, { running, nowMs: Date.now() });
   } catch {
     // End asks the server again anyway.
+    return null;
   }
 }
 
@@ -281,7 +444,58 @@ function resendLostEnd(id: string, tapMs: number): void {
   if (resentEnds.has(id)) return;
   resentEnds.add(id);
   const payload: EndPayload = { id, at: new Date(tapMs).toISOString() };
-  void runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at, null)).catch(() => {});
+  void runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at, null)).catch((e: unknown) =>
+    onEndFailed(payload, e),
+  );
+}
+
+// ── A session that ended without this device's End ─────────────────────────
+/** A session the island was showing that the server ended (or never had), and why. */
+export type LostPlay = {
+  id: string;
+  kind: PlayKind;
+  sourceId: string | null;
+  startedAtMs: number;
+  endedAtMs: number | null;
+  reason: LostPlayReason;
+  recorded: RecordedForSession;
+};
+
+/** Emits when the island's session turns out to be over on the server (PlayIsland says why). */
+export const playLost = createSignal<LostPlay>();
+const explainedLost = new Set<string>();
+
+/** Find out why the island's session is gone on the server, and say so once. Never throws. */
+async function explainLostPlay(local: { id: string; startedAtMs: number; meta: PlayMeta }): Promise<void> {
+  if (explainedLost.has(local.id)) return;
+  explainedLost.add(local.id);
+  try {
+    const row = await getMyPlaySession(local.id);
+    const startedAtMs = row ? Date.parse(row.started_at) : local.startedAtMs;
+    const endedAtMs = row?.ended_at ? Date.parse(row.ended_at) : null;
+    const reason: LostPlayReason = !row
+      ? 'never_saved'
+      : endedAtMs != null && endedAtMs - startedAtMs >= 6 * 3600_000 - 60_000
+        ? 'auto_ended'
+        : 'ended_elsewhere';
+    if (row && !row.ended_at) {
+      // Still open there (past the 6-hour read window: the hourly expiry ends
+      // it soon). Not lost yet: ask again on the next resume.
+      explainedLost.delete(local.id);
+      return;
+    }
+    playLost.emit({
+      id: local.id,
+      kind: local.meta.kind,
+      sourceId: local.meta.sourceId,
+      startedAtMs,
+      endedAtMs,
+      reason,
+      recorded: recordedFor.get(local.id) ?? local.meta.recorded ?? null,
+    });
+  } catch {
+    explainedLost.delete(local.id); // offline: try again on the next resume
+  }
 }
 
 /** For useResumeLiveSession: the server's view of my active session. */
@@ -293,13 +507,31 @@ export async function getActivePlay() {
   const pending = await readPendingEnds();
   const row = found && !isEndPending(pending, found.id, Date.now()) ? found : null;
   if (found && endNeedsResend(pending, found.id, Date.now())) resendLostEnd(found.id, pending[found.id]);
+  // A Start at a court whose check-in read failed (offline): check again now.
+  if (untrackedCheckPending) void noteUntrackedStart(untrackedCheckPending.payload, untrackedCheckPending.row);
+  const shown = playSession.get();
+  const shownMeta = shown.id && shown.status !== 'idle' && shown.meta && shown.startedAtMs != null
+    ? { id: shown.id, startedAtMs: shown.startedAtMs, meta: shown.meta as PlayMeta }
+    : null;
   if (!row) {
-    // A start still sitting in the offline queue is not "none".
-    const local = playSession.get();
-    if (local.id && local.startedAtMs && Date.now() - local.startedAtMs < 10 * 60_000) {
-      return { id: local.id, startedAtMs: local.startedAtMs, meta: local.meta as PlayMeta };
+    if (shownMeta) {
+      // A Start still sitting in the offline queue is not "none", however
+      // long it waits; nor is one this young (its write may be in flight).
+      if ((await readQueuedStarts()).includes(shownMeta.id) || Date.now() - shownMeta.startedAtMs < 10 * 60_000) {
+        return shownMeta;
+      }
+      // Gone on the server, and not ended here: say why (auto-ended after 6
+      // hours, ended elsewhere, or never saved).
+      if (!isEndPending(pending, shownMeta.id, Date.now())) void explainLostPlay(shownMeta);
     }
     return null;
+  }
+  if (shownMeta && shownMeta.id !== row.id && !isEndPending(pending, shownMeta.id, Date.now())) {
+    // My newer Start is still queued: it ends that older session when it
+    // lands, so keep showing mine.
+    if ((await readQueuedStarts()).includes(shownMeta.id)) return shownMeta;
+    // Another session runs on the server (a newer Start elsewhere): this one ended.
+    void explainLostPlay(shownMeta);
   }
   const local = playSession.get();
   const startedAtMs = Date.parse(row.started_at);

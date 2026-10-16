@@ -16,11 +16,15 @@
 // is inside the court's fence. No permission, no fix, or only an approximate
 // one (Precise Location off) means no check-in; the card says why and offers
 // "Start without a court" (an untracked session) instead, and never offers
-// "Add this court" at a blurred spot. A fix outside the fence shows the
-// server's "You need to be at the court to check in (about N m away)." A
-// queued check-in the server refused later is reported here the next time the
-// card shows. +1 h sends a fix when location is allowed, so the check-in stays
-// confirmed (the server stops a fix-less one 4 hours after its last fix).
+// "Add this court" at a blurred spot. Every refusal says why and what to do
+// (rule 11, lib/refusals): a fix outside the fence reads "You're about 240 m
+// from Lakeside. You need to be at the court to check in, so try again when
+// you get there."; Not now on the consent sheet says the check-in needs that
+// choice first. A queued check-in the server refused later is reported here
+// the next time the card shows (and as a toast on any screen), and so is a
+// check-in that ended without a Check out here. +1 h sends a fix when location
+// is allowed, so the check-in stays confirmed (the server stops a fix-less one
+// 4 hours after its last fix); when it gives less than an hour, the card says.
 //
 // Every button is bounded (10 s; 16 s when it first waits for a fix; the
 // location permission sheet itself is not timed) and resets its busy state in
@@ -41,7 +45,6 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import {
   askForLocation,
@@ -54,10 +57,13 @@ import {
   peekCurrentCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
+  takeEndedCheckinNote,
   takeFixIfAllowed,
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
+import { explainRefusal } from '../lib/refusalNotices';
+import { refusalCode, refusalCopy, type RefusalContext } from '../lib/refusals';
 import {
   CHECKOUT_FIX_WAIT_MS,
   FIX_REUSE_MS,
@@ -215,8 +221,15 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
 
   useFocusEffect(
     useCallback(() => {
-      // Offline: keep the cached check-in.
-      refreshCurrentCheckin().then(setCurrent).catch(() => {});
+      // Offline: keep the cached check-in. A check-in that ended without my
+      // Check out here (ran out, or closed elsewhere) says so once.
+      refreshCurrentCheckin()
+        .then((c) => {
+          setCurrent(c);
+          const ended = takeEndedCheckinNote();
+          if (ended && !c) setMessage(ended);
+        })
+        .catch(() => {});
       // A queued check-in the server refused while I was away.
       void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
     }, []),
@@ -230,7 +243,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     kind: NonNullable<typeof busy>,
     fn: () => Promise<void>,
     failMsg: string,
-    opts: { boundMs?: number; askLocation?: boolean; consent?: boolean } = {},
+    opts: { boundMs?: number; askLocation?: boolean; consent?: boolean; refusal?: RefusalContext } = {},
   ) {
     setBusy(kind);
     setMessage(null);
@@ -239,15 +252,25 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     try {
       // The one-time "who sees you at the courts" sheet and the permission
       // sheet wait on the player, so they sit outside the bound; the fix and
-      // the write don't. Not now on the consent sheet: nothing happens.
-      if (opts.consent && !(await ensurePresenceConsent())) return;
+      // the write don't. Not now on the consent sheet: no check-in, and the
+      // card says why (rule 11: nothing refused silently).
+      if (opts.consent && !(await ensurePresenceConsent())) {
+        setMessage(refusalCopy('consent.declined'));
+        return;
+      }
       if (opts.askLocation) await askForLocation();
       await withTimeout(fn(), opts.boundMs ?? BOUND_MS);
     } catch (e) {
-      // The server's own words for a fix outside the fence ("about N m away"),
-      // too vague ("isn't precise enough") or too old ("out of date").
-      setMessage(friendlySbMessage(e, failMsg));
+      // Why, then what to do (lib/refusals): how far from the court, too
+      // vague, too old, the court is gone, the check-in already ended,
+      // signed out.
+      setMessage(explainRefusal(e, failMsg, opts.refusal));
       if (kind === 'checkin' && offersUntrackedSession(e)) setOfferUntracked(true);
+      // A check-in the server already ended: stop showing it.
+      const code = refusalCode(e);
+      if (code === 'checkin.closed' || code === 'checkin.none') {
+        void refreshCurrentCheckin().then(setCurrent).catch(() => {});
+      }
     } finally {
       setBusy(null);
     }
@@ -275,7 +298,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           setAddAt({ lat: fix.lat, lng: fix.lng });
         }
       },
-      "Couldn't look up nearby courts.",
+      "Couldn't look up nearby courts. Try again.",
       { askLocation: true },
     );
 
@@ -297,8 +320,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           void claimAlertsOffer().then((show) => show && setAlertsOffer('ask'));
         }
       },
-      "Couldn't check you in.",
-      { boundMs: CHECKIN_BOUND_MS, askLocation: true, consent: true },
+      "Couldn't check you in. Try again.",
+      {
+        boundMs: CHECKIN_BOUND_MS,
+        askLocation: true,
+        consent: true,
+        refusal: { venueName: v.name, action: 'check_in' },
+      },
     );
 
   // The untracked session: a timer only I see, no court, no presence.
@@ -319,11 +347,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           ? lastFix.current
           : await takeFixIfAllowed(6_000);
         if (fix) lastFix.current = fix;
-        const next = await extendCheckinByHour(cur, fix);
+        const { next, note } = await extendCheckinByHour(cur, fix);
         if (next) setCurrent(next);
+        // Less than the hour asked for (no confirming fix): say why.
+        if (!note.full) setMessage(note.message);
       },
-      "Couldn't extend your check-in.",
-      { boundMs: CHECKIN_BOUND_MS },
+      "Couldn't extend your check-in. Try again.",
+      { boundMs: CHECKIN_BOUND_MS, refusal: { venueName: cur.venueName, action: 'extend' } },
     );
 
   const out = (cur: CurrentCheckin) =>
@@ -334,8 +364,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         setCurrent(null);
         setRosterKey((k) => k + 1);
       },
-      "Couldn't check you out.",
-      { boundMs: CHECKOUT_BOUND_MS },
+      "Couldn't check you out. Try again.",
+      { boundMs: CHECKOUT_BOUND_MS, refusal: { venueName: cur.venueName } },
     );
 
   // Same path as the Settings toggle: the OS sheets ask for Always location;
@@ -478,6 +508,14 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             })}
           />
         </HereLine>
+        {current.private ? (
+          // An older build checked in without a fix: stored, but shown to
+          // nobody and counted nowhere (rule 1). Say so, and how to fix it.
+          <Text style={[t.sub, S.gapSm]}>
+            Only you see this check-in: an older version of Pickleague made it without your location. Check out, then
+            check in again at the court to show up there.
+          </Text>
+        ) : null}
         <PauseSharingChip style={S.hug} />
         {footer}
       </Panel>

@@ -5,8 +5,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
+import { explainRefusal } from '../../lib/refusalNotices';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { toggleCourtFavorite, useCourtFavoriteIds } from '../../data/courtFavorites';
@@ -39,7 +39,8 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
       // Arrival alerts fence starred courts too (0 at once on web or with alerts off; never throws).
       void syncCourtGeofences();
     } catch (e) {
-      toast.error(friendlySbMessage(e, "Couldn't change your courts just now."));
+      // Why (the 5-court cap, a court that's gone), then what to do.
+      toast.error(explainRefusal(e, "Couldn't change your courts just now. Try again.", { action: 'favorite', venueName }));
     } finally {
       setBusy(false);
     }

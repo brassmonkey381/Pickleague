@@ -47,10 +47,13 @@ type RequestKey = Pick<FriendRequestRow, 'user_id' | 'direction' | 'created_at'>
 /** suggest_friends(p_limit) */
 export type FriendSuggestion = Person & { reason: string | null; score: number | null };
 
-/** send_friend_request: 'accepted' when it crossed their pending request. */
-export type SendResult = 'pending' | 'accepted' | 'already';
-/** respond_friend_request: 'gone' when nothing was pending any more. */
-export type RespondResult = 'accepted' | 'declined' | 'gone';
+/** send_friend_request: 'accepted' when it crossed their pending request;
+ *  'already' a request of mine is pending; 'already_friends' (since
+ *  migration_refusal_messages.sql; an older server says 'already'). */
+export type SendResult = 'pending' | 'accepted' | 'already' | 'already_friends';
+/** respond_friend_request: 'gone' when nothing was pending any more;
+ *  'already_declined' an Accept on a request I had declined. */
+export type RespondResult = 'accepted' | 'declined' | 'gone' | 'already_declined';
 
 // ── Cache keys (the foundation query cache) ─────────────────────────────────
 
@@ -77,11 +80,11 @@ export function parseFriendStatus(raw: unknown): FriendStatus {
 }
 
 export function parseSendResult(raw: unknown): SendResult {
-  return raw === 'pending' || raw === 'accepted' ? raw : 'already';
+  return raw === 'pending' || raw === 'accepted' || raw === 'already_friends' ? raw : 'already';
 }
 
 export function parseRespondResult(raw: unknown): RespondResult {
-  return raw === 'accepted' || raw === 'declined' ? raw : 'gone';
+  return raw === 'accepted' || raw === 'declined' || raw === 'already_declined' ? raw : 'gone';
 }
 
 // ── The profile's FriendButton ──────────────────────────────────────────────
@@ -123,13 +126,13 @@ export function friendButtonState(
  *  ('already' could be pending or friends; 'gone' could be anything). */
 export function statusAfterSend(result: SendResult): FriendshipStatus | null {
   if (result === 'pending') return 'pending_outgoing';
-  if (result === 'accepted') return 'friends';
+  if (result === 'accepted' || result === 'already_friends') return 'friends';
   return null;
 }
 
 export function statusAfterRespond(result: RespondResult): FriendshipStatus | null {
   if (result === 'accepted') return 'friends';
-  if (result === 'declined') return 'none';
+  if (result === 'declined' || result === 'already_declined') return 'none';
   return null;
 }
 
@@ -316,19 +319,41 @@ export function firstNameOf(full: string | null | undefined): string | null {
 const friendsNow = (who: string | null) => (who ? `You and ${who} are friends now.` : 'You are friends now.');
 
 /** The toast after Add friend. 'already' is a replay or a stale button (the
- *  caller refetches the real state). */
+ *  caller refetches the real state). A sent request never promises a
+ *  notification: a re-request soon after a decline or a cancel is stored
+ *  quietly, and saying so would reveal the decline. */
 export function sendResultMessage(result: SendResult, name: string | null | undefined): string {
   const who = firstNameOf(name);
   if (result === 'accepted') return friendsNow(who);
-  if (result === 'already') return 'Already sent.';
-  return who ? `Request sent. ${who} can accept it from their notifications.` : 'Request sent.';
+  if (result === 'already_friends') return who ? `You and ${who} are already friends.` : "You're already friends.";
+  if (result === 'already') return who ? `You already sent ${who} a request.` : 'You already sent a request.';
+  return who ? `Request sent. ${who} can accept it in Pickleague.` : 'Request sent.';
 }
 
 /** The toast after Accept / Decline. Declining notifies nobody. */
 export function respondResultMessage(result: RespondResult, name: string | null | undefined): string {
   if (result === 'accepted') return friendsNow(firstNameOf(name));
   if (result === 'declined') return "Declined. We won't tell them.";
+  if (result === 'already_declined') {
+    const who = firstNameOf(name);
+    return `You declined ${who ? `${who}'s` : 'this'} request earlier. Send ${who ?? 'them'} a request if you'd like to be friends.`;
+  }
+  // Vague on purpose: a cancel, a block and a deleted account read the same.
   return 'That request is no longer waiting on you.';
+}
+
+/** The toast after Cancel on my request. `statusNow`: read after a false (nothing was pending). */
+export function cancelResultMessage(
+  cancelled: boolean,
+  statusNow: FriendshipStatus | null,
+  name: string | null | undefined,
+): string {
+  if (cancelled) return 'Request cancelled.';
+  const who = firstNameOf(name);
+  if (statusNow === 'friends') {
+    return `${who ?? 'They'} already accepted, so you're friends now. Remove ${who ?? 'them'} from your friends if you'd rather not be.`;
+  }
+  return 'That request was already withdrawn.';
 }
 
 // ── Lock-screen Accept / Decline (lib/friendActions.ts) ─────────────────────
@@ -336,7 +361,7 @@ export function respondResultMessage(result: RespondResult, name: string | null 
 /** What a press did. A replay (delivery is at-least-once) or a request
  *  already answered in the app comes back 'gone' from the RPC; the status
  *  read after it tells "already friends" apart from "nothing to answer". */
-export type FriendActionOutcome = 'accepted' | 'declined' | 'already_friends' | 'gone';
+export type FriendActionOutcome = 'accepted' | 'declined' | 'already_friends' | 'already_declined' | 'gone';
 
 export function friendActionOutcome(
   accept: boolean,
@@ -345,6 +370,7 @@ export function friendActionOutcome(
 ): FriendActionOutcome {
   if (result === 'accepted') return 'accepted';
   if (result === 'declined') return 'declined';
+  if (result === 'already_declined') return 'already_declined';
   if (statusNow === 'friends') return 'already_friends';
   // A second Decline finds nothing pending: the first one landed, and so did
   // a requester's cancel. Either way nothing waits on me, as the press asked.
@@ -361,6 +387,11 @@ export function friendActionNotice(outcome: FriendActionOutcome, subject: string
       return { title: titleWith('Already friends', subject), body: 'You accepted this request already.' };
     case 'declined':
       return { title: titleWith('Declined', subject), body: "We won't tell them." };
+    case 'already_declined':
+      return {
+        title: titleWith('Already declined', subject),
+        body: "You declined this request earlier. Send them a request from their profile if you'd like to be friends.",
+      };
     case 'gone':
       return { title: 'Nothing to answer', body: 'That request is no longer waiting on you.' };
   }

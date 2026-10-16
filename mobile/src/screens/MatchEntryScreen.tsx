@@ -23,12 +23,15 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { computeBadgeProgress } from '../lib/unlockProgress';
 import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
 import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
-import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall, requireUserId, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useToast } from '../lib/useToast';
 import { shortTime } from '../lib/agenda';
-import { noteMatchRecorded, playSession } from '../lib/playSession';
-import { isMissingColumnError, shouldNoteRecorded, validityNote } from '../lib/sessionValidity';
+import { isPlayStartQueued, noteMatchRecorded, playSession } from '../lib/playSession';
+import { isMissingColumnError, shouldNoteRecorded, validityNote, type SessionValidity } from '../lib/sessionValidity';
+import { linkDroppedNote, matchRecordedNote, NOT_A_PLAYER_NOTE, scoreProblem } from '../lib/matchRecording';
+import { explainRefusal } from '../lib/refusalNotices';
+import { refusalCopy } from '../lib/refusals';
 import { getMySessionValidity } from '../data/playSessions';
 
 type Props = {
@@ -516,17 +519,21 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         return setError(`Please enter scores for game ${i + 1}.`);
       }
       if (t1 < 0 || t2 < 0) return setError(`Game ${i + 1}: scores cannot be negative.`);
-      if (t1 === t2) return setError(`Game ${i + 1}: scores cannot be tied — pickleball always has a winner.`);
+      if (t1 === t2) return setError(`Game ${i + 1}: scores can't be tied, because pickleball always has a winner. Fix the score.`);
       parsedGames.push({ t1, t2 });
     }
     const t1GamesWon = parsedGames.filter(g => g.t1 > g.t2).length;
     const t2GamesWon = parsedGames.length - t1GamesWon;
-    if (t1GamesWon === t2GamesWon) return setError('No overall winner — split the series. Add another game or fix the scores.');
+    if (t1GamesWon === t2GamesWon) return setError('No overall winner: each side won the same number of games. Add another game or fix the scores.');
     // For single-game matches keep the exact score; for multi-game matches store
     // the sum of points across games (PLUPR delta math is based on point totals).
     const s1 = parsedGames.length === 1 ? parsedGames[0].t1 : parsedGames.reduce((a, g) => a + g.t1, 0);
     const s2 = parsedGames.length === 1 ? parsedGames[0].t2 : parsedGames.reduce((a, g) => a + g.t2, 0);
     const gameScoresPayload = parsedGames.length > 1 ? parsedGames : null;
+    // The server's score rule (11+ with a 2-point lead, at most 50), said
+    // here in words instead of as a raw constraint error after the send.
+    const scoreErr = scoreProblem(parsedGames.length, s1, s2);
+    if (scoreErr) return setError(scoreErr);
     // Tournament matches inherit the tournament's location; only require for league matches.
     if (!isTournamentMatch && !location) return setError('Please enter a match location.');
     // For doubles, every ungendered player needs a per-match gender declared.
@@ -625,12 +632,21 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // A linked insert reads the link back, to learn whether the server kept
       // it; an unlinked one never names the column (a server without
       // migration_validity_rules.sql doesn't have it).
+      // The status and deadline come back too: the server decides them (a
+      // pending match, due within the hour), and the result line says what
+      // it stored.
+      type Inserted = { id: string; status?: string; confirm_deadline?: string | null; play_session_id?: string | null };
       const insertOnce = (r: Record<string, unknown>) =>
         sbCall(
-          () => supabase.from('matches').insert(r).select('play_session_id' in r ? 'id, play_session_id' : 'id').single(),
+          () =>
+            supabase
+              .from('matches')
+              .insert(r)
+              .select('play_session_id' in r ? 'id, status, confirm_deadline, play_session_id' : 'id, status, confirm_deadline')
+              .single(),
           { retries: 0, timeoutMs: 30_000 },
-        ) as Promise<{ id: string; play_session_id?: string | null } | null>;
-      let inserted: { id: string; play_session_id?: string | null } | null;
+        ) as Promise<Inserted | null>;
+      let inserted: Inserted | null;
       let sentLink = !!linkTo;
       try {
         inserted = await insertOnce(row);
@@ -652,22 +668,45 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // one runs, from any entry point): End won't ask for it again. Not when
       // the server dropped the link it was sent (that session isn't stored
       // yet, was refused, or ended over 2 h ago): End asks the server then.
+      // What the server stored: confirmed only for godmode; else pending, due
+      // by its deadline (the guard decides, whatever this form sent).
+      const storedConfirmed = inserted?.status ? inserted.status === 'completed' : isGod;
+      const deadlineMs = inserted?.confirm_deadline ? Date.parse(inserted.confirm_deadline) : NaN;
       const running = playSession.get();
       const forSession = playSessionId ?? (running.status !== 'idle' ? running.id : null);
       if (
         forSession && inserted?.id &&
         shouldNoteRecorded({ iPlayed, sessionId: forSession, sentLink, linkedBack: inserted.play_session_id })
       ) {
-        noteMatchRecorded(forSession);
+        // Pending until the other team confirms: End says so (decision 3).
+        noteMatchRecorded(forSession, { confirmed: storedConfirmed });
       }
-      if (playSessionId && inserted?.id && !iPlayed) {
-        toast.info("This match doesn't count for your play session: you're not one of the players.");
-      }
-      // From a play session: the player hears whether it counts now
-      // (best-effort, never blocks).
+      if (playSessionId && inserted?.id && !iPlayed) toast.info(NOT_A_PLAYER_NOTE);
+      // From a play session: the player hears whether it counts now, or why
+      // not (the server dropped the link: too late, or the session isn't
+      // there). Best-effort, never blocks.
       if (linkTo && inserted?.id) {
-        void withTimeout(getMySessionValidity(linkTo), 5_000)
-          .then((v) => {
+        const sessionId = linkTo;
+        const linkedBack = inserted.play_session_id;
+        void withTimeout(getMySessionValidity(sessionId), 5_000)
+          .then(
+            (v): SessionValidity | null | 'unknown' => v,
+            (): 'unknown' => 'unknown',
+          )
+          .then(async (v) => {
+            const dropped = linkDroppedNote({
+              sentLink,
+              linkedBack,
+              sessionId,
+              validity: v,
+              startQueued: v === null ? await isPlayStartQueued(sessionId) : false,
+              nowMs: Date.now(),
+            });
+            if (dropped) {
+              toast.info(dropped);
+              return;
+            }
+            if (v === 'unknown') return;
             const note = validityNote(v, Date.now(), shortTime);
             if (!note) return;
             if (v?.valid) toast.success(note);
@@ -693,26 +732,42 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         }
       }
 
-      const baseMsg = isGod
-        ? 'Match recorded and confirmed (godmode). PLUPR updated.'
-        : 'Match recorded — pending confirmation. The other team has 1 hour to confirm before this match expires.';
+      // Who still has to confirm, by when, or it's removed (a recorder who
+      // didn't play confirms neither team).
+      const baseMsg = matchRecordedNote({
+        confirmed: storedConfirmed,
+        iPlayed,
+        deadline: Number.isFinite(deadlineMs) ? new Date(deadlineMs) : null,
+        timeLabel: shortTime,
+      });
 
       // Show the result + schedule navigation immediately — never wait on the
       // nudge query. The unlock nudge runs in parallel and, if it resolves
       // before the screen pops, upgrades the banner with a "keep going" line
       // when the entering user is 50–99% toward an unearned badge.
       status.success(baseMsg);
-      navTimer.current = setTimeout(() => navigation.goBack(), isGod ? 1500 : 2500);
+      navTimer.current = setTimeout(() => navigation.goBack(), storedConfirmed ? 1500 : 3500);
       computeBadgeProgress(enteringUid)
         .then(progress => {
           const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
-          if (close) status.success(`${baseMsg}\n\n🔥 ${close.label} — keep going to unlock ${close.badge}!`);
+          if (close) status.success(`${baseMsg}\n\n🔥 ${close.label}: keep going to unlock ${close.badge}!`);
         })
         .catch(() => { /* nudge is best-effort */ });
     } catch (e) {
-      setError(friendlySbMessage(e, 'Could not record the match.', {
-        network: 'Lost the connection, so we can\'t tell whether this match saved. Check Match History before recording it again.',
-      }));
+      // A 42501 on this insert is the league-membership rule (RLS): the
+      // recorder left or was removed since the form loaded. Say so.
+      if (classifySbError(e) === 'permission') {
+        const leagueName = leagueCandidates.find((l) => l.id === selectedLeagueId)?.name ?? null;
+        setError(refusalCopy('match.not_member', { leagueName }));
+      } else if ((e as { code?: string } | null)?.code === '23514' && /score_sanity/i.test(String((e as Error).message))) {
+        setError(refusalCopy('match.score_invalid'));
+      } else {
+        setError(
+          explainRefusal(e, "Couldn't record the match. Try again.", {}, {
+            network: "Lost the connection, so we can't tell whether this match saved. Check Match History before recording it again.",
+          }),
+        );
+      }
     } finally {
       inFlight.current = false;
       setLoading(false);

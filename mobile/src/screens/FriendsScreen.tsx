@@ -24,7 +24,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, type RouteProp } from '@react-navigation/native';
-import { currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import {
   Avatar,
   EmptyState,
@@ -56,10 +56,12 @@ import {
   useFriendRequests,
   useFriendSuggestions,
   useMyFriends,
-  withdrawFriendRequest,
+  withdrawFriendRequestAndCheck,
   type FriendPerson,
 } from '../lib/useFriends';
+import { explainRefusal } from '../lib/refusalNotices';
 import {
+  cancelResultMessage,
   findExcludeIds,
   firstNameOf,
   friendsSinceLabel,
@@ -170,21 +172,35 @@ export default function FriendsScreen({ navigation, route }: Props) {
 
   // One write at a time per person (its row's buttons go busy).
   const [busyId, setBusyId] = useState<string | null>(null);
-  async function run<T>(userId: string, write: () => Promise<T>, done: (res: T) => string | null, failMsg: string) {
+  async function run<T>(
+    userId: string,
+    write: () => Promise<T>,
+    done: (res: T) => string | null,
+    failMsg: string,
+    name?: string | null,
+  ) {
     if (busyId) return;
     setBusyId(userId);
     try {
       const msg = done(await write());
       if (msg) toast.success(msg);
     } catch (e) {
-      toast.error(friendlySbMessage(e, failMsg));
+      // Why, then what to do (lib/refusals): not joined yet, a guest pass,
+      // 20 a day, no longer friends. A block stays vague.
+      toast.error(explainRefusal(e, failMsg, { personName: firstNameOf(name), action: 'friend' }));
     } finally {
       setBusyId(null);
     }
   }
 
   const add = (p: FriendPerson) =>
-    run(p.user_id, () => addFriend(p), (res) => sendResultMessage(res, p.full_name), "Couldn't send the request.");
+    run(
+      p.user_id,
+      () => addFriend(p),
+      (res) => sendResultMessage(res, p.full_name),
+      "Couldn't send the request. Try again.",
+      p.full_name,
+    );
 
   const openProfile = (p: FriendPerson) =>
     navigation.navigate('PlayerProfile', { userId: p.user_id, userName: p.full_name ?? 'Player' });
@@ -238,7 +254,8 @@ export default function FriendsScreen({ navigation, route }: Props) {
       f.user_id,
       () => markCloseFriend(f.user_id, !f.is_close_friend),
       () => (f.is_close_friend ? `${first} is no longer a close friend.` : `⭐ ${first} is a close friend.`),
-      "Couldn't change that just now.",
+      "Couldn't change that just now. Try again.",
+      f.full_name,
     );
   };
   const remove = (f: FriendRow) =>
@@ -332,8 +349,9 @@ export default function FriendsScreen({ navigation, route }: Props) {
                             loading={busyId === r.user_id}
                             disabled={!!busyId}
                             onPress={() => {
-                              void run(r.user_id, () => withdrawFriendRequest(r.user_id),
-                                () => 'Request cancelled.', "Couldn't cancel just now.");
+                              void run(r.user_id, () => withdrawFriendRequestAndCheck(r.user_id),
+                                (res) => cancelResultMessage(res.cancelled, res.statusNow, r.full_name),
+                                "Couldn't cancel just now. Try again.", r.full_name);
                             }}
                           />
                         }

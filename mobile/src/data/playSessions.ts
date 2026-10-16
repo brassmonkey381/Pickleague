@@ -84,6 +84,19 @@ export async function getMySessionValidity(id: string): Promise<SessionValidity 
     null) as SessionValidity | null;
 }
 
+/** One of my sessions by id (owner-only read), open or ended; null when the server has none. */
+export async function getMyPlaySession(id: string): Promise<PlaySessionRow | null> {
+  return ((await sbCall(
+    () =>
+      supabase
+        .from('play_sessions')
+        .select('id, user_id, kind, source_id, venue_id, started_at, ended_at')
+        .eq('id', id)
+        .maybeSingle(),
+    BOUND,
+  )) ?? null) as PlaySessionRow | null;
+}
+
 /** My open session started in the last 6 hours, or null. */
 export async function getMyActivePlaySession(userId: string): Promise<PlaySessionRow | null> {
   const rows = (await sbCall(

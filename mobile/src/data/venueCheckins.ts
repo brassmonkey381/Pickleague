@@ -20,6 +20,8 @@ export type VenueCheckin = {
   expires_at: string;
   checked_out_at: string | null;
   source: CheckinSource;
+  /** False for a private row: a check-in an older build made without a fix (nobody sees it). */
+  location_confirmed?: boolean;
 };
 
 /** resolve_court's answer: the canonical pickleball court at (or nearest to) a point. */
@@ -105,7 +107,7 @@ export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | n
     () =>
       supabase
         .from('venue_checkins')
-        .select('id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source')
+        .select('id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source, location_confirmed')
         .eq('user_id', userId)
         .is('checked_out_at', null)
         .gt('expires_at', new Date().toISOString())

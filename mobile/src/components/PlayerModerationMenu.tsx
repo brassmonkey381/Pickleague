@@ -16,6 +16,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { blockUser, unblockUser, useBlockedIds, ReportSubjectType } from '../lib/moderation';
 import { hidePresenceFrom, usePresenceHiddenIds } from '../data/presenceSettings';
+import { explainRefusal } from '../lib/refusalNotices';
 
 type Props = {
   userId:       string;
@@ -64,7 +65,8 @@ export default function PlayerModerationMenu({
           : `${userName} can see you at the courts again, as your setting allows.`,
       );
     } catch (e) {
-      toast.error(friendlySbMessage(e, "We couldn't change that just now."));
+      // Why (the account is gone, signed out), then what to do.
+      toast.error(explainRefusal(e, "We couldn't change that just now. Try again.", { action: 'hide' }));
     }
   }
 

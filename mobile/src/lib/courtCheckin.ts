@@ -27,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
+import { TimeoutError } from '@just-messin-around/expo-foundation/platform';
 import {
   getCurrentCoords,
   getForegroundLocationStatus,
@@ -38,8 +38,10 @@ import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { shortTime } from './agenda';
-import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
+import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { titleWith } from './pushSubject';
+import { isRetryLater, noteRefusalNotice } from './refusalNotices';
+import { extendedNote, queuedRefusalNotice, refusalCode, whenLabel } from './refusals';
 import { isEndPending } from './playEndPending';
 import { readPendingEnds } from './playEndPendingStore';
 import {
@@ -77,6 +79,8 @@ export type CurrentCheckin = {
   source: CheckinSource;
   /** Saved offline; not on the server yet. */
   queued?: boolean;
+  /** Made by an older build without a fix: stored privately, nobody sees it (the card says so). */
+  private?: boolean;
 };
 
 const STORAGE_KEY = 'pickleague_current_checkin_v1';
@@ -95,37 +99,78 @@ export const checkinChanged = createSignal<CurrentCheckin | null>();
 /** Emits the notice when a queued check-in is refused on replay. */
 export const checkinRejected = createSignal<string>();
 
+/**
+ * No signal, or no signed-in session right now: keep the queued write for the
+ * next pass instead of dropping it (the queue keeps only "network" failures,
+ * so this rethrows one). Anything else is a real refusal.
+ */
+function retryLater(e: unknown): never {
+  throw isRetryLater(e) && !(e instanceof TimeoutError) ? new TimeoutError('Waiting to send again') : e;
+}
+
 registerMutationHandler(MUTATION_CHECKIN, {
   maxAgeMs: QUEUED_CHECKIN_MAX_AGE_MS,
   run: async (p) => {
     const payload = p as CheckinPayload;
     // Queued by a build that sent no fix: it can't be confirmed, so it is
-    // never sent (the throw makes the queue drop it).
+    // never sent (the throw makes the queue drop it). The player hears why.
     if (!isValidFix(payload.fix)) {
-      await noteRejected(payload, null);
+      await noteRejected(payload, null, { noFix: true });
       throw new Error('Queued check-in has no location fix');
     }
     let row: VenueCheckin;
     try {
       row = await checkinVenue(payload);
     } catch (e) {
-      if (!isNetworkError(e)) await noteRejected(payload, e);
-      throw e; // network: stays queued; anything else: the queue drops it
+      if (isRetryLater(e)) retryLater(e); // no signal / signed out: stays queued
+      await noteRejected(payload, e);
+      throw e; // refused: the queue drops it, and the player was told why
     }
     await adoptReplayed(payload.id, row);
   },
 });
 registerMutationHandler(MUTATION_CHECKOUT, {
   run: async (p) => {
-    const { id, source, at, fix } = p as Partial<CheckoutPayload>;
+    const payload = p as Partial<CheckoutPayload>;
+    const { id, source, at, fix } = payload;
     // A check-out of a check-in the server refused: nothing to close, and the
     // server's "no such row" fallback must not close a later one instead.
     if (id && (await wasRejected(id))) return;
-    // The fix taken at the tap (none when queued by an older build); its age
-    // is measured at this send, so the server places it when it was taken.
-    await checkoutVenue(id ?? null, source, at, isValidFix(fix) ? fix : null);
+    try {
+      // The fix taken at the tap (none when queued by an older build); its age
+      // is measured at this send, so the server places it when it was taken.
+      await checkoutVenue(id ?? null, source, at, isValidFix(fix) ? fix : null);
+    } catch (e) {
+      if (isRetryLater(e)) retryLater(e); // no signal / signed out: stays queued
+      await noteCheckoutRefused(payload, e);
+      throw e;
+    }
   },
 });
+
+/**
+ * A queued check-out the server refused: the check-in is still open there,
+ * so friends may still see me at the court. Say so, bring the check-in back
+ * on the card (with its Check out), and never drop it silently.
+ */
+async function noteCheckoutRefused(payload: Partial<CheckoutPayload>, error: unknown): Promise<void> {
+  const tapMs = payload.at ? Date.parse(payload.at) : Date.now();
+  const untilMs = payload.until ? Date.parse(payload.until) : null;
+  await noteRefusalNotice({
+    key: `checkout:${payload.id ?? payload.at ?? ''}`,
+    title: "Check-out didn't go through",
+    body: queuedRefusalNotice({
+      what: 'check_out',
+      venueName: payload.venueName ?? null,
+      tapMs: Number.isFinite(tapMs) ? tapMs : Date.now(),
+      error,
+      untilMs: untilMs != null && Number.isFinite(untilMs) ? untilMs : null,
+    }),
+    link: 'home/-',
+  });
+  // The server's open check-in shows again, so Check out is one tap away.
+  await refreshCurrentCheckin().catch(() => null);
+}
 
 async function readStored(): Promise<CurrentCheckin | null> {
   try {
@@ -192,21 +237,29 @@ async function wasRejected(id: string): Promise<boolean> {
   return (await readRejected()).some((r) => r.id === id);
 }
 
-/** Remember the refusal for the next time the app is open, and drop the "saved offline" check-in it left behind. */
-async function noteRejected(payload: CheckinPayload, error: unknown): Promise<void> {
+/**
+ * Remember the refusal for the court card, tell the player on any screen (a
+ * toast, or a notification when the app is in the background), and drop the
+ * "saved offline" check-in it left behind.
+ */
+async function noteRejected(payload: CheckinPayload, error: unknown, opts: { noFix?: boolean } = {}): Promise<void> {
   const cached = await readStored();
   const venueName =
     cached?.id === payload.id ? cached.venueName : (await getVenueName(payload.venueId).catch(() => null)) ?? 'the court';
   const notice = rejectedCheckinNotice({
     venueName,
     timeLabel: shortTime(new Date(payload.at)),
-    fixWasStale: !isFixFresh(payload.fix, Date.now()),
+    noFix: opts.noFix,
+    // Past the 2-minute rule when it was finally sent: that is the reason,
+    // whatever else the server said about it.
+    fixWasStale: !opts.noFix && !isFixFresh(payload.fix, Date.now()) && refusalCode(error) !== 'court.gone',
     error,
   });
   const list = (await readRejected()).filter((r) => r.id !== payload.id);
   await writeRejected([...list, { id: payload.id, notice, atMs: Date.now() }]);
   if (cached?.id === payload.id) await setCurrent(null);
   checkinRejected.emit(notice);
+  await noteRefusalNotice({ key: `checkin:${payload.id}`, title: "Check-in didn't go through", body: notice, link: 'home/-' });
 }
 
 /** The oldest refusal not shown yet (now marked shown), or null. */
@@ -268,10 +321,37 @@ export async function noFixReason(): Promise<string> {
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
+// A check-in this device showed that ended without the player's Check out
+// here (its time ran out, or the server closed it: checked out elsewhere, a
+// check-in at another court, its session's End). The court card says so once,
+// so the card going back to "At the courts?" is never silent.
+let endedNote: string | null = null;
+
+function noteCheckinEnded(c: CurrentCheckin, how: 'expired' | 'closed'): void {
+  endedNote =
+    how === 'expired'
+      ? `Your check-in at ${c.venueName} ended at ${whenLabel(new Date(c.expiresAt))}. Check in again if you're still there.`
+      : `Your check-in at ${c.venueName} has ended. Check in again if you're still there.`;
+}
+
+/** The "your check-in ended" line, once (null when there is none). */
+export function takeEndedCheckinNote(): string | null {
+  const n = endedNote;
+  endedNote = null;
+  return n;
+}
+
 /** The signed-in player's current check-in from the local cache (no network). */
 export async function peekCurrentCheckin(): Promise<CurrentCheckin | null> {
   const [c, uid] = await Promise.all([readStored(), currentUserId(supabase)]);
-  return c && uid && c.userId === uid ? live(c) : null;
+  if (!c || !uid || c.userId !== uid) return null;
+  if (!live(c)) {
+    // Ran out on its own: forget it, and say so once.
+    if (!c.queued) noteCheckinEnded(c, 'expired');
+    await setCurrent(null);
+    return null;
+  }
+  return c;
 }
 
 /**
@@ -289,7 +369,12 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   const row = ended ? null : open;
   if (!row) {
     if (cached?.queued) return cached;
-    if (cached) await setCurrent(null);
+    if (cached) {
+      // Closed on the server, not by a Check out here (those clear the cache):
+      // a session's own check-in ends with its End, which says so itself.
+      if (cached.source !== 'session') noteCheckinEnded(cached, 'closed');
+      await setCurrent(null);
+    }
     return null;
   }
   const venueName =
@@ -301,8 +386,17 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
     venueName,
     expiresAt: row.expires_at,
     source: row.source,
+    ...(row.location_confirmed === false ? { private: true } : {}),
   };
-  if (!cached || cached.id !== next.id || cached.expiresAt !== next.expiresAt || cached.queued) await setCurrent(next);
+  if (
+    !cached ||
+    cached.id !== next.id ||
+    cached.expiresAt !== next.expiresAt ||
+    cached.queued ||
+    !!cached.private !== !!next.private
+  ) {
+    await setCurrent(next);
+  }
   return next;
 }
 
@@ -349,16 +443,31 @@ export async function checkInAt(
  * (without one the server stops 4 hours after the last confirming fix).
  */
 export async function extendCheckinByHour(
-  c: Pick<CurrentCheckin, 'id' | 'expiresAt'>,
+  c: Pick<CurrentCheckin, 'id' | 'expiresAt'> & { venueName?: string | null },
   fix?: DeviceFix | null,
-): Promise<CurrentCheckin | null> {
-  const until = new Date(Math.max(new Date(c.expiresAt).getTime(), Date.now()) + HOUR_MS).toISOString();
-  const row = await extendCheckin(c.id, until, fix);
+): Promise<{ next: CurrentCheckin | null; note: { full: boolean; message: string } }> {
+  const requested = Math.max(new Date(c.expiresAt).getTime(), Date.now()) + HOUR_MS;
+  let row: VenueCheckin;
+  try {
+    row = await extendCheckin(c.id, new Date(requested).toISOString(), fix);
+  } catch (e) {
+    // The check-in already ended on the server (checked out elsewhere, closed
+    // by a check-in at another court or its session's End): stop showing it.
+    const code = refusalCode(e);
+    if (code === 'checkin.closed' || code === 'checkin.none') await refreshCurrentCheckin().catch(() => null);
+    throw e;
+  }
   const cached = await readStored();
-  if (cached?.id !== c.id) return null;
+  // Without a confirming fix the server may give less than an hour: say so.
+  const note = extendedNote({
+    requestedUntilMs: requested,
+    gotUntilMs: Date.parse(row.expires_at),
+    venueName: c.venueName ?? (cached?.id === c.id ? cached.venueName : null),
+  });
+  if (cached?.id !== c.id) return { next: null, note };
   const next = { ...cached, expiresAt: row.expires_at };
   await setCurrent(next);
-  return next;
+  return { next, note };
 }
 
 /**
@@ -375,12 +484,17 @@ export async function checkOut(
 ): Promise<{ queued: boolean }> {
   const fix =
     opts.fix === false ? null : await fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS);
-  const payload = checkoutPayload(id, source, Date.now(), fix);
+  const cached = await readStored();
+  const mine = cached && (id === null || cached.id === id) && (!source || cached.source === source) ? cached : null;
+  // Where and until when, for the notice if a queued check-out is refused later.
+  const payload: CheckoutPayload = {
+    ...checkoutPayload(id, source, Date.now(), fix),
+    ...(mine ? { venueName: mine.venueName, until: mine.expiresAt } : {}),
+  };
   const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () =>
     checkoutVenue(id, source, payload.at, payload.fix ?? null),
   );
-  const cached = await readStored();
-  if (cached && (id === null || cached.id === id) && (!source || cached.source === source)) await setCurrent(null);
+  if (mine) await setCurrent(null);
   return { queued };
 }
 
@@ -401,17 +515,30 @@ registerActionHandler('checkin_extend', {
   // The reminder carries venue_name, so the notice names the court.
   // Waits up to 5 s for a fix, then the 9 s write.
   timeoutMs: 15_000,
-  success: (_res, d) => ({ title: titleWith('Extended', d.venue_name), body: 'Checked in for another hour.' }),
+  // The full hour, or less and why (no confirming fix: 4 hours past the last one).
+  success: (res, d) => {
+    const note = (res as { note?: { full: boolean; message: string } } | null)?.note;
+    return {
+      title: titleWith(note && !note.full ? 'Extended, not a full hour' : 'Extended', d.venue_name),
+      body: note?.message ?? 'Checked in for another hour.',
+    };
+  },
   run: async (d) => {
     await requireUser();
-    if (!d.checkin_id || !d.expires_at) throw new NeedsApp('Open Pickleague to extend your check-in.');
+    if (!d.checkin_id || !d.expires_at) {
+      throw new NeedsApp("This reminder didn't say which check-in to extend. Open Pickleague to extend it.");
+    }
     // A fix confirms I am still there (it works in the background only with
     // "Always" location). Without one the server extends only so far past the
     // last confirming fix, then the app has to be opened at the court.
     const fix = await takeFixIfAllowed(5_000);
     try {
-      await extendCheckinByHour({ id: d.checkin_id, expiresAt: d.expires_at }, fix);
+      return await extendCheckinByHour({ id: d.checkin_id, expiresAt: d.expires_at, venueName: d.venue_name }, fix);
     } catch (e) {
+      // Why, in words: not at the court (how far), no fix for 4 hours, the
+      // check-in already ended, signed out (lib/refusals).
+      const why = refusalNeedsApp(e, { venueName: d.venue_name, action: 'extend' });
+      if (why) throw why;
       if (needsCourtToExtend(e)) throw new NeedsApp('Open Pickleague at the court to stay checked in.');
       throw e;
     }

@@ -121,6 +121,25 @@ export function consentAudienceLine(level: CheckinsLevel): string {
   }
 }
 
+/**
+ * After a check-in: who can see you there now, true to the player's own
+ * settings (a paused or hidden player is "a player" to everyone else).
+ */
+export function checkedInVisibilityLine(s: PresenceSettings, nowMs: number): string {
+  const until = s.paused_until ? Date.parse(s.paused_until) : NaN;
+  if (Number.isFinite(until) && until > nowMs) return 'Sharing is paused, so others see "a player" here.';
+  switch (s.checkins_level) {
+    case 'everyone':
+      return 'Other players can see you are here.';
+    case 'leaguemates':
+      return 'Your friends and closed-league mates can see you are here.';
+    case 'friends':
+      return 'Your friends can see you are here.';
+    case 'hidden':
+      return 'Your name is hidden, so others see "a player" here.';
+  }
+}
+
 /** The consent sheet's second line: what everyone else sees. */
 export function consentOthersLine(level: CheckinsLevel): string {
   return level === 'hidden'

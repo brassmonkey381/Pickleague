@@ -39,6 +39,7 @@ import { linkOf } from './pushLinks';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { eventVote } from './eventVote';
 import { pushSubject, titleWith } from './pushSubject';
+import { refusalCode, refusalCopy, refusalDetail, refusalTitle, type RefusalContext } from './refusals';
 
 export const catalog = defineNotificationCatalog(CATALOG);
 const ACTION_IDS = new Set<string>(Object.values(CATALOG).flatMap((c) => Object.keys(c.actions)));
@@ -80,9 +81,11 @@ export type ActionPushData = {
 };
 
 /** A precondition the lock screen can't satisfy; the message is the notice body.
- *  `link` is where a tap on that notice goes (default: the push's own link). */
+ *  `link` is where a tap on that notice goes (default: the push's own link);
+ *  `title` replaces "That didn't save" when something more specific is true
+ *  ("Not checked in", "Check-in ended"). */
 export class NeedsApp extends Error {
-  constructor(message: string, readonly link?: string) {
+  constructor(message: string, readonly link?: string, readonly title?: string) {
     super(message);
   }
 }
@@ -94,8 +97,24 @@ export async function requireUser(): Promise<string> {
   // LOCAL session read: getUser() is a network round trip, and this may be a
   // cold background launch on a slow connection.
   const uid = await currentUserId(supabase);
-  if (!uid) throw new NeedsApp('Sign in to Pickleague to respond.');
+  if (!uid) throw new NeedsApp("You're signed out. Sign in to Pickleague to respond.", undefined, 'Signed out');
   return uid;
+}
+
+/** The lock-screen notice for a refusal with a code (null: not one lib/refusals knows). */
+export function refusalNotice(e: unknown, ctx: RefusalContext = {}): NoticeCopy | null {
+  const code = refusalCode(e);
+  if (!code) return null;
+  return {
+    title: refusalTitle(code),
+    body: refusalCopy(code, { ...ctx, surface: 'lock' }, refusalDetail(e), message(e)),
+  };
+}
+
+/** A refusal as a NeedsApp, worded with what the handler knows (the court's name). Else null. */
+export function refusalNeedsApp(e: unknown, ctx: RefusalContext, link?: string): NeedsApp | null {
+  const n = refusalNotice(e, ctx);
+  return n ? new NeedsApp(n.body, link, n.title) : null;
 }
 
 function needs(id: string | null | undefined, msg: string): string {
@@ -108,8 +127,11 @@ const message = (e: unknown): string => (e as { message?: string })?.message ?? 
 /** Known server rejections become specific copy; everything else is FAILED. */
 export function mapError(e: unknown): NoticeCopy | null {
   if (e instanceof NeedsApp) {
-    return { title: "That didn't save", body: e.message, ...(e.link ? { data: { deepLink: e.link } } : {}) };
+    return { title: e.title ?? "That didn't save", body: e.message, ...(e.link ? { data: { deepLink: e.link } } : {}) };
   }
+  // A refusal with a code (or a known message): why, and what to do (lib/refusals).
+  const refusal = refusalNotice(e);
+  if (refusal) return refusal;
   const raw = message(e);
   // The entry fee: "User <id> has only N 🥒, ante is M (after S🥒 subsidy)".
   if (/has only \d+/i.test(raw)) {
@@ -251,16 +273,21 @@ const HANDLERS: Record<string, ActionHandler> = {
     success: (res) =>
       res === 'already'
         ? { title: 'Already confirmed', body: 'This match is recorded.' }
-        : { title: 'Match confirmed', body: 'Ratings update shortly.' },
-    // Raises (not an error code) for a match that lapsed or was already
-    // settled. A replay after the first press completed it is "already", not
-    // "Nothing to answer"; a lapsed match stays "no longer waiting on you".
+        : res === 'already_your_team'
+          ? { title: 'Already confirmed', body: 'Your team already confirmed this match. It counts once the other team confirms within the hour.' }
+          : res === 'one_team_confirmed'
+            ? { title: 'Confirmed for your team', body: 'The other team still has to confirm within the hour. Ratings update after that.' }
+            : { title: 'Match confirmed', body: 'Ratings update shortly.' },
+    // Raises for a match that lapsed or was already settled (each with its
+    // code, lib/refusals). A replay after the first press completed it is
+    // "already"; a lapsed one says it was removed or is too late, and why.
     run: async (d) => {
       const matchId = needs(d.entity_id, 'Open Pickleague to confirm this match.');
       const uid = await requireUser();
       try {
-        await rpc('confirm_match', { p_match_id: matchId });
-        return 'confirmed';
+        // 'completed' | 'one_team_confirmed' | 'already_your_team' (an older server: the first two).
+        const res = await rpc('confirm_match', { p_match_id: matchId });
+        return typeof res === 'string' ? res : 'completed';
       } catch (e) {
         if (!/no longer pending/i.test(message(e))) throw e;
         const m = (await sbCall(

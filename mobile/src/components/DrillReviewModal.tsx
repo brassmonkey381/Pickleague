@@ -3,9 +3,13 @@ import {
   View, Text, Modal, TouchableOpacity, TextInput, ScrollView,
   ActivityIndicator, StyleSheet,
 } from 'react-native';
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { useToast } from '../lib/useToast';
 import { noteDrillReviewed } from '../lib/playSession';
+import { explainRefusal } from '../lib/refusalNotices';
+import { drillReviewRefusal } from '../lib/refusals';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
 export type ReviewableDrill = { id: string; partner_name: string };
@@ -37,6 +41,7 @@ export default function DrillReviewModal({
 }) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const toast = useToast();
 
   const [ratings, setRatings] = useState<Record<FacetKey, number>>({
     consistency: 0, effort: 0, organization: 0, intentionality: 0, fun: 0,
@@ -67,23 +72,45 @@ export default function DrillReviewModal({
     if (!session || answered < 1) return;
     setSubmitting(true);
     setError(null);
-    const { data, error: rpcError } = await supabase.rpc('submit_drill_review', {
-      p_session_id:     session.id,
-      p_consistency:    ratings.consistency    || null,
-      p_effort:         ratings.effort         || null,
-      p_organization:   ratings.organization   || null,
-      p_intentionality: ratings.intentionality || null,
-      p_fun:            ratings.fun            || null,
-      p_notes:          notes.trim() || null,
-    });
+    type Row = { success?: boolean; pickles_granted?: number; message?: string };
+    let data: Row[] | Row | null;
+    try {
+      // Bounded (a dead connection never leaves the spinner running); not
+      // retried: a second try of a review that landed reads "already reviewed".
+      data = (await sbCall(
+        () =>
+          supabase.rpc('submit_drill_review', {
+            p_session_id:     session.id,
+            p_consistency:    ratings.consistency    || null,
+            p_effort:         ratings.effort         || null,
+            p_organization:   ratings.organization   || null,
+            p_intentionality: ratings.intentionality || null,
+            p_fun:            ratings.fun            || null,
+            p_notes:          notes.trim() || null,
+          }),
+        { retries: 0, timeoutMs: 15_000 },
+      )) as Row[] | Row | null;
+    } catch (e) {
+      setSubmitting(false);
+      setError(
+        explainRefusal(e, "Your review wasn't saved. Try again.", {}, {
+          network: "No connection, so your review wasn't sent. Try again.",
+        }),
+      );
+      return;
+    }
     setSubmitting(false);
-    if (rpcError) { setError(rpcError.message); return; }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.success) { setError(row?.message ?? 'Could not submit your review.'); return; }
+    // Why the server didn't take it, then what to do.
+    if (!row?.success) { setError(drillReviewRefusal(row?.message)); return; }
     const got = row.pickles_granted ?? preview;
     setEarned(got);
-    // A drill held during my running play session makes it count: End won't ask again.
-    void noteDrillReviewed();
+    // A drill held during my running (or just-ended) play session makes it
+    // count: say so, or why this drill doesn't count for it. A toast, so it
+    // outlives this sheet.
+    void noteDrillReviewed().then((note) => {
+      if (note) toast.info(note);
+    });
     const sid = session.id;
     setTimeout(() => onSubmitted(sid, got), 1300);
   }

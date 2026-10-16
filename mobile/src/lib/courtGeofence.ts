@@ -24,11 +24,16 @@ import { defineGeofenceTask, syncGeofences, type GeofenceRegion } from '@just-me
 import { postLocalNotice } from '@just-messin-around/expo-foundation/platform/push';
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
-import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { checkInAt, checkOut, impreciseFixReason, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
 import { offersUntrackedSession } from './courtCheckinRules';
 import { FRIENDS_AT_COURTS_ENABLED } from './features';
-import { hasPresenceConsent } from './presenceConsent';
+import { presenceConsentState } from './presenceConsent';
+import { checkedInVisibilityLine, DEFAULT_PRESENCE_SETTINGS } from './presencePrivacy';
+import { noteRefusalNotice } from './refusalNotices';
+import { queuedRefusalNotice, refusalCopy } from './refusals';
+import { loadPresenceSettings } from '../data/presenceSettings';
 import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
 import { listMyCourtFavorites } from '../data/courtFavorites';
 import { listPasses, walletRegionId } from './qrWallet';
@@ -83,7 +88,22 @@ async function onExit(venueId: string): Promise<void> {
   const current = await peekCurrentCheckin();
   if (current && current.venueId === venueId && current.source === 'geofence') {
     // No check-out fix: I've left the fence, so one taken here proves no stay.
-    await checkOut(current.id, 'geofence', { fix: false }).catch(() => {});
+    // No signal queues it; a refusal is said (the player isn't watching).
+    const tapMs = Date.now();
+    await checkOut(current.id, 'geofence', { fix: false }).catch((e: unknown) =>
+      noteRefusalNotice({
+        key: `checkout:${current.id}`,
+        title: "Check-out didn't go through",
+        body: queuedRefusalNotice({
+          what: 'check_out',
+          venueName: current.venueName,
+          tapMs,
+          error: e,
+          untilMs: Date.parse(current.expiresAt),
+        }),
+        link: 'home/-',
+      }),
+    );
   }
 }
 
@@ -95,33 +115,74 @@ export function defineCourtGeofenceTask(): void {
   });
 }
 
+// The button's deadline: a 5 s fix, then the up-to-9 s write (the kit default
+// of 10 s cut real refusals off as "May not have saved").
+const COURT_CHECKIN_TIMEOUT_MS = 15_000;
+
+/** Who sees me now, from the cached settings (defaults when unreadable within 1 s). */
+async function visibilityNow(): Promise<string> {
+  const s = await withTimeout(loadPresenceSettings(), 1_000).catch(() => DEFAULT_PRESENCE_SETTINGS);
+  return checkedInVisibilityLine(s, Date.now());
+}
+
 registerActionHandler('court_checkin', {
-  success: { title: 'Checked in', body: 'Other players can see you are here.' },
-  queued: { title: 'Checked in', body: 'Saved. It counts if it syncs within 2 minutes.' },
+  timeoutMs: COURT_CHECKIN_TIMEOUT_MS,
+  success: (res) => ({
+    title: 'Checked in',
+    body: (res as { visibility?: string } | null)?.visibility ?? 'Other players can see you are here.',
+  }),
+  queued: { title: 'Checked in', body: 'Saved with no signal. It counts if it syncs within 2 minutes.' },
   run: async (d) => {
+    const runStart = Date.now();
     await requireUser();
-    if (!d.venue_id) throw new Error('missing venue');
+    if (!d.venue_id) {
+      throw new NeedsApp("This alert didn't say which court you're at. Open Pickleague to check in.", 'home/-', 'Not checked in');
+    }
+    const court = d.venue_name ?? null;
     // The one-time "who sees you at the courts" sheet can't show on the lock
-    // screen: until it was accepted, check in from the app.
-    if (!(await hasPresenceConsent())) {
-      throw new NeedsApp('Open Pickleague to check in. First choose who sees you at the courts.');
+    // screen: until it was accepted, check in from the app. No connection is
+    // its own reason (the answer may be on the server).
+    const consent = await presenceConsentState();
+    if (consent !== 'yes') {
+      throw new NeedsApp(
+        consent === 'unknown'
+          ? refusalCopy('consent.unknown_offline')
+          : 'First choose who sees you at the courts. Open Pickleague to choose, then check in.',
+        'home/-',
+        'Not checked in',
+      );
     }
     // Arrival alerts run on "Always" location, so this reads a fix without a
-    // dialog. 5 s leaves the write its share of the 10 s the button gets.
+    // dialog. 5 s leaves the write its share of the button's deadline.
     const fix = await takeCheckinFix(5_000);
     if (!fix) {
       // An approximate location (Precise Location off) says so; else no fix at all.
       throw new NeedsApp(
-        impreciseFixReason() ?? "Open Pickleague to check in. It couldn't get your location to confirm you're at the court.",
+        impreciseFixReason() ??
+          "Pickleague couldn't get your location to confirm you're at the court. Open Pickleague at the court to check in.",
+        'home/-',
+        'Not checked in',
       );
     }
     try {
-      const c = await checkInAt({ id: d.venue_id, name: d.venue_name ?? 'the courts' }, fix, { source: 'geofence' });
-      return c.queued ? { queued: true } : c;
+      const c = await checkInAt({ id: d.venue_id, name: court ?? 'the courts' }, fix, { source: 'geofence' });
+      return c.queued ? { queued: true } : { ...c, visibility: await visibilityNow() };
     } catch (e) {
-      // The server's refusal as the notice: "You need to be at the court to
-      // check in (about N m away).", "isn't precise enough", "out of date".
-      if (offersUntrackedSession(e)) throw new NeedsApp((e as Error).message);
+      // A refusal that lands after the button's deadline (its "May not have
+      // saved" notice is already up) still reaches the player.
+      if (Date.now() - runStart >= COURT_CHECKIN_TIMEOUT_MS - 250) {
+        void noteRefusalNotice({
+          key: `court_checkin:${d.venue_id}:${runStart}`,
+          title: "Check-in didn't go through",
+          body: queuedRefusalNotice({ what: 'check_in', venueName: court, tapMs: runStart, error: e }),
+          link: 'home/-',
+        });
+      }
+      // Why, in words: how far from the court, too vague, out of date, the
+      // court is gone, signed out (lib/refusals).
+      const why = refusalNeedsApp(e, { venueName: court, action: 'check_in' }, 'home/-');
+      if (why) throw why;
+      if (offersUntrackedSession(e)) throw new NeedsApp((e as Error).message, 'home/-', 'Not checked in');
       throw e;
     }
   },

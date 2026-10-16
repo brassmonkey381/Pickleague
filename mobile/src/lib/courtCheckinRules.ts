@@ -12,6 +12,7 @@
 // holding the check-out longer): the server reads it as proof the player
 // stayed (Phase 1.5, stay_confirmed).
 import type { CheckinSource } from '../data/venueCheckins';
+import { noFixQueuedCheckinReason, queuedRefusalNotice, staleQueuedCheckinReason } from './refusals';
 
 /** A device location fix, as checkin_venue and start_play_session take it. */
 export type DeviceFix = {
@@ -145,7 +146,15 @@ export type CheckinPayload = {
  * it as proof the player stayed (docs/play-sessions-presence.md, Phase 1.5),
  * placed in time by its age, so a queued check-out still counts.
  */
-export type CheckoutPayload = { id: string | null; source?: CheckinSource; at: string; fix?: DeviceFix };
+export type CheckoutPayload = {
+  id: string | null;
+  source?: CheckinSource;
+  at: string;
+  fix?: DeviceFix;
+  /** The court and the check-in's own end, so a refusal on replay can say where and until when. */
+  venueName?: string;
+  until?: string;
+};
 
 export function checkoutPayload(
   id: string | null,
@@ -238,21 +247,28 @@ export function needsCourtToExtend(e: unknown): boolean {
   return /open Pickleague at the court/i.test(messageOf(e)) || offersUntrackedSession(e);
 }
 
-/** What to tell the player about a queued check-in the server refused on replay. */
+/**
+ * What to tell the player about a queued check-in the server refused on
+ * replay (or dropped unsent): why, then what to do (lib/refusals words it).
+ */
 export function rejectedCheckinNotice(p: {
   venueName: string;
   /** The tap time, in the device's zone ("5:40 PM"). */
   timeLabel: string;
   /** The fix was past the 2-minute rule when it was sent. */
   fixWasStale: boolean;
+  /** Saved by an older build with no fix at all: never sent. */
+  noFix?: boolean;
   error: unknown;
 }): string {
-  const head = `Your check-in at ${p.venueName} (${p.timeLabel}) didn't go through.`;
-  if (p.fixWasStale) {
-    return `${head} It was saved with no signal, and a check-in has to reach Pickleague within 2 minutes to confirm you were at the court.`;
-  }
-  const why = messageOf(p.error);
-  return why ? `${head} ${why}` : head;
+  return queuedRefusalNotice({
+    what: 'check_in',
+    venueName: p.venueName,
+    tapMs: 0,
+    timeLabel: () => p.timeLabel,
+    error: p.error,
+    reason: p.noFix ? noFixQueuedCheckinReason() : p.fixWasStale ? staleQueuedCheckinReason() : null,
+  });
 }
 
 /** Why there is no check-in when no fix came back. */

@@ -10,17 +10,21 @@ import React, { useEffect, useState } from 'react';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useToast } from '../lib/useToast';
 import { openMatchEntryForSession } from '../lib/navigationRef';
 import {
   endPlay,
   getActivePlay,
+  playEnded,
   playIslandExpand,
+  playLost,
   playSession,
   playStartUntracked,
   syncPlayStartReminders,
 } from '../lib/playSession';
+import { explainRefusal } from '../lib/refusalNotices';
+import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
+import { lostPlayNote } from '../lib/sessionValidity';
 import {
   checkinChanged,
   extendCheckinByHour,
@@ -54,10 +58,25 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   useSignal(playIslandExpand, () => setExpanded(true));
   // A Start at a court that didn't check me in: the island stops naming the
   // court (lib/playSession) and says why, once.
-  useSignal(playStartUntracked, ({ venueName }) => {
-    toast.info(
-      `Not checked in${venueName ? ` at ${venueName}` : ''}: you're not at the court, so only you see this session.`,
-    );
+  useSignal(playStartUntracked, ({ venueName, reason }) => {
+    toast.info(untrackedStartNote(venueName, reason));
+  });
+  // The session the island showed is over on the server without this
+  // device's End (the 6-hour expiry, another device, or its Start never
+  // landed): say why. After the expiry the end sheet asks for the match or
+  // drill that makes it count, as End would have.
+  useSignal(playLost, (lost) => {
+    toast.info(lostPlayNote(lost));
+    if (lost.reason === 'auto_ended' && lost.endedAtMs != null) {
+      playEnded.emit({
+        id: lost.id,
+        kind: lost.kind,
+        sourceId: lost.sourceId,
+        startedAtMs: lost.startedAtMs,
+        endedAtMs: lost.endedAtMs,
+        recorded: lost.recorded,
+      });
+    }
   });
 
   const meta = s.meta;
@@ -71,6 +90,7 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const actions: IslandAction[] = [
     {
       label: 'Enter score',
+      timeoutMessage: STILL_WORKING,
       // Linked to this session: a match recorded from it makes it count. A
       // MatchEntry already open (from an event, say) keeps its form and gains the link.
       onPress: () => openMatchEntryForSession(s.id ?? undefined),
@@ -80,15 +100,25 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
           {
             label: 'Stay 1 more hour',
             variant: 'secondary' as const,
+            timeoutMessage: STILL_WORKING,
             onPress: async () => {
               try {
                 // A fix (when location is allowed; no prompt here) keeps the
                 // check-in confirmed; without one the server extends only so far.
                 const fix = await takeFixIfAllowed(5_000);
-                await extendCheckinByHour(checkin, fix);
-                toast.success('Checked in for another hour.');
+                const { note } = await extendCheckinByHour(checkin, fix);
+                // The full hour, or less and why.
+                if (note.full) toast.success(note.message);
+                else toast.info(note.message);
               } catch (e) {
-                toast.error(friendlySbMessage(e, "Couldn't extend your check-in."));
+                // Why, in words: how far from the court, no fix for 4 hours,
+                // the check-in already ended (lib/refusals).
+                toast.error(
+                  explainRefusal(e, "Couldn't extend your check-in. Try again.", {
+                    venueName: checkin.venueName,
+                    action: 'extend',
+                  }),
+                );
               }
             },
           },
@@ -97,6 +127,7 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
     {
       label: 'End',
       variant: 'secondary',
+      timeoutMessage: STILL_WORKING,
       // Never waits on the network: clears now, the server write queues. The
       // end sheet (play/PlayEndSheet) takes it from there: "Record a match or
       // drill?", or a note when the session was too short or already counts.

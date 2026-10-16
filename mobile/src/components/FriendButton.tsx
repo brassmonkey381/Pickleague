@@ -14,7 +14,6 @@
 // friendship on block).
 import React, { useState } from 'react';
 import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import ActionSheetModal, { type ActionSheetAction } from './ActionSheetModal';
@@ -28,14 +27,16 @@ import {
   markCloseFriend,
   unfriend,
   useFriendStatus,
-  withdrawFriendRequest,
+  withdrawFriendRequestAndCheck,
 } from '../lib/useFriends';
 import {
+  cancelResultMessage,
   friendButtonState,
   firstNameOf,
   respondResultMessage,
   sendResultMessage,
 } from '../lib/friendship';
+import { explainRefusal } from '../lib/refusalNotices';
 
 /** The fields of the profile row the screen already loaded. */
 type ProfileLike = {
@@ -90,7 +91,9 @@ export default function FriendButton({ userId, meId, profile, style }: Props) {
       const msg = done(await write());
       if (msg) toast.success(msg);
     } catch (e) {
-      toast.error(friendlySbMessage(e, failMsg));
+      // Why, then what to do (lib/refusals): not joined yet, a guest pass,
+      // 20 a day, no longer friends. A block stays vague.
+      toast.error(explainRefusal(e, failMsg, { personName: firstNameOf(profile.full_name), action: 'friend' }));
     } finally {
       setBusy(false);
     }
@@ -114,9 +117,9 @@ export default function FriendButton({ userId, meId, profile, style }: Props) {
     "Couldn't answer the request.",
   );
   const cancel = () => run(
-    () => withdrawFriendRequest(userId),
-    () => { setConfirm(null); return 'Request cancelled.'; },
-    "Couldn't cancel the request.",
+    () => withdrawFriendRequestAndCheck(userId),
+    (res) => { setConfirm(null); return cancelResultMessage(res.cancelled, res.statusNow, profile.full_name); },
+    "Couldn't cancel the request. Try again.",
   );
   const remove = () => run(
     () => unfriend(userId),

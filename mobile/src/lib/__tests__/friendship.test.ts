@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getStateFromPath } from '@react-navigation/core';
 import {
+  cancelResultMessage,
   findExcludeIds,
   friendActionNotice,
   friendActionOutcome,
@@ -81,6 +82,11 @@ describe('parsing the RPC answers', () => {
     expect(parseRespondResult('declined')).toBe('declined');
     expect(parseRespondResult('gone')).toBe('gone');
     expect(parseRespondResult(undefined)).toBe('gone');
+    // Since migration_refusal_messages.sql (an older server says 'already' / 'declined').
+    expect(parseSendResult('already_friends')).toBe('already_friends');
+    expect(parseRespondResult('already_declined')).toBe('already_declined');
+    expect(statusAfterSend('already_friends')).toBe('friends');
+    expect(statusAfterRespond('already_declined')).toBe('none');
   });
 });
 
@@ -183,14 +189,28 @@ describe('suggestions and the Find search', () => {
 
 describe('copy', () => {
   it('names the person by first name', () => {
-    expect(sendResultMessage('pending', 'Sam Kim')).toBe('Request sent. Sam can accept it from their notifications.');
+    // Never promises a notification: a quiet re-request would make that untrue.
+    expect(sendResultMessage('pending', 'Sam Kim')).toBe('Request sent. Sam can accept it in Pickleague.');
     expect(sendResultMessage('pending', null)).toBe('Request sent.');
     expect(sendResultMessage('accepted', 'Sam Kim')).toBe('You and Sam are friends now.');
-    expect(sendResultMessage('already', 'Sam Kim')).toBe('Already sent.');
+    expect(sendResultMessage('already', 'Sam Kim')).toBe('You already sent Sam a request.');
+    expect(sendResultMessage('already_friends', 'Sam Kim')).toBe('You and Sam are already friends.');
     expect(respondResultMessage('accepted', 'Sam Kim')).toBe('You and Sam are friends now.');
     expect(respondResultMessage('accepted', '')).toBe('You are friends now.');
     expect(respondResultMessage('declined', 'Sam Kim')).toBe("Declined. We won't tell them.");
+    expect(respondResultMessage('already_declined', 'Sam Kim')).toBe(
+      "You declined Sam's request earlier. Send Sam a request if you'd like to be friends.",
+    );
     expect(respondResultMessage('gone', 'Sam Kim')).toBe('That request is no longer waiting on you.');
+  });
+
+  it('says why a Cancel cancelled nothing', () => {
+    expect(cancelResultMessage(true, null, 'Sam Kim')).toBe('Request cancelled.');
+    expect(cancelResultMessage(false, 'friends', 'Sam Kim')).toBe(
+      "Sam already accepted, so you're friends now. Remove Sam from your friends if you'd rather not be.",
+    );
+    expect(cancelResultMessage(false, 'none', 'Sam Kim')).toBe('That request was already withdrawn.');
+    expect(cancelResultMessage(false, null, null)).toBe('That request was already withdrawn.');
   });
 
   it('ages a request and dates a friendship in the device zone', () => {
@@ -227,6 +247,12 @@ describe('lock-screen Accept / Decline', () => {
     expect(friendActionNotice('already_friends', 'Sam').title).toBe('Already friends: Sam');
     expect(friendActionNotice('declined', 'Sam')).toEqual({ title: 'Declined: Sam', body: "We won't tell them." });
     expect(friendActionNotice('gone', 'Sam').title).toBe('Nothing to answer');
+    // An Accept on a request I declined earlier: never "Declined".
+    expect(friendActionOutcome(true, 'already_declined', null)).toBe('already_declined');
+    expect(friendActionNotice('already_declined', 'Sam')).toEqual({
+      title: 'Already declined: Sam',
+      body: "You declined this request earlier. Send them a request from their profile if you'd like to be friends.",
+    });
   });
 });
 

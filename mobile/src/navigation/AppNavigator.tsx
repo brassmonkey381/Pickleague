@@ -29,6 +29,7 @@ import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGe
 import PlayIsland from '../components/PlayIsland';
 import PlayStartSheetHost from '../components/play/PlayStartSheet';
 import PlayEndSheetHost from '../components/play/PlayEndSheet';
+import RefusalNoticeHost from '../components/RefusalNoticeHost';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -369,6 +370,8 @@ export default function AppNavigator() {
       {!updateRequired && phase === 'ready' && <PlayStartSheetHost signedIn={!!session} />}
       {/* "Record a match or drill?" after End (hidden otherwise). */}
       {!updateRequired && phase === 'ready' && <PlayEndSheetHost signedIn={!!session} />}
+      {/* Refusals the player wasn't looking at (a queued write refused later): a toast. */}
+      {!updateRequired && phase === 'ready' && <RefusalNoticeHost />}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

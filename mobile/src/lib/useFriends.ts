@@ -171,6 +171,22 @@ export function withdrawFriendRequest(userId: string): Promise<boolean> {
   );
 }
 
+/**
+ * Withdraw my request, and when nothing was pending any more, find out why
+ * (they accepted first, or it was already withdrawn) for the toast
+ * (friendship cancelResultMessage). The status read is best-effort.
+ */
+export async function withdrawFriendRequestAndCheck(
+  userId: string,
+): Promise<{ cancelled: boolean; statusNow: FriendStatus['status'] | null }> {
+  const cancelled = await withdrawFriendRequest(userId);
+  if (cancelled) return { cancelled, statusNow: null };
+  const now = await getFriendStatus(userId).catch(() => null);
+  // The optimistic 'none' may be wrong (they accepted): show the real state.
+  refreshFriends();
+  return { cancelled, statusNow: now?.status ?? null };
+}
+
 /** Unfriend (silent). */
 export function unfriend(userId: string): Promise<boolean> {
   return write(

@@ -294,19 +294,39 @@ describe('isNotAtCourtError', () => {
 });
 
 describe('rejectedCheckinNotice', () => {
-  it('explains the 2-minute rule when the queued fix had gone stale', () => {
+  it('explains the 2-minute rule when the queued fix had gone stale, then what to do', () => {
     const text = rejectedCheckinNotice({
       venueName: 'Lakeside',
       timeLabel: '5:40 PM',
       fixWasStale: true,
       error: { message: 'You need to be at the court to check in (about 0 m away).' },
     });
-    expect(text).toContain("Your check-in at Lakeside (5:40 PM) didn't go through.");
-    expect(text).toContain('within 2 minutes');
-    expect(text).not.toContain('about 0 m away');
+    expect(text).toBe(
+      "Your check-in at Lakeside (5:40 PM) didn't go through. It reached Pickleague more than 2 minutes after you tapped, too late to confirm you were there. Check in again when you're at the court.",
+    );
   });
 
-  it("otherwise passes on the server's reason", () => {
+  it('a check-in an older build saved without a fix gets its own reason (never the 2-minute one)', () => {
+    expect(
+      rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', fixWasStale: true, noFix: true, error: null }),
+    ).toBe(
+      "Your check-in at Lakeside (5:40 PM) didn't go through. It was saved by an older version of Pickleague without your location. Check in again at the court.",
+    );
+  });
+
+  it("otherwise words the server's reason: how far, then what to do", () => {
+    // The code and its DETAIL (migration_refusal_messages.sql)...
+    expect(
+      rejectedCheckinNotice({
+        venueName: 'Lakeside',
+        timeLabel: '5:40 PM',
+        fixWasStale: false,
+        error: { message: 'You need to be at the court to check in. ...', hint: 'pl:fix.not_at_court', details: '{"distance_m": 240}' },
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (5:40 PM) didn't go through. You're about 240 m from Lakeside. You need to be at the court to check in, so try again when you get there.",
+    );
+    // ...or an older server's text.
     expect(
       rejectedCheckinNotice({
         venueName: 'Lakeside',
@@ -314,9 +334,11 @@ describe('rejectedCheckinNotice', () => {
         fixWasStale: false,
         error: { message: 'You need to be at the court to check in (about 240 m away).' },
       }),
-    ).toBe("Your check-in at Lakeside (5:40 PM) didn't go through. You need to be at the court to check in (about 240 m away).");
+    ).toBe(
+      "Your check-in at Lakeside (5:40 PM) didn't go through. You're about 240 m from Lakeside. You need to be at the court to check in, so try again when you get there.",
+    );
     expect(rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', fixWasStale: false, error: null })).toBe(
-      "Your check-in at Lakeside (5:40 PM) didn't go through.",
+      "Your check-in at Lakeside (5:40 PM) didn't go through. Check in again when you're at the court.",
     );
   });
 });

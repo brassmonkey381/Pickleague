@@ -42,6 +42,8 @@ import { WAGERS_ENABLED } from '../lib/features';
 import type { WagerSubject } from '../lib/wager';
 import type { Profile } from '../types';
 import { noteGoodMoment } from '../lib/ratingPrompt';
+import { explainRefusal } from '../lib/refusalNotices';
+import { confirmResultMessage } from '../lib/refusals';
 import { entityGlyph, joinFacts } from '../lib/entityGlyph';
 
 type Props = {
@@ -278,14 +280,23 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
     // post the same confirmation twice.
     if (confirmingId) return;
     setConfirmingId(matchId);
+    const deadline = matches.find((m) => m.id === matchId)?.confirm_deadline ?? null;
     try {
-      const { error } = await supabase.rpc('confirm_match', { p_match_id: matchId });
-      if (error) {
-        status.error(`Confirm failed: ${error.message}`);
-        return;
-      }
-      status.success('Match confirmed.');
-      noteGoodMoment(); // a settled result is a good moment (rating prompt)
+      // Not retried (a retried confirm would read as "already"), but bounded.
+      const res = await sbCall(() => supabase.rpc('confirm_match', { p_match_id: matchId }), {
+        retries: 0,
+        timeoutMs: 15_000,
+      });
+      // What the confirm did: settled it, or the other team still has to
+      // (and by when), or my team had already (rule 11: say which).
+      status.success(confirmResultMessage(typeof res === 'string' ? res : 'completed', deadline));
+      if (res !== 'already_your_team') noteGoodMoment(); // a settled result is a good moment (rating prompt)
+      loadMatches();
+    } catch (e) {
+      // Why, then what to do: it expired and was removed, it was already
+      // confirmed, too late, not a player (lib/refusals).
+      status.error(explainRefusal(e, "Couldn't confirm the match. Try again.", { action: 'confirm' }));
+      // A match that's gone or settled shouldn't keep its Confirm button.
       loadMatches();
     } finally {
       setConfirmingId(null);

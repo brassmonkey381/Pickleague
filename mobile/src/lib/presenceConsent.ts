@@ -63,22 +63,31 @@ async function writeLocal(uid: string): Promise<void> {
  *  reached and this device has no record, false: asking twice is harmless,
  *  skipping the question is not. */
 export async function hasPresenceConsent(): Promise<boolean> {
+  return (await presenceConsentState()) === 'yes';
+}
+
+/**
+ * The same, telling "not yet" from "couldn't ask the server" ('unknown': no
+ * record on this device and no connection), so the lock screen can say which
+ * (rule 11: a refusal says why).
+ */
+export async function presenceConsentState(): Promise<'yes' | 'no' | 'unknown'> {
   const uid = await currentUserId(supabase);
-  if (!uid) return true; // signed out: nothing to share
+  if (!uid) return 'yes'; // signed out: nothing to share
   if (await readLocal(uid)) {
     // Accepted on this device; make sure the server heard (an offline "Got it").
     void loadPresenceSettings()
       .then((s) => (s.consent_seen_at ? undefined : setPresenceSettings({ consentSeen: true })))
       .catch(() => {});
-    return true;
+    return 'yes';
   }
   try {
     // Fresh, not cached: it may have been accepted on another device since.
     const s = await loadPresenceSettings(true);
     if (s.consent_seen_at) void writeLocal(uid);
-    return !!s.consent_seen_at;
+    return s.consent_seen_at ? 'yes' : 'no';
   } catch {
-    return false;
+    return 'unknown';
   }
 }
 
