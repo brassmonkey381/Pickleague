@@ -72,8 +72,9 @@ Signatures are exactly as below. Behaviour details the clients should know:
   re-resolves them when a 1.0.4 app changes only the name / coordinates. The backfill also resolves by name within
   1 km when nothing is in range: Crocker-Amazon (dinks) -> Crocker Amazon Pickleball Courts (752 m). Both Bladium
   leagues -> The Hub Sports Club - Alameda.
-- **send-push** reads the `friend_request` catalog category loosely (the push goes out without buttons until the
-  app catalog has a `friend_request` entry); switch it to `CATEGORY.friend_request` once the catalog lands.
+- **send-push** attaches the catalog's `friend_request` category (Accept / Decline) while the request is still
+  pending. (The SQL stream first read it loosely, before the catalog had the entry; since integration it is the
+  typed `CATEGORY.friend_request`.)
 
 ## Tables
 
@@ -241,30 +242,23 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
 `supabase/functions/send-push/index.ts`: add `notifyFriendRequests` to `KNOWN_PREF_KEYS`; `resolveButtons` for
 `friend` returns buttons only while the request is still pending. Needs a redeploy with `--no-verify-jwt` (the user runs it).
 
-Client side (friends stream, `feat/presence-p1-friends`), for the SQL to match:
-- send-push (done in that branch): `friendButtons` attaches category `friend_request` when `push_data.kind =
-  'friend_request'` and `friendships` has `requester_id = entity_id`, `addressee_id = recipient`, `status = 'pending'`.
-- `friend_accepted` gets **no catalog category**: it has no buttons, and the kit's `catalogProblems` rejects a
-  category without actions. Its tap uses the `player/<id>` deep link (a `friend/<id>` row without a link is
-  mapped there by `push_data.kind`).
-- Lock-screen buttons `friend_accept` / `friend_decline` call `respond_friend_request(entity_id, accept)` and, on
-  `'gone'`, `friendship_status_with(entity_id)` to tell a replay ("Already friends") from a cancelled request.
-- Home's Up next counts incoming `list_friend_requests` rows on the bell (one row, "Sam wants to be friends" /
-  "3 friend requests"), so that RPC runs on every Home load while the flag is on.
-- Copy the SQL should match: notice titles start with the requester's display name and end with "wants to be
-  friends" / "accepted your friend request" (the lock-screen notice reads the name back out of the title).
-
 ## Hygiene
 
 - `delete_my_account` (and the godmode delete) deletes venue_checkins, play_sessions, presence_settings,
   presence_hidden_from (both columns), friendships, close_friends (both), court_favorites for the user.
 - Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days.
 - Client: before `signOutSafely`, best-effort `checkout_venue(null, null, now)` and `end_play_session` for the open
-  session, each bounded to 3 s, never blocking sign-out (SettingsScreen doSignOut, GuestJoinScreen;
-  `mobile/src/lib/signOutPresence.ts`). (checkin stream: `p_source` is `null`, not `'signout'`, because it is a
-  source filter and no row has source `'signout'`; `null` closes every open row whatever opened it.)
+  session, each bounded to 3 s, never blocking sign-out (`mobile/src/lib/signOutPresence.ts`, called from
+  SettingsScreen doSignOut, the GuestJoinScreen rollback and AppNavigator's expired-guest sign-out). `p_source` is
+  `null`, not `'signout'`: it is a source filter, and `null` closes every open row whatever opened it (the SQL also
+  reads `'signout'` as no filter, so either works).
 
-## Client notes (checkin stream)
+## Client notes
+
+How the three client streams call this contract. The SQL sections above are authoritative for signatures; these
+notes say which arguments the app sends and what it assumes about the answers.
+
+### Check-ins and sessions (checkin stream, `feat/presence-p1-checkin`)
 
 - `checkout_venue` always gets `p_source` explicitly: `null` for a plain check-out and for sign-out (no filter),
   `'geofence'` when leaving a fenced court (it must not close a manual check-in). The no-match fallback applies the
@@ -274,6 +268,43 @@ Client side (friends stream, `feat/presence-p1-friends`), for the SQL to match:
   time the court card shows. A queued check-in from an older build that has no fix is dropped without being sent.
 - `start_play_session` sends the fix only with a court (`p_venue`); a session with no court sends four nulls.
 - `resolve_court` is always called with `p_sport` from `mobile/src/sports/registry.ts` (`getSport().courtSport`).
+  The court card, the start sheet, the league court chip and the geofence list all key on its canonical id.
 - League home-court pickers write `leagues.home_venue_id` (the picked catalog venue, else null) alongside `home_court*`.
-- The start sheet reads `get_my_presence_settings` (for its "who sees you" line) and `list_my_court_favorites`, and
-  treats either failing as "defaults / none".
+- The start sheet reads the presence settings (for its "who sees you" line) and `list_my_court_favorites`, through
+  the presence stream's wrappers (`data/presenceSettings`, `data/courtFavorites`), and treats either failing as
+  "defaults / none".
+
+### Privacy, crowd and Friends at the courts (presence stream, `feat/presence-p1-presence`)
+
+- Rosters (PlayersHereList, the league court chip) read `court_presence`; `venue_players_here` is kept only for
+  1.0.4. An anonymous row shows "Player"; the client would show a half-point band if the row carried
+  `doubles_rating`, but the SQL sends null for anonymous rows, so it never does.
+- `venue_crowd` is called in chunks of at most 50 ids; an id the SQL omits reads as an empty court.
+- Consent (`lib/presenceConsent.ts`, recorded with `set_presence_settings(p_consent_seen => true)`):
+  `ensurePresenceConsent()` is awaited outside any bounded busy state and never while another Modal is up (iOS
+  shows one at a time). The court card asks it before the location prompt and the bounded check-in; the start
+  sheet's host asks it before the sheet opens ("Not now" opens nothing); the lock-screen arrival Check in uses
+  `hasPresenceConsent()` and, when it is false, asks the player to open the app.
+- Pause (`p_paused_until` up to 7 days) and hide-from are written only through their RPCs; the returned settings
+  row replaces the cached one.
+
+### Friends (friends stream, `feat/presence-p1-friends`)
+
+- send-push: `friendButtons` attaches category `friend_request` when `push_data.kind = 'friend_request'` and
+  `friendships` has `requester_id = entity_id`, `addressee_id = recipient`, `status = 'pending'`.
+- `friend_accepted` gets **no catalog category**: it has no buttons, and the kit's `catalogProblems` rejects a
+  category without actions. Its tap uses the `player/<id>` deep link (a `friend/<id>` row without a link is
+  mapped there by `push_data.kind`).
+- Lock-screen buttons `friend_accept` / `friend_decline` call `respond_friend_request(entity_id, accept)` and, on
+  `'gone'`, `friendship_status_with(entity_id)` to tell a replay ("Already friends") from a cancelled request.
+- Home's Up next counts incoming `list_friend_requests` rows on the bell (one row, "Sam wants to be friends" /
+  "3 friend requests"), so that RPC runs on every Home load while the flag is on.
+- Copy: the SQL titles are "🤝 <name> wants to be friends" / "🤝 <name> accepted your friend request"; the
+  lock-screen notice reads the name back out of the title (`lib/pushSubject.ts` strips the emoji). The SQL's
+  fallback name "A player" reads as no name, so the notice keeps its plain title.
+
+### Integration check (2026-10-16)
+
+Every `supabase.rpc` call in `mobile/src` was checked against the five SQL files: names, argument names and the
+fields read back all match. The one deliberate difference is sign-out's `checkout_venue(null, null, now)` (see
+Hygiene).
