@@ -188,7 +188,9 @@ export default function SettingsScreen({ navigation }: Props) {
         await setCourtAlertsEnabled(false);
         setCourtAlerts(false);
         status.error(
-          'Arrival alerts need location set to "Always" and at least one court (a league home court or a court you checked in at).',
+          FRIENDS_AT_COURTS_ENABLED
+            ? 'Arrival alerts need location set to "Always" and at least one court (a court you starred, a league home court, or a court you checked in at).'
+            : 'Arrival alerts need location set to "Always" and at least one court (a league home court or a court you checked in at).',
         );
         return;
       }
@@ -533,8 +535,8 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Review or undo the players you've blocked"
           onPress={() => navigation.navigate('BlockedPlayers')}
         />
-        {/* Who sees me at the courts / my planned games / Hidden from
-            (nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
+        {/* Who sees me at the courts / Hidden from (shipped with location-
+            confirmed check-ins, not behind FRIENDS_AT_COURTS_ENABLED). */}
         <PresencePrivacyRows />
       </Panel>
 

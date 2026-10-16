@@ -4,7 +4,7 @@
 //
 //   Who sees you at the courts
 //   Your friends and players in your closed leagues will see your name ...
-//   Everyone else sees "a player" in the count. Blocked players never see you.
+//   Everyone else sees "a player" in the count. Blocked players never see your name.
 //   Friends and league-mates · Change
 //   [Got it]  [Not now]
 //

@@ -42,7 +42,7 @@ export async function startPlaySession(p: {
         p_source: p.sourceId ?? null,
         p_venue: p.venueId ?? null,
         p_at: p.at ?? null,
-        ...fixArgs(p.venueId ? p.fix : null),
+        ...fixArgs(p.venueId ? p.fix : null, Date.now()),
       }),
     BOUND,
   ) as Promise<PlaySessionRow>;

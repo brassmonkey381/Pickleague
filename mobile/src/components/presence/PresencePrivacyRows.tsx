@@ -3,10 +3,12 @@
 //
 //   Who sees me at the courts                          ›
 //   Friends and league-mates
-//   Who sees my planned games                          ›
-//   Friends
 //   Hidden from                                        ›
 //   2 players
+//
+// "Who sees my planned games" (presence_settings.plans_level) returns with
+// Phase 3, when games can be planned (court_plans); until then it would be a
+// control for nothing.
 //
 // Each opens a sheet: the level list (saved on tap), or the hide-from list with
 // a Show button per player (people are added from the "⋯" menu on a profile).
@@ -14,7 +16,9 @@
 // list. The server holds every value (presence_settings, presence_hidden_from);
 // a read that failed says so and retries on tap instead of showing defaults.
 //
-// Renders nothing while FRIENDS_AT_COURTS_ENABLED is off.
+// Not behind FRIENDS_AT_COURTS_ENABLED: check-ins name players from the day
+// the presence SQL is live, so these controls (and the consent sheet that
+// points here) ship with them.
 import React, { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
@@ -22,18 +26,14 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import {
   CHECKINS_LEVELS,
   LEAGUEMATES_NOTE,
   OTHERS_NOTE,
-  PLANS_LEVELS,
   checkinsLevelLabel,
-  plansLevelLabel,
   type CheckinsLevel,
-  type PlansLevel,
 } from '../../lib/presencePrivacy';
 import {
   hidePresenceFrom,
@@ -45,13 +45,9 @@ import {
 import LevelChoiceList from './LevelChoiceList';
 
 type Colors = ReturnType<typeof useTheme>['colors'];
-type Sheet = null | 'checkins' | 'plans' | 'hidden';
+type Sheet = null | 'checkins' | 'hidden';
 
 export default function PresencePrivacyRows() {
-  return FRIENDS_AT_COURTS_ENABLED ? <PresencePrivacyRowsBody /> : null;
-}
-
-function PresencePrivacyRowsBody() {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const settings = usePresenceSettings();
@@ -82,13 +78,6 @@ function PresencePrivacyRowsBody() {
       <View style={S.divider} />
       <Row
         S={S}
-        label="Who sees my planned games"
-        desc={s ? plansLevelLabel(s.plans_level) : settingsFailed ? "Couldn't load. Tap to retry" : 'Loading…'}
-        onPress={open('plans')}
-      />
-      <View style={S.divider} />
-      <Row
-        S={S}
         label="Hidden from"
         desc={
           hiddenCount == null
@@ -101,26 +90,15 @@ function PresencePrivacyRowsBody() {
       />
 
       {s ? (
-        <>
-          <LevelSheet<CheckinsLevel>
-            visible={sheet === 'checkins'}
-            title="Who sees me at the courts"
-            intro="Who sees your name when you check in at a court or play there."
-            options={CHECKINS_LEVELS}
-            value={s.checkins_level}
-            save={(level) => setPresenceSettings({ checkinsLevel: level })}
-            onClose={() => setSheet(null)}
-          />
-          <LevelSheet<PlansLevel>
-            visible={sheet === 'plans'}
-            title="Who sees my planned games"
-            intro="Who sees the games you plan ahead at a court."
-            options={PLANS_LEVELS}
-            value={s.plans_level}
-            save={(level) => setPresenceSettings({ plansLevel: level })}
-            onClose={() => setSheet(null)}
-          />
-        </>
+        <LevelSheet<CheckinsLevel>
+          visible={sheet === 'checkins'}
+          title="Who sees me at the courts"
+          intro="Who sees your name when you check in at a court or play there."
+          options={CHECKINS_LEVELS}
+          value={s.checkins_level}
+          save={(level) => setPresenceSettings({ checkinsLevel: level })}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
       <HiddenFromSheet visible={sheet === 'hidden'} query={hidden} onClose={() => setSheet(null)} />
     </>

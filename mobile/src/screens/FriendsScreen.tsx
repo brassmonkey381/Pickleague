@@ -4,7 +4,7 @@
 //   [Requests 2] [Friends 5] [Find]
 //   Requests  WAITING ON YOU  (A) Sam · 2d ago             [Accept] [Decline]
 //             SENT            (B) Ana · requested 3d ago   [Cancel]
-//   Friends   ⭐ Close friends will get a heads-up when you're at a court.
+//   Friends   ⭐ Close friends are listed first, here and at the courts.
 //             (A) Sam · Friends since Oct 2                ⭐  ⋯
 //   Find      [🔍 Search players]
 //             PEOPLE YOU'VE PLAYED WITH  (C) Lee · 4 matches together  [Add]

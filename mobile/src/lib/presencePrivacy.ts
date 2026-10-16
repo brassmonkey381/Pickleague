@@ -9,8 +9,9 @@
 // the server leaves out never reads as `undefined` (a partial jsonb default
 // once silently flipped fields in Doggle).
 //
-// "League-mates" means a CLOSED league you share (leagues.is_open = false):
-// anyone can join an open league instantly, so sharing one says nothing.
+// "League-mates" means a CLOSED league you share (leagues.is_open = false),
+// both admitted while it was closed: anyone can join an open league instantly,
+// so sharing one says nothing, even after it is closed.
 import { calendarDayDiff, shortTime } from './agenda';
 
 export type CheckinsLevel = 'everyone' | 'leaguemates' | 'friends' | 'hidden';
@@ -50,8 +51,9 @@ export const CHECKINS_LEVELS: LevelOption<CheckinsLevel>[] = [
   { value: 'hidden', label: 'Hidden', desc: 'Nobody sees your name. You still count as "a player".' },
 ];
 
-/** Settings > Privacy > "Who sees my planned games". No "Everyone": a plan says
- *  where you will be later, which is more than where you are now. */
+/** "Who sees my planned games". No "Everyone": a plan says where you will be
+ *  later, which is more than where you are now. The Settings row ships with
+ *  Phase 3 (court_plans); the value is stored and read already. */
 export const PLANS_LEVELS: LevelOption<PlansLevel>[] = [
   {
     value: 'leaguemates',
@@ -67,7 +69,9 @@ export const LEAGUEMATES_NOTE =
   'League-mates are players in a closed league you share (one you joined by invite or approval). ' +
   "Open leagues don't count: anyone can join them.";
 
-export const OTHERS_NOTE = 'Everyone else sees "a player" in the count. Blocked players never see you.';
+// A blocked pair sees each other only as "a player", like any stranger: left
+// out of the count, the one missing would stand out.
+export const OTHERS_NOTE = 'Everyone else sees "a player" in the count. Blocked players never see your name.';
 
 function isCheckinsLevel(v: unknown): v is CheckinsLevel {
   return v === 'everyone' || v === 'leaguemates' || v === 'friends' || v === 'hidden';
@@ -120,7 +124,7 @@ export function consentAudienceLine(level: CheckinsLevel): string {
 /** The consent sheet's second line: what everyone else sees. */
 export function consentOthersLine(level: CheckinsLevel): string {
   return level === 'hidden'
-    ? 'You still count as "a player" in how many are playing. Blocked players never see you.'
+    ? 'You still count as "a player" in how many are playing. Blocked players never see your name.'
     : OTHERS_NOTE;
 }
 

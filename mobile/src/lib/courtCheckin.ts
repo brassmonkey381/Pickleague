@@ -16,8 +16,11 @@
 // time (`at`), the fix taken at tap time, and a client id (replays land once).
 // The server refuses a fix older than 2 minutes, so a long-offline replay is
 // dropped and the player is told the next time the app is open. A check-out
-// carries when I really left. Extend is NOT queued: an extension that lands
-// after the check-in lapsed would be refused anyway, so it fails loudly instead.
+// carries when I really left; one that lands before its check-in makes that
+// check-in land closed (the server remembers the id). Extend is NOT queued: an
+// extension that lands after the check-in lapsed would be refused anyway, so
+// it fails loudly instead. It sends a fix when it can: without one the server
+// keeps a confirmed check-in at most 4 hours past its last confirming fix.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
@@ -40,8 +43,11 @@ import { readPendingEnds } from './playEndPendingStore';
 import {
   checkoutPayload,
   fixFromCoords,
+  impreciseFixMessage,
   isFixFresh,
+  isPreciseFix,
   isValidFix,
+  needsCourtToExtend,
   noFixMessage,
   rejectedCheckinNotice,
   type CheckinPayload,
@@ -207,13 +213,32 @@ export async function takeRejectedCheckinNotice(): Promise<string | null> {
 }
 
 // ── Device fix ──────────────────────────────────────────────────────────────
+// Why the last takeCheckinFix came back empty although a reading arrived: it
+// was too vague (accuracy in metres; null = none reported). noFixReason()
+// names it.
+let lastImpreciseFix: { accuracyM: number | null } | null = null;
+
 /**
  * A fresh fix for a check-in, or null: no permission, no fix within
- * `timeoutMs`, or an unusable reading. Never the remembered spot, which can't
- * confirm I am at the court now. May show the OS / browser permission prompt.
+ * `timeoutMs`, an unusable reading, or one too vague to confirm a court
+ * (accuracy over 150 m, e.g. Precise Location off: the server would refuse
+ * it, and a blurred point would find the wrong court). Never the remembered
+ * spot, which can't confirm I am at the court now. May show the OS / browser
+ * permission prompt.
  */
 export async function takeCheckinFix(timeoutMs = 6_000): Promise<DeviceFix | null> {
-  return fixFromCoords(await getCurrentCoords({ timeoutMs }), Date.now());
+  lastImpreciseFix = null;
+  const fix = fixFromCoords(await getCurrentCoords({ timeoutMs }), Date.now());
+  if (fix && !isPreciseFix(fix)) {
+    lastImpreciseFix = { accuracyM: fix.accuracyM };
+    return null;
+  }
+  return fix;
+}
+
+/** When the last takeCheckinFix refused a vague reading: what to tell the player. Else null. */
+export function impreciseFixReason(): string | null {
+  return lastImpreciseFix ? impreciseFixMessage(lastImpreciseFix.accuracyM, Platform.OS) : null;
 }
 
 /**
@@ -233,7 +258,7 @@ export async function takeFixIfAllowed(timeoutMs = 6_000): Promise<DeviceFix | n
 
 /** Why there is no check-in after takeCheckinFix came back empty. */
 export async function noFixReason(): Promise<string> {
-  return noFixMessage(await getForegroundLocationStatus(), Platform.OS);
+  return impreciseFixReason() ?? noFixMessage(await getForegroundLocationStatus(), Platform.OS);
 }
 
 // ── Reads ───────────────────────────────────────────────────────────────────
@@ -312,10 +337,17 @@ export async function checkInAt(
   return c;
 }
 
-/** Another hour from the current end (absolute, so a replay can't add two). */
-export async function extendCheckinByHour(c: Pick<CurrentCheckin, 'id' | 'expiresAt'>): Promise<CurrentCheckin | null> {
+/**
+ * Another hour from the current end (absolute, so a replay can't add two).
+ * Pass a fresh fix when there is one: it keeps a confirmed check-in confirmed
+ * (without one the server stops 4 hours after the last confirming fix).
+ */
+export async function extendCheckinByHour(
+  c: Pick<CurrentCheckin, 'id' | 'expiresAt'>,
+  fix?: DeviceFix | null,
+): Promise<CurrentCheckin | null> {
   const until = new Date(Math.max(new Date(c.expiresAt).getTime(), Date.now()) + HOUR_MS).toISOString();
-  const row = await extendCheckin(c.id, until);
+  const row = await extendCheckin(c.id, until, fix);
   const cached = await readStored();
   if (cached?.id !== c.id) return null;
   const next = { ...cached, expiresAt: row.expires_at };
@@ -351,7 +383,16 @@ registerActionHandler('checkin_extend', {
   run: async (d) => {
     await requireUser();
     if (!d.checkin_id || !d.expires_at) throw new NeedsApp('Open Pickleague to extend your check-in.');
-    await extendCheckinByHour({ id: d.checkin_id, expiresAt: d.expires_at });
+    // A fix confirms I am still there (it works in the background only with
+    // "Always" location). Without one the server extends only so far past the
+    // last confirming fix, then the app has to be opened at the court.
+    const fix = await takeFixIfAllowed(5_000);
+    try {
+      await extendCheckinByHour({ id: d.checkin_id, expiresAt: d.expires_at }, fix);
+    } catch (e) {
+      if (needsCourtToExtend(e)) throw new NeedsApp('Open Pickleague at the court to stay checked in.');
+      throw e;
+    }
   },
 });
 registerActionHandler('checkin_out', {

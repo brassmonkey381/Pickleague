@@ -1,5 +1,5 @@
 // My courts: up to 5 starred courts (court_favorites). They head Home's YOUR
-// COURTS and, later, the arrival-alert fence list. Wrappers over
+// COURTS (every star shows) and the arrival-alert fence list. Wrappers over
 // set_court_favorite / list_my_court_favorites
 // (docs/play-sessions-presence-api.md, "Court favorites").
 //

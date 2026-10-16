@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { courtNote, mergeCourtCandidates, visibilityLine } from '../playStartCourts';
+import { atSelectedCourt, courtNote, mergeCourtCandidates, startNeedsFix, visibilityLine } from '../playStartCourts';
 
 const court = (id: string) => ({ id, name: `Court ${id}` });
 const NOW = Date.parse('2026-10-15T18:00:00.000Z');
@@ -54,18 +54,71 @@ describe('visibilityLine', () => {
       'Visible to friends and league-mates',
     );
     expect(visibilityLine({ level: 'friends', pausedUntil: null }, true, NOW, until)).toBe('Visible to friends');
+    // Everyone means anyone signed in, anywhere, not just people at the court.
     expect(visibilityLine({ level: 'everyone', pausedUntil: null }, true, NOW, until)).toBe(
-      'Visible to everyone at the courts',
+      'Visible to anyone signed in to Pickleague',
     );
-    expect(visibilityLine({ level: 'hidden', pausedUntil: null }, true, NOW, until)).toBe('Hidden: others see "Player"');
+    expect(visibilityLine({ level: 'hidden', pausedUntil: null }, true, NOW, until)).toBe('Hidden: others see "a player"');
   });
 
   it('a pause wins while it lasts, then the level applies again', () => {
     const later = new Date(NOW + 3_600_000).toISOString();
     expect(visibilityLine({ level: 'friends', pausedUntil: later }, true, NOW, until)).toBe(
-      `Sharing paused until at ${later}: others see "Player".`,
+      `Sharing paused until at ${later}: others see "a player".`,
     );
     const past = new Date(NOW - 1).toISOString();
     expect(visibilityLine({ level: 'friends', pausedUntil: past }, true, NOW, until)).toBe('Visible to friends');
+  });
+
+  it('promises presence only at a court I seem to be at', () => {
+    const v = { level: 'leaguemates', pausedUntil: null };
+    expect(visibilityLine(v, true, NOW, until, false)).toBe(
+      "You don't seem to be at this court: this session won't show you there.",
+    );
+    expect(visibilityLine(v, true, NOW, until, null)).toBe(
+      "If you're at the court when you start: visible to friends and league-mates",
+    );
+    expect(visibilityLine({ level: 'everyone', pausedUntil: null }, true, NOW, until, null)).toBe(
+      "If you're at the court when you start: visible to anyone signed in to Pickleague",
+    );
+    expect(visibilityLine(v, true, NOW, until, true)).toBe('Visible to friends and league-mates');
+    // No court wins over everything.
+    expect(visibilityLine(v, false, NOW, until, false)).toBe('No court: only you see this session.');
+  });
+});
+
+describe('startNeedsFix', () => {
+  it("needs no fix at my check-in's court (the server adopts that check-in)", () => {
+    expect(startNeedsFix({ id: 'a', name: 'A', reason: 'checked_in' }, 'a')).toBe(false);
+  });
+
+  it('needs one everywhere else, and once that check-in has ended', () => {
+    expect(startNeedsFix({ id: 'a', name: 'A', reason: 'checked_in' }, null)).toBe(true);
+    expect(startNeedsFix({ id: 'a', name: 'A', reason: 'checked_in' }, 'b')).toBe(true);
+    expect(startNeedsFix({ id: 'a', name: 'A', reason: 'here' }, 'a')).toBe(true);
+    expect(startNeedsFix({ id: 'h', name: 'H', reason: 'home' }, null)).toBe(true);
+  });
+});
+
+describe('atSelectedCourt', () => {
+  const c = (id: string, reason: 'checked_in' | 'here' | 'home' | 'favorite' | 'recent') => ({ id, name: id, reason });
+
+  it('trusts my check-in and a fix inside the fence', () => {
+    expect(atSelectedCourt(c('a', 'checked_in'), null, false)).toBe(true);
+    expect(atSelectedCourt(c('a', 'here'), { id: 'a', inside: true }, true)).toBe(true);
+  });
+
+  it('is unsure near a court but outside its mapped fence, or with no fix yet', () => {
+    expect(atSelectedCourt(c('a', 'here'), { id: 'a', inside: false }, true)).toBeNull();
+    expect(atSelectedCourt(c('h', 'home'), null, false)).toBeNull();
+  });
+
+  it('says no when the fix is somewhere else (a home court chosen from my sofa)', () => {
+    expect(atSelectedCourt(c('h', 'home'), null, true)).toBe(false);
+    expect(atSelectedCourt(c('h', 'home'), { id: 'x', inside: true }, true)).toBe(false);
+  });
+
+  it('knows nothing without a court', () => {
+    expect(atSelectedCourt(null, null, true)).toBeNull();
   });
 });

@@ -52,14 +52,23 @@ export async function checkinVenue(p: {
         p_minutes: p.minutes ?? 120,
         p_source: p.source ?? 'manual',
         p_at: p.at ?? null,
-        ...fixArgs(p.fix),
+        ...fixArgs(p.fix, Date.now()),
       }),
     BOUND,
   ) as Promise<VenueCheckin>;
 }
 
-export async function extendCheckin(id: string, until: string): Promise<VenueCheckin> {
-  return sbCall(() => supabase.rpc('extend_checkin', { p_id: id, p_until: until }), BOUND) as Promise<VenueCheckin>;
+/**
+ * Extend to an absolute end time. A confirmed check-in needs the player at
+ * the court: send a fresh fix when there is one. Without it the server extends
+ * at most 4 hours past the check-in's last confirming fix, then refuses ("To
+ * stay checked in, open Pickleague at the court ...").
+ */
+export async function extendCheckin(id: string, until: string, fix?: DeviceFix | null): Promise<VenueCheckin> {
+  return sbCall(
+    () => supabase.rpc('extend_checkin', { p_id: id, p_until: until, ...fixArgs(fix, Date.now()) }),
+    BOUND,
+  ) as Promise<VenueCheckin>;
 }
 
 /**

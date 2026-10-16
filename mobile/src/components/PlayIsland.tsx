@@ -10,10 +10,24 @@ import React, { useEffect, useState } from 'react';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useToast } from '../lib/useToast';
 import { navigateWhenReady } from '../lib/navigationRef';
-import { endPlay, getActivePlay, playIslandExpand, playSession, syncPlayStartReminders } from '../lib/playSession';
-import { checkinChanged, extendCheckinByHour, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
+import {
+  endPlay,
+  getActivePlay,
+  playIslandExpand,
+  playSession,
+  playStartUntracked,
+  syncPlayStartReminders,
+} from '../lib/playSession';
+import {
+  checkinChanged,
+  extendCheckinByHour,
+  peekCurrentCheckin,
+  takeFixIfAllowed,
+  type CurrentCheckin,
+} from '../lib/courtCheckin';
 
 function clock(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -38,6 +52,13 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   }, [signedIn]);
   useSignal(checkinChanged, setCheckin);
   useSignal(playIslandExpand, () => setExpanded(true));
+  // A Start at a court that didn't check me in: the island stops naming the
+  // court (lib/playSession) and says why, once.
+  useSignal(playStartUntracked, ({ venueName }) => {
+    toast.info(
+      `Not checked in${venueName ? ` at ${venueName}` : ''}: you're not at the court, so only you see this session.`,
+    );
+  });
 
   const meta = s.meta;
   const active = signedIn && s.status !== 'idle' && !!meta;
@@ -59,10 +80,13 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
             variant: 'secondary' as const,
             onPress: async () => {
               try {
-                await extendCheckinByHour(checkin);
+                // A fix (when location is allowed; no prompt here) keeps the
+                // check-in confirmed; without one the server extends only so far.
+                const fix = await takeFixIfAllowed(5_000);
+                await extendCheckinByHour(checkin, fix);
                 toast.success('Checked in for another hour.');
-              } catch {
-                toast.error("Couldn't extend your check-in.");
+              } catch (e) {
+                toast.error(friendlySbMessage(e, "Couldn't extend your check-in."));
               }
             },
           },

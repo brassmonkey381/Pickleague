@@ -19,6 +19,14 @@ describe('pending-End guard', () => {
     expect(isEndPending(m, 's1', NOW + 60_000)).toBe(false);
   });
 
+  it('a landed End stays a tombstone: a resume read already in flight that answers "open" is still skipped', () => {
+    // End tapped at NOW and landed a moment later: lib/playSession no longer
+    // clears the entry on success, so a stale "open" read handled minutes
+    // later still finds it.
+    const m = addPendingEnd({}, 's1', NOW);
+    expect(isEndPending(m, 's1', NOW + 10 * 60_000)).toBe(true);
+  });
+
   it('expires an entry after 3 days (the server closed that session long before)', () => {
     const m = addPendingEnd({}, 's1', NOW);
     expect(isEndPending(m, 's1', NOW + 3 * DAY - 1)).toBe(true);

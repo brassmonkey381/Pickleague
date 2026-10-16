@@ -3,10 +3,11 @@
 //
 // PURE: no React, no Supabase. The numbers come from venue_crowd /
 // friends_at_courts and the rows from court_presence; the server has already
-// applied privacy (anonymous rows carry no ids, hidden players count, blocked
-// players are gone). It also only sends a skill band when 3+ rated players are
-// present, so no single person can be picked out of it; this file never makes
-// a band out of the crowd itself.
+// applied privacy (anonymous rows carry no ids, hidden, paused and blocked
+// players count as "a player"). It also only sends a skill band when 3+ rated
+// players are there whom this viewer sees only anonymously (never the viewer,
+// never anyone shown by name), so no single person can be picked out of it;
+// this file never makes a band out of the crowd itself.
 
 /** venue_crowd's numbers for one court (and friends_at_courts' YOUR COURTS). */
 export type CrowdNumbers = {

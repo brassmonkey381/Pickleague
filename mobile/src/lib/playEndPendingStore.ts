@@ -31,7 +31,8 @@ export function markEndPending(sessionId: string, tapMs: number): Promise<void> 
   return update((m) => addPendingEnd(m, sessionId, tapMs));
 }
 
-/** The End landed, or failed for a reason a retry won't fix. */
+/** The End failed for a reason a retry won't fix. (A successful End keeps its
+ *  entry until it ages out: see ./playEndPending.) */
 export function clearEndPending(sessionId: string): Promise<void> {
   return update((m) => removePendingEnd(m, sessionId));
 }

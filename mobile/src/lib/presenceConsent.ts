@@ -19,12 +19,12 @@
 //   - from a path with no screen (a lock-screen action), use
 //     hasPresenceConsent() and open the app instead when it is false.
 //
-// While FRIENDS_AT_COURTS_ENABLED is off it answers true at once: the setting
-// it names isn't reachable yet.
+// Not behind FRIENDS_AT_COURTS_ENABLED: check-ins name players to friends and
+// closed-league mates as soon as the presence SQL is live, so the sheet, and
+// the Settings > Privacy rows it points to, ship with them.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
-import { FRIENDS_AT_COURTS_ENABLED } from './features';
 import { loadPresenceSettings, setPresenceSettings } from '../data/presenceSettings';
 
 const LOCAL_KEY = 'pickleague_presence_consent_v1';
@@ -63,7 +63,6 @@ async function writeLocal(uid: string): Promise<void> {
  *  reached and this device has no record, false: asking twice is harmless,
  *  skipping the question is not. */
 export async function hasPresenceConsent(): Promise<boolean> {
-  if (!FRIENDS_AT_COURTS_ENABLED) return true;
   const uid = await currentUserId(supabase);
   if (!uid) return true; // signed out: nothing to share
   if (await readLocal(uid)) {

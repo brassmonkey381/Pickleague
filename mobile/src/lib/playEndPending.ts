@@ -2,10 +2,13 @@
 // the map). End clears the island at once and sends end_play_session through
 // the offline queue. Until that write lands, the server still has the session
 // open, and the resume check (getActivePlay) would bring the island straight
-// back. So End records { sessionId: tapMs } BEFORE the queued write, the
-// resume check skips those sessions, and an entry is cleared when the End
-// succeeds or fails for a non-network reason. An entry older than 3 days is
-// dropped: the server's own expiry has closed that session long before.
+// back. So End records { sessionId: tapMs } BEFORE the queued write and the
+// resume check skips those sessions. A successful End KEEPS its entry, as a
+// tombstone: a resume read that was already in flight when End was tapped can
+// answer "open" after the End landed, and must still be ignored. Only a
+// non-network failure clears it (that End will never land). Entries age out
+// after 3 days: the server's own expiry has closed that session long before,
+// and session ids are fresh uuids, so a tombstone never hides a live session.
 
 export const PLAY_END_PENDING_KEY = 'pickleague_play_end_pending';
 export const PLAY_END_PENDING_MAX_AGE_MS = 3 * 86_400_000;

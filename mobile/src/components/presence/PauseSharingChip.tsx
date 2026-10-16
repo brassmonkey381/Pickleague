@@ -4,26 +4,22 @@
 // and offers Resume. The pause is presence_settings.paused_until on the
 // server, so it covers every device and every surface at once.
 //
-// Renders nothing while FRIENDS_AT_COURTS_ENABLED is off, so the court card
-// can render it unconditionally.
+// Not behind FRIENDS_AT_COURTS_ENABLED: a check-in names you to friends and
+// closed-league mates from the day the presence SQL is live, so the pause
+// ships with it.
 import React, { useState } from 'react';
 import { type StyleProp, type ViewStyle } from 'react-native';
 import { ActionSheetModal, Chip, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTicker } from '@just-messin-around/expo-foundation/hooks';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
 import { useToast } from '../../lib/useToast';
 import { PAUSE_CHOICES, isPaused, pauseUntil, pausedUntilLabel, type PauseChoice } from '../../lib/presencePrivacy';
 import { setPresenceSettings, usePresenceSettings } from '../../data/presenceSettings';
 
 type Props = { style?: StyleProp<ViewStyle> };
 
-export default function PauseSharingChip(props: Props) {
-  return FRIENDS_AT_COURTS_ENABLED ? <PauseSharingChipBody {...props} /> : null;
-}
-
-function PauseSharingChipBody({ style }: Props) {
+export default function PauseSharingChip({ style }: Props) {
   const toast = useToast();
   const settings = usePresenceSettings();
   // Re-checks each minute so the chip flips back by itself when a pause ends.

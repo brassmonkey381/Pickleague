@@ -2,8 +2,10 @@
 // court_presence and friends_at_courts (docs/play-sessions-presence-api.md,
 // "Presence reads"). Both are SECURITY DEFINER reads that apply each player's
 // own privacy level, blocks, pauses and hide-from on the server, so what comes
-// back is already what this viewer may see. An anonymous row carries no ids:
-// its checkin_id is a per-viewer hash, user_id and the name are null.
+// back is already what this viewer may see. An anonymous row carries only
+// what a count needs: a random checkin_id (new on every call: a React key,
+// nothing more), null user_id / name / rating, its times rounded out to the
+// hour, and no session fields; their order means nothing.
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { normalizeFriendsAtCourts, type FriendsAtCourts } from '../lib/friendsAtCourts';
@@ -54,7 +56,7 @@ export async function getCourtPresence(venueId: string): Promise<CourtPresenceRo
 }
 
 /** Friends (and closed-league mates) checked in within the last `hours`, by
- *  court, plus up to 3 of my courts with their crowd numbers. */
+ *  court, plus my courts (every star, filled up to 3) with their crowd numbers. */
 export async function getFriendsAtCourts(hours = 12): Promise<FriendsAtCourts> {
   return normalizeFriendsAtCourts(await sbCall(() => supabase.rpc('friends_at_courts', { p_hours: hours }), BOUND));
 }

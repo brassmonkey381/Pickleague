@@ -6,9 +6,11 @@
 // feature opened.
 //
 // Opt-in per device (Settings), because it needs "Always" location. Fences:
-// my leagues' home courts first (the stored leagues.home_venue_id, else the
-// pickleball court at the league's coordinates), then the courts I check in at
-// most; at most 20 (the iOS per-app limit).
+// my starred courts first (with FRIENDS_AT_COURTS_ENABLED; the same order as
+// Home's YOUR COURTS), then my leagues' home courts (the stored
+// leagues.home_venue_id, else the pickleball court at the league's
+// coordinates), then the courts I check in at most; at most 20 (the iOS
+// per-app limit). Starring or unstarring a court re-syncs them.
 //
 // defineCourtGeofenceTask() must run at the entry module's scope (index.ts):
 // the OS can wake the app headless to deliver an event. Native only.
@@ -19,10 +21,12 @@ import { postLocalNotice } from '@just-messin-around/expo-foundation/platform/pu
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { catalog, NeedsApp, registerActionHandler, requireUser } from './notificationActions';
-import { checkInAt, checkOut, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
-import { isNotAtCourtError } from './courtCheckinRules';
+import { checkInAt, checkOut, impreciseFixReason, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
+import { offersUntrackedSession } from './courtCheckinRules';
+import { FRIENDS_AT_COURTS_ENABLED } from './features';
 import { hasPresenceConsent } from './presenceConsent';
 import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
+import { listMyCourtFavorites } from '../data/courtFavorites';
 
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
 const ENABLED_KEY = 'pickleague_court_alerts_enabled_v1';
@@ -84,13 +88,19 @@ registerActionHandler('court_checkin', {
     // Arrival alerts run on "Always" location, so this reads a fix without a
     // dialog. 5 s leaves the write its share of the 10 s the button gets.
     const fix = await takeCheckinFix(5_000);
-    if (!fix) throw new NeedsApp("Open Pickleague to check in. It couldn't get your location to confirm you're at the court.");
+    if (!fix) {
+      // An approximate location (Precise Location off) says so; else no fix at all.
+      throw new NeedsApp(
+        impreciseFixReason() ?? "Open Pickleague to check in. It couldn't get your location to confirm you're at the court.",
+      );
+    }
     try {
       const c = await checkInAt({ id: d.venue_id, name: d.venue_name ?? 'the courts' }, fix, { source: 'geofence' });
       return c.queued ? { queued: true } : c;
     } catch (e) {
-      // "You need to be at the court to check in (about N m away)." as the notice.
-      if (isNotAtCourtError(e)) throw new NeedsApp((e as Error).message);
+      // The server's refusal as the notice: "You need to be at the court to
+      // check in (about N m away).", "isn't precise enough", "out of date".
+      if (offersUntrackedSession(e)) throw new NeedsApp((e as Error).message);
       throw e;
     }
   },
@@ -100,7 +110,7 @@ export async function getCourtAlertsEnabled(): Promise<boolean> {
   return (await readJson<boolean>(ENABLED_KEY, false)) === true;
 }
 
-/** Which courts to fence: league home courts, then my most-used check-in courts. */
+/** Which courts to fence: starred courts, then league home courts, then my most-used check-in courts. */
 async function pickRegions(): Promise<{ regions: GeofenceRegion[]; names: Record<string, string> }> {
   const uid = await currentUserId(supabase);
   if (!uid) return { regions: [], names: {} };
@@ -111,6 +121,16 @@ async function pickRegions(): Promise<{ regions: GeofenceRegion[]; names: Record
     names[v.id] = v.name;
     regions.push({ id: v.id, lat: v.lat, lng: v.lng, radiusM: v.radius ?? 100 });
   };
+
+  // Starred courts first, as in YOUR COURTS (ids are already canonical; the
+  // RPC has no radius, so the default). A failed read never drops the rest.
+  if (FRIENDS_AT_COURTS_ENABLED) {
+    const favs = await listMyCourtFavorites().catch(() => []);
+    for (const f of favs) {
+      if (f.lat == null || f.lng == null) continue;
+      add({ id: f.venue_id, name: f.venue_name, lat: f.lat, lng: f.lng });
+    }
+  }
 
   const leagues = await getMyLeagueCourts(uid);
   const stored = await getVenuesByIds([

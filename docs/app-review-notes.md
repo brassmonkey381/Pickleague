@@ -380,13 +380,19 @@ restore that sentence.
 ## 6. For the next binary (1.0.5+): check-ins confirm the court, and who sees them
 
 Phase 1 of [play-sessions-presence.md](play-sessions-presence.md) changes what a check-in
-stores, so the §1 location bullet "Coordinates are not stored; a check-in stores only the
-court" stops being true. When the next binary is submitted, replace the **Location (when in
-use)** bullet in §1 with the block below and add the **Court presence** bullet after the
-**Location (always)** one. Re-answer the App Privacy questionnaire at the same time (Precise
-Location: collected, linked to the user, App Functionality) and the Play Data Safety draft;
-neither needs a build. [`mobile/public/privacy.html`](../mobile/public/privacy.html) already
-says this.
+stores, so the §1 location bullets "Coordinates are not stored; a check-in stores only the
+court" and "no coordinates stored" stop being true.
+
+- **The store label goes first, with the Phase 1 SQL and OTA, not with the next binary:** the
+  OTA is what starts storing fixes (every check-in, including one from the arrival notice's
+  Check in button). Re-answer the App Store App Privacy questionnaire before or with that OTA
+  (Precise Location: collected, linked to the user, App Functionality); it needs no build.
+  Update the Play Data Safety draft at the same time (it only has to be final for the first
+  Android release, Phase 2). [`mobile/public/privacy.html`](../mobile/public/privacy.html)
+  already says this and goes live when master deploys.
+- **The §1 notes text is pasted at the next submission:** replace the **Location (when in
+  use)** and **Location (always)** bullets in §1 with the block below, and add the **Court
+  presence** bullet after them.
 
 ```text
 - Location (when in use): to show pickleball courts near the player when they
@@ -396,14 +402,22 @@ says this.
   check-in stores the court, the time, and that one fix (coordinates, accuracy,
   distance to the court). No route or continuous tracking. Check-ins are deleted
   after 180 days.
+- Location (always), version 1.0.4+: ONLY if the player turns on Settings ->
+  Court Arrival Alerts (off by default). The app then asks iOS to watch up to
+  20 courts (courts they starred, their league home courts and courts they
+  have checked in at) with region monitoring. Arriving shows a notification
+  with a "Check in" button; the app never checks anyone in on its own. Tapping it takes one location fix,
+  which our server uses to confirm the court and stores with the check-in, as
+  for any check-in. Leaving a court ends only a check-in that came from that
+  button. Region monitoring itself stores nothing: no continuous tracking, no
+  route. Turning the setting off stops all monitoring.
 - Court presence: other players see a checked-in player's name only as the
   player allows in Settings -> Privacy -> Who sees me at the courts (default:
   friends and members of closed leagues they share; also Everyone, Friends, or
   Hidden). Everyone else sees an anonymous count, blocked players never see each
-  other, and a player can pause sharing or hide from specific people. A one-time
-  sheet before the first check-in says who will see them. The location fix is
-  never shown to anyone.
+  other's name, and a player can pause sharing or hide from specific people. A
+  one-time sheet before the first check-in says who will see them. The location
+  fix is never shown to anyone.
 ```
 
-The **Location (always)** bullet stays as it is until the opt-in auto check-in ships (Phase 2):
-region monitoring is still prompt-only, behind Court Arrival Alerts.
+Phase 2 (opt-in auto check-in) rewrites the **Location (always)** bullet again.

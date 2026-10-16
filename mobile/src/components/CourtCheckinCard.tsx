@@ -13,11 +13,14 @@
 //
 // No manual check-ins (docs/play-sessions-presence.md, decision 6): "Find my
 // court" and Check in each take a fresh device fix, and the server confirms it
-// is inside the court's fence. No permission or no fix means no check-in; the
-// card says why and offers "Start without a court" (an untracked session)
-// instead. A fix outside the fence shows the server's "You need to be at the
-// court to check in (about N m away)." A queued check-in the server refused
-// later is reported here the next time the card shows.
+// is inside the court's fence. No permission, no fix, or only an approximate
+// one (Precise Location off) means no check-in; the card says why and offers
+// "Start without a court" (an untracked session) instead, and never offers
+// "Add this court" at a blurred spot. A fix outside the fence shows the
+// server's "You need to be at the court to check in (about N m away)." A
+// queued check-in the server refused later is reported here the next time the
+// card shows. +1 h sends a fix when location is allowed, so the check-in stays
+// confirmed (the server stops a fix-less one 4 hours after its last fix).
 //
 // Every button is bounded (10 s; 16 s when it first waits for a fix; the
 // location permission sheet itself is not timed) and resets its busy state in
@@ -51,10 +54,11 @@ import {
   peekCurrentCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
+  takeFixIfAllowed,
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
-import { FIX_REUSE_MS, isFixFresh, isNotAtCourtError, type DeviceFix } from '../lib/courtCheckinRules';
+import { FIX_REUSE_MS, isFixFresh, offersUntrackedSession, type DeviceFix } from '../lib/courtCheckinRules';
 import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
@@ -232,9 +236,10 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       if (opts.askLocation) await askForLocation();
       await withTimeout(fn(), opts.boundMs ?? BOUND_MS);
     } catch (e) {
-      // The server's own words for a fix outside the fence ("about N m away").
+      // The server's own words for a fix outside the fence ("about N m away"),
+      // too vague ("isn't precise enough") or too old ("out of date").
       setMessage(friendlySbMessage(e, failMsg));
-      if (isNotAtCourtError(e)) setOfferUntracked(true);
+      if (kind === 'checkin' && offersUntrackedSession(e)) setOfferUntracked(true);
     } finally {
       setBusy(null);
     }
@@ -296,14 +301,21 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     startPlay({ kind: 'open_play', sourceId: null, venueId: null, venueName: null });
   };
 
+  // A fix (only when location is already allowed: +1 h never prompts) keeps
+  // the check-in confirmed; without one the server extends only so far.
   const extend = (cur: CurrentCheckin) =>
     run(
       'extend',
       async () => {
-        const next = await extendCheckinByHour(cur);
+        const fix = isFixFresh(lastFix.current, Date.now(), FIX_REUSE_MS)
+          ? lastFix.current
+          : await takeFixIfAllowed(6_000);
+        if (fix) lastFix.current = fix;
+        const next = await extendCheckinByHour(cur, fix);
         if (next) setCurrent(next);
       },
       "Couldn't extend your check-in.",
+      { boundMs: CHECKIN_BOUND_MS },
     );
 
   const out = (cur: CurrentCheckin) =>

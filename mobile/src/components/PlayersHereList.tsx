@@ -1,5 +1,6 @@
 // "N players here now" at one court, with their PLUPR. Refreshes every minute
-// while visible. A failed load shows a line saying so rather than "nobody here".
+// while its screen is focused and the app is in the foreground. A failed load
+// shows a line saying so rather than "nobody here".
 //
 // Rows come from court_presence, which applies each player's own privacy
 // setting on the server: someone this viewer may not name arrives anonymous
@@ -21,6 +22,7 @@
 // pile is tapped.
 import React, { useState } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { usePollWhileActive } from '@just-messin-around/expo-foundation/hooks';
 import { AvatarPile, PresenceCard } from '@just-messin-around/expo-foundation/ui';
@@ -47,10 +49,12 @@ const AVATAR = 28;
 /** Avatars on the NOW line before the rest collapse into "+N". */
 const PILE_MAX = 3;
 
-/** Who's checked in at a court, refreshed every minute while visible.
- *  `players` stays null until the first load; `failed` only means the latest
- *  refresh failed (an earlier roster is kept). */
+/** Who's checked in at a court, refreshed every minute while its screen is
+ *  focused and the app is in the foreground. `players` stays null until the
+ *  first load; `failed` only means the latest refresh failed (an earlier
+ *  roster is kept). */
 export function usePlayersHere(venueId: string): { players: PlayerHere[] | null; failed: boolean } {
+  const focused = useIsFocused();
   const [players, setPlayers] = useState<PlayerHere[] | null>(null);
   const [failed, setFailed] = useState(false);
   usePollWhileActive(
@@ -63,7 +67,10 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
       }
     },
     60_000,
-    venueId,
+    // Covered by another screen (Home stays mounted under the native stack):
+    // stop. Refocusing re-arms the poll and fetches at once; the last roster
+    // is kept meanwhile.
+    focused ? venueId : null,
   );
   return { players, failed };
 }

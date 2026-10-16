@@ -1,6 +1,7 @@
 // ☆ / ★ "one of my courts" toggle, in its own 44 box. Up to 5 courts; a 6th
 // says so in a toast instead of failing quietly. Starred courts head Home's
-// YOUR COURTS. Renders nothing while FRIENDS_AT_COURTS_ENABLED is off.
+// YOUR COURTS and the arrival-alert fences (re-synced after each change).
+// Renders nothing while FRIENDS_AT_COURTS_ENABLED is off.
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -9,6 +10,7 @@ import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { toggleCourtFavorite, useCourtFavoriteIds } from '../../data/courtFavorites';
+import { syncCourtGeofences } from '../../lib/courtGeofence';
 
 type Props = {
   venueId: string;
@@ -34,6 +36,8 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
     try {
       await toggleCourtFavorite(venueId, !starred, venueName);
       toast.success(starred ? `${name} is off your courts.` : `${name} is one of your courts now.`);
+      // Arrival alerts fence starred courts too (0 at once on web or with alerts off; never throws).
+      void syncCourtGeofences();
     } catch (e) {
       toast.error(friendlySbMessage(e, "Couldn't change your courts just now."));
     } finally {

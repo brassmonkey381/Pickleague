@@ -1,14 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import {
+  APPROXIMATE_FIX_M,
+  FIX_MAX_ACCURACY_M,
   FIX_MAX_AGE_MS,
   FIX_REUSE_MS,
   checkoutPayload,
   fixArgs,
   fixFromCoords,
+  impreciseFixMessage,
   isFixFresh,
+  isImpreciseFixError,
   isNotAtCourtError,
+  isPreciseFix,
+  isStaleFixError,
   isValidFix,
+  needsCourtToExtend,
   noFixMessage,
+  offersUntrackedSession,
   rejectedCheckinNotice,
   type DeviceFix,
 } from '../courtCheckinRules';
@@ -83,17 +91,95 @@ describe('isFixFresh (the server takes a fix up to 2 minutes old)', () => {
 });
 
 describe('fixArgs', () => {
-  it('maps a fix to the four RPC arguments', () => {
-    expect(fixArgs(fixAt(0))).toEqual({
+  it('maps a fix to the RPC arguments, with its age at send time', () => {
+    expect(fixArgs(fixAt(0), NOW)).toEqual({
       p_lat: 37.8,
       p_lng: -122.26,
       p_accuracy_m: 12,
       p_fix_at: '2026-10-15T18:00:00.000Z',
+      p_fix_age_ms: 0,
     });
   });
 
+  it('measures the age on this device (a queued replay counts its time in the queue)', () => {
+    // Taken 30 s before NOW, sent 50 s after it: 80 s old, whatever the clock says.
+    expect(fixArgs(fixAt(30_000), NOW + 50_000).p_fix_age_ms).toBe(80_000);
+  });
+
+  it('never sends a negative age (the clock stepped back)', () => {
+    expect(fixArgs(fixAt(-5_000), NOW).p_fix_age_ms).toBe(0);
+  });
+
   it('sends nulls with no fix (a session with no court)', () => {
-    expect(fixArgs(null)).toEqual({ p_lat: null, p_lng: null, p_accuracy_m: null, p_fix_at: null });
+    expect(fixArgs(null, NOW)).toEqual({
+      p_lat: null,
+      p_lng: null,
+      p_accuracy_m: null,
+      p_fix_at: null,
+      p_fix_age_ms: null,
+    });
+  });
+});
+
+describe('isPreciseFix', () => {
+  it(`accepts up to ${FIX_MAX_ACCURACY_M} m, as the server does`, () => {
+    expect(isPreciseFix({ ...fixAt(0), accuracyM: FIX_MAX_ACCURACY_M })).toBe(true);
+    expect(isPreciseFix({ ...fixAt(0), accuracyM: 5 })).toBe(true);
+  });
+
+  it('refuses an approximate location, and a fix with no accuracy', () => {
+    expect(isPreciseFix({ ...fixAt(0), accuracyM: FIX_MAX_ACCURACY_M + 1 })).toBe(false);
+    expect(isPreciseFix({ ...fixAt(0), accuracyM: 3000 })).toBe(false);
+    expect(isPreciseFix({ ...fixAt(0), accuracyM: null })).toBe(false);
+  });
+});
+
+describe('impreciseFixMessage', () => {
+  it('names Precise Location for an approximate location, per platform', () => {
+    expect(impreciseFixMessage(2000, 'ios')).toContain('Turn on Precise Location');
+    expect(impreciseFixMessage(2000, 'android')).toContain('Allow precise location');
+    expect(impreciseFixMessage(2000, 'web')).toContain('browser only shared an approximate location');
+    expect(impreciseFixMessage(null, 'ios')).toContain('approximate location');
+  });
+
+  it('says "try again in the open" for a poor but real fix', () => {
+    const m = impreciseFixMessage(APPROXIMATE_FIX_M, 'ios');
+    expect(m).toContain('about 500 m');
+    expect(m).toContain('Try again in the open');
+    expect(m).not.toContain('Precise Location');
+  });
+
+  it('always offers the untracked session', () => {
+    for (const m of [impreciseFixMessage(300, 'ios'), impreciseFixMessage(2000, 'web'), impreciseFixMessage(null, 'android')]) {
+      expect(m).toContain('start without a court');
+    }
+  });
+});
+
+describe('fix refusals', () => {
+  const precise = { message: "Your location isn't precise enough to confirm you're at the court. Make sure Precise Location is on for Pickleague, then try again." };
+  const stale = { message: 'Your location is out of date. Try again at the court.' };
+  const far = { message: 'You need to be at the court to check in (about 240 m away).' };
+  const farExtend = { message: 'You need to be at the court to stay checked in (about 240 m away).' };
+  const cap = { message: "To stay checked in, open Pickleague at the court so it can confirm you're still there." };
+
+  it('tells each one apart', () => {
+    expect(isImpreciseFixError(precise)).toBe(true);
+    expect(isStaleFixError(stale)).toBe(true);
+    expect(isImpreciseFixError(stale)).toBe(false);
+    expect(isStaleFixError(far)).toBe(false);
+  });
+
+  it('offers the untracked session after any of the three check-in refusals', () => {
+    for (const e of [precise, stale, far]) expect(offersUntrackedSession(e)).toBe(true);
+    expect(offersUntrackedSession({ message: 'Court not found' })).toBe(false);
+    expect(offersUntrackedSession(null)).toBe(false);
+  });
+
+  it('knows when an extension needs the player back at the court', () => {
+    expect(needsCourtToExtend(cap)).toBe(true);
+    expect(needsCourtToExtend(farExtend)).toBe(true);
+    expect(needsCourtToExtend({ message: 'Check-in is no longer open' })).toBe(false);
   });
 });
 
@@ -110,9 +196,10 @@ describe('checkoutPayload', () => {
 });
 
 describe('isNotAtCourtError', () => {
-  it("recognises checkin_venue's refusal", () => {
+  it("recognises checkin_venue's refusal (and extend_checkin's)", () => {
     expect(isNotAtCourtError({ message: 'You need to be at the court to check in (about 240 m away).' })).toBe(true);
     expect(isNotAtCourtError(new Error('You need to be at the court to check in (about 3 m away).'))).toBe(true);
+    expect(isNotAtCourtError({ message: 'You need to be at the court to stay checked in (about 90 m away).' })).toBe(true);
   });
 
   it('ignores everything else', () => {

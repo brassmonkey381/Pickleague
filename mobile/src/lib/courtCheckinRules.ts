@@ -3,9 +3,11 @@
 //
 // No manual check-ins (docs/play-sessions-presence.md, decision 6 and rule 1):
 // every check-in carries a fresh device fix, and checkin_venue on the server
-// decides whether it is inside the court's fence. No fix, no check-in. A
-// queued (offline) check-in carries the fix taken at tap time, so the server's
-// 2-minute freshness rule refuses one that sat in the queue too long.
+// decides whether it is inside the court's fence. No fix, no check-in; an
+// approximate fix (accuracy over 150 m) counts as none. A queued (offline)
+// check-in carries the fix taken at tap time and sends its age at every try
+// (measured on this device's clock), so the server's 2-minute freshness rule
+// refuses one that sat in the queue too long, whatever the phone's clock says.
 import type { CheckinSource } from '../data/venueCheckins';
 
 /** A device location fix, as checkin_venue and start_play_session take it. */
@@ -23,6 +25,17 @@ export const FIX_MAX_AGE_MS = 2 * 60_000;
 const FIX_MAX_FUTURE_MS = 60_000;
 /** A fix this recent is reused for the next tap instead of waiting on the radio again. */
 export const FIX_REUSE_MS = 60_000;
+/**
+ * checkin_venue confirms a court only with a fix accurate to this many metres
+ * (the server's own rule). A normal GPS / Wi-Fi fix is 5-100 m.
+ */
+export const FIX_MAX_ACCURACY_M = 150;
+/**
+ * Above this the phone or browser is sharing an approximate location on
+ * purpose (iOS Precise Location off, Android "approximate", a browser's IP
+ * guess: about 1-3 km), not just a poor fix.
+ */
+export const APPROXIMATE_FIX_M = 500;
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n);
 
@@ -64,18 +77,51 @@ export function isFixFresh(f: DeviceFix | null | undefined, nowMs: number, maxAg
   return age >= -FIX_MAX_FUTURE_MS && age <= maxAgeMs;
 }
 
+/** Accurate enough for the server to confirm a court with (FIX_MAX_ACCURACY_M); an unknown accuracy is not. */
+export function isPreciseFix(f: DeviceFix): boolean {
+  return f.accuracyM != null && f.accuracyM <= FIX_MAX_ACCURACY_M;
+}
+
+/** What to tell the player about a fix too vague to confirm a court. */
+export function impreciseFixMessage(accuracyM: number | null, platform: string): string {
+  if (accuracyM != null && accuracyM <= APPROXIMATE_FIX_M) {
+    return `Your location is only accurate to about ${Math.round(accuracyM)} m right now, not enough to confirm you're at the court. Try again in the open, or start without a court.`;
+  }
+  if (platform === 'web') {
+    return "Your browser only shared an approximate location, so it can't confirm you're at the court. Try again, or start without a court.";
+  }
+  return platform === 'android'
+    ? "Pickleague only got your approximate location, so it can't confirm you're at the court. Allow precise location for Pickleague in Settings, or start without a court."
+    : "Pickleague only got your approximate location, so it can't confirm you're at the court. Turn on Precise Location for Pickleague in Settings, or start without a court.";
+}
+
 export type FixArgs = {
   p_lat: number | null;
   p_lng: number | null;
   p_accuracy_m: number | null;
   p_fix_at: string | null;
+  /**
+   * How old the fix is at send time, on the device's own clock (so a phone
+   * whose clock is off still passes the server's 2-minute rule). Recomputed on
+   * every send, so a queued replay counts its time in the queue.
+   */
+  p_fix_age_ms: number | null;
 };
 
-/** The four fix arguments checkin_venue and start_play_session share (all null: no fix). */
-export function fixArgs(f: DeviceFix | null | undefined): FixArgs {
+/**
+ * The fix arguments checkin_venue, start_play_session and extend_checkin share
+ * (all null: no fix). `nowMs` is the moment of sending.
+ */
+export function fixArgs(f: DeviceFix | null | undefined, nowMs: number): FixArgs {
   return f
-    ? { p_lat: f.lat, p_lng: f.lng, p_accuracy_m: f.accuracyM ?? null, p_fix_at: f.fixAt }
-    : { p_lat: null, p_lng: null, p_accuracy_m: null, p_fix_at: null };
+    ? {
+        p_lat: f.lat,
+        p_lng: f.lng,
+        p_accuracy_m: f.accuracyM ?? null,
+        p_fix_at: f.fixAt,
+        p_fix_age_ms: Math.max(0, Math.round(nowMs - Date.parse(f.fixAt))),
+      }
+    : { p_lat: null, p_lng: null, p_accuracy_m: null, p_fix_at: null, p_fix_age_ms: null };
 }
 
 /** A check-in as sent, or as it sits in the offline queue. */
@@ -107,6 +153,30 @@ const messageOf = (e: unknown): string => {
 /** checkin_venue's refusal of a fix outside the fence ("You need to be at the court to check in (about 240 m away)."). */
 export function isNotAtCourtError(e: unknown): boolean {
   return /need to be at the court/i.test(messageOf(e));
+}
+
+/** The server's refusal of a fix too vague to confirm a court ("Your location isn't precise enough ..."). */
+export function isImpreciseFixError(e: unknown): boolean {
+  return /precise enough/i.test(messageOf(e));
+}
+
+/** The server's refusal of a fix past the 2-minute rule ("Your location is out of date. ..."). */
+export function isStaleFixError(e: unknown): boolean {
+  return /location is out of date/i.test(messageOf(e));
+}
+
+/** A refusal after which an untracked session (no court) is the way on. */
+export function offersUntrackedSession(e: unknown): boolean {
+  return isNotAtCourtError(e) || isImpreciseFixError(e) || isStaleFixError(e);
+}
+
+/**
+ * extend_checkin's refusal of an extension with no fix, 4 hours past the last
+ * one that confirmed the court ("To stay checked in, open Pickleague at the
+ * court ..."), or of a fix that doesn't confirm it.
+ */
+export function needsCourtToExtend(e: unknown): boolean {
+  return /open Pickleague at the court/i.test(messageOf(e)) || offersUntrackedSession(e);
 }
 
 /** What to tell the player about a queued check-in the server refused on replay. */

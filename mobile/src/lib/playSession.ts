@@ -9,8 +9,10 @@
 // when it confirms the court the server checks me in there too (a 'session'
 // check-in with the session's id, or it adopts the check-in I already had).
 // End closes only a check-in the session opened. A queued End must never
-// bring the island back, so End records a pending-End entry first and the
-// resume check skips it (./playEndPending).
+// bring the island back, so End records a pending-End entry first, keeps it
+// after the End lands, and the resume check skips it (./playEndPending).
+// When a Start at a court does not check me in (the fix didn't confirm it),
+// the island stops naming the court and says so once (playStartUntracked).
 //
 // Starting goes through one sheet, "Where are you playing?"
 // (components/play/PlayStartSheet): openPlayStart() opens it, or expands the
@@ -28,7 +30,7 @@ import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
 import { catalog, registerActionHandler, requireUser } from './notificationActions';
-import { forgetCheckin, refreshCurrentCheckin } from './courtCheckin';
+import { forgetCheckin, peekCurrentCheckin, refreshCurrentCheckin, type CurrentCheckin } from './courtCheckin';
 import type { DeviceFix } from './courtCheckinRules';
 import { isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
@@ -38,6 +40,7 @@ import {
   getMyUpcomingPlay,
   startPlaySession,
   type PlayKind,
+  type PlaySessionRow,
 } from '../data/playSessions';
 import { getVenueName } from '../data/venueCheckins';
 
@@ -78,11 +81,42 @@ type EndPayload = { id: string; at: string };
 registerMutationHandler(MUTATION_START, {
   run: async (p) => {
     const payload = p as StartPayload;
-    await startPlaySession(payload);
-    // The session may have checked me in (or adopted my check-in).
-    if (payload.venueId) void refreshCurrentCheckin().catch(() => {});
+    const row = await startPlaySession(payload);
+    // The session may have checked me in (or adopted my check-in), or, with
+    // a fix that no longer confirms the court, not.
+    if (payload.venueId) void noteUntrackedStart(payload.id, payload.venueId, row);
   },
 });
+
+/** Emits when a Start at a court did not check me in there (the island says so once). */
+export const playStartUntracked = createSignal<{ venueName: string | null }>();
+
+/** Is `cur` the check-in a session at `venueId` gave me (its own, or the one it adopted)? */
+function sessionCheckedIn(cur: CurrentCheckin | null, sessionId: string, venueIds: (string | null | undefined)[]): boolean {
+  return !!cur && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
+}
+
+/**
+ * After a Start at a court lands: if it did not check me in (the fix didn't
+ * confirm the court: the server starts it untracked, no error), stop naming
+ * the court on the island and say so, instead of implying friends see me
+ * there. Quiet when the check can't be made (offline) or the session is over.
+ */
+async function noteUntrackedStart(sessionId: string, venueId: string, row: PlaySessionRow | null | undefined): Promise<void> {
+  let cur: CurrentCheckin | null;
+  try {
+    cur = await refreshCurrentCheckin();
+  } catch {
+    return;
+  }
+  const s = playSession.get();
+  if (s.id !== sessionId || s.status === 'idle' || !s.meta?.venueId) return;
+  if (sessionCheckedIn(cur, sessionId, [row?.venue_id, venueId])) return;
+  const venueName = s.meta.venueName;
+  playSession.patchMeta({ venueName: null });
+  playStartUntracked.emit({ venueName });
+}
+
 registerMutationHandler(MUTATION_END, {
   run: async (p) => {
     const { id, at } = p as EndPayload;
@@ -93,7 +127,7 @@ registerMutationHandler(MUTATION_END, {
       if (!isNetworkError(e)) await clearEndPending(id);
       throw e;
     }
-    await clearEndPending(id);
+    // Landed: the entry stays as a tombstone (./playEndPending) until it ages out.
   },
 });
 
@@ -116,9 +150,11 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
     ...(meta.venueId && fix ? { fix } : {}),
   };
   void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload))
-    .then(({ queued }) => {
-      // The court card shows the session's check-in once it exists.
-      if (!queued && meta.venueId) void refreshCurrentCheckin().catch(() => {});
+    .then(({ queued, result }) => {
+      // The court card shows the session's check-in once it exists; a court
+      // that didn't check me in stops being named (the queued replay checks
+      // the same way when it lands).
+      if (!queued && meta.venueId) void noteUntrackedStart(id, meta.venueId, result);
     })
     .catch(() => {
       // A rejected start (not a network failure) has nothing to retry; the
@@ -130,8 +166,10 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
 /**
  * End the session. Resolves without the network: the island clears now, the
  * server write (with the real end time) is sent or queued in the background.
- * The pending-End entry is written BEFORE that write, so a resume check that
- * runs while it is queued can't bring the island back.
+ * The pending-End entry is written BEFORE that write and kept after it lands
+ * (a tombstone that ages out), so neither a resume check that runs while it is
+ * queued nor one already in flight when End was tapped can bring the island
+ * back.
  */
 export function endPlay(): void {
   const s = playSession.get();
@@ -143,7 +181,6 @@ export function endPlay(): void {
   void markEndPending(payload.id, Date.parse(payload.at))
     .catch(() => {}) // the guard is best-effort; the End goes out regardless
     .then(() => runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at)))
-    .then(({ queued }) => (queued ? undefined : clearEndPending(payload.id)))
     // Not a network failure (those queue): retrying won't help, nothing is pending.
     .catch(() => clearEndPending(payload.id));
 }
@@ -164,17 +201,21 @@ export async function getActivePlay() {
     return null;
   }
   const local = playSession.get();
-  const meta: PlayMeta =
-    local.id === row.id && local.meta
-      ? local.meta
-      : {
-          kind: row.kind,
-          label: PLAY_LABEL[row.kind],
-          sourceId: row.source_id,
-          venueId: row.venue_id,
-          venueName: row.venue_id ? await getVenueName(row.venue_id).catch(() => null) : null,
-        };
-  return { id: row.id, startedAtMs: Date.parse(row.started_at), meta };
+  const startedAtMs = Date.parse(row.started_at);
+  if (local.id === row.id && local.meta) return { id: row.id, startedAtMs, meta: local.meta };
+  // Rebuilt from the server: name the court only when the session checked me
+  // in there (an untracked session at a court shows no court, as at Start).
+  const checkedIn =
+    !!row.venue_id &&
+    sessionCheckedIn(await refreshCurrentCheckin().catch(() => peekCurrentCheckin()), row.id, [row.venue_id]);
+  const meta: PlayMeta = {
+    kind: row.kind,
+    label: PLAY_LABEL[row.kind],
+    sourceId: row.source_id,
+    venueId: row.venue_id,
+    venueName: row.venue_id && checkedIn ? await getVenueName(row.venue_id).catch(() => null) : null,
+  };
+  return { id: row.id, startedAtMs, meta };
 }
 
 // ── "Where are you playing?" and the island ─────────────────────────────────

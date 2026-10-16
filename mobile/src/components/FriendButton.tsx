@@ -57,8 +57,12 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
-/** One-line explainer for the ⭐ (Phase 2 sends these heads-ups). */
-export const CLOSE_FRIEND_EXPLAINER = "Close friends will get a heads-up when you're at a court.";
+/**
+ * One-line explainer for the ⭐. Phase 1: ordering only (the star is private;
+ * close_friends is owner-only). When the Phase 2 close-friend push ships,
+ * change it in the same commit, to match the push's direction.
+ */
+export const CLOSE_FRIEND_EXPLAINER = 'Close friends are listed first, here and at the courts. Only you see your stars.';
 
 export default function FriendButton({ userId, meId, profile, style }: Props) {
   const toast = useToast();

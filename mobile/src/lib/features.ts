@@ -34,9 +34,14 @@ export const WAGERS_ENABLED = false;
 
 /**
  * Friends at the courts (docs/play-sessions-presence.md, Phase 1): the Friends
- * screen, friend requests, Home "Friends at the courts", the crowd line and the
- * court privacy settings. Off until the presence SQL is live and its persona
- * tests pass; then flipped by OTA. Location-confirmed check-ins and session
- * check-ins are NOT behind this flag.
+ * screen, friend requests, FriendButton / FriendsLink, Home "Friends at the
+ * courts", the crowd line, the court star and friend push routes. Off until
+ * the presence SQL is live and its persona tests pass; then flipped by OTA.
+ *
+ * NOT behind this flag (they ship together, so a player is never shown at a
+ * court without the means to control it): location-confirmed check-ins and
+ * session check-ins, the one-time consent sheet, Settings > Privacy "Who sees
+ * me at the courts" / "Hidden from", Pause sharing, and "Hide my presence" on
+ * a player's ⋯ menu.
  */
 export const FRIENDS_AT_COURTS_ENABLED = false;
