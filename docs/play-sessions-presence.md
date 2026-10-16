@@ -1,8 +1,8 @@
 # Play sessions + court presence (ported from Doggle)
 
 **Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
-Phase 1.5 (validity rules) built on `feat/validity` 2026-10-16, hardened after an anti-gaming review the same day,
-persona-tested against live in a rolled-back transaction (440/440), not applied or shipped yet · **Source:** a 13-agent study of Doggle's walks /
+Phase 1.5 (validity rules) live 2026-10-16 (SQL applied after 440/440 on live, master `2299218`, OTA `81865e5f`),
+hardened after an anti-gaming review the same day · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -137,7 +137,7 @@ never presence (an invalid session still shows you at the court).
   one session per match or drill, drill schedules locked to the server.
 - [x] 3. End flow: `components/play/PlayEndSheet` (Record match / Review drill / Not now), shown only when neither
   the device nor the server (`my_session_validity`, 2 s) already counts the session; MatchEntry links the match.
-- [ ] Apply `supabase/migration_validity_rules.sql`, then merge and OTA.
+- [x] Apply `supabase/migration_validity_rules.sql`, then merge and OTA (2026-10-16: master `2299218`, OTA `81865e5f`).
 
 How the build reads the rules (say so to change any):
 
