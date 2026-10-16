@@ -1,6 +1,7 @@
 # Play sessions + court presence (ported from Doggle)
 
-**Status:** Phase 1 in progress (started 2026-10-15) · **Source:** a 13-agent study of Doggle's walks /
+**Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
+Phase 1.5 (validity rules) in progress · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -107,6 +108,26 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
     questionnaire (Precise Location: collected, linked to the user, App Functionality) and update the Play Data
     Safety draft → OTA (this starts storing fixes) → flip the flag by OTA after persona tests. Re-answer the label
     before or with the OTA, not with the next binary.
+
+### Phase 1.5: validity rules (decided by the user 2026-10-16; SQL + OTA)
+
+Anti-gaming: presence is about being there, rewards are about having played. These rules gate rewards and streaks,
+never presence (an invalid session still shows you at the court).
+
+1. **Stay proof:** check-out sends a fresh fix when one comes back within 3 s (never blocks check-out; extend already
+   needs one). The server records whether the player was confirmed at the court at arrival AND at check-out/extend,
+   at least 5 minutes apart (`stay_confirmed`). Future presence rewards pay only on a confirmed stay.
+2. **Valid session = 5+ minutes AND a recorded match or drill.** A match counts when it is linked to the session
+   (`matches.play_session_id`) or recorded by the player during the session or within 2 h after it ends; a drill
+   counts when the player's drill session in that window is completed. Recorded is enough to count; pickles for a
+   session wait until its match is confirmed. This replaces decision 5's "sessions of 20+ min count toward the play
+   streak": the streak credit (Phase 5) goes to valid sessions.
+3. **End flow:** ending a session asks "Record a match or drill?" (opens MatchEntry linked to the session); without
+   one, the summary says sessions count once a match or drill is recorded within 2 h.
+
+Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are
+stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;
+duration-only walks save but never count.
 
 ### Phase 2: tell close friends, make sessions pay off (native build 1.0.5 + OTA)
 
