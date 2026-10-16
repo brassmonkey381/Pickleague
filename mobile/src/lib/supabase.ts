@@ -50,10 +50,12 @@ configureQueryCachePersistence({
   version: 1,
 });
 
-// Queued-write storage. Nothing enqueues yet — which writes are safe to defer is
-// a product decision (a match result that lands an hour later still moves PLUPR,
-// pickles, and notifications), so they stay fail-loud for now. Configuring here
-// means adopting one later is a single `runOrQueue` call.
+// Queued-write storage. Which writes may be deferred is a product decision (a
+// match result that lands an hour later still moves PLUPR, pickles, and
+// notifications), so each one opts in with its own `runOrQueue` call: bookmarks
+// and preferences (lib/offlineWrites), court check-ins and check-outs
+// (lib/courtCheckin) and play sessions (lib/playSession). Everything else stays
+// fail-loud.
 configureMutationQueue({ storage: AsyncStorage });
 
 // Wipe/re-scope the cache whenever the signed-in user changes, so one account's

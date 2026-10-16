@@ -115,6 +115,8 @@ export type League = {
   home_court: string | null;
   home_court_lat: number | null;
   home_court_lng: number | null;
+  /** The catalog court picked as home (venues.id); null for a pin or an old row not backfilled. */
+  home_venue_id?: string | null;
   prize_pool: number;
   payout_structure: number[];
   created_at: string;

@@ -1,0 +1,50 @@
+// The pending-End guard for play sessions (pure; ./playEndPendingStore keeps
+// the map). End clears the island at once and sends end_play_session through
+// the offline queue. Until that write lands, the server still has the session
+// open, and the resume check (getActivePlay) would bring the island straight
+// back. So End records { sessionId: tapMs } BEFORE the queued write, the
+// resume check skips those sessions, and an entry is cleared when the End
+// succeeds or fails for a non-network reason. An entry older than 3 days is
+// dropped: the server's own expiry has closed that session long before.
+
+export const PLAY_END_PENDING_KEY = 'pickleague_play_end_pending';
+export const PLAY_END_PENDING_MAX_AGE_MS = 3 * 86_400_000;
+
+/** sessionId -> when End was tapped (epoch ms). */
+export type PendingEnds = Record<string, number>;
+
+const live = (tapMs: unknown, nowMs: number): tapMs is number =>
+  typeof tapMs === 'number' && Number.isFinite(tapMs) && nowMs - tapMs < PLAY_END_PENDING_MAX_AGE_MS;
+
+/** The stored map without expired or malformed entries (anything unreadable is an empty map). */
+export function prunePendingEnds(raw: unknown, nowMs: number): PendingEnds {
+  let v = raw;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return {};
+    }
+  }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: PendingEnds = {};
+  for (const [id, tapMs] of Object.entries(v as Record<string, unknown>)) {
+    if (id && live(tapMs, nowMs)) out[id] = tapMs;
+  }
+  return out;
+}
+
+export function addPendingEnd(map: PendingEnds, sessionId: string, tapMs: number): PendingEnds {
+  return { ...map, [sessionId]: tapMs };
+}
+
+export function removePendingEnd(map: PendingEnds, sessionId: string): PendingEnds {
+  if (!(sessionId in map)) return map;
+  const { [sessionId]: _gone, ...rest } = map;
+  return rest;
+}
+
+/** True while an End for this session is waiting to reach the server. */
+export function isEndPending(map: PendingEnds, sessionId: string, nowMs: number): boolean {
+  return live(map[sessionId], nowMs);
+}

@@ -3,14 +3,16 @@
 // LiveStatusIsland (every action bounded at 10 s, busy state always cleared).
 //
 // Also hosts the session's reconciliation with the server
-// (useResumeLiveSession, 8 s bound) and the "starting now" notice sync.
+// (useResumeLiveSession, 8 s bound) and the "starting now" notice sync, and
+// expands when something asks to start a session while one already runs
+// (openPlayStart -> playIslandExpand).
 import React, { useEffect, useState } from 'react';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { useToast } from '../lib/useToast';
 import { navigateWhenReady } from '../lib/navigationRef';
-import { endPlay, getActivePlay, playSession, syncPlayStartReminders } from '../lib/playSession';
+import { endPlay, getActivePlay, playIslandExpand, playSession, syncPlayStartReminders } from '../lib/playSession';
 import { checkinChanged, extendCheckinByHour, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 
 function clock(totalSeconds: number): string {
@@ -25,6 +27,7 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const s = playSession.useLiveSession();
   const elapsed = useElapsed(s.startedAtMs);
   const [checkin, setCheckin] = useState<CurrentCheckin | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useResumeLiveSession({ session: playSession, getActive: getActivePlay, timeoutMs: 8_000, enabled: signedIn });
 
@@ -34,10 +37,15 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
     void peekCurrentCheckin().then(setCheckin);
   }, [signedIn]);
   useSignal(checkinChanged, setCheckin);
+  useSignal(playIslandExpand, () => setExpanded(true));
 
   const meta = s.meta;
   const active = signedIn && s.status !== 'idle' && !!meta;
   const where = meta?.venueName ?? checkin?.venueName ?? null;
+  // The next session starts collapsed.
+  useEffect(() => {
+    if (!active) setExpanded(false);
+  }, [active]);
 
   const actions: IslandAction[] = [
     {
@@ -74,6 +82,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   return (
     <LiveStatusIsland
       visible={active}
+      expanded={active && expanded}
+      onExpandedChange={setExpanded}
       // Bottom-anchored: the foundation (1.39+) lifts it to max(safe area,
       // bottom chrome slot) + gap, so it floats above a screen's
       // StickyActionBar (LeagueDetail, later TournamentDetail) instead of

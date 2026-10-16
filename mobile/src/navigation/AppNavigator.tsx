@@ -26,6 +26,7 @@ import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
 import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
 import PlayIsland from '../components/PlayIsland';
+import PlayStartSheetHost from '../components/play/PlayStartSheet';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -184,9 +185,10 @@ export default function AppNavigator() {
     const teardownTaps = setupNotificationTapHandling();
     // Track connectivity (feeds OfflineBanner + self-healing realtime channels).
     const stopNetworkMonitor = startNetworkMonitor();
-    // Replay writes queued while offline (bookmarks, preferences — see
-    // lib/offlineWrites for why only those). Importing that module is what
-    // registers the handlers, so this must come after it is in the graph.
+    // Replay writes queued while offline (bookmarks, preferences, court
+    // check-ins and play sessions — see lib/offlineWrites for which writes may
+    // queue). Importing those modules is what registers the handlers, so this
+    // must come after they are in the graph.
     const stopOfflineWrites = startOfflineWrites();
     return () => {
       subscription.unsubscribe();
@@ -348,6 +350,8 @@ export default function AppNavigator() {
       <UpdateReadyBanner text="A Pickleague update is ready. Restart to get the latest." />
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
+      {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}
+      {!updateRequired && phase === 'ready' && <PlayStartSheetHost signedIn={!!session} />}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

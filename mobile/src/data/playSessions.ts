@@ -1,8 +1,15 @@
 // Live play sessions ("I'm playing right now"). Wrappers over the RPCs in
-// supabase/migration_play_sessions.sql; both writes are idempotent (client id,
+// supabase/migration_play_sessions.sql and the presence migration
+// (docs/play-sessions-presence-api.md); both writes are idempotent (client id,
 // end only closes an open row), so they may be retried or queued.
+//
+// A session at a court is presence: with a fix that confirms the court, the
+// server also checks me in there (a 'session' check-in with the session's id,
+// or it adopts the check-in I already had), and End closes only the one it
+// opened. Without a fix it is just my timer.
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 
 export type PlayKind = 'open_play' | 'drill' | 'match' | 'event';
 
@@ -24,6 +31,8 @@ export async function startPlaySession(p: {
   sourceId?: string | null;
   venueId?: string | null;
   at?: string;
+  /** The fix taken at Start; it decides whether the session checks me in at `venueId`. */
+  fix?: DeviceFix | null;
 }): Promise<PlaySessionRow> {
   return sbCall(
     () =>
@@ -33,6 +42,7 @@ export async function startPlaySession(p: {
         p_source: p.sourceId ?? null,
         p_venue: p.venueId ?? null,
         p_at: p.at ?? null,
+        ...fixArgs(p.venueId ? p.fix : null),
       }),
     BOUND,
   ) as Promise<PlaySessionRow>;

@@ -246,5 +246,21 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
 - `delete_my_account` (and the godmode delete) deletes venue_checkins, play_sessions, presence_settings,
   presence_hidden_from (both columns), friendships, close_friends (both), court_favorites for the user.
 - Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days.
-- Client: before `signOutSafely`, best-effort `checkout_venue(null, 'signout', now)` and `end_play_session` for the open
-  session, each bounded to 3 s, never blocking sign-out (SettingsScreen doSignOut, GuestJoinScreen).
+- Client: before `signOutSafely`, best-effort `checkout_venue(null, null, now)` and `end_play_session` for the open
+  session, each bounded to 3 s, never blocking sign-out (SettingsScreen doSignOut, GuestJoinScreen;
+  `mobile/src/lib/signOutPresence.ts`). (checkin stream: `p_source` is `null`, not `'signout'`, because it is a
+  source filter and no row has source `'signout'`; `null` closes every open row whatever opened it.)
+
+## Client notes (checkin stream)
+
+- `checkout_venue` always gets `p_source` explicitly: `null` for a plain check-out and for sign-out (no filter),
+  `'geofence'` when leaving a fenced court (it must not close a manual check-in). The no-match fallback applies the
+  same filter, as the SQL does.
+- Every `checkin_venue` call sends the four fix arguments (no manual check-ins). A check-in queued offline carries
+  the fix taken at tap time; when the server refuses it on replay, the client drops it and tells the player the next
+  time the court card shows. A queued check-in from an older build that has no fix is dropped without being sent.
+- `start_play_session` sends the fix only with a court (`p_venue`); a session with no court sends four nulls.
+- `resolve_court` is always called with `p_sport` from `mobile/src/sports/registry.ts` (`getSport().courtSport`).
+- League home-court pickers write `leagues.home_venue_id` (the picked catalog venue, else null) alongside `home_court*`.
+- The start sheet reads `get_my_presence_settings` (for its "who sees you" line) and `list_my_court_favorites`, and
+  treats either failing as "defaults / none".

@@ -11,13 +11,23 @@
 // the court-arrival notice) lands here and relies on its state and listeners.
 // `onModeChange` tells Home which spot it belongs in.
 //
-// Every button is bounded (10 s) and resets its busy state in `finally`, so a
-// dead connection can never leave a spinner running.
+// No manual check-ins (docs/play-sessions-presence.md, decision 6): "Find my
+// court" and Check in each take a fresh device fix, and the server confirms it
+// is inside the court's fence. No permission or no fix means no check-in; the
+// card says why and offers "Start without a court" (an untracked session)
+// instead. A fix outside the fence shows the server's "You need to be at the
+// court to check in (about N m away)." A queued check-in the server refused
+// later is reported here the next time the card shows.
+//
+// Every button is bounded (10 s; 16 s when it first waits for a fix; the
+// location permission sheet itself is not timed) and resets its busy state in
+// `finally`, so a dead connection can never leave a spinner running.
 //
 // No court in range offers "Add this court" (SubmitVenue, prefilled with the
 // spot). After the first check-in that goes through, native shows a one-time
-// offer to turn on court arrival alerts (otherwise only in Settings).
-import React, { useCallback, useEffect, useState } from 'react';
+// offer to turn on court arrival alerts (otherwise only in Settings). "Play
+// now" / "Start playing" open the "Where are you playing?" sheet.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -26,26 +36,38 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { getCurrentCoords, getLastKnownCoords, withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import {
+  askForLocation,
   checkInAt,
   checkinChanged,
+  checkinRejected,
   checkOut,
   extendCheckinByHour,
+  noFixReason,
   peekCurrentCheckin,
   refreshCurrentCheckin,
+  takeCheckinFix,
+  takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
-import { resolveVenueAt, type NearbyVenue } from '../data/venueCheckins';
+import { FIX_REUSE_MS, isFixFresh, isNotAtCourtError, type DeviceFix } from '../lib/courtCheckinRules';
+import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
+import PauseSharingChip from './presence/PauseSharingChip';
 import { noteGoodMoment } from '../lib/ratingPrompt';
-import { playSession, startPlay } from '../lib/playSession';
+import { openPlayStart, playSession, startPlay } from '../lib/playSession';
+import { ensurePresenceConsent } from '../lib/presenceConsent';
+import { FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
 import type { RootStackParamList } from '../types';
 
 const BOUND_MS = 10_000;
+// Check in may first wait up to 6 s for a fix, then the write.
+const CHECKIN_BOUND_MS = 16_000;
 // Set the moment the arrival-alerts offer is shown, so it never asks twice.
 const ALERTS_OFFERED_KEY = 'pickleague_court_alerts_offered_v1';
 const ALWAYS_LABEL = Platform.OS === 'android' ? 'Allow all the time' : 'Always';
@@ -133,7 +155,8 @@ export type CourtCardMode = 'idle' | 'checked_in' | 'prompt';
 /** What was tapped (home.tap targets). */
 export type CourtCardTap =
   | 'find_court'
-  | 'just_play'
+  | 'play_now'
+  | 'start_untracked'
   | 'check_in'
   | 'not_here'
   | 'extend'
@@ -154,10 +177,14 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   const t = textStyles(c);
   const S = makeStyles(c);
   const [current, setCurrent] = useState<CurrentCheckin | null>(null);
-  const [nearby, setNearby] = useState<NearbyVenue | null>(null);
+  const [nearby, setNearby] = useState<ResolvedCourt | null>(null);
   const [busy, setBusy] = useState<null | 'find' | 'checkin' | 'extend' | 'out'>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // No fix, or a fix outside the fence: offer an untracked session instead.
+  const [offerUntracked, setOfferUntracked] = useState(false);
   const [rosterKey, setRosterKey] = useState(0);
+  // The fix "Find my court" used; Check in reuses it while it is recent.
+  const lastFix = useRef<DeviceFix | null>(null);
   // Where "Find my court" found nothing: offered as "Add this court".
   const [addAt, setAddAt] = useState<{ lat: number; lng: number } | null>(null);
   const [alertsOffer, setAlertsOffer] = useState<null | 'ask' | 'busy'>(null);
@@ -178,20 +205,42 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     useCallback(() => {
       // Offline: keep the cached check-in.
       refreshCurrentCheckin().then(setCurrent).catch(() => {});
+      // A queued check-in the server refused while I was away.
+      void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
     }, []),
   );
+  // ...or while the card is on screen (marked shown so focus doesn't repeat it).
+  useSignal(checkinRejected, () => {
+    void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
+  });
 
-  async function run(kind: NonNullable<typeof busy>, fn: () => Promise<void>, failMsg: string) {
+  async function run(
+    kind: NonNullable<typeof busy>,
+    fn: () => Promise<void>,
+    failMsg: string,
+    opts: { boundMs?: number; askLocation?: boolean } = {},
+  ) {
     setBusy(kind);
     setMessage(null);
+    setOfferUntracked(false);
     setAlertsResult(null);
     try {
-      await withTimeout(fn(), BOUND_MS);
+      // The permission sheet sits outside the bound; the fix and the write don't.
+      if (opts.askLocation) await askForLocation();
+      await withTimeout(fn(), opts.boundMs ?? BOUND_MS);
     } catch (e) {
+      // The server's own words for a fix outside the fence ("about N m away").
       setMessage(friendlySbMessage(e, failMsg));
+      if (isNotAtCourtError(e)) setOfferUntracked(true);
     } finally {
       setBusy(null);
     }
+  }
+
+  /** No fix: say why, and offer the untracked session. */
+  async function noFix() {
+    setMessage(await noFixReason());
+    setOfferUntracked(true);
   }
 
   const findCourt = () =>
@@ -199,41 +248,51 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       'find',
       async () => {
         setAddAt(null);
-        // Fresh fix first; the remembered one (up to a day old) still finds a
-        // court but never prefills "Add this court" with a stale spot.
-        const freshAt = await getCurrentCoords({ timeoutMs: 6_000 });
-        const at = freshAt ?? (await getLastKnownCoords());
-        if (!at) {
-          setMessage('Turn on location to find the court you are at.');
-          return;
-        }
-        const v = await resolveVenueAt(at.lat, at.lng, 150);
+        // A fresh fix only: a remembered spot can't confirm I am at the court.
+        const fix = await takeCheckinFix(6_000);
+        if (!fix) return noFix();
+        lastFix.current = fix;
+        const v = await resolveCourtAt(fix.lat, fix.lng, 150);
         setNearby(v);
         if (!v) {
           setMessage('No court found within 150 m of you.');
-          setAddAt(freshAt);
+          setAddAt({ lat: fix.lat, lng: fix.lng });
         }
       },
       "Couldn't look up nearby courts.",
+      { askLocation: true },
     );
 
-  const checkIn = (v: NearbyVenue) =>
+  const checkIn = (v: ResolvedCourt) =>
     run(
       'checkin',
       async () => {
-        const next = await checkInAt({ id: v.id, name: v.name });
+        if (!(await ensurePresenceConsent())) return;
+        const fix = isFixFresh(lastFix.current, Date.now(), FIX_REUSE_MS) ? lastFix.current : await takeCheckinFix(6_000);
+        if (!fix) return noFix();
+        lastFix.current = fix;
+        const next = await checkInAt({ id: v.id, name: v.name }, fix);
         setCurrent(next);
         setNearby(null);
         setAddAt(null);
         setRosterKey((k) => k + 1);
-        if (next.queued) setMessage('Saved offline. It syncs when you are back online.');
+        if (next.queued) setMessage('Saved with no signal. It counts if it syncs within 2 minutes.');
         else {
           noteGoodMoment(); // a check-in that went through (rating prompt)
           void claimAlertsOffer().then((show) => show && setAlertsOffer('ask'));
         }
       },
       "Couldn't check you in.",
+      { boundMs: CHECKIN_BOUND_MS, askLocation: true },
     );
+
+  // The untracked session: a timer only I see, no court, no presence.
+  const startUntracked = () => {
+    setMessage(null);
+    setOfferUntracked(false);
+    setNearby(null);
+    startPlay({ kind: 'open_play', sourceId: null, venueId: null, venueName: null });
+  };
 
   const extend = (cur: CurrentCheckin) =>
     run(
@@ -290,6 +349,15 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   const footer = (
     <>
       {message ? <Text style={[t.sub, S.gapSm]}>{message}</Text> : null}
+      {offerUntracked && !playing && !busy ? (
+        <Button
+          title="Start without a court"
+          size="sm"
+          variant="outline"
+          onPress={tap('start_untracked', startUntracked)}
+          style={S.hug}
+        />
+      ) : null}
       {addAt && !current && !nearby && !busy ? (
         <Button
           title="Add this court"
@@ -339,10 +407,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   if (current) {
     // NOW: "📍 Lake Merritt · checked in · til 7:30", then who's here next to
     // the actions. "Start playing" rides the title line (the plan's second line
-    // only fits [+1 h] [Check out] beside the avatars). "Start playing" and
-    // "+1 h" hide while a play session runs, because the floating PlayIsland
-    // shows that same button then (one place per action). Check out stays: the
-    // island's End stops the session, it doesn't check you out.
+    // only fits [+1 h] [Check out] beside the avatars) and opens the start
+    // sheet with this court preselected. "Start playing" and "+1 h" hide while
+    // a play session runs, because the floating PlayIsland shows that same
+    // button then (one place per action). Sessions are presence: one started
+    // at a court checks you in there (or adopts this check-in), so this block
+    // shows while you play. The island's End closes only a check-in the
+    // session opened; Check out stays for the one you made yourself.
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
@@ -356,9 +427,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
               size="sm"
               variant="success"
               disabled={!!busy}
-              onPress={tap('start_playing', () =>
-                startPlay({ kind: 'open_play', sourceId: null, venueId: current.venueId, venueName: current.venueName }),
-              )}
+              onPress={tap('start_playing', () => openPlayStart())}
             />
           )}
         </View>
@@ -386,6 +455,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             })}
           />
         </HereLine>
+        {FRIENDS_AT_COURTS_ENABLED && <PauseSharingChip checkinId={current.id} />}
         {footer}
       </Panel>
     );
@@ -422,8 +492,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     );
   }
 
-  // Idle: the 48px court row. "Just play" keeps the old "Start a session
-  // without checking in" reachable; it hides while a session already runs.
+  // Idle: the 48px court row. "Play now" opens the start sheet (court found
+  // from a fix, or no court at all); it hides while a session already runs.
   return (
     <Panel padded={false} style={S.panel}>
       <View style={S.courtRow}>
@@ -436,12 +506,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             style={S.link}
             activeOpacity={0.6}
             disabled={!!busy}
-            onPress={tap('just_play', () => startPlay({ kind: 'open_play', sourceId: null, venueId: null, venueName: null }))}
+            onPress={tap('play_now', () => openPlayStart())}
             accessibilityRole="button"
-            accessibilityLabel="Start a session without checking in"
+            accessibilityLabel="Play now"
+            accessibilityHint="Pick where you are playing and start a session"
           >
             <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              Just play
+              Play now
             </Text>
           </TouchableOpacity>
         )}

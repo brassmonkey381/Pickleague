@@ -31,6 +31,7 @@ import { WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
+import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { trackSectionToggle } from '../lib/analytics';
 import {
   DEFAULT_PREFS,
@@ -296,6 +297,9 @@ export default function SettingsScreen({ navigation }: Props) {
   async function doSignOut() {
     setSigningOut(true);
     try {
+      // Stop showing me at the courts (check-out + end the session, 3 s max,
+      // never throws). Like the push token below, it needs the session.
+      await endPresenceForSignOut();
       // Remove this device's push token first — the RLS delete policy needs the
       // session, so it must happen before signOut() clears auth.
       await unregisterPushTokenAsync();
