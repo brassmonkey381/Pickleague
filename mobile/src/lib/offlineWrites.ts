@@ -9,6 +9,13 @@
 // idempotent server-side (a unique constraint / an upsert), and nothing else
 // keys off them — a bookmark that lands two minutes late is simply a bookmark.
 //
+// Queued in their own modules, which register their handlers on import: court
+// check-ins and check-outs (lib/courtCheckin) and play session start / end
+// (lib/playSession). Each carries a client id and its real time, so a replay
+// lands once and at the right moment. A check-in also carries the location fix
+// taken at tap time; the server refuses one older than 2 minutes, so a
+// long-offline check-in is dropped and the player told, never applied late.
+//
 // NOT queued, on purpose: matches, pickles, wagers, tournament operations,
 // invites. A match insert cascades through triggers into PLUPR, per-court
 // ratings, pickle ledgers and notifications; replaying one an hour later would
