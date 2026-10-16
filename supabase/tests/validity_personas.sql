@@ -925,8 +925,8 @@ begin
     r.team1_confirmed_by = pg_temp.p('VG') and r.team2_confirmed_by is null, r::text);
   select public.confirm_match(r.id) into t;
   perform pg_temp.as_admin();
-  perform pg_temp.ok('V10 ...and confirming it again leaves it pending',
-    t = 'one_team_confirmed' and (select status from public.matches where id = r.id) = 'pending', t);
+  perform pg_temp.ok('V10 ...and confirming it again leaves it pending (my team had already)',
+    t = 'already_your_team' and (select status from public.matches where id = r.id) = 'pending', t);
 
   -- Scheduled: kept, with no confirmations, and it never counts.
   perform pg_temp.vsession('VQ', 'f1500000-0000-4000-8000-000000001301', interval '40 minutes', interval '10 minutes');

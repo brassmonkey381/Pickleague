@@ -4,7 +4,8 @@
 -- NOT runnable on its own: build-presence-test.mjs wraps it as
 --   begin; <this file up to the marker> <the presence migrations, Phase 1.5 included>
 --   <re-runs, migration_rls_hardening_2026q3.sql re-run> <the rest of this file,
---   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@> rollback;
+--   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@ and
+--   refusal_personas.sql (refusal messages) at -- @@REFUSALS@@> rollback;
 -- and the last statement selects the results. Run (from the linked checkout):
 --   node supabase/tests/build-presence-test.mjs <out.sql>
 --   supabase db query --linked -f <out.sql> -o csv
@@ -436,7 +437,8 @@ begin
       p_lat => 40.003, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
     perform pg_temp.ok('T3 fix too far raises', false, 'no error');
   exception when others then
-    perform pg_temp.ok('T3 fix too far raises', sqlerrm = 'You need to be at the court to check in (about 328 m away).', sqlerrm);
+    perform pg_temp.ok('T3 fix too far raises',
+      sqlerrm = 'You need to be at the court to check in. You''re about 328 m away, so try again when you''re there.', sqlerrm);
   end;
   begin
     perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000002', p_venue => 'test:p1-alpha',
@@ -494,7 +496,8 @@ begin
     perform public.extend_checkin('c0000000-0000-4000-8000-000000000003', now() + interval '1 hour');
     perform pg_temp.ok('T3 extending a closed check-in raises', false, 'no error');
   exception when others then
-    perform pg_temp.ok('T3 extending a closed check-in raises', sqlerrm = 'Check-in is no longer open', sqlerrm);
+    perform pg_temp.ok('T3 extending a closed check-in raises',
+      sqlerrm like 'Your check-in at P1 Test Courts % already ended (%). Check in again when you''re at the court.', sqlerrm);
   end;
 
   -- p_source is a filter (a geofence exit never closes a manual check-in); 'signout' is not.
@@ -967,12 +970,16 @@ begin
   perform pg_temp.ok('T6 cancel twice -> true, false', v and not v2);
 
   -- Who can't be asked.
+  -- Why, only for what the profile shows anyone; a block stays vague.
   foreach t in array array['U', 'G', 'B', 'K'] loop
     begin
       perform public.send_friend_request(pg_temp.p(t));
       perform pg_temp.ok('T6 request to ' || t || ' refused', false, 'no error');
     exception when others then
-      perform pg_temp.ok('T6 request to ' || t || ' refused', sqlerrm = 'This player isn''t available', sqlerrm);
+      perform pg_temp.ok('T6 request to ' || t || ' refused', sqlerrm = case t
+        when 'U' then 'Una Unclaimed hasn''t joined Pickleague yet, so you can''t add them as a friend.'
+        when 'G' then 'Gus Guest is on a guest pass, so you can''t add them as a friend until they create an account.'
+        else 'This player isn''t available' end, sqlerrm);
     end;
   end loop;
   begin
@@ -991,7 +998,8 @@ begin
     perform public.send_friend_request(pg_temp.p('O'));
     perform pg_temp.ok('T6 a guest cannot send', false, 'no error');
   exception when others then
-    perform pg_temp.ok('T6 a guest cannot send', sqlerrm = 'Create an account to add friends', sqlerrm);
+    perform pg_temp.ok('T6 a guest cannot send',
+      sqlerrm = 'Guest passes can''t add friends. Create an account to add friends.', sqlerrm);
   end;
   perform pg_temp.ok('T6 a guest reads unavailable', public.friendship_status_with(pg_temp.p('O')) ->> 'status' = 'unavailable');
 
@@ -1013,7 +1021,8 @@ begin
     perform public.set_close_friend(pg_temp.p('L'), true);
     perform pg_temp.ok('T6 starring a non-friend raises', false, 'no error');
   exception when others then
-    perform pg_temp.ok('T6 starring a non-friend raises', sqlerrm = 'Only friends can be close friends', sqlerrm);
+    perform pg_temp.ok('T6 starring a non-friend raises',
+      sqlerrm = 'You and Lena League aren''t friends, so they can''t be a close friend.', sqlerrm);
   end;
   v := public.set_close_friend(pg_temp.p('F'), true);
   perform pg_temp.ok('T6 star a friend',
@@ -1528,7 +1537,7 @@ begin
     perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused', false, 'no error');
   exception when others then
     perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused',
-      sqlerrm = 'Your location is out of date. Try again at the court.', sqlerrm);
+      sqlerrm = 'Your location is out of date: it''s more than 2 minutes old. Try again at the court.', sqlerrm);
   end;
   begin
     perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000604', p_venue => 'test:p1-c4',
@@ -1570,7 +1579,7 @@ begin
     perform pg_temp.ok('T15 ...and past the cap it asks for the court', false, 'no error');
   exception when others then
     perform pg_temp.ok('T15 ...and past the cap it asks for the court',
-      sqlerrm like 'To stay checked in, open Pickleague at the court%', sqlerrm);
+      sqlerrm like 'Pickleague last confirmed you at P1 Test Courts Four (%), and a check-in lasts at most 4 hours past that. To stay checked in, open Pickleague at the court%', sqlerrm);
   end;
   begin
     perform public.extend_checkin(p_id => 'c0000000-0000-4000-8000-000000000605', p_until => now() + interval '3 hours',
@@ -1578,7 +1587,7 @@ begin
     perform pg_temp.ok('T15 an extension with a far fix is refused', false, 'no error');
   exception when others then
     perform pg_temp.ok('T15 an extension with a far fix is refused',
-      sqlerrm like 'You need to be at the court to stay checked in (about%', sqlerrm);
+      sqlerrm like 'You need to be at the court to stay checked in. You''re about % m away%', sqlerrm);
   end;
   select * into r from public.extend_checkin(p_id => 'c0000000-0000-4000-8000-000000000605',
     p_until => now() + interval '3 hours', p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10,
@@ -1655,6 +1664,9 @@ end $$;
 
 
 -- @@VALIDITY@@
+
+
+-- @@REFUSALS@@
 
 
 -- ════ Results ════════════════════════════════════════════════════════════

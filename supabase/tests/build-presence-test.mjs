@@ -1,22 +1,26 @@
 #!/usr/bin/env node
-// Build the presence persona test (Phase 1 + Phase 1.5): one SQL file that is
+// Build the presence persona test (Phase 1 + Phase 1.5 + refusal messages):
+// one SQL file that is
 //
 //   begin;
 //   <presence_p1_personas.sql up to -- @@MIGRATIONS@@>   (state captured before)
 //   <migration_league_members_lock_identity.sql, the five
-//    migration_presence_p1_*.sql files and migration_validity_rules.sql,
-//    in apply order>
-//   <migration_presence_p1_checkins.sql, migration_validity_rules.sql>
+//    migration_presence_p1_*.sql files, migration_validity_rules.sql and
+//    migration_refusal_messages.sql, in apply order>
+//   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
+//    migration_refusal_messages.sql>
 //                                                        (re-runs: Phase 1 must not put its
 //                                                         3-arg checkout_venue or 2-arg
 //                                                         end_play_session back; 1.5 is
-//                                                         re-runnable)
+//                                                         re-runnable; the refusal texts
+//                                                         go last, as on live)
 //   <migration_rls_hardening_2026q3.sql>                 (a re-run must take nothing offline)
 //   <migration_venue_checkins.sql, migration_play_sessions.sql>
 //                                                        (re-runs of the superseded files
 //                                                         must keep the presence versions)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
-//    validity_personas.sql in place of -- @@VALIDITY@@)  (the Phase 1.5 section)
+//    validity_personas.sql in place of -- @@VALIDITY@@,  (the Phase 1.5 section)
+//    refusal_personas.sql in place of -- @@REFUSALS@@)   (refusal messages and codes)
 //   rollback;
 //
 // so the whole thing runs against the linked (live) database and leaves it
@@ -44,11 +48,13 @@ export const MIGRATIONS = [
   'migration_presence_p1_friends.sql',
   'migration_presence_p1_hygiene.sql',
   'migration_validity_rules.sql',
+  'migration_refusal_messages.sql',
 ];
 // Run again after all of the above, before the hardening re-run: the Phase 1
 // check-ins file must keep the Phase 1.5 checkout_venue and end_play_session
-// (its guards skip its own), and the Phase 1.5 file must be re-runnable.
-const RERUN = ['migration_presence_p1_checkins.sql', 'migration_validity_rules.sql'];
+// (its guards skip its own), and the Phase 1.5 file must be re-runnable. The
+// refusal texts re-run last: the two files before them put the old texts back.
+const RERUN = ['migration_presence_p1_checkins.sql', 'migration_validity_rules.sql', 'migration_refusal_messages.sql'];
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 // Applied long before presence and partly superseded by it: re-running them
 // must change nothing the presence files own (their guards skip those parts).
@@ -57,6 +63,8 @@ const BODY = path.join(here, 'presence_p1_personas.sql');
 const MARKER = '-- @@MIGRATIONS@@';
 const VALIDITY = path.join(here, 'validity_personas.sql');
 const VALIDITY_MARKER = '-- @@VALIDITY@@';
+const REFUSALS = path.join(here, 'refusal_personas.sql');
+const REFUSALS_MARKER = '-- @@REFUSALS@@';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
 function topLevel(sql) {
@@ -113,9 +121,11 @@ if (at < 0) {
 }
 
 const rest = body.slice(at + MARKER.length);
-if (!rest.includes(VALIDITY_MARKER)) {
-  console.error(`FAILED: ${path.basename(BODY)} has no "${VALIDITY_MARKER}" line.`);
-  process.exit(1);
+for (const m of [VALIDITY_MARKER, REFUSALS_MARKER]) {
+  if (!rest.includes(m)) {
+    console.error(`FAILED: ${path.basename(BODY)} has no "${m}" line.`);
+    process.exit(1);
+  }
 }
 
 const parts = [
@@ -125,7 +135,9 @@ const parts = [
   ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
-  rest.replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`),
+  rest
+    .replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`)
+    .replace(REFUSALS_MARKER, () => `-- ════ ${path.basename(REFUSALS)} ════\n${read(REFUSALS)}`),
   'rollback;',
   '',
 ];
