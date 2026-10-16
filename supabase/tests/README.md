@@ -40,6 +40,26 @@ No CI runner is wired up yet — these are **human-runnable** today.
     AND a Third Place Match (`round_type 'third_place_match'`) pairing the
     two SF losers — pinning the toggle behaviour from PR #62 / #69.
 
+- `presence_p1_personas.sql` (+ `build-presence-test.mjs`)
+  - Presence Phase 1 (friends at the courts): applies the five
+    `migration_presence_p1_*.sql` files and re-runs
+    `migration_rls_hardening_2026q3.sql` inside one rolled-back transaction,
+    then checks grants, duplicate courts, location-confirmed check-ins,
+    sessions, who sees whom (owner, friend, close friend, closed- and
+    open-league mates, stranger, blocked both ways, guest, deleted, unclaimed),
+    crowd bands, friend requests, favorites, account deletion and retention.
+    It cannot be pasted as is: build it first, then run the output.
+
+    ```sh
+    node supabase/tests/build-presence-test.mjs /tmp/presence_p1_test.sql
+    # from the linked checkout:
+    supabase db query --linked -f /tmp/presence_p1_test.sql -o csv
+    ```
+
+    The first row is the summary (`SUMMARY: N passed, 0 failed`). The builder
+    refuses any input with a top-level `begin;` / `commit;` / `end;` /
+    `rollback;`, which would end the transaction early.
+
 ## How to run
 
 ### Option 1 — Supabase MCP `execute_sql`
