@@ -12,7 +12,8 @@
 --                                           stored pending but notifies nobody)
 --   pending ──cancel────────────▶ (deleted)
 --   accepted ──remove_friend────▶ (deleted, silent; stars cleared both ways)
---   any ──block either way──────▶ (deleted with stars, hide-from rows, notices)
+--   any ──block either way──────▶ (deleted with stars and notices; hide-from
+--                                           rows stay, so a hide survives an unblock)
 -- When a request leaves pending its "wants to be friends" notice is deleted
 -- (the league join requests convention), so its push and bell row go too.
 --
@@ -377,7 +378,8 @@ grant execute on function public.list_friend_requests() to authenticated;
 
 -- People I have really played with: completed matches together in the last
 -- 180 days (any of the four player columns), drill sessions in the last 180
--- days, closed leagues we are both in. Ranked in that order (score packs the
+-- days, closed leagues we are both in (both admitted while it was closed, as
+-- share_closed_league counts them). Ranked in that order (score packs the
 -- three counts). Leaves out friends, pending requests, a decline in the last
 -- 30 days, blocked pairs, guests, unclaimed placeholders and deleted accounts.
 create or replace function public.suggest_friends(p_limit int default 10)
@@ -414,9 +416,11 @@ as $$
   co_league as (
     select mb.user_id as uid, count(distinct l.id) as n, min(l.name) as league_name
       from me
-      join public.league_members ma on ma.user_id = me.id and (ma.expires_at is null or ma.expires_at > now())
+      join public.league_members ma on ma.user_id = me.id and ma.admitted_closed
+                                   and (ma.expires_at is null or ma.expires_at > now())
       join public.leagues l on l.id = ma.league_id and not l.is_open
       join public.league_members mb on mb.league_id = ma.league_id and mb.user_id <> me.id
+                                   and mb.admitted_closed
                                    and (mb.expires_at is null or mb.expires_at > now())
      group by mb.user_id
   ),
@@ -452,6 +456,10 @@ grant execute on function public.suggest_friends(int) to authenticated;
 
 
 -- ── 4. Blocking tears it all down ──────────────────────────────────────────
+-- Hide-from rows are kept: a block already hides names both ways
+-- (_pl_can_see_presence treats the pair as strangers first), they must survive
+-- an unblock, and deleting the blocked person's own row would both undo their
+-- setting and tell them they were blocked.
 create or replace function public._user_blocks_presence_teardown()
 returns trigger
 language plpgsql
@@ -467,8 +475,6 @@ begin
      and greatest(f.requester_id, f.addressee_id) = greatest(a, b);
   delete from public.close_friends
    where (user_id = a and friend_id = b) or (user_id = b and friend_id = a);
-  delete from public.presence_hidden_from
-   where (user_id = a and hidden_user_id = b) or (user_id = b and hidden_user_id = a);
   delete from public.notifications n
    where n.entity_type = 'friend'
      and ((n.user_id = a and n.entity_id = b) or (n.user_id = b and n.entity_id = a))

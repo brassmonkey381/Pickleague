@@ -3,6 +3,9 @@
 -- (docs/play-sessions-presence.md, contract: docs/play-sessions-presence-api.md).
 --
 -- APPLY ORDER (one transaction, in this order; none of them has begin/commit):
+--   0. migration_league_members_lock_identity.sql  clients may change only a
+--                                          member's role (closed-league
+--                                          membership is consent to be named)
 --   1. migration_presence_p1_schema.sql    columns, tables, RLS lockdown, venue
 --                                          dedupe, league/court backfill, helpers
 --   2. migration_presence_p1_checkins.sql  location-confirmed check-ins, sessions,
@@ -35,6 +38,11 @@
 --   * Leagues and drill court locations remember their court
 --     (home_venue_id / venue_id), kept in step when a 1.0.4 app edits the
 --     home court by its name and coordinates only.
+--   * A closed league counts as shared only for memberships made while it was
+--     closed (league_members.admitted_closed), so closing an open league later
+--     names nobody who joined it instantly.
+--   * blocked_between answers a signed-in caller only about pairs that include
+--     them (it used to answer about any two people).
 -- ============================================================
 
 
@@ -136,13 +144,28 @@ create table if not exists public.friend_request_log (
 create index if not exists friend_request_log_sender_idx on public.friend_request_log (sender_id, sent_at desc);
 create index if not exists friend_request_log_addressee_idx on public.friend_request_log (addressee_id);
 
+-- Check-in and session ids that were closed before they were ever stored: an
+-- End or check-out that reached the server ahead of its own Start or check-in
+-- (queued, or a request that timed out and still arrived; the app never aborts
+-- one). When that Start or check-in lands later it lands closed (file 2).
+-- Internal, no client access; pruned after 2 days (file 5).
+create table if not exists public.presence_closed_ids (
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  id         uuid not null,
+  closed_at  timestamptz not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, id)
+);
+
 alter table public.presence_settings    enable row level security;
 alter table public.presence_hidden_from enable row level security;
 alter table public.friendships          enable row level security;
 alter table public.close_friends        enable row level security;
 alter table public.court_favorites      enable row level security;
 alter table public.friend_request_log   enable row level security;   -- no policies: RPCs only
+alter table public.presence_closed_ids  enable row level security;   -- no policies: RPCs only
 revoke all on public.friend_request_log from anon, authenticated;
+revoke all on public.presence_closed_ids from anon, authenticated;
 
 drop policy if exists presence_settings_own on public.presence_settings;
 create policy presence_settings_own on public.presence_settings
@@ -182,7 +205,9 @@ create policy play_sessions_read on public.play_sessions
 -- Two court names "match" when they are the same once punctuation and case go,
 -- close by trigram similarity ('Pickleball Courts | Montclair Park' vs
 -- 'Montclair Pickleball Courts' = 0.88), or either is a bare court label ('1',
--- 'Court 3'), as OSM tags each pitch of one facility.
+-- 'Court 3'), as OSM tags each pitch of one facility. (The dedupe below no
+-- longer pairs bare labels through this: each group of them joins one named
+-- venue at most.)
 create or replace function public._pl_similar_court_names(a text, b text)
 returns boolean
 language sql
@@ -210,14 +235,19 @@ as $$
 $$;
 revoke all on function public._pl_canonical_venue(text) from public, anon, authenticated;
 
--- Deterministic, non-destructive dedupe of one sport's venues. Two venues are
--- the same facility when they are within 50 m with matching names, or when an
--- OSM point lies inside another venue's boundary. Facilities are the connected
--- groups of those pairs; each group's canonical row is the one with a
--- boundary, then a Google row, then the lowest id. Re-running recomputes
--- canonical_id for that sport's venues (it owns the column) and repoints the
--- rows that store canonical ids. Nothing is ever deleted. Returns how many
--- venues changed. Re-run after a venue ingest:  select public._pl_dedupe_venues();
+-- Deterministic, non-destructive dedupe of one sport's venues. Two named
+-- venues are the same facility when they are within 50 m with matching names,
+-- or when an OSM point lies inside another venue's boundary. Bare court labels
+-- ('1', 'Court 3': OSM tags each pitch) first group among themselves (within
+-- 50 m, or one inside the other's boundary), and then each group joins ONE
+-- named venue: one whose boundary holds a member (or is held by one), else the
+-- named venue nearest a member within 50 m. So a pitch between two differently
+-- named facilities never merges them. Facilities are the connected groups of
+-- those pairs; each group's canonical row is the one with a boundary, then a
+-- Google row, then the lowest id. Re-running recomputes canonical_id for that
+-- sport's venues (it owns the column) and repoints the rows that store
+-- canonical ids. Nothing is ever deleted. Returns how many venues changed.
+-- Re-run after a venue ingest:  select public._pl_dedupe_venues();
 create or replace function public._pl_dedupe_venues(p_sport text default 'pickleball')
 returns int
 language plpgsql
@@ -228,23 +258,63 @@ declare
   v_n int;
 begin
   with recursive p as (
-    select v.id, v.name, v.lat, v.lng, v.source, v.boundary_geom
+    select v.id, v.name, v.lat, v.lng, v.source, v.boundary_geom,
+           coalesce(v.name ~* '^\s*(court\s*)?#?\d+[a-z]?\s*$', false) as bare
       from public.venues v
      where v.sport @> array[p_sport] and v.confirmation_status <> 'rejected'
   ),
-  pairs as (
-    select a.id as a, b.id as b
+  near as (
+    select a.id as a, b.id as b, a.bare as a_bare, b.bare as b_bare,
+           public.haversine_meters(a.lat, a.lng, b.lat, b.lng) as m,
+           public._pl_similar_court_names(a.name, b.name) as name_match
       from p a
       join p b on b.id <> a.id
               and abs(a.lat - b.lat) < 0.001 and abs(a.lng - b.lng) < 0.0015
      where public.haversine_meters(a.lat, a.lng, b.lat, b.lng) <= 50
-       and public._pl_similar_court_names(a.name, b.name)
-    union
-    select a.id, b.id
+  ),
+  inside as (
+    select a.id as a, b.id as b, a.bare as a_bare, b.bare as b_bare
       from p a
       join p b on b.id <> a.id and b.source = 'osm' and b.boundary_geom is null
      where a.boundary_geom is not null
        and extensions.st_contains(a.boundary_geom, extensions.st_setsrid(extensions.st_makepoint(b.lng, b.lat), 4326))
+  ),
+  -- Bare court labels first group among themselves ...
+  bare_edges as (
+    select a, b from near where a_bare and b_bare
+    union
+    select a, b from inside where a_bare and b_bare
+    union
+    select b, a from inside where a_bare and b_bare
+  ),
+  bare_reach (node, other) as (
+    select id, id from p where bare
+    union
+    select r.node, e.b from bare_reach r join bare_edges e on e.a = r.other
+  ),
+  bare_cluster as (
+    select node, min(other) as cluster from bare_reach group by node
+  ),
+  -- ... then each group joins ONE named venue: a boundary that holds a member
+  -- (or a named point a bare boundary holds), else the nearest within 50 m.
+  anchor as (
+    select distinct on (c.cluster) c.cluster, x.named
+      from bare_cluster c
+      join (select i.b as node, i.a as named, 0 as rk, 0::double precision as m from inside i where i.b_bare and not i.a_bare
+            union all
+            select i.a, i.b, 0, 0 from inside i where i.a_bare and not i.b_bare
+            union all
+            select n.a, n.b, 1, n.m from near n where n.a_bare and not n.b_bare) x on x.node = c.node
+     order by c.cluster, x.rk, x.m, x.named
+  ),
+  pairs as (
+    select a, b from near where not a_bare and not b_bare and name_match
+    union
+    select a, b from inside where not a_bare and not b_bare
+    union
+    select a, b from bare_edges
+    union
+    select cluster, named from anchor
   ),
   edges as (
     select a, b from pairs union select b, a from pairs
@@ -434,6 +504,51 @@ update public.court_locations cl
 
 
 -- ── 6. Privacy helpers (internal: EXECUTE revoked from clients) ────────────
+-- blocked_between (migration_moderation_report_block.sql) stays executable by
+-- authenticated: RLS policies run it as the caller. It now answers a signed-in
+-- caller only about a pair that includes them, so it can't map who blocked
+-- whom. Every caller passes the caller as one side or ANDs a participant check
+-- (the drill_requests / drill_request_messages policies,
+-- drill_request_slot_starts, accept_drill_slot, and the presence and friend
+-- RPCs here), so the false never widens access. No auth.uid() (service role,
+-- cron, an internal call with no session) gets the full answer. It must never
+-- raise: a policy may evaluate it on rows the caller is not part of.
+create or replace function public.blocked_between(a uuid, b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select ((select auth.uid()) is null or (select auth.uid()) in (a, b))
+     and exists (
+       select 1 from public.user_blocks ub
+        where (ub.blocker_id = a and ub.blocked_id = b)
+           or (ub.blocker_id = b and ub.blocked_id = a));
+$$;
+comment on function public.blocked_between(uuid, uuid) is
+  'True if either user has blocked the other. For a signed-in caller, answers only pairs that include the '
+  'caller (false otherwise). Called from RLS policies, so it must remain executable by authenticated.';
+revoke all on function public.blocked_between(uuid, uuid) from public, anon;
+grant execute on function public.blocked_between(uuid, uuid) to authenticated;
+
+-- The same test for any pair, whoever is signed in (internal). For code that
+-- judges two other people under a user's session, e.g. _pl_can_see_presence
+-- when a later phase fans a push out to a friend's friends.
+create or replace function public._pl_blocked_pair(a uuid, b uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.user_blocks ub
+     where (ub.blocker_id = a and ub.blocked_id = b)
+        or (ub.blocker_id = b and ub.blocked_id = a));
+$$;
+revoke all on function public._pl_blocked_pair(uuid, uuid) from public, anon, authenticated;
+
 create or replace function public.are_friends(a uuid, b uuid)
 returns boolean
 language sql
@@ -450,8 +565,67 @@ as $$
 $$;
 revoke all on function public.are_friends(uuid, uuid) from public, anon, authenticated;
 
+-- A membership counts toward "a closed league we share" only if it was made
+-- while the league was closed. Otherwise a creator could open a league, let
+-- anyone join instantly, close it, and name them all (decision 1: open
+-- leagues never count). The server owns the flag: set on every insert from the
+-- league as it is then, and never written by a client (clients may update only
+-- league_members.role, migration_league_members_lock_identity.sql). Closing a
+-- league later admits only its creator; open-era members stay anonymous until
+-- they leave and are admitted again.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'league_members'
+                    and column_name = 'admitted_closed') then
+    alter table public.league_members add column admitted_closed boolean not null default false;
+    -- One-time grandfather: memberships already in a closed league (how they
+    -- were made is unknown). Only when the column is first added, so a re-run
+    -- never admits someone who joined while a league was open.
+    execute 'update public.league_members lm set admitted_closed = true
+               from public.leagues l where l.id = lm.league_id and not l.is_open';
+  end if;
+end $$;
+
+create or replace function public._league_members_set_admitted_closed()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  new.admitted_closed := coalesce((select not l.is_open from public.leagues l where l.id = new.league_id), false);
+  return new;
+end $$;
+revoke all on function public._league_members_set_admitted_closed() from public, anon, authenticated;
+
+drop trigger if exists trg_league_members_admitted_closed on public.league_members;
+create trigger trg_league_members_admitted_closed
+  before insert on public.league_members
+  for each row execute function public._league_members_set_admitted_closed();
+
+-- The creator who closes their league counts in it (only their own row).
+create or replace function public._leagues_closed_admit_creator()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.league_members set admitted_closed = true
+   where league_id = new.id and user_id = new.created_by and user_id = auth.uid();
+  return null;
+end $$;
+revoke all on function public._leagues_closed_admit_creator() from public, anon, authenticated;
+
+drop trigger if exists trg_leagues_closed_admit_creator on public.leagues;
+create trigger trg_leagues_closed_admit_creator
+  after update of is_open on public.leagues
+  for each row when (old.is_open and not new.is_open)
+  execute function public._leagues_closed_admit_creator();
+
 -- Members of one CLOSED league (open leagues never count: anyone can join one
--- instantly), both memberships live.
+-- instantly), both admitted while it was closed, both memberships live.
 create or replace function public.share_closed_league(a uuid, b uuid)
 returns boolean
 language sql
@@ -466,6 +640,7 @@ as $$
       join public.leagues l on l.id = ma.league_id
      where ma.user_id = a and mb.user_id = b
        and not l.is_open
+       and ma.admitted_closed and mb.admitted_closed
        and (ma.expires_at is null or ma.expires_at > now())
        and (mb.expires_at is null or mb.expires_at > now())
   );
@@ -492,7 +667,10 @@ revoke all on function public._pl_presence_viewer_is_guest(uuid) from public, an
 -- What a viewer may know about an owner's presence:
 --   'named'      full row (name, avatar, rating)
 --   'anonymous'  an anonymous "Player": counted, never identified
---   'none'       not shown, not counted (blocked either way, deleted owner)
+--   'none'       not shown, not counted (no owner, or a deleted one)
+-- A blocked pair (either way) is 'anonymous' to each other, like any stranger,
+-- whatever the owner's level: leaving them out would single the blocker out
+-- against a second account's (or a guest's) view of the same court.
 -- p_kind 'checkins' reads checkins_level, 'plans' reads plans_level. Callers
 -- also show only location_confirmed rows to anyone but the owner.
 create or replace function public._pl_can_see_presence(viewer uuid, owner uuid, p_kind text)
@@ -508,10 +686,10 @@ declare
 begin
   if owner is null then return 'none'; end if;
   if viewer is not null and viewer = owner then return 'named'; end if;
-  if viewer is not null and public.blocked_between(viewer, owner) then return 'none'; end if;
   if not exists (select 1 from public.profiles p where p.id = owner and p.deleted_at is null) then
     return 'none';
   end if;
+  if viewer is not null and public._pl_blocked_pair(viewer, owner) then return 'anonymous'; end if;
   if public._pl_presence_viewer_is_guest(viewer) then return 'anonymous'; end if;
 
   select case when p_kind = 'plans' then s.plans_level else s.checkins_level end, s.paused_until

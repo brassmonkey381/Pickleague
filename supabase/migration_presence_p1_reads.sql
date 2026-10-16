@@ -5,19 +5,29 @@
 -- Every read here is SECURITY DEFINER and applies
 -- _pl_can_see_presence(viewer, owner, 'checkins') per row:
 --   named      the full row
---   anonymous  "Player": no ids, no name, avatar or rating; still counted
---   none       blocked either way: neither shown nor counted
+--   anonymous  "Player": counted, never identified (a blocked pair sees each
+--              other this way too, like any stranger)
+--   none       a deleted owner: neither shown nor counted
 -- Only location_confirmed check-ins are ever shown to anyone but their owner.
 -- A venue id is resolved to its facility (venues.canonical_id) first, so a
 -- duplicate row's id finds everyone at that facility.
 --
+-- An anonymous row carries only what a count needs, so nobody who saw the
+-- named row (before a pause or a hide-from) can link it to the "Player" after:
+-- a fresh random checkin_id on every call (unlinkable between calls, never the
+-- real id), checked_in_at / expires_at rounded out to the hour, no session
+-- fields, and anonymous rows are ordered by that random id, never by arrival.
+-- What stays: a viewer watching at the very moment of a pause sees one named
+-- row become one more "Player" with the count unchanged (paused and hidden
+-- players are counted by design).
+--
 --   venue_players_here  same signature and columns as 1.0.4 (it was SECURITY
 --                       INVOKER and showed every name, ignoring blocks).
---                       Anonymous rows: checkin_id = md5(c.id || viewer)::uuid
---                       (stable per viewer, unlinkable across viewers), and
---                       null user_id / names / ratings.
+--                       Anonymous rows: a random checkin_id, null user_id /
+--                       names / ratings, hour-rounded times.
 --   court_presence      the same rows for new apps, plus anonymous, is_friend,
---                       is_close_friend, via_session, session_kind
+--                       is_close_friend, via_session, session_kind (named
+--                       rows only)
 --   venue_crowd         "6 playing now · mostly 3.5-4.0 · 2 friends" for up to
 --                       50 courts
 --   friends_at_courts   Home "Friends at the courts" (now / your courts)
@@ -42,12 +52,12 @@ returns table (
   expires_at      timestamptz
 )
 language sql
-stable
+volatile
 security definer
 set search_path = ''
 as $$
   with canon as (select public._pl_canonical_venue(p_venue) as id)
-  select case when s.vis = 'named' then c.id else md5(c.id::text || auth.uid()::text)::uuid end,
+  select case when s.vis = 'named' then c.id else gen_random_uuid() end,
          case when s.vis = 'named' then c.user_id end,
          case when s.vis = 'named' then p.full_name end,
          case when s.vis = 'named' then p.avatar_url end,
@@ -55,7 +65,8 @@ as $$
          case when s.vis = 'named' then p.avatar_bg_color end,
          case when s.vis = 'named' then p.rating end,
          case when s.vis = 'named' then p.doubles_rating end,
-         c.checked_in_at, c.expires_at
+         case when s.vis = 'named' then c.checked_in_at else date_trunc('hour', c.checked_in_at) end,
+         case when s.vis = 'named' then c.expires_at else date_trunc('hour', c.expires_at) + interval '1 hour' end
     from canon
     join public.venue_checkins c
       on c.venue_id in (select v.id from public.venues v where v.id = canon.id or v.canonical_id = canon.id)
@@ -68,14 +79,15 @@ as $$
      and c.expires_at > now()
      and (c.location_confirmed or c.user_id = auth.uid())
      and s.vis <> 'none'
-   order by c.checked_in_at;
+   order by (s.vis = 'named') desc, case when s.vis = 'named' then c.checked_in_at end, 1;
 $$;
 revoke execute on function public.venue_players_here(text) from public, anon;
 grant execute on function public.venue_players_here(text) to authenticated;
 
--- My own row first, then named players, then anonymous ones, by arrival.
--- via_session: the check-in came from a session, or the player has an open
--- session at this court (session_kind is its kind).
+-- My own row first, then named players by arrival, then anonymous ones (in no
+-- meaningful order). via_session: the check-in came from a session, or the
+-- player has an open session at this court (session_kind is its kind); named
+-- rows only.
 create or replace function public.court_presence(p_venue text)
 returns table (
   checkin_id      uuid,
@@ -94,7 +106,7 @@ returns table (
   session_kind    text
 )
 language sql
-stable
+volatile
 security definer
 set search_path = ''
 as $$
@@ -115,31 +127,34 @@ as $$
        and (c.location_confirmed or c.user_id = auth.uid())
        and s.vis <> 'none'
   )
-  select case when r.vis = 'named' then r.id else md5(r.id::text || auth.uid()::text)::uuid end,
+  select case when r.vis = 'named' then r.id else gen_random_uuid() end,
          case when r.vis = 'named' then r.user_id end,
          case when r.vis = 'named' then r.full_name end,
          case when r.vis = 'named' then r.avatar_url end,
          case when r.vis = 'named' then r.avatar_emoji end,
          case when r.vis = 'named' then r.avatar_bg_color end,
          case when r.vis = 'named' then r.rating end,
-         r.checked_in_at, r.expires_at,
+         case when r.vis = 'named' then r.checked_in_at else date_trunc('hour', r.checked_in_at) end,
+         case when r.vis = 'named' then r.expires_at else date_trunc('hour', r.expires_at) + interval '1 hour' end,
          r.vis <> 'named',
          r.vis = 'named' and r.user_id <> auth.uid() and public.are_friends(auth.uid(), r.user_id),
          r.vis = 'named' and exists (select 1 from public.close_friends cf
                                       where cf.user_id = auth.uid() and cf.friend_id = r.user_id),
-         r.source = 'session' or ps.id is not null,
-         ps.kind
+         r.vis = 'named' and (r.source = 'session' or ps.id is not null),
+         case when r.vis = 'named' then ps.kind end
     from vis_rows r
     left join lateral (
       select s.id, s.kind
         from public.play_sessions s
-       where s.user_id = r.user_id and s.ended_at is null
+       where r.vis = 'named'
+         and s.user_id = r.user_id and s.ended_at is null
          and s.started_at > now() - interval '6 hours'
          and (s.id = r.id or s.venue_id in (select id from grp))
        order by s.started_at desc
        limit 1
     ) ps on true
-   order by (r.user_id = auth.uid()) desc, (r.vis = 'named') desc, r.checked_in_at;
+   order by (r.user_id = auth.uid()) desc, (r.vis = 'named') desc,
+            case when r.vis = 'named' then r.checked_in_at end, 1;
 $$;
 revoke all on function public.court_presence(text) from public, anon;
 grant execute on function public.court_presence(text) to authenticated;
@@ -147,11 +162,13 @@ grant execute on function public.court_presence(text) to authenticated;
 
 -- ── 2. Crowd ───────────────────────────────────────────────────────────────
 -- One facility's crowd as p_viewer sees it (internal). here_now counts every
--- confirmed open check-in, hidden and paused players included, blocked pairs
--- excluded. The band is the 25th-75th percentile of PLUPR doubles ratings,
--- rounded to 0.25, only with 3+ rated players present (rated = has played a
--- match, as the standings treat it), so it never describes one person.
--- friends_here counts friends the viewer may see by name.
+-- confirmed open check-in, hidden, paused and blocked players included (a
+-- blocked pair counts each other like any stranger). The band is the
+-- 25th-75th percentile of the PLUPR doubles ratings of the rated players this
+-- viewer sees only as anonymous (never the viewer, never anyone shown by name,
+-- whose rating the viewer already has), rounded to 0.25, and only with 3+ of
+-- them (rated = has played a match, as the standings treat it), so it never
+-- describes one person. friends_here counts friends the viewer sees by name.
 create or replace function public._pl_venue_crowd(p_viewer uuid, p_canon text)
 returns table (here_now int, band_low numeric, band_high numeric, friends_here int)
 language sql
@@ -167,21 +184,24 @@ as $$
        and c.checked_out_at is null
        and c.expires_at > now()
        and c.location_confirmed
-       and (c.user_id = p_viewer or not public.blocked_between(p_viewer, c.user_id))
+  ),
+  seen as (
+    select h.*, public._pl_can_see_presence(p_viewer, h.user_id, 'checkins') as vis
+      from here h
   ),
   rated as (
-    select h.doubles_rating as r from here h
-     where h.doubles_rating is not null and h.total_matches_played > 0
+    select s.doubles_rating as r from seen s
+     where s.vis = 'anonymous'
+       and s.doubles_rating is not null and s.total_matches_played > 0
   )
   select (select count(*)::int from here),
          case when (select count(*) from rated) >= 3 then
            (round((select percentile_cont(0.25) within group (order by r) from rated)::numeric * 4) / 4)::numeric(4,2) end,
          case when (select count(*) from rated) >= 3 then
            (round((select percentile_cont(0.75) within group (order by r) from rated)::numeric * 4) / 4)::numeric(4,2) end,
-         (select count(*)::int from here h
-           where h.user_id <> p_viewer
-             and public.are_friends(p_viewer, h.user_id)
-             and public._pl_can_see_presence(p_viewer, h.user_id, 'checkins') = 'named');
+         (select count(*)::int from seen s
+           where s.user_id <> p_viewer and s.vis = 'named'
+             and public.are_friends(p_viewer, s.user_id));
 $$;
 revoke all on function public._pl_venue_crowd(uuid, text) from public, anon, authenticated;
 
@@ -212,8 +232,9 @@ grant execute on function public.venue_crowd(text[]) to authenticated;
 --         now (checked in within the last p_hours, 1-24), grouped by
 --         facility; others_here = everyone else counted there (not me).
 --         The candidates are resolved first, then read by index. Cap 100.
--- courts: up to 3 of my courts: favorites, then my leagues' home courts, then
---         where I checked in most in the last 60 days, each with its crowd.
+-- courts: every favorite (max 5), then my leagues' home courts, then where I
+--         checked in most in the last 60 days, until there are 3; each with
+--         its crowd.
 create or replace function public.friends_at_courts(p_hours int default 12)
 returns jsonb
 language plpgsql
@@ -239,6 +260,7 @@ begin
       join public.leagues l on l.id = ma.league_id and not l.is_open
       join public.league_members mb on mb.league_id = ma.league_id and mb.user_id <> v_me
      where ma.user_id = v_me
+       and ma.admitted_closed and mb.admitted_closed
        and (ma.expires_at is null or ma.expires_at > now())
        and (mb.expires_at is null or mb.expires_at > now())
   ),
@@ -327,8 +349,12 @@ begin
       from mine m
      order by m.canon, m.tier, m.ord
   ),
-  top3 as (
-    select * from pick order by tier, ord, canon limit 3
+  -- Every star shows (at most 5); home and frequent courts fill up to 3.
+  ranked as (
+    select p.*, row_number() over (order by p.tier, p.ord, p.canon) as rn from pick p
+  ),
+  top as (
+    select * from ranked where tier = 1 or rn <= 3
   )
   select coalesce(jsonb_agg(jsonb_build_object(
            'venue_id', t.canon, 'venue_name', v.name, 'reason', t.reason,
@@ -336,7 +362,7 @@ begin
            'friends_here', cr.friends_here)
            order by t.tier, t.ord, t.canon), '[]'::jsonb)
     into v_courts
-    from top3 t
+    from top t
     join public.venues v on v.id = t.canon
     cross join lateral public._pl_venue_crowd(v_me, t.canon) cr;
 

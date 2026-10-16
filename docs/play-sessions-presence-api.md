@@ -11,17 +11,23 @@ them via `friendlySbMessage`).
 
 Feature flag: `FRIENDS_AT_COURTS_ENABLED` in `mobile/src/lib/features.ts` (false until the persona tests pass
 on the live DB). Gate every new screen registration, linking path, push route and Home section on it. The
-location-confirmed check-in and session changes are NOT gated (they replace existing behaviour).
+location-confirmed check-in and session changes are NOT gated (they replace existing behaviour), and neither are
+the player's own controls that ship with them: the one-time consent sheet, Settings › Privacy "Who sees me at the
+courts" / "Hidden from", Pause sharing and "Hide my presence" on the ⋯ menu.
 
 ## SQL files and apply order
 
 Apply in ONE transaction, in this order (none of the files contains begin/commit):
 
-1. `supabase/migration_presence_p1_schema.sql`: columns, all new tables (friendships, close_friends and the
-   internal `friend_request_log` live here, because the privacy helpers read them), owner-only RLS, the venue
-   dedupe pass, the league / court-location backfill + sync triggers, privacy helpers
+0. `supabase/migration_league_members_lock_identity.sql`: clients may update only `league_members.role`, and a
+   trigger refuses any change of `league_id` / `user_id` (an admin could move a membership onto anyone, which
+   presence reads as consent). Stands alone: it can also go live ahead of the rest.
+1. `supabase/migration_presence_p1_schema.sql`: columns (incl. `league_members.admitted_closed`), all new tables
+   (friendships, close_friends and the internal `friend_request_log` / `presence_closed_ids` live here, because
+   the privacy helpers and file 2 read them), owner-only RLS, the venue dedupe pass, the league / court-location
+   backfill + sync triggers, privacy helpers (incl. the guarded `blocked_between`)
 2. `supabase/migration_presence_p1_checkins.sql`: checkin_venue, checkout_venue, extend_checkin,
-   start_play_session, end_play_session, expire_play_sessions, resolve_court
+   start_play_session, end_play_session, expire_play_sessions, resolve_court, resolve_venue
 3. `supabase/migration_presence_p1_reads.sql`: venue_players_here, court_presence, venue_crowd, friends_at_courts,
    presence settings, court favorites
 4. `supabase/migration_presence_p1_friends.sql`: friend RPCs, notices, block teardown trigger, suggest_friends
@@ -29,8 +35,11 @@ Apply in ONE transaction, in this order (none of the files contains begin/commit
    `pickleague-presence-retention` cron
 
 `migration_rls_hardening_2026q3.sql` already allowlists every RPC below (plus the 29 client RPCs that were
-missing and the policy helpers), so re-running it afterwards takes nothing offline. Persona tests (250
-assertions, all passing against the live DB in a rolled-back transaction on 2026-10-16):
+missing and the policy helpers), so re-running it afterwards takes nothing offline. Re-running the older
+`migration_venue_checkins.sql` / `migration_play_sessions.sql` afterwards is safe too: once
+`venue_checkins.location_confirmed` exists they skip the read policies and RPCs presence replaced. Persona tests
+(320 assertions, all passing against the live DB in a rolled-back transaction on 2026-10-16; the build also
+re-runs the hardening file and the two superseded files before the assertions):
 `node supabase/tests/build-presence-test.mjs <out.sql>`, then `supabase db query --linked -f <out.sql> -o csv`
 from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
 
@@ -44,20 +53,61 @@ Signatures are exactly as below. Behaviour details the clients should know:
 - **Unknown-id fallback** (checkout_venue, extend_checkin) applies only when `p_id` names no check-in of the caller
   (1.0.4 keeps its own id when the server hands back the row it already had). A `p_id` that names a closed row is a
   replay: checkout returns 0, extend raises `Check-in is no longer open`.
-- **Extra check-in errors:** a stale fix (older than 2 minutes or more than 1 minute ahead) raises
-  `Your location is out of date. Try again at the court.`; a fix with only one of lat/lng (or out of range) raises
-  `Your location didn't come through. Try again.` The distance in the "about % m away" message is to the nearest
-  of the facility's rows (canonical + duplicates), and a fix confirms when it is inside any of them.
+- **Fix age on one clock:** checkin_venue, start_play_session and extend_checkin take a trailing
+  `p_fix_age_ms` (the fix's age at send time, measured on the device). With it, fresh = age between -5 s and 2 min
+  whatever the device clock says, and `fix_at` is stored on the server clock (`now() - age`). Without it (1.0.4,
+  older builds) `p_fix_at` is compared with the server clock as before.
+- **Precise fixes only:** a fix confirms only when `p_accuracy_m` is reported and at most 150 m (an approximate
+  location is km-wide). checkin_venue raises `Your location isn't precise enough to confirm you're at the court.
+  Make sure Precise Location is on for Pickleague, then try again.`; start_play_session starts untracked.
+- **Extra check-in errors:** a stale fix raises `Your location is out of date. Try again at the court.` (with an
+  age) or `Your location is out of date. Check that your phone's date and time are set automatically, then try
+  again at the court.` (without one, where a wrong clock is the likely cause); a fix with only one of lat/lng (or
+  out of range) raises `Your location didn't come through. Try again.` The distance in the "about % m away" message
+  is to the nearest of the facility's rows (canonical + duplicates), and a fix confirms when it is inside any of
+  them.
 - **Quiet repeat check-in:** a call without a fix at a court where the caller already has a confirmed row returns
-  that row unchanged (no extension without a fix). A confirmed call at a court where the caller has only a private
-  (unconfirmed) row closes it and opens a new confirmed row.
-- **start_play_session adopt path** needs no fix (the adopted row was already confirmed). Without an adoptable row,
-  a fix that does not confirm the court is NOT an error: the session starts untracked.
+  that row unchanged (no extension without a fix). A confirmed call there extends it and stores its fix as the
+  latest. A confirmed call at a court where the caller has only a private (unconfirmed) row closes it and opens a
+  new confirmed row.
+- **extend_checkin stays confirmed:** for a confirmed check-in, a fix (when sent) must confirm the court
+  (`You need to be at the court to stay checked in (about % m away).`) and becomes its latest fix. Without a fix
+  it extends at most 4 hours past the last confirming fix, then raises `To stay checked in, open Pickleague at
+  the court so it can confirm you're still there.` A replay of an end time already reached returns the row. A
+  private (unconfirmed) row extends as before.
+- **start_play_session adopt path** needs no fix (the adopted row was already confirmed), but without a confirming
+  fix it covers the session only to 4 hours past the check-in's last fix. Without an adoptable row, a fix that
+  does not confirm the court is NOT an error: the session starts untracked.
+- **Closed before stored:** an `end_play_session` / `checkout_venue` whose `p_id` names no row is remembered
+  (`presence_closed_ids`, pruned after 2 days). When that Start or check-in lands later (queued, or a request that
+  timed out and still arrived), start_play_session stores the session already ended, with no check-in, and
+  checkin_venue returns an in-memory closed row without storing anything; neither touches what was opened since,
+  and neither is an error.
 - **resolve_court** clamps `p_radius_m` to 10..2000 m; `p_sport = null` means any sport; `inside` = in a boundary or
   within a row's `geofence_radius_m` (no accuracy slack); raises `Not authenticated` without a session.
+- **resolve_venue** (1.0.4 only) now answers the canonical venue of the nearest row (same signature and jsonb
+  shape; `distance_meters` still to the nearest row), so 1.0.4's arrival fences and check-ins key on the id the
+  server stores.
 - **venue_crowd** omits unknown ids, answers each requested id as given (two duplicates both answer), and raises
-  `At most 50 courts at a time` past 50. "Rated" for the band = has played a match (`total_matches_played > 0`),
-  as the standings treat it. band_low / band_high are `numeric(4,2)`.
+  `At most 50 courts at a time` past 50. here_now counts blocked players too (as anonymous strangers). The band is
+  built only from rated players this viewer sees anonymously (never the viewer, never anyone named), and only with
+  3+ of them. "Rated" = has played a match (`total_matches_played > 0`), as the standings treat it.
+  band_low / band_high are `numeric(4,2)`.
+- **Anonymous rows** (venue_players_here, court_presence): `checkin_id` is a fresh random uuid on every call (a
+  React key, nothing more: never the real id, unlinkable between calls), `checked_in_at` / `expires_at` are rounded
+  out to the hour, `via_session` is false and `session_kind` null, and they follow the named rows in no meaningful
+  order. A viewer who saw someone's named row can't find them again after a pause or a hide-from.
+- **Blocked pairs** see each other as anonymous strangers (counted, never named), not as nothing: a missing row
+  would single the blocker out against a second account's or a guest's view.
+- **Closed leagues count only for memberships made while closed** (`league_members.admitted_closed`, set by the
+  server on insert; clients may update only `role`). Closing an open league later admits only its creator; who
+  joined while it was open stays anonymous (share_closed_league, the friends_at_courts candidates and
+  suggest_friends all apply it). Existing memberships of closed leagues were admitted once, when the column was
+  added.
+- **blocked_between** answers a signed-in caller only about pairs that include them (false otherwise); service
+  code with no session gets the full answer. Internal code that judges two other people uses `_pl_blocked_pair`.
+- **friends_at_courts courts** lists every favorite (at most 5, oldest first), then fills up to 3 with league home
+  courts and frequent courts.
 - **set_presence_settings:** `p_paused_until` is capped at 7 days ahead; a time already past clears the pause.
   get_my_presence_settings returns `paused_until = null` once a pause has run out.
 - **respond_friend_request** returns `'accepted'` (or `'declined'`) when that is already the answer, so lock-screen
@@ -101,16 +151,21 @@ friendships(id uuid pk, requester_id uuid, addressee_id uuid,
             check (requester_id <> addressee_id))      -- select for the two parties only
 close_friends(user_id uuid, friend_id uuid, created_at, pk(user_id, friend_id))  -- owner-only; requires accepted friendship
 court_favorites(user_id uuid, venue_id text, created_at, pk(user_id, venue_id))   -- owner-only; max 5 per user
+league_members  + admitted_closed boolean not null default false   -- made while the league was closed (server-set)
+presence_closed_ids(user_id uuid, id uuid, closed_at, created_at, pk(user_id, id))  -- internal; ids closed before stored
 ```
 
-RLS: `venue_checkins_read` and `play_sessions_read` become `using (user_id = auth.uid())`.
+RLS: `venue_checkins_read` and `play_sessions_read` become `using (user_id = auth.uid())`. Clients may update only
+`league_members.role` (column grant), and no one may change a membership's `league_id` / `user_id` (trigger).
 
 ## Location confirmation (no manual check-ins)
 
-A fix confirms a venue when it is at most 2 minutes old (`p_fix_at >= now() - interval '2 minutes'`, and not in the
-future by more than 1 minute) and either inside `venues.boundary_geom` or within
-`coalesce(geofence_radius_m, 100) + least(coalesce(p_accuracy_m, 75), 75)` metres of `(lat, lng)`
-(`public.haversine_meters`). Duplicates resolve to the canonical row first.
+A fix confirms a venue when it is fresh, precise, and at the court:
+- fresh: `p_fix_age_ms` (the age measured on the device at send time) between -5 s and 2 minutes; without an age,
+  `p_fix_at >= now() - interval '2 minutes'` and not more than 1 minute in the future (server clock);
+- precise: `p_accuracy_m` reported and at most 150 m (a null accuracy is refused);
+- at the court: inside `venues.boundary_geom`, or within `coalesce(geofence_radius_m, 100) + least(p_accuracy_m, 75)`
+  metres of `(lat, lng)` (`public.haversine_meters`). Duplicates resolve to the canonical row first.
 
 ## RPCs
 
@@ -120,7 +175,8 @@ future by more than 1 minute) and either inside `venues.boundary_geom` or within
 checkin_venue(p_id uuid, p_venue text, p_minutes int default 120, p_source text default 'manual',
               p_at timestamptz default null,
               p_lat double precision default null, p_lng double precision default null,
-              p_accuracy_m double precision default null, p_fix_at timestamptz default null)
+              p_accuracy_m double precision default null, p_fix_at timestamptz default null,
+              p_fix_age_ms double precision default null)
   returns public.venue_checkins
 ```
 - Idempotent on `p_id`. Advisory lock `hashtext('checkin:' || uid)`.
@@ -142,7 +198,8 @@ checkout_venue(p_id uuid default null, p_source text default null, p_at timestam
 start_play_session(p_id uuid, p_kind text, p_source uuid default null, p_venue text default null,
                    p_at timestamptz default null,
                    p_lat double precision default null, p_lng double precision default null,
-                   p_accuracy_m double precision default null, p_fix_at timestamptz default null)
+                   p_accuracy_m double precision default null, p_fix_at timestamptz default null,
+                   p_fix_age_ms double precision default null)
   returns public.play_sessions
 ```
 - Unchanged behaviour plus: when `p_venue` is set and the fix confirms it, open a `source='session'` check-in with
@@ -150,9 +207,19 @@ start_play_session(p_id uuid, p_kind text, p_source uuid default null, p_venue t
   has an open confirmed check-in at that venue, adopt it (extend its `expires_at` to cover 180 min) instead.
 - Closing a previous session also closes that session's `source='session'` check-in.
 
-`end_play_session(p_id, p_at)` — unchanged signature; also closes the check-in `id = p_id and source = 'session'`.
-`extend_checkin(p_id, p_until)` — unchanged signature; falls back to the caller's open row when `p_id` names no
-check-in of the caller (a closed one still raises).
+`end_play_session(p_id, p_at)` — unchanged signature; also closes the check-in `id = p_id and source = 'session'`;
+an id never stored is remembered as ended (see "Closed before stored").
+
+```
+extend_checkin(p_id uuid, p_until timestamptz,
+               p_lat double precision default null, p_lng double precision default null,
+               p_accuracy_m double precision default null, p_fix_at timestamptz default null,
+               p_fix_age_ms double precision default null)
+  returns public.venue_checkins
+```
+- Replaces the 2-arg version (1.0.4's `{p_id, p_until}` call still resolves). Falls back to the caller's open row
+  when `p_id` names no check-in of the caller (a closed one still raises). A confirmed check-in needs a confirming
+  fix, or stops 4 hours past its last one (see the differences list above).
 
 ```
 resolve_court(p_lat double precision, p_lng double precision, p_radius_m double precision default 150,
@@ -174,16 +241,17 @@ list_presence_hidden() returns table(user_id uuid, full_name text, avatar_url te
 
 Internal (revoked from clients): `are_friends(a,b)`, `share_closed_league(a,b)`,
 `_pl_can_see_presence(viewer uuid, owner uuid, p_kind text) returns text` → `'named' | 'anonymous' | 'none'`:
-self → named; viewer is guest/expired guest/deleted → anonymous for counts only; blocked either way → none;
-owner paused or hiding from viewer → anonymous; owner level `hidden` → anonymous; `everyone` → named;
-`leaguemates` → named if friends or share a closed league; `friends` → named if friends; else anonymous.
+self → named; deleted owner → none; blocked either way → anonymous (counted, never named, whatever the level);
+viewer is guest/expired guest/deleted → anonymous for counts only; owner paused or hiding from viewer → anonymous;
+owner level `hidden` → anonymous; `everyone` → named; `leaguemates` → named if friends or share a closed league
+(both admitted while it was closed); `friends` → named if friends; else anonymous.
 Only `location_confirmed` rows are ever visible to anyone but the owner.
 
 ### Presence reads
 
 ```
 venue_players_here(p_venue text) returns table(...)   -- identical signature/columns as today (1.0.4 clients)
-  -- now SECURITY DEFINER; anonymous rows: checkin_id = md5(c.id::text || auth.uid()::text)::uuid,
+  -- now SECURITY DEFINER; anonymous rows: a random checkin_id per call, hour-rounded times,
   -- user_id/full_name/avatar_*/rating/doubles_rating null; 'none' rows omitted
 court_presence(p_venue text) returns table(checkin_id uuid, user_id uuid, full_name text, avatar_url text,
   avatar_emoji text, avatar_bg_color text, doubles_rating numeric, checked_in_at timestamptz,
@@ -191,15 +259,17 @@ court_presence(p_venue text) returns table(checkin_id uuid, user_id uuid, full_n
   session_kind text)
 venue_crowd(p_venue_ids text[]) returns table(venue_id text, here_now int, band_low numeric, band_high numeric,
   friends_here int)
-  -- at most 50 ids; here_now counts confirmed open rows (hidden players count, blocked excluded);
-  -- band = 25th–75th pct of doubles_rating rounded to 0.25, only with >= 3 rated players present
+  -- at most 50 ids; here_now counts confirmed open rows (hidden, paused and blocked players count);
+  -- band = 25th–75th pct of doubles_rating rounded to 0.25, from rated players anonymous to the viewer only,
+  -- and only with >= 3 of them
 friends_at_courts(p_hours int default 12) returns jsonb
   -- {now: [{venue_id, venue_name, lat, lng, since, until, people: [{user_id, full_name, avatar_url,
   --          avatar_emoji, avatar_bg_color, is_close_friend, via_session, session_kind, checked_in_at, expires_at}],
   --         others_here int}],
   --  courts: [{venue_id, venue_name, reason: 'favorite'|'home'|'frequent', here_now, band_low, band_high, friends_here}]}
   -- now: named people only (friends + closed-league mates per their settings), grouped by canonical venue, cap 100
-  -- courts: up to 3 — favorites first, then league home venues, then the viewer's most-visited (last 60 days)
+  -- courts: every favorite (max 5), then league home venues, then the viewer's most-visited (last 60 days),
+  --         filled to 3
 ```
 
 ### Friends
@@ -221,7 +291,9 @@ suggest_friends(p_limit int default 10) returns table(user_id uuid, full_name te
 ```
 - `send_friend_request` refuses self, guests, `is_unclaimed`, deleted, and blocked pairs (`'unavailable'` status);
   max 20 per sender per local day; a re-request within 30 days of a decline is stored pending but notifies nobody.
-- Blocking (AFTER INSERT on `user_blocks`) deletes the friendship, close_friends and presence_hidden_from rows both ways.
+- Blocking (AFTER INSERT on `user_blocks`) deletes the friendship and close_friends rows both ways, and the friend
+  notices. presence_hidden_from rows are kept, so a hide survives an unblock and the blocked person cannot tell they
+  were blocked.
 
 ### Court favorites
 
@@ -245,8 +317,10 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
 ## Hygiene
 
 - `delete_my_account` (and the godmode delete) deletes venue_checkins, play_sessions, presence_settings,
-  presence_hidden_from (both columns), friendships, close_friends (both), court_favorites for the user.
-- Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days.
+  presence_hidden_from (both columns), friendships, close_friends (both), court_favorites and presence_closed_ids
+  for the user.
+- Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days, friend request log
+  rows older than 30 days and presence_closed_ids older than 2 days.
 - Client: before `signOutSafely`, best-effort `checkout_venue(null, null, now)` and `end_play_session` for the open
   session, each bounded to 3 s, never blocking sign-out (`mobile/src/lib/signOutPresence.ts`, called from
   SettingsScreen doSignOut, the GuestJoinScreen rollback and AppNavigator's expired-guest sign-out). `p_source` is
@@ -263,12 +337,31 @@ notes say which arguments the app sends and what it assumes about the answers.
 - `checkout_venue` always gets `p_source` explicitly: `null` for a plain check-out and for sign-out (no filter),
   `'geofence'` when leaving a fenced court (it must not close a manual check-in). The no-match fallback applies the
   same filter, as the SQL does.
-- Every `checkin_venue` call sends the four fix arguments (no manual check-ins). A check-in queued offline carries
-  the fix taken at tap time; when the server refuses it on replay, the client drops it and tells the player the next
-  time the court card shows. A queued check-in from an older build that has no fix is dropped without being sent.
-- `start_play_session` sends the fix only with a court (`p_venue`); a session with no court sends four nulls.
+- Every `checkin_venue` call sends the fix arguments (no manual check-ins), with `p_fix_age_ms` computed at each
+  send (`fixArgs(fix, Date.now())`), so a queued replay counts its time in the queue and a wrong device clock
+  doesn't matter. A check-in queued offline carries the fix taken at tap time; when the server refuses it on replay,
+  the client drops it and tells the player the next time the court card shows. A queued check-in from an older
+  build that has no fix is dropped without being sent.
+- `takeCheckinFix` treats a reading with accuracy over 150 m (or none) as no fix and `noFixReason()` names it
+  (Precise Location / approximate browser location, or "try again in the open" for a 150-500 m fix), so the card
+  never offers "Add this court" at a blurred spot and the start sheet never preselects a court from one. The
+  server's own refusals ("isn't precise enough", "out of date", "need to be at the court") all offer the untracked
+  session on the court card and become the lock-screen notice text.
+- `extend_checkin` gets a fix whenever location is already allowed (the card's +1 h reuses a recent fix; the
+  island and the lock-screen Extend take one, with no prompt). A refusal on the lock screen becomes "Open Pickleague
+  at the court to stay checked in."
+- `start_play_session` sends the fix only with a court (`p_venue`); a session with no court sends nulls. At my
+  current check-in's court the start sheet sends no fix when it has none (the server adopts that check-in). With
+  any other court it compares the fix's `resolve_court` answer with the chosen court first and, when they differ,
+  says "You're not at <court>" and offers the court I'm at, no court, or "Start anyway". After a court Start
+  lands (live or replayed), the app re-reads my check-in; when the session did not check me in, the island stops
+  naming the court and says so once.
+- A successful End keeps its pending-End entry until it ages out (3 days), so a resume read already in flight when
+  End was tapped can't bring the island back.
 - `resolve_court` is always called with `p_sport` from `mobile/src/sports/registry.ts` (`getSport().courtSport`).
-  The court card, the start sheet, the league court chip and the geofence list all key on its canonical id.
+  The court card, the start sheet, the league court chip and the geofence list all key on its canonical id. The
+  arrival-alert fences are starred courts first (`list_my_court_favorites`, with the flag on; a failed read drops
+  only them), then league home courts, then the most-visited courts; starring or unstarring re-syncs them.
 - League home-court pickers write `leagues.home_venue_id` (the picked catalog venue, else null) alongside `home_court*`.
 - The start sheet reads the presence settings (for its "who sees you" line) and `list_my_court_favorites`, through
   the presence stream's wrappers (`data/presenceSettings`, `data/courtFavorites`), and treats either failing as
@@ -278,13 +371,17 @@ notes say which arguments the app sends and what it assumes about the answers.
 
 - Rosters (PlayersHereList, the league court chip) read `court_presence`; `venue_players_here` is kept only for
   1.0.4. An anonymous row shows "Player"; the client would show a half-point band if the row carried
-  `doubles_rating`, but the SQL sends null for anonymous rows, so it never does.
+  `doubles_rating`, but the SQL sends null for anonymous rows, so it never does. Its `checkin_id` is a React key
+  only (random per call). `usePlayersHere` polls only while its screen is focused.
 - `venue_crowd` is called in chunks of at most 50 ids; an id the SQL omits reads as an empty court.
 - Consent (`lib/presenceConsent.ts`, recorded with `set_presence_settings(p_consent_seen => true)`):
   `ensurePresenceConsent()` is awaited outside any bounded busy state and never while another Modal is up (iOS
   shows one at a time). The court card asks it before the location prompt and the bounded check-in; the start
-  sheet's host asks it before the sheet opens ("Not now" opens nothing); the lock-screen arrival Check in uses
-  `hasPresenceConsent()` and, when it is false, asks the player to open the app.
+  sheet's host asks it before the sheet opens ("Not now" opens the sheet with only the private no-court timer, no
+  location read); the lock-screen arrival Check in uses `hasPresenceConsent()` and, when it is false, asks the
+  player to open the app. The sheet, Settings › Privacy (who sees me, hidden from), Pause sharing and hide-from are
+  not behind `FRIENDS_AT_COURTS_ENABLED`: they ship with the check-ins they control. "Who sees my planned games"
+  is not shown until Phase 3 (court_plans); `plans_level` is still stored and returned.
 - Pause (`p_paused_until` up to 7 days) and hide-from are written only through their RPCs; the returned settings
   row replaces the cached one.
 

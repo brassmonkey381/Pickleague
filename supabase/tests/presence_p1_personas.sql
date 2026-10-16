@@ -17,7 +17,11 @@
 --   G guest pass (profiles.is_guest) · D deletes their account · U unclaimed
 --   DUPR placeholder · R1-R3 rated players · X/Y crossing requests
 --   Q/W decline cooldown · Z block teardown · N played a match with O
---   M friend-request cap
+--   M friend-request cap · AT league admin who tries to enrol V (victim)
+--   J joins an open league that is closed later · I admitted to closed
+--   leagues · CM admitted to a closed league before it reopened · RV rated
+--   viewer, RF their rated friend, RH/RX/RY rated strangers (crowd band) ·
+--   E fix rules, extensions, early End / check-out
 -- Each block switches persona with pg_temp.as_user (request.jwt.claims + role
 -- authenticated) and records assertions in _results. now() is fixed for the
 -- whole transaction, so times compare exactly.
@@ -45,7 +49,12 @@ insert into _p values
   ('X',  'a0000000-0000-4000-8000-00000000000f'), ('Y',  'a0000000-0000-4000-8000-000000000010'),
   ('Q',  'a0000000-0000-4000-8000-000000000011'), ('W',  'a0000000-0000-4000-8000-000000000012'),
   ('Z',  'a0000000-0000-4000-8000-000000000013'), ('N',  'a0000000-0000-4000-8000-000000000014'),
-  ('M',  'a0000000-0000-4000-8000-000000000015');
+  ('M',  'a0000000-0000-4000-8000-000000000015'), ('AT', 'a0000000-0000-4000-8000-000000000016'),
+  ('V',  'a0000000-0000-4000-8000-000000000017'), ('J',  'a0000000-0000-4000-8000-000000000018'),
+  ('I',  'a0000000-0000-4000-8000-000000000019'), ('RV', 'a0000000-0000-4000-8000-00000000001a'),
+  ('RF', 'a0000000-0000-4000-8000-00000000001b'), ('RH', 'a0000000-0000-4000-8000-00000000001c'),
+  ('RX', 'a0000000-0000-4000-8000-00000000001d'), ('RY', 'a0000000-0000-4000-8000-00000000001e'),
+  ('E',  'a0000000-0000-4000-8000-00000000001f'), ('CM', 'a0000000-0000-4000-8000-000000000020');
 grant select on _p to authenticated;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -65,15 +74,17 @@ begin
   perform set_config('request.jwt.claims', '', true);
 end $$;
 
--- A confirmed check-in for persona k: a fresh 10 m-accuracy fix 11 m from
--- court Alpha. Leaves the role as that persona.
-create function pg_temp.checkin(k text, p_id uuid, p_venue text default 'test:p1-alpha', p_minutes int default 120)
+-- A confirmed check-in for persona k: a fresh 10 m-accuracy fix 11 m north of
+-- the court (every test court is at -100.0; Alpha at 40.0, so 40.0001).
+-- Leaves the role as that persona.
+create function pg_temp.checkin(k text, p_id uuid, p_venue text default 'test:p1-alpha', p_minutes int default 120,
+                                p_lat double precision default 40.0001)
 returns public.venue_checkins language plpgsql as $$
 declare r public.venue_checkins;
 begin
   perform pg_temp.as_user(pg_temp.p(k));
   select * into r from public.checkin_venue(p_id => p_id, p_venue => p_venue, p_minutes => p_minutes,
-    p_source => 'manual', p_at => null, p_lat => 40.0001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+    p_source => 'manual', p_at => null, p_lat => p_lat, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
   return r;
 end $$;
 
@@ -87,11 +98,54 @@ begin
   return v;
 end $$;
 
+-- The same at any court.
+create function pg_temp.sees_at(viewer text, who text, p_venue text) returns boolean language plpgsql as $$
+declare v boolean;
+begin
+  perform pg_temp.as_user(pg_temp.p(viewer));
+  select exists (select 1 from public.court_presence(p_venue) c where c.user_id = pg_temp.p(who)) into v;
+  return v;
+end $$;
+
 create function pg_temp.rows_at_alpha(viewer text) returns int language plpgsql as $$
 declare v int;
 begin
   perform pg_temp.as_user(pg_temp.p(viewer));
   select count(*) into v from public.court_presence('test:p1-alpha');
+  return v;
+end $$;
+
+-- Whether any anonymous row `viewer` gets at Alpha (court_presence or
+-- venue_players_here) still carries something of a named row they saw
+-- before: its id, md5(id || viewer), or its exact arrival and expiry.
+create function pg_temp.links_back(viewer text, p_id uuid, p_in timestamptz, p_exp timestamptz) returns boolean
+language plpgsql as $$
+declare
+  v  boolean;
+  me uuid := pg_temp.p(viewer);
+begin
+  perform pg_temp.as_user(me);
+  select exists (select 1 from public.court_presence('test:p1-alpha') c
+                  where c.anonymous
+                    and (c.checkin_id in (p_id, md5(p_id::text || me::text)::uuid)
+                         or (c.checked_in_at = p_in and c.expires_at = p_exp)))
+      or exists (select 1 from public.venue_players_here('test:p1-alpha') c
+                  where c.user_id is null
+                    and (c.checkin_id in (p_id, md5(p_id::text || me::text)::uuid)
+                         or (c.checked_in_at = p_in and c.expires_at = p_exp)))
+    into v;
+  return v;
+end $$;
+
+-- The (checked_in_at, expires_at) of every anonymous row `viewer` gets at
+-- Alpha, sorted: a multiset, to compare two viewers' views.
+create function pg_temp.anon_times_at_alpha(viewer text) returns text[] language plpgsql as $$
+declare v text[];
+begin
+  perform pg_temp.as_user(pg_temp.p(viewer));
+  select array_agg(x.t order by x.t) into v
+    from (select c.checked_in_at::text || '|' || c.expires_at::text as t
+            from public.court_presence('test:p1-alpha') c where c.anonymous) x;
   return v;
 end $$;
 
@@ -111,7 +165,11 @@ select id, 'p1-' || lower(k) || '@pickleague.test',
          when 'O' then 'Olive Owner' when 'F' then 'Fran Friend' when 'C' then 'Cleo Close'
          when 'L' then 'Lena League' when 'P' then 'Pat Open' when 'S' then 'Sam Stranger'
          when 'B' then 'Bo Blocked' when 'K' then 'Kit Blocker' when 'G' then 'Gus Guest'
-         when 'D' then 'Dee Deleted' when 'N' then 'Ned Partner' else 'Player ' || k end)
+         when 'D' then 'Dee Deleted' when 'N' then 'Ned Partner' when 'AT' then 'Ari Attacker'
+         when 'V' then 'Val Victim' when 'J' then 'Jo Joiner' when 'I' then 'Ivy Invited'
+         when 'RV' then 'Rae Viewer' when 'RF' then 'Rex Friend' when 'E' then 'Eve Early'
+         when 'CM' then 'Cam Curated'
+         else 'Player ' || k end)
   from _p where k <> 'U';
 -- An unclaimed DUPR placeholder has a profile and no account.
 insert into public.profiles (id, username, full_name, gender, is_unclaimed)
@@ -126,6 +184,7 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:p1-c4',        array['pickleball'], 'P1 Test Courts Four',  'court', 40.04,     -100.0, 'google', 100),
   ('test:p1-c5',        array['pickleball'], 'P1 Test Courts Five',  'court', 40.05,     -100.0, 'google', 100),
   ('test:p1-c6',        array['pickleball'], 'P1 Test Courts Six',   'court', 40.06,     -100.0, 'google', 100),
+  ('test:p1-delta',     array['pickleball'], 'P1 Test Courts Delta', 'court', 40.07,     -100.0, 'google', 100),
   ('test:p1-hoops',     array['basketball'], 'P1 Test Hoops',        'court', 40.02,     -100.0, 'google', 100);
 select public._pl_dedupe_venues('pickleball');
 
@@ -154,10 +213,10 @@ do $$
 declare
   f text;
   v_client text[] := array[
-    'public.checkin_venue(uuid,text,integer,text,timestamptz,double precision,double precision,double precision,timestamptz)',
+    'public.checkin_venue(uuid,text,integer,text,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
     'public.checkout_venue(uuid,text,timestamptz)',
-    'public.extend_checkin(uuid,timestamptz)',
-    'public.start_play_session(uuid,text,uuid,text,timestamptz,double precision,double precision,double precision,timestamptz)',
+    'public.extend_checkin(uuid,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
+    'public.start_play_session(uuid,text,uuid,text,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
     'public.end_play_session(uuid,timestamptz)',
     'public.resolve_court(double precision,double precision,double precision,text)',
     'public.venue_players_here(text)', 'public.court_presence(text)', 'public.venue_crowd(text[])',
@@ -176,8 +235,11 @@ declare
     'public._pl_canonical_venue(text)', 'public._pl_dedupe_venues(text)',
     'public._pl_similar_court_names(text,text)',
     'public._pl_match_court(double precision,double precision,text,text,double precision)',
-    'public._pl_check_fix(text,double precision,double precision,double precision,timestamptz)',
+    'public._pl_check_fix(text,double precision,double precision,double precision,timestamptz,double precision)',
     'public._pl_require_fix_shape(double precision,double precision)',
+    'public._pl_raise_unconfirmed_fix(boolean,boolean,boolean,double precision,boolean,text)',
+    'public._pl_blocked_pair(uuid,uuid)', 'public._league_members_lock_identity()',
+    'public._league_members_set_admitted_closed()', 'public._leagues_closed_admit_creator()',
     'public._pl_venue_crowd(uuid,text)', 'public._pl_notify_friend(uuid,uuid,text)',
     'public._pl_display_name(uuid)', 'public._pl_friendable(uuid)', 'public._pl_lock_pair(uuid,uuid)',
     'public._pl_clear_friend_request_notices(uuid,uuid)', 'public._purge_account(uuid)',
@@ -223,6 +285,30 @@ begin
     to_regprocedure('public.start_play_session(uuid,text,uuid,text,timestamptz)') is null);
   perform pg_temp.ok('T1 venue_players_here is SECURITY DEFINER',
     (select p.prosecdef from pg_proc p where p.oid = 'public.venue_players_here(text)'::regprocedure));
+  -- migration_venue_checkins.sql and migration_play_sessions.sql were re-run
+  -- after the presence files: their guards kept every presence version.
+  select string_agg(p.proname || ' x' || p.n, ', ') into v_bad
+    from (select p.proname, count(*) as n from pg_proc p
+           where p.pronamespace = 'public'::regnamespace
+             and p.proname in ('checkin_venue', 'checkout_venue', 'extend_checkin', 'start_play_session', 'end_play_session')
+           group by p.proname) p
+   where p.n <> 1;
+  perform pg_temp.ok('T1 re-running the superseded files adds no second overload', v_bad is null, v_bad);
+  perform pg_temp.ok('T1 ...and keeps the owner-only read policies',
+    (select bool_and(qual ilike '%auth.uid()%') and count(*) = 2 from pg_policies
+      where schemaname = 'public' and policyname in ('venue_checkins_read', 'play_sessions_read')));
+  perform pg_temp.ok('T1 ...and the presence End / expiry (they close the session''s check-in)',
+    (select prosrc like '%presence_closed_ids%' from pg_proc where oid = 'public.end_play_session(uuid,timestamptz)'::regprocedure)
+    and (select prosrc like '%venue_checkins%' from pg_proc where oid = 'public.expire_play_sessions()'::regprocedure));
+  -- Clients may change a member's role and nothing else (league_members).
+  perform pg_temp.ok('T1 league_members: clients may update role only',
+    not has_table_privilege('authenticated', 'public.league_members', 'UPDATE')
+    and not has_table_privilege('anon', 'public.league_members', 'UPDATE')
+    and has_column_privilege('authenticated', 'public.league_members', 'role', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'league_id', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'user_id', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'admitted_closed', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'expires_at', 'UPDATE'));
 exception when others then
   perform pg_temp.ok('T1 block crashed', false, sqlerrm);
 end $$;
@@ -231,7 +317,7 @@ end $$;
 -- ════ T2 duplicate courts, league home courts (live data 2026-10-15) ═════
 do $$
 begin
-  perform pg_temp.ok('T2 no venue deleted', (select count(*) from public.venues) = (select n_venues from _pre) + 8);
+  perform pg_temp.ok('T2 no venue deleted', (select count(*) from public.venues) = (select n_venues from _pre) + 9);
   perform pg_temp.ok('T2 test duplicate resolves to the Google row',
     public._pl_canonical_venue('test:p1-alpha-osm') = 'test:p1-alpha');
   perform pg_temp.ok('T2 Pickle Athletics OSM copy -> Google row',
@@ -269,6 +355,46 @@ begin
    where id = 'b0000000-0000-4000-8000-000000000003';
   perform pg_temp.ok('T2 a picked home court is stored canonical and wins over coordinates',
     (select home_venue_id from public.leagues where id = 'b0000000-0000-4000-8000-000000000003') = 'test:p1-alpha');
+
+  -- 1.0.4 builds its arrival fences from resolve_venue: it answers the
+  -- canonical row now, so its fences and check-ins key on the stored id.
+  perform pg_temp.ok('T2 resolve_venue at a duplicate answers the canonical row',
+    (select public.resolve_venue(v.lat, v.lng, 200) ->> 'id' from public.venues v where v.id = 'osm:way/22916669')
+      = 'g:ChIJbRu_MAqHj4ARxpMD4kpXYGg'
+    and (select (public.resolve_venue(v.lat, v.lng, 200) ->> 'distance_meters')::numeric from public.venues v
+          where v.id = 'osm:way/22916669') = 0
+    and public.resolve_venue(40.00005, -100.0, 200) ->> 'id' = 'test:p1-alpha');
+
+  -- A bare pitch label between two differently named facilities joins one of
+  -- them at most, and never merges the two (also through a chain of labels).
+  insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m) values
+    ('test:p1-x-club', array['pickleball'], 'Lakeside Racquet Club',  'court', 40.10,      -100.10, 'google', 100),
+    ('test:p1-x-park', array['pickleball'], 'Rotary Park Pickleball', 'court', 40.100603,  -100.10, 'google', 100),
+    ('test:p1-x-3',    array['pickleball'], '3',                      'court', 40.1003015, -100.10, 'osm',    100),
+    ('test:p1-y-club', array['pickleball'], 'Harbor Tennis Club',     'court', 40.12,      -100.10, 'google', 100),
+    ('test:p1-y-park', array['pickleball'], 'Elm Grove Courts',       'court', 40.1209,    -100.10, 'google', 100),
+    ('test:p1-y-1',    array['pickleball'], 'Court 1',                'court', 40.1203,    -100.10, 'osm',    100),
+    ('test:p1-y-2',    array['pickleball'], 'Court 2',                'court', 40.1206,    -100.10, 'osm',    100),
+    ('test:p1-z-park', array['pickleball'], 'Birch Park Pickleball',  'court', 40.14,      -100.10, 'google', 100),
+    ('test:p1-z-1',    array['pickleball'], '1',                      'court', 40.1403,    -100.10, 'osm',    100),
+    ('test:p1-z-2',    array['pickleball'], '2',                      'court', 40.1406,    -100.10, 'osm',    100),
+    ('test:p1-z-3',    array['pickleball'], '3',                      'court', 40.1409,    -100.10, 'osm',    100);
+  perform public._pl_dedupe_venues('pickleball');
+  perform pg_temp.ok('T2 a pitch between two facilities does not merge them',
+    public._pl_canonical_venue('test:p1-x-club') = 'test:p1-x-club'
+    and public._pl_canonical_venue('test:p1-x-park') = 'test:p1-x-park'
+    and public._pl_canonical_venue('test:p1-x-3') in ('test:p1-x-club', 'test:p1-x-park'));
+  perform pg_temp.ok('T2 ...nor does a chain of two pitches',
+    public._pl_canonical_venue('test:p1-y-club') = 'test:p1-y-club'
+    and public._pl_canonical_venue('test:p1-y-park') = 'test:p1-y-park'
+    and public._pl_canonical_venue('test:p1-y-1') = public._pl_canonical_venue('test:p1-y-2'));
+  perform pg_temp.ok('T2 a row of numbered courts joins the one named court beside it',
+    (select bool_and(public._pl_canonical_venue(id) = 'test:p1-z-park') from public.venues
+      where id in ('test:p1-z-1', 'test:p1-z-2', 'test:p1-z-3')));
+  perform pg_temp.ok('T2 after the bridge cases: re-running changes nothing, no chains',
+    public._pl_dedupe_venues('pickleball') = 0
+    and not exists (select 1 from public.venues v join public.venues c on c.id = v.canonical_id
+                     where c.canonical_id is not null));
 exception when others then
   perform pg_temp.ok('T2 block crashed', false, sqlerrm);
 end $$;
@@ -500,16 +626,21 @@ end $$;
 
 do $$
 declare
-  n  int;
-  na int;
-  v  boolean;
-  r  record;
-  j  jsonb;
+  n   int;
+  na  int;
+  v   boolean;
+  r   record;
+  j   jsonb;
+  ids uuid[];
+  ids2 uuid[];
+  x   public.venue_checkins;
+  ts  text[];
 begin
-  -- The owner's view.
+  -- The owner's view. B (blocked by O) and K (blocks O) are anonymous
+  -- strangers to O, as O is to them.
   perform pg_temp.as_user(pg_temp.p('O'));
   select count(*), count(*) filter (where c.anonymous) into n, na from public.court_presence('test:p1-alpha') c;
-  perform pg_temp.ok('T5 O sees 10 (blocked either way left out), 6 anonymous', n = 10 and na = 6, n || '/' || na);
+  perform pg_temp.ok('T5 O sees 12 (a blocked pair as anonymous strangers), 8 anonymous', n = 12 and na = 8, n || '/' || na);
   perform pg_temp.ok('T5 O sees their own row first',
     (select c.user_id from public.court_presence('test:p1-alpha') c limit 1) = pg_temp.p('O'));
   select * into r from public.court_presence('test:p1-alpha') c where c.user_id = pg_temp.p('F');
@@ -527,14 +658,29 @@ begin
                  where c.anonymous and (c.user_id is not null or c.full_name is not null or c.doubles_rating is not null
                                         or c.avatar_url is not null or c.is_friend or c.is_close_friend)));
   select count(*) into n from public.venue_players_here('test:p1-alpha-osm');
-  perform pg_temp.ok('T5 venue_players_here by a duplicate id finds the facility', n = 10, n::text);
-  perform pg_temp.ok('T5 1.0.4 anonymous rows: md5 checkin_id, null ids/names/ratings',
-    exists (select 1 from public.venue_players_here('test:p1-alpha') vp
-             where vp.checkin_id = md5('c0000000-0000-4000-8000-000000000104' || pg_temp.p('O')::text)::uuid
-               and vp.user_id is null and vp.full_name is null and vp.rating is null and vp.doubles_rating is null));
+  perform pg_temp.ok('T5 venue_players_here by a duplicate id finds the facility', n = 12, n::text);
+  perform pg_temp.ok('T5 1.0.4 anonymous rows: null ids/names/ratings, hour-rounded times',
+    (select count(*) from public.venue_players_here('test:p1-alpha') vp where vp.user_id is null) = 8
+    and not exists (select 1 from public.venue_players_here('test:p1-alpha') vp
+                     where vp.user_id is null
+                       and (vp.full_name is not null or vp.avatar_url is not null or vp.rating is not null
+                            or vp.doubles_rating is not null
+                            or vp.checked_in_at <> date_trunc('hour', vp.checked_in_at)
+                            or vp.expires_at <> date_trunc('hour', vp.expires_at))));
+  -- Anonymous ids: random on every call, never a real check-in id or the old
+  -- md5(id || viewer) anyone who saw the named row could recompute.
+  select array_agg(vp.checkin_id) into ids from public.venue_players_here('test:p1-alpha') vp where vp.user_id is null;
+  select array_agg(c.checkin_id) into ids2 from public.court_presence('test:p1-alpha') c where c.anonymous;
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T5 anonymous ids are random: unique, never a real id or md5(id || viewer), new each call',
+    cardinality(ids) = 8 and (select count(distinct u) from unnest(ids) u) = 8
+    and not exists (select 1 from public.venue_checkins c, unnest(ids || ids2) u
+                     where u = c.id or u = md5(c.id::text || pg_temp.p('O')::text)::uuid)
+    and not (ids && ids2));
+  perform pg_temp.as_user(pg_temp.p('O'));
   select count(*) into n from public.venue_crowd(array['test:p1-alpha', 'test:p1-alpha-osm', 'test:nope']) c
-   where c.here_now = 10 and c.friends_here = 2 and c.band_low is null;
-  perform pg_temp.ok('T5 crowd: 10 here, 2 friends, no band with 2 rated; both ids answer, unknown skipped', n = 2, n::text);
+   where c.here_now = 12 and c.friends_here = 2 and c.band_low is null;
+  perform pg_temp.ok('T5 crowd: 12 here, 2 friends, no band with 2 rated; both ids answer, unknown skipped', n = 2, n::text);
   perform pg_temp.as_admin();
   update public.profiles set total_matches_played = 5, doubles_rating = 4.0 where id = pg_temp.p('R3');
   perform pg_temp.as_user(pg_temp.p('O'));
@@ -551,17 +697,28 @@ begin
   n := pg_temp.rows_at_alpha('S');
   select count(*) into na from public.court_presence('test:p1-alpha') c where not c.anonymous;
   perform pg_temp.ok('T5 stranger sees all 12, only themself by name', n = 12 and na = 1, n || '/' || na);
-  perform pg_temp.ok('T5 stranger: anonymous checkin_id is md5(id || viewer)',
-    exists (select 1 from public.venue_players_here('test:p1-alpha') vp
-             where vp.checkin_id = md5('c0000000-0000-4000-8000-000000000101' || pg_temp.p('S')::text)::uuid));
+  perform pg_temp.ok('T5 stranger: anonymous rows carry hour-rounded times and no session',
+    not exists (select 1 from public.court_presence('test:p1-alpha') c
+                 where c.anonymous
+                   and (c.checked_in_at <> date_trunc('hour', c.checked_in_at)
+                        or c.expires_at <> date_trunc('hour', c.expires_at)
+                        or c.via_session or c.session_kind is not null)));
   select c.here_now, c.friends_here into n, na from public.venue_crowd(array['test:p1-alpha']) c;
   perform pg_temp.ok('T5 stranger crowd: 12 here, 0 friends', n = 12 and na = 0, n || '/' || na);
+  -- A blocked pair sees each other as an anonymous stranger: the blocked
+  -- user's view can't be diffed against a second account's or a guest's.
   n := pg_temp.rows_at_alpha('B');
-  perform pg_temp.ok('T5 the user O blocked does not see O', n = 11, n::text);
+  perform pg_temp.ok('T5 the user O blocked does not see O by name (O is an anonymous row)',
+    n = 12 and not pg_temp.sees('B', 'O'), n::text);
+  perform pg_temp.as_user(pg_temp.p('B'));
   select c.here_now into n from public.venue_crowd(array['test:p1-alpha']) c;
-  perform pg_temp.ok('T5 ...nor count them', n = 11, n::text);
+  perform pg_temp.ok('T5 ...and counts O like anyone else', n = 12, n::text);
   n := pg_temp.rows_at_alpha('K');
-  perform pg_temp.ok('T5 the user who blocked O does not see O either', n = 11, n::text);
+  perform pg_temp.ok('T5 the user who blocked O does not see O by name either', n = 12 and not pg_temp.sees('K', 'O'), n::text);
+  ts := pg_temp.anon_times_at_alpha('S');
+  perform pg_temp.ok('T5 the blocked user''s anonymous rows match a stranger''s and a guest''s (nothing to diff)',
+    pg_temp.anon_times_at_alpha('B') = ts and pg_temp.anon_times_at_alpha('G') = ts and cardinality(ts) = 11,
+    array_to_string(ts, ', '));
   n := pg_temp.rows_at_alpha('G');
   select count(*) into na from public.court_presence('test:p1-alpha') c where not c.anonymous;
   perform pg_temp.ok('T5 guest sees counts only (everyone else anonymous)', n = 12 and na = 1, n || '/' || na);
@@ -576,7 +733,8 @@ begin
   perform pg_temp.ok('T5 set everyone', j ->> 'checkins_level' = 'everyone', j::text);
   perform pg_temp.ok('T5 everyone: stranger sees O', pg_temp.sees('S', 'O'));
   perform pg_temp.ok('T5 everyone: guest still does not', not pg_temp.sees('G', 'O'));
-  perform pg_temp.ok('T5 everyone: blocked still sees nothing', pg_temp.rows_at_alpha('B') = 11);
+  perform pg_temp.ok('T5 everyone: the blocked user still does not see O by name',
+    not pg_temp.sees('B', 'O') and pg_temp.rows_at_alpha('B') = 12);
   perform pg_temp.as_user(pg_temp.p('O'));
   perform public.set_presence_settings('friends');
   perform pg_temp.ok('T5 friends: league mate loses O', not pg_temp.sees('L', 'O'));
@@ -604,6 +762,40 @@ begin
     (select array_agg(h.user_id) from public.list_presence_hidden() h) = array[pg_temp.p('F')]);
   v := public.hide_presence_from(pg_temp.p('F'), false);
   perform pg_temp.ok('T5 unhide', not v and pg_temp.sees('F', 'O'));
+
+  -- A hide-from or a pause can't be undone by linking: F saw O's named row
+  -- (its id, its exact times); afterwards no anonymous row carries any of it.
+  perform pg_temp.as_user(pg_temp.p('F'));
+  select c.checkin_id, c.checked_in_at, c.expires_at into r
+    from public.court_presence('test:p1-alpha') c where c.user_id = pg_temp.p('O');
+  perform pg_temp.as_user(pg_temp.p('O'));
+  perform public.hide_presence_from(pg_temp.p('F'), true);
+  perform pg_temp.ok('T5 after a hide-from, no anonymous row links back to O''s named row',
+    r.checkin_id is not null and not pg_temp.sees('F', 'O')
+    and not pg_temp.links_back('F', r.checkin_id, r.checked_in_at, r.expires_at), r::text);
+  perform pg_temp.as_user(pg_temp.p('O'));
+  perform public.hide_presence_from(pg_temp.p('F'), false);
+  perform public.set_presence_settings(p_paused_until => now() + interval '2 hours');
+  perform pg_temp.ok('T5 after a pause, no anonymous row links back either (friend or league-mate)',
+    not pg_temp.sees('F', 'O') and not pg_temp.links_back('F', r.checkin_id, r.checked_in_at, r.expires_at)
+    and not pg_temp.sees('L', 'O') and not pg_temp.links_back('L', r.checkin_id, r.checked_in_at, r.expires_at));
+  perform pg_temp.as_user(pg_temp.p('O'));
+  perform public.set_presence_settings(p_clear_pause => true);
+
+  -- Session fields ride named rows only.
+  perform pg_temp.as_user(pg_temp.p('C'));
+  perform public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000101', p_kind => 'drill',
+    p_venue => 'test:p1-alpha');
+  perform pg_temp.as_user(pg_temp.p('O'));
+  perform pg_temp.ok('T5 a friend''s session shows on their named row',
+    exists (select 1 from public.court_presence('test:p1-alpha') c
+             where c.user_id = pg_temp.p('C') and c.via_session and c.session_kind = 'drill'));
+  perform pg_temp.as_user(pg_temp.p('S'));
+  perform pg_temp.ok('T5 ...and never on an anonymous row',
+    not exists (select 1 from public.court_presence('test:p1-alpha') c
+                 where c.anonymous and (c.via_session or c.session_kind is not null)));
+  perform pg_temp.as_user(pg_temp.p('C'));
+  perform public.end_play_session('e0000000-0000-4000-8000-000000000101', now());
   perform pg_temp.as_user(pg_temp.p('O'));
   begin
     perform public.set_presence_settings('strangers');
@@ -624,21 +816,32 @@ begin
   -- Home: friends at the courts.
   perform pg_temp.as_user(pg_temp.p('O'));
   j := public.friends_at_courts();
-  perform pg_temp.ok('T5 O friends_at_courts: one court, F C L by name, 6 others',
+  perform pg_temp.ok('T5 O friends_at_courts: one court, F C L by name, 8 others',
     jsonb_array_length(j -> 'now') = 1
     and j -> 'now' -> 0 ->> 'venue_id' = 'test:p1-alpha'
     and jsonb_array_length(j -> 'now' -> 0 -> 'people') = 3
-    and (j -> 'now' -> 0 ->> 'others_here')::int = 6
+    and (j -> 'now' -> 0 ->> 'others_here')::int = 8
     and (select bool_and((pp ->> 'user_id')::uuid in (pg_temp.p('F'), pg_temp.p('C'), pg_temp.p('L')))
            from jsonb_array_elements(j -> 'now' -> 0 -> 'people') pp), j::text);
   perform pg_temp.ok('T5 the close friend is starred',
     exists (select 1 from jsonb_array_elements(j -> 'now' -> 0 -> 'people') pp
              where (pp ->> 'user_id')::uuid = pg_temp.p('C') and (pp ->> 'is_close_friend')::boolean));
-  perform pg_temp.ok('T5 your courts: favorites first, 3 at most, with the crowd',
-    jsonb_array_length(j -> 'courts') = 3
-    and j -> 'courts' -> 0 ->> 'venue_id' = 'test:p1-alpha' and j -> 'courts' -> 0 ->> 'reason' = 'favorite'
-    and (j -> 'courts' -> 0 ->> 'here_now')::int = 10 and (j -> 'courts' -> 0 ->> 'friends_here')::int = 2,
+  perform pg_temp.ok('T5 your courts: every favorite (O has 4), oldest first, with the crowd',
+    jsonb_array_length(j -> 'courts') = 4
+    and (select bool_and(c ->> 'reason' = 'favorite') from jsonb_array_elements(j -> 'courts') c)
+    and j -> 'courts' -> 0 ->> 'venue_id' = 'test:p1-alpha'
+    and (j -> 'courts' -> 0 ->> 'here_now')::int = 12 and (j -> 'courts' -> 0 ->> 'friends_here')::int = 2,
     (j -> 'courts')::text);
+  perform public.set_court_favorite('test:p1-c5', true);
+  j := public.friends_at_courts();
+  perform pg_temp.ok('T5 your courts: a 5th star shows too (the newest)',
+    jsonb_array_length(j -> 'courts') = 5
+    and exists (select 1 from jsonb_array_elements(j -> 'courts') c where c ->> 'venue_id' = 'test:p1-c5'),
+    (j -> 'courts')::text);
+  perform pg_temp.as_user(pg_temp.p('F'));
+  j := public.friends_at_courts();
+  perform pg_temp.ok('T5 your courts: no favorites, so the fill to 3 (F: one frequent court)',
+    jsonb_array_length(j -> 'courts') = 1 and j -> 'courts' -> 0 ->> 'reason' = 'frequent', (j -> 'courts')::text);
   perform pg_temp.as_user(pg_temp.p('F'));
   j := public.friends_at_courts();
   perform pg_temp.ok('T5 F friends_at_courts: only O',
@@ -825,14 +1028,35 @@ begin
   perform pg_temp.as_user(pg_temp.p('Z'));
   insert into public.user_blocks (blocker_id, blocked_id) values (pg_temp.p('Z'), pg_temp.p('O'));
   perform pg_temp.as_admin();
-  perform pg_temp.ok('T6 a block deletes the friendship, stars, hide-from rows and notices',
+  perform pg_temp.ok('T6 a block deletes the friendship, stars and notices; hide-from rows survive',
     not exists (select 1 from public.friendships where pg_temp.p('Z') in (requester_id, addressee_id))
     and not exists (select 1 from public.close_friends where pg_temp.p('Z') in (user_id, friend_id))
-    and not exists (select 1 from public.presence_hidden_from where pg_temp.p('Z') in (user_id, hidden_user_id))
+    and exists (select 1 from public.presence_hidden_from where user_id = pg_temp.p('O') and hidden_user_id = pg_temp.p('Z'))
+    and exists (select 1 from public.presence_hidden_from where user_id = pg_temp.p('Z') and hidden_user_id = pg_temp.p('O'))
     and pg_temp.notices('Z', 'O', 'friend_accepted') = 0);
   perform pg_temp.as_user(pg_temp.p('Z'));
   perform pg_temp.ok('T6 ...and the pair reads unavailable',
     public.friendship_status_with(pg_temp.p('O')) ->> 'status' = 'unavailable');
+
+  -- A hide survives a block and an unblock by the other person, and the
+  -- hider's own list never shows that they were blocked.
+  perform pg_temp.ok('T6 (setup) O sees closed-league mate L by name', pg_temp.sees('O', 'L'));
+  perform pg_temp.as_user(pg_temp.p('L'));
+  perform public.hide_presence_from(pg_temp.p('O'), true);
+  perform pg_temp.ok('T6 L hides from O', not pg_temp.sees('O', 'L'));
+  perform pg_temp.as_user(pg_temp.p('O'));
+  insert into public.user_blocks (blocker_id, blocked_id) values (pg_temp.p('O'), pg_temp.p('L'));
+  perform pg_temp.as_user(pg_temp.p('L'));
+  perform pg_temp.ok('T6 O blocks L: L''s own hide list still has O (no tell)',
+    exists (select 1 from public.list_presence_hidden() h where h.user_id = pg_temp.p('O')));
+  perform pg_temp.as_user(pg_temp.p('O'));
+  delete from public.user_blocks where blocker_id = pg_temp.p('O') and blocked_id = pg_temp.p('L');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T6 O unblocks L: L''s hide-from row is still there',
+    exists (select 1 from public.presence_hidden_from where user_id = pg_temp.p('L') and hidden_user_id = pg_temp.p('O')));
+  perform pg_temp.ok('T6 ...and O still does not see L by name', not pg_temp.sees('O', 'L'));
+  perform pg_temp.as_user(pg_temp.p('L'));
+  perform public.hide_presence_from(pg_temp.p('O'), false);
   perform pg_temp.as_admin();
 exception when others then
   perform pg_temp.ok('T6 block crashed', false, sqlerrm);
@@ -863,6 +1087,12 @@ begin
     perform pg_temp.ok('T8 friend_request_log closed to clients', false, 'readable');
   exception when others then
     perform pg_temp.ok('T8 friend_request_log closed to clients', sqlstate = '42501', sqlerrm);
+  end;
+  begin
+    perform 1 from public.presence_closed_ids limit 1;
+    perform pg_temp.ok('T8 presence_closed_ids closed to clients', false, 'readable');
+  exception when others then
+    perform pg_temp.ok('T8 presence_closed_ids closed to clients', sqlstate = '42501', sqlerrm);
   end;
   begin
     insert into public.venue_checkins (user_id, venue_id, expires_at, location_confirmed)
@@ -922,6 +1152,7 @@ begin
   perform public.set_presence_settings('friends');
   perform public.hide_presence_from(pg_temp.p('F'), true);
   perform public.set_court_favorite('test:p1-bravo', true);
+  perform public.end_play_session('e0000000-0000-4000-8000-000000000209', now());   -- never started: a tombstone
   perform pg_temp.as_admin();
   insert into public.friendships (requester_id, addressee_id, status, responded_at) values (pg_temp.p('O'), d, 'accepted', now());
   insert into public.close_friends values (pg_temp.p('O'), d, now()), (d, pg_temp.p('O'), now());
@@ -931,6 +1162,7 @@ begin
   perform pg_temp.ok('T10 (setup) the account has presence and friend rows',
     exists (select 1 from public.venue_checkins where user_id = d)
     and exists (select 1 from public.court_favorites where user_id = d)
+    and exists (select 1 from public.presence_closed_ids where user_id = d)
     and pg_temp.notices('O', 'D', 'friend_accepted') = 1);
 
   perform pg_temp.as_user(d);
@@ -944,6 +1176,7 @@ begin
        + (select count(*) from public.friendships where d in (requester_id, addressee_id))
        + (select count(*) from public.friend_request_log where d in (sender_id, addressee_id))
        + (select count(*) from public.court_favorites where user_id = d)
+       + (select count(*) from public.presence_closed_ids where user_id = d)
        + pg_temp.notices('O', 'D', 'friend_accepted')
     into n;
   perform pg_temp.ok('T10 delete_my_account removes every presence and friend row, both columns', n = 0, n::text);
@@ -976,7 +1209,13 @@ begin
     ('c0000000-0000-4000-8000-000000000303', pg_temp.p('N'), 'test:p1-bravo',
      now() - interval '3 hours', now() - interval '1 hour', null, true);
   insert into public.friend_request_log (sender_id, addressee_id, sent_at) values (pg_temp.p('N'), pg_temp.p('S'), now() - interval '40 days');
+  insert into public.presence_closed_ids (user_id, id, closed_at, created_at) values
+    (pg_temp.p('N'), 'c0000000-0000-4000-8000-000000000304', now() - interval '3 days', now() - interval '3 days'),
+    (pg_temp.p('N'), 'c0000000-0000-4000-8000-000000000305', now(), now());
   perform public.prune_presence_history();
+  perform pg_temp.ok('T11 retention drops closed-id tombstones after 2 days',
+    (select array_agg(id) from public.presence_closed_ids where user_id = pg_temp.p('N'))
+      = array['c0000000-0000-4000-8000-000000000305'::uuid]);
   perform pg_temp.ok('T11 retention deletes check-ins that ended over 180 days ago, keeps newer ones',
     not exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000301')
     and exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000302'));
@@ -1041,6 +1280,362 @@ begin
   perform pg_temp.as_admin();
 exception when others then
   perform pg_temp.ok('T12 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T13 closed-league membership is consent ════════════════════════════
+-- AT runs closed leagues; V never joined one. J self-joins an open league
+-- that AT closes later; I and CM are admitted to closed leagues the usual
+-- way (an invite or an approval: a server insert).
+do $$
+declare
+  at  uuid := pg_temp.p('AT');
+  v   uuid := pg_temp.p('V');
+  n   int;
+  ok2 boolean;
+begin
+  perform pg_temp.as_user(at);
+  insert into public.leagues (id, name, is_open, created_by) values
+    ('b0000000-0000-4000-8000-000000000011', 'P1 Test Attack One', false, at),
+    ('b0000000-0000-4000-8000-000000000012', 'P1 Test Attack Two', false, at);
+  insert into public.league_members (league_id, user_id, role) values
+    ('b0000000-0000-4000-8000-000000000011', at, 'admin'),
+    ('b0000000-0000-4000-8000-000000000012', at, 'admin')
+  on conflict do nothing;
+
+  -- Moving a membership onto someone who never joined.
+  begin
+    update public.league_members
+       set league_id = 'b0000000-0000-4000-8000-000000000011', user_id = v, role = 'member'
+     where league_id = 'b0000000-0000-4000-8000-000000000012' and user_id = at;
+    get diagnostics n = row_count;
+    perform pg_temp.ok('T13 an admin cannot move a membership onto another player', false, n || ' rows');
+  exception when others then
+    perform pg_temp.ok('T13 an admin cannot move a membership onto another player', sqlstate = '42501', sqlerrm);
+  end;
+  begin
+    update public.league_members set user_id = v
+     where league_id = 'b0000000-0000-4000-8000-000000000011' and user_id = at;
+    get diagnostics n = row_count;
+    perform pg_temp.ok('T13 ...nor within one league', false, n || ' rows');
+  exception when others then
+    perform pg_temp.ok('T13 ...nor within one league', sqlstate = '42501', sqlerrm);
+  end;
+  perform pg_temp.as_admin();
+  begin
+    update public.league_members set user_id = v
+     where league_id = 'b0000000-0000-4000-8000-000000000011' and user_id = at;
+    perform pg_temp.ok('T13 the trigger refuses a move even with full UPDATE (server code)', false, 'moved');
+  exception when others then
+    perform pg_temp.ok('T13 the trigger refuses a move even with full UPDATE (server code)', sqlstate = '42501', sqlerrm);
+  end;
+  perform pg_temp.checkin('V', 'c0000000-0000-4000-8000-000000000401', 'test:p1-c3', 120, 40.0301);
+  perform pg_temp.as_admin();
+  ok2 := not public.share_closed_league(at, v);
+  ok2 := ok2 and not pg_temp.sees_at('AT', 'V', 'test:p1-c3');   -- leaves the role as AT
+  perform pg_temp.ok('T13 so V is no league-mate of AT and is not named to AT',
+    ok2 and not exists (select 1 from jsonb_array_elements(public.friends_at_courts() -> 'now') g,
+                             jsonb_array_elements(g -> 'people') pp
+                         where (pp ->> 'user_id')::uuid = v));
+
+  -- What an admin may still do: change a member's role. Nothing else.
+  perform pg_temp.as_admin();
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000011', pg_temp.p('E'), 'member');   -- an invite
+  perform pg_temp.as_user(at);
+  update public.league_members set role = 'co-admin'
+   where league_id = 'b0000000-0000-4000-8000-000000000011' and user_id = pg_temp.p('E');
+  get diagnostics n = row_count;
+  perform pg_temp.ok('T13 an admin can still promote a member', n = 1, n::text);
+  begin
+    update public.league_members set admitted_closed = true
+     where league_id = 'b0000000-0000-4000-8000-000000000011' and user_id = pg_temp.p('E');
+    perform pg_temp.ok('T13 a client cannot write admitted_closed', false, 'updated');
+  exception when others then
+    perform pg_temp.ok('T13 a client cannot write admitted_closed', sqlstate = '42501', sqlerrm);
+  end;
+
+  -- An open league closed later: whoever joined while it was open stays anonymous.
+  perform pg_temp.as_user(at);
+  insert into public.leagues (id, name, is_open, created_by)
+  values ('b0000000-0000-4000-8000-000000000013', 'P1 Test Open Then Closed', true, at);
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000013', at, 'admin') on conflict do nothing;
+  perform pg_temp.as_user(pg_temp.p('J'));
+  insert into public.league_members (league_id, user_id, role, admitted_closed)
+  values ('b0000000-0000-4000-8000-000000000013', pg_temp.p('J'), 'member', true);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T13 a self-join cannot claim admitted_closed',
+    (select not admitted_closed from public.league_members
+      where league_id = 'b0000000-0000-4000-8000-000000000013' and user_id = pg_temp.p('J')));
+  perform pg_temp.checkin('J', 'c0000000-0000-4000-8000-000000000402', 'test:p1-c3', 120, 40.0301);
+  perform pg_temp.checkin('AT', 'c0000000-0000-4000-8000-000000000403', 'test:p1-c3', 120, 40.0301);
+  perform pg_temp.ok('T13 (setup) open league: AT does not see J by name', not pg_temp.sees_at('AT', 'J', 'test:p1-c3'));
+  perform pg_temp.as_user(at);
+  update public.leagues set is_open = false where id = 'b0000000-0000-4000-8000-000000000013';
+  get diagnostics n = row_count;
+  perform pg_temp.ok('T13 closing it later names nobody who joined while it was open',
+    n = 1 and not pg_temp.sees_at('AT', 'J', 'test:p1-c3') and not pg_temp.sees_at('J', 'AT', 'test:p1-c3'), n::text);
+  perform pg_temp.as_user(at);
+  perform pg_temp.ok('T13 ...nor lists them in Friends at the courts or suggestions',
+    not exists (select 1 from jsonb_array_elements(public.friends_at_courts() -> 'now') g,
+                     jsonb_array_elements(g -> 'people') pp
+                 where (pp ->> 'user_id')::uuid = pg_temp.p('J'))
+    and not exists (select 1 from public.suggest_friends() sf where sf.user_id = pg_temp.p('J')));
+  perform pg_temp.as_admin();
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000013', pg_temp.p('I'), 'member');   -- an invite after it closed
+  perform pg_temp.checkin('I', 'c0000000-0000-4000-8000-000000000404', 'test:p1-c3', 120, 40.0301);
+  perform pg_temp.ok('T13 the creator who closed it and a member admitted since see each other by name',
+    pg_temp.sees_at('I', 'AT', 'test:p1-c3') and pg_temp.sees_at('AT', 'I', 'test:p1-c3'));
+
+  -- Closed, opened, closed again: the member admitted while closed stays
+  -- named; whoever joined in the open window does not.
+  perform pg_temp.as_user(at);
+  insert into public.leagues (id, name, is_open, created_by)
+  values ('b0000000-0000-4000-8000-000000000014', 'P1 Test Reopened', false, at);
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000014', at, 'admin') on conflict do nothing;
+  perform pg_temp.as_admin();
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000014', pg_temp.p('CM'), 'member');
+  perform pg_temp.as_user(at);
+  update public.leagues set is_open = true where id = 'b0000000-0000-4000-8000-000000000014';
+  perform pg_temp.as_user(pg_temp.p('J'));
+  insert into public.league_members (league_id, user_id, role)
+  values ('b0000000-0000-4000-8000-000000000014', pg_temp.p('J'), 'member');
+  perform pg_temp.as_user(at);
+  update public.leagues set is_open = false where id = 'b0000000-0000-4000-8000-000000000014';
+  perform pg_temp.checkin('CM', 'c0000000-0000-4000-8000-000000000405', 'test:p1-c3', 120, 40.0301);
+  perform pg_temp.ok('T13 closed, opened, closed: the curated member stays named, the open-window joiner does not',
+    pg_temp.sees_at('AT', 'CM', 'test:p1-c3') and not pg_temp.sees_at('AT', 'J', 'test:p1-c3'));
+
+  -- blocked_between answers a signed-in caller only about their own pairs.
+  perform pg_temp.as_user(pg_temp.p('S'));
+  perform pg_temp.ok('T13 a third party cannot ask who blocked whom',
+    not public.blocked_between(pg_temp.p('O'), pg_temp.p('B'))
+    and not public.blocked_between(pg_temp.p('K'), pg_temp.p('O')));
+  perform pg_temp.as_user(pg_temp.p('O'));
+  perform pg_temp.ok('T13 the people in a block still get the answer (O)',
+    public.blocked_between(pg_temp.p('O'), pg_temp.p('B')) and public.blocked_between(pg_temp.p('K'), pg_temp.p('O')));
+  perform pg_temp.as_user(pg_temp.p('K'));
+  perform pg_temp.ok('T13 the people in a block still get the answer (K)', public.blocked_between(pg_temp.p('K'), pg_temp.p('O')));
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T13 server code (no session) gets the full answer', public.blocked_between(pg_temp.p('O'), pg_temp.p('B')));
+exception when others then
+  perform pg_temp.ok('T13 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T14 the crowd band never describes someone the viewer can name ═════
+-- At Delta: RV (rated 4.0) and their friend RF (3.0, named to RV, rating on
+-- the row) with one rated stranger RH (5.0). Then RX (3.5) and RY (4.5).
+do $$
+declare
+  r record;
+  j jsonb;
+begin
+  perform pg_temp.as_admin();
+  update public.profiles set total_matches_played = 5, doubles_rating = 4.0 where id = pg_temp.p('RV');
+  update public.profiles set total_matches_played = 5, doubles_rating = 3.0 where id = pg_temp.p('RF');
+  update public.profiles set total_matches_played = 5, doubles_rating = 5.0 where id = pg_temp.p('RH');
+  update public.profiles set total_matches_played = 5, doubles_rating = 3.5 where id = pg_temp.p('RX');
+  update public.profiles set total_matches_played = 5, doubles_rating = 4.5 where id = pg_temp.p('RY');
+  insert into public.friendships (requester_id, addressee_id, status, responded_at)
+  values (pg_temp.p('RV'), pg_temp.p('RF'), 'accepted', now());
+  perform pg_temp.checkin('RV', 'c0000000-0000-4000-8000-000000000501', 'test:p1-delta', 120, 40.0701);
+  perform pg_temp.checkin('RF', 'c0000000-0000-4000-8000-000000000502', 'test:p1-delta', 120, 40.0701);
+  perform pg_temp.checkin('RH', 'c0000000-0000-4000-8000-000000000503', 'test:p1-delta', 120, 40.0701);
+  perform pg_temp.as_user(pg_temp.p('RV'));
+  perform pg_temp.ok('T14 (setup) RV sees RF by name with their rating',
+    exists (select 1 from public.court_presence('test:p1-delta') c
+             where c.user_id = pg_temp.p('RF') and c.doubles_rating = 3.0));
+  select * into r from public.venue_crowd(array['test:p1-delta']) c;
+  perform pg_temp.ok('T14 viewer + named friend + one rated stranger: no band (it would be the stranger''s rating)',
+    r.here_now = 3 and r.band_low is null and r.band_high is null, r::text);
+  perform pg_temp.checkin('RX', 'c0000000-0000-4000-8000-000000000504', 'test:p1-delta', 120, 40.0701);
+  perform pg_temp.checkin('RY', 'c0000000-0000-4000-8000-000000000505', 'test:p1-delta', 120, 40.0701);
+  perform pg_temp.as_user(pg_temp.p('RV'));
+  select * into r from public.venue_crowd(array['test:p1-delta']) c;
+  perform pg_temp.ok('T14 three rated strangers: the band is theirs alone (4.00-4.75, not 3.50-4.50)',
+    r.here_now = 5 and r.band_low = 4.0 and r.band_high = 4.75, r::text);
+  j := public.friends_at_courts();
+  perform pg_temp.ok('T14 Friends at the courts shows the same band',
+    exists (select 1 from jsonb_array_elements(j -> 'courts') c
+             where c ->> 'venue_id' = 'test:p1-delta'
+               and (c ->> 'band_low')::numeric = 4.0 and (c ->> 'band_high')::numeric = 4.75), (j -> 'courts')::text);
+  perform pg_temp.as_admin();
+exception when others then
+  perform pg_temp.ok('T14 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T15 the fix: precise, aged on one clock; extensions stay confirmed ══
+-- E at court Four (40.04): a fix 11 m north is 40.0401.
+do $$
+declare
+  e uuid := pg_temp.p('E');
+  r public.venue_checkins;
+  s public.play_sessions;
+begin
+  perform pg_temp.as_user(e);
+  -- An approximate location (km wide) can't confirm a court even when its
+  -- centre lands on it; neither can a fix with no accuracy.
+  begin
+    perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000601', p_venue => 'test:p1-c4',
+      p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 5000, p_fix_at => now());
+    perform pg_temp.ok('T15 a 5 km-accuracy fix is refused', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 a 5 km-accuracy fix is refused', sqlerrm like 'Your location isn''t precise enough%', sqlerrm);
+  end;
+  begin
+    perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000601', p_venue => 'test:p1-c4',
+      p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => null, p_fix_at => now());
+    perform pg_temp.ok('T15 a fix with no accuracy is refused', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 a fix with no accuracy is refused', sqlerrm like 'Your location isn''t precise enough%', sqlerrm);
+  end;
+  select * into r from public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000602', p_venue => 'test:p1-c4',
+    p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 150, p_fix_at => now());
+  perform pg_temp.ok('T15 a 150 m-accuracy fix 11 m away confirms', r.location_confirmed, r::text);
+  perform public.checkout_venue(null, null, now());
+
+  -- The fix's age, measured on the device's clock: off clocks still work.
+  select * into r from public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000603', p_venue => 'test:p1-c4',
+    p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() + interval '90 seconds',
+    p_fix_age_ms => 1000);
+  perform pg_temp.ok('T15 a phone 90 s fast with a 1 s-old fix confirms; fix_at is on the server clock',
+    r.location_confirmed and r.fix_at = now() - interval '1 second', r::text);
+  perform public.checkout_venue(null, null, now());
+  begin
+    perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000604', p_venue => 'test:p1-c4',
+      p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 180000);
+    perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused',
+      sqlerrm = 'Your location is out of date. Try again at the court.', sqlerrm);
+  end;
+  begin
+    perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000604', p_venue => 'test:p1-c4',
+      p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '3 minutes');
+    perform pg_temp.ok('T15 without an age, a stale fix names the phone''s clock', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 without an age, a stale fix names the phone''s clock',
+      sqlerrm like 'Your location is out of date. Check that your phone''s date and time%', sqlerrm);
+  end;
+  select * into s from public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000601', p_kind => 'open_play',
+    p_venue => 'test:p1-c4', p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 5000, p_fix_at => now());
+  perform pg_temp.ok('T15 a session with a 5 km-accuracy fix starts without a check-in',
+    s.id = 'e0000000-0000-4000-8000-000000000601'
+    and not exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000601'));
+  perform public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000602', p_kind => 'open_play',
+    p_venue => 'test:p1-c4', p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10,
+    p_fix_at => now() - interval '10 minutes', p_fix_age_ms => 5000);
+  perform pg_temp.ok('T15 a session from a phone 10 min slow still checks in (fix age 5 s)',
+    exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000602'
+             and location_confirmed and checked_out_at is null and fix_at = now() - interval '5 seconds'));
+  perform public.end_play_session('e0000000-0000-4000-8000-000000000602', now());
+
+  -- A confirmed check-in can't be stretched from anywhere: without a fix it
+  -- goes at most 4 h past its last confirming fix.
+  perform pg_temp.checkin('E', 'c0000000-0000-4000-8000-000000000605', 'test:p1-c4', 120, 40.0401);
+  perform pg_temp.as_admin();
+  update public.venue_checkins
+     set checked_in_at = now() - interval '3 hours', fix_at = now() - interval '3 hours',
+         expires_at = now() + interval '30 minutes'
+   where id = 'c0000000-0000-4000-8000-000000000605';
+  perform pg_temp.as_user(e);
+  select * into r from public.extend_checkin('c0000000-0000-4000-8000-000000000605', now() + interval '2 hours');
+  perform pg_temp.ok('T15 a fix-less extension stops 4 h after the last fix',
+    r.expires_at = now() + interval '1 hour', r::text);
+  select * into r from public.extend_checkin('c0000000-0000-4000-8000-000000000605', now() + interval '1 hour');
+  perform pg_temp.ok('T15 ...a replay of that end time is fine', r.expires_at = now() + interval '1 hour', r::text);
+  begin
+    perform public.extend_checkin('c0000000-0000-4000-8000-000000000605', now() + interval '3 hours');
+    perform pg_temp.ok('T15 ...and past the cap it asks for the court', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 ...and past the cap it asks for the court',
+      sqlerrm like 'To stay checked in, open Pickleague at the court%', sqlerrm);
+  end;
+  begin
+    perform public.extend_checkin(p_id => 'c0000000-0000-4000-8000-000000000605', p_until => now() + interval '3 hours',
+      p_lat => 40.043, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 1000);
+    perform pg_temp.ok('T15 an extension with a far fix is refused', false, 'no error');
+  exception when others then
+    perform pg_temp.ok('T15 an extension with a far fix is refused',
+      sqlerrm like 'You need to be at the court to stay checked in (about%', sqlerrm);
+  end;
+  select * into r from public.extend_checkin(p_id => 'c0000000-0000-4000-8000-000000000605',
+    p_until => now() + interval '3 hours', p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10,
+    p_fix_at => now(), p_fix_age_ms => 0);
+  perform pg_temp.ok('T15 an extension with a confirming fix goes on and becomes the latest fix',
+    r.expires_at = now() + interval '3 hours' and r.fix_at = now(), r::text);
+  -- A session adopting it without a fix can't stretch it past that either.
+  perform pg_temp.as_admin();
+  update public.venue_checkins set fix_at = now() - interval '3 hours', expires_at = now() + interval '30 minutes'
+   where id = 'c0000000-0000-4000-8000-000000000605';
+  perform pg_temp.as_user(e);
+  perform public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000603', p_kind => 'open_play',
+    p_venue => 'test:p1-c4');
+  perform pg_temp.ok('T15 a session adopting it without a fix covers it to 4 h after that fix',
+    (select expires_at from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000605')
+      = now() + interval '1 hour');
+  perform public.end_play_session('e0000000-0000-4000-8000-000000000603', now());
+  perform public.checkout_venue(null, null, now());
+  -- A private (1.0.4, no fix) row extends as before: nobody sees it.
+  perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000606', p_venue => 'test:p1-c4',
+    p_minutes => 240, p_source => 'manual', p_at => now() - interval '3 hours');
+  select * into r from public.extend_checkin('c0000000-0000-4000-8000-000000000606', now() + interval '2 hours');
+  perform pg_temp.ok('T15 a private row still extends without a fix',
+    not r.location_confirmed and r.expires_at = now() + interval '2 hours', r::text);
+  perform public.checkout_venue(null, null, now());
+  perform pg_temp.as_admin();
+exception when others then
+  perform pg_temp.ok('T15 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T16 an End or a check-out that arrives first wins ══════════════════
+-- E again, at courts Five (40.05) and Six (40.06).
+do $$
+declare
+  r public.venue_checkins;
+  s public.play_sessions;
+  n int;
+begin
+  perform pg_temp.as_user(pg_temp.p('E'));
+  -- The check-out lands first (its check-in timed out and is still on its way).
+  select public.checkout_venue(p_id => 'c0000000-0000-4000-8000-000000000701', p_source => null, p_at => now()) into n;
+  perform pg_temp.ok('T16 a check-out of a check-in not stored yet closes nothing', n = 0, n::text);
+  perform pg_temp.checkin('E', 'c0000000-0000-4000-8000-000000000702', 'test:p1-c6', 120, 40.0601);
+  select * into r from public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000701', p_venue => 'test:p1-c5',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '1 minute',
+    p_lat => 40.0501, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 1000);
+  perform pg_temp.ok('T16 the late check-in lands closed: nothing stored, nothing else closed',
+    r.id = 'c0000000-0000-4000-8000-000000000701' and r.checked_out_at is not null
+    and not exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000701')
+    and (select checked_out_at is null from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000702'),
+    r::text);
+  -- The End lands first (its Start timed out and is still on its way).
+  select public.end_play_session('e0000000-0000-4000-8000-000000000701', now()) into n;
+  perform pg_temp.ok('T16 an End of a session not stored yet ends nothing', n = 0, n::text);
+  perform public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000702', p_kind => 'open_play');
+  select * into s from public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000701', p_kind => 'open_play',
+    p_venue => 'test:p1-c5', p_at => now() - interval '1 minute',
+    p_lat => 40.0501, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 1000);
+  perform pg_temp.ok('T16 the late Start is stored ended, with no check-in',
+    s.id = 'e0000000-0000-4000-8000-000000000701' and s.ended_at is not null
+    and not exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000701'), s::text);
+  perform pg_temp.ok('T16 ...and touches nothing opened since',
+    (select ended_at is null from public.play_sessions where id = 'e0000000-0000-4000-8000-000000000702')
+    and (select checked_out_at is null from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000702'));
+  perform pg_temp.ok('T16 a replay of the late Start stays ended',
+    (public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000701', p_kind => 'open_play')).ended_at is not null);
+  perform public.end_play_session('e0000000-0000-4000-8000-000000000702', now());
+  perform public.checkout_venue(null, null, now());
+  perform pg_temp.as_admin();
+exception when others then
+  perform pg_temp.ok('T16 block crashed', false, sqlerrm);
 end $$;
 
 

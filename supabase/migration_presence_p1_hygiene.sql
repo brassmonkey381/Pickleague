@@ -11,7 +11,9 @@
 --    ("wants to be friends", "accepted") go too.
 -- 2. Daily cron pickleague-presence-retention (04:50 UTC): check-ins that
 --    ended more than 180 days ago, friend request log rows older than 30
---    days. Play sessions are kept (owner-only) for the player's own history.
+--    days, closed-id tombstones older than 2 days (a queued Start replays
+--    within the queue's 24 h, a check-in only within its fix's 2 minutes).
+--    Play sessions are kept (owner-only) for the player's own history.
 --
 -- Grants are unchanged: _purge_account stays internal; delete_my_account and
 -- moderator_eject_user are already granted to authenticated and allowlisted.
@@ -59,6 +61,7 @@ begin
   delete from public.friendships          where requester_id = p_uid or addressee_id = p_uid;
   delete from public.friend_request_log   where sender_id = p_uid or addressee_id   = p_uid;
   delete from public.court_favorites      where user_id   = p_uid;
+  delete from public.presence_closed_ids  where user_id   = p_uid;
   delete from public.notifications
    where entity_type = 'friend' and entity_id = p_uid
      and push_data ->> 'kind' in ('friend_request', 'friend_accepted');
@@ -109,6 +112,8 @@ language sql security definer set search_path = '' as $$
    where coalesce(checked_out_at, expires_at) < now() - interval '180 days';
   delete from public.friend_request_log
    where sent_at < now() - interval '30 days';
+  delete from public.presence_closed_ids
+   where created_at < now() - interval '2 days';
 $$;
 revoke execute on function public.prune_presence_history() from public, anon, authenticated;
 

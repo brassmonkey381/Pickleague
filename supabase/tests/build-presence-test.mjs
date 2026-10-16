@@ -3,8 +3,12 @@
 //
 //   begin;
 //   <presence_p1_personas.sql up to -- @@MIGRATIONS@@>   (state captured before)
-//   <the five migration_presence_p1_*.sql files, in apply order>
+//   <migration_league_members_lock_identity.sql and the five
+//    migration_presence_p1_*.sql files, in apply order>
 //   <migration_rls_hardening_2026q3.sql>                 (a re-run must take nothing offline)
+//   <migration_venue_checkins.sql, migration_play_sessions.sql>
+//                                                        (re-runs of the superseded files
+//                                                         must keep the presence versions)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions)
 //   rollback;
 //
@@ -26,6 +30,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const supa = path.resolve(here, '..');
 
 export const MIGRATIONS = [
+  'migration_league_members_lock_identity.sql',
   'migration_presence_p1_schema.sql',
   'migration_presence_p1_checkins.sql',
   'migration_presence_p1_reads.sql',
@@ -33,6 +38,9 @@ export const MIGRATIONS = [
   'migration_presence_p1_hygiene.sql',
 ];
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
+// Applied long before presence and partly superseded by it: re-running them
+// must change nothing the presence files own (their guards skip those parts).
+const SUPERSEDED = ['migration_venue_checkins.sql', 'migration_play_sessions.sql'];
 const BODY = path.join(here, 'presence_p1_personas.sql');
 const MARKER = '-- @@MIGRATIONS@@';
 
@@ -95,6 +103,7 @@ const parts = [
   body.slice(0, at),
   ...MIGRATIONS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
+  ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   body.slice(at + MARKER.length),
   'rollback;',
   '',
