@@ -72,7 +72,8 @@ import ModerationQueueScreen from '../screens/ModerationQueueScreen';
 import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScreen';
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
-import { WAGERS_ENABLED } from '../lib/features';
+import FriendsScreen from '../screens/FriendsScreen';
+import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
@@ -316,6 +317,11 @@ export default function AppNavigator() {
                     <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
                     <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
                   </>
+                )}
+                {/* Friends stays unregistered while FRIENDS_AT_COURTS_ENABLED is
+                    false: its RPCs ship with the presence SQL. */}
+                {FRIENDS_AT_COURTS_ENABLED && (
+                  <Stack.Screen name="Friends" component={FriendsScreen} options={{ title: 'Friends' }} />
                 )}
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}

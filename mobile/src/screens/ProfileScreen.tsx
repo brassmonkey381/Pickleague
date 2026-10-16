@@ -58,6 +58,7 @@ import { BallIcon } from '../components/PickleIcons';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
+import FriendsLink from '../components/FriendsLink';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 // ── PLUPR history chart ───────────────────────────────────────────────
@@ -1067,6 +1068,9 @@ export default function ProfileScreen({ navigation }: Props) {
           <Text style={styles.chevron}>›</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
+      <FriendsLink style={styles.block} />
 
       {/* ── 4. Coming up ────────────────────────────────────────── */}
       {comingCount > 0 && (

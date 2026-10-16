@@ -1,7 +1,8 @@
 // Another player's profile (plan section 8, P6: "row header, merged badges,
 // Leagues in common"). Order:
 //   1. Row header   avatar 64 beside name / @username · matches / tagline, then
-//                   one chip row (DUPR, tags +N) with Share · Save · ⋯ at its end
+//                   one chip row (DUPR, tags +N) with Share · Save · ⋯ at its end,
+//                   then Add friend (FriendButton; friends at the courts only)
 //   2. Quick row    [Head-to-head] (not on yourself) [Match history]
 //   3. Chemistry    your doubles chemistry together, when you've partnered
 //   4. Leagues in common  rows -> LeagueDetail (hidden when none / yourself)
@@ -32,6 +33,7 @@ import BookmarkButton from '../components/BookmarkButton';
 import ShareLinkButton from '../components/ShareLinkButton';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import ClaimAccountButton from '../components/ClaimAccountButton';
+import FriendButton from '../components/FriendButton';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -110,6 +112,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       ]);
 
       setProfile(profileRow as Profile);
+      // A push or a web link opens this with a placeholder name ("Player").
+      navigation.setOptions({ title: (profileRow as Profile).full_name });
       setBadges((badgeRows ?? []) as BadgeItem[]);
       setLocationRatings((locRows ?? []) as PlayerLocationRating[]);
       setMatchCount(matchCountRes.count ?? 0);
@@ -347,6 +351,10 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         </View>
       </View>
 
+      {/* Add friend / Requested / Accept / Friends ✓ (renders nothing on
+          yourself, unclaimed placeholders, or while friends are off). */}
+      <FriendButton userId={userId} meId={meId} profile={profile} style={styles.friendRow} />
+
       {/* ── 2. Quick row ───────────────────────────────────────── */}
       <View style={styles.quickRow}>
         {isOther && (
@@ -466,6 +474,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     chips:     { flex: 1, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
     utilities: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     shareBtn:  { alignSelf: 'center' },
+    friendRow: { marginBottom: SPACE.xs },
 
     quickRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
     quickBtn: { flexGrow: 1 },
