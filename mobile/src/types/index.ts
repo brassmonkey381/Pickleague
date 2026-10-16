@@ -512,6 +512,9 @@ export type RootStackParamList = {
   Play: { initialTab?: 'leagues' | 'tournaments'; mine?: boolean; prefillInviteCode?: string } | undefined;
   Leagues: { prefillInviteCode?: string } | undefined;
   PlayerProfile: { userId: string; userName: string };
+  // Friends (FRIENDS_AT_COURTS_ENABLED): tab picks the opening tab; a friend
+  // request push opens 'requests'.
+  Friends: { tab?: 'requests' | 'friends' | 'find' } | undefined;
   // Landing for the magic link sent by the request-claim edge function.
   Claim: undefined;
   HeadToHead: { opponentId: string; opponentName: string };
