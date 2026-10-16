@@ -117,7 +117,30 @@ begin
         'redeem_invite_code','redeem_real_world_item','request_league_join','revoke_invite_code',
         'send_invite_code_to_users','set_purchase_hidden','submit_drill_review',
         'tournament_invite_player','tournament_respond_to_invite',
-        'withdraw_league_join_request'
+        'withdraw_league_join_request',
+        -- Called by the app but missing until 2026-10-15, so a re-run took them
+        -- offline (checked live with has_function_privilege; set_pickleague_time_zone
+        -- is called by the kit's timeZoneSync as set_<prefix>_time_zone).
+        'accept_drill_slot','admin_review_venue','analytics_claim','analytics_touch',
+        'cancel_tournament','checkin_venue','checkout_venue','claim_my_dupr_profile',
+        'close_event_vote','dismiss_dupr_import','end_play_session','extend_checkin',
+        'find_nearby_venue_submissions','import_my_dupr_rating','is_godmode_user',
+        'list_admin_venue_reviews','moderator_eject_user','moderator_resolve_report',
+        'moderator_take_down_avatar','my_dupr_match','relabel_league_home_court',
+        'resolve_venue','respond_drill_request','rsvp_drill_session','search_venues',
+        'set_pickleague_time_zone','start_play_session','submit_venue','vote_event_slots',
+        -- Used inside RLS policies, which run them with the caller's privileges
+        -- (migration_fix_policy_fn_grants.sql).
+        'blocked_between','is_expired_guest','is_scope_admin',
+        -- Presence Phase 1 (migration_presence_p1_*.sql).
+        'cancel_friend_request','court_presence','friends_at_courts','friendship_status_with',
+        'get_my_presence_settings','hide_presence_from','list_friend_requests','list_my_court_favorites',
+        'list_my_friends','list_presence_hidden','remove_friend','resolve_court',
+        'respond_friend_request','send_friend_request','set_close_friend','set_court_favorite',
+        'set_presence_settings','suggest_friends','venue_crowd','venue_players_here'
+        -- Deliberately NOT listed (no client caller; a re-run revokes them):
+        -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
+        -- send_test_push, venue_containing_point, list_venues_in_radius.
       )
   loop
     execute format('revoke execute on function %s from public, anon, authenticated', f.sig);
