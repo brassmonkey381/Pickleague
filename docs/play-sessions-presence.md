@@ -2,7 +2,8 @@
 
 **Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
 Phase 1.5 (validity rules) live 2026-10-16 (SQL applied after 440/440 on live, master `2299218`, OTA `81865e5f`),
-hardened after an anti-gaming review the same day · **Source:** a 13-agent study of Doggle's walks /
+hardened after an anti-gaming review the same day · Refusal messages (rule 11) built on `fix/refusals`
+2026-10-16 (`supabase/migration_refusal_messages.sql` not applied yet; apply it, then OTA) · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -69,6 +70,28 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
    sheet, Settings › Privacy "Who sees me at the courts" / "Hidden from", Pause sharing and "Hide my presence".
 10. **Hot files.** HomeScreen, homeData, agenda, inboxRequests, notificationActions and types/index change often.
     New code goes in new files, with one-line hooks in those files.
+11. **Every refusal says why and what to do** (the user's standing rule, 2026-10-16: "always give a clear message
+    when something is refused as to why"). Every refusal, and every outcome where something does not count, tells
+    the player in plain words why and, when possible, what to do next: the reason first, then the action ("You're
+    about 330 m from Lakeside. You need to be at the court to check in, so try again when you get there."). No
+    silent refusals, no generic "Something went wrong" for a known rule, no swallowed error on a path the player is
+    waiting on. How:
+    - the server raises with SQLSTATE `P0001`, a complete readable message (what 1.0.4 and older bundles show as
+      is) and a stable code in `HINT` as `pl:<code>` (DETAIL: a small JSON object with the numbers to word). Codes
+      and texts: [API, refusal messages](./play-sessions-presence-api.md#refusal-messages-and-codes-rule-11);
+    - the app words every code in ONE place, `mobile/src/lib/refusals.ts` (court and person names, times in the
+      device's zone; the older texts too, for a server without the file), and every call site uses it
+      (`explainRefusal`, the lock-screen `mapError`);
+    - a write the player isn't looking at (an offline-queued check-in, check-out, Start or End refused when it is
+      finally sent, a sign-out that couldn't close a check-in) is said the next time the app can: a toast
+      (`components/RefusalNoticeHost`), or a local notification when the app is in the background. Signed out is
+      not a refusal: the queued write waits;
+    - a new server text keeps the words the shipped app's regexes read (`need to be at the court`, `precise enough`,
+      `location is out of date`, `open Pickleague at the court`, `no longer pending`, `expired`), never adds
+      `expired` / `not found` where they did not apply, never uses a network word (`timed out`, `load failed`: 1.0.4
+      would queue the refused write and replay it) and never errcode 42501 (shown as "You don't have access");
+    - privacy still wins: a block, a hide or a pause is never named (one vague line for a block and a deleted
+      account: "This player isn't available").
 
 ## Live facts the plan is built on (checked 2026-10-15)
 
@@ -154,7 +177,8 @@ How the build reads the rules (say so to change any):
 - **Recorded counts until the confirm deadline:** a pending match counts at once, but the existing 1-hour expiry
   (`expire_pending_matches`) deletes a match nobody confirms, and the session then stops counting. In practice a
   session keeps counting through a match only when the other team confirms within the hour. A drill needs no
-  confirmation.
+  confirmation. The app says so while the match is pending (decision 3 below), and since the refusal messages
+  the expiry tells each player why their match is gone and which play session stopped counting.
 - **"Recorded by the player" is read as "with the player in it":** a match counts toward the sessions of all four
   of its players, whoever recorded it (partner, opponent, or a league member who didn't play). Only linking checks
   the recorder.
@@ -170,12 +194,32 @@ How the build reads the rules (say so to change any):
 - **Valid means played; rewards need presence too.** `valid` says the player played (it drives the End copy, so
   an untracked session can be valid). `at_court` says a location-confirmed check-in at the session's court
   overlapped it. Decisions 5 and 6 ("only location-confirmed presence earns anything") are kept by paying rewards
-  and streak credit only on **valid AND at_court**. Say "valid is enough" to drop the location requirement instead.
-- **Still open (your call):** the 5-minute floor is measured on the session's own start and end, which the app
-  sends (a Start may be backdated up to 12 h for offline use). Each such session still needs its own match or
-  drill now, so the damage is bounded. To close it fully, count duration from server time and accept an earlier
-  start only with a confirmed stay; the cost is that a fully offline session (Start and End both queued) would
-  never count.
+  and streak credit only on **valid AND at_court** (decided 2026-10-16, decision 1 below).
+- **The 5-minute floor is measured on the session's own start and end** (decided 2026-10-16, decision 2 below),
+  which the app sends (a Start may be backdated up to 12 h for offline use).
+
+**Decided by the user, 2026-10-16** (after the build):
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | What earns rewards and streak credit | **valid AND at_court.** A session that counts as played but had no location-confirmed check-in at its court overlapping it earns nothing (decisions 5 and 6). "Valid is enough" is off the table. |
+| 2 | What the 5-minute floor is measured on | **The session's own start and end**, as stored (the app's times, clamped; never overlapping another session). Reason: a fully offline session (Start and End both queued) keeps counting, and each session still needs its own match or drill, so a backdated session gains nothing without one. Counting from server time with a confirmed stay was the alternative; it would have made every offline session count for nothing. |
+| 3 | What End says while the match that made it count is pending | **"Session ended. It counts once the other team confirms (within the hour)."** And "It counts: you recorded a match." only when the match is already confirmed (stored confirmed: godmode). The pending match stops counting if nobody confirms it within the hour; the expiry notice then says so. |
+| 4 | Refusals (standing rule) | **Every refusal says why and what to do.** Rule 11 above. |
+
+**Built (`fix/refusals`, 2026-10-16; contract: [API, refusal messages](./play-sessions-presence-api.md#refusal-messages-and-codes-rule-11)):**
+
+- [x] SQL `supabase/migration_refusal_messages.sql`: a code and a why-then-what text for every refusal in the
+  check-in, session, validity, match-confirm, drill-review and friend RPCs (signatures unchanged); the new returned
+  reasons `already_your_team`, `already_friends`, `already_declined`; the why keys on `my_session_validity`; the
+  pending-match notice names the real recorder and the deadline; the 1-hour expiry tells the players why. Persona
+  tests 506/506 against live, rolled back.
+- [x] App: `lib/refusals` (the one mapping), `lib/refusalNotices` + `components/RefusalNoticeHost` (refusals the
+  player wasn't looking at), every in-scope call site, the End / MatchEntry / drill-review "didn't count" copy.
+- [ ] Apply the SQL, then merge and OTA (the app also words the older texts, so either order works).
+- [ ] Not done, needs the user's call: re-grant `league_members (league_id, user_id)` UPDATE so pre-2026-10-14
+  bundles can join open leagues again (they get "You don't have access to that." since Phase 1); refusing no-fix
+  check-ins from 1.0.4 (today a silent private row, rule 1).
 
 Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are
 stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;

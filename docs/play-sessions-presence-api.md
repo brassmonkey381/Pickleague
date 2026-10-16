@@ -53,9 +53,19 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    `supabase/tests/validity_personas.sql`), all passing against the live DB in a rolled-back transaction on
    2026-10-16 (the same Phase 1.5 assertions against the previous version of the file: 27 fail).
 
+7. **Refusal messages** `supabase/migration_refusal_messages.sql` (after file 6, and after any re-run of files 2 or
+   6, which put the older texts back): every refusal's text and code, new returned reasons, the why keys on
+   `my_session_validity`, the pending-match and expiry notices. Re-runnable, no begin/commit, signatures and
+   attributes unchanged. See [Refusal messages and codes](#refusal-messages-and-codes-rule-11). The persona build
+   applies it last and re-runs it after files 2 and 6: 506 assertions (440 + 66 in
+   `supabase/tests/refusal_personas.sql`), all passing against the live DB in a rolled-back transaction on
+   2026-10-16.
+
 ## Where the SQL differs from or sharpens this contract (2026-10-16)
 
-Signatures are exactly as below. Behaviour details the clients should know:
+Signatures are exactly as below. Behaviour details the clients should know (error texts quoted here are the
+Phase 1 ones; since file 7 every refusal has a code and a reworded text, listed in
+[Refusal messages and codes](#refusal-messages-and-codes-rule-11)):
 
 - **checkout_venue `p_source`** keeps its 1.0.4 meaning, a FILTER: `'manual' | 'geofence' | 'session'` close only
   check-ins that source opened. Its default stays `null` (not `'manual'`): no filter. Any other value, e.g.
@@ -563,9 +573,10 @@ move between them). Each trigger catches its own failure (`raise warning`), so t
 always lands; the owner's next `my_session_validity` heals a session left behind. The file backfills every ended
 session once.
 
-Not decided yet (the user's call, see the plan's "Still open"): the 5-minute floor is measured on the session's own
-start and end, which the app sends (a Start may be backdated up to 12 h for offline use). Each such session still
-needs its own match or drill, so the damage is bounded.
+Decided 2026-10-16 (the plan's decisions of that day): the 5-minute floor is measured on the session's own start and
+end, which the app sends (a Start may be backdated up to 12 h for offline use), so a fully offline session keeps
+counting; each such session still needs its own match or drill. Rewards and streak credit pay only on valid AND
+at_court.
 
 ### RPC
 
@@ -574,6 +585,8 @@ my_session_validity(p_session uuid) returns jsonb
   -- {valid boolean, reason text, needs 'minutes' | 'match_or_drill' | null,
   --  window_ends_at timestamptz | null (ended_at + 2 h), rewards_pending_confirmation boolean,
   --  at_court boolean}
+  -- plus, since migration_refusal_messages.sql (null keys left out; see "Refusal messages" below):
+  --  started_at, ended_at, match_pending, confirm_by, why, match_at, counted_for_started_at, drill_starts_at
 ```
 Owner only: `null` for a session that isn't mine or isn't stored yet (same answer). Raises `Not authenticated`.
 Recomputes and stores. `needs`: `minutes` when too short (or open under 5 min), `match_or_drill` when nothing
@@ -599,7 +612,8 @@ Internal (revoked from clients): `_pl_session_validity`, `_pl_refresh_session_va
   check-in: in the background, alongside the pending-End entry, it takes a fix the same way (3 s, no prompt) and
   sends it with the End (`data/playSessions.endPlaySession(id, at, fix)`, the same four arguments; on PGRST202 it
   ends again without them). The queued End carries the fix taken at the tap; one queued by an older build has none.
-- **End sheet** (`playEnded` -> `components/play/PlayEndSheet`, `lib/sessionValidity`): under 5 minutes, a toast
+- **End sheet** (`playEnded` -> `components/play/PlayEndSheet`, `lib/sessionValidity`; the copy quoted here is the
+  first build's, reworded with the why since rule 11: see [Refusal messages › Client](#client-rule-11)): under 5 minutes, a toast
   "Session ended. Sessions under 5 minutes don't count."; something this device knows counts ("Session ended. It
   counts: you recorded a match." / "...a match or drill."), a toast. Otherwise it asks `my_session_validity`
   (bounded at 2 s, `END_CHECK_MS`; `endDecisionWithServer`): counted already (valid, or open with `needs = null`
@@ -626,3 +640,146 @@ Internal (revoked from clients): `_pl_session_validity`, `_pl_refresh_session_va
   when MatchEntry is already open (from an event, league or tournament) it only merges `playSessionId` into that
   form (a same-name navigate would replace its params in React Navigation 7).
 - Not gated by `FRIENDS_AT_COURTS_ENABLED`: it is the player's own session flow.
+
+## Refusal messages and codes (rule 11)
+
+The user's standing rule (2026-10-16): every refusal, and every outcome where something does not count, says why
+in plain words and, when possible, what to do. Plan: [rule 11](./play-sessions-presence.md#rules-every-change-in-this-plan-follows).
+SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/lib/refusals.ts` (the one mapping),
+`lib/refusalNotices.ts` + `components/RefusalNoticeHost.tsx` (refusals the player wasn't looking at).
+
+### How a refusal travels
+
+- **Server:** `raise exception using message = '<why, then what to do>', hint = 'pl:<code>'[, detail = '<json>']`.
+  SQLSTATE stays `P0001` (never 42501, which the kit shows as "You don't have access to that."). PostgREST returns
+  `{code: 'P0001', message, hint, details}`.
+- **App:** `refusalCode(e)` reads the hint (or, from a server without file 7, the older message);
+  `refusalCopy(code, ctx, detail)` words it with the court's and the person's name and times in the device's zone;
+  `explainRefusal(e, fallback, ctx)` is that, else the kit's `friendlySbMessage` with the app's no-connection line
+  ("No connection. Check your signal and try again."). The lock screen's `mapError` uses the same mapping
+  (`refusalNotice`), titled per code.
+- **1.0.4 and older bundles** show the message raw, so each one is complete on its own and keeps the words their
+  regexes read: `need to be at the court`, `precise enough`, `location is out of date`, `open Pickleague at the
+  court` (courtCheckinRules: the "Start without a court" offer and the lock-screen notices), `no longer pending`
+  (the match_confirm replay check), `expired` (the lock screen's "Nothing to answer" for a lapsed match). No text
+  adds `expired` / `not found` where they did not apply, and none uses a network word (`timed out`, `load failed`,
+  `failed to fetch`, `network`), `jwt`, `permission denied` or an em dash (persona T27 checks all of them).
+
+### Codes
+
+| Code | Raised by | Server text (what 1.0.4 shows) | App copy (lib/refusals, device zone) |
+|---|---|---|---|
+| `auth.signed_out` | every in-scope RPC with no user | You're signed out. Sign in to Pickleague and try again. | same |
+| `request.bad` | checkin_venue (no id, bad source, an id that is someone else's), start_play_session (no id) | Couldn't check you in because the app sent an incomplete request. Update Pickleague, then try again. / Couldn't save your play session because the app sent an incomplete request. Update Pickleague, then start again. | That didn't go through because this version of Pickleague sent an incomplete request. Update Pickleague, then try again. |
+| `court.gone` | checkin_venue, set_court_favorite | That court isn't in Pickleague any more, so you can't check in there. Find your court again. / ...so it can't be starred. | Lakeside isn't in Pickleague any more, so you can't check in there. Find your court again. |
+| `court.favorites_full` | set_court_favorite | You can star up to 5 courts. Unstar one to add this one. | same |
+| `fix.stale` | checkin_venue, extend_checkin | Your location is out of date: it's more than 2 minutes old. Try again at the court. | same |
+| `fix.stale_clock` | (no age sent) | Your location is out of date. Check that your phone's date and time are set automatically, then try again at the court. | same |
+| `fix.imprecise` | | Your location isn't precise enough to confirm you're at the court. Make sure Precise Location is on for Pickleague, then try again. | ...Turn on Precise Location for Pickleague, then try again. |
+| `fix.not_at_court` | | You need to be at the court to check in. You're about 328 m away, so try again when you're there. (`stay checked in` for extend; DETAIL `{"distance_m": 328}`) | You're about 328 m from Lakeside. You need to be at the court to check in, so try again when you get there. / Extend: ...so your check-in can't be extended. Check in again when you're back at the court. |
+| `fix.malformed` | checkin_venue, extend_checkin, start_play_session | Your location didn't come through, so Pickleague couldn't confirm you're at the court. Try again. | same |
+| `checkin.none` | extend_checkin | You're not checked in anywhere, so there's nothing to extend. Check in when you're at a court. | same |
+| `checkin.closed` | extend_checkin | Your check-in at Lakeside already ended (Thu Oct 16, 5:40 PM). Check in again when you're at the court. (DETAIL `ended_at`) | Your check-in at Lakeside already ended at 5:40 PM. Check in again when you're at the court. |
+| `checkin.needs_fix` | extend_checkin | Pickleague last confirmed you at Lakeside (Thu Oct 16, 1:40 PM), and a check-in lasts at most 4 hours past that. To stay checked in, open Pickleague at the court so it can confirm you're still there. (DETAIL `last_fix_at`) | In app: ...Turn on location for Pickleague, then try again at the court. Lock screen: ...Open Pickleague at the court to stay checked in. |
+| `session.not_yours` | start_play_session | That play session belongs to another account, so it wasn't saved. Start a new session. | same |
+| `match.removed` | confirm_match | This match was removed: it expired because it wasn't confirmed within an hour, or someone deleted it. Ask whoever recorded it to enter it again. | This match is gone: it expired because nobody confirmed it within an hour, or it was deleted. Ask whoever recorded it to enter it again. |
+| `match.already_confirmed` | confirm_match | This match is no longer pending: it's already confirmed. Nothing more to do. | This match is already confirmed, so there's nothing more to do. |
+| `match.scheduled` | confirm_match | This match is no longer pending: it's scheduled and has no score yet. Record the score after you play it. | This match is scheduled and has no score yet. Record the score after you play it. |
+| `match.confirm_expired` | confirm_match (deadline passed, cron not run yet) | Too late to confirm: the hour to confirm this match expired (Thu Oct 16, 5:40 PM). Ask whoever recorded it to enter it again. (DETAIL `deadline`) | Too late to confirm: the hour to confirm this match ended at 5:40 PM. Ask whoever recorded it to enter it again. |
+| `match.not_player` | confirm_match | Only players on this match can confirm it. | Only players in this match can confirm it. |
+| `player.gone` | send_friend_request (no id), hide_presence_from | We couldn't find that player. Open their profile and try again. / ...so there's nothing to hide from. | same |
+| `presence.pick_someone` | hide_presence_from (self) | You can't hide from yourself. Pick another player. | same |
+| `friend.self` | send_friend_request | You can't add yourself as a friend. | same |
+| `friend.guest_caller` | send_friend_request | Guest passes can't add friends. Create an account to add friends. | same |
+| `friend.unclaimed` | send_friend_request | Una Unclaimed hasn't joined Pickleague yet, so you can't add them as a friend. | same, first name |
+| `friend.guest` | send_friend_request | Gus Guest is on a guest pass, so you can't add them as a friend until they create an account. | same, first name |
+| `friend.unavailable` | send_friend_request (deleted, unknown, blocked either way) | This player isn't available | This player isn't available, so you can't add them as a friend. (one vague line: a block is never singled out) |
+| `friend.daily_cap` | send_friend_request | You've sent 20 friend requests today. Try again tomorrow. | same |
+| `friend.not_friends` | set_close_friend | You and Lena League aren't friends, so they can't be a close friend. | You and Lena aren't friends any more, so they can't be a close friend. |
+
+App-only codes (same table in lib/refusals): `match.not_pending` (an older server's "Match is no longer pending"),
+`match.not_member` (a 42501 on a match insert: "You're not a member of Tuesday Doubles any more, so you can't
+record matches there. Pick a league you're in."), `match.score_invalid` (a 23514 on the score check),
+`consent.declined` / `consent.unknown_offline` (the one-time "who sees you" sheet).
+
+`submit_drill_review` answers `success = false` with a message (its return table can't carry a code). The texts:
+"This drill was cancelled or removed, so it can't be reviewed.", "Only the two players in this drill can review
+it.", "This drill starts Sat Oct 17, 3:33 PM. You can review it after it starts.", "You already reviewed this
+drill. Each drill gets one review.", "Rate at least one thing to send your review." (the app maps the older ones to
+these, `drillReviewRefusal`).
+
+### New returned reasons (1.0.4 reads them as before)
+
+- `confirm_match` → `'already_your_team'`: my team had already confirmed (a stale Confirm, or my partner's push);
+  still waiting on the other team. `'one_team_confirmed'` now means I confirmed for my team just now. 1.0.4's
+  lock screen treats any answer but `'already'` as a confirm, as before.
+- `send_friend_request` → `'already_friends'` (was `'already'`, which still means my request is pending). 1.0.4's
+  parseSendResult reads it as `'already'`.
+- `respond_friend_request(p_accept => true)` on a request I declined → `'already_declined'` (was `'declined'`).
+  1.0.4 reads it as `'gone'` ("That request is no longer waiting on you."). A Decline replay still reads
+  `'declined'`.
+
+### Why keys on my_session_validity (null keys left out)
+
+`started_at`, `ended_at` (stored; a Start the no-overlap rule moved shows here: the End toast then says "Pickleague
+counted only 3 min of it because it overlapped your previous session"), `match_pending` (it counts only through a
+match still waiting for the other team, open sessions too), `confirm_by` (the earliest such deadline), and, when
+nothing counts for it yet: `why = 'match_counted_elsewhere'` (+ `match_at`, `counted_for_started_at`: a match in
+its window counts for another of my sessions) or `why = 'drill_not_during_session'` (+ `drill_starts_at`: a drill
+reviewed in its window wasn't held during it). Computed by the internal `_pl_session_explain` (read only, never
+stored; `_pl_session_validity` keeps its OUT list).
+
+### Notices
+
+- **Pending match** (`_notify_pending_match`, same recipients): the recorder is the signed-in caller (a league member
+  who didn't play now shows by name). The recorder's partner gets "🥒 Rita Recorder recorded your match" / "In RF
+  Test League: you won 11-5. Your team is confirmed. The other team has until Thu Oct 16, 5:40 PM to confirm, or the
+  match is removed."; the other team "🥒 Match needs your team to confirm" / "Rita Recorder entered a match in RF
+  Test League: you lost 5-11. Confirm by Thu Oct 16, 5:40 PM if that's right, or it's removed."; when the recorder
+  played on neither team, "...Both teams need to confirm by ... if that's right, or it's removed." Times in each
+  recipient's zone.
+- **Expiry** (`expire_pending_matches`, same rows, same count; the cron every minute): before each delete it notes
+  which of the players' sessions count; after it, each player gets `🥒 Match removed` / "Your match vs Ben Opponent
+  (recorded Thu Oct 16, 5:15 PM) was removed because the other team didn't confirm it within an hour. Record it again
+  and ask them to confirm." (or "because your team didn't confirm...", or "because neither team confirmed..."),
+  plus "Your play session from 4:50 PM no longer counts. Record a match or drill by 7:20 PM to make it count." for
+  a session that stopped counting. `type 'match'`, `entity_type 'match'`, `entity_id` null (the row is gone: the
+  app greys out a notice whose target is missing), category `notifyMatchResults` (a result, not a request; an
+  existing pref key, so no send-push change), `push_data {kind: 'match_expired', deep_link: 'match/-'}` (Match
+  History). Built by the internal `_pl_notify_match_expired`; a failed notice never keeps a match.
+
+### Client (rule 11)
+
+- **Queued writes** (`venue:checkin`, `venue:checkout`, `play:start`, `play:end`): no signal or signed out
+  (`isRetryLater`: network, PGRST301 / `auth.signed_out`) keeps the entry queued (rethrown as a TimeoutError, which
+  the kit's queue keeps); a real refusal is said (`noteRefusalNotice`: a toast via `RefusalNoticeHost`, or a local
+  notification when the app is in the background) and dropped. A refused check-out brings the still-open check-in
+  back on the card ("you may still show there until 7:40 PM. Tap Check out to try again."). A refused Start stops
+  the island ("Your play session from 5:40 PM wasn't saved, so it won't count."). A refused End clears the
+  pending-End entry so the island comes back ("Tap End again."). A queued Start older than a day is dropped and said
+  (the queue's own age-out would be silent, so its `maxAgeMs` is a week and the handler decides). A queued
+  check-in from an older build with no fix: "It was saved by an older version of Pickleague without your location."
+- **Lost sessions** (`getActivePlay` → `playLost`): a session the island showed that the server ended without this
+  device (the 6-hour expiry, another device or a newer Start there) or never had is explained on resume
+  (`lostPlayNote`); after the expiry the end sheet runs. A Start still in the offline queue keeps the island however
+  long it waits (`isPlayStartQueued`).
+- **Extend** answers with less than an hour (no confirming fix): "Checked in until 6:55 PM, not a full hour:
+  Pickleague couldn't confirm you're still at Lakeside. Open Pickleague at the court to stay later."
+  (`extendedNote`; the lock-screen title reads "Extended, not a full hour").
+- **Court card**: Not now on the consent sheet says the check-in needs that choice; a check-in that ran out or was
+  closed elsewhere says so once; a private (no-fix, older build) check-in says only the player sees it.
+- **Lock screen**: `court_checkin` gets 15 s, tells "no connection" apart from "not chosen yet" for the consent
+  check, and a refusal that lands after its deadline still reaches the player; its success line follows the
+  player's own settings ("Your friends can see you are here.", "Sharing is paused, so others see "a player" here.").
+- **MatchEntry**: the score rule is checked before sending; the result line says who still has to confirm and by
+  when, from the stored status and deadline ("Match recorded. Both teams need to confirm by 5:40 PM, or the match is
+  removed." for a recorder who didn't play); a dropped session link says why (recorded over 2 hours after the
+  session ended; the session hasn't synced; it never reached Pickleague).
+- **End** (decision 3): "Session ended. It counts once the other team confirms (within the hour)." while the match
+  is pending; "It counts: you recorded a match." only for a match stored confirmed. Too short: "Session ended after
+  3 min. Sessions under 5 minutes don't count." (plus "Your match is still recorded."). The sheet: "Session ended
+  after 42 min. It doesn't count yet: no match or drill is recorded for it. Record one by 7:40 PM.", or the server's
+  why. Not now: "Saved. It counts if you record a match or drill by 7:40 PM."
+- **Friends**: "Request sent. Sam can accept it in Pickleague." (never promises a notification: a quiet re-request
+  would make it untrue); "You and Sam are already friends."; a Cancel that cancelled nothing says why ("Sam already
+  accepted, so you're friends now.").
