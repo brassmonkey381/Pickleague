@@ -62,7 +62,8 @@ async function onEnter(venueId: string): Promise<void> {
 async function onExit(venueId: string): Promise<void> {
   const current = await peekCurrentCheckin();
   if (current && current.venueId === venueId && current.source === 'geofence') {
-    await checkOut(current.id, 'geofence').catch(() => {});
+    // No check-out fix: I've left the fence, so one taken here proves no stay.
+    await checkOut(current.id, 'geofence', { fix: false }).catch(() => {});
   }
 }
 

@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   APPROXIMATE_FIX_M,
+  CHECKOUT_FIX_WAIT_MS,
+  checkoutFixArgs,
+  fixWithin,
   FIX_MAX_ACCURACY_M,
   FIX_MAX_AGE_MS,
   FIX_REUSE_MS,
@@ -192,6 +195,87 @@ describe('checkoutPayload', () => {
     const p = checkoutPayload(null, undefined, NOW);
     expect(p).toEqual({ id: null, at: '2026-10-15T18:00:00.000Z' });
     expect('source' in p).toBe(false);
+  });
+
+  it('carries the fix taken at the tap (the stay proof), so a queued check-out keeps it', () => {
+    expect(checkoutPayload('c1', undefined, NOW, fixAt(1_000))).toEqual({
+      id: 'c1',
+      at: '2026-10-15T18:00:00.000Z',
+      fix: fixAt(1_000),
+    });
+  });
+
+  it('leaves out a missing or unusable fix', () => {
+    expect('fix' in checkoutPayload('c1', undefined, NOW, null)).toBe(false);
+    expect('fix' in checkoutPayload('c1', undefined, NOW, { ...fixAt(0), lat: 0, lng: 0 })).toBe(false);
+  });
+});
+
+describe('checkoutFixArgs', () => {
+  it('sends the fix with its age at send time, and no p_fix_at (checkout_venue takes none)', () => {
+    expect(checkoutFixArgs(fixAt(1_000), NOW)).toEqual({
+      p_lat: 37.8,
+      p_lng: -122.26,
+      p_accuracy_m: 12,
+      p_fix_age_ms: 1_000,
+    });
+  });
+
+  it('a queued check-out sent later counts its time in the queue', () => {
+    // Taken 2 s before the tap at NOW, replayed 10 minutes later.
+    expect(checkoutFixArgs(fixAt(2_000), NOW + 600_000).p_fix_age_ms).toBe(602_000);
+  });
+
+  it('sends nothing at all without a fix, so the call keeps the Phase 1 shape', () => {
+    expect(checkoutFixArgs(null, NOW)).toEqual({});
+    expect(checkoutFixArgs(undefined, NOW)).toEqual({});
+    expect(checkoutFixArgs({ ...fixAt(0), lat: Number.NaN }, NOW)).toEqual({});
+  });
+});
+
+describe('fixWithin (check-out never waits more than 3 s for a fix)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it(`waits ${CHECKOUT_FIX_WAIT_MS} ms by default for the stay proof`, () => {
+    expect(CHECKOUT_FIX_WAIT_MS).toBe(3_000);
+  });
+
+  it('returns a fix that comes back in time', async () => {
+    await expect(fixWithin(async () => fixAt(0), CHECKOUT_FIX_WAIT_MS)).resolves.toEqual(fixAt(0));
+  });
+
+  it('gives up at the bound and goes without one', async () => {
+    vi.useFakeTimers();
+    let settled: DeviceFix | null | 'pending' = 'pending';
+    const never = new Promise<DeviceFix | null>(() => {});
+    void fixWithin(() => never, CHECKOUT_FIX_WAIT_MS).then((f) => {
+      settled = f;
+    });
+    await vi.advanceTimersByTimeAsync(CHECKOUT_FIX_WAIT_MS - 1);
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBeNull();
+  });
+
+  it('a fix that arrives after the bound is not used', async () => {
+    vi.useFakeTimers();
+    const late = new Promise<DeviceFix | null>((resolve) => setTimeout(() => resolve(fixAt(0)), 5_000));
+    const p = fixWithin(() => late, CHECKOUT_FIX_WAIT_MS);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(p).resolves.toBeNull();
+  });
+
+  it('no permission, a failed read or an unusable reading: no fix, no error', async () => {
+    await expect(fixWithin(async () => null, 50)).resolves.toBeNull();
+    await expect(fixWithin(() => Promise.reject(new Error('location off')), 50)).resolves.toBeNull();
+    await expect(
+      fixWithin(() => {
+        throw new Error('sync throw');
+      }, 50),
+    ).resolves.toBeNull();
+    await expect(fixWithin(async () => ({ ...fixAt(0), lat: 0, lng: 0 }), 50)).resolves.toBeNull();
   });
 });
 

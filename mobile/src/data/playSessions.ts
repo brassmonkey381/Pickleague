@@ -10,6 +10,7 @@
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
+import type { SessionValidity } from '../lib/sessionValidity';
 
 export type PlayKind = 'open_play' | 'drill' | 'match' | 'event';
 
@@ -50,6 +51,16 @@ export async function startPlaySession(p: {
 
 export async function endPlaySession(id: string, at?: string): Promise<number> {
   return sbCall(() => supabase.rpc('end_play_session', { p_id: id, p_at: at ?? null }), BOUND) as Promise<number>;
+}
+
+/**
+ * Whether my session counts (Phase 1.5, supabase/migration_validity_rules.sql)
+ * and what it still needs. Null when it isn't mine or isn't on the server yet
+ * (its Start still queued). lib/sessionValidity words it.
+ */
+export async function getMySessionValidity(id: string): Promise<SessionValidity | null> {
+  return ((await sbCall(() => supabase.rpc('my_session_validity', { p_session: id }), BOUND)) ??
+    null) as SessionValidity | null;
 }
 
 /** My open session started in the last 6 hours, or null. */

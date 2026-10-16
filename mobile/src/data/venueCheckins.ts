@@ -5,9 +5,9 @@
 // Every write is idempotent server-side (client id, absolute end time), so
 // callers may retry or queue them. A check-in always carries a device fix: the
 // server confirms it is inside the court's fence (no manual check-ins).
-import { sbCall } from '@just-messin-around/expo-foundation/supabase';
+import { classifySbError, sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
-import { fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
+import { checkoutFixArgs, fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 import { getSport } from '../sports/registry';
 
 export type CheckinSource = 'manual' | 'geofence' | 'session';
@@ -74,12 +74,30 @@ export async function extendCheckin(id: string, until: string, fix?: DeviceFix |
 /**
  * Close one check-in, or all of mine (id null), optionally only those `source`
  * opened. `at` is when I left (the server clamps it to the check-in's window).
+ * `fix`, taken at the tap, is the stay proof (Phase 1.5): its age is measured
+ * at each send. A server without the Phase 1.5 SQL doesn't know the fix
+ * arguments (PGRST202): the check-out then goes again without them, so it
+ * never fails for the sake of the fix.
  */
-export async function checkoutVenue(id: string | null, source?: CheckinSource | null, at?: string): Promise<number> {
-  return sbCall(
-    () => supabase.rpc('checkout_venue', { p_id: id, p_source: source ?? null, p_at: at ?? null }),
-    BOUND,
-  ) as Promise<number>;
+export async function checkoutVenue(
+  id: string | null,
+  source?: CheckinSource | null,
+  at?: string,
+  fix?: DeviceFix | null,
+): Promise<number> {
+  const base = { p_id: id, p_source: source ?? null, p_at: at ?? null };
+  const call = (withFix: boolean) =>
+    sbCall(
+      () => supabase.rpc('checkout_venue', withFix ? { ...base, ...checkoutFixArgs(fix, Date.now()) } : base),
+      BOUND,
+    ) as Promise<number>;
+  if (!fix) return call(false);
+  try {
+    return await call(true);
+  } catch (e) {
+    if (classifySbError(e) === 'missingFunction') return call(false);
+    throw e;
+  }
 }
 
 export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | null> {

@@ -1,15 +1,21 @@
 #!/usr/bin/env node
-// Build the Presence Phase 1 persona test: one SQL file that is
+// Build the presence persona test (Phase 1 + Phase 1.5): one SQL file that is
 //
 //   begin;
 //   <presence_p1_personas.sql up to -- @@MIGRATIONS@@>   (state captured before)
-//   <migration_league_members_lock_identity.sql and the five
-//    migration_presence_p1_*.sql files, in apply order>
+//   <migration_league_members_lock_identity.sql, the five
+//    migration_presence_p1_*.sql files and migration_validity_rules.sql,
+//    in apply order>
+//   <migration_presence_p1_checkins.sql, migration_validity_rules.sql>
+//                                                        (re-runs: Phase 1 must not put its
+//                                                         3-arg checkout_venue back; 1.5 is
+//                                                         re-runnable)
 //   <migration_rls_hardening_2026q3.sql>                 (a re-run must take nothing offline)
 //   <migration_venue_checkins.sql, migration_play_sessions.sql>
 //                                                        (re-runs of the superseded files
 //                                                         must keep the presence versions)
-//   <presence_p1_personas.sql after the marker>          (personas + assertions)
+//   <presence_p1_personas.sql after the marker>          (personas + assertions, with
+//    validity_personas.sql in place of -- @@VALIDITY@@)  (the Phase 1.5 section)
 //   rollback;
 //
 // so the whole thing runs against the linked (live) database and leaves it
@@ -36,13 +42,20 @@ export const MIGRATIONS = [
   'migration_presence_p1_reads.sql',
   'migration_presence_p1_friends.sql',
   'migration_presence_p1_hygiene.sql',
+  'migration_validity_rules.sql',
 ];
+// Run again after all of the above, before the hardening re-run: the Phase 1
+// check-ins file must keep the Phase 1.5 checkout_venue (its guard skips its
+// own), and the Phase 1.5 file must be re-runnable.
+const RERUN = ['migration_presence_p1_checkins.sql', 'migration_validity_rules.sql'];
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 // Applied long before presence and partly superseded by it: re-running them
 // must change nothing the presence files own (their guards skip those parts).
 const SUPERSEDED = ['migration_venue_checkins.sql', 'migration_play_sessions.sql'];
 const BODY = path.join(here, 'presence_p1_personas.sql');
 const MARKER = '-- @@MIGRATIONS@@';
+const VALIDITY = path.join(here, 'validity_personas.sql');
+const VALIDITY_MARKER = '-- @@VALIDITY@@';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
 function topLevel(sql) {
@@ -98,13 +111,20 @@ if (at < 0) {
   process.exit(1);
 }
 
+const rest = body.slice(at + MARKER.length);
+if (!rest.includes(VALIDITY_MARKER)) {
+  console.error(`FAILED: ${path.basename(BODY)} has no "${VALIDITY_MARKER}" line.`);
+  process.exit(1);
+}
+
 const parts = [
   'begin;',
   body.slice(0, at),
   ...MIGRATIONS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
+  ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
-  body.slice(at + MARKER.length),
+  rest.replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`),
   'rollback;',
   '',
 ];

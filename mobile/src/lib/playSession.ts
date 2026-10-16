@@ -16,7 +16,9 @@
 //
 // Starting goes through one sheet, "Where are you playing?"
 // (components/play/PlayStartSheet): openPlayStart() opens it, or expands the
-// island when a session already runs.
+// island when a session already runs. Ending emits playEnded, and the end
+// sheet (components/play/PlayEndSheet) asks for the match or drill that makes
+// the session count (Phase 1.5).
 //
 // Also schedules a local "starting now" notice (with a Start session button)
 // for my upcoming drill sessions and scheduled matches.
@@ -34,6 +36,7 @@ import { forgetCheckin, peekCurrentCheckin, refreshCurrentCheckin, type CurrentC
 import type { DeviceFix } from './courtCheckinRules';
 import { isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
+import type { EndedPlay } from './sessionValidity';
 import {
   endPlaySession,
   getMyActivePlaySession,
@@ -171,9 +174,9 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
  * queued nor one already in flight when End was tapped can bring the island
  * back.
  */
-export function endPlay(): void {
+export function endPlay(): EndedPlay | null {
   const s = playSession.get();
-  if (!s.id) return;
+  if (!s.id) return null;
   const payload: EndPayload = { id: s.id, at: new Date().toISOString() };
   playSession.clear();
   // The server closes the session's own check-in; an adopted one stays.
@@ -183,6 +186,36 @@ export function endPlay(): void {
     .then(() => runOrQueue(MUTATION_END, payload, () => endPlaySession(payload.id, payload.at)))
     // Not a network failure (those queue): retrying won't help, nothing is pending.
     .catch(() => clearEndPending(payload.id));
+  if (!s.meta || s.startedAtMs == null) return null;
+  const recorded = recordedFor.has(s.id);
+  recordedFor.delete(s.id);
+  const ended: EndedPlay = {
+    id: s.id,
+    kind: s.meta.kind,
+    sourceId: s.meta.sourceId,
+    startedAtMs: s.startedAtMs,
+    endedAtMs: Date.parse(payload.at),
+    recorded,
+  };
+  playEnded.emit(ended);
+  return ended;
+}
+
+// ── Ending: "Record a match or drill?" ──────────────────────────────────────
+// A session counts once a match or drill is recorded for it (Phase 1.5,
+// lib/sessionValidity). End emits the session that just ended; the end sheet
+// (components/play/PlayEndSheet) decides what to show.
+
+/** Emits the session the player just ended. */
+export const playEnded = createSignal<EndedPlay>();
+
+// Sessions a match was already recorded from (the island's Enter score), so
+// End doesn't ask again. Memory only: after a restart it may ask, harmlessly.
+const recordedFor = new Set<string>();
+
+/** MatchEntry recorded a match linked to this session. */
+export function noteMatchRecorded(sessionId: string): void {
+  recordedFor.add(sessionId);
 }
 
 /** For useResumeLiveSession: the server's view of my active session. */

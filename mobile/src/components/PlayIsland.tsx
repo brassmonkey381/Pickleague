@@ -71,7 +71,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const actions: IslandAction[] = [
     {
       label: 'Enter score',
-      onPress: () => navigateWhenReady('MatchEntry', { fromHome: true }),
+      // Linked to this session: a match recorded from it makes it count.
+      onPress: () => navigateWhenReady('MatchEntry', { fromHome: true, playSessionId: s.id ?? undefined }),
     },
     ...(checkin && !checkin.queued
       ? [
@@ -95,10 +96,11 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
     {
       label: 'End',
       variant: 'secondary',
-      // Never waits on the network: clears now, the server write queues.
+      // Never waits on the network: clears now, the server write queues. The
+      // end sheet (play/PlayEndSheet) takes it from there: "Record a match or
+      // drill?", or a note when the session was too short or already counts.
       onPress: () => {
-        endPlay();
-        toast.success('Session ended.');
+        if (!endPlay()) toast.success('Session ended.');
       },
     },
   ];

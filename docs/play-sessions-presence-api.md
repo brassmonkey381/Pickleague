@@ -43,6 +43,15 @@ re-runs the hardening file and the two superseded files before the assertions):
 `node supabase/tests/build-presence-test.mjs <out.sql>`, then `supabase db query --linked -f <out.sql> -o csv`
 from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
 
+6. **Phase 1.5** `supabase/migration_validity_rules.sql` (applied after files 0-5, which are live): stay proof,
+   `matches.play_session_id`, session validity, `my_session_validity`. See [Phase 1.5](#phase-15-validity-rules)
+   below. Re-runnable on its own, no begin/commit, no send-push change. Since this file,
+   `migration_presence_p1_checkins.sql` skips its own 3-argument `checkout_venue` once
+   `venue_checkins.stay_confirmed` exists, so re-running file 2 keeps the Phase 1.5 version (and only it).
+   The persona build applies files 0-6, re-runs file 2 and file 6, then the hardening file and the two
+   superseded files: 388 assertions (324 Phase 1 + 64 Phase 1.5 in `supabase/tests/validity_personas.sql`),
+   all passing against the live DB in a rolled-back transaction on 2026-10-16.
+
 ## Where the SQL differs from or sharpens this contract (2026-10-16)
 
 Signatures are exactly as below. Behaviour details the clients should know:
@@ -155,6 +164,10 @@ league_members  + admitted_closed boolean not null default false   -- made while
 presence_closed_ids(user_id uuid, id uuid, closed_at, created_at, pk(user_id, id))  -- internal; ids closed before stored
 ```
 
+Phase 1.5 adds `venue_checkins.stay_confirmed` + check-out fix columns, `matches.play_session_id` and
+`play_sessions.valid` / `valid_reason` / `validated_at` / `rewards_pending_confirmation`: see
+[Phase 1.5](#phase-15-validity-rules).
+
 RLS: `venue_checkins_read` and `play_sessions_read` become `using (user_id = auth.uid())`. Clients may update only
 `league_members.role` (column grant), and no one may change a membership's `league_id` / `user_id` (trigger).
 
@@ -193,6 +206,8 @@ checkout_venue(p_id uuid default null, p_source text default null, p_at timestam
 - Replaces the 2-arg version. `checked_out_at = greatest(checked_in_at + 1s, least(coalesce(p_at, now()), now(), expires_at))`.
 - `p_id` that names no check-in of the caller falls back to the caller's open rows (any venue); `p_id is null` closes all
   of the caller's open rows. `p_source` is a filter (see the differences list above).
+- **Phase 1.5** adds trailing `p_lat, p_lng, p_accuracy_m, p_fix_age_ms` (all `default null`): the check-out fix,
+  see [Phase 1.5](#phase-15-validity-rules). Every call shape above still resolves.
 
 ```
 start_play_session(p_id uuid, p_kind text, p_source uuid default null, p_venue text default null,
@@ -405,3 +420,125 @@ notes say which arguments the app sends and what it assumes about the answers.
 Every `supabase.rpc` call in `mobile/src` was checked against the five SQL files: names, argument names and the
 fields read back all match. The one deliberate difference is sign-out's `checkout_venue(null, null, now)` (see
 Hygiene).
+
+## Phase 1.5: validity rules
+
+Decided by the user 2026-10-16 ([plan](./play-sessions-presence.md#phase-15-validity-rules-decided-by-the-user-2026-10-16-sql--ota)).
+Presence is about being there, rewards are about having played: nothing here changes who is shown at a court.
+SQL: `supabase/migration_validity_rules.sql` (apply after the live Phase 1 files; re-runnable; one new client RPC,
+allowlisted in `migration_rls_hardening_2026q3.sql`). Release: apply the SQL first, then the OTA. The app also
+copes with the SQL not being there yet (see Client).
+
+### Schema
+
+```
+venue_checkins + stay_confirmed boolean not null default false
+               + checkout_fix_at timestamptz, checkout_fix_accuracy_m real, checkout_fix_distance_m real,
+                 checkout_fix_lat double precision, checkout_fix_lng double precision
+                 (lat/lng stored only when the check-out fix confirmed the court)
+matches        + play_session_id uuid null references play_sessions(id) on delete set null
+                 (partial index matches_play_session_id_idx)
+play_sessions  + valid boolean not null default false
+               + valid_reason text  -- linked_match | match_in_window | drill_in_window (valid)
+                                    -- open | too_short | no_match_or_drill (not valid)
+               + validated_at timestamptz          -- when it became valid; null while not valid
+               + rewards_pending_confirmation boolean not null default false
+               (index play_sessions_user_started_idx on (user_id, started_at desc))
+```
+
+`matches` stays readable by everyone (`using (true)`), so `play_session_id` is public: an opaque id, and
+`play_sessions` rows stay owner-only. The insert policy "League members can record matches" gains
+`play_session_id is null or` it names a session of `auth.uid()`.
+
+### Stay proof (`venue_checkins.stay_confirmed`)
+
+True only when the check-in was `location_confirmed` at arrival AND a later fix confirmed the same court at least
+5 minutes after `checked_in_at`. The later fix is either:
+- the **check-out fix** (`checkout_venue`'s new arguments): position and precision from the Phase 1 `_pl_check_fix`
+  (150 m accuracy, fence + slack); time from `p_fix_age_ms` (`fix_at = now() - age`), which must fall between
+  `checked_in_at + 5 min` and `expires_at`. A queued check-out's fix is the one taken at the tap, dated by its age,
+  so it still counts. No age: the fix is ignored. A fix that doesn't confirm keeps only its distance and accuracy.
+- **any later confirming fix a Phase 1 function stores on the row** (`extend_checkin` with a fix, a repeat
+  `checkin_venue` at the same court, a `start_play_session` that adopts the check-in): a BEFORE UPDATE OF `fix_at`
+  trigger sets `stay_confirmed` when the stored fix moves to 5+ minutes after arrival. Those functions already
+  refuse or skip a fix that doesn't confirm the court.
+
+A check-out without a fix, with half a fix, with an undatable fix, or a replay closes exactly as in Phase 1; the fix
+is recorded in a helper that never raises. Future presence rewards (kept plans, Phase 3) pay only on a confirmed stay.
+
+```
+checkout_venue(p_id uuid default null, p_source text default null, p_at timestamptz default null,
+               p_lat double precision default null, p_lng double precision default null,
+               p_accuracy_m double precision default null, p_fix_age_ms double precision default null)
+  returns integer
+```
+Live signature checked first (`pg_get_function_identity_arguments`: `p_id uuid, p_source text, p_at timestamptz`);
+dropped and recreated in the same file. 1.0.4's `{p_id, p_source}`, the current `{p_id, p_source, p_at}`,
+positional and sign-out shapes all resolve (persona-tested).
+
+### Valid session (`play_sessions.valid`)
+
+`ended_at - started_at >= 5 min` AND one of:
+- **linked_match**: a match with `play_session_id = session` that the owner played in;
+- **match_in_window**: a match the owner played in (any of the four player columns), recorded
+  (`coalesce(created_at, played_at)`) between `started_at` and `ended_at + 2 h`;
+- **drill_in_window**: a drill session of the owner's that they completed in that window. A drill has no status:
+  completed = the owner's `drill_session_reviews` row (`submit_drill_review`), dated by its `created_at`.
+
+Matches count when `pending` or `completed` (recorded is enough), never `scheduled`.
+`rewards_pending_confirmation = valid and` no completed match and no drill qualifies: pickles for a session wait
+for the other team's confirmation. A pending match that expires (the 1-hour cron deletes it) un-validates the
+session. Open sessions are never valid (`reason = 'open'`).
+
+**Linking** (BEFORE INSERT OR UPDATE OF `play_session_id` on `matches`, never raises): the link is kept only when
+the session exists, belongs to the caller (`auth.uid()`; server code without a session skips this), the owner is
+one of the match's players, and the session is open or ended under 2 h ago. Otherwise the match is stored unlinked,
+never refused: a Start still in the offline queue must not fail the match (it still counts through the window
+once its session lands).
+
+**Recompute** (`_pl_refresh_session_validity(session)`, writes only on change): AFTER INSERT / DELETE / UPDATE OF
+status, play_session_id, created_at, played_at or a player on `matches` (the linked session before and after, and
+every ended session of its players whose window holds the match); AFTER INSERT / DELETE on
+`drill_session_reviews`; AFTER INSERT / UPDATE OF started_at, ended_at on `play_sessions` (End, a newer Start,
+the 6-hour expiry, a late Start stored ended). Each trigger catches its own failure (`raise warning`), so the
+match, review or End always lands; the owner's next `my_session_validity` heals a session left behind. The file
+backfills every ended session once.
+
+Not decided yet (follow-up): one match validates **every** overlapping session of its players (a 5-minute
+session started after the match still counts it). Decide whether a match counts for one session only before any
+per-session pickles exist.
+
+### RPC
+
+```
+my_session_validity(p_session uuid) returns jsonb
+  -- {valid boolean, reason text, needs 'minutes' | 'match_or_drill' | null,
+  --  window_ends_at timestamptz | null (ended_at + 2 h), rewards_pending_confirmation boolean}
+```
+Owner only: `null` for a session that isn't mine or isn't stored yet (same answer). Raises `Not authenticated`.
+Recomputes and stores. `needs`: `minutes` when too short (or open under 5 min), `match_or_drill` when nothing
+qualifies (the window may already be over: compare `window_ends_at` with now), else null.
+
+Internal (revoked from clients): `_pl_session_validity`, `_pl_refresh_session_validity`, `_pl_sessions_around`,
+`_pl_record_checkout_fix`, and the trigger functions `_pl_checkin_stay_from_fix`, `_pl_matches_link_session`,
+`_pl_matches_refresh_validity`, `_pl_drill_reviews_refresh_validity`, `_pl_play_sessions_refresh_validity`.
+
+### Client (Phase 1.5)
+
+- **Check-out** (`lib/courtCheckin.checkOut`): takes a fresh fix only when location is already allowed (no prompt)
+  and one comes back within 3 s (`fixWithin`, `CHECKOUT_FIX_WAIT_MS`); otherwise it checks out without one. The
+  queued payload carries the fix taken at the tap; `checkoutFixArgs` sends `p_lat, p_lng, p_accuracy_m,
+  p_fix_age_ms` with the age measured at each send, and nothing at all without a fix (the Phase 1 call shape). A
+  geofence exit sends no fix. On PGRST202 (SQL not applied yet) it checks out again without the fix. The court
+  card's check-out bound is 10 s + 3 s.
+- **End** (`lib/playSession.endPlay` emits `playEnded`; `components/play/PlayEndSheet` decides with
+  `lib/sessionValidity.endDecision`): under 5 minutes, a toast "Session ended. Sessions under 5 minutes don't
+  count."; a match already recorded from the island's Enter score, "Session ended. It counts: you recorded a
+  match."; otherwise the sheet "Record a match or drill?" (Record match, Review drill for a drill session, Not now).
+  Not now (or closing it): "Saved. This session counts once you record a match or drill within 2 hours (by 7:40
+  PM)."
+- **MatchEntry** takes `playSessionId` (from Record match and from the island's Enter score) and inserts it as
+  `play_session_id`; a PGRST204 for that column (SQL not applied yet) inserts again without it (nothing was
+  written, so no duplicate). After a linked insert it reads `my_session_validity` (best-effort, 5 s) and toasts
+  `validityNote` ("This play session counts now.").
+- Not gated by `FRIENDS_AT_COURTS_ENABLED`: it is the player's own session flow.

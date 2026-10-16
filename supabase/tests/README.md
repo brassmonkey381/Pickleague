@@ -48,6 +48,11 @@ No CI runner is wired up yet — these are **human-runnable** today.
     sessions, who sees whom (owner, friend, close friend, closed- and
     open-league mates, stranger, blocked both ways, guest, deleted, unclaimed),
     crowd bands, friend requests, favorites, account deletion and retention.
+    Phase 1.5 (`validity_personas.sql`, spliced in at `-- @@VALIDITY@@`)
+    applies `migration_validity_rules.sql` too and checks the stay proof,
+    session validity, match links, `my_session_validity`, the 1.0.4
+    check-out call shapes, and that a broken validity refresh never blocks a
+    match, a drill review or an End.
     It cannot be pasted as is: build it first, then run the output.
 
     ```sh

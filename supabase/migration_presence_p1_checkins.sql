@@ -385,8 +385,25 @@ grant execute on function public.extend_checkin(uuid, timestamptz, double precis
 -- (e.g. 'signout') closes regardless. Returns how many closed; 0 on a replay.
 -- An id never stored is remembered as closed (its check-in may still be on
 -- its way), then my open rows close instead.
-drop function if exists public.checkout_venue(uuid, text);
+--
+-- SUPERSEDED by migration_validity_rules.sql (Phase 1.5), which replaces this
+-- with the same function plus optional check-out fix arguments. Re-running
+-- this file after that one must not add this 3-argument version back beside
+-- it: a call naming only p_id, p_source and p_at would match both ("not
+-- unique") and every check-out would fail. So this section runs only while
+-- venue_checkins.stay_confirmed (added by that file) does not exist yet.
+do $guard$
+begin
+  if exists (select 1 from information_schema.columns
+              where table_schema = 'public' and table_name = 'venue_checkins'
+                and column_name = 'stay_confirmed') then
+    raise notice 'migration_presence_p1_checkins.sql: kept the Phase 1.5 checkout_venue (migration_validity_rules.sql)';
+    return;
+  end if;
 
+  execute 'drop function if exists public.checkout_venue(uuid, text)';
+
+  execute $s$
 create or replace function public.checkout_venue(
   p_id     uuid default null,
   p_source text default null,
@@ -428,9 +445,11 @@ begin
      and (v_filter is null or source = v_filter);
   get diagnostics v_n = row_count;
   return v_n;
-end $$;
-revoke execute on function public.checkout_venue(uuid, text, timestamptz) from public, anon;
-grant execute on function public.checkout_venue(uuid, text, timestamptz) to authenticated;
+end $$
+$s$;
+  execute 'revoke execute on function public.checkout_venue(uuid, text, timestamptz) from public, anon';
+  execute 'grant execute on function public.checkout_venue(uuid, text, timestamptz) to authenticated';
+end $guard$;
 
 
 -- ── 5. Play sessions ───────────────────────────────────────────────────────

@@ -565,6 +565,9 @@ export type RootStackParamList = {
     prefillTeam1Partner?: string;
     prefillTeam2Player?: string;
     prefillTeam2Partner?: string;
+    // The play session this match was played in (matches.play_session_id;
+    // the island's Enter score and the end sheet's Record match set it).
+    playSessionId?: string;
   };
   MatchHistory: {
     leagueId?: string;

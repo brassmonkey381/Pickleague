@@ -58,7 +58,13 @@ import {
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
-import { FIX_REUSE_MS, isFixFresh, offersUntrackedSession, type DeviceFix } from '../lib/courtCheckinRules';
+import {
+  CHECKOUT_FIX_WAIT_MS,
+  FIX_REUSE_MS,
+  isFixFresh,
+  offersUntrackedSession,
+  type DeviceFix,
+} from '../lib/courtCheckinRules';
 import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
@@ -72,6 +78,8 @@ import type { RootStackParamList } from '../types';
 const BOUND_MS = 10_000;
 // Check in may first wait up to 6 s for a fix, then the write.
 const CHECKIN_BOUND_MS = 16_000;
+// Check out waits at most 3 s for its stay-proof fix, then the write as before.
+const CHECKOUT_BOUND_MS = BOUND_MS + CHECKOUT_FIX_WAIT_MS;
 // Set the moment the arrival-alerts offer is shown, so it never asks twice.
 const ALERTS_OFFERED_KEY = 'pickleague_court_alerts_offered_v1';
 const ALWAYS_LABEL = Platform.OS === 'android' ? 'Allow all the time' : 'Always';
@@ -327,6 +335,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         setRosterKey((k) => k + 1);
       },
       "Couldn't check you out.",
+      { boundMs: CHECKOUT_BOUND_MS },
     );
 
   // Same path as the Settings toggle: the OS sheets ask for Always location;

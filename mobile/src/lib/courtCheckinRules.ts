@@ -8,6 +8,9 @@
 // check-in carries the fix taken at tap time and sends its age at every try
 // (measured on this device's clock), so the server's 2-minute freshness rule
 // refuses one that sat in the queue too long, whatever the phone's clock says.
+// Check-out sends a fresh fix only when one comes back within 3 s (never
+// holding the check-out longer): the server reads it as proof the player
+// stayed (Phase 1.5, stay_confirmed).
 import type { CheckinSource } from '../data/venueCheckins';
 
 /** A device location fix, as checkin_venue and start_play_session take it. */
@@ -138,11 +141,67 @@ export type CheckinPayload = {
 /**
  * A check-out as sent or queued. `at` is when you really left, so a replay an
  * hour later doesn't stretch a 20-minute visit to the check-in's expiry.
+ * `fix`, when one came back in time, was taken at the tap: the server reads
+ * it as proof the player stayed (docs/play-sessions-presence.md, Phase 1.5),
+ * placed in time by its age, so a queued check-out still counts.
  */
-export type CheckoutPayload = { id: string | null; source?: CheckinSource; at: string };
+export type CheckoutPayload = { id: string | null; source?: CheckinSource; at: string; fix?: DeviceFix };
 
-export function checkoutPayload(id: string | null, source: CheckinSource | undefined, nowMs: number): CheckoutPayload {
-  return { id, ...(source ? { source } : {}), at: new Date(nowMs).toISOString() };
+export function checkoutPayload(
+  id: string | null,
+  source: CheckinSource | undefined,
+  nowMs: number,
+  fix?: DeviceFix | null,
+): CheckoutPayload {
+  return {
+    id,
+    ...(source ? { source } : {}),
+    at: new Date(nowMs).toISOString(),
+    ...(fix && isValidFix(fix) ? { fix } : {}),
+  };
+}
+
+/** Check-out waits at most this long for a fresh fix, then goes without one. */
+export const CHECKOUT_FIX_WAIT_MS = 3_000;
+
+export type CheckoutFixArgs = {
+  p_lat: number;
+  p_lng: number;
+  p_accuracy_m: number | null;
+  /** Measured on this device at send time, as for a check-in (fixArgs). */
+  p_fix_age_ms: number;
+};
+
+/**
+ * checkout_venue's optional fix arguments. Without a fix: none at all, so the
+ * call keeps the Phase 1 shape ({p_id, p_source, p_at}). checkout_venue takes
+ * no p_fix_at.
+ */
+export function checkoutFixArgs(f: DeviceFix | null | undefined, nowMs: number): CheckoutFixArgs | Record<string, never> {
+  if (!isValidFix(f)) return {};
+  const a = fixArgs(f, nowMs);
+  return { p_lat: f.lat, p_lng: f.lng, p_accuracy_m: a.p_accuracy_m, p_fix_age_ms: a.p_fix_age_ms ?? 0 };
+}
+
+/**
+ * The fix `take` comes back with within `ms`, else null (also when it fails or
+ * returns an unusable reading). Check-out never waits longer than this.
+ */
+export async function fixWithin(take: () => Promise<DeviceFix | null>, ms: number): Promise<DeviceFix | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const fix = await Promise.race([
+      Promise.resolve()
+        .then(take)
+        .catch(() => null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ms);
+      }),
+    ]);
+    return isValidFix(fix) ? fix : null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const messageOf = (e: unknown): string => {

@@ -1,7 +1,8 @@
 # Play sessions + court presence (ported from Doggle)
 
 **Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
-Phase 1.5 (validity rules) in progress · **Source:** a 13-agent study of Doggle's walks /
+Phase 1.5 (validity rules) built on `feat/validity` 2026-10-16, persona-tested against live in a rolled-back
+transaction (388/388), not applied or shipped yet · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -124,6 +125,25 @@ never presence (an invalid session still shows you at the court).
    streak": the streak credit (Phase 5) goes to valid sessions.
 3. **End flow:** ending a session asks "Record a match or drill?" (opens MatchEntry linked to the session); without
    one, the summary says sessions count once a match or drill is recorded within 2 h.
+
+**Built (`feat/validity`, 2026-10-16; contract: [API, Phase 1.5](./play-sessions-presence-api.md#phase-15-validity-rules)):**
+
+- [x] 1. Stay proof: `venue_checkins.stay_confirmed` + check-out fix columns; `checkout_venue` gains optional fix
+  arguments (1.0.4 and current calls still resolve); the app sends a fix only when one comes back within 3 s.
+- [x] 2. Valid session: `play_sessions.valid` / `valid_reason` / `validated_at` / `rewards_pending_confirmation`,
+  `matches.play_session_id`, recomputed by triggers on End, matches and drill reviews; `my_session_validity`.
+- [x] 3. End flow: `components/play/PlayEndSheet` (Record match / Review drill / Not now), MatchEntry links the match.
+- [ ] Apply `supabase/migration_validity_rules.sql`, then merge and OTA.
+
+How the build reads the rules (say so to change any):
+
+- **Stay proof** also accepts any later confirming fix stored on the check-in (extend, a repeat check-in or a
+  session start at the same court), not only check-out and extend: each of those already proves the court.
+- **A drill is completed** when the player submits their drill review (drills have no status); it counts when
+  that review lands in the session's window.
+- **A match can be linked** only to the recorder's own session, open or ended under 2 h ago, with the recorder
+  among the players; anything else is stored unlinked (never refused).
+- **Open:** one match validates every overlapping session of its players. Decide before per-session pickles.
 
 Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are
 stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;

@@ -137,7 +137,9 @@ begin
         'get_my_presence_settings','hide_presence_from','list_friend_requests','list_my_court_favorites',
         'list_my_friends','list_presence_hidden','remove_friend','resolve_court',
         'respond_friend_request','send_friend_request','set_close_friend','set_court_favorite',
-        'set_presence_settings','suggest_friends','venue_crowd','venue_players_here'
+        'set_presence_settings','suggest_friends','venue_crowd','venue_players_here',
+        -- Presence Phase 1.5 (migration_validity_rules.sql).
+        'my_session_validity'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

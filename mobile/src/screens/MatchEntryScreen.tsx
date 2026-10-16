@@ -24,6 +24,12 @@ import { computeBadgeProgress } from '../lib/unlockProgress';
 import LeaguePickerModal, { PickableLeague } from '../components/LeaguePickerModal';
 import TournamentPickerModal, { PickableTournament } from '../components/TournamentPickerModal';
 import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { useToast } from '../lib/useToast';
+import { shortTime } from '../lib/agenda';
+import { noteMatchRecorded } from '../lib/playSession';
+import { isMissingColumnError, validityNote } from '../lib/sessionValidity';
+import { getMySessionValidity } from '../data/playSessions';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -80,7 +86,9 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     prefillMatchType,
     prefillTeam1Player, prefillTeam1Partner,
     prefillTeam2Player, prefillTeam2Partner,
+    playSessionId,
   } = route.params;
+  const toast = useToast();
   const isTournamentMatch = !!tournamentMatchId;
   // Home-launched entry: no fixed league, so the user picks the league (required)
   // and an optional tournament tag inline. Any other entry point fixes the league.
@@ -578,7 +586,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       // from "landed, reply lost", and a second `matches` row re-runs the whole
       // PLUPR / pickle / notification cascade with no dedupe constraint to stop
       // it. One bounded attempt; on a transport failure we tell the truth below.
-      const inserted = await sbCall(() => supabase.from('matches').insert({
+      const row: Record<string, unknown> = {
         league_id:     selectedLeagueId,
         tournament_id: selectedTournamentId ?? null,
         event_id:      eventId ?? null,
@@ -606,11 +614,42 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         partner1_gender_override: matchType === 'doubles' ? genderOverrides.partner1 : null,
         player2_gender_override:  genderOverrides.p2,
         partner2_gender_override: matchType === 'doubles' ? genderOverrides.partner2 : null,
-      }).select('id').single(), { retries: 0, timeoutMs: 30_000 }) as { id: string } | null;
+        // Played in this play session: the match makes it count (Phase 1.5).
+        // The server keeps the link only for my own session.
+        ...(playSessionId ? { play_session_id: playSessionId } : {}),
+      };
+      const insertOnce = (r: Record<string, unknown>) =>
+        sbCall(() => supabase.from('matches').insert(r).select('id').single(), { retries: 0, timeoutMs: 30_000 }) as
+          Promise<{ id: string } | null>;
+      let inserted: { id: string } | null;
+      try {
+        inserted = await insertOnce(row);
+      } catch (e) {
+        // A server without migration_validity_rules.sql refuses the unknown
+        // column before writing anything (PGRST204), so this second attempt
+        // can't make a second match.
+        if (!playSessionId || !isMissingColumnError(e, 'play_session_id')) throw e;
+        const { play_session_id: _unlinked, ...unlinked } = row;
+        inserted = await insertOnce(unlinked);
+      }
 
       // Latch before any follow-up work: the match exists, so nothing after this
       // point may put the user back in a position to insert it again.
       setSubmitted(true);
+
+      // From a play session: End won't ask for a match again, and the player
+      // hears whether the session counts now (best-effort, never blocks).
+      if (playSessionId && inserted?.id) {
+        noteMatchRecorded(playSessionId);
+        void withTimeout(getMySessionValidity(playSessionId), 5_000)
+          .then((v) => {
+            const note = validityNote(v, Date.now(), shortTime);
+            if (!note) return;
+            if (v?.valid) toast.success(note);
+            else toast.info(note);
+          })
+          .catch(() => {});
+      }
 
       // Record paddle usage for all players who have a default paddle
       // Can be edited within 72h of match

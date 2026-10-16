@@ -16,7 +16,9 @@
 // time (`at`), the fix taken at tap time, and a client id (replays land once).
 // The server refuses a fix older than 2 minutes, so a long-offline replay is
 // dropped and the player is told the next time the app is open. A check-out
-// carries when I really left; one that lands before its check-in makes that
+// carries when I really left and the fix taken at the tap, if one came back
+// within 3 s (the stay proof; the server dates it by its age, so a queued one
+// still counts); one that lands before its check-in makes that
 // check-in land closed (the server remembers the id). Extend is NOT queued: an
 // extension that lands after the check-in lapsed would be refused anyway, so
 // it fails loudly instead. It sends a fix when it can: without one the server
@@ -41,8 +43,10 @@ import { titleWith } from './pushSubject';
 import { isEndPending } from './playEndPending';
 import { readPendingEnds } from './playEndPendingStore';
 import {
+  CHECKOUT_FIX_WAIT_MS,
   checkoutPayload,
   fixFromCoords,
+  fixWithin,
   impreciseFixMessage,
   isFixFresh,
   isPreciseFix,
@@ -113,11 +117,13 @@ registerMutationHandler(MUTATION_CHECKIN, {
 });
 registerMutationHandler(MUTATION_CHECKOUT, {
   run: async (p) => {
-    const { id, source, at } = p as Partial<CheckoutPayload>;
+    const { id, source, at, fix } = p as Partial<CheckoutPayload>;
     // A check-out of a check-in the server refused: nothing to close, and the
     // server's "no such row" fallback must not close a later one instead.
     if (id && (await wasRejected(id))) return;
-    await checkoutVenue(id ?? null, source, at);
+    // The fix taken at the tap (none when queued by an older build); its age
+    // is measured at this send, so the server places it when it was taken.
+    await checkoutVenue(id ?? null, source, at, isValidFix(fix) ? fix : null);
   },
 });
 
@@ -355,10 +361,24 @@ export async function extendCheckinByHour(
   return next;
 }
 
-/** Check out (one check-in, or all of mine). Queues when offline, with the real leave time. */
-export async function checkOut(id: string | null, source?: CheckinSource): Promise<{ queued: boolean }> {
-  const payload = checkoutPayload(id, source, Date.now());
-  const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () => checkoutVenue(id, source, payload.at));
+/**
+ * Check out (one check-in, or all of mine). Queues when offline, with the real
+ * leave time. Sends a fresh fix only when one comes back within 3 s and
+ * location is already allowed (never a prompt): proof I stayed at the court
+ * (Phase 1.5). Without one it checks out exactly as before. `fix: false` skips
+ * it (a geofence exit: I've left, so a fix there proves nothing).
+ */
+export async function checkOut(
+  id: string | null,
+  source?: CheckinSource,
+  opts: { fix?: boolean } = {},
+): Promise<{ queued: boolean }> {
+  const fix =
+    opts.fix === false ? null : await fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS);
+  const payload = checkoutPayload(id, source, Date.now(), fix);
+  const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () =>
+    checkoutVenue(id, source, payload.at, payload.fix ?? null),
+  );
   const cached = await readStored();
   if (cached && (id === null || cached.id === id) && (!source || cached.source === source)) await setCurrent(null);
   return { queued };

@@ -28,6 +28,7 @@ import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
 import PlayIsland from '../components/PlayIsland';
 import PlayStartSheetHost from '../components/play/PlayStartSheet';
+import PlayEndSheetHost from '../components/play/PlayEndSheet';
 import { startOfflineWrites } from '../lib/offlineWrites';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -362,6 +363,8 @@ export default function AppNavigator() {
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}
       {!updateRequired && phase === 'ready' && <PlayStartSheetHost signedIn={!!session} />}
+      {/* "Record a match or drill?" after End (hidden otherwise). */}
+      {!updateRequired && phase === 'ready' && <PlayEndSheetHost signedIn={!!session} />}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

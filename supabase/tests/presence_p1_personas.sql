@@ -2,8 +2,9 @@
 -- Presence Phase 1 persona tests (docs/play-sessions-presence-api.md).
 --
 -- NOT runnable on its own: build-presence-test.mjs wraps it as
---   begin; <this file up to the marker> <the five migrations>
---   <migration_rls_hardening_2026q3.sql re-run> <the rest of this file> rollback;
+--   begin; <this file up to the marker> <the presence migrations, Phase 1.5 included>
+--   <re-runs, migration_rls_hardening_2026q3.sql re-run> <the rest of this file,
+--   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@> rollback;
 -- and the last statement selects the results. Run (from the linked checkout):
 --   node supabase/tests/build-presence-test.mjs <out.sql>
 --   supabase db query --linked -f <out.sql> -o csv
@@ -214,7 +215,8 @@ declare
   f text;
   v_client text[] := array[
     'public.checkin_venue(uuid,text,integer,text,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
-    'public.checkout_venue(uuid,text,timestamptz)',
+    -- Phase 1.5 (migration_validity_rules.sql) added the optional check-out fix.
+    'public.checkout_venue(uuid,text,timestamptz,double precision,double precision,double precision,double precision)',
     'public.extend_checkin(uuid,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
     'public.start_play_session(uuid,text,uuid,text,timestamptz,double precision,double precision,double precision,timestamptz,double precision)',
     'public.end_play_session(uuid,timestamptz)',
@@ -281,6 +283,8 @@ begin
   perform pg_temp.ok('T1 old 5-arg checkin_venue is gone',
     to_regprocedure('public.checkin_venue(uuid,text,integer,text,timestamptz)') is null);
   perform pg_temp.ok('T1 old 2-arg checkout_venue is gone', to_regprocedure('public.checkout_venue(uuid,text)') is null);
+  perform pg_temp.ok('T1 Phase 1 3-arg checkout_venue is gone (Phase 1.5 replaced it)',
+    to_regprocedure('public.checkout_venue(uuid,text,timestamptz)') is null);
   perform pg_temp.ok('T1 old 5-arg start_play_session is gone',
     to_regprocedure('public.start_play_session(uuid,text,uuid,text,timestamptz)') is null);
   perform pg_temp.ok('T1 venue_players_here is SECURITY DEFINER',
@@ -1645,6 +1649,9 @@ begin
 exception when others then
   perform pg_temp.ok('T16 block crashed', false, sqlerrm);
 end $$;
+
+
+-- @@VALIDITY@@
 
 
 -- ════ Results ════════════════════════════════════════════════════════════
