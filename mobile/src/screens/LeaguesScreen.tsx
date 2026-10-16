@@ -488,6 +488,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         home_court:     homeCourt?.name ?? null,
         home_court_lat: homeCourt?.lat ?? null,
         home_court_lng: homeCourt?.lng ?? null,
+        // A court from our catalog is stored by id (pins and pasted spots aren't).
+        home_venue_id:  homeCourt?.catalogId ?? null,
       }).select().single()) as { id: string };
 
       // Auto-add creator as admin member

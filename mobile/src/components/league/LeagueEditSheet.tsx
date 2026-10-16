@@ -4,6 +4,10 @@
 // changes (matches has no RLS UPDATE policy, so the old per-row client updates
 // silently matched zero rows), and the same validation copy. Restyled onto the
 // foundation TextField / Button and the token scales.
+//
+// A court picked from our catalog is also stored as leagues.home_venue_id, so
+// check-in alerts and the court chip use that court instead of guessing one
+// from the coordinates. A pin or a pasted spot stores none.
 import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
@@ -42,7 +46,15 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
     setIsOpen(league.is_open);
     setCourt(
       league.home_court
-        ? { name: league.home_court, address: '', lat: league.home_court_lat ?? 0, lng: league.home_court_lng ?? 0, placeId: '' }
+        ? {
+            name: league.home_court,
+            address: '',
+            lat: league.home_court_lat ?? 0,
+            lng: league.home_court_lng ?? 0,
+            placeId: '',
+            // Unchanged on save unless another court is picked.
+            catalogId: league.home_venue_id ?? undefined,
+          }
         : null,
     );
     status.clear();
@@ -65,6 +77,7 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
       home_court:     newCourtName,
       home_court_lat: court?.lat ?? null,
       home_court_lng: court?.lng ?? null,
+      home_venue_id:  court?.catalogId ?? null,
     }).eq('id', league.id);
     if (error) { status.error(error.message); setSaving(false); return; }
 
