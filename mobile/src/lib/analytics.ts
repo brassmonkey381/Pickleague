@@ -705,6 +705,8 @@ export type HomeSection =
   | 'join'
   | 'quick'
   | 'court'
+  // FRIENDS AT THE COURTS: header (-> Friends), row (a friend's court), court_row (YOUR COURTS).
+  | 'friends_courts'
   | 'open_near_you'
   | 'unlock';
 

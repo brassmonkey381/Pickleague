@@ -376,3 +376,34 @@ Writing the drill message thread into §1 is part of the same correction. The
 previous notes said "no chat or direct messaging", which was **wrong** —
 `drill_requests.message` and `drill_request_messages` are exactly that. Never
 restore that sentence.
+
+## 6. For the next binary (1.0.5+): check-ins confirm the court, and who sees them
+
+Phase 1 of [play-sessions-presence.md](play-sessions-presence.md) changes what a check-in
+stores, so the §1 location bullet "Coordinates are not stored; a check-in stores only the
+court" stops being true. When the next binary is submitted, replace the **Location (when in
+use)** bullet in §1 with the block below and add the **Court presence** bullet after the
+**Location (always)** one. Re-answer the App Privacy questionnaire at the same time (Precise
+Location: collected, linked to the user, App Functionality) and the Play Data Safety draft;
+neither needs a build. [`mobile/public/privacy.html`](../mobile/public/privacy.html) already
+says this.
+
+```text
+- Location (when in use): to show pickleball courts near the player when they
+  search for a venue, and to confirm the court they are at when they check in
+  or start a play session there. A check-in needs a fresh GPS fix inside the
+  court's boundary (checked on our server); there are no manual check-ins. The
+  check-in stores the court, the time, and that one fix (coordinates, accuracy,
+  distance to the court). No route or continuous tracking. Check-ins are deleted
+  after 180 days.
+- Court presence: other players see a checked-in player's name only as the
+  player allows in Settings -> Privacy -> Who sees me at the courts (default:
+  friends and members of closed leagues they share; also Everyone, Friends, or
+  Hidden). Everyone else sees an anonymous count, blocked players never see each
+  other, and a player can pause sharing or hide from specific people. A one-time
+  sheet before the first check-in says who will see them. The location fix is
+  never shown to anyone.
+```
+
+The **Location (always)** bullet stays as it is until the opt-in auto check-in ships (Phase 2):
+region monitoring is still prompt-only, behind Court Arrival Alerts.

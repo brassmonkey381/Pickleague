@@ -1,10 +1,16 @@
 // "N players here now" at one court, with their PLUPR. Refreshes every minute
 // while visible. A failed load shows a line saying so rather than "nobody here".
 //
+// Rows come from court_presence, which applies each player's own privacy
+// setting on the server: someone this viewer may not name arrives anonymous
+// (no ids, no name) and renders as a neutral dot, "Player · 3.5–4.0" (a band,
+// never the exact rating). Close friends are marked ⭐ and listed first, then
+// friends, then other named players, then the anonymous rows.
+//
 // Three looks:
 //   - default:  the summary line plus up to 12 names (kept for any caller that
 //               wants the full roster).
-//   - compact:  one summary line only (league screen, CourtPresenceLine).
+//   - compact:  one summary line only (league screen).
 //   - presence: the foundation PresenceCard, compact, capped at `maxRows` with
 //               "+N more".
 //
@@ -21,7 +27,11 @@ import { AvatarPile, PresenceCard } from '@just-messin-around/expo-foundation/ui
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { formatPluprShort } from '../lib/plupr';
-import { getPlayersHere, type PlayerHere } from '../data/venueCheckins';
+import { presenceRowLabel, sortPresenceRows } from '../lib/courtCrowd';
+import { getCourtPresence, type CourtPresenceRow } from '../data/courtPresence';
+
+/** One row of who's here (court_presence). */
+export type PlayerHere = CourtPresenceRow;
 
 type Props = {
   venueId: string;
@@ -46,7 +56,7 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
   usePollWhileActive(
     async () => {
       try {
-        setPlayers(await getPlayersHere(venueId));
+        setPlayers(sortPresenceRows(await getCourtPresence(venueId)));
         setFailed(false);
       } catch {
         setFailed(true);
@@ -58,11 +68,38 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
   return { players, failed };
 }
 
+/** A named row's emoji avatar; an anonymous row is a neutral dot (no emoji,
+ *  nothing to tell one player from another). */
+function RowAvatar({ p, fill }: { p: PlayerHere; fill?: boolean }) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  if (p.anonymous) {
+    return (
+      <View style={[fill ? S.pileFill : S.avatar, { backgroundColor: c.surfaceAlt }]}>
+        <View style={[S.dot, { backgroundColor: c.border }]} />
+      </View>
+    );
+  }
+  return (
+    <View style={[fill ? S.pileFill : S.avatar, { backgroundColor: c.surfaceAlt }]}>
+      <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
+    </View>
+  );
+}
+
+/** "Close friend · PLUPR 3.62", "Friend · PLUPR 3.62", "PLUPR 3.62"; none for
+ *  an anonymous row (its label already carries the band). */
+function rowSublabel(p: PlayerHere): string | null {
+  if (p.anonymous) return null;
+  const plupr = `PLUPR ${formatPluprShort(p.doubles_rating, undefined)}`;
+  if (p.is_close_friend) return `Close friend · ${plupr}`;
+  if (p.is_friend) return `Friend · ${plupr}`;
+  return plupr;
+}
+
 /** The full roster: the foundation PresenceCard, compact, capped at `maxRows`
  *  with "+N more", embedded in a panel (no second border or inset). */
 export function PlayersHereRoster({ players, maxRows }: { players: PlayerHere[]; maxRows: number }) {
-  const { colors: c } = useTheme();
-  const t = textStyles(c);
   const n = players.length;
   return (
     <PresenceCard
@@ -74,13 +111,9 @@ export function PlayersHereRoster({ players, maxRows }: { players: PlayerHere[];
       style={S.presence}
       rows={players.map((p) => ({
         key: p.checkin_id,
-        avatar: (
-          <View style={[S.avatar, { backgroundColor: c.surfaceAlt }]}>
-            <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
-          </View>
-        ),
-        label: p.full_name ?? 'Player',
-        sublabel: `PLUPR ${formatPluprShort(p.doubles_rating ?? p.rating, undefined)}`,
+        avatar: <RowAvatar p={p} />,
+        label: presenceRowLabel(p),
+        sublabel: rowSublabel(p),
       }))}
     />
   );
@@ -137,15 +170,11 @@ export function PlayersHerePile({
       inline
       items={players.slice(0, PILE_MAX)}
       keyOf={(p) => p.checkin_id}
-      labelOf={(p) => p.full_name ?? 'Player'}
+      labelOf={presenceRowLabel}
       size={AVATAR}
       // The ring in the panel colour keeps the stacked avatars apart (no shadow).
       overlap={SPACE.sm}
-      renderAvatar={(p) => (
-        <View style={[S.pileFill, { backgroundColor: c.surfaceAlt }]}>
-          <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
-        </View>
-      )}
+      renderAvatar={(p) => <RowAvatar p={p} fill />}
       trailing={captionText}
       onPress={onPress}
       expanded={expanded}
@@ -177,10 +206,10 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
       {players.slice(0, 12).map((p) => (
         <View key={p.checkin_id} style={S.row}>
           <Text style={[t.body, S.name]} numberOfLines={1}>
-            {p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
-            {p.full_name ?? 'Player'}
+            {p.anonymous ? '· ' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
+            {presenceRowLabel(p)}
           </Text>
-          <Text style={t.sub}>PLUPR {formatPluprShort(p.doubles_rating ?? p.rating, undefined)}</Text>
+          {p.anonymous ? null : <Text style={t.sub}>PLUPR {formatPluprShort(p.doubles_rating, undefined)}</Text>}
         </View>
       ))}
       {n > 12 ? <Text style={t.sub}>and {n - 12} more</Text> : null}
@@ -204,4 +233,5 @@ const S = StyleSheet.create({
   // Fills the pile's ringed circle (it clips to round), centring the emoji.
   pileFill: { flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   shrink: { flexShrink: 1 },
+  dot: { width: AVATAR / 3, height: AVATAR / 3, borderRadius: RADIUS.pill },
 });

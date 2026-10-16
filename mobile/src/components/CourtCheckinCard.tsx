@@ -58,10 +58,10 @@ import { FIX_REUSE_MS, isFixFresh, isNotAtCourtError, type DeviceFix } from '../
 import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
+import CrowdLine from './court/CrowdLine';
 import { noteGoodMoment } from '../lib/ratingPrompt';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { ensurePresenceConsent } from '../lib/presenceConsent';
-import { FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
 import type { RootStackParamList } from '../types';
 
@@ -455,7 +455,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             })}
           />
         </HereLine>
-        {FRIENDS_AT_COURTS_ENABLED && <PauseSharingChip checkinId={current.id} />}
+        <PauseSharingChip style={S.hug} />
         {footer}
       </Panel>
     );
@@ -487,6 +487,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             onPress={tap('not_here', () => setNearby(null))}
           />
         </HereLine>
+        <CrowdLine venueId={nearby.id} venueName={nearby.name} star />
         {footer}
       </Panel>
     );

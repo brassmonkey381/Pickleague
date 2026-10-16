@@ -14,6 +14,8 @@
 //     or JOIN A LEAGUE (no league yet): code, browse, 3 leagues with [Join]
 //   quick row .... Record · Play · Drill · Shop · History
 //   court row .... "At the courts?  Find my court ›" (idle check-in)
+//   FRIENDS AT THE COURTS  friends playing now + YOUR COURTS with their crowd
+//                  (components/home/FriendsAtCourtsSection.tsx)
 //   OPEN NEAR YOU  open tournaments / joinable leagues (members)
 //   unlock ....... next badge on a progress bar (once Get started is gone)
 //
@@ -82,6 +84,7 @@ import JoinLeagueSection from '../components/home/JoinLeagueSection';
 import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
+import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import StreakBonusModal from '../components/home/StreakBonusModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
@@ -623,6 +626,9 @@ export default function HomeScreen({ navigation }: Props) {
   sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
 
   if (courtMode === 'idle') sections.push(court);
+
+  // FRIENDS AT THE COURTS: its own read and cache; renders nothing when empty or flagged off.
+  sections.push(<FriendsAtCourtsSection key="friends-courts" />);
 
   if (isMember && !loadFailed && !firstLoad && openItems.rows.length > 0) {
     sections.push(

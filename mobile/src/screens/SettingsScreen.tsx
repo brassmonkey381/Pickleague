@@ -29,6 +29,7 @@ import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
 import { WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
+import PresencePrivacyRows from '../components/presence/PresencePrivacyRows';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
 import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
 import { endPresenceForSignOut } from '../lib/signOutPresence';
@@ -528,6 +529,9 @@ export default function SettingsScreen({ navigation }: Props) {
           desc="Review or undo the players you've blocked"
           onPress={() => navigation.navigate('BlockedPlayers')}
         />
+        {/* Who sees me at the courts / my planned games / Hidden from
+            (nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
+        <PresencePrivacyRows />
       </Panel>
 
       {/* ── About ────────────────────────────── */}
