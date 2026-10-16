@@ -79,6 +79,8 @@ as $$
      and c.expires_at > now()
      and (c.location_confirmed or c.user_id = auth.uid())
      and s.vis <> 'none'
+     -- Guests get counts only (venue_crowd), never rows: just their own.
+     and (c.user_id = auth.uid() or not public._pl_presence_viewer_is_guest(auth.uid()))
    order by (s.vis = 'named') desc, case when s.vis = 'named' then c.checked_in_at end, 1;
 $$;
 revoke execute on function public.venue_players_here(text) from public, anon;
@@ -126,6 +128,8 @@ as $$
        and c.expires_at > now()
        and (c.location_confirmed or c.user_id = auth.uid())
        and s.vis <> 'none'
+       -- Guests get counts only (venue_crowd), never rows: just their own.
+       and (c.user_id = auth.uid() or not public._pl_presence_viewer_is_guest(auth.uid()))
   )
   select case when r.vis = 'named' then r.id else gen_random_uuid() end,
          case when r.vis = 'named' then r.user_id end,
@@ -162,8 +166,8 @@ grant execute on function public.court_presence(text) to authenticated;
 
 -- ── 2. Crowd ───────────────────────────────────────────────────────────────
 -- One facility's crowd as p_viewer sees it (internal). here_now counts every
--- confirmed open check-in, hidden, paused and blocked players included (a
--- blocked pair counts each other like any stranger). The band is the
+-- confirmed open check-in, hidden and paused players included, except a
+-- blocked pair (either way), who never count for each other. The band is the
 -- 25th-75th percentile of the PLUPR doubles ratings of the rated players this
 -- viewer sees only as anonymous (never the viewer, never anyone shown by name,
 -- whose rating the viewer already has), rounded to 0.25, and only with 3+ of
@@ -194,7 +198,7 @@ as $$
      where s.vis = 'anonymous'
        and s.doubles_rating is not null and s.total_matches_played > 0
   )
-  select (select count(*)::int from here),
+  select (select count(*)::int from seen s where s.vis <> 'none'),
          case when (select count(*) from rated) >= 3 then
            (round((select percentile_cont(0.25) within group (order by r) from rated)::numeric * 4) / 4)::numeric(4,2) end,
          case when (select count(*) from rated) >= 3 then

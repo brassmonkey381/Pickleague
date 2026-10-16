@@ -636,11 +636,11 @@ declare
   x   public.venue_checkins;
   ts  text[];
 begin
-  -- The owner's view. B (blocked by O) and K (blocks O) are anonymous
-  -- strangers to O, as O is to them.
+  -- The owner's view. B (blocked by O) and K (blocks O) are invisible to O,
+  -- and O to them: not shown, not counted.
   perform pg_temp.as_user(pg_temp.p('O'));
   select count(*), count(*) filter (where c.anonymous) into n, na from public.court_presence('test:p1-alpha') c;
-  perform pg_temp.ok('T5 O sees 12 (a blocked pair as anonymous strangers), 8 anonymous', n = 12 and na = 8, n || '/' || na);
+  perform pg_temp.ok('T5 O sees 10 (the blocked pair B and K left out), 6 anonymous', n = 10 and na = 6, n || '/' || na);
   perform pg_temp.ok('T5 O sees their own row first',
     (select c.user_id from public.court_presence('test:p1-alpha') c limit 1) = pg_temp.p('O'));
   select * into r from public.court_presence('test:p1-alpha') c where c.user_id = pg_temp.p('F');
@@ -658,9 +658,9 @@ begin
                  where c.anonymous and (c.user_id is not null or c.full_name is not null or c.doubles_rating is not null
                                         or c.avatar_url is not null or c.is_friend or c.is_close_friend)));
   select count(*) into n from public.venue_players_here('test:p1-alpha-osm');
-  perform pg_temp.ok('T5 venue_players_here by a duplicate id finds the facility', n = 12, n::text);
+  perform pg_temp.ok('T5 venue_players_here by a duplicate id finds the facility', n = 10, n::text);
   perform pg_temp.ok('T5 1.0.4 anonymous rows: null ids/names/ratings, hour-rounded times',
-    (select count(*) from public.venue_players_here('test:p1-alpha') vp where vp.user_id is null) = 8
+    (select count(*) from public.venue_players_here('test:p1-alpha') vp where vp.user_id is null) = 6
     and not exists (select 1 from public.venue_players_here('test:p1-alpha') vp
                      where vp.user_id is null
                        and (vp.full_name is not null or vp.avatar_url is not null or vp.rating is not null
@@ -673,14 +673,14 @@ begin
   select array_agg(c.checkin_id) into ids2 from public.court_presence('test:p1-alpha') c where c.anonymous;
   perform pg_temp.as_admin();
   perform pg_temp.ok('T5 anonymous ids are random: unique, never a real id or md5(id || viewer), new each call',
-    cardinality(ids) = 8 and (select count(distinct u) from unnest(ids) u) = 8
+    cardinality(ids) = 6 and (select count(distinct u) from unnest(ids) u) = 6
     and not exists (select 1 from public.venue_checkins c, unnest(ids || ids2) u
                      where u = c.id or u = md5(c.id::text || pg_temp.p('O')::text)::uuid)
     and not (ids && ids2));
   perform pg_temp.as_user(pg_temp.p('O'));
   select count(*) into n from public.venue_crowd(array['test:p1-alpha', 'test:p1-alpha-osm', 'test:nope']) c
-   where c.here_now = 12 and c.friends_here = 2 and c.band_low is null;
-  perform pg_temp.ok('T5 crowd: 12 here, 2 friends, no band with 2 rated; both ids answer, unknown skipped', n = 2, n::text);
+   where c.here_now = 10 and c.friends_here = 2 and c.band_low is null;
+  perform pg_temp.ok('T5 crowd: 10 here (blocked pair not counted), 2 friends, no band with 2 rated; both ids answer, unknown skipped', n = 2, n::text);
   perform pg_temp.as_admin();
   update public.profiles set total_matches_played = 5, doubles_rating = 4.0 where id = pg_temp.p('R3');
   perform pg_temp.as_user(pg_temp.p('O'));
@@ -705,23 +705,31 @@ begin
                         or c.via_session or c.session_kind is not null)));
   select c.here_now, c.friends_here into n, na from public.venue_crowd(array['test:p1-alpha']) c;
   perform pg_temp.ok('T5 stranger crowd: 12 here, 0 friends', n = 12 and na = 0, n || '/' || na);
-  -- A blocked pair sees each other as an anonymous stranger: the blocked
-  -- user's view can't be diffed against a second account's or a guest's.
+  -- A blocked pair sees nothing of each other: no row, no count.
   n := pg_temp.rows_at_alpha('B');
-  perform pg_temp.ok('T5 the user O blocked does not see O by name (O is an anonymous row)',
-    n = 12 and not pg_temp.sees('B', 'O'), n::text);
+  perform pg_temp.ok('T5 the user O blocked gets no row for O (11 rows)',
+    n = 11 and not pg_temp.sees('B', 'O'), n::text);
   perform pg_temp.as_user(pg_temp.p('B'));
   select c.here_now into n from public.venue_crowd(array['test:p1-alpha']) c;
-  perform pg_temp.ok('T5 ...and counts O like anyone else', n = 12, n::text);
+  perform pg_temp.ok('T5 ...and does not count O (11)', n = 11, n::text);
+  perform pg_temp.as_user(pg_temp.p('B'));
+  select count(*) into n from public.venue_players_here('test:p1-alpha');
+  perform pg_temp.ok('T5 ...nor in the 1.0.4 roster (11)', n = 11, n::text);
   n := pg_temp.rows_at_alpha('K');
-  perform pg_temp.ok('T5 the user who blocked O does not see O by name either', n = 12 and not pg_temp.sees('K', 'O'), n::text);
-  ts := pg_temp.anon_times_at_alpha('S');
-  perform pg_temp.ok('T5 the blocked user''s anonymous rows match a stranger''s and a guest''s (nothing to diff)',
-    pg_temp.anon_times_at_alpha('B') = ts and pg_temp.anon_times_at_alpha('G') = ts and cardinality(ts) = 11,
-    array_to_string(ts, ', '));
+  perform pg_temp.ok('T5 the user who blocked O gets no row for O either (11)', n = 11 and not pg_temp.sees('K', 'O'), n::text);
+  perform pg_temp.as_user(pg_temp.p('K'));
+  select c.here_now into n from public.venue_crowd(array['test:p1-alpha']) c;
+  perform pg_temp.ok('T5 ...and does not count O (11)', n = 11, n::text);
+  -- Guests get counts only: no rows but their own, in both rosters.
   n := pg_temp.rows_at_alpha('G');
-  select count(*) into na from public.court_presence('test:p1-alpha') c where not c.anonymous;
-  perform pg_temp.ok('T5 guest sees counts only (everyone else anonymous)', n = 12 and na = 1, n || '/' || na);
+  select count(*) into na from public.court_presence('test:p1-alpha') c where c.user_id = pg_temp.p('G');
+  perform pg_temp.ok('T5 guest gets only their own row', n = 1 and na = 1, n || '/' || na);
+  perform pg_temp.as_user(pg_temp.p('G'));
+  select count(*) into n from public.venue_players_here('test:p1-alpha') vp where vp.user_id is distinct from pg_temp.p('G');
+  perform pg_temp.ok('T5 guest: no other rows in the 1.0.4 roster', n = 0, n::text);
+  perform pg_temp.as_user(pg_temp.p('G'));
+  select c.here_now into n from public.venue_crowd(array['test:p1-alpha']) c;
+  perform pg_temp.ok('T5 guest still sees the count (12)', n = 12, n::text);
   perform pg_temp.ok('T5 closed-league mate sees O by name', pg_temp.sees('L', 'O'));
   perform pg_temp.ok('T5 open-league mate does not', not pg_temp.sees('P', 'O'));
   perform pg_temp.ok('T5 friend sees O by name', pg_temp.sees('F', 'O'));
@@ -734,7 +742,7 @@ begin
   perform pg_temp.ok('T5 everyone: stranger sees O', pg_temp.sees('S', 'O'));
   perform pg_temp.ok('T5 everyone: guest still does not', not pg_temp.sees('G', 'O'));
   perform pg_temp.ok('T5 everyone: the blocked user still does not see O by name',
-    not pg_temp.sees('B', 'O') and pg_temp.rows_at_alpha('B') = 12);
+    not pg_temp.sees('B', 'O') and pg_temp.rows_at_alpha('B') = 11);
   perform pg_temp.as_user(pg_temp.p('O'));
   perform public.set_presence_settings('friends');
   perform pg_temp.ok('T5 friends: league mate loses O', not pg_temp.sees('L', 'O'));
@@ -743,7 +751,7 @@ begin
   perform public.set_presence_settings('hidden');
   perform pg_temp.ok('T5 hidden: friend loses O', not pg_temp.sees('F', 'O'));
   select c.here_now into n from public.venue_crowd(array['test:p1-alpha']) c;
-  perform pg_temp.ok('T5 hidden: O still counts', n = 12, n::text);
+  perform pg_temp.ok('T5 hidden: O still counts in the friend''s crowd (12)', n = 12, n::text);
   perform pg_temp.as_user(pg_temp.p('O'));
   j := public.set_presence_settings('leaguemates', null, now() + interval '1 hour');
   perform pg_temp.ok('T5 pause stored', j ->> 'checkins_level' = 'leaguemates' and j ->> 'paused_until' is not null, j::text);
@@ -816,11 +824,11 @@ begin
   -- Home: friends at the courts.
   perform pg_temp.as_user(pg_temp.p('O'));
   j := public.friends_at_courts();
-  perform pg_temp.ok('T5 O friends_at_courts: one court, F C L by name, 8 others',
+  perform pg_temp.ok('T5 O friends_at_courts: one court, F C L by name, 6 others',
     jsonb_array_length(j -> 'now') = 1
     and j -> 'now' -> 0 ->> 'venue_id' = 'test:p1-alpha'
     and jsonb_array_length(j -> 'now' -> 0 -> 'people') = 3
-    and (j -> 'now' -> 0 ->> 'others_here')::int = 8
+    and (j -> 'now' -> 0 ->> 'others_here')::int = 6
     and (select bool_and((pp ->> 'user_id')::uuid in (pg_temp.p('F'), pg_temp.p('C'), pg_temp.p('L')))
            from jsonb_array_elements(j -> 'now' -> 0 -> 'people') pp), j::text);
   perform pg_temp.ok('T5 the close friend is starred',
@@ -830,7 +838,7 @@ begin
     jsonb_array_length(j -> 'courts') = 4
     and (select bool_and(c ->> 'reason' = 'favorite') from jsonb_array_elements(j -> 'courts') c)
     and j -> 'courts' -> 0 ->> 'venue_id' = 'test:p1-alpha'
-    and (j -> 'courts' -> 0 ->> 'here_now')::int = 12 and (j -> 'courts' -> 0 ->> 'friends_here')::int = 2,
+    and (j -> 'courts' -> 0 ->> 'here_now')::int = 10 and (j -> 'courts' -> 0 ->> 'friends_here')::int = 2,
     (j -> 'courts')::text);
   perform public.set_court_favorite('test:p1-c5', true);
   j := public.friends_at_courts();

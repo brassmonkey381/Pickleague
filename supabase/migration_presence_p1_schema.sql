@@ -668,9 +668,9 @@ revoke all on function public._pl_presence_viewer_is_guest(uuid) from public, an
 --   'named'      full row (name, avatar, rating)
 --   'anonymous'  an anonymous "Player": counted, never identified
 --   'none'       not shown, not counted (no owner, or a deleted one)
--- A blocked pair (either way) is 'anonymous' to each other, like any stranger,
--- whatever the owner's level: leaving them out would single the blocker out
--- against a second account's (or a guest's) view of the same court.
+-- A blocked pair (either way) is 'none' to each other: not shown, not
+-- counted (the user's decision 2026-10-16, accepting that a second account
+-- could notice the difference in counts).
 -- p_kind 'checkins' reads checkins_level, 'plans' reads plans_level. Callers
 -- also show only location_confirmed rows to anyone but the owner.
 create or replace function public._pl_can_see_presence(viewer uuid, owner uuid, p_kind text)
@@ -689,7 +689,7 @@ begin
   if not exists (select 1 from public.profiles p where p.id = owner and p.deleted_at is null) then
     return 'none';
   end if;
-  if viewer is not null and public._pl_blocked_pair(viewer, owner) then return 'anonymous'; end if;
+  if viewer is not null and public._pl_blocked_pair(viewer, owner) then return 'none'; end if;
   if public._pl_presence_viewer_is_guest(viewer) then return 'anonymous'; end if;
 
   select case when p_kind = 'plans' then s.plans_level else s.checkins_level end, s.paused_until
