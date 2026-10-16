@@ -13,6 +13,68 @@ Feature flag: `FRIENDS_AT_COURTS_ENABLED` in `mobile/src/lib/features.ts` (false
 on the live DB). Gate every new screen registration, linking path, push route and Home section on it. The
 location-confirmed check-in and session changes are NOT gated (they replace existing behaviour).
 
+## SQL files and apply order
+
+Apply in ONE transaction, in this order (none of the files contains begin/commit):
+
+1. `supabase/migration_presence_p1_schema.sql`: columns, all new tables (friendships, close_friends and the
+   internal `friend_request_log` live here, because the privacy helpers read them), owner-only RLS, the venue
+   dedupe pass, the league / court-location backfill + sync triggers, privacy helpers
+2. `supabase/migration_presence_p1_checkins.sql`: checkin_venue, checkout_venue, extend_checkin,
+   start_play_session, end_play_session, expire_play_sessions, resolve_court
+3. `supabase/migration_presence_p1_reads.sql`: venue_players_here, court_presence, venue_crowd, friends_at_courts,
+   presence settings, court favorites
+4. `supabase/migration_presence_p1_friends.sql`: friend RPCs, notices, block teardown trigger, suggest_friends
+5. `supabase/migration_presence_p1_hygiene.sql`: `_purge_account` (delete_my_account + moderator_eject_user),
+   `pickleague-presence-retention` cron
+
+`migration_rls_hardening_2026q3.sql` already allowlists every RPC below (plus the 29 client RPCs that were
+missing and the policy helpers), so re-running it afterwards takes nothing offline. Persona tests (250
+assertions, all passing against the live DB in a rolled-back transaction on 2026-10-16):
+`node supabase/tests/build-presence-test.mjs <out.sql>`, then `supabase db query --linked -f <out.sql> -o csv`
+from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
+
+## Where the SQL differs from or sharpens this contract (2026-10-16)
+
+Signatures are exactly as below. Behaviour details the clients should know:
+
+- **checkout_venue `p_source`** keeps its 1.0.4 meaning, a FILTER: `'manual' | 'geofence' | 'session'` close only
+  check-ins that source opened. Its default stays `null` (not `'manual'`): no filter. Any other value, e.g.
+  `'signout'`, also means no filter, so `checkout_venue(null, 'signout', now)` closes everything.
+- **Unknown-id fallback** (checkout_venue, extend_checkin) applies only when `p_id` names no check-in of the caller
+  (1.0.4 keeps its own id when the server hands back the row it already had). A `p_id` that names a closed row is a
+  replay: checkout returns 0, extend raises `Check-in is no longer open`.
+- **Extra check-in errors:** a stale fix (older than 2 minutes or more than 1 minute ahead) raises
+  `Your location is out of date. Try again at the court.`; a fix with only one of lat/lng (or out of range) raises
+  `Your location didn't come through. Try again.` The distance in the "about % m away" message is to the nearest
+  of the facility's rows (canonical + duplicates), and a fix confirms when it is inside any of them.
+- **Quiet repeat check-in:** a call without a fix at a court where the caller already has a confirmed row returns
+  that row unchanged (no extension without a fix). A confirmed call at a court where the caller has only a private
+  (unconfirmed) row closes it and opens a new confirmed row.
+- **start_play_session adopt path** needs no fix (the adopted row was already confirmed). Without an adoptable row,
+  a fix that does not confirm the court is NOT an error: the session starts untracked.
+- **resolve_court** clamps `p_radius_m` to 10..2000 m; `p_sport = null` means any sport; `inside` = in a boundary or
+  within a row's `geofence_radius_m` (no accuracy slack); raises `Not authenticated` without a session.
+- **venue_crowd** omits unknown ids, answers each requested id as given (two duplicates both answer), and raises
+  `At most 50 courts at a time` past 50. "Rated" for the band = has played a match (`total_matches_played > 0`),
+  as the standings treat it. band_low / band_high are `numeric(4,2)`.
+- **set_presence_settings:** `p_paused_until` is capped at 7 days ahead; a time already past clears the pause.
+  get_my_presence_settings returns `paused_until = null` once a pause has run out.
+- **respond_friend_request** returns `'accepted'` (or `'declined'`) when that is already the answer, so lock-screen
+  replays are idempotent; `'gone'` when there is no request (cancelled, blocked, deleted, or it was my own).
+- **send_friend_request** errors: `You can't add yourself as a friend`, `Create an account to add friends` (guest
+  caller), `This player isn't available` (guest, unclaimed, deleted or blocked target),
+  `You've sent 20 friend requests today. Try again tomorrow.` A re-send to the same person within 24 h of a notified
+  request (e.g. after a cancel) is stored pending without a second push.
+- **friendship_status_with** reads `'none'` for a declined pair (either side), so the requester may re-request
+  (quietly within 30 days).
+- **Leagues / court locations:** a trigger keeps `leagues.home_venue_id` and `court_locations.venue_id` canonical, and
+  re-resolves them when a 1.0.4 app changes only the name / coordinates. The backfill also resolves by name within
+  1 km when nothing is in range: Crocker-Amazon (dinks) -> Crocker Amazon Pickleball Courts (752 m). Both Bladium
+  leagues -> The Hub Sports Club - Alameda.
+- **send-push** reads the `friend_request` catalog category loosely (the push goes out without buttons until the
+  app catalog has a `friend_request` entry); switch it to `CATEGORY.friend_request` once the catalog lands.
+
 ## Tables
 
 ```
@@ -69,13 +131,15 @@ checkin_venue(p_id uuid, p_venue text, p_minutes int default 120, p_source text 
   and insert. Stores the fix and its distance.
 
 ```
-checkout_venue(p_id uuid, p_source text default 'manual', p_at timestamptz default null) returns integer
+checkout_venue(p_id uuid default null, p_source text default null, p_at timestamptz default null) returns integer
 ```
 - Replaces the 2-arg version. `checked_out_at = greatest(checked_in_at + 1s, least(coalesce(p_at, now()), now(), expires_at))`.
-- `p_id` that matches no open row falls back to the caller's open row (any venue); `p_id is null` closes all of the caller's open rows.
+- `p_id` that names no check-in of the caller falls back to the caller's open rows (any venue); `p_id is null` closes all
+  of the caller's open rows. `p_source` is a filter (see the differences list above).
 
 ```
-start_play_session(p_id uuid, p_kind text, p_source uuid, p_venue text, p_at timestamptz,
+start_play_session(p_id uuid, p_kind text, p_source uuid default null, p_venue text default null,
+                   p_at timestamptz default null,
                    p_lat double precision default null, p_lng double precision default null,
                    p_accuracy_m double precision default null, p_fix_at timestamptz default null)
   returns public.play_sessions
@@ -86,7 +150,8 @@ start_play_session(p_id uuid, p_kind text, p_source uuid, p_venue text, p_at tim
 - Closing a previous session also closes that session's `source='session'` check-in.
 
 `end_play_session(p_id, p_at)` — unchanged signature; also closes the check-in `id = p_id and source = 'session'`.
-`extend_checkin(p_id, p_until)` — unchanged signature; falls back to the caller's open row when `p_id` is not open.
+`extend_checkin(p_id, p_until)` — unchanged signature; falls back to the caller's open row when `p_id` names no
+check-in of the caller (a closed one still raises).
 
 ```
 resolve_court(p_lat double precision, p_lng double precision, p_radius_m double precision default 150,
