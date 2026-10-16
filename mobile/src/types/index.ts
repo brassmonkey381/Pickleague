@@ -597,6 +597,8 @@ export type RootStackParamList = {
   // focusId: a drill request or session id from a push; openChat opens its chat.
   DrillRequests: { focusId?: string; openChat?: boolean } | undefined;
   Shop: undefined;
+  QrWallet: undefined;
+  QrPass: { passId: string };
   ScoringAlgo: undefined;
   GiftPickles: undefined;
   Godmode: undefined;

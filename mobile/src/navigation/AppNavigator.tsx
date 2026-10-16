@@ -80,6 +80,8 @@ import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
+import QrWalletScreen from '../screens/QrWalletScreen';
+import QrPassScreen from '../screens/QrPassScreen';
 import SubmitVenueScreen from '../screens/SubmitVenueScreen';
 import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
 
@@ -334,6 +336,8 @@ export default function AppNavigator() {
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Bookmarks' }} />
+                <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: '🎟️ QR Wallet' }} />
+                <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
                 <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />
                 <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
               </>

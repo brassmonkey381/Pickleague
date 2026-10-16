@@ -5,8 +5,12 @@
 // the server confirms it. Leaving the court checks out only check-ins this
 // feature opened.
 //
+// QR wallet (lib/qrWallet): a court with a saved front desk code gets
+// "Tap to show your check-in QR code" instead, and the tap opens the code.
+// Those courts are fenced before any other, so the 20 limit never drops one.
+//
 // Opt-in per device (Settings), because it needs "Always" location. Fences:
-// my starred courts first (with FRIENDS_AT_COURTS_ENABLED; the same order as
+// QR wallet courts, then my starred courts (with FRIENDS_AT_COURTS_ENABLED; the same order as
 // Home's YOUR COURTS), then my leagues' home courts (the stored
 // leagues.home_venue_id, else the pickleball court at the league's
 // coordinates), then the courts I check in at most; at most 20 (the iOS
@@ -27,11 +31,15 @@ import { FRIENDS_AT_COURTS_ENABLED } from './features';
 import { hasPresenceConsent } from './presenceConsent';
 import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
 import { listMyCourtFavorites } from '../data/courtFavorites';
+import { listPasses, walletRegionId } from './qrWallet';
 
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
 const ENABLED_KEY = 'pickleague_court_alerts_enabled_v1';
 const NAMES_KEY = 'pickleague_court_fence_names_v1';
 const LAST_NOTICE_KEY = 'pickleague_court_fence_last_notice_v1';
+// region id -> QR wallet pass id. Saved at sync, because the headless task
+// can't look the wallet up by user.
+const WALLET_KEY = 'pickleague_court_fence_wallet_v1';
 const RENOTIFY_MS = 3 * 3600_000;
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
@@ -43,15 +51,27 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
-async function onEnter(venueId: string): Promise<void> {
+async function onEnter(regionId: string): Promise<void> {
+  const passId = (await readJson<Record<string, string>>(WALLET_KEY, {}))[regionId];
+  // A wallet spot picked by GPS has no court row: "qr:<pass id>".
+  const venueId = regionId.startsWith('qr:') ? null : regionId;
   const current = await peekCurrentCheckin();
-  if (current?.venueId === venueId) return;
+  const checkedIn = !!venueId && current?.venueId === venueId;
+  if (checkedIn && !passId) return;
   const last = await readJson<Record<string, number>>(LAST_NOTICE_KEY, {});
-  if (last[venueId] && Date.now() - last[venueId] < RENOTIFY_MS) return;
-  last[venueId] = Date.now();
+  if (last[regionId] && Date.now() - last[regionId] < RENOTIFY_MS) return;
+  last[regionId] = Date.now();
   await AsyncStorage.setItem(LAST_NOTICE_KEY, JSON.stringify(last)).catch(() => {});
   const names = await readJson<Record<string, string>>(NAMES_KEY, {});
-  const name = names[venueId] ?? 'the courts';
+  const name = names[regionId] ?? 'the courts';
+  if (passId) {
+    await postLocalNotice(`You're at ${name}`, 'Tap to show your check-in QR code.', {
+      // Check in stays on the notice at a catalog court you aren't checked in at.
+      ...(venueId && !checkedIn ? { categoryId: catalog.ids.court_checkin.id } : {}),
+      data: { ...(venueId ? { venue_id: venueId } : {}), venue_name: name, deepLink: `wallet/${passId}` },
+    });
+    return;
+  }
   await postLocalNotice(`You're at ${name}`, 'Check in so other players know you are here.', {
     categoryId: catalog.ids.court_checkin.id,
     // A tap opens Home's court card, where Check in lives.
@@ -111,19 +131,32 @@ export async function getCourtAlertsEnabled(): Promise<boolean> {
   return (await readJson<boolean>(ENABLED_KEY, false)) === true;
 }
 
-/** Which courts to fence: starred courts, then league home courts, then my most-used check-in courts. */
-async function pickRegions(): Promise<{ regions: GeofenceRegion[]; names: Record<string, string> }> {
+/** Which courts to fence: QR wallet courts, starred courts, league home courts, then my most-used check-in courts. */
+async function pickRegions(): Promise<{
+  regions: GeofenceRegion[];
+  names: Record<string, string>;
+  wallet: Record<string, string>;
+}> {
   const uid = await currentUserId(supabase);
-  if (!uid) return { regions: [], names: {} };
+  if (!uid) return { regions: [], names: {}, wallet: {} };
   const regions: GeofenceRegion[] = [];
   const names: Record<string, string> = {};
+  const wallet: Record<string, string> = {};
   const add = (v: { id: string; name: string; lat: number; lng: number; radius?: number | null }) => {
     if (names[v.id] || regions.length >= 20) return;
     names[v.id] = v.name;
     regions.push({ id: v.id, lat: v.lat, lng: v.lng, radiusM: v.radius ?? 100 });
   };
 
-  // Starred courts first, as in YOUR COURTS (ids are already canonical; the
+  // One pass per court is enough to open the wallet; the first saved wins.
+  for (const p of await listPasses()) {
+    const id = walletRegionId(p);
+    if (wallet[id]) continue;
+    add({ id, name: p.venueName, lat: p.lat, lng: p.lng });
+    if (names[id]) wallet[id] = p.id;
+  }
+
+  // Then starred courts, as in YOUR COURTS (ids are already canonical; the
   // RPC has no radius, so the default). A failed read never drops the rest.
   if (FRIENDS_AT_COURTS_ENABLED) {
     const favs = await listMyCourtFavorites().catch(() => []);
@@ -170,7 +203,7 @@ async function pickRegions(): Promise<{ regions: GeofenceRegion[]; names: Record
   for (const [id, { v }] of [...counts.entries()].sort((a, b) => b[1].n - a[1].n)) {
     add({ id, name: v.name, lat: v.lat, lng: v.lng, radius: v.geofence_radius_m });
   }
-  return { regions, names };
+  return { regions, names, wallet };
 }
 
 /**
@@ -193,8 +226,11 @@ export async function syncCourtGeofences(interactive = false): Promise<number> {
   if (Platform.OS === 'web') return 0;
   try {
     if (!(await getCourtAlertsEnabled())) return 0;
-    const { regions, names } = await pickRegions();
-    await AsyncStorage.setItem(NAMES_KEY, JSON.stringify(names)).catch(() => {});
+    const { regions, names, wallet } = await pickRegions();
+    await AsyncStorage.multiSet([
+      [NAMES_KEY, JSON.stringify(names)],
+      [WALLET_KEY, JSON.stringify(wallet)],
+    ]).catch(() => {});
     return await syncGeofences(COURT_GEOFENCE_TASK, regions, {
       skipPermissionRequest: !interactive,
       minRadiusM: 75,
@@ -209,5 +245,5 @@ export async function syncCourtGeofences(interactive = false): Promise<number> {
 export async function stopCourtGeofencesForSignOut(): Promise<void> {
   if (Platform.OS === 'web') return;
   await syncGeofences(COURT_GEOFENCE_TASK, []).catch(() => 0);
-  await AsyncStorage.multiRemove([NAMES_KEY, LAST_NOTICE_KEY]).catch(() => {});
+  await AsyncStorage.multiRemove([NAMES_KEY, LAST_NOTICE_KEY, WALLET_KEY]).catch(() => {});
 }

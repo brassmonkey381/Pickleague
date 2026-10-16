@@ -53,6 +53,8 @@ export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: bool
     // Court check-in reminder and arrival notice: Home's court card.
     'home/': () => ['Home'],
     'notifications/': () => ['Notifications'],
+    // Court arrival with a saved QR code: that code, full screen.
+    'wallet/': (id) => (has(id) ? ['QrPass', { passId: id }] : ['QrWallet']),
   };
   // The wager screens are not registered while wagering is off: a navigate to
   // them lands nowhere, so leave those links unrouted (-> Notifications list).

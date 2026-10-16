@@ -682,6 +682,13 @@ export default function HomeScreen({ navigation }: Props) {
             onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
           },
           {
+            key: 'wallet',
+            icon: <Text style={styles.savedGlyph}>🎟️</Text>,
+            caption: 'QR',
+            a11yLabel: 'QR wallet',
+            onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
+          },
+          {
             // The number is what needs you (votes, RSVPs, invites, requests,
             // scores to confirm), so its label says so: "Notifications, 2
             // need you". Plain unread is a dot ("Notifications, new").

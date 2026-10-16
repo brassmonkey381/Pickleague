@@ -103,6 +103,9 @@ describe('routes', () => {
     expect(route('home/-')).toEqual(['Home']);
     expect(route('shop/-')).toEqual(['Shop']);
     expect(route('match/m1')?.[0]).toBe('MatchHistory');
+    // Court arrival with a saved QR code opens that code; no id opens the wallet.
+    expect(route('wallet/p1')).toEqual(['QrPass', { passId: 'p1' }]);
+    expect(route('wallet/-')).toEqual(['QrWallet']);
   });
 
   it('friend links: Friends only while friends are on; a player link always', () => {
