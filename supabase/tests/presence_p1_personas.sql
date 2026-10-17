@@ -4,8 +4,10 @@
 -- NOT runnable on its own: build-presence-test.mjs wraps it as
 --   begin; <this file up to the marker> <the presence migrations, Phase 1.5 included>
 --   <re-runs, migration_rls_hardening_2026q3.sql re-run> <the rest of this file,
---   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@ and
---   refusal_personas.sql (refusal messages) at -- @@REFUSALS@@> rollback;
+--   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@,
+--   refusal_personas.sql (refusal messages) at -- @@REFUSALS@@ and
+--   tap_time_personas.sql (offline check-in time, old-build league joins) at
+--   -- @@TAPTIME@@> rollback;
 -- and the last statement selects the results. Run (from the linked checkout):
 --   node supabase/tests/build-presence-test.mjs <out.sql>
 --   supabase db query --linked -f <out.sql> -o csv
@@ -309,14 +311,19 @@ begin
     (select prosrc like '%presence_closed_ids%' from pg_proc where oid = 'public.end_play_session(uuid,timestamptz,double precision,double precision,double precision,double precision)'::regprocedure)
     and (select prosrc like '%venue_checkins%' from pg_proc where oid = 'public.expire_play_sessions()'::regprocedure));
   -- Clients may change a member's role and nothing else (league_members).
-  perform pg_temp.ok('T1 league_members: clients may update role only',
+  -- Since migration_checkin_tap_time.sql (2026-10-16) they may also NAME
+  -- league_id and user_id in an UPDATE, so old bundles' merge-upsert Join
+  -- works; the identity trigger refuses any real change (T13, T38).
+  perform pg_temp.ok('T1 league_members: clients may change only role (league_id / user_id named, never changed)',
     not has_table_privilege('authenticated', 'public.league_members', 'UPDATE')
     and not has_table_privilege('anon', 'public.league_members', 'UPDATE')
     and has_column_privilege('authenticated', 'public.league_members', 'role', 'UPDATE')
-    and not has_column_privilege('authenticated', 'public.league_members', 'league_id', 'UPDATE')
-    and not has_column_privilege('authenticated', 'public.league_members', 'user_id', 'UPDATE')
+    and has_column_privilege('authenticated', 'public.league_members', 'league_id', 'UPDATE')
+    and has_column_privilege('authenticated', 'public.league_members', 'user_id', 'UPDATE')
     and not has_column_privilege('authenticated', 'public.league_members', 'admitted_closed', 'UPDATE')
-    and not has_column_privilege('authenticated', 'public.league_members', 'expires_at', 'UPDATE'));
+    and not has_column_privilege('authenticated', 'public.league_members', 'expires_at', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'joined_at', 'UPDATE')
+    and not has_column_privilege('authenticated', 'public.league_members', 'id', 'UPDATE'));
 exception when others then
   perform pg_temp.ok('T1 block crashed', false, sqlerrm);
 end $$;
@@ -457,10 +464,13 @@ begin
   perform pg_temp.ok('T3 failed check-ins stored nothing',
     not exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000002'));
 
-  -- Confirmed, at the duplicate row's id, queued 30 minutes ago.
+  -- Confirmed, at the duplicate row's id, queued 30 minutes ago (the fix
+  -- taken 5 s before the tap, its age measured at send: the tap rule,
+  -- migration_checkin_tap_time.sql).
   select * into r from public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000003',
     p_venue => 'test:p1-alpha-osm', p_minutes => 120, p_source => 'manual', p_at => now() - interval '30 minutes',
-    p_lat => 40.0001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+    p_lat => 40.0001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '30 minutes 5 seconds',
+    p_fix_age_ms => 1805000);
   perform pg_temp.ok('T3 confirmed check-in stores the canonical court and the fix',
     r.id = 'c0000000-0000-4000-8000-000000000003' and r.venue_id = 'test:p1-alpha' and r.location_confirmed
     and r.fix_distance_m between 5 and 6 and r.fix_accuracy_m = 10
@@ -1258,18 +1268,23 @@ begin
   perform pg_temp.ok('T11 expire_venue_checkins closes a lapsed row at its expiry',
     (select checked_out_at = expires_at from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000303'));
 
-  -- A session replayed from 7 hours ago, with a session check-in.
+  -- A session replayed from 7 hours ago, with its tap-time fix: its
+  -- check-in is judged and anchored at the tap (migration_checkin_tap_time.sql),
+  -- so it is stored already over (tap + 3 h), not open from the sync.
   perform pg_temp.as_user(pg_temp.p('Q'));
   perform public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000301', p_kind => 'open_play',
     p_venue => 'test:p1-bravo', p_at => now() - interval '7 hours',
-    p_lat => 40.0101, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+    p_lat => 40.0101, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '7 hours 5 seconds',
+    p_fix_age_ms => 25205000);
   perform pg_temp.as_admin();
-  perform pg_temp.ok('T11 (setup) the replayed session opened its check-in',
-    exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000301' and checked_out_at is null));
+  perform pg_temp.ok('T11 (setup) the replayed session stored its check-in from the tap, already over',
+    exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000301'
+             and checked_out_at is null and checked_in_at = now() - interval '7 hours'
+             and expires_at = now() - interval '4 hours'));
   perform public.expire_play_sessions();
-  perform pg_temp.ok('T11 expire_play_sessions ends the session and its check-in at started + 6 h',
+  perform pg_temp.ok('T11 expire_play_sessions ends the session at started + 6 h, its check-in at its own end',
     (select ended_at = now() - interval '1 hour' from public.play_sessions where id = 'e0000000-0000-4000-8000-000000000301')
-    and (select checked_out_at = now() - interval '1 hour' from public.venue_checkins
+    and (select checked_out_at = now() - interval '4 hours' from public.venue_checkins
           where id = 'e0000000-0000-4000-8000-000000000301'));
 exception when others then
   perform pg_temp.ok('T11 block crashed', false, sqlerrm);
@@ -1317,6 +1332,7 @@ declare
   v   uuid := pg_temp.p('V');
   n   int;
   ok2 boolean;
+  h   text;
 begin
   perform pg_temp.as_user(at);
   insert into public.leagues (id, name, is_open, created_by) values
@@ -1327,7 +1343,10 @@ begin
     ('b0000000-0000-4000-8000-000000000012', at, 'admin')
   on conflict do nothing;
 
-  -- Moving a membership onto someone who never joined.
+  -- Moving a membership onto someone who never joined. Since
+  -- migration_checkin_tap_time.sql clients may name league_id / user_id, so
+  -- the identity trigger is what refuses it, with a code and a why-then-what
+  -- text (P0001, pl:membership.locked) instead of 42501.
   begin
     update public.league_members
        set league_id = 'b0000000-0000-4000-8000-000000000011', user_id = v, role = 'member'
@@ -1335,7 +1354,10 @@ begin
     get diagnostics n = row_count;
     perform pg_temp.ok('T13 an admin cannot move a membership onto another player', false, n || ' rows');
   exception when others then
-    perform pg_temp.ok('T13 an admin cannot move a membership onto another player', sqlstate = '42501', sqlerrm);
+    get stacked diagnostics h = pg_exception_hint;
+    perform pg_temp.ok('T13 an admin cannot move a membership onto another player',
+      sqlstate = 'P0001' and h = 'pl:membership.locked'
+      and sqlerrm = 'A league membership can''t be moved to another league or player. Leave the league, then join the one you want.', sqlerrm);
   end;
   begin
     update public.league_members set user_id = v
@@ -1343,7 +1365,8 @@ begin
     get diagnostics n = row_count;
     perform pg_temp.ok('T13 ...nor within one league', false, n || ' rows');
   exception when others then
-    perform pg_temp.ok('T13 ...nor within one league', sqlstate = '42501', sqlerrm);
+    get stacked diagnostics h = pg_exception_hint;
+    perform pg_temp.ok('T13 ...nor within one league', sqlstate = 'P0001' and h = 'pl:membership.locked', sqlerrm);
   end;
   perform pg_temp.as_admin();
   begin
@@ -1351,7 +1374,9 @@ begin
      where league_id = 'b0000000-0000-4000-8000-000000000011' and user_id = at;
     perform pg_temp.ok('T13 the trigger refuses a move even with full UPDATE (server code)', false, 'moved');
   exception when others then
-    perform pg_temp.ok('T13 the trigger refuses a move even with full UPDATE (server code)', sqlstate = '42501', sqlerrm);
+    get stacked diagnostics h = pg_exception_hint;
+    perform pg_temp.ok('T13 the trigger refuses a move even with full UPDATE (server code)',
+      sqlstate = 'P0001' and h = 'pl:membership.locked', sqlerrm);
   end;
   perform pg_temp.checkin('V', 'c0000000-0000-4000-8000-000000000401', 'test:p1-c3', 120, 40.0301);
   perform pg_temp.as_admin();
@@ -1536,8 +1561,9 @@ begin
       p_lat => 40.0401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 180000);
     perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused', false, 'no error');
   exception when others then
+    -- No tap sent, so the tap is the send (migration_checkin_tap_time.sql).
     perform pg_temp.ok('T15 a 3-minute-old fix (by its age) is refused',
-      sqlerrm = 'Your location is out of date: it''s more than 2 minutes old. Try again at the court.', sqlerrm);
+      sqlerrm = 'Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court.', sqlerrm);
   end;
   begin
     perform public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000604', p_venue => 'test:p1-c4',
@@ -1667,6 +1693,9 @@ end $$;
 
 
 -- @@REFUSALS@@
+
+
+-- @@TAPTIME@@
 
 
 -- ════ Results ════════════════════════════════════════════════════════════

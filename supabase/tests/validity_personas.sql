@@ -574,76 +574,94 @@ end $$;
 
 
 -- ════ V6 the stay counts from the arrival fix, never a backdated p_at ═════
--- VT claims to have arrived 10 minutes ago, but the fix that proves it is
--- fresh: the 5 minutes run from that fix.
+-- VT claims to have arrived 10 minutes ago, but the fix that would prove it
+-- is fresh. Since migration_checkin_tap_time.sql such a call is refused (the
+-- fix must be taken within 2 minutes of the tap); an honest replay, whose fix
+-- was taken at the tap, counts from that fix.
 do $$
 declare
   r public.venue_checkins;
+  s public.play_sessions;
   n int;
+  e text;
+  h text;
 begin
   perform pg_temp.as_user(pg_temp.p('VT'));
+  begin
+    perform public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000101',
+      p_venue => 'test:p15-court', p_minutes => 120, p_source => 'manual', p_at => now() - interval '10 minutes',
+      p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
+    e := 'no error';
+  exception when others then
+    get stacked diagnostics h = pg_exception_hint;
+    e := h;
+  end;
+  perform pg_temp.ok('V6 a check-in backdated 10 min with a fix from now is refused (pl:fix.after_tap), nothing stored',
+    e = 'pl:fix.after_tap'
+    and not exists (select 1 from public.venue_checkins where id = 'c1500000-0000-4000-8000-000000000101'), e);
+  -- The honest replay: tapped 10 minutes ago with the fix taken then.
   select * into r from public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000101',
     p_venue => 'test:p15-court', p_minutes => 120, p_source => 'manual', p_at => now() - interval '10 minutes',
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
-  perform pg_temp.ok('V6 a backdated check-in keeps its p_at, but its arrival is dated by the fix',
-    r.location_confirmed and r.checked_in_at = now() - interval '10 minutes' and r.arrival_fix_at = now(), r::text);
+    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '10 minutes',
+    p_fix_age_ms => 600000);
+  perform pg_temp.ok('V6 an honest 10-minute replay is dated at the tap, its arrival by its tap-time fix',
+    r.location_confirmed and r.checked_in_at = now() - interval '10 minutes'
+    and r.arrival_fix_at = now() - interval '10 minutes', r::text);
   select public.checkout_venue(p_id => 'c1500000-0000-4000-8000-000000000101', p_source => null, p_at => now(),
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 0) into n;
   r := pg_temp.vci('c1500000-0000-4000-8000-000000000101');
-  perform pg_temp.ok('V6 ...checking out at once with a fresh fix there proves no stay',
-    n = 1 and not r.stay_confirmed and r.checkout_fix_lat = 40.2001, r::text);
+  perform pg_temp.ok('V6 ...and a check-out fix at the court now proves the stay (10 min apart)',
+    n = 1 and r.stay_confirmed and r.checkout_fix_lat = 40.2001, r::text);
 
-  -- Backdated, with a 1-minute-old arrival fix, then extended with a fresh one.
+  -- The arrival fix really was taken 6 minutes before the check-out fix (a
+  -- replay tapped 6 minutes ago; before the check-ins below, which a replay
+  -- would end at).
+  perform pg_temp.as_user(pg_temp.p('VT'));
+  perform public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000106', p_venue => 'test:p15-court',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '6 minutes',
+    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '6 minutes',
+    p_fix_age_ms => 360000);
+  select public.checkout_venue(p_id => 'c1500000-0000-4000-8000-000000000106', p_source => null, p_at => now(),
+    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 0) into n;
+  r := pg_temp.vci('c1500000-0000-4000-8000-000000000106');
+  perform pg_temp.ok('V6 ...an arrival fix 6 minutes before the check-out fix proves the stay',
+    n = 1 and r.stay_confirmed and r.arrival_fix_at = now() - interval '6 minutes', r::text);
+
+  -- Tapped a minute ago (fix taken then), then extended with a fresh fix.
   perform pg_temp.as_user(pg_temp.p('VT'));
   perform public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000102', p_venue => 'test:p15-court',
-    p_minutes => 120, p_source => 'manual', p_at => now() - interval '10 minutes',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '1 minute',
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '1 minute',
     p_fix_age_ms => 60000);
   select * into r from public.extend_checkin(p_id => 'c1500000-0000-4000-8000-000000000102',
     p_until => now() + interval '2 hours', p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10,
     p_fix_at => now(), p_fix_age_ms => 0);
-  perform pg_temp.ok('V6 a backdated check-in extended a minute after its arrival fix proves no stay',
+  perform pg_temp.ok('V6 a check-in extended a minute after its arrival fix proves no stay',
     r.arrival_fix_at = now() - interval '1 minute' and r.fix_at = now() and not r.stay_confirmed, r::text);
   perform public.checkout_venue(null, null, now());
 
-  -- A session started "10 minutes ago" at the court, checked out at once.
-  perform public.start_play_session(p_id => 'f1500000-0000-4000-8000-000000000c01', p_kind => 'open_play',
+  -- A session started "10 minutes ago" at the court with a fix from now:
+  -- the session is stored, its check-in is not (the fix isn't the tap's).
+  select * into s from public.start_play_session(p_id => 'f1500000-0000-4000-8000-000000000c01', p_kind => 'open_play',
     p_venue => 'test:p15-court', p_at => now() - interval '10 minutes',
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
-  select public.checkout_venue(p_id => 'f1500000-0000-4000-8000-000000000c01', p_source => null, p_at => now(),
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 0) into n;
-  r := pg_temp.vci('f1500000-0000-4000-8000-000000000c01');
-  perform pg_temp.ok('V6 a session check-in started "10 minutes ago" with a fresh fix, checked out at once: no stay',
-    n = 1 and r.source = 'session' and r.checked_in_at = now() - interval '10 minutes'
-    and r.arrival_fix_at = now() and not r.stay_confirmed, r::text);
+  perform pg_temp.ok('V6 a Start backdated 10 min with a fix from now: session stored, no check-in, no error',
+    s.started_at = now() - interval '10 minutes'
+    and not exists (select 1 from public.venue_checkins where id = 'f1500000-0000-4000-8000-000000000c01'), s::text);
   perform pg_temp.as_user(pg_temp.p('VT'));
   perform public.end_play_session('f1500000-0000-4000-8000-000000000c01', now());
 
-  -- A repeat check-in at the same court right after a backdated one.
+  -- A repeat check-in at the same court a minute after the first.
   perform public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000104', p_venue => 'test:p15-court',
-    p_minutes => 120, p_source => 'manual', p_at => now() - interval '10 minutes',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '1 minute',
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '1 minute',
     p_fix_age_ms => 60000);
   select * into r from public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000105',
     p_venue => 'test:p15-court', p_minutes => 120, p_source => 'manual', p_at => null,
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
-  perform pg_temp.ok('V6 a repeat check-in a minute after a backdated one is quiet and proves no stay',
+  perform pg_temp.ok('V6 a repeat check-in a minute after the first is quiet and proves no stay',
     r.id = 'c1500000-0000-4000-8000-000000000104' and r.fix_at = now() and not r.stay_confirmed, r::text);
   perform public.checkout_venue(null, null, now());
-
-  -- The arrival fix really was taken 6 minutes before the check-out fix.
-  perform public.checkin_venue(p_id => 'c1500000-0000-4000-8000-000000000106', p_venue => 'test:p15-court',
-    p_minutes => 120, p_source => 'manual', p_at => now() - interval '10 minutes',
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
-  perform pg_temp.as_admin();
-  update public.venue_checkins set arrival_fix_at = now() - interval '6 minutes'
-   where id = 'c1500000-0000-4000-8000-000000000106';
-  perform pg_temp.as_user(pg_temp.p('VT'));
-  select public.checkout_venue(p_id => 'c1500000-0000-4000-8000-000000000106', p_source => null, p_at => now(),
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 0) into n;
-  r := pg_temp.vci('c1500000-0000-4000-8000-000000000106');
-  perform pg_temp.ok('V6 ...an arrival fix 6 minutes before the check-out fix proves the stay',
-    n = 1 and r.stay_confirmed, r::text);
   perform pg_temp.as_admin();
 exception when others then
   perform pg_temp.as_admin();
@@ -657,15 +675,17 @@ declare
   r public.venue_checkins;
   n int;
 begin
-  -- 30 minutes at the court (arrival fix moved back with it), then End there.
+  -- 30 minutes at the court (a Start replayed with the fix taken at its tap,
+  -- so the arrival fix is 30 minutes old: migration_checkin_tap_time.sql),
+  -- then End there.
   perform pg_temp.as_user(pg_temp.p('VE'));
   perform public.start_play_session(p_id => 'f1500000-0000-4000-8000-000000000d01', p_kind => 'open_play',
     p_venue => 'test:p15-court', p_at => now() - interval '30 minutes',
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 0);
-  perform pg_temp.as_admin();
-  update public.venue_checkins set arrival_fix_at = now() - interval '30 minutes'
-   where id = 'f1500000-0000-4000-8000-000000000d01';
-  perform pg_temp.as_user(pg_temp.p('VE'));
+    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '30 minutes',
+    p_fix_age_ms => 1800000);
+  perform pg_temp.ok('V7 (setup) the replayed Start checked in from its tap, arrival fix 30 min ago',
+    (select checked_in_at = now() - interval '30 minutes' and arrival_fix_at = now() - interval '30 minutes'
+       from public.venue_checkins where id = 'f1500000-0000-4000-8000-000000000d01'));
   select public.end_play_session(p_id => 'f1500000-0000-4000-8000-000000000d01', p_at => now(),
     p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 1000) into n;
   r := pg_temp.vci('f1500000-0000-4000-8000-000000000d01');
@@ -1030,12 +1050,13 @@ begin
   perform pg_temp.ok('V12 an untracked session with a match counts as played, but not as at a court',
     s.valid and not s.at_court, s::text);
 
-  -- At the court: the fix that checked me in was taken a minute ago.
+  -- At the court: a Start replayed 20 minutes late with the fix taken at its
+  -- tap (migration_checkin_tap_time.sql judges the fix at the tap).
   perform pg_temp.as_user(pg_temp.p('VC'));
   perform public.start_play_session(p_id => 'f1500000-0000-4000-8000-000000001602', p_kind => 'open_play',
     p_venue => 'test:p15-court', p_at => now() - interval '20 minutes',
-    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '1 minute',
-    p_fix_age_ms => 60000);
+    p_lat => 40.2001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now() - interval '20 minutes 5 seconds',
+    p_fix_age_ms => 1205000);
   perform pg_temp.vmatch('VC', 'VC', 'VO');
   perform public.end_play_session('f1500000-0000-4000-8000-000000001602', now());
   s := pg_temp.vrow('f1500000-0000-4000-8000-000000001602');
