@@ -353,7 +353,9 @@ export function cancelResultMessage(
   if (statusNow === 'friends') {
     return `${who ?? 'They'} already accepted, so you're friends now. Remove ${who ?? 'them'} from your friends if you'd rather not be.`;
   }
-  return 'That request was already withdrawn.';
+  // True for a decline (never revealed), a cancel on another device, a block,
+  // a deleted account, and a status read that failed.
+  return "That request isn't waiting any more, so there's nothing to cancel.";
 }
 
 // ── Lock-screen Accept / Decline (lib/friendActions.ts) ─────────────────────

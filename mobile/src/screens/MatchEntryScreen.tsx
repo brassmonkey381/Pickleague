@@ -755,7 +755,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
         .catch(() => { /* nudge is best-effort */ });
     } catch (e) {
       // A 42501 on this insert is the league-membership rule (RLS): the
-      // recorder left or was removed since the form loaded. Say so.
+      // recorder left or was removed since the form loaded, or never joined
+      // (a league or event screen they can view). Say so.
       if (classifySbError(e) === 'permission') {
         const leagueName = leagueCandidates.find((l) => l.id === selectedLeagueId)?.name ?? null;
         setError(refusalCopy('match.not_member', { leagueName }));

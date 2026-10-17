@@ -218,7 +218,8 @@ export function refusalCopy(
     case 'session.not_yours':
       return "That play session belongs to another account, so it wasn't saved. Start a new session.";
     case 'match.removed':
-      return 'This match is gone: it expired because nobody confirmed it within an hour, or it was deleted. Ask whoever recorded it to enter it again.';
+      // True whoever recorded it (the recorder's own team is confirmed at insert).
+      return "This match was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Ask whoever recorded it to enter it again.";
     case 'match.already_confirmed':
       return "This match is already confirmed, so there's nothing more to do.";
     case 'match.scheduled':
@@ -232,7 +233,8 @@ export function refusalCopy(
     case 'match.not_player':
       return 'Only players in this match can confirm it.';
     case 'match.not_member':
-      return `You're not a member of ${ctx.leagueName?.trim() || 'this league'} any more, so you can't record matches there. Pick a league you're in.`;
+      // Left, removed, or never joined: the same RLS refusal.
+      return `You're not a member of ${ctx.leagueName?.trim() || 'this league'}, so you can't record matches there. Pick a league you're in.`;
     case 'match.score_invalid':
       return 'Each game needs a winner with at least 11 points and a 2-point lead. Check the scores, then record it again.';
     case 'player.gone':
@@ -269,8 +271,12 @@ export function refusalMessage(e: unknown, ctx: RefusalContext = {}): string | n
   return code ? refusalCopy(code, ctx, refusalDetail(e), messageOf(e)) : null;
 }
 
-/** A lock-screen notice title for a code (the body is refusalCopy with surface 'lock'). */
-export function refusalTitle(code: RefusalCode): string {
+/**
+ * A lock-screen notice title for a code (the body is refusalCopy with surface
+ * 'lock'). `action`: a refused Extend leaves the check-in running until its
+ * end, so it reads "Not extended", never "Not checked in".
+ */
+export function refusalTitle(code: RefusalCode, action?: RefusalAction): string {
   switch (code) {
     case 'auth.signed_out':
       return 'Signed out';
@@ -280,6 +286,7 @@ export function refusalTitle(code: RefusalCode): string {
     case 'fix.imprecise':
     case 'fix.malformed':
     case 'court.gone':
+      return action === 'extend' ? 'Not extended' : 'Not checked in';
     case 'consent.declined':
     case 'consent.unknown_offline':
       return 'Not checked in';
@@ -310,25 +317,42 @@ export const NO_CONNECTION = 'No connection. Check your signal and try again.';
 /** The island's "still working" toast, without the kit's em dash. */
 export const STILL_WORKING = 'Still working on it. Check back in a moment.';
 
+/** extend_checkin never sets an end further than this from now, fix or no fix. */
+export const CHECKIN_AHEAD_MAX_MS = 4 * 3_600_000;
+
 /**
- * extend_checkin answered with an earlier end than asked (no confirming fix:
- * at most 4 hours past the last one). Null when it gave the full hour.
+ * What +1 h got, and why when it was less than an hour. extend_checkin caps
+ * two ways: never more than 4 hours from now (even with a confirming fix),
+ * and without a confirming fix, 4 hours past the last one. `fixSent`: the
+ * request carried a fix (the second cap can't be why).
  */
 export function extendedNote(p: {
   requestedUntilMs: number;
   gotUntilMs: number;
+  fixSent: boolean;
   venueName?: string | null;
   timeLabel?: (d: Date) => string;
   nowMs?: number;
 }): { full: boolean; message: string } {
-  const at = (d: Date) => (p.timeLabel ? p.timeLabel(d) : whenLabel(d, p.nowMs));
+  const now = p.nowMs ?? Date.now();
+  const at = (d: Date) => (p.timeLabel ? p.timeLabel(d) : whenLabel(d, now));
   const until = at(new Date(p.gotUntilMs));
   // A minute of slack: the server and the device clocks differ a little.
   if (p.gotUntilMs >= p.requestedUntilMs - 60_000) return { full: true, message: `Checked in until ${until}.` };
-  return {
-    full: false,
-    message: `Checked in until ${until}, not a full hour: Pickleague couldn't confirm you're still at ${p.venueName?.trim() || 'the court'}. Open Pickleague at the court to stay later.`,
-  };
+  // At the 4-hour ceiling (2 minutes of slack for the clocks).
+  if (p.gotUntilMs >= now + CHECKIN_AHEAD_MAX_MS - 2 * 60_000) {
+    return {
+      full: false,
+      message: `A check-in can run at most 4 hours ahead, so you're checked in until ${until}. Extend it again later to stay longer.`,
+    };
+  }
+  if (!p.fixSent) {
+    return {
+      full: false,
+      message: `Checked in until ${until}, not a full hour: Pickleague couldn't confirm you're still at ${p.venueName?.trim() || 'the court'}. Open Pickleague at the court to stay later.`,
+    };
+  }
+  return { full: false, message: `Checked in until ${until}.` };
 }
 
 // submit_drill_review answers success=false with a message (it can't carry a
@@ -341,6 +365,12 @@ const OLD_DRILL_REVIEW: Record<string, string> = {
   'Drill session not found': "This drill was cancelled or removed, so it can't be reviewed.",
   'Rate at least one aspect': 'Rate at least one thing to send your review.',
 };
+
+/** submit_drill_review's "you already reviewed it" answer, new text or old. */
+export function isAlreadyReviewedMessage(message: string | null | undefined): boolean {
+  const m = (message ?? '').trim();
+  return m === 'Already reviewed' || m === OLD_DRILL_REVIEW['Already reviewed'];
+}
 
 /** The line for a drill review the server didn't take. */
 export function drillReviewRefusal(message: string | null | undefined): string {
@@ -418,8 +448,20 @@ function humanMessage(e: unknown): string | null {
   return o && o.code === 'P0001' ? messageOf(o) || null : null;
 }
 
-/** Why a Start at a court didn't check me in there (the server starts it untracked, no error). */
-export type UntrackedStartReason = 'court_gone' | 'no_fix' | 'imprecise' | 'stale' | 'not_at_court';
+/**
+ * Why a Start at a court didn't check me in there (the server starts it
+ * untracked, no error). 'checkin_gone' / 'checkin_private': the start sheet
+ * sent no fix because I looked checked in there, and that check-in had ended
+ * or was a private one (saved without a fix), so it couldn't be adopted.
+ */
+export type UntrackedStartReason =
+  | 'court_gone'
+  | 'no_fix'
+  | 'imprecise'
+  | 'stale'
+  | 'not_at_court'
+  | 'checkin_gone'
+  | 'checkin_private';
 
 /** The island's note when a Start at a court didn't check me in: why, and what to do. */
 export function untrackedStartNote(venueName: string | null | undefined, reason: UntrackedStartReason): string {
@@ -435,7 +477,43 @@ export function untrackedStartNote(venueName: string | null | undefined, reason:
       return `Not checked in${at}: the session was saved with no signal and reached Pickleague too late to confirm you were there, so only you see it. Check in from Home if you're still at the court.`;
     case 'not_at_court':
       return `Not checked in${at}: you're not at the court, so only you see this session. Check in from Home when you get there.`;
+    case 'checkin_gone':
+      return `Not checked in${at}: your check-in there had ended, so only you see this session. Check in from Home to be seen there.`;
+    case 'checkin_private':
+      return `Not checked in${at}: your check-in there was saved without your location, so nobody sees it or this session. Check in from Home to be seen there.`;
   }
+}
+
+/**
+ * The notice after a sign-out that couldn't close what this device knew was
+ * open (lib/signOutPresence): what stays open and until when, then the action
+ * that ends each one. Null when everything closed.
+ */
+export function signOutNotice(p: {
+  /** The check-out didn't land: the court and the check-in's own end. */
+  checkin?: { venueName: string; untilMs: number } | null;
+  /** The End didn't land: when the server ends the session on its own. */
+  sessionEndsAtMs?: number | null;
+  timeLabel?: (d: Date) => string;
+  nowMs?: number;
+}): string | null {
+  const at = (d: Date) => (p.timeLabel ? p.timeLabel(d) : whenLabel(d, p.nowMs));
+  const lines: string[] = [];
+  if (p.checkin) {
+    lines.push(
+      `Pickleague couldn't check you out of ${p.checkin.venueName}, so you may still show there until ${at(new Date(p.checkin.untilMs))}.`,
+    );
+  }
+  const session = p.sessionEndsAtMs != null;
+  if (session) lines.push(`Your play session couldn't be ended, so it ends on its own at ${at(new Date(p.sessionEndsAtMs as number))}.`);
+  if (lines.length === 0) return null;
+  const action =
+    p.checkin && session
+      ? 'Sign in again, then tap Check out and End to end them sooner.'
+      : p.checkin
+        ? 'Sign in again and tap Check out to end it sooner.'
+        : 'Sign in again and tap End on your play session to end it sooner.';
+  return `Signed out. ${lines.join(' ')} ${action}`;
 }
 
 /** The check-in notice when the saved check-in had no location (an older build saved it). */

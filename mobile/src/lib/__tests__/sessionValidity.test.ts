@@ -1,14 +1,19 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, beforeAll, describe, it, expect, vi } from 'vitest';
 import {
+  DRILL_COUNTS_NOTE,
   MIN_SESSION_MS,
+  MISSED_END_NOTE,
+  MISSED_UNSURE_END_NOTE,
   PENDING_END_NOTE,
   RECORD_WINDOW_MS,
+  drillMadeItCount,
   drillReviewNote,
   endDecision,
   endDecisionWithServer,
   endSheetBody,
   isMissingColumnError,
   lostPlayNote,
+  lostPlayOffersRecord,
   notNowNote,
   sessionLengthLabel,
   shouldNoteRecorded,
@@ -41,6 +46,16 @@ const v = (x: Partial<SessionValidity>): SessionValidity => ({
   ...x,
 });
 
+// "Now" (Date.now) is shortly after the sessions below end, so their 2-hour
+// windows are still open unless a test says otherwise (nowMs).
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(T0 + 50 * MIN);
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
+
 describe('endDecision', () => {
   it('says plainly that a session under 5 minutes does not count, and how long it was (no sheet)', () => {
     expect(endDecision(ended(4 * MIN + 1_000))).toEqual({
@@ -65,6 +80,8 @@ describe('endDecision', () => {
       lengthMs: MIN_SESSION_MS,
       offerDrill: false,
       windowEndsAtMs: T0 + MIN_SESSION_MS + RECORD_WINDOW_MS,
+      startedAtMs: T0,
+      endedAtMs: T0 + MIN_SESSION_MS,
     });
   });
 
@@ -77,10 +94,17 @@ describe('endDecision', () => {
 
   it('decision 3: a pending match counts once the other team confirms (within the hour)', () => {
     expect(PENDING_END_NOTE).toBe('Session ended. It counts once the other team confirms (within the hour).');
+  });
+
+  it('a match this device recorded still asks the server (it may have expired unconfirmed while the session ran)', () => {
     // 'match' is what a build before 2026-10-16 stored: read as pending.
     for (const recorded of ['match_pending', 'match'] as const) {
-      expect(endDecision(ended(30 * MIN, { recorded }))).toEqual({ show: 'note', tone: 'success', message: PENDING_END_NOTE });
+      const d = endDecision(ended(30 * MIN, { recorded }));
+      expect(d.show, recorded).toBe('record');
+      expect(d.show === 'record' && d.pendingMatch, recorded).toBe(true);
     }
+    const plain = endDecision(ended(30 * MIN));
+    expect(plain.show === 'record' && plain.pendingMatch).toBeUndefined();
   });
 
   it('a match stored confirmed counts outright', () => {
@@ -137,15 +161,40 @@ describe('endDecisionWithServer (End asks my_session_validity before the sheet)'
     expect(d.show === 'note' && d.message).toBe('Session ended. It counts: you reviewed a drill held during it.');
   });
 
-  it('too short by the server (it moved the start): the too-short note with that reason, not the sheet', () => {
+  it('too short by an older server (no stored times): the plain too-short note, no reason it can\'t show', () => {
     for (const x of [v({ reason: 'too_short', needs: 'minutes' }), v({ reason: 'open', needs: 'minutes' })]) {
       expect(endDecisionWithServer(ask, x)).toEqual({
         show: 'note',
         tone: 'info',
-        message:
-          "Session ended. Pickleague counted under 5 minutes of it because it overlapped your previous session. Sessions under 5 minutes don't count.",
+        message: "Session ended. Pickleague counted under 5 minutes of it. Sessions under 5 minutes don't count.",
       });
     }
+  });
+
+  it('too short, ended earlier on the server (another device, or a newer Start): says that, not an overlap', () => {
+    // Started here at T0; a Start on the web 3 minutes later ended it there.
+    const d = endDecisionWithServer(
+      ask,
+      v({ reason: 'too_short', needs: 'minutes', started_at: iso(T0), ended_at: iso(T0 + 3 * MIN) }),
+      { timeLabel: label },
+    );
+    expect(d).toEqual({
+      show: 'note',
+      tone: 'info',
+      message:
+        "Session ended. It had already ended at 18:03, on another device or when you started a new one, after 3 min. Sessions under 5 minutes don't count.",
+    });
+    expect(d.show === 'note' && d.message).not.toMatch(/overlapped/);
+  });
+
+  it('too short with the same stored times as here (within a minute): the plain line', () => {
+    const d = endDecisionWithServer(
+      ask,
+      v({ reason: 'too_short', needs: 'minutes', started_at: iso(T0 + 30_000), ended_at: iso(T0 + 35 * MIN - 30_000) }),
+    );
+    expect(d.show === 'note' && d.message).toBe(
+      "Session ended. Pickleague counted under 5 minutes of it. Sessions under 5 minutes don't count.",
+    );
   });
 
   it('too short because the server moved its start (it overlapped an earlier session): says so', () => {
@@ -186,6 +235,97 @@ describe('endDecisionWithServer (End asks my_session_validity before the sheet)'
   it('leaves a local toast alone', () => {
     const short = endDecision(ended(2 * MIN));
     expect(endDecisionWithServer(short, v({ valid: true, reason: 'linked_match', needs: null }))).toBe(short);
+  });
+
+  it('names who still has to confirm: the other team (decision 3), my team, or both teams', () => {
+    const pending = (confirm_needed?: SessionValidity['confirm_needed']) =>
+      endDecisionWithServer(
+        ask,
+        v({ valid: true, reason: 'match_in_window', needs: null, rewards_pending_confirmation: true, match_pending: true,
+            confirm_by: iso(T0 + 95 * MIN), confirm_needed }),
+        { timeLabel: label },
+      );
+    const msg = (d: EndDecision) => (d.show === 'note' ? d.message : null);
+    expect(msg(pending('theirs'))).toBe(PENDING_END_NOTE);
+    expect(msg(pending(undefined))).toBe(PENDING_END_NOTE);
+    // An opponent recorded it: my team still has to confirm.
+    expect(msg(pending('mine'))).toBe(
+      'Session ended. It counts once your team confirms the match, by 19:35. Confirm it in Match History.',
+    );
+    // A league member who didn't play recorded it: both teams confirm.
+    expect(msg(pending('both'))).toBe('Session ended. It counts once both teams confirm the match, by 19:35.');
+  });
+});
+
+describe('End after a match this device recorded (it may have expired unconfirmed)', () => {
+  const ask = endDecision(ended(120 * MIN, { recorded: 'match_pending' })) as Extract<EndDecision, { show: 'record' }>;
+
+  it('no answer from the server: decision 3, as before', () => {
+    for (const x of [null, 'unknown'] as const) {
+      expect(endDecisionWithServer(ask, x)).toEqual({ show: 'note', tone: 'success', message: PENDING_END_NOTE });
+    }
+  });
+
+  it('still pending on the server: decision 3', () => {
+    const d = endDecisionWithServer(ask, v({ reason: 'open', needs: null, match_pending: true }));
+    expect(d.show === 'note' && d.message).toBe(PENDING_END_NOTE);
+  });
+
+  it('confirmed since: it counts outright', () => {
+    const d = endDecisionWithServer(ask, v({ valid: true, reason: 'match_in_window', needs: null }));
+    expect(d.show === 'note' && d.message).toBe('Session ended. It counts: a match you played in is recorded.');
+  });
+
+  it('expired on the server (the hour ran out): the sheet, with why, and by when to record another', () => {
+    const d = endDecisionWithServer(ask, v({ reason: 'open', needs: 'match_or_drill' }), { timeLabel: label });
+    expect(d.show).toBe('record');
+    expect(d.show === 'record' && endSheetBody(d, { timeLabel: label })).toBe(
+      "Session ended after 2 h. The match you recorded during it was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Record another match or drill by 22:00 to make this one count.",
+    );
+  });
+
+  it('...but the server\'s own why wins (the match counted for another session)', () => {
+    const d = endDecisionWithServer(
+      ask,
+      v({ why: 'match_counted_elsewhere', match_at: iso(T0 + 40 * MIN), counted_for_started_at: iso(T0 - 90 * MIN) }),
+      { timeLabel: label },
+    );
+    expect(d.show === 'record' && d.why).toBe(
+      'The match recorded at 18:40 counts for your session from 16:30, and a match counts for one session only.',
+    );
+  });
+});
+
+describe('End after the 2-hour window closed (an auto-ended session found late)', () => {
+  // Started 08:00, auto-ended at 14:00 (6 h), found at 18:00: its window closed at 16:00.
+  const start = T0 - 10 * 60 * MIN;
+  const auto = endDecision(ended(6 * 60 * MIN, { startedAtMs: start, endedAtMs: start + 6 * 60 * MIN }));
+  const now = start + 10 * 60 * MIN;
+
+  it('the server says nothing counts: a toast that it didn\'t count, never "record one by <a past time>"', () => {
+    expect(MISSED_END_NOTE).toBe("Session ended. It didn't count: no match or drill was recorded within 2 hours of its end.");
+    const d = endDecisionWithServer(auto, v({ window_ends_at: iso(start + 8 * 60 * MIN) }), { nowMs: now });
+    expect(d).toEqual({ show: 'note', tone: 'info', message: MISSED_END_NOTE });
+  });
+
+  it('...also when the server still has it open (its window is the one timed here)', () => {
+    const d = endDecisionWithServer(auto, v({ reason: 'open', needs: 'match_or_drill' }), { nowMs: now });
+    expect(d).toEqual({ show: 'note', tone: 'info', message: MISSED_END_NOTE });
+  });
+
+  it('no answer: hedged, and still no deadline in the past', () => {
+    const d = endDecisionWithServer(auto, 'unknown', { nowMs: now });
+    expect(d).toEqual({ show: 'note', tone: 'info', message: MISSED_UNSURE_END_NOTE });
+  });
+
+  it('something did count: it still says so', () => {
+    const d = endDecisionWithServer(auto, v({ valid: true, reason: 'match_in_window', needs: null }), { nowMs: now });
+    expect(d.show === 'note' && d.tone).toBe('success');
+  });
+
+  it('a window still open: the sheet, as before', () => {
+    const d = endDecisionWithServer(auto, v({ window_ends_at: iso(start + 8 * 60 * MIN) }), { nowMs: start + 7 * 60 * MIN });
+    expect(d.show).toBe('record');
   });
 });
 
@@ -308,6 +448,19 @@ describe('validityNote (my_session_validity, worded)', () => {
     ).toBe('This play session counts once the other team confirms this match, within the hour.');
   });
 
+  it('...my team, or both teams, when they still have to confirm', () => {
+    const p = { needs: null, rewards_pending_confirmation: true, match_pending: true, confirm_by: iso(T0 + 45 * MIN) } as const;
+    expect(validityNote(v({ ...p, valid: true, reason: 'match_in_window', confirm_needed: 'mine' }), T0, label)).toBe(
+      'This play session counts once your team confirms this match, by 18:45. Confirm it in Match History.',
+    );
+    expect(validityNote(v({ ...p, reason: 'open', confirm_needed: 'both' }), T0, label)).toBe(
+      'Your play session counts once both teams confirm this match, by 18:45.',
+    );
+    expect(validityNote(v({ ...p, reason: 'open', confirm_needed: 'theirs' }), T0, label)).toBe(
+      'Your play session counts once the other team confirms this match, by 18:45.',
+    );
+  });
+
   it('too short, and how long it was when the server says', () => {
     expect(validityNote(v({ reason: 'too_short', needs: 'minutes' }), T0, label)).toBe(
       "Sessions under 5 minutes don't count.",
@@ -345,9 +498,36 @@ describe('drillReviewNote (after a drill review)', () => {
     expect(drillReviewNote(v({ valid: true, reason: 'drill_in_window', needs: null }))).toBe(
       'Your play session counts now: you reviewed a drill held during it.',
     );
-    expect(drillReviewNote(v({ reason: 'open', needs: null }), { running: true })).toBe(
-      'Your play session counts now: you reviewed a drill held during it.',
+    expect(drillReviewNote(v({ reason: 'open', needs: null, drill_counted: true }), { running: true })).toBe(DRILL_COUNTS_NOTE);
+  });
+
+  it('a running session that already counted through a match, and an old drill reviewed: why the drill doesn\'t count', () => {
+    const x = v({ reason: 'open', needs: null, match_pending: true, drill_counted: false,
+                  why: 'drill_not_during_session', drill_starts_at: iso(T0 - 24 * 60 * MIN) });
+    const note = drillReviewNote(x, { running: true, timeLabel: label });
+    expect(note).toBe(
+      "This drill doesn't count for your play session: it was scheduled for 18:00, not during the session. Your session counts through your match instead.",
     );
+    expect(note).not.toMatch(/counts now/);
+    expect(drillMadeItCount(x)).toBe(false);
+  });
+
+  it('...a match made it count and the server gives no why: nothing new to say (never credits the drill)', () => {
+    expect(drillReviewNote(v({ reason: 'open', needs: null, drill_counted: false }), { running: true })).toBeNull();
+  });
+
+  it('an older server (no drill_counted): says it counts, without crediting the drill', () => {
+    const x = v({ reason: 'open', needs: null });
+    expect(drillReviewNote(x, { running: true })).toBe('Your play session counts now.');
+    expect(drillMadeItCount(x)).toBeNull();
+  });
+
+  it('drillMadeItCount: the drill counts, or a session valid through a drill alone', () => {
+    expect(drillMadeItCount(v({ reason: 'open', needs: null, drill_counted: true }))).toBe(true);
+    expect(drillMadeItCount(v({ valid: true, reason: 'drill_in_window', needs: null }))).toBe(true);
+    expect(drillMadeItCount(v({ valid: true, reason: 'linked_match', needs: null, drill_counted: false }))).toBe(false);
+    expect(drillMadeItCount(v({}))).toBe(false);
+    expect(drillMadeItCount(null)).toBe(false);
   });
 
   it('a drill held another time: why', () => {
@@ -370,6 +550,19 @@ describe("lostPlayNote (the island's session ended without this device)", () => 
     ).toBe(
       'Your play session ended on its own after 6 hours, at 17:30. If you played, record a match or drill by 19:30 so it counts.',
     );
+  });
+
+  it('the end sheet asks only while the 2 hours to record are still running', () => {
+    const end = T0 - 30 * MIN;
+    expect(lostPlayOffersRecord({ reason: 'auto_ended', endedAtMs: end }, T0)).toBe(true);
+    expect(lostPlayOffersRecord({ reason: 'auto_ended', endedAtMs: end }, end + RECORD_WINDOW_MS)).toBe(false);
+    expect(lostPlayOffersRecord({ reason: 'auto_ended', endedAtMs: end }, end + 10 * 60 * MIN)).toBe(false);
+    expect(lostPlayOffersRecord({ reason: 'auto_ended', endedAtMs: null }, T0)).toBe(false);
+    expect(lostPlayOffersRecord({ reason: 'ended_elsewhere', endedAtMs: end }, T0)).toBe(false);
+    // ...and then the toast alone says it ended, with no deadline in the past.
+    expect(
+      lostPlayNote({ reason: 'auto_ended', startedAtMs: end - 6 * 60 * MIN, endedAtMs: end }, { timeLabel: label, nowMs: end + 10 * 60 * MIN }),
+    ).toBe('Your play session from 11:30 ended on its own after 6 hours, at 17:30.');
   });
 
   it('ended elsewhere, or never saved', () => {

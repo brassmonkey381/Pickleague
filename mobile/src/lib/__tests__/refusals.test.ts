@@ -4,12 +4,14 @@ import {
   confirmResultMessage,
   drillReviewRefusal,
   extendedNote,
+  isAlreadyReviewedMessage,
   queuedRefusalNotice,
   refusalCode,
   refusalCopy,
   refusalDetail,
   refusalMessage,
   refusalTitle,
+  signOutNotice,
   untrackedStartNote,
   whenLabel,
   type RefusalCode,
@@ -91,9 +93,18 @@ describe('every refusal code has its own plain words', () => {
     expect(refusalCopy('friend.unclaimed', { personName: 'Sam' })).toBe(
       "Sam hasn't joined Pickleague yet, so you can't add them as a friend.",
     );
+    // Left, removed, or never joined: no "any more".
     expect(refusalCopy('match.not_member', { leagueName: 'Tuesday Doubles' })).toBe(
-      "You're not a member of Tuesday Doubles any more, so you can't record matches there. Pick a league you're in.",
+      "You're not a member of Tuesday Doubles, so you can't record matches there. Pick a league you're in.",
     );
+  });
+
+  it('a removed match: true whoever recorded it (the recorder\'s own team is confirmed at insert)', () => {
+    const text = refusalCopy('match.removed');
+    expect(text).toBe(
+      "This match was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Ask whoever recorded it to enter it again.",
+    );
+    expect(text).not.toMatch(/nobody confirmed/i);
   });
 
   it('times come from DETAIL, in the device zone', () => {
@@ -216,21 +227,98 @@ describe('queuedRefusalNotice: a write saved with no signal and refused later', 
 });
 
 describe('extendedNote: +1 h answered with less', () => {
+  const H = 3_600_000;
+  const NOW = T0 - 2 * H; // the tap: 16:00, the check-in runs to 17:00, +1 h asks for 18:00
+
   it('the full hour', () => {
-    expect(extendedNote({ requestedUntilMs: T0, gotUntilMs: T0, timeLabel: label })).toEqual({
+    expect(extendedNote({ requestedUntilMs: T0, gotUntilMs: T0, fixSent: true, timeLabel: label, nowMs: NOW })).toEqual({
       full: true,
       message: 'Checked in until 18:00.',
     });
   });
 
-  it('less, and why', () => {
+  it('less with no confirming fix: why, and what to do', () => {
     expect(
-      extendedNote({ requestedUntilMs: T0, gotUntilMs: T0 - 45 * 60_000, venueName: 'Lakeside', timeLabel: label }),
+      extendedNote({
+        requestedUntilMs: T0,
+        gotUntilMs: T0 - 45 * 60_000,
+        fixSent: false,
+        venueName: 'Lakeside',
+        timeLabel: label,
+        nowMs: NOW,
+      }),
     ).toEqual({
       full: false,
       message:
         "Checked in until 17:15, not a full hour: Pickleague couldn't confirm you're still at Lakeside. Open Pickleague at the court to stay later.",
     });
+  });
+
+  it('at the 4-hour ceiling: says so, never blames a missing fix (fix sent or not)', () => {
+    // Already until 20:00 (4 h from now); +1 h asks for 21:00 and gets 20:00.
+    for (const fixSent of [true, false]) {
+      const note = extendedNote({
+        requestedUntilMs: NOW + 5 * H,
+        gotUntilMs: NOW + 4 * H - 30_000,
+        fixSent,
+        venueName: 'Lakeside',
+        timeLabel: label,
+        nowMs: NOW,
+      });
+      expect(note).toEqual({
+        full: false,
+        message: "A check-in can run at most 4 hours ahead, so you're checked in until 19:59. Extend it again later to stay longer.",
+      });
+      expect(note.message).not.toMatch(/couldn't confirm/);
+    }
+  });
+
+  it('short for no reason it can name, with a fix sent: just the time', () => {
+    expect(
+      extendedNote({ requestedUntilMs: T0, gotUntilMs: T0 - 45 * 60_000, fixSent: true, timeLabel: label, nowMs: NOW }),
+    ).toEqual({ full: false, message: 'Checked in until 17:15.' });
+  });
+});
+
+describe('refusalTitle: a refused Extend still leaves me checked in', () => {
+  it('fix and court refusals read "Not extended" on Extend, "Not checked in" on check-in', () => {
+    for (const code of ['fix.not_at_court', 'fix.stale', 'fix.stale_clock', 'fix.imprecise', 'fix.malformed', 'court.gone'] as const) {
+      expect(refusalTitle(code, 'extend'), code).toBe('Not extended');
+      expect(refusalTitle(code), code).toBe('Not checked in');
+      expect(refusalTitle(code, 'check_in'), code).toBe('Not checked in');
+    }
+    expect(refusalTitle('checkin.needs_fix', 'extend')).toBe('Not extended');
+    expect(refusalTitle('checkin.closed', 'extend')).toBe('Check-in ended');
+  });
+});
+
+describe('signOutNotice: what stays open, and the action that ends each one', () => {
+  const H = 3_600_000;
+  it('the check-in only: Check out', () => {
+    expect(signOutNotice({ checkin: { venueName: 'Lakeside', untilMs: T0 + H }, timeLabel: label })).toBe(
+      "Signed out. Pickleague couldn't check you out of Lakeside, so you may still show there until 19:00. Sign in again and tap Check out to end it sooner.",
+    );
+  });
+
+  it('the session only: End, never "check out"', () => {
+    const text = signOutNotice({ sessionEndsAtMs: T0 + 5 * H, timeLabel: label });
+    expect(text).toBe(
+      "Signed out. Your play session couldn't be ended, so it ends on its own at 23:00. Sign in again and tap End on your play session to end it sooner.",
+    );
+    expect(text).not.toMatch(/check out/i);
+  });
+
+  it('both: both actions', () => {
+    expect(
+      signOutNotice({ checkin: { venueName: 'Lakeside', untilMs: T0 + H }, sessionEndsAtMs: T0 + 5 * H, timeLabel: label }),
+    ).toBe(
+      "Signed out. Pickleague couldn't check you out of Lakeside, so you may still show there until 19:00. Your play session couldn't be ended, so it ends on its own at 23:00. Sign in again, then tap Check out and End to end them sooner.",
+    );
+  });
+
+  it('nothing left open: no notice', () => {
+    expect(signOutNotice({})).toBeNull();
+    expect(signOutNotice({ checkin: null, sessionEndsAtMs: null })).toBeNull();
   });
 });
 
@@ -254,6 +342,13 @@ describe('the rest of the "said why" copy', () => {
     expect(drillReviewRefusal(null)).toBe("Your review wasn't saved. Try again.");
   });
 
+  it('knows the "already reviewed" answer, old and new (a lost answer\'s retry reads it as saved)', () => {
+    expect(isAlreadyReviewedMessage('Already reviewed')).toBe(true);
+    expect(isAlreadyReviewedMessage('You already reviewed this drill. Each drill gets one review.')).toBe(true);
+    expect(isAlreadyReviewedMessage('Only the two players in this drill can review it.')).toBe(false);
+    expect(isAlreadyReviewedMessage(null)).toBe(false);
+  });
+
   it('a Start at a court that did not check me in: the real reason', () => {
     expect(untrackedStartNote('Lakeside', 'not_at_court')).toBe(
       "Not checked in at Lakeside: you're not at the court, so only you see this session. Check in from Home when you get there.",
@@ -262,6 +357,18 @@ describe('the rest of the "said why" copy', () => {
     expect(untrackedStartNote('Lakeside', 'imprecise')).toContain('Precise Location');
     expect(untrackedStartNote('Lakeside', 'no_fix')).toContain("couldn't get your location");
     expect(untrackedStartNote(null, 'court_gone')).toContain("isn't in Pickleague any more");
+  });
+
+  it('a Start that relied on my check-in there (no fix asked for): the check-in is the reason, not location', () => {
+    expect(untrackedStartNote('Lakeside', 'checkin_gone')).toBe(
+      'Not checked in at Lakeside: your check-in there had ended, so only you see this session. Check in from Home to be seen there.',
+    );
+    expect(untrackedStartNote('Lakeside', 'checkin_private')).toBe(
+      'Not checked in at Lakeside: your check-in there was saved without your location, so nobody sees it or this session. Check in from Home to be seen there.',
+    );
+    for (const r of ['checkin_gone', 'checkin_private'] as const) {
+      expect(untrackedStartNote('Lakeside', r)).not.toMatch(/couldn't get your location/);
+    }
   });
 
   it('whenLabel: the time today, the weekday otherwise (device zone)', () => {

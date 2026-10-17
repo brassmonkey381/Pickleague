@@ -279,12 +279,15 @@ export function PlayStartSheet({
       const fresh = isFixFresh(fixRef.current, Date.now(), FIX_REUSE_MS) ? fixRef.current : null;
       // My check-in's court: the server adopts that confirmed check-in, so
       // Start needs no fix there (re-read: it may have ended since the sheet
-      // opened). A recent fix still goes along.
+      // opened). A recent fix still goes along. A private check-in (saved
+      // without a fix by an older build) is never adopted: it needs the fix.
+      // viaCheckin: if the check-in turns out to be gone, the island says
+      // that, not "couldn't get your location".
       if (at.reason === 'checked_in') {
         const cur = await peekCurrentCheckin();
         if (stale()) return;
-        if (!startNeedsFix(at, cur?.venueId)) {
-          startPlay({ kind, sourceId, venueId: at.id, venueName: at.name, fix: fresh });
+        if (!startNeedsFix(at, cur && !cur.private ? cur.venueId : null)) {
+          startPlay({ kind, sourceId, venueId: at.id, venueName: at.name, fix: fresh, viaCheckin: true });
           onClose();
           return;
         }

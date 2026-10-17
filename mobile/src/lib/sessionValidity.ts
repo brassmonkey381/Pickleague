@@ -64,14 +64,31 @@ export type EndDecision =
       lengthMs: number;
       offerDrill: boolean;
       windowEndsAtMs: number;
+      /** The session as this device timed it (the server's stored times may differ). */
+      startedAtMs: number;
+      endedAtMs: number;
       unsure?: boolean;
       why?: string;
+      /**
+       * This device recorded a match for it, pending the other team. End still
+       * asks the server: the match may have expired while the session ran.
+       * Without an answer, decision 3's toast.
+       */
+      pendingMatch?: true;
     };
 
 /** Decision 3 (2026-10-16), verbatim: the End toast while the match is pending. */
 export const PENDING_END_NOTE = 'Session ended. It counts once the other team confirms (within the hour).';
 const CONFIRMED_END_NOTE = 'Session ended. It counts: you recorded a match.';
 const DRILL_END_NOTE = 'Session ended. It counts: you reviewed a drill held during it.';
+/** End after the 2-hour window closed, with the server's word that nothing counts. */
+export const MISSED_END_NOTE = "Session ended. It didn't count: no match or drill was recorded within 2 hours of its end.";
+/** End after the 2-hour window closed, with no word from the server. */
+export const MISSED_UNSURE_END_NOTE =
+  'Session ended. The 2 hours to record a match or drill for it are over, so it counts only if one was recorded in time.';
+/** The match this device recorded for the session is gone on the server. */
+const MATCH_GONE_WHY =
+  "The match you recorded during it was removed: it wasn't confirmed by both teams within an hour, or it was deleted.";
 
 /** "42 min", "1 h", "1 h 5 min". Under a minute reads "1 min". */
 export function sessionLengthLabel(ms: number): string {
@@ -89,13 +106,14 @@ function tooShortNote(lengthMs: number, recorded: RecordedForSession): string {
   return isMatch(recorded) ? `${base} Your match is still recorded.` : base;
 }
 
-/** What End shows from what this device knows (endDecisionWithServer adds the server's word). */
+/**
+ * What End shows from what this device knows (endDecisionWithServer adds the
+ * server's word). A 'record' decision always asks the server first.
+ */
 export function endDecision(s: EndedPlay): EndDecision {
   const length = s.endedAtMs - s.startedAtMs;
   if (length < MIN_SESSION_MS) return { show: 'note', tone: 'info', message: tooShortNote(length, s.recorded) };
   if (s.recorded === 'match_confirmed') return { show: 'note', tone: 'success', message: CONFIRMED_END_NOTE };
-  // Pending until the other team confirms; it stops counting if nobody does.
-  if (isMatch(s.recorded)) return { show: 'note', tone: 'success', message: PENDING_END_NOTE };
   if (s.recorded === 'drill') return { show: 'note', tone: 'success', message: DRILL_END_NOTE };
   return {
     show: 'record',
@@ -105,6 +123,12 @@ export function endDecision(s: EndedPlay): EndDecision {
     // not only the one it was started from, so every drill session offers it.
     offerDrill: s.kind === 'drill',
     windowEndsAtMs: s.endedAtMs + RECORD_WINDOW_MS,
+    startedAtMs: s.startedAtMs,
+    endedAtMs: s.endedAtMs,
+    // A pending match counts only until its hour runs out (nobody confirmed:
+    // expire_pending_matches deletes it), and nothing on this device hears
+    // about that, so End asks the server about it too.
+    ...(isMatch(s.recorded) ? { pendingMatch: true as const } : {}),
   };
 }
 
@@ -125,7 +149,20 @@ export type SessionValidity = {
   match_pending?: boolean;
   /** The earliest confirm deadline of those matches. */
   confirm_by?: string;
-  /** Nothing counts yet, but the player recorded something that went elsewhere. */
+  /**
+   * Who still has to confirm that match: the other team ('theirs'), the
+   * player's own team ('mine': an opponent recorded it), or both teams (a
+   * league member who didn't play recorded it). Absent: an older server.
+   */
+  confirm_needed?: 'theirs' | 'mine' | 'both';
+  /** A drill counts for this session (absent: an older server). */
+  drill_counted?: boolean;
+  /**
+   * Something the player recorded doesn't count for this session.
+   * 'match_counted_elsewhere' only when nothing counts;
+   * 'drill_not_during_session' also when a match counts (a drill reviewed in
+   * the window that doesn't count for it).
+   */
   why?: 'match_counted_elsewhere' | 'drill_not_during_session';
   match_at?: string;
   counted_for_started_at?: string;
@@ -145,6 +182,22 @@ const dateOf = (s: string | null | undefined): Date | null => {
 /** It counts through a match the other team hasn't confirmed yet. */
 function isPending(v: SessionValidity): boolean {
   return (v.valid && !!v.rewards_pending_confirmation) || !!v.match_pending;
+}
+
+/** "the other team confirms", "your team confirms", "both teams confirm" (absent key: the other team). */
+function confirmer(v: SessionValidity): string {
+  if (v.confirm_needed === 'mine') return 'your team confirms';
+  if (v.confirm_needed === 'both') return 'both teams confirm';
+  return 'the other team confirms';
+}
+
+/** End while the match that makes it count is pending: decision 3, or who else has to confirm. */
+function pendingEndNote(v: SessionValidity, o: Fmt): string {
+  if (v.confirm_needed === 'mine') {
+    return `Session ended. It counts once your team confirms the match, ${confirmBy(v, o)}. Confirm it in Match History.`;
+  }
+  if (v.confirm_needed === 'both') return `Session ended. It counts once both teams confirm the match, ${confirmBy(v, o)}.`;
+  return PENDING_END_NOTE;
 }
 
 /** The server's stored length, when it said (null: an older server). */
@@ -178,20 +231,30 @@ export function whyNotCounted(v: SessionValidity, o: Fmt = {}): string | null {
  * match then would invite a duplicate, so:
  *   - it counts (ended and valid, or still open on the server, its End on the
  *     way, with nothing more needed): a success toast, pending while the
- *     other team hasn't confirmed (decision 3);
- *   - too short by the server's clock: the too-short toast, and when the
- *     server moved its start (it overlapped an earlier one), that reason;
+ *     match isn't confirmed (decision 3, or who else still has to confirm);
+ *   - too short by the server's stored times: the too-short toast, with the
+ *     reason when the stored times show one (a later start: it overlapped an
+ *     earlier session; an earlier end: another device or a newer Start);
  *   - it needs a match or drill: the sheet, with why something recorded
- *     didn't count when the server says;
- *   - no answer (offline, slow, not on the server yet): the sheet, hedged.
+ *     didn't count (it went to another session, or the match this device
+ *     recorded was removed); once the 2-hour window is over, a toast that it
+ *     didn't count instead (nothing recorded now could change that);
+ *   - no answer (offline, slow, not on the server yet): the sheet, hedged;
+ *     decision 3's toast when this device recorded a match; a hedged toast
+ *     once the window is over.
  * A local decision that is already a toast stands.
  */
 export function endDecisionWithServer(local: EndDecision, v: ServerAnswer, o: Fmt = {}): EndDecision {
   if (local.show === 'note') return local;
-  if (v === null || v === 'unknown') return { ...local, unsure: true };
+  const now = o.nowMs ?? Date.now();
+  if (v === null || v === 'unknown') {
+    if (local.pendingMatch) return { show: 'note', tone: 'success', message: PENDING_END_NOTE };
+    if (local.windowEndsAtMs <= now) return { show: 'note', tone: 'info', message: MISSED_UNSURE_END_NOTE };
+    return { ...local, unsure: true };
+  }
   if (v.valid || (v.reason === 'open' && v.needs === null)) {
     const message = isPending(v)
-      ? PENDING_END_NOTE
+      ? pendingEndNote(v, o)
       : v.reason === 'drill_in_window'
         ? DRILL_END_NOTE
         : v.reason === 'open'
@@ -200,18 +263,35 @@ export function endDecisionWithServer(local: EndDecision, v: ServerAnswer, o: Fm
     return { show: 'note', tone: 'success', message };
   }
   if (v.reason === 'too_short' || v.needs === 'minutes') {
-    // This device timed 5+ minutes (a shorter one never gets here), so the
-    // server moved its start: it overlapped an earlier session of mine.
-    const server = serverLengthMs(v);
-    const counted = server != null && server < MIN_SESSION_MS ? `only ${sessionLengthLabel(server)}` : 'under 5 minutes';
-    return {
-      show: 'note',
-      tone: 'info',
-      message: `Session ended. Pickleague counted ${counted} of it because it overlapped your previous session. Sessions under 5 minutes don't count.`,
-    };
+    return { show: 'note', tone: 'info', message: serverTooShortNote(local, v, o) };
   }
-  const why = whyNotCounted(v, o);
+  // A match or drill is still needed. Once the window is over, nothing
+  // recorded now can make it count: say so instead of asking.
+  const windowEndsAtMs = dateOf(v.window_ends_at)?.getTime() ?? local.windowEndsAtMs;
+  if (windowEndsAtMs <= now) return { show: 'note', tone: 'info', message: MISSED_END_NOTE };
+  const why = whyNotCounted(v, o) ?? (local.pendingMatch ? MATCH_GONE_WHY : null);
   return why ? { ...local, why } : local;
+}
+
+/**
+ * This device timed 5+ minutes (a shorter session never asks the server), but
+ * the server stored under 5. Name a reason only when the stored times show
+ * it: a later start (the no-overlap rule moved it past an earlier session),
+ * or an earlier end (ended on another device, or by a newer Start). A minute
+ * of slack for the clocks. Otherwise, or from an older server, the plain line.
+ */
+function serverTooShortNote(local: Extract<EndDecision, { show: 'record' }>, v: SessionValidity, o: Fmt): string {
+  const server = serverLengthMs(v);
+  const counted = server != null && server < MIN_SESSION_MS ? `only ${sessionLengthLabel(server)}` : 'under 5 minutes';
+  const start = dateOf(v.started_at);
+  const end = dateOf(v.ended_at);
+  if (start && start.getTime() > local.startedAtMs + 60_000) {
+    return `Session ended. Pickleague counted ${counted} of it because it overlapped your previous session. Sessions under 5 minutes don't count.`;
+  }
+  if (end && server != null && end.getTime() < local.endedAtMs - 60_000) {
+    return `Session ended. It had already ended at ${fmt(o)(end)}, on another device or when you started a new one, after ${sessionLengthLabel(server)}. Sessions under 5 minutes don't count.`;
+  }
+  return `Session ended. Pickleague counted ${counted} of it. Sessions under 5 minutes don't count.`;
 }
 
 /** The end sheet's line: why it doesn't count yet, and by when to fix that (device zone). */
@@ -258,6 +338,11 @@ function confirmBy(v: SessionValidity, o: Fmt): string {
   return d ? `by ${fmt(o)(d)}` : 'within the hour';
 }
 
+/** Where to confirm, when it's on the player's own team. */
+function confirmHint(v: SessionValidity): string {
+  return v.confirm_needed === 'mine' ? ' Confirm it in Match History.' : '';
+}
+
 /**
  * One line for the player about a session the server judged (after a match
  * is recorded for it), or null when there is nothing to say (no answer).
@@ -273,7 +358,7 @@ export function validityNote(
     if (v.needs === 'minutes') return 'Your match is recorded. It counts for your play session once the session has run 5 minutes.';
     if (v.needs === null) {
       return isPending(v)
-        ? `Your play session counts once the other team confirms this match, ${confirmBy(v, o)}.`
+        ? `Your play session counts once ${confirmer(v)} this match, ${confirmBy(v, o)}.${confirmHint(v)}`
         : 'Your play session counts now.';
     }
     return null;
@@ -282,7 +367,7 @@ export function validityNote(
     // Recorded is enough to count, but an unconfirmed match is deleted after
     // an hour (expire_pending_matches), and the session stops counting.
     return isPending(v)
-      ? `This play session counts once the other team confirms this match, ${confirmBy(v, o)}.`
+      ? `This play session counts once ${confirmer(v)} this match, ${confirmBy(v, o)}.${confirmHint(v)}`
       : 'This play session counts now.';
   }
   if (v.needs === 'minutes' || v.reason === 'too_short') {
@@ -300,22 +385,59 @@ export function validityNote(
   return "This session didn't count: no match or drill was recorded within 2 hours of its end.";
 }
 
+/** The drill made it count (the server's drill_counted, or a session valid through a drill alone). */
+export const DRILL_COUNTS_NOTE = 'Your play session counts now: you reviewed a drill held during it.';
+
+/** Why the reviewed drill doesn't count, from the server's drill_starts_at. */
+function drillNotDuring(v: SessionValidity, o: Fmt): string {
+  const d = dateOf(v.drill_starts_at);
+  return d
+    ? `This drill doesn't count for your play session: it was scheduled for ${fmt(o)(d)}, not during the session.`
+    : "This drill doesn't count for your play session: it wasn't held during the session.";
+}
+
+/**
+ * Whether the drill just reviewed is what makes a counting session count
+ * (the server's drill_counted). False when a match made it count and the
+ * drill doesn't; null when the server can't say (an older one).
+ */
+export function drillMadeItCount(v: SessionValidity | null | undefined): boolean | null {
+  if (!v || !(v.valid || (v.reason === 'open' && v.needs === null))) return false;
+  if (v.drill_counted === true || v.reason === 'drill_in_window') return true;
+  if (v.drill_counted === false) return false;
+  return null;
+}
+
 /** After a drill review: whether my running or just-ended session counts now, or why the drill doesn't. */
 export function drillReviewNote(v: SessionValidity | null | undefined, o: Fmt & { running?: boolean } = {}): string | null {
   if (!v) return null;
   if (v.valid || (v.reason === 'open' && v.needs === null)) {
-    return v.reason === 'drill_in_window' || v.reason === 'open'
-      ? 'Your play session counts now: you reviewed a drill held during it.'
-      : null; // it already counted through a match: nothing new to say
+    const drill = drillMadeItCount(v);
+    if (drill === true) return DRILL_COUNTS_NOTE;
+    if (drill === false) {
+      // A match made it count, and this drill doesn't count for it.
+      return v.why === 'drill_not_during_session' ? `${drillNotDuring(v, o)} Your session counts through your match instead.` : null;
+    }
+    // A server without drill_counted can't say what made a running session
+    // count: never credit the drill for it.
+    return v.reason === 'open' ? 'Your play session counts now.' : null;
   }
-  if (v.why === 'drill_not_during_session') {
-    const d = dateOf(v.drill_starts_at);
-    return d
-      ? `This drill doesn't count for your play session: it was scheduled for ${fmt(o)(d)}, not during the session.`
-      : "This drill doesn't count for your play session: it wasn't held during the session.";
-  }
+  if (v.why === 'drill_not_during_session') return drillNotDuring(v, o);
   if (v.needs === 'minutes') return o.running ? null : "Your play session was under 5 minutes, so it doesn't count.";
   return null;
+}
+
+/**
+ * After the island's session turns out to have auto-ended: whether the end
+ * sheet should still ask for a match or drill (PlayIsland). Only while its 2
+ * hours to record are running; after that nothing recorded can make it count,
+ * and lostPlayNote alone says it ended.
+ */
+export function lostPlayOffersRecord(
+  p: { reason: LostPlayReason; endedAtMs: number | null },
+  nowMs: number = Date.now(),
+): boolean {
+  return p.reason === 'auto_ended' && p.endedAtMs != null && p.endedAtMs + RECORD_WINDOW_MS > nowMs;
 }
 
 /** Why the island's session is gone, and what to do (PlayIsland says it once). */

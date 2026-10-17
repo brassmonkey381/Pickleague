@@ -106,7 +106,8 @@ export function refusalNotice(e: unknown, ctx: RefusalContext = {}): NoticeCopy 
   const code = refusalCode(e);
   if (!code) return null;
   return {
-    title: refusalTitle(code),
+    // The action matters: a refused Extend still leaves me checked in.
+    title: refusalTitle(code, ctx.action),
     body: refusalCopy(code, { ...ctx, surface: 'lock' }, refusalDetail(e), message(e)),
   };
 }

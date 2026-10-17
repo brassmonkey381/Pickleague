@@ -8,10 +8,12 @@
 //     writes keep these and send them again instead of dropping them.
 //   - noteRefusalNotice(): a write the player is NOT looking at was refused
 //     (an offline-queued check-in, check-out, Start or End replayed later, or
-//     a sign-out that couldn't close a check-in). Kept until shown: a toast
-//     the next time the app is open (components/RefusalNoticeHost), or right
-//     away as a local notification when the app is in the background. Never
-//     dropped silently.
+//     a sign-out that couldn't close a check-in). Kept until the player
+//     dismisses it: a card that stays until OK the next time the app is open
+//     (components/RefusalNoticeHost), or right away as a local notification
+//     when the app is in the background AND notifications are allowed
+//     (without permission the OS drops it silently, so it waits for the app
+//     instead). Never dropped silently.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -49,8 +51,11 @@ type Stored = RefusalNotice & { atMs: number; shown?: boolean };
 const KEY = 'pickleague_refusal_notices_v1';
 const KEEP_MS = 3 * 24 * 3600_000;
 
-/** Emits when a new notice is stored (the host toasts it). */
+/** Emits when a new notice is stored (the host shows it). */
 export const refusalNoticed = createSignal<void>();
+
+/** A notice waiting for the player, as the host shows it. */
+export type PendingNotice = RefusalNotice & { atMs: number };
 
 async function read(): Promise<Stored[]> {
   try {
@@ -68,26 +73,45 @@ async function write(list: Stored[]): Promise<void> {
   await AsyncStorage.setItem(KEY, JSON.stringify(list)).catch(() => {});
 }
 
+/** Notification permission is granted (native). Never throws: unknown reads as no. */
+async function notificationsAllowed(): Promise<boolean> {
+  try {
+    const N = await import('expo-notifications');
+    return (await N.getPermissionsAsync()).granted === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Keep a notice until the player has seen it. In the background (native) it
- * goes out now as a local notification; otherwise the host toasts it.
+ * Keep a notice until the player has dismissed it. In the background (native)
+ * with notifications allowed, it goes out now as a local notification (and
+ * counts as seen). Otherwise it waits for the host, which shows it the next
+ * time the app is open.
  */
 export async function noteRefusalNotice(n: RefusalNotice): Promise<void> {
   const background = Platform.OS !== 'web' && AppState.currentState !== 'active';
+  // postLocalNotice never throws and posts nothing the OS will show without
+  // permission, so only a permitted one may stand in for the in-app notice.
+  const posted = background && (await notificationsAllowed());
   const list = (await read()).filter((x) => x.key !== n.key);
-  await write([...list, { ...n, atMs: Date.now(), shown: background }]);
-  if (background) {
+  await write([...list, { ...n, atMs: Date.now(), shown: posted }]);
+  if (posted) {
     await postLocalNotice(n.title, n.body, n.link ? { data: { deepLink: n.link } } : undefined);
     return;
   }
   refusalNoticed.emit();
 }
 
-/** The notices not shown yet, oldest first (now marked shown). */
-export async function takeRefusalNotices(): Promise<RefusalNotice[]> {
+/** The notices the player hasn't dismissed yet, oldest first (nothing is marked). */
+export async function peekRefusalNotices(): Promise<PendingNotice[]> {
+  return (await read())
+    .filter((n) => !n.shown)
+    .map(({ key, title, body, link, atMs }) => ({ key, title, body, link, atMs }));
+}
+
+/** The player dismissed this notice. A newer one stored under the same key since stays. */
+export async function markRefusalNoticeShown(key: string, atMs: number): Promise<void> {
   const list = await read();
-  const fresh = list.filter((n) => !n.shown);
-  if (fresh.length === 0) return [];
-  await write(list.map((n) => (n.shown ? n : { ...n, shown: true })));
-  return fresh.map(({ key, title, body, link }) => ({ key, title, body, link }));
+  await write(list.map((n) => (n.key === key && n.atMs <= atMs ? { ...n, shown: true } : n)));
 }

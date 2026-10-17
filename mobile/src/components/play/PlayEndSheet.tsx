@@ -1,22 +1,27 @@
 // "Record a match or drill?": what ending a play session shows
 // (docs/play-sessions-presence.md, Phase 1.5). A session counts for rewards
 // and streaks once it lasted 5+ minutes and a match or drill was recorded for
-// it; the server judges (play_sessions.valid). Too short, or something this
-// device knows already counts: a toast, no sheet. Otherwise it asks the server
-// (my_session_validity, bounded at 2 s), which may already count the session
-// (a match a partner recorded, a drill reviewed): then a toast too, since
-// asking would invite a duplicate match. Only when the server says a match or
-// drill is still needed, or can't answer, does this sheet ask, while the
-// player still remembers: Record match opens MatchEntry linked to the session
+// it; the server judges (play_sessions.valid). Too short, or a confirmed
+// match or a drill this device knows counts: a toast, no sheet. Otherwise
+// (nothing known, or a match this device recorded that may have expired
+// unconfirmed since) it asks the server (my_session_validity, bounded at
+// 2 s), which may already count the session (a match a partner recorded, a
+// drill reviewed): then a toast too, since asking would invite a duplicate
+// match. Only when the server says a match or drill is still needed, or
+// can't answer, does this sheet ask, while the player still remembers:
+// Record match opens MatchEntry linked to the session
 // (matches.play_session_id), Review drill opens DrillRequests ("Review your
 // drills", which lists today's drill) for a drill session, and Not now (or
 // closing the sheet) leaves a note that it still counts when one is recorded
 // within 2 hours. Without a server answer the copy is hedged ("If you haven't
-// recorded it yet"). Every line says why it doesn't count yet and by when to
-// fix that (rule 11): nothing recorded, or what the player recorded counts
-// for another session; a pending match "counts once the other team confirms
-// (within the hour)". lib/sessionValidity decides; presence never depends on
-// any of this.
+// recorded it yet"), or, after a match this device recorded, decision 3's
+// toast. Every line says why it doesn't count yet and by when to fix that
+// (rule 11): nothing recorded, what the player recorded counts for another
+// session, or the match recorded during it was removed; a pending match
+// "counts once the other team confirms (within the hour)" (or names the team
+// that still has to). Once the 2 hours are over (a session found auto-ended
+// late), a toast says it didn't count instead. lib/sessionValidity decides;
+// presence never depends on any of this.
 //
 // Mounted once at the app root next to PlayIsland (navigation/AppNavigator),
 // outside the navigator, so it navigates through navigateWhenReady. The island

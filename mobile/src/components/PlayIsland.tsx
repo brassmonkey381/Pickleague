@@ -24,7 +24,7 @@ import {
 } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
 import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
-import { lostPlayNote } from '../lib/sessionValidity';
+import { lostPlayNote, lostPlayOffersRecord } from '../lib/sessionValidity';
 import {
   checkinChanged,
   extendCheckinByHour,
@@ -63,11 +63,13 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   });
   // The session the island showed is over on the server without this
   // device's End (the 6-hour expiry, another device, or its Start never
-  // landed): say why. After the expiry the end sheet asks for the match or
-  // drill that makes it count, as End would have.
+  // landed): say why. After the expiry, while its 2 hours to record are still
+  // running, the end sheet asks for the match or drill that makes it count,
+  // as End would have. Once they're over, the toast alone says it ended
+  // (nothing recorded now could make it count).
   useSignal(playLost, (lost) => {
     toast.info(lostPlayNote(lost));
-    if (lost.reason === 'auto_ended' && lost.endedAtMs != null) {
+    if (lostPlayOffersRecord(lost) && lost.endedAtMs != null) {
       playEnded.emit({
         id: lost.id,
         kind: lost.kind,

@@ -17,7 +17,7 @@ import { supabase } from './supabase';
 import { playSession } from './playSession';
 import { peekCurrentCheckin } from './courtCheckin';
 import { noteRefusalNotice } from './refusalNotices';
-import { whenLabel } from './refusals';
+import { signOutNotice } from './refusals';
 import { checkoutVenue } from '../data/venueCheckins';
 import { endPlaySession, getMyActivePlaySession } from '../data/playSessions';
 
@@ -50,21 +50,15 @@ export async function endPresenceForSignOut(): Promise<void> {
       () => false,
     ),
   ]);
-  const lines: string[] = [];
-  if (!outOk && checkin && !checkin.queued) {
-    lines.push(
-      `Pickleague couldn't check you out of ${checkin.venueName}, so you may still show there until ${whenLabel(new Date(checkin.expiresAt))}.`,
-    );
-  }
-  if (!endOk && sessionStartMs != null) {
-    lines.push(
-      `Your play session couldn't be ended, so it ends on its own at ${whenLabel(new Date(sessionStartMs + 6 * 3_600_000))}.`,
-    );
-  }
-  if (lines.length === 0) return;
-  await noteRefusalNotice({
-    key: `signout:${at}`,
-    title: 'Signed out',
-    body: `Signed out. ${lines.join(' ')} Sign in again and check out to end it sooner.`,
-  }).catch(() => {});
+  // What stays open and until when, and the action that ends each one
+  // (Check out for the check-in, End for the session).
+  const body = signOutNotice({
+    checkin:
+      !outOk && checkin && !checkin.queued
+        ? { venueName: checkin.venueName, untilMs: Date.parse(checkin.expiresAt) }
+        : null,
+    sessionEndsAtMs: !endOk && sessionStartMs != null ? sessionStartMs + 6 * 3_600_000 : null,
+  });
+  if (!body) return;
+  await noteRefusalNotice({ key: `signout:${at}`, title: 'Signed out', body }).catch(() => {});
 }

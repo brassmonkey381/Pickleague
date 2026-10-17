@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   appState: 'active' as string,
   posted: [] as { title: string; body: string }[],
   friendly: [] as { fallback?: string; overrides?: Record<string, string> }[],
+  granted: true as boolean | 'throws',
 }));
 
 vi.mock('react-native', () => ({
@@ -45,6 +46,12 @@ vi.mock('@just-messin-around/expo-foundation/platform/push', () => ({
     h.posted.push({ title, body });
   },
 }));
+vi.mock('expo-notifications', () => ({
+  getPermissionsAsync: async () => {
+    if (h.granted === 'throws') throw new Error('no module');
+    return { granted: h.granted, status: h.granted ? 'granted' : 'denied' };
+  },
+}));
 vi.mock('@just-messin-around/expo-foundation/supabase', () => ({
   classifySbError: (e: { code?: string } | null) => (e?.code === 'PGRST301' ? 'auth' : 'unknown'),
   friendlySbMessage: (_e: unknown, fallback?: string, overrides?: Record<string, string>) => {
@@ -53,14 +60,31 @@ vi.mock('@just-messin-around/expo-foundation/supabase', () => ({
   },
 }));
 
-import { explainRefusal, isRetryLater, noteRefusalNotice, takeRefusalNotices } from '../refusalNotices';
+import {
+  explainRefusal,
+  isRetryLater,
+  markRefusalNoticeShown,
+  noteRefusalNotice,
+  peekRefusalNotices,
+} from '../refusalNotices';
 
 beforeEach(() => {
   h.store.clear();
   h.appState = 'active';
   h.posted.length = 0;
   h.friendly.length = 0;
+  h.granted = true;
 });
+
+/** What the host does: show the oldest, then OK. */
+async function dismissAll(): Promise<string[]> {
+  const seen: string[] = [];
+  for (let n = (await peekRefusalNotices())[0]; n; n = (await peekRefusalNotices())[0]) {
+    seen.push(n.body);
+    await markRefusalNoticeShown(n.key, n.atMs);
+  }
+  return seen;
+}
 
 describe('explainRefusal', () => {
   it('a known refusal: its own words, with the context', () => {
@@ -95,19 +119,55 @@ describe('isRetryLater: a queued write waits instead of being dropped', () => {
 });
 
 describe('refusal notices (never dropped silently)', () => {
-  it('kept until shown, once, oldest first', async () => {
+  it('kept until the player dismisses it, once, oldest first', async () => {
     await noteRefusalNotice({ key: 'a', title: 'T', body: 'First.' });
     await noteRefusalNotice({ key: 'b', title: 'T', body: 'Second.' });
     await noteRefusalNotice({ key: 'a', title: 'T', body: 'First again.' }); // same write: one notice
-    expect((await takeRefusalNotices()).map((n) => n.body)).toEqual(['Second.', 'First again.']);
-    expect(await takeRefusalNotices()).toEqual([]);
+    expect(await dismissAll()).toEqual(['Second.', 'First again.']);
+    expect(await peekRefusalNotices()).toEqual([]);
   });
 
-  it('in the background it goes out at once as a notification (and is not toasted again)', async () => {
+  it('looking is not seeing: a notice stays until it is dismissed (the app closed with it on screen)', async () => {
+    await noteRefusalNotice({ key: 'a', title: 'T', body: 'First.' });
+    expect((await peekRefusalNotices()).map((n) => n.body)).toEqual(['First.']);
+    expect((await peekRefusalNotices()).map((n) => n.body)).toEqual(['First.']);
+  });
+
+  it('dismissing an older copy keeps a newer one stored under the same key since', async () => {
+    await noteRefusalNotice({ key: 'a', title: 'T', body: 'Old.' });
+    const [old] = await peekRefusalNotices();
+    // Stored as the same key a moment later, while "Old." was still on screen.
+    const later = h.store.get('pickleague_refusal_notices_v1')!;
+    h.store.set(
+      'pickleague_refusal_notices_v1',
+      JSON.stringify(JSON.parse(later).map((n: { atMs: number }) => ({ ...n, body: 'New.', atMs: n.atMs + 5 }))),
+    );
+    await markRefusalNoticeShown(old.key, old.atMs);
+    expect((await peekRefusalNotices()).map((n) => n.body)).toEqual(['New.']);
+  });
+
+  it('in the background with notifications allowed it goes out at once (and is not shown in the app again)', async () => {
     h.appState = 'background';
     await noteRefusalNotice({ key: 'c', title: 'Check-out didn\'t go through', body: 'Why. What to do.' });
     expect(h.posted).toEqual([{ title: "Check-out didn't go through", body: 'Why. What to do.' }]);
     h.appState = 'active';
-    expect(await takeRefusalNotices()).toEqual([]);
+    expect(await peekRefusalNotices()).toEqual([]);
+  });
+
+  it('in the background without notification permission it waits for the app (the OS would drop it)', async () => {
+    h.appState = 'background';
+    h.granted = false;
+    await noteRefusalNotice({ key: 'd', title: 'Play session not saved', body: 'Why. What to do.' });
+    expect(h.posted).toEqual([]);
+    h.appState = 'active';
+    expect((await peekRefusalNotices()).map((n) => n.body)).toEqual(['Why. What to do.']);
+  });
+
+  it('...and when the permission read fails, the same', async () => {
+    h.appState = 'background';
+    h.granted = 'throws';
+    await noteRefusalNotice({ key: 'e', title: 'T', body: 'Waits.' });
+    expect(h.posted).toEqual([]);
+    expect((await peekRefusalNotices()).map((n) => n.body)).toEqual(['Waits.']);
   });
 });

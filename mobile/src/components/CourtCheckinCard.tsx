@@ -224,9 +224,10 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       // Offline: keep the cached check-in. A check-in that ended without my
       // Check out here (ran out, or closed elsewhere) says so once.
       refreshCurrentCheckin()
-        .then((c) => {
+        .then(async (c) => {
           setCurrent(c);
-          const ended = takeEndedCheckinNote();
+          // Only the signed-in player's own (never the previous account's).
+          const ended = await takeEndedCheckinNote();
           if (ended && !c) setMessage(ended);
         })
         .catch(() => {});

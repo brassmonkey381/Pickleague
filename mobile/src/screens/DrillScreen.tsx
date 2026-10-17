@@ -487,7 +487,8 @@ export default function DrillScreen({ navigation }: Props) {
       onSubmitted={(sessionId, earned) => {
         setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, reviewed: true } : s));
         setReviewTarget(null);
-        status.success(`+${earned} pickles earned!`);
+        // null: an earlier try saved it and its answer was lost (amount unknown).
+        status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
       }}
       onClose={() => setReviewTarget(null)}
     />

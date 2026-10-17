@@ -25,9 +25,9 @@ import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
+import { explainRefusal } from '../../lib/refusalNotices';
 import {
   CHECKINS_LEVELS,
   LEAGUEMATES_NOTE,
@@ -146,7 +146,7 @@ function LevelSheet<L extends string>({
       await save(level);
       onClose();
     } catch (e) {
-      setError(friendlySbMessage(e, "Couldn't save that just now. Try again."));
+      setError(explainRefusal(e, "Couldn't save that. Try again."));
     } finally {
       setSaving(null);
     }
@@ -186,7 +186,8 @@ function HiddenFromSheet({
       await hidePresenceFrom(p.user_id, false);
       toast.success(`${p.full_name ?? 'They'} can see you at the courts again, as your setting allows.`);
     } catch (e) {
-      toast.error(friendlySbMessage(e, "Couldn't change that just now."));
+      // A player who is gone gets the hide-specific words (lib/refusals).
+      toast.error(explainRefusal(e, "Couldn't change that. Try again.", { action: 'hide' }));
     } finally {
       setBusyId(null);
     }
@@ -202,7 +203,7 @@ function HiddenFromSheet({
         {rows === undefined ? (
           query.error != null ? (
             <View style={sheetStyles.state}>
-              <Text style={t.sub}>{friendlySbMessage(query.error, "Couldn't load this list.")}</Text>
+              <Text style={t.sub}>{explainRefusal(query.error, "Couldn't load this list. Try again.")}</Text>
               <Button title="Retry" size="sm" variant="outline" onPress={() => void query.refresh()} style={sheetStyles.hug} />
             </View>
           ) : (

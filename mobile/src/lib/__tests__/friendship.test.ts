@@ -209,8 +209,12 @@ describe('copy', () => {
     expect(cancelResultMessage(false, 'friends', 'Sam Kim')).toBe(
       "Sam already accepted, so you're friends now. Remove Sam from your friends if you'd rather not be.",
     );
-    expect(cancelResultMessage(false, 'none', 'Sam Kim')).toBe('That request was already withdrawn.');
-    expect(cancelResultMessage(false, null, null)).toBe('That request was already withdrawn.');
+    // Sam declined, or it was cancelled elsewhere, or the read failed: true in
+    // every case, and a decline is never revealed.
+    const gone = "That request isn't waiting any more, so there's nothing to cancel.";
+    expect(cancelResultMessage(false, 'none', 'Sam Kim')).toBe(gone);
+    expect(cancelResultMessage(false, null, null)).toBe(gone);
+    expect(cancelResultMessage(false, 'none', 'Sam Kim')).not.toMatch(/withdrawn|declined/i);
   });
 
   it('ages a request and dates a friendship in the device zone', () => {

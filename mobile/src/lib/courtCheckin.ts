@@ -324,21 +324,27 @@ export async function noFixReason(): Promise<string> {
 // A check-in this device showed that ended without the player's Check out
 // here (its time ran out, or the server closed it: checked out elsewhere, a
 // check-in at another court, its session's End). The court card says so once,
-// so the card going back to "At the courts?" is never silent.
-let endedNote: string | null = null;
+// so the card going back to "At the courts?" is never silent. Kept with its
+// owner, so another account signed in on this device never sees it.
+let endedNote: { userId: string; text: string } | null = null;
 
 function noteCheckinEnded(c: CurrentCheckin, how: 'expired' | 'closed'): void {
-  endedNote =
-    how === 'expired'
-      ? `Your check-in at ${c.venueName} ended at ${whenLabel(new Date(c.expiresAt))}. Check in again if you're still there.`
-      : `Your check-in at ${c.venueName} has ended. Check in again if you're still there.`;
+  endedNote = {
+    userId: c.userId,
+    text:
+      how === 'expired'
+        ? `Your check-in at ${c.venueName} ended at ${whenLabel(new Date(c.expiresAt))}. Check in again if you're still there.`
+        : `Your check-in at ${c.venueName} has ended. Check in again if you're still there.`,
+  };
 }
 
-/** The "your check-in ended" line, once (null when there is none). */
-export function takeEndedCheckinNote(): string | null {
+/** The "your check-in ended" line for the signed-in player, once (null when there is none). */
+export async function takeEndedCheckinNote(): Promise<string | null> {
   const n = endedNote;
   endedNote = null;
-  return n;
+  if (!n) return null;
+  const uid = await currentUserId(supabase).catch(() => null);
+  return uid && uid === n.userId ? n.text : null;
 }
 
 /** The signed-in player's current check-in from the local cache (no network). */
@@ -453,15 +459,20 @@ export async function extendCheckinByHour(
   } catch (e) {
     // The check-in already ended on the server (checked out elsewhere, closed
     // by a check-in at another court or its session's End): stop showing it.
+    // Not awaited: the refusal must reach the player inside the caller's
+    // bound (the lock screen's 15 s, the card's), and the card refreshes on
+    // its own after a refusal.
     const code = refusalCode(e);
-    if (code === 'checkin.closed' || code === 'checkin.none') await refreshCurrentCheckin().catch(() => null);
+    if (code === 'checkin.closed' || code === 'checkin.none') void refreshCurrentCheckin().catch(() => null);
     throw e;
   }
   const cached = await readStored();
-  // Without a confirming fix the server may give less than an hour: say so.
+  // The server may give less than an hour (4 hours ahead at most, and
+  // without a confirming fix 4 hours past the last one): say which.
   const note = extendedNote({
     requestedUntilMs: requested,
     gotUntilMs: Date.parse(row.expires_at),
+    fixSent: !!fix,
     venueName: c.venueName ?? (cached?.id === c.id ? cached.venueName : null),
   });
   if (cached?.id !== c.id) return { next: null, note };
@@ -506,6 +517,8 @@ export async function forgetCheckin(id: string): Promise<void> {
 
 /** Sign-out: forget the local check-in, its reminder and any refusal notices (lib/signOutPresence closes the server row). */
 export async function clearCheckinForSignOut(): Promise<void> {
+  // The outgoing account's "your check-in ended" line goes with it.
+  endedNote = null;
   await setCurrent(null);
   await AsyncStorage.removeItem(REJECTED_KEY).catch(() => {});
 }

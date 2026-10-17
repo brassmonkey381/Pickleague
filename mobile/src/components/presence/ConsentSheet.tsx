@@ -18,8 +18,8 @@ import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../../lib/ThemeContext';
+import { explainRefusal } from '../../lib/refusalNotices';
 import {
   CHECKINS_LEVELS,
   DEFAULT_PRESENCE_SETTINGS,
@@ -73,7 +73,7 @@ export function ConsentSheet({ visible, onAccept, onDecline, onDismissed }: Shee
       setChanging(false);
     } catch (e) {
       setLevel(prev);
-      setError(friendlySbMessage(e, "Couldn't save that. Try again, or change it later in Settings."));
+      setError(explainRefusal(e, "Couldn't save that. Try again, or change it later in Settings."));
     } finally {
       setSaving(null);
     }

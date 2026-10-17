@@ -173,7 +173,7 @@ export function withdrawFriendRequest(userId: string): Promise<boolean> {
 
 /**
  * Withdraw my request, and when nothing was pending any more, find out why
- * (they accepted first, or it was already withdrawn) for the toast
+ * (they accepted first, or it is no longer waiting) for the toast
  * (friendship cancelResultMessage). The status read is best-effort.
  */
 export async function withdrawFriendRequestAndCheck(

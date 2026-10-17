@@ -12,8 +12,8 @@ import { type StyleProp, type ViewStyle } from 'react-native';
 import { ActionSheetModal, Chip, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTicker } from '@just-messin-around/expo-foundation/hooks';
-import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useToast } from '../../lib/useToast';
+import { explainRefusal } from '../../lib/refusalNotices';
 import { PAUSE_CHOICES, isPaused, pauseUntil, pausedUntilLabel, type PauseChoice } from '../../lib/presencePrivacy';
 import { setPresenceSettings, usePresenceSettings } from '../../data/presenceSettings';
 
@@ -36,7 +36,8 @@ export default function PauseSharingChip({ style }: Props) {
       await setPresenceSettings({ pausedUntil: until });
       toast.success(`Sharing paused ${pausedUntilLabel(until, Date.now())}. Others see "a player" until then.`);
     } catch (e) {
-      toast.error(friendlySbMessage(e, "Couldn't pause sharing just now."));
+      // Why (signed out, no connection), in the app's words (lib/refusals).
+      toast.error(explainRefusal(e, "Couldn't pause sharing. Try again."));
     } finally {
       setBusy(false);
     }
@@ -48,7 +49,7 @@ export default function PauseSharingChip({ style }: Props) {
       await setPresenceSettings({ clearPause: true });
       toast.success('Sharing is back on.');
     } catch (e) {
-      toast.error(friendlySbMessage(e, "Couldn't resume sharing just now."));
+      toast.error(explainRefusal(e, "Couldn't resume sharing. Try again."));
     } finally {
       setBusy(false);
     }

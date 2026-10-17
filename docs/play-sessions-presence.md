@@ -83,9 +83,10 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
       device's zone; the older texts too, for a server without the file), and every call site uses it
       (`explainRefusal`, the lock-screen `mapError`);
     - a write the player isn't looking at (an offline-queued check-in, check-out, Start or End refused when it is
-      finally sent, a sign-out that couldn't close a check-in) is said the next time the app can: a toast
-      (`components/RefusalNoticeHost`), or a local notification when the app is in the background. Signed out is
-      not a refusal: the queued write waits;
+      finally sent, a sign-out that couldn't close a check-in) is said the next time the app can: a card that
+      stays until the player taps OK (`components/RefusalNoticeHost`), or a local notification when the app is in
+      the background and notifications are allowed (otherwise it waits for the card). Signed out is not a
+      refusal: the queued write waits;
     - a new server text keeps the words the shipped app's regexes read (`need to be at the court`, `precise enough`,
       `location is out of date`, `open Pickleague at the court`, `no longer pending`, `expired`), never adds
       `expired` / `not found` where they did not apply, never uses a network word (`timed out`, `load failed`: 1.0.4
@@ -216,6 +217,16 @@ How the build reads the rules (say so to change any):
   tests 506/506 against live, rolled back.
 - [x] App: `lib/refusals` (the one mapping), `lib/refusalNotices` + `components/RefusalNoticeHost` (refusals the
   player wasn't looking at), every in-scope call site, the End / MatchEntry / drill-review "didn't count" copy.
+- [x] Review fixes (2026-10-16, 21 confirmed findings): no "record by" a time that has passed (an auto-ended
+  session found late, or End after the window); a pending match recorded on this device is re-checked at End (it
+  may have expired); End names the team that still has to confirm (`confirm_needed`) and gives the real reason a
+  session was too short; a drill review never takes credit for a session a match made count (`drill_counted`);
+  the 1-hour expiry names a running session that counted only through the removed match; +1 h tells the 4-hour
+  ceiling from a missing fix; a refused lock-screen Extend reads "Not extended"; notices the player wasn't looking
+  at stay on screen until OK (and wait for the app when notifications are off); copy that was false in some cases
+  is now true in all (match removed, not a member, a Cancel that cancelled nothing, sign-out, a Start that relied
+  on an ended check-in, a lost drill-review answer); the "your check-in ended" line never reaches another account.
+  Persona tests 516/516 against live, rolled back.
 - [ ] Apply the SQL, then merge and OTA (the app also words the older texts, so either order works).
 - [ ] Not done, needs the user's call: re-grant `league_members (league_id, user_id)` UPDATE so pre-2026-10-14
   bundles can join open leagues again (they get "You don't have access to that." since Phase 1); refusing no-fix

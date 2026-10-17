@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, TextInput, ScrollView,
   ActivityIndicator, StyleSheet,
 } from 'react-native';
+import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { noteDrillReviewed } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
-import { drillReviewRefusal } from '../lib/refusals';
+import { drillReviewRefusal, isAlreadyReviewedMessage } from '../lib/refusals';
 
 // The minimal session shape both DrillScreen and DrillRequestsScreen can supply.
 export type ReviewableDrill = { id: string; partner_name: string };
@@ -31,12 +32,18 @@ const TEXT_PICKLE_CAP = 50;
  * Drill self-review: rate 5 facets (5 🥒 each) + an optional long-text review
  * (0.1 🥒/char, capped at 50). Submits via submit_drill_review and shows the
  * pickles earned. One review per participant per session (server-enforced).
+ *
+ * The call is bounded at 15 s and never retried. A lost answer (timeout or
+ * dropped connection) may still have saved, so the copy never says it
+ * wasn't; when the next try answers "already reviewed", that earlier try
+ * saved: it reads as saved (earned unknown: `onSubmitted(id, null)`).
  */
 export default function DrillReviewModal({
   session, onSubmitted, onClose,
 }: {
   session: ReviewableDrill | null;
-  onSubmitted: (sessionId: string, earned: number) => void;
+  /** `earned` null: saved by an earlier try whose answer was lost, so the amount isn't known here. */
+  onSubmitted: (sessionId: string, earned: number | null) => void;
   onClose: () => void;
 }) {
   const { colors: c } = useTheme();
@@ -49,7 +56,10 @@ export default function DrillReviewModal({
   const [notes, setNotes]           = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
-  const [earned, setEarned]         = useState<number | null>(null);
+  // Saved: the pickles earned, or null when an earlier try saved it and its answer was lost.
+  const [done, setDone]             = useState<{ earned: number | null } | null>(null);
+  // A try whose answer never came back (it may have saved).
+  const lostAnswer = useRef(false);
 
   useEffect(() => {
     if (session) {
@@ -57,7 +67,8 @@ export default function DrillReviewModal({
       setNotes('');
       setSubmitting(false);
       setError(null);
-      setEarned(null);
+      setDone(null);
+      lostAnswer.current = false;
     }
   }, [session?.id]);
 
@@ -92,19 +103,31 @@ export default function DrillReviewModal({
       )) as Row[] | Row | null;
     } catch (e) {
       setSubmitting(false);
+      // A timeout or a dropped connection may have saved it: never claim it
+      // didn't. The next try tells (an "already reviewed" answer = saved).
+      if (isNetworkError(e)) lostAnswer.current = true;
       setError(
         explainRefusal(e, "Your review wasn't saved. Try again.", {}, {
-          network: "No connection, so your review wasn't sent. Try again.",
+          network: "Lost the connection, so we can't tell whether your review was saved. Try again: if it was, Pickleague will say so.",
         }),
       );
       return;
     }
     setSubmitting(false);
     const row = Array.isArray(data) ? data[0] : data;
-    // Why the server didn't take it, then what to do.
-    if (!row?.success) { setError(drillReviewRefusal(row?.message)); return; }
-    const got = row.pickles_granted ?? preview;
-    setEarned(got);
+    if (!row?.success) {
+      // The try whose answer was lost had saved it.
+      if (lostAnswer.current && isAlreadyReviewedMessage(row?.message)) { finish(null); return; }
+      // Why the server didn't take it, then what to do.
+      setError(drillReviewRefusal(row?.message));
+      return;
+    }
+    finish(row.pickles_granted ?? preview);
+  }
+
+  function finish(earned: number | null) {
+    if (!session) return;
+    setDone({ earned });
     // A drill held during my running (or just-ended) play session makes it
     // count: say so, or why this drill doesn't count for it. A toast, so it
     // outlives this sheet.
@@ -112,7 +135,7 @@ export default function DrillReviewModal({
       if (note) toast.info(note);
     });
     const sid = session.id;
-    setTimeout(() => onSubmitted(sid, got), 1300);
+    setTimeout(() => onSubmitted(sid, earned), 1300);
   }
 
   return (
@@ -126,11 +149,20 @@ export default function DrillReviewModal({
             </TouchableOpacity>
           </View>
 
-          {earned !== null ? (
+          {done !== null ? (
             <View style={S.successWrap}>
               <Text style={S.successEmoji}>🥒</Text>
-              <Text style={S.successText}>+{earned} pickles earned!</Text>
-              <Text style={S.successSub}>Thanks for reviewing your drill.</Text>
+              {done.earned !== null ? (
+                <>
+                  <Text style={S.successText}>+{done.earned} pickles earned!</Text>
+                  <Text style={S.successSub}>Thanks for reviewing your drill.</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={S.successText}>Your review was saved</Text>
+                  <Text style={S.successSub}>It went through before the connection dropped. Thanks for reviewing your drill.</Text>
+                </>
+              )}
             </View>
           ) : (
             <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">

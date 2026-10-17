@@ -61,7 +61,13 @@ import { endNeedsResend, isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
 import { isRetryLater, noteRefusalNotice } from './refusalNotices';
 import { queuedRefusalNotice, type UntrackedStartReason } from './refusals';
-import { drillReviewNote, type EndedPlay, type RecordedForSession, type LostPlayReason } from './sessionValidity';
+import {
+  drillMadeItCount,
+  drillReviewNote,
+  type EndedPlay,
+  type RecordedForSession,
+  type LostPlayReason,
+} from './sessionValidity';
 import {
   endPlaySession,
   getMyActivePlaySession,
@@ -111,6 +117,12 @@ type StartPayload = {
   at: string;
   /** Taken at Start, so a late replay is judged by where I was then. */
   fix?: DeviceFix | null;
+  /**
+   * The start sheet skipped the fix because I looked checked in at this
+   * court (the server adopts that check-in). If it wasn't adopted, the reason
+   * is the check-in, not a missing location.
+   */
+  viaCheckin?: true;
 };
 /** `fix`: taken at the tap when one came back in time, the session check-in's stay proof. */
 type EndPayload = { id: string; at: string; fix?: DeviceFix };
@@ -213,16 +225,35 @@ async function noteEndRefused(payload: EndPayload, error: unknown): Promise<void
 /** Emits when a Start at a court did not check me in there (the island says so once, and why). */
 export const playStartUntracked = createSignal<{ venueName: string | null; reason: UntrackedStartReason }>();
 
-/** Is `cur` the check-in a session at `venueId` gave me (its own, or the one it adopted)? */
+/**
+ * Is `cur` the check-in a session at `venueId` gave me (its own, or the one it
+ * adopted)? A private check-in (saved without a fix by an older build) is
+ * never adopted and shows me to nobody, so it doesn't count.
+ */
 function sessionCheckedIn(cur: CurrentCheckin | null, sessionId: string, venueIds: (string | null | undefined)[]): boolean {
-  return !!cur && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
+  return !!cur && !cur.private && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
 }
 
-/** The reason, from what the Start sent and what came back (the server only returns the row). */
-function untrackedReason(payload: StartPayload, row: PlaySessionRow | null | undefined): UntrackedStartReason {
+/**
+ * The reason, from what the Start sent, what came back (the server only
+ * returns the row) and my check-in now.
+ */
+function untrackedReason(
+  payload: StartPayload,
+  row: PlaySessionRow | null | undefined,
+  cur: CurrentCheckin | null,
+): UntrackedStartReason {
   if (row && payload.venueId && !row.venue_id) return 'court_gone';
   const fix = payload.fix;
-  if (!fix || !isValidFix(fix)) return 'no_fix';
+  if (!fix || !isValidFix(fix)) {
+    // No fix because the sheet relied on my check-in there: it had ended, or
+    // it was a private one nobody sees.
+    if (payload.viaCheckin) {
+      const there = !!cur && [row?.venue_id, payload.venueId].some((v) => !!v && cur.venueId === v);
+      return there && cur?.private ? 'checkin_private' : 'checkin_gone';
+    }
+    return 'no_fix';
+  }
   if (!isPreciseFix(fix)) return 'imprecise';
   if (fixAgeMs(fix, Date.now()) > FIX_MAX_AGE_MS) return 'stale';
   return 'not_at_court';
@@ -253,7 +284,7 @@ async function noteUntrackedStart(payload: StartPayload, row: PlaySessionRow | n
   if (sessionCheckedIn(cur, sessionId, [row?.venue_id, payload.venueId])) return;
   const venueName = s.meta.venueName;
   playSession.patchMeta({ venueName: null });
-  playStartUntracked.emit({ venueName, reason: untrackedReason(payload, row) });
+  playStartUntracked.emit({ venueName, reason: untrackedReason(payload, row, cur) });
 }
 
 registerMutationHandler(MUTATION_END, {
@@ -279,10 +310,12 @@ registerMutationHandler(MUTATION_END, {
  * Start a session. Shows immediately; the server write queues when offline.
  * With a court, pass the fix taken at Start: it is what checks me in there.
  */
-export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null }): string {
+export function startPlay(
+  meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null; viaCheckin?: boolean },
+): string {
   const id = uuidv4();
   const at = new Date().toISOString();
-  const { fix, ...rest } = meta;
+  const { fix, viaCheckin, ...rest } = meta;
   playSession.start(id, { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] }, Date.parse(at));
   const payload: StartPayload = {
     id,
@@ -291,6 +324,7 @@ export function startPlay(meta: Omit<PlayMeta, 'label'> & { label?: string; fix?
     venueId: meta.venueId,
     at,
     ...(meta.venueId && fix ? { fix } : {}),
+    ...(meta.venueId && viaCheckin ? { viaCheckin: true as const } : {}),
   };
   void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload))
     .then(({ queued, result }) => {
@@ -427,7 +461,9 @@ export async function noteDrillReviewed(): Promise<string | null> {
   if (!id) return null;
   try {
     const v = await withTimeout(getMySessionValidity(id), 5_000);
-    if (running && v && v.reason === 'open' && v.needs === null) noteSessionCounts(id, 'drill');
+    // Only when the drill is what counts: if a match a partner recorded made
+    // it count, End must not credit the drill (it asks the server instead).
+    if (running && v && v.reason === 'open' && drillMadeItCount(v) === true) noteSessionCounts(id, 'drill');
     return drillReviewNote(v, { running, nowMs: Date.now() });
   } catch {
     // End asks the server again anyway.
@@ -463,6 +499,8 @@ export type LostPlay = {
 
 /** Emits when the island's session turns out to be over on the server (PlayIsland says why). */
 export const playLost = createSignal<LostPlay>();
+/** The server ends a session left open this long (expire_play_sessions: ended_at = start + 6 h). */
+const AUTO_END_MS = 6 * 3600_000;
 const explainedLost = new Set<string>();
 
 /** Find out why the island's session is gone on the server, and say so once. Never throws. */
@@ -472,18 +510,24 @@ async function explainLostPlay(local: { id: string; startedAtMs: number; meta: P
   try {
     const row = await getMyPlaySession(local.id);
     const startedAtMs = row ? Date.parse(row.started_at) : local.startedAtMs;
-    const endedAtMs = row?.ended_at ? Date.parse(row.ended_at) : null;
+    let endedAtMs = row?.ended_at ? Date.parse(row.ended_at) : null;
+    if (row && !row.ended_at) {
+      // Still open there: past the 6-hour read window, before the hourly
+      // expiry (expire_play_sessions, at :25) closes it. The island is
+      // cleared now and no later resume would ask again, so treat it as
+      // auto-ended now, with the end the expiry will store (start + 6 h).
+      if (startedAtMs + AUTO_END_MS > Date.now()) {
+        // Younger than 6 hours (can't reach here today): ask again next resume.
+        explainedLost.delete(local.id);
+        return;
+      }
+      endedAtMs = startedAtMs + AUTO_END_MS;
+    }
     const reason: LostPlayReason = !row
       ? 'never_saved'
-      : endedAtMs != null && endedAtMs - startedAtMs >= 6 * 3600_000 - 60_000
+      : endedAtMs != null && endedAtMs - startedAtMs >= AUTO_END_MS - 60_000
         ? 'auto_ended'
         : 'ended_elsewhere';
-    if (row && !row.ended_at) {
-      // Still open there (past the 6-hour read window: the hourly expiry ends
-      // it soon). Not lost yet: ask again on the next resume.
-      explainedLost.delete(local.id);
-      return;
-    }
     playLost.emit({
       id: local.id,
       kind: local.meta.kind,

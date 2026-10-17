@@ -370,8 +370,9 @@ export default function AppNavigator() {
       {!updateRequired && phase === 'ready' && <PlayStartSheetHost signedIn={!!session} />}
       {/* "Record a match or drill?" after End (hidden otherwise). */}
       {!updateRequired && phase === 'ready' && <PlayEndSheetHost signedIn={!!session} />}
-      {/* Refusals the player wasn't looking at (a queued write refused later): a toast. */}
-      {!updateRequired && phase === 'ready' && <RefusalNoticeHost />}
+      {/* Refusals the player wasn't looking at (a queued write refused later): a card
+          that stays until OK. After the splash, so it never opens behind it. */}
+      {!updateRequired && phase === 'ready' && splashDone && <RefusalNoticeHost />}
       {!splashDone && (
         <SplashScreen onDone={() => setSplashDone(true)} minMs={MIN_MS} />
       )}

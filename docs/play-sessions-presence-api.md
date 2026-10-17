@@ -586,7 +586,8 @@ my_session_validity(p_session uuid) returns jsonb
   --  window_ends_at timestamptz | null (ended_at + 2 h), rewards_pending_confirmation boolean,
   --  at_court boolean}
   -- plus, since migration_refusal_messages.sql (null keys left out; see "Refusal messages" below):
-  --  started_at, ended_at, match_pending, confirm_by, why, match_at, counted_for_started_at, drill_starts_at
+  --  started_at, ended_at, match_pending, confirm_by, confirm_needed, drill_counted, why, match_at,
+  --  counted_for_started_at, drill_starts_at
 ```
 Owner only: `null` for a session that isn't mine or isn't stored yet (same answer). Raises `Not authenticated`.
 Recomputes and stores. `needs`: `minutes` when too short (or open under 5 min), `match_or_drill` when nothing
@@ -627,8 +628,10 @@ Internal (revoked from clients): `_pl_session_validity`, `_pl_refresh_session_va
   7:40 PM." Review drill opens DrillRequests ("Review your drills", which lists today's drill).
 - **What the device knows** (`lib/playSession`): `noteMatchRecorded` after MatchEntry records a match I played in
   for the session (linked, or while it runs, from any entry point), and `noteDrillReviewed` after a drill review
-  when `my_session_validity` then says the running session needs nothing more. Kept on the session's meta
-  (`PlayMeta.recorded`, persisted per user), so a restart between recording and End remembers it.
+  when `my_session_validity` then says the drill is what makes the running session count (`drill_counted`). Kept
+  on the session's meta (`PlayMeta.recorded`, persisted per user), so a restart between recording and End
+  remembers it. A confirmed match or a drill ends in a toast without asking; a pending match still asks the server
+  at End (it may have expired since).
 - **MatchEntry** takes `playSessionId` (from Record match, the island's Enter score, and Home's Now panel Enter score
   and quick Record, while a session runs) and inserts it as `play_session_id` only when the recorder is one of the
   players (otherwise a toast: "This match doesn't count for your play session: you're not one of the players.").
@@ -682,7 +685,7 @@ SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/
 | `checkin.closed` | extend_checkin | Your check-in at Lakeside already ended (Thu Oct 16, 5:40 PM). Check in again when you're at the court. (DETAIL `ended_at`) | Your check-in at Lakeside already ended at 5:40 PM. Check in again when you're at the court. |
 | `checkin.needs_fix` | extend_checkin | Pickleague last confirmed you at Lakeside (Thu Oct 16, 1:40 PM), and a check-in lasts at most 4 hours past that. To stay checked in, open Pickleague at the court so it can confirm you're still there. (DETAIL `last_fix_at`) | In app: ...Turn on location for Pickleague, then try again at the court. Lock screen: ...Open Pickleague at the court to stay checked in. |
 | `session.not_yours` | start_play_session | That play session belongs to another account, so it wasn't saved. Start a new session. | same |
-| `match.removed` | confirm_match | This match was removed: it expired because it wasn't confirmed within an hour, or someone deleted it. Ask whoever recorded it to enter it again. | This match is gone: it expired because nobody confirmed it within an hour, or it was deleted. Ask whoever recorded it to enter it again. |
+| `match.removed` | confirm_match | This match was removed: it expired because it wasn't confirmed within an hour, or someone deleted it. Ask whoever recorded it to enter it again. | This match was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Ask whoever recorded it to enter it again. (true whoever recorded it: the recorder's own team is confirmed at insert) |
 | `match.already_confirmed` | confirm_match | This match is no longer pending: it's already confirmed. Nothing more to do. | This match is already confirmed, so there's nothing more to do. |
 | `match.scheduled` | confirm_match | This match is no longer pending: it's scheduled and has no score yet. Record the score after you play it. | This match is scheduled and has no score yet. Record the score after you play it. |
 | `match.confirm_expired` | confirm_match (deadline passed, cron not run yet) | Too late to confirm: the hour to confirm this match expired (Thu Oct 16, 5:40 PM). Ask whoever recorded it to enter it again. (DETAIL `deadline`) | Too late to confirm: the hour to confirm this match ended at 5:40 PM. Ask whoever recorded it to enter it again. |
@@ -698,8 +701,9 @@ SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/
 | `friend.not_friends` | set_close_friend | You and Lena League aren't friends, so they can't be a close friend. | You and Lena aren't friends any more, so they can't be a close friend. |
 
 App-only codes (same table in lib/refusals): `match.not_pending` (an older server's "Match is no longer pending"),
-`match.not_member` (a 42501 on a match insert: "You're not a member of Tuesday Doubles any more, so you can't
-record matches there. Pick a league you're in."), `match.score_invalid` (a 23514 on the score check),
+`match.not_member` (a 42501 on a match insert: "You're not a member of Tuesday Doubles, so you can't record
+matches there. Pick a league you're in." No "any more": the same RLS refusal hits someone who never joined),
+`match.score_invalid` (a 23514 on the score check),
 `consent.declined` / `consent.unknown_offline` (the one-time "who sees you" sheet).
 
 `submit_drill_review` answers `success = false` with a message (its return table can't carry a code). The texts:
@@ -721,13 +725,19 @@ these, `drillReviewRefusal`).
 
 ### Why keys on my_session_validity (null keys left out)
 
-`started_at`, `ended_at` (stored; a Start the no-overlap rule moved shows here: the End toast then says "Pickleague
-counted only 3 min of it because it overlapped your previous session"), `match_pending` (it counts only through a
-match still waiting for the other team, open sessions too), `confirm_by` (the earliest such deadline), and, when
-nothing counts for it yet: `why = 'match_counted_elsewhere'` (+ `match_at`, `counted_for_started_at`: a match in
-its window counts for another of my sessions) or `why = 'drill_not_during_session'` (+ `drill_starts_at`: a drill
-reviewed in its window wasn't held during it). Computed by the internal `_pl_session_explain` (read only, never
-stored; `_pl_session_validity` keeps its OUT list).
+`started_at`, `ended_at` (stored; the End toast compares them with the device's own times: a later stored start
+means the no-overlap rule moved it, "Pickleague counted only 3 min of it because it overlapped your previous
+session"; an earlier stored end means another device or a newer Start ended it, "It had already ended at 5:43 PM,
+on another device or when you started a new one, after 3 min"; otherwise, or from an older server, the plain
+"Pickleague counted under 5 minutes of it"), `match_pending` (it counts only through a match still waiting to be
+confirmed, open sessions too), `confirm_by` (the earliest such deadline), `confirm_needed` (who still has to
+confirm that match: `'theirs'`, the other team; `'mine'`, the player's own team, when an opponent recorded it;
+`'both'`, when a league member who didn't play recorded it), `drill_counted` (a drill counts for it: a drill review
+never takes credit for a session a match made count), and `why = 'match_counted_elsewhere'` (only when nothing
+counts; + `match_at`, `counted_for_started_at`: a match in its window counts for another of my sessions) or `why =
+'drill_not_during_session'` (+ `drill_starts_at`: a drill reviewed in its window wasn't held during it; also when a
+match counts). Computed by the internal `_pl_session_explain` (read only, never stored; `_pl_session_validity`
+keeps its OUT list).
 
 ### Notices
 
@@ -743,7 +753,11 @@ stored; `_pl_session_validity` keeps its OUT list).
   (recorded Thu Oct 16, 5:15 PM) was removed because the other team didn't confirm it within an hour. Record it again
   and ask them to confirm." (or "because your team didn't confirm...", or "because neither team confirmed..."),
   plus "Your play session from 4:50 PM no longer counts. Record a match or drill by 7:20 PM to make it count." for
-  a session that stopped counting. `type 'match'`, `entity_type 'match'`, `entity_id` null (the row is gone: the
+  an ended session that stopped counting, or, for a session still running that counted only through it (open
+  sessions are never stored valid, so they are judged by what they need now), "Your play session from 4:50 PM no
+  longer counts. Record a match or drill before you end it, or within 2 hours after, to make it count." A running
+  session that still counts through something else (a drill) is not named. `type 'match'`, `entity_type 'match'`,
+  `entity_id` null (the row is gone: the
   app greys out a notice whose target is missing), category `notifyMatchResults` (a result, not a request; an
   existing pref key, so no send-push change), `push_data {kind: 'match_expired', deep_link: 'match/-'}` (Match
   History). Built by the internal `_pl_notify_match_expired`; a failed notice never keeps a match.
@@ -752,8 +766,11 @@ stored; `_pl_session_validity` keeps its OUT list).
 
 - **Queued writes** (`venue:checkin`, `venue:checkout`, `play:start`, `play:end`): no signal or signed out
   (`isRetryLater`: network, PGRST301 / `auth.signed_out`) keeps the entry queued (rethrown as a TimeoutError, which
-  the kit's queue keeps); a real refusal is said (`noteRefusalNotice`: a toast via `RefusalNoticeHost`, or a local
-  notification when the app is in the background) and dropped. A refused check-out brings the still-open check-in
+  the kit's queue keeps); a real refusal is said (`noteRefusalNotice`) and dropped. The notice is a card over the
+  top of the screen that stays until the player taps OK (`RefusalNoticeHost`, mounted after the splash; one at a
+  time, oldest first, marked seen only on OK: these run 30 to 50 words, too long for a 4 s toast; not a Modal, so
+  it never fights the end or start sheet), or, when the app is in the background AND notification permission is
+  granted, a local notification (without permission the OS drops it silently, so it waits for the card). A refused check-out brings the still-open check-in
   back on the card ("you may still show there until 7:40 PM. Tap Check out to try again."). A refused Start stops
   the island ("Your play session from 5:40 PM wasn't saved, so it won't count."). A refused End clears the
   pending-End entry so the island comes back ("Tap End again."). A queued Start older than a day is dropped and said
@@ -761,13 +778,27 @@ stored; `_pl_session_validity` keeps its OUT list).
   check-in from an older build with no fix: "It was saved by an older version of Pickleague without your location."
 - **Lost sessions** (`getActivePlay` → `playLost`): a session the island showed that the server ended without this
   device (the 6-hour expiry, another device or a newer Start there) or never had is explained on resume
-  (`lostPlayNote`); after the expiry the end sheet runs. A Start still in the offline queue keeps the island however
-  long it waits (`isPlayStartQueued`).
-- **Extend** answers with less than an hour (no confirming fix): "Checked in until 6:55 PM, not a full hour:
-  Pickleague couldn't confirm you're still at Lakeside. Open Pickleague at the court to stay later."
-  (`extendedNote`; the lock-screen title reads "Extended, not a full hour").
+  (`lostPlayNote`). After the expiry the end sheet runs only while its 2 hours to record are still open
+  (`lostPlayOffersRecord`); later the toast alone says it ended (no "record by" a time that has passed). A session
+  still open on the server past 6 hours (before the hourly expiry runs) is treated as auto-ended at start + 6 h,
+  the end the expiry will store, so the island never vanishes unexplained. A Start still in the offline queue keeps
+  the island however long it waits (`isPlayStartQueued`).
+- **Extend** answers with less than an hour (`extendedNote`; the lock-screen title reads "Extended, not a full
+  hour"): at the 4-hour ceiling (a check-in never runs more than 4 hours ahead, fix or no fix): "A check-in can run
+  at most 4 hours ahead, so you're checked in until 9:00 PM. Extend it again later to stay longer."; with no
+  confirming fix sent: "Checked in until 6:55 PM, not a full hour: Pickleague couldn't confirm you're still at
+  Lakeside. Open Pickleague at the court to stay later." A refused lock-screen Extend is titled "Not extended"
+  (never "Not checked in": the check-in still runs). A `checkin.closed` / `checkin.none` refusal refreshes the card
+  in the background, so the refusal itself is never late.
+- **Start at my check-in's court** (no fix sent, the server adopts it): if it isn't adopted, the island says the
+  check-in had ended ("Not checked in at Lakeside: your check-in there had ended, so only you see this session.
+  Check in from Home to be seen there.") or was a private one, never "couldn't get your location". A private
+  check-in never skips the fix.
 - **Court card**: Not now on the consent sheet says the check-in needs that choice; a check-in that ran out or was
-  closed elsewhere says so once; a private (no-fix, older build) check-in says only the player sees it.
+  closed elsewhere says so once, to its own account only (the line is kept with its user id and cleared at
+  sign-out); a private (no-fix, older build) check-in says only the player sees it. Pause sharing, the "who sees
+  me" rows, Hidden from and the consent sheet's save use `explainRefusal` (the app's no-connection line, coded
+  refusals).
 - **Lock screen**: `court_checkin` gets 15 s, tells "no connection" apart from "not chosen yet" for the consent
   check, and a refusal that lands after its deadline still reaches the player; its success line follows the
   player's own settings ("Your friends can see you are here.", "Sharing is paused, so others see "a player" here.").
@@ -776,10 +807,27 @@ stored; `_pl_session_validity` keeps its OUT list).
   removed." for a recorder who didn't play); a dropped session link says why (recorded over 2 hours after the
   session ended; the session hasn't synced; it never reached Pickleague).
 - **End** (decision 3): "Session ended. It counts once the other team confirms (within the hour)." while the match
-  is pending; "It counts: you recorded a match." only for a match stored confirmed. Too short: "Session ended after
-  3 min. Sessions under 5 minutes don't count." (plus "Your match is still recorded."). The sheet: "Session ended
-  after 42 min. It doesn't count yet: no match or drill is recorded for it. Record one by 7:40 PM.", or the server's
-  why. Not now: "Saved. It counts if you record a match or drill by 7:40 PM."
+  is pending and the other team has to confirm; "Session ended. It counts once your team confirms the match, by
+  6:40 PM. Confirm it in Match History." when an opponent recorded it; "...once both teams confirm the match, by
+  6:40 PM." when a non-player did (`confirm_needed`); "It counts: you recorded a match." only for a match stored
+  confirmed. A match this device recorded still asks the server at End (it may have expired unconfirmed while the
+  session ran; decision 3's line only when the server can't answer); if it is gone, the sheet says "The match you
+  recorded during it was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Record
+  another match or drill by 7:40 PM to make this one count." Too short: "Session ended after 3 min. Sessions under
+  5 minutes don't count." (plus "Your match is still recorded."). The sheet: "Session ended after 42 min. It doesn't
+  count yet: no match or drill is recorded for it. Record one by 7:40 PM.", or the server's why. Once the 2-hour
+  window is over: "Session ended. It didn't count: no match or drill was recorded within 2 hours of its end." (or,
+  with no server answer, "...The 2 hours to record a match or drill for it are over, so it counts only if one was
+  recorded in time."). Not now: "Saved. It counts if you record a match or drill by 7:40 PM."
+- **Drill review**: a review of a drill held during the running session: "Your play session counts now: you
+  reviewed a drill held during it." only when `drill_counted`; a session a match made count, with an old drill
+  reviewed: "This drill doesn't count for your play session: it was scheduled for Thu 5:00 PM, not during the
+  session. Your session counts through your match instead." A lost answer (timeout, dropped connection) never says
+  the review wasn't sent ("Lost the connection, so we can't tell whether your review was saved. Try again: if it
+  was, Pickleague will say so."); a retry that answers "already reviewed" reads as saved ("Your review was saved").
+- **Sign-out** that couldn't close presence: what stays open and until when, then the action for each ("Sign in
+  again and tap Check out to end it sooner." / "...tap End on your play session..." / both).
 - **Friends**: "Request sent. Sam can accept it in Pickleague." (never promises a notification: a quiet re-request
   would make it untrue); "You and Sam are already friends."; a Cancel that cancelled nothing says why ("Sam already
-  accepted, so you're friends now.").
+  accepted, so you're friends now.", else "That request isn't waiting any more, so there's nothing to cancel.":
+  true for a decline, which is never revealed, a cancel elsewhere, a block, and a failed status read).

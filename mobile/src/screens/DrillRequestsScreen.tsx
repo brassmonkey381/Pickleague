@@ -234,11 +234,12 @@ export default function DrillRequestsScreen({ route }: Props) {
     setReviewable(list);
   }
 
-  function onReviewSubmitted(sessionId: string, earned: number) {
-    // Drop the reviewed session from the list, close the modal, and confirm the haul.
+  function onReviewSubmitted(sessionId: string, earned: number | null) {
+    // Drop the reviewed session from the list, close the modal, and confirm the haul
+    // (null: an earlier try saved it and its answer was lost, so the amount is unknown).
     setReviewable(prev => prev.filter(s => s.id !== sessionId));
     setReviewTarget(null);
-    status.success(`+${earned} pickles earned!`);
+    status.success(earned != null ? `+${earned} pickles earned!` : 'Your review was saved.');
   }
 
   async function respondToRequest(req: DrillRequest, action: 'accept' | 'decline', acceptedSlot?: { date: string; slot: number }): Promise<boolean> {
