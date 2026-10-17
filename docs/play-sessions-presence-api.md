@@ -69,7 +69,7 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    the tap, up to 12 hours back; `league_members (league_id, user_id)` UPDATE granted. Re-runnable, no
    begin/commit, signatures and attributes unchanged, one internal helper (`_pl_tap_fix`), no new client RPC. See
    [Offline check-in time](#offline-check-in-time-the-tap-rule-2026-10-16). The persona build applies it last and
-   re-runs it last: 616 assertions (516 + 98 in `supabase/tests/tap_time_personas.sql`, plus the older
+   re-runs it last: 621 assertions (516 + 103 in `supabase/tests/tap_time_personas.sql`, plus the older
    backdated-tap assertions moved to the honest replay shape), all passing against the live DB in a rolled-back
    transaction on 2026-10-16. Release: this SQL first, then the OTA.
 

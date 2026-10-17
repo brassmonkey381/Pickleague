@@ -148,40 +148,50 @@ language plpgsql
 stable
 set search_path = ''
 as $$
+declare
+  -- Crafted values never reach the interval arithmetic: an infinite time
+  -- counts as not sent, an age is bounded (NaN and infinities included:
+  -- NaN sorts above every number, so it lands on the upper bound).
+  v_at  timestamptz := case when isfinite(p_at) then p_at end;
+  v_fx  timestamptz := case when isfinite(p_fix_at) then p_fix_at end;
+  v_age double precision := case when p_fix_age_ms is not null
+                                 then least(greatest(p_fix_age_ms, -1e10), 1e10) end;
 begin
-  if p_fix_age_ms is not null and p_at is not null and p_fix_at is not null then
+  tap_at := now();
+  if v_age is not null and v_at is not null and v_fx is not null then
     -- The tap rule. Both differences are on the phone's clock, so its offset
     -- cancels; fix_at and tap_at land on the server's.
-    age_at_tap_ms := extract(epoch from (p_at - p_fix_at)) * 1000;
-    fix_at := now() - make_interval(secs => greatest(p_fix_age_ms, 0) / 1000.0);
-    tap_at := least(now(), fix_at + make_interval(secs => age_at_tap_ms / 1000.0));
-    verdict := case
-                 when age_at_tap_ms > 120000 then 'stale'
-                 when age_at_tap_ms < -120000 then 'after_tap'
-                 when tap_at < now() - interval '12 hours' then 'too_old'
-                 else 'ok'
-               end;
-  elsif p_fix_age_ms is not null then
+    age_at_tap_ms := extract(epoch from (v_at - v_fx)) * 1000;
+    fix_at := now() - make_interval(secs => greatest(v_age, 0) / 1000.0);
+    if age_at_tap_ms > 120000 then
+      verdict := 'stale';
+    elsif age_at_tap_ms < -120000 then
+      verdict := 'after_tap';
+    else
+      tap_at := least(now(), fix_at + make_interval(secs => age_at_tap_ms / 1000.0));
+      verdict := case when tap_at < now() - interval '12 hours' then 'too_old' else 'ok' end;
+    end if;
+  elsif v_age is not null then
     -- No tap to judge against (extend, or no p_at / p_fix_at): the tap is
     -- the send, and the old window on the age at send applies.
-    age_at_tap_ms := p_fix_age_ms;
-    fix_at := now() - make_interval(secs => greatest(p_fix_age_ms, 0) / 1000.0);
-    tap_at := now();
-    verdict := case when p_fix_age_ms between -5000 and 120000 then 'ok' else 'stale' end;
+    age_at_tap_ms := v_age;
+    fix_at := now() - make_interval(secs => greatest(v_age, 0) / 1000.0);
+    verdict := case when v_age between -5000 and 120000 then 'ok' else 'stale' end;
   else
     -- No age (no shipped build): the server clock judges p_fix_at as before,
     -- and a tap must still be within 2 minutes of the fix.
-    fix_at := p_fix_at;
-    age_at_tap_ms := extract(epoch from (coalesce(p_at, now()) - p_fix_at)) * 1000;
-    tap_at := least(coalesce(p_at, now()), now());
-    verdict := case
-                 when p_fix_at is null
-                   or p_fix_at < now() - interval '2 minutes'
-                   or p_fix_at > now() + interval '1 minute' then 'stale_clock'
-                 when p_at is not null and age_at_tap_ms > 120000 then 'stale'
-                 when p_at is not null and age_at_tap_ms < -120000 then 'after_tap'
-                 else 'ok'
-               end;
+    fix_at := v_fx;
+    if v_fx is null or v_fx < now() - interval '2 minutes' or v_fx > now() + interval '1 minute' then
+      verdict := 'stale_clock';
+    else
+      age_at_tap_ms := extract(epoch from (coalesce(v_at, now()) - v_fx)) * 1000;
+      verdict := case
+                   when v_at is not null and age_at_tap_ms > 120000 then 'stale'
+                   when v_at is not null and age_at_tap_ms < -120000 then 'after_tap'
+                   else 'ok'
+                 end;
+      if verdict = 'ok' then tap_at := least(coalesce(v_at, now()), now()); end if;
+    end if;
   end if;
 end $$;
 revoke all on function public._pl_tap_fix(timestamptz, timestamptz, double precision) from public, anon, authenticated;

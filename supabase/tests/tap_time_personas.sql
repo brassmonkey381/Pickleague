@@ -204,6 +204,20 @@ begin
   perform pg_temp.ok('T30 no age, a fresh fix a minute before the tap: ok, dated now', t.verdict = 'ok' and t.tap_at = now(), t::text);
   select * into t from public._pl_tap_fix(null, now() - interval '3 minutes', null);
   perform pg_temp.ok('T30 no age, a fix 3 min old by the server clock: stale_clock', t.verdict = 'stale_clock', t::text);
+
+  -- Crafted values (PostgREST casts the strings) are judged, never a raw
+  -- interval or timestamp overflow.
+  select * into t from public._pl_tap_fix(now(), now() - interval '5 seconds', 'NaN'::double precision);
+  perform pg_temp.ok('T30 a NaN age: judged (too old), no error', t.verdict = 'too_old', t::text);
+  select * into t from public._pl_tap_fix(now(), now() - interval '5 seconds', 'Infinity'::double precision);
+  perform pg_temp.ok('T30 an infinite age: judged (too old), no error', t.verdict = 'too_old', t::text);
+  select * into t from public._pl_tap_fix('infinity'::timestamptz, now(), 1000);
+  perform pg_temp.ok('T30 an infinite tap counts as no tap: dated now, never backdated',
+    t.verdict = 'ok' and t.tap_at = now(), t::text);
+  select * into t from public._pl_tap_fix('0001-01-01 00:00:00+00'::timestamptz, now(), 0);
+  perform pg_temp.ok('T30 a tap in year 1 with a fix from now: after_tap, no overflow', t.verdict = 'after_tap', t::text);
+  select * into t from public._pl_tap_fix(now(), '-infinity'::timestamptz, null);
+  perform pg_temp.ok('T30 an infinite fix time with no age: stale_clock', t.verdict = 'stale_clock', t::text);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('T30 block crashed', false, sqlerrm);

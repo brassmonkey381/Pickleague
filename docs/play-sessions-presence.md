@@ -300,7 +300,7 @@ SECURITY DEFINER allowlist, not column grants; no RPC is added).
 - [x] SQL `supabase/migration_checkin_tap_time.sql` (file 8): `_pl_tap_fix` (internal), `checkin_venue`,
   `start_play_session` and `extend_checkin` (a confirmed check-in stored already over can't be extended back to
   life), the reworded `fix.stale`, the codes `fix.after_tap` / `checkin.too_old` / `membership.locked`, the P2 grant.
-  Signatures unchanged. Persona tests 616/616 against live, rolled back (`supabase/tests/tap_time_personas.sql`,
+  Signatures unchanged. Persona tests 621/621 against live, rolled back (`supabase/tests/tap_time_personas.sql`,
   plus the older backdated-tap assertions moved to the honest replay shape).
 - [x] App: the codes and copy in `lib/refusals`; the "saved with no signal" note names the 12 hours; a replay stored
   already over and a queued check-in that ran out unsent are each said once; a replayed Start that didn't check in
