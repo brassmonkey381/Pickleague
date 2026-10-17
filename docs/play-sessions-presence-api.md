@@ -21,7 +21,9 @@ Apply in ONE transaction, in this order (none of the files contains begin/commit
 
 0. `supabase/migration_league_members_lock_identity.sql`: clients may update only `league_members.role`, and a
    trigger refuses any change of `league_id` / `user_id` (an admin could move a membership onto anyone, which
-   presence reads as consent). Stands alone: it can also go live ahead of the rest.
+   presence reads as consent). Stands alone: it can also go live ahead of the rest. Since file 8 clients may also
+   name `league_id` / `user_id` (old bundles' merge-upsert Join), never change them; re-running this file drops that
+   grant (its table-level revoke), so re-run file 8 after it.
 1. `supabase/migration_presence_p1_schema.sql`: columns (incl. `league_members.admitted_closed`), all new tables
    (friendships, close_friends and the internal `friend_request_log` / `presence_closed_ids` live here, because
    the privacy helpers and file 2 read them), owner-only RLS, the venue dedupe pass, the league / court-location
@@ -61,6 +63,16 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    `supabase/tests/refusal_personas.sql`), all passing against the live DB in a rolled-back transaction on
    2026-10-16.
 
+8. **Offline check-in time and old-build joins** `supabase/migration_checkin_tap_time.sql` (after file 7, and
+   again after any re-run of files 0, 2, 6 or 7: files 2, 6 and 7 put the older `checkin_venue`,
+   `start_play_session` and `extend_checkin` back, file 0 drops the column grant). A check-in's fix is judged at
+   the tap, up to 12 hours back; `league_members (league_id, user_id)` UPDATE granted. Re-runnable, no
+   begin/commit, signatures and attributes unchanged, one internal helper (`_pl_tap_fix`), no new client RPC. See
+   [Offline check-in time](#offline-check-in-time-the-tap-rule-2026-10-16). The persona build applies it last and
+   re-runs it last: 616 assertions (516 + 98 in `supabase/tests/tap_time_personas.sql`, plus the older
+   backdated-tap assertions moved to the honest replay shape), all passing against the live DB in a rolled-back
+   transaction on 2026-10-16. Release: this SQL first, then the OTA.
+
 ## Where the SQL differs from or sharpens this contract (2026-10-16)
 
 Signatures are exactly as below. Behaviour details the clients should know (error texts quoted here are the
@@ -76,7 +88,9 @@ Phase 1 ones; since file 7 every refusal has a code and a reworded text, listed 
 - **Fix age on one clock:** checkin_venue, start_play_session and extend_checkin take a trailing
   `p_fix_age_ms` (the fix's age at send time, measured on the device). With it, fresh = age between -5 s and 2 min
   whatever the device clock says, and `fix_at` is stored on the server clock (`now() - age`). Without it (1.0.4,
-  older builds) `p_fix_at` is compared with the server clock as before.
+  older builds) `p_fix_at` is compared with the server clock as before. **Since file 8** the fix is judged at the
+  tap when `p_at` is sent too (taken within 2 minutes of the tap, the tap under 12 hours old); the window above
+  applies only to calls with no tap (extend). See [Offline check-in time](#offline-check-in-time-the-tap-rule-2026-10-16).
 - **Precise fixes only:** a fix confirms only when `p_accuracy_m` is reported and at most 150 m (an approximate
   location is km-wide). checkin_venue raises `Your location isn't precise enough to confirm you're at the court.
   Make sure Precise Location is on for Pickleague, then try again.`; start_play_session starts untracked.
@@ -180,13 +194,19 @@ Phase 1.5 adds `venue_checkins.stay_confirmed` + check-out fix columns, `matches
 [Phase 1.5](#phase-15-validity-rules).
 
 RLS: `venue_checkins_read` and `play_sessions_read` become `using (user_id = auth.uid())`. Clients may update only
-`league_members.role` (column grant), and no one may change a membership's `league_id` / `user_id` (trigger).
+`league_members.role` (column grant), and no one may change a membership's `league_id` / `user_id` (trigger). Since
+file 8 (decided 2026-10-16) `league_id` / `user_id` are granted too, so pre-2026-10-14 bundles' merge-upsert Join
+(`ON CONFLICT (id) DO UPDATE SET league_id, user_id, role`) passes the privilege check; the trigger still refuses
+any change (P0001 `pl:membership.locked`), and the UPDATE policy reaches only rows of a league the caller is admin of.
 
 ## Location confirmation (no manual check-ins)
 
 A fix confirms a venue when it is fresh, precise, and at the court:
-- fresh: `p_fix_age_ms` (the age measured on the device at send time) between -5 s and 2 minutes; without an age,
-  `p_fix_at >= now() - interval '2 minutes'` and not more than 1 minute in the future (server clock);
+- fresh (since file 8, `_pl_tap_fix`): taken within 2 minutes of the tap, `abs(p_at - p_fix_at) <= 2 min` (both on
+  the phone's clock), and the tap under 12 hours old (`tap_at = now() - p_fix_age_ms + (p_at - p_fix_at)` on the
+  server clock). A call with no tap (extend): `p_fix_age_ms` (the age measured on the device at send time) between
+  -5 s and 2 minutes. Without an age, `p_fix_at >= now() - interval '2 minutes'` and not more than 1 minute in the
+  future (server clock), and within 2 minutes of `p_at` when one is sent;
 - precise: `p_accuracy_m` reported and at most 150 m (a null accuracy is refused);
 - at the court: inside `venues.boundary_geom`, or within `coalesce(geofence_radius_m, 100) + least(p_accuracy_m, 75)`
   metres of `(lat, lng)` (`public.haversine_meters`). Duplicates resolve to the canonical row first.
@@ -231,6 +251,10 @@ start_play_session(p_id uuid, p_kind text, p_source uuid default null, p_venue t
 - Unchanged behaviour plus: when `p_venue` is set and the fix confirms it, open a `source='session'` check-in with
   `id = p_id`, `expires_at = greatest(v_at, now()) + 180 min` (skip if that is already past). If the caller already
   has an open confirmed check-in at that venue, adopt it (extend its `expires_at` to cover 180 min) instead.
+  **Since file 8:** the check-in is judged at the tap and anchored there (`checked_in_at` = the tap on the server
+  clock, `expires_at = tap + 180 min`, ending where a later check-in of mine starts), stored already over when that
+  is past; with a fix confirmed at the tap it adopts only a check-in begun at or before the tap. The session row
+  keeps the app's time (`v_at`, clamped to 12 h).
 - Closing a previous session also closes that session's `source='session'` check-in.
 
 `end_play_session(p_id, p_at)` — also closes the check-in `id = p_id and source = 'session'`;
@@ -365,9 +389,10 @@ notes say which arguments the app sends and what it assumes about the answers.
 - `checkout_venue` always gets `p_source` explicitly: `null` for a plain check-out and for sign-out (no filter),
   `'geofence'` when leaving a fenced court (it must not close a manual check-in). The no-match fallback applies the
   same filter, as the SQL does.
-- Every `checkin_venue` call sends the fix arguments (no manual check-ins), with `p_fix_age_ms` computed at each
-  send (`fixArgs(fix, Date.now())`), so a queued replay counts its time in the queue and a wrong device clock
-  doesn't matter. A check-in queued offline carries the fix taken at tap time; when the server refuses it on replay,
+- Every `checkin_venue` call sends the fix arguments (no manual check-ins) and the tap (`p_at`), with
+  `p_fix_age_ms` computed at each send (`fixArgs(fix, Date.now())`), so the server can place the tap and the fix on
+  its own clock and a wrong device clock doesn't matter. A check-in queued offline carries the fix taken at tap
+  time and counts when it syncs, up to 12 hours after the tap (since file 8); when the server refuses it on replay,
   the client drops it and tells the player the next time the court card shows. A queued check-in from an older
   build that has no fix is dropped without being sent.
 - `takeCheckinFix` treats a reading with accuracy over 150 m (or none) as no fix and `noFixReason()` names it
@@ -676,7 +701,9 @@ SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/
 | `request.bad` | checkin_venue (no id, bad source, an id that is someone else's), start_play_session (no id) | Couldn't check you in because the app sent an incomplete request. Update Pickleague, then try again. / Couldn't save your play session because the app sent an incomplete request. Update Pickleague, then start again. | That didn't go through because this version of Pickleague sent an incomplete request. Update Pickleague, then try again. |
 | `court.gone` | checkin_venue, set_court_favorite | That court isn't in Pickleague any more, so you can't check in there. Find your court again. / ...so it can't be starred. | Lakeside isn't in Pickleague any more, so you can't check in there. Find your court again. |
 | `court.favorites_full` | set_court_favorite | You can star up to 5 courts. Unstar one to add this one. | same |
-| `fix.stale` | checkin_venue, extend_checkin | Your location is out of date: it's more than 2 minutes old. Try again at the court. | same |
+| `fix.stale` | checkin_venue, extend_checkin | Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court. (file 8; file 7: "...it's more than 2 minutes old...") | same |
+| `fix.after_tap` | checkin_venue (file 8) | Your location was taken more than 2 minutes after you tapped Check in, so it can't show you were at the court then. Check in again when you're at the court. | Your location was taken more than 2 minutes after you tapped, so it can't show you were at the court then. Check in again when you're at the court. |
+| `checkin.too_old` | checkin_venue (file 8) | This check-in was saved with no signal at Thu Oct 16, 5:40 AM and reached Pickleague more than 12 hours later, too late to count. Check in again when you're at the court. (DETAIL `{"tapped_at", "limit_hours": 12}`; the tap in the player's zone) | It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court. (the queued notice names the tap first) |
 | `fix.stale_clock` | (no age sent) | Your location is out of date. Check that your phone's date and time are set automatically, then try again at the court. | same |
 | `fix.imprecise` | | Your location isn't precise enough to confirm you're at the court. Make sure Precise Location is on for Pickleague, then try again. | ...Turn on Precise Location for Pickleague, then try again. |
 | `fix.not_at_court` | | You need to be at the court to check in. You're about 328 m away, so try again when you're there. (`stay checked in` for extend; DETAIL `{"distance_m": 328}`) | You're about 328 m from Lakeside. You need to be at the court to check in, so try again when you get there. / Extend: ...so your check-in can't be extended. Check in again when you're back at the court. |
@@ -699,6 +726,7 @@ SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/
 | `friend.unavailable` | send_friend_request (deleted, unknown, blocked either way) | This player isn't available | This player isn't available, so you can't add them as a friend. (one vague line: a block is never singled out) |
 | `friend.daily_cap` | send_friend_request | You've sent 20 friend requests today. Try again tomorrow. | same |
 | `friend.not_friends` | set_close_friend | You and Lena League aren't friends, so they can't be a close friend. | You and Lena aren't friends any more, so they can't be a close friend. |
+| `membership.locked` | the `league_members` identity trigger (file 8; was 42501) | A league membership can't be moved to another league or player. Leave the league, then join the one you want. | same (no app path reaches it) |
 
 App-only codes (same table in lib/refusals): `match.not_pending` (an older server's "Match is no longer pending"),
 `match.not_member` (a 42501 on a match insert: "You're not a member of Tuesday Doubles, so you can't record
@@ -776,6 +804,10 @@ keeps its OUT list).
   pending-End entry so the island comes back ("Tap End again."). A queued Start older than a day is dropped and said
   (the queue's own age-out would be silent, so its `maxAgeMs` is a week and the handler decides). A queued
   check-in from an older build with no fix: "It was saved by an older version of Pickleague without your location."
+  Since file 8, a queued check-in refused for its age says "It reached Pickleague more than 12 hours after you
+  tapped, too late to count." (the old "more than 2 minutes after you tapped" only for an older server's refusal of
+  a fix that was fresh at its tap, `refusedForQueueWait`), and one stored already over gets its own notice (see
+  [Offline check-in time › Client](#client-tap-rule)).
 - **Lost sessions** (`getActivePlay` → `playLost`): a session the island showed that the server ended without this
   device (the 6-hour expiry, another device or a newer Start there) or never had is explained on resume
   (`lostPlayNote`). After the expiry the end sheet runs only while its 2 hours to record are still open
@@ -831,3 +863,93 @@ keeps its OUT list).
   would make it untrue); "You and Sam are already friends."; a Cancel that cancelled nothing says why ("Sam already
   accepted, so you're friends now.", else "That request isn't waiting any more, so there's nothing to cancel.":
   true for a decline, which is never revealed, a cancel elsewhere, a block, and a failed status read).
+
+## Offline check-in time (the tap rule, 2026-10-16)
+
+Decided by the user 2026-10-16 ([plan, decisions of 2026-10-16](./play-sessions-presence.md#phase-15-validity-rules-decided-by-the-user-2026-10-16-sql--ota)):
+a check-in's fix is judged against the check-in (tap) time, not the time it reached the server, and must have been
+taken within 2 minutes of the tap. SQL: `supabase/migration_checkin_tap_time.sql` (file 8). Release: SQL first, then
+the OTA.
+
+### Representation (no signature or payload change)
+
+Every check-in and Start the app sends, live or queued, already carries three numbers from the phone's own clock:
+`p_at` (the tap, stamped after the fix is taken), `p_fix_at` (when the fix was taken) and `p_fix_age_ms` (the fix's
+age when the request is sent, recomputed at every send; it keeps that meaning everywhere, the check-out / End stay
+proof included). The internal `_pl_tap_fix(p_at, p_fix_at, p_fix_age_ms)` works out, on the server clock:
+
+```
+age_at_tap = p_at - p_fix_at                 -- signed, phone clock (offset cancels)
+fix_at     = now() - p_fix_age_ms            -- as before
+tap_at     = least(now(), fix_at + age_at_tap)
+verdict    = 'stale'     when age_at_tap > +120 s      (fix.stale)
+             'after_tap' when age_at_tap < -120 s      (fix.after_tap)
+             'too_old'   when tap_at < now() - 12 h    (checkin.too_old)
+             'ok'
+```
+
+- No tap (`p_at` or `p_fix_at` null: `extend_checkin`, which is never queued): the tap is the send, and the old
+  window on the age at send applies (-5 s to +2 min).
+- No age (no shipped build sends a fix without one): the server-clock check on `p_fix_at` (`fix.stale_clock`) plus
+  `abs(p_at - p_fix_at) <= 2 min`, so a backdated tap with a fix from now is refused in every call shape.
+- Position and precision stay with `_pl_check_fix` (called with no age, so it judges only those).
+- Live calls: the app reuses a fix under 60 s old or takes a fresh one, then stamps the tap, so `age_at_tap` is about
+  0 to 70 s whatever the phone's clock says. `checked_in_at = tap_at` (about now): a phone 10 minutes off is never
+  refused and never backdated by its offset.
+- Not Doggle's form (the age measured at the tap, live calls with no tap): it would date the arrival fix by a
+  phone-clock tap and shorten the Phase 1.5 stay proof; the runtime-1.0.4 OTA sends `p_at` plus the age at send on
+  every live call, which this rule judges exactly; and `start_play_session` must keep `p_at` on live Starts.
+
+### What is stored (backdating limit: 12 hours from the tap)
+
+Matching how check-ins expire (`expires_at = tap + minutes`; the 10-minute `expire_venue_checkins` job sets
+`checked_out_at = expires_at`):
+
+| When it syncs | `checkin_venue` | The app |
+|---|---|---|
+| still running | open from `tap_at` to `tap_at + minutes` | adopts it (the card keeps showing it) |
+| after it would have ended | **stored, already over**: `checked_in_at = tap_at`, `expires_at = tap_at + minutes` (or the start of a later check-in of mine), `checked_out_at` null, so the expiry job closes it and a queued check-out behind it records the real leave time and the stay fix. Every presence read wants `expires_at > now()`, so nobody sees it and no crowd counts it; `at_court` and the stay proof do | detects it with `expires_at <= created_at` (the server's two times) and says so once, on a notice card (`lapsedCheckinNotice`) |
+| over 12 hours after the tap | refused, `checkin.too_old` (the tap in the player's zone) | drops it and says why |
+
+- A replay never closes or overrides a check-in of mine made after its tap (the app tries a live call before an older
+  queued one): it ends where that one starts; the quiet same-court path joins only a check-in begun at or before the
+  tap; the one-open-check-in rule closes only check-ins begun at or before it (a private row whenever it began); a
+  replay's older fix never replaces a newer one (`fix_at = greatest(...)`).
+- `start_play_session`: the session row is unchanged (the app's time, clamped to 12 h, decision 2 of Phase 1.5); its
+  check-in is judged at the tap and anchored there (`tap_at` to `tap_at + 180 min`, what a live Start already got),
+  stored already over when that is past, and ended by End as before. `too_old`, `after_tap` and `stale` give no
+  check-in and are never an error. With a fix confirmed at the tap it adopts only a check-in begun at or before the
+  tap, and takes its fix only when newer. The no-fix adopt path is unchanged.
+- `extend_checkin`: unchanged, except that a confirmed check-in stored already over can't be extended back to life
+  in the minutes before the expiry job closes it (`checkin.closed`, ended at its `expires_at`). A private row keeps
+  its old behaviour.
+- No fix (1.0.2-1.0.4 embedded bundles): unchanged (6 h clamp, private row, untracked Start).
+
+### 1.0.4 on this server
+
+- Embedded bundles send no fix: every path they use is unchanged (persona T35).
+- The runtime-1.0.4 OTA: live calls are accepted as before (`checked_in_at` becomes the true server time); its queued
+  check-ins under 12 h now count (one still running is adopted; one already over shows nothing, since its card
+  cleared at the expiry); over 12 h it gets `checkin.too_old`, a code it doesn't know, so it shows its own "more
+  than 2 minutes after you tapped" notice, still true. `fix.stale` keeps "location is out of date" and "2 minutes".
+  No new text uses a network word, "expired", "not found" or errcode 42501.
+
+### Client (tap rule)
+
+- `QUEUED_CHECKIN_NOTE` (court card and lock-screen "Checked in" notice): "Saved with no signal. It counts if your
+  phone is back online within 12 hours."
+- A replay stored already over (`courtCheckinRules.syncedAfterItEnded`): drops the card's entry and posts "Check-in
+  saved late" / "Your check-in at Lakeside (2:10 PM) reached Pickleague at 5:05 PM, after it had ended at 4:10 PM,
+  so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court."
+- A queued check-in that runs out on the device before it is sent: the card says once "Your check-in at Lakeside
+  ended at 4:10 PM before your phone had a signal to send it. It's sent when you're back online, if that's within
+  12 hours of when you tapped. Check in again if you're still at the court." (was silent).
+- A refused replay words the server's code (`checkin.too_old`, `fix.after_tap`, `fix.not_at_court`...); the old
+  2-minute reason only for an older server's `fix.stale` on a fix that was fresh at its tap (`refusedForQueueWait`).
+- A Start at a court that didn't check me in (`lib/playStartRules.untrackedReason`, reading the session's own
+  check-in by id, `data/venueCheckins.getMyCheckin`): `synced_late` ("Your check-in at Lakeside for this session ran
+  until 5:10 PM, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you
+  as at the court for it. Check in from Home if you're still there."), `too_old`, `unconfirmed_late` (replaces
+  `stale`: true under old and new servers), `not_at_court` and the rest as before. A replayed Start says it on a
+  notice card (the player wasn't watching); a live one on the island.
+- `offersUntrackedSession` also offers the untracked session after `fix.after_tap` and `checkin.too_old`.

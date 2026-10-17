@@ -3,7 +3,9 @@
 **Status:** Phase 1 live 2026-10-16 (SQL applied, master `8a42a1f`, OTA `55a4e858`, flag still off) ·
 Phase 1.5 (validity rules) live 2026-10-16 (SQL applied after 440/440 on live, master `2299218`, OTA `81865e5f`),
 hardened after an anti-gaming review the same day · Refusal messages (rule 11) built on `fix/refusals`
-2026-10-16 (`supabase/migration_refusal_messages.sql` not applied yet; apply it, then OTA) · **Source:** a 13-agent study of Doggle's walks /
+2026-10-16 (`supabase/migration_refusal_messages.sql` not applied yet; apply it, then OTA) · Offline check-in time and
+old-build league joins built on `feat/offline-checkin` 2026-10-16 (`supabase/migration_checkin_tap_time.sql` not
+applied yet; apply it after the refusal file, then OTA) · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -26,7 +28,9 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
 
 - **"Members of closed leagues you share"** counts a membership only if it was made while the league was closed
   (`league_members.admitted_closed`, set by the server). Closing an open league later names nobody who joined it
-  instantly; and no one can be moved into a league they never joined (clients may change only a member's role).
+  instantly; and no one can be moved into a league they never joined (clients may change only a member's role; since
+  2026-10-16 they may name `league_id` / `user_id` in an update with their current values, and a trigger refuses any
+  change: see the decisions of 2026-10-16 below).
 - **"Blocked pairs never see each other"** (confirmed by the user 2026-10-16): no row and no count, either way.
   Accepted trade-off: someone with a second account could notice the count differs by one.
 - **"Guests see counts only"** (confirmed 2026-10-16): guests get `venue_crowd` numbers and their own row, never
@@ -39,11 +43,13 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
 ## Rules every change in this plan follows
 
 1. **Location-confirmed only.** `checkin_venue` takes the device fix (`p_lat`, `p_lng`, `p_accuracy_m`, `p_fix_at`,
-   and `p_fix_age_ms`, the fix's age measured on the device when it is sent). The server accepts it when the fix
-   is inside the venue boundary, or within `geofence_radius_m + least(p_accuracy_m, 75)` of the venue point, the
-   fix is at most 2 minutes old (by its age, so a wrong phone clock doesn't matter; by `p_fix_at` against the
-   server clock when no age is sent), and its accuracy is reported and at most 150 m (an approximate location,
-   e.g. Precise Location off, can't confirm a court). It stores `location_confirmed`, the fix, and its distance.
+   and `p_fix_age_ms`, the fix's age measured on the device when it is sent) and the tap (`p_at`). The server
+   accepts it when the fix is inside the venue boundary, or within `geofence_radius_m + least(p_accuracy_m, 75)` of
+   the venue point, the fix was taken within 2 minutes of the **tap** (since 2026-10-16, decision 1 below: worked
+   out on the phone's own clock, so a wrong phone clock doesn't matter; by `p_fix_at` against the server clock when
+   no age is sent), the tap is under 12 hours old, and its accuracy is reported and at most 150 m (an approximate
+   location, e.g. Precise Location off, can't confirm a court). It stores `location_confirmed`, the fix, and its
+   distance. A check-in saved with no signal therefore counts when it syncs, up to 12 hours after the tap.
    Calls from un-updated 1.0.4 clients (no fix) create a **private** unconfirmed row: shown to nobody, counted
    nowhere, earns nothing. A confirmed check-in stays confirmed: extending it needs a confirming fix, or stops 4
    hours after its last one.
@@ -168,8 +174,10 @@ How the build reads the rules (say so to change any):
 - **Stay proof** also accepts any later confirming fix stored on the check-in (extend, a repeat check-in or a
   session start at the same court), not only check-out and extend: each of those already proves the court. End
   sends the same fix for the session's own check-in (an adopted one stays open and gets none).
-- **The 5 minutes of a stay run from the arrival fix**, not from the check-in time the app sends (`p_at`, which may
-  be backdated for an offline check-in): `arrival_fix_at` is when the arrival fix was taken, on the server clock.
+- **The 5 minutes of a stay run from the arrival fix**, not from the check-in time the app sends (`p_at`):
+  `arrival_fix_at` is when the arrival fix was taken, on the server clock. Since 2026-10-16 (decision 1 below) an
+  offline check-in's arrival fix is the one taken at its tap, dated by its age, so a check-in saved with no signal
+  and checked out 30 minutes later proves its stay when both sync.
 - **"Recorded" is the server's clock:** every signed-in match insert gets `created_at = now()`, and the 2 h window
   reads only that (never `played_at`, which the app still sets for display).
 - **Confirmations are the server's:** a client insert of a played match is stored pending, due within the hour,
@@ -228,9 +236,76 @@ How the build reads the rules (say so to change any):
   on an ended check-in, a lost drill-review answer); the "your check-in ended" line never reaches another account.
   Persona tests 516/516 against live, rolled back.
 - [ ] Apply the SQL, then merge and OTA (the app also words the older texts, so either order works).
-- [ ] Not done, needs the user's call: re-grant `league_members (league_id, user_id)` UPDATE so pre-2026-10-14
-  bundles can join open leagues again (they get "You don't have access to that." since Phase 1); refusing no-fix
-  check-ins from 1.0.4 (today a silent private row, rule 1).
+- [x] Re-grant `league_members (league_id, user_id)` UPDATE so pre-2026-10-14 bundles can join open leagues again:
+  decided 2026-10-16 (decision 2 below), built in `supabase/migration_checkin_tap_time.sql`.
+- [ ] Not done, needs the user's call: refusing no-fix check-ins from 1.0.4 (today a silent private row, rule 1).
+
+**Decided by the user, 2026-10-16** (offline check-ins, old-build league joins):
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | What a check-in's fix is judged against | **The check-in (tap) time, not the time it reached the server** (the rule the user chose for Doggle). The fix must be taken within 2 minutes of the tap. A check-in saved with no signal at the court counts when it syncs later; a fresh fix sent with a tap from long ago is refused. Applies to every check-in that carries a fix: Check in, the lock-screen / arrival Check in, the Start-at-court check-in (extend sends no tap: its tap is the send). |
+| 2 | League Join on old builds (1.0.2, 1.0.3, 1.0.4 on its embedded bundle get "You don't have access to that.") | **Grant `update (league_id, user_id)` on `league_members` to authenticated**, relying on the identity-lock trigger to refuse any real change of either column. |
+
+How the build reads decision 1 (`feat/offline-checkin`; contract:
+[API, offline check-in time](./play-sessions-presence-api.md#offline-check-in-time-the-tap-rule-2026-10-16)):
+
+- **No new argument.** Every check-in and Start the app sends, live or queued, already carries three numbers from
+  the phone's clock: the tap (`p_at`), the fix time (`p_fix_at`) and the fix's age at send (`p_fix_age_ms`). The
+  server works out `age_at_tap = p_at - p_fix_at` (signed), dates the fix `now() - age` and the tap
+  `fix + age_at_tap`, both on its own clock; the phone's clock offset cancels in each. Over +2 min: `fix.stale`;
+  under -2 min: `fix.after_tap` (new); a tap over 12 h old: `checkin.too_old` (new).
+- **Not Doggle's form** (the age measured at the tap, live calls sending no tap), for three reasons: it would date
+  the arrival fix by a phone-clock tap (a slow phone or any replay would shorten the Phase 1.5 stay proof); the
+  runtime-1.0.4 OTA in the field sends `p_at` plus the age at send on every live call, which this rule judges
+  exactly (and its queued check-ins start counting with the SQL alone); and a live Start must keep `p_at` (decision 2
+  of Phase 1.5 measures the 5-minute floor on the app's own Start and End).
+- **A phone whose clock is off is never refused live, and never backdated** (the check-in is dated at the tap on the
+  server clock; before, a slow phone's `p_at` backdated it).
+- **Backdating limit: 12 hours from the tap**, the same 12 h `start_play_session` already allows a Start, so an
+  offline session and its check-in share one limit. A check-in lasts at most 4 h, so 12 h covers a whole evening
+  offline. How a check-in is stored, consistently with how check-ins expire (`expires_at = tap + minutes`; the
+  10-minute expiry job closes it there):
+  - still running when it syncs: open from the tap, shown for the rest of its time;
+  - already over when it syncs: **stored, already over** (a visit nobody saw: never shown, never counted in a crowd,
+    but it counts for `at_court` and the stay proof; a queued check-out or End right behind it records the real leave
+    time). The app says so once, in the device's zone: "Your check-in at Lakeside (2:10 PM) reached Pickleague at
+    5:05 PM, after it had ended at 4:10 PM, so nobody saw you there. Pickleague still saved it as your visit. Check
+    in again if you're still at the court.";
+  - tapped over 12 hours ago: **refused** (`checkin.too_old`), and the app says why.
+- **A replay never closes or overrides a check-in made after its tap** (the app tries a live call before an older
+  queued one): it ends where the newer one starts.
+- **Start at a court:** the session row is unchanged; its check-in is judged and anchored at the tap (tap + 180 min,
+  what a live Start already gets), stored already over when that is past. A Start too old, or with a fix away from
+  its tap, starts untracked (never an error) and the app says why.
+- **Accepted residual:** an offline replay is trusted for its tap up to 12 hours (that is the decision). A modified
+  app could claim an older arrival fix, as it can claim any position; rewards still need a recorded match the other
+  team confirms. A phone whose clock jumps while offline (it is corrected on reconnect) shifts that replay's tap by
+  the jump.
+- **Release:** SQL first, then the OTA. The runtime-1.0.4 OTA on the new server shows nothing worse (its queued
+  check-ins under 12 h now count; over 12 h it shows its own "more than 2 minutes after you tapped" notice, still
+  true).
+
+How the build reads decision 2: clients may name `league_id` / `user_id` in an update only with their current values
+(`trg_league_members_lock_identity` refuses any change, now with P0001 `pl:membership.locked` and "A league
+membership can't be moved to another league or player. Leave the league, then join the one you want." instead of
+42501). The UPDATE policy still reaches only rows of a league the caller is admin of, and `admitted_closed`,
+`expires_at`, `joined_at` and `id` stay ungranted, so the reachable states are the same as before. Re-running
+`migration_league_members_lock_identity.sql` (its table-level revoke drops column grants) needs a re-run of the
+tap-time file after it. `migration_rls_hardening_2026q3.sql` needs no change (it audits the INSERT policy and the
+SECURITY DEFINER allowlist, not column grants; no RPC is added).
+
+**Built (`feat/offline-checkin`, 2026-10-16):**
+
+- [x] SQL `supabase/migration_checkin_tap_time.sql` (file 8): `_pl_tap_fix` (internal), `checkin_venue`,
+  `start_play_session` and `extend_checkin` (a confirmed check-in stored already over can't be extended back to
+  life), the reworded `fix.stale`, the codes `fix.after_tap` / `checkin.too_old` / `membership.locked`, the P2 grant.
+  Signatures unchanged. Persona tests 616/616 against live, rolled back (`supabase/tests/tap_time_personas.sql`,
+  plus the older backdated-tap assertions moved to the honest replay shape).
+- [x] App: the codes and copy in `lib/refusals`; the "saved with no signal" note names the 12 hours; a replay stored
+  already over and a queued check-in that ran out unsent are each said once; a replayed Start that didn't check in
+  says why on a card (`lib/playStartRules`).
+- [ ] Apply the SQL (after the refusal file), then merge and OTA.
 
 Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are
 stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;
