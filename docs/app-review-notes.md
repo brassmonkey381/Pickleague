@@ -169,26 +169,50 @@ purchase, no cash-out, no staking, and no real money anywhere in the app.
 
 PERMISSIONS AND WHY THEY ARE REQUESTED
 - Location (when in use): to show pickleball courts near the player when they
-  search for a venue, and to find the court they are at when they tap "Find my
-  court" to check in. Coordinates are not stored; a check-in stores only the
-  court.
+  search for a venue, and to confirm the court they are at when they check in
+  or start a play session there. A check-in needs a fresh GPS fix inside the
+  court's boundary (checked on our server); there are no manual check-ins. The
+  check-in stores the court, the time, and that one fix (coordinates, accuracy,
+  distance to the court). No route or continuous tracking. Check-ins are deleted
+  after 180 days.
 - Location (always), version 1.0.4+: ONLY if the player turns on Settings ->
   Court Arrival Alerts (off by default). The app then asks iOS to watch up to
-  20 courts (their league home courts and courts they have checked in at) with
+  20 courts (courts where they saved a QR code in the QR wallet, courts they
+  starred, their league home courts and courts they have checked in at) with
   region monitoring. Arriving shows a notification with a "Check in" button;
-  the app never checks anyone in on its own. Leaving a court ends only a
-  check-in that came from that button. No continuous tracking, no route, no
-  coordinates stored. Turning the setting off stops all monitoring.
+  the app never checks anyone in on its own. Tapping it takes one location
+  fix, which our server uses to confirm the court and stores with the
+  check-in, as for any check-in. Leaving a court ends only a check-in that came from that
+  button. Region monitoring itself stores nothing: no continuous tracking, no
+  route. At a court with a saved QR code, the notification instead opens that
+  code (see QR wallet below). Turning the setting off stops all monitoring.
+- Court presence: other players see a checked-in player's name only as the
+  player allows in Settings -> Privacy -> Who sees me at the courts (default:
+  friends and members of closed leagues they share; also Everyone, Friends, or
+  Hidden). Everyone else sees an anonymous count, blocked players never see each
+  other's name, and a player can pause sharing or hide from specific people. A
+  one-time sheet before the first check-in says who will see them. The location
+  fix is never shown to anyone.
 - Contacts: only when the player opens the contact picker to invite someone to
   an event. The address book is read on-device and is never uploaded; only the
   name and phone number of contacts the player explicitly selects are sent, in
   order to create that invite.
-- Photo library: only to select a profile picture.
+- Photo library: only to select a profile picture, or to pick a QR code image
+  for the QR wallet.
 - Notifications: optional, off by default. Used for match results, event
   reminders, drill requests and tournament updates. Some notifications carry
   buttons (for example "Can't make it", "Confirm", "Check in") that answer
   without opening the app.
 Every permission is optional and the app remains usable if declined.
+
+QR WALLET
+Some clubs ask members to show a QR code at the front desk. A player can save
+an image of that code (picked from their photo library) and tie it to the
+club's court. The image is stored only on the device and never uploaded. With
+Court Arrival Alerts on, arriving at that court shows a notification that opens
+the code full screen. The wallet also shows the player's own invite link as a
+QR code (their public profile URL), with a Share button. Open it from the 🎟️ QR
+button in the Home top bar.
 
 ACCOUNT DELETION
 Account deletion is available in-app at Settings -> Delete account. It removes
@@ -377,7 +401,7 @@ previous notes said "no chat or direct messaging", which was **wrong** —
 `drill_requests.message` and `drill_request_messages` are exactly that. Never
 restore that sentence.
 
-## 6. For the next binary (1.0.5+): check-ins confirm the court, and who sees them
+## 6. Check-ins confirm the court, and who sees them (pasted into §1 for the 1.0.4 submission)
 
 Phase 1 of [play-sessions-presence.md](play-sessions-presence.md) changes what a check-in
 stores, so the §1 location bullets "Coordinates are not stored; a check-in stores only the
