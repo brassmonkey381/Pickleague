@@ -269,22 +269,49 @@ How the build reads decision 1 (`feat/offline-checkin`; contract:
   - still running when it syncs: open from the tap, shown for the rest of its time;
   - already over when it syncs: **stored, already over** (a visit nobody saw: never shown, never counted in a crowd,
     but it counts for `at_court` and the stay proof; a queued check-out or End right behind it records the real leave
-    time). The app says so once, in the device's zone: "Your check-in at Lakeside (2:10 PM) reached Pickleague at
-    5:05 PM, after it had ended at 4:10 PM, so nobody saw you there. Pickleague still saved it as your visit. Check
-    in again if you're still at the court.";
-  - tapped over 12 hours ago: **refused** (`checkin.too_old`), and the app says why.
+    time). The app says so once, in the device's zone, every time on the server's clock (so a phone whose clock is
+    off reads a 2-hour check-in as 2 hours): "Your check-in at Lakeside (2:10 PM) reached Pickleague at 5:05 PM,
+    after it had ended at 4:10 PM, so nobody saw you there. Pickleague still saved it as your visit. Check in again
+    if you're still at the court." When the player had checked out (even with that check-out still queued behind
+    it): "...reached Pickleague at 5:05 PM, after you had checked out (3:00 PM), so nobody saw you there. Pickleague
+    still saved it as your visit." (no "check in again"; none either when a newer check-in of theirs is current);
+  - its check-out or End reached Pickleague **first** (sent live while the check-in or Start still waited in the
+    queue, e.g. the arrival Check in saved with no signal and the fence exit's check-out sent once the signal came
+    back): judged the same way, and a confirmed one is **stored closed** at that check-out or End (or at its own end,
+    if that came first), touching nothing made since; a refused one says why (before: nothing stored and no word,
+    whatever the fix). The app says so with the "after you had checked out" notice above. Its stay stays unconfirmed
+    (the check-out that landed first left no row to hold its fix), so the app sends a check-out or End behind its
+    queued check-in or Start when it can: with a signal it asks the queue to send that first and waits up to 3 s
+    (alongside the stay-fix wait); offline it queues behind it. Not an enqueue while online: the kit's flush writes
+    its own snapshot of the queue back, so an entry added during a flush can be lost;
+  - tapped over 12 hours ago: **refused** (`checkin.too_old`), and the app says why, with the tap's day ("Your
+    check-in at Lakeside (Wed 5:40 PM) didn't go through. It reached Pickleague more than 12 hours after you
+    tapped, too late to count. Check in again when you're at the court.").
+- **The 12 hours are counted when the check-in reaches Pickleague**, and the offline queue sends only while
+  Pickleague runs (a lock-screen or arrival Check in waits for the app to be opened), so the "saved with no signal"
+  note names the action: "Saved with no signal. It counts if it reaches Pickleague within 12 hours, so open
+  Pickleague once you have a signal."
 - **A replay never closes or overrides a check-in made after its tap** (the app tries a live call before an older
   queued one): it ends where the newer one starts.
 - **Start at a court:** the session row is unchanged; its check-in is judged and anchored at the tap (tap + 180 min,
-  what a live Start already gets), stored already over when that is past. A Start too old, or with a fix away from
-  its tap, starts untracked (never an error) and the app says why.
+  what a live Start already gets), stored already over when that is past, and stored closed at the End when the
+  End reached Pickleague first (stored before the session row, so `at_court` is right at once). A Start too old,
+  or with a fix away from its tap, starts untracked (never an error) and the app says why on a card, also when the
+  session already ended on the device (the usual offline case: Start and End both queued).
 - **Accepted residual:** an offline replay is trusted for its tap up to 12 hours (that is the decision). A modified
   app could claim an older arrival fix, as it can claim any position; rewards still need a recorded match the other
   team confirms. A phone whose clock jumps while offline (it is corrected on reconnect) shifts that replay's tap by
-  the jump.
-- **Release:** SQL first, then the OTA. The runtime-1.0.4 OTA on the new server shows nothing worse (its queued
-  check-ins under 12 h now count; over 12 h it shows its own "more than 2 minutes after you tapped" notice, still
-  true).
+  the jump. A check-in or Start whose check-out or End still lands first (a flush already running when Check out
+  is tapped, or an older build) is stored without its stay proof.
+- **Release:** SQL first, then the OTA. The runtime-1.0.4 OTA on the new server shows nothing worse than today: its
+  queued check-ins under 12 h now count (also when their check-out landed first); over 12 h it shows its own "more
+  than 2 minutes after you tapped" notice, still true. Two of its own texts can name an old reason until the OTA
+  lands, because that client overrides the server's reason: (a) a queued check-in under 12 h refused for distance
+  or precision shows "It reached Pickleague more than 2 minutes after you tapped, too late to confirm you were
+  there", the same words it showed before for the same refusal, but no longer the true reason (the old server
+  judged freshness first; this one judges the fix at the tap and then the distance); (b) its island can say "too
+  late to confirm you were there" for a late Start whose check-in this server stored already over, which still
+  counts for `at_court`. Both go away with the OTA.
 
 How the build reads decision 2: clients may name `league_id` / `user_id` in an update only with their current values
 (`trg_league_members_lock_identity` refuses any change, now with P0001 `pl:membership.locked` and "A league
@@ -305,6 +332,14 @@ SECURITY DEFINER allowlist, not column grants; no RPC is added).
 - [x] App: the codes and copy in `lib/refusals`; the "saved with no signal" note names the 12 hours; a replay stored
   already over and a queued check-in that ran out unsent are each said once; a replayed Start that didn't check in
   says why on a card (`lib/playStartRules`).
+- [x] Review fixes (2026-10-16, 9 confirmed findings): a check-in or Start whose check-out or End reached
+  Pickleague first is stored closed at it (or refused with why) instead of dropped with no word, and the app sends
+  the check-out or End behind its queued check-in or Start when it can (persona T40, T16 updated); a replayed Start
+  says why on a card even after End cleared the island, and a failed read is retried, never read as "no
+  check-in"; the "saved late" notice uses the server's clock for all three times and names a check-out tapped
+  here (no "check in again" after a check-out or with a newer check-in); the "saved with no signal" and "ran out"
+  notes name the real condition (it must reach Pickleague, so open Pickleague); a refused replay names its tap's
+  day; the 1.0.4 residuals are written down above. Persona tests 637/637 against live, rolled back.
 - [ ] Apply the SQL (after the refusal file), then merge and OTA.
 
 Doggle counterpart (same day, built in the Doggle repo): GPS required to check in (no-fix calls from old builds are

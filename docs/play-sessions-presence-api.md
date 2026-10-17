@@ -69,9 +69,9 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    the tap, up to 12 hours back; `league_members (league_id, user_id)` UPDATE granted. Re-runnable, no
    begin/commit, signatures and attributes unchanged, one internal helper (`_pl_tap_fix`), no new client RPC. See
    [Offline check-in time](#offline-check-in-time-the-tap-rule-2026-10-16). The persona build applies it last and
-   re-runs it last: 621 assertions (516 + 103 in `supabase/tests/tap_time_personas.sql`, plus the older
-   backdated-tap assertions moved to the honest replay shape), all passing against the live DB in a rolled-back
-   transaction on 2026-10-16. Release: this SQL first, then the OTA.
+   re-runs it last: 637 assertions (516 + 119 in `supabase/tests/tap_time_personas.sql`, plus the older
+   backdated-tap and closed-before-stored assertions moved to the new behaviour), all passing against the live DB
+   in a rolled-back transaction on 2026-10-16. Release: this SQL first, then the OTA.
 
 ## Where the SQL differs from or sharpens this contract (2026-10-16)
 
@@ -116,7 +116,10 @@ Phase 1 ones; since file 7 every refusal has a code and a reworded text, listed 
   (`presence_closed_ids`, pruned after 2 days). When that Start or check-in lands later (queued, or a request that
   timed out and still arrived), start_play_session stores the session already ended, with no check-in, and
   checkin_venue returns an in-memory closed row without storing anything; neither touches what was opened since,
-  and neither is an error.
+  and neither is an error. **Since file 8** a call that carries a fix is judged at its tap like any other: a
+  confirmed check-in (or a Start's check-in) is stored closed at the check-out or End (or its own end, if that came
+  first), and checkin_venue refuses any other fix with its code (`checkin.too_old`, `fix.after_tap`, `fix.stale`,
+  `fix.imprecise`, `fix.not_at_court`, `court.gone`). Calls without a fix keep the old answer.
 - **resolve_court** clamps `p_radius_m` to 10..2000 m; `p_sport = null` means any sport; `inside` = in a boundary or
   within a row's `geofence_radius_m` (no accuracy slack); raises `Not authenticated` without a session.
 - **resolve_venue** (1.0.4 only) now answers the canonical venue of the nearest row (same signature and jsonb
@@ -910,6 +913,7 @@ Matching how check-ins expire (`expires_at = tap + minutes`; the 10-minute `expi
 | still running | open from `tap_at` to `tap_at + minutes` | adopts it (the card keeps showing it) |
 | after it would have ended | **stored, already over**: `checked_in_at = tap_at`, `expires_at = tap_at + minutes` (or the start of a later check-in of mine), `checked_out_at` null, so the expiry job closes it and a queued check-out behind it records the real leave time and the stay fix. Every presence read wants `expires_at > now()`, so nobody sees it and no crowd counts it; `at_court` and the stay proof do | detects it with `expires_at <= created_at` (the server's two times) and says so once, on a notice card (`lapsedCheckinNotice`) |
 | over 12 hours after the tap | refused, `checkin.too_old` (the tap in the player's zone) | drops it and says why |
+| after its check-out reached Pickleague (the check-out was sent live while the check-in still waited in the queue) | judged the same way; a confirmed one is **stored closed**: `checked_in_at = tap_at`, `expires_at = tap_at + minutes` (or the start of a later check-in of mine), `checked_out_at = greatest(tap_at + 1 s, least(check-out, expires_at))`; nothing else touched or joined; any other fix refused with its code. No stay proof (the check-out left no row to hold its fix) | detects it with its end (`checked_out_at`) at or before `created_at` and says "after you had checked out (3:00 PM)"; sends a check-out behind its queued check-in when it can (below) |
 
 - A replay never closes or overrides a check-in of mine made after its tap (the app tries a live call before an older
   queued one): it ends where that one starts; the quiet same-court path joins only a check-in begun at or before the
@@ -919,7 +923,9 @@ Matching how check-ins expire (`expires_at = tap + minutes`; the 10-minute `expi
   check-in is judged at the tap and anchored there (`tap_at` to `tap_at + 180 min`, what a live Start already got),
   stored already over when that is past, and ended by End as before. `too_old`, `after_tap` and `stale` give no
   check-in and are never an error. With a fix confirmed at the tap it adopts only a check-in begun at or before the
-  tap, and takes its fix only when newer. The no-fix adopt path is unchanged.
+  tap, and takes its fix only when newer. The no-fix adopt path is unchanged. A Start whose End reached Pickleague
+  first stores its check-in (when confirmed at the tap) closed at the End, before the ended session row, so the
+  session's `at_court` is stored right at once; nothing is adopted or closed.
 - `extend_checkin`: unchanged, except that a confirmed check-in stored already over can't be extended back to life
   in the minutes before the expiry job closes it (`checkin.closed`, ended at its `expires_at`). A private row keeps
   its old behaviour.
@@ -930,26 +936,54 @@ Matching how check-ins expire (`expires_at = tap + minutes`; the 10-minute `expi
 - Embedded bundles send no fix: every path they use is unchanged (persona T35).
 - The runtime-1.0.4 OTA: live calls are accepted as before (`checked_in_at` becomes the true server time); its queued
   check-ins under 12 h now count (one still running is adopted; one already over shows nothing, since its card
-  cleared at the expiry); over 12 h it gets `checkin.too_old`, a code it doesn't know, so it shows its own "more
-  than 2 minutes after you tapped" notice, still true. `fix.stale` keeps "location is out of date" and "2 minutes".
-  No new text uses a network word, "expired", "not found" or errcode 42501.
+  cleared at the expiry; one whose check-out landed first is stored closed); over 12 h it gets `checkin.too_old`, a
+  code it doesn't know, so it shows its own "more than 2 minutes after you tapped" notice, still true. `fix.stale`
+  keeps "location is out of date" and "2 minutes". No new text uses a network word, "expired", "not found" or
+  errcode 42501.
+- Two residuals until the OTA lands, both from that client overriding the server's reason (no server change can
+  fix them): (a) a queued check-in under 12 h that this server refuses for distance or precision (`fix.not_at_court`
+  / `fix.imprecise`, which the old server never reached, since it judged freshness first) shows the client's own
+  "It reached Pickleague more than 2 minutes after you tapped, too late to confirm you were there": the words it
+  showed before for the same refusal, but no longer the true reason (its `fixWasStale` overrides any reason for a
+  fix that is old at send); (b) ec450c0's island can say "too late to confirm you were there" (`untrackedReason`
+  'stale') for a late Start whose session check-in this server stored already over, which still counts for
+  `at_court` (narrow: the island must still run and the Start be 3+ h late). Both go away with the OTA.
 
 ### Client (tap rule)
 
-- `QUEUED_CHECKIN_NOTE` (court card and lock-screen "Checked in" notice): "Saved with no signal. It counts if your
-  phone is back online within 12 hours."
-- A replay stored already over (`courtCheckinRules.syncedAfterItEnded`): drops the card's entry and posts "Check-in
-  saved late" / "Your check-in at Lakeside (2:10 PM) reached Pickleague at 5:05 PM, after it had ended at 4:10 PM,
-  so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court."
+- `QUEUED_CHECKIN_NOTE` (court card and lock-screen "Checked in" notice): "Saved with no signal. It counts if it
+  reaches Pickleague within 12 hours, so open Pickleague once you have a signal." (The 12 hours are counted on
+  arrival, and the queue sends only while Pickleague runs: a lock-screen check-in waits for the app.)
+- A replay stored after it had ended (`courtCheckinRules.syncedAfterItEnded`: its end, the check-out when it has
+  one, at or before `created_at`): drops the card's entry and posts "Check-in saved late" / "Your check-in at
+  Lakeside (2:10 PM) reached Pickleague at 5:05 PM, after it had ended at 4:10 PM, so nobody saw you there.
+  Pickleague still saved it as your visit. Check in again if you're still at the court." All three times are the
+  server's (`lapsedCheckinFacts`: the tap is the row's `checked_in_at`), so a phone 10 minutes off reads a 2-hour
+  check-in as 2 hours. When the player checked out (the server's check-out that landed first, or one tapped on
+  this device, which `checkOut` records while its check-in is still queued, moved onto the server clock): "...at
+  5:05 PM, after you had checked out (3:00 PM), so nobody saw you there. Pickleague still saved it as your visit."
+  No "Check in again" after a check-out, or when a newer check-in of mine is current.
+- A check-out of a check-in still in the queue (`checkOut`): with a signal it asks the queue to send the check-in
+  first and waits for it, at most 3 s, alongside the stay-fix wait (`waitUntilSent`); offline it queues behind it.
+  Not an enqueue behind it while online: the kit's flush writes its own snapshot of the queue back when it ends, so
+  an entry added during a flush can be lost (a check-out gone with no word). A geofence exit sends no fix, so it
+  doesn't wait (the server's closed path keeps the visit). A check-in refused during the wait has nothing to close:
+  no check-out is sent. End does the same for a Start still in the queue (`isPlayStartQueued`).
 - A queued check-in that runs out on the device before it is sent: the card says once "Your check-in at Lakeside
-  ended at 4:10 PM before your phone had a signal to send it. It's sent when you're back online, if that's within
-  12 hours of when you tapped. Check in again if you're still at the court." (was silent).
-- A refused replay words the server's code (`checkin.too_old`, `fix.after_tap`, `fix.not_at_court`...); the old
+  ended at 4:10 PM before your phone had a signal to send it. It's sent the next time Pickleague is open with a
+  signal, if that's within 12 hours of when you tapped. Check in again if you're still at the court." (was silent).
+- A refused replay words the server's code (`checkin.too_old`, `fix.after_tap`, `fix.not_at_court`...), with the
+  tap's day when it wasn't today ("Your check-in at Lakeside (Wed 5:40 PM) didn't go through. It reached Pickleague
+  more than 12 hours after you tapped, too late to count. Check in again when you're at the court."); the old
   2-minute reason only for an older server's `fix.stale` on a fix that was fresh at its tap (`refusedForQueueWait`).
-- A Start at a court that didn't check me in (`lib/playStartRules.untrackedReason`, reading the session's own
-  check-in by id, `data/venueCheckins.getMyCheckin`): `synced_late` ("Your check-in at Lakeside for this session ran
-  until 5:10 PM, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you
-  as at the court for it. Check in from Home if you're still there."), `too_old`, `unconfirmed_late` (replaces
-  `stale`: true under old and new servers), `not_at_court` and the rest as before. A replayed Start says it on a
-  notice card (the player wasn't watching); a live one on the island.
+- A Start at a court that didn't check me in (`lib/playStartRules.untrackedStartNotice` / `untrackedReason`,
+  reading the session's own check-in by id, `data/venueCheckins.getMyCheckin`): `synced_late` ("Your check-in at
+  Lakeside for this session ran until 5:10 PM, but the session reached Pickleague after that, so nobody saw you
+  there. Pickleague still counts you as at the court for it. Check in from Home if you're still there.", without
+  the last sentence once the session ended on the device; "ran until" the End when the End landed first),
+  `too_old`, `unconfirmed_late` (replaces `stale`: true under old and new servers), `not_at_court` and the rest as
+  before. A live Start the island still shows says it on the island; a replayed Start, or a session already over
+  on the device (the usual offline case: End cleared the island before the Start synced), on a notice card. With
+  the island idle the session's own check-in decides: stored, confirmed and not after it ended means it checked me
+  in (say nothing). A failed read is retried on the next resume, never read as "no check-in".
 - `offersUntrackedSession` also offers the untracked session after `fix.after_tap` and `checkin.too_old`.
