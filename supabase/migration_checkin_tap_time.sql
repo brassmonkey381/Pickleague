@@ -61,7 +61,13 @@
 --     expires_at > now()), counted in no crowd, but it is a visit (at_court,
 --     the stay proof). The app says so once, in the device's zone (it reads
 --     expires_at <= created_at, which no clock offset can fake);
---   * tapped more than 12 hours ago: refused, checkin.too_old.
+--   * tapped more than 12 hours ago: refused, checkin.too_old;
+--   * its check-out (or End) reached Pickleague first (sent live while the
+--     check-in still waited in the queue): judged the same way, and a
+--     confirmed one is STORED CLOSED at that check-out, or at its own end if
+--     that came first; a refused one says why (before: nothing stored, no
+--     word, for any fix). Its stay stays unconfirmed: the check-out that
+--     landed first left no row to hold its fix.
 -- A replay never closes or overrides a check-in of mine made after its tap
 -- (the app tries a live call before an older queued one): it ends where that
 -- one starts, the quiet same-court path joins only a check-in begun at or
@@ -70,7 +76,8 @@
 -- no-fix path is unchanged (6 h clamp, private row).
 -- start_play_session: the session row is unchanged (phone-frame clamp, 12 h);
 -- its check-in is judged at the tap and anchored there (tap + 180 min, what a
--- live Start already gets), stored already over when that is past; too_old,
+-- live Start already gets), stored already over when that is past, and
+-- stored closed at the End when the End reached Pickleague first; too_old,
 -- after_tap and stale give no check-in and are never an error.
 -- extend_checkin: unchanged (never queued, no tap: the tap is the send),
 -- except that a confirmed check-in stored already over can't be extended
@@ -109,10 +116,17 @@
 -- 1.0.4 on this server: embedded bundles send no fix (unchanged paths). The
 -- runtime-1.0.4 OTA sends p_at, p_fix_at and the age at send on every call:
 -- live calls are accepted as before (checked_in_at becomes the true server
--- time); its queued check-ins under 12 h now count; over 12 h they get
--- checkin.too_old (a code it doesn't know: it shows its own "more than 2
--- minutes after you tapped" notice, which is still true). No new text uses a
--- network word, "expired", "not found" or errcode 42501.
+-- time); its queued check-ins under 12 h now count, also when their
+-- check-out landed first; over 12 h they get checkin.too_old (a code it
+-- doesn't know: it shows its own "more than 2 minutes after you tapped"
+-- notice, which is still true). Until the OTA lands, two of its own texts
+-- can name an old reason: (a) a queued check-in under 12 h refused for
+-- distance or precision shows its "more than 2 minutes after you tapped, too
+-- late to confirm you were there" (it overrides any reason for a fix that is
+-- old at send; the words it showed before for the same refusal); (b) its
+-- island can say "too late to confirm you were there" for a late Start whose
+-- check-in this file stored already over, which still counts for at_court.
+-- No new text uses a network word, "expired", "not found" or errcode 42501.
 --
 -- Signatures, SECURITY DEFINER, search_path = '' and grants are unchanged;
 -- every replaced function starts from its LIVE definition (pg_get_functiondef,
@@ -238,8 +252,11 @@ end $function$;
 -- Changed: a fix is judged at the tap (_pl_tap_fix); a confirmed check-in is
 -- dated at the tap on the server clock; it ends where a later check-in of
 -- mine starts; it is stored even when already over; the quiet path and the
--- one-open-check-in rule never touch a check-in made after the tap. The
--- no-fix path (1.0.4 and older bundles) is unchanged.
+-- one-open-check-in rule never touch a check-in made after the tap; one whose
+-- check-out reached Pickleague first is judged like any other and, when
+-- confirmed, stored closed at that check-out (before: an unstored,
+-- unconfirmed row for any fix). The no-fix path (1.0.4 and older bundles) is
+-- unchanged.
 create or replace function public.checkin_venue(p_id uuid, p_venue text, p_minutes integer DEFAULT 120, p_source text DEFAULT 'manual'::text, p_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_lat double precision DEFAULT NULL::double precision, p_lng double precision DEFAULT NULL::double precision, p_accuracy_m double precision DEFAULT NULL::double precision, p_fix_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_fix_age_ms double precision DEFAULT NULL::double precision)
  RETURNS public.venue_checkins
  LANGUAGE plpgsql
@@ -273,12 +290,15 @@ begin
     return v_row;
   end if;
 
-  -- Checked out before it got here: it lands closed. Nothing is stored and no
-  -- other check-in is touched (one made since stays open). Not an error, so
-  -- a queued replay is not reported as refused.
+  -- Checked out before it got here (its check-out reached Pickleague first:
+  -- sent live while this check-in still waited in the offline queue, or a
+  -- request that timed out and still arrived). Without a fix (1.0.4 and
+  -- older bundles) it lands closed as before: nothing is stored, no other
+  -- check-in is touched, not an error. With a fix it is judged like any
+  -- check-in, below, and stored closed.
   select e.closed_at into v_closed
     from public.presence_closed_ids e where e.user_id = v_uid and e.id = p_id;
-  if v_closed is not null then
+  if v_closed is not null and p_lat is null and p_lng is null then
     v_row.id := p_id;
     v_row.user_id := v_uid;
     v_row.venue_id := coalesce(public._pl_canonical_venue(p_venue), p_venue);
@@ -335,6 +355,25 @@ begin
   v_until := v_at + make_interval(mins => greatest(15, least(coalesce(p_minutes, 120), 240)));
   if v_later is not null then
     v_until := greatest(least(v_until, v_later), v_at + interval '1 second');
+  end if;
+
+  -- Checked out before it got here, with a fix confirmed at its tap (any
+  -- other fix was refused above, with why): stored as the visit it was,
+  -- already closed at the check-out, or at its own end if that came first.
+  -- Never shown (closed); it counts for at_court like any visit. No other
+  -- check-in is touched (one made since stays open), nothing is joined. The
+  -- check-out that landed first left no row to hold its stay fix, so this
+  -- visit's stay stays unconfirmed (the app sends a check-out behind its
+  -- queued check-in when it can).
+  if v_closed is not null then
+    insert into public.venue_checkins
+      (id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source,
+       location_confirmed, fix_lat, fix_lng, fix_accuracy_m, fix_at, fix_distance_m)
+    values
+      (p_id, v_uid, v_venue, v_at, v_until, greatest(v_at + interval '1 second', least(v_closed, v_until)), v_source,
+       true, p_lat, p_lng, p_accuracy_m, v_fix_at, v_dist)
+    returning * into v_row;
+    return v_row;
   end if;
 
   -- Already here (same facility, still open): quiet. A confirmed row is
@@ -493,8 +532,10 @@ end $function$;
 -- (tap + 180 min, ending where a later check-in of mine starts), stored even
 -- when already over; with a fix confirmed at the tap it adopts only a
 -- check-in begun at or before the tap, and never closes one made after it;
--- an adopted check-in takes the fix only when it is newer. The session row
--- itself is unchanged (decision 2: the app's own Start time, clamped to 12 h).
+-- an adopted check-in takes the fix only when it is newer; a Start whose End
+-- reached Pickleague first stores that check-in closed at the End (before:
+-- none). The session row itself is unchanged (decision 2: the app's own Start
+-- time, clamped to 12 h).
 create or replace function public.start_play_session(p_id uuid, p_kind text, p_source uuid DEFAULT NULL::uuid, p_venue text DEFAULT NULL::text, p_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_lat double precision DEFAULT NULL::double precision, p_lng double precision DEFAULT NULL::double precision, p_accuracy_m double precision DEFAULT NULL::double precision, p_fix_at timestamp with time zone DEFAULT NULL::timestamp with time zone, p_fix_age_ms double precision DEFAULT NULL::double precision)
  RETURNS public.play_sessions
  LANGUAGE plpgsql
@@ -531,11 +572,46 @@ begin
     return v_row;  -- replay
   end if;
 
-  -- Ended before it got here: store it ended; no check-in, other sessions
-  -- (one started since) untouched.
+  -- The session's check-in: the fix must belong to the Start tap and the tap
+  -- be under 12 hours old (_pl_tap_fix), at the court and precise
+  -- (_pl_check_fix). Anything else starts it untracked, never an error.
+  if v_venue is not null and p_lat is not null and p_lng is not null and abs(p_lat) <= 90 and abs(p_lng) <= 180 then
+    select * into v_tap from public._pl_tap_fix(p_at, p_fix_at, p_fix_age_ms);
+    select * into v_fix from public._pl_check_fix(v_venue, p_lat, p_lng, p_accuracy_m, null, 0);
+    v_ok := v_tap.verdict = 'ok' and coalesce(v_fix.confirmed, false);
+    if v_ok then
+      v_tap_at := v_tap.tap_at;
+      v_fix_at := v_tap.fix_at;
+      -- Anchored at the tap (a live Start: now + 180 min, as before); ends
+      -- where a later check-in of mine starts.
+      select min(c.checked_in_at) into v_later
+        from public.venue_checkins c
+       where c.user_id = v_uid and c.location_confirmed and c.checked_in_at > v_tap_at;
+      v_ci_until := greatest(least(v_tap_at + interval '180 minutes', coalesce(v_later, 'infinity'::timestamptz)),
+                             v_tap_at + interval '1 second');
+    end if;
+  end if;
+
+  -- Ended before it got here (its End reached Pickleague first): store it
+  -- ended; other sessions (one started since) untouched. Its check-in, when
+  -- the fix confirmed the court at the tap, is stored as the visit it was,
+  -- already closed at the End (or its own end, if that came first), and
+  -- before the session row so the session's validity (at_court) sees it.
+  -- Nothing is adopted or closed. The End that landed first left no row to
+  -- hold its stay fix, so that stay stays unconfirmed.
   select e.closed_at into v_closed
     from public.presence_closed_ids e where e.user_id = v_uid and e.id = p_id;
   if v_closed is not null then
+    if v_ok then
+      insert into public.venue_checkins
+        (id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source,
+         location_confirmed, fix_lat, fix_lng, fix_accuracy_m, fix_at, fix_distance_m)
+      values
+        (p_id, v_uid, v_venue, v_tap_at, v_ci_until,
+         greatest(v_tap_at + interval '1 second', least(v_closed, v_ci_until)), 'session',
+         true, p_lat, p_lng, p_accuracy_m, v_fix_at, v_fix.distance_m)
+      on conflict (id) do nothing;
+    end if;
     insert into public.play_sessions (id, user_id, kind, source_id, venue_id, started_at, ended_at)
     values (p_id, v_uid, p_kind, p_source, v_venue, v_at, greatest(v_at, v_closed))
     returning * into v_row;
@@ -555,26 +631,6 @@ begin
   returning * into v_row;
 
   if v_venue is null then return v_row; end if;
-
-  -- The session's check-in: the fix must belong to the Start tap and the tap
-  -- be under 12 hours old (_pl_tap_fix), at the court and precise
-  -- (_pl_check_fix). Anything else starts it untracked, never an error.
-  if p_lat is not null and p_lng is not null and abs(p_lat) <= 90 and abs(p_lng) <= 180 then
-    select * into v_tap from public._pl_tap_fix(p_at, p_fix_at, p_fix_age_ms);
-    select * into v_fix from public._pl_check_fix(v_venue, p_lat, p_lng, p_accuracy_m, null, 0);
-    v_ok := v_tap.verdict = 'ok' and coalesce(v_fix.confirmed, false);
-    if v_ok then
-      v_tap_at := v_tap.tap_at;
-      v_fix_at := v_tap.fix_at;
-      -- Anchored at the tap (a live Start: now + 180 min, as before); ends
-      -- where a later check-in of mine starts.
-      select min(c.checked_in_at) into v_later
-        from public.venue_checkins c
-       where c.user_id = v_uid and c.location_confirmed and c.checked_in_at > v_tap_at;
-      v_ci_until := greatest(least(v_tap_at + interval '180 minutes', coalesce(v_later, 'infinity'::timestamptz)),
-                             v_tap_at + interval '1 second');
-    end if;
-  end if;
 
   select * into v_ci
     from public.venue_checkins c

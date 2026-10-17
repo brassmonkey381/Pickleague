@@ -36,6 +36,9 @@
 --   late Start behind a newer check-in · TS a live Start, phone slow · TK the
 --   lock-screen check-in · TL the runtime-1.0.4 OTA's calls · TM 1.0.4
 --   embedded calls · TX extending a check-in stored already over · TV viewer
+--   · TO a check-out that reached Pickleague before its check-in · TR the
+--   same, refused · TP / TU / TZ an End that reached Pickleague before its
+--   Start (T40)
 --   P2: LA league admin (TT Open, TT Closed) · LC co-admin · LM member ·
 --   LJ joins with an old bundle · LO runs another open league
 -- ============================================================
@@ -51,6 +54,9 @@ insert into _p values
   ('TS', 'a3000000-0000-4000-8000-00000000000f'), ('TK', 'a3000000-0000-4000-8000-000000000010'),
   ('TL', 'a3000000-0000-4000-8000-000000000011'), ('TM', 'a3000000-0000-4000-8000-000000000012'),
   ('TX', 'a3000000-0000-4000-8000-000000000013'), ('TV', 'a3000000-0000-4000-8000-000000000014'),
+  ('TO', 'a3000000-0000-4000-8000-000000000015'), ('TP', 'a3000000-0000-4000-8000-000000000016'),
+  ('TR', 'a3000000-0000-4000-8000-000000000017'), ('TU', 'a3000000-0000-4000-8000-000000000018'),
+  ('TZ', 'a3000000-0000-4000-8000-000000000019'),
   ('LA', 'a3000000-0000-4000-8000-000000000021'), ('LC', 'a3000000-0000-4000-8000-000000000022'),
   ('LM', 'a3000000-0000-4000-8000-000000000023'), ('LJ', 'a3000000-0000-4000-8000-000000000024'),
   ('LO', 'a3000000-0000-4000-8000-000000000025');
@@ -795,6 +801,165 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('T38 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T40 a check-out or End that reached Pickleague first ════════════════
+-- (review of 2026-10-16) An offline check-in or Start whose check-out or End
+-- was sent live while it still waited in the queue. Before: the late
+-- check-in came back as an unstored, unconfirmed row and the late Start got
+-- no check-in, with no word, whatever the fix.
+do $$
+declare
+  r      public.venue_checkins;
+  c      public.venue_checkins;
+  b      public.venue_checkins;
+  s      public.play_sessions;
+  e      jsonb;
+  j      jsonb;
+  n      int;
+  rows0  int;
+  crowd0 int;
+  stored boolean;
+begin
+  rows0 := pg_temp.tt_rows('TV', 'test:tt-court');
+  crowd0 := pg_temp.tt_crowd('TV', 'test:tt-court');
+  -- The arrival / lock-screen Check in, saved with no signal 40 min ago;
+  -- leaving the fence sent the check-out live 5 min ago, before the queue
+  -- sent the check-in.
+  perform pg_temp.as_user(pg_temp.p('TO'));
+  select public.checkout_venue(p_id => 'c3000000-0000-4000-8000-000000000501', p_source => 'geofence',
+    p_at => now() - interval '5 minutes') into n;
+  r := pg_temp.tt_ci('TO', 'c3000000-0000-4000-8000-000000000501', 'test:tt-court', 40.4001, interval '40 minutes',
+                     interval '4 seconds', 120, 'geofence');
+  c := pg_temp.vci('c3000000-0000-4000-8000-000000000501');
+  perform pg_temp.ok('T40 an offline check-in whose check-out landed first is stored: confirmed, from the tap, closed at the check-out',
+    n = 0 and c.id is not null and c.location_confirmed and c.source = 'geofence'
+    and c.checked_in_at = now() - interval '40 minutes' and c.expires_at = now() + interval '80 minutes'
+    and c.checked_out_at = now() - interval '5 minutes' and c.arrival_fix_at = now() - interval '40 minutes 4 seconds'
+    and c.fix_distance_m between 10 and 12 and c.created_at = now(), c::text);
+  perform pg_temp.ok('T40 ...the call returns that stored row (the app reads its times)',
+    r.id = c.id and r.location_confirmed and r.checked_in_at = c.checked_in_at and r.expires_at = c.expires_at
+    and r.checked_out_at = c.checked_out_at and r.created_at = c.created_at, r::text);
+  perform pg_temp.ok('T40 ...shown to nobody and counted in no crowd (it is closed)',
+    pg_temp.tt_rows('TV', 'test:tt-court') = rows0 and pg_temp.tt_crowd('TV', 'test:tt-court') = crowd0
+    and pg_temp.tt_rows('TO', 'test:tt-court') = 0);
+  r := pg_temp.tt_ci('TO', 'c3000000-0000-4000-8000-000000000501', 'test:tt-court', 40.4001, interval '40 minutes',
+                     interval '4 seconds', 120, 'geofence');
+  perform pg_temp.ok('T40 ...and the queue sending it again gets the same row',
+    r.id = c.id and r.checked_out_at = now() - interval '5 minutes' and r.location_confirmed, r::text);
+
+  -- The check-out came after the check-in would have ended: closed at its own end.
+  perform pg_temp.as_user(pg_temp.p('TO'));
+  perform public.checkout_venue(p_id => 'c3000000-0000-4000-8000-000000000502', p_source => null,
+    p_at => now() - interval '30 minutes');
+  r := pg_temp.tt_ci('TO', 'c3000000-0000-4000-8000-000000000502', 'test:tt-court2', 40.4101, interval '3 hours');
+  perform pg_temp.ok('T40 a check-out that came after the check-in would have ended: stored, closed at its own end',
+    r.location_confirmed and r.checked_in_at = now() - interval '3 hours' and r.expires_at = now() - interval '1 hour'
+    and r.checked_out_at = now() - interval '1 hour', r::text);
+
+  -- A check-in made since (live, at court Two) stays open; the late one ends
+  -- where it starts.
+  perform pg_temp.as_user(pg_temp.p('TO'));
+  perform public.checkout_venue(p_id => 'c3000000-0000-4000-8000-000000000503', p_source => null,
+    p_at => now() - interval '20 minutes');
+  b := pg_temp.tt_ci('TO', 'c3000000-0000-4000-8000-000000000504', 'test:tt-court2', 40.4101, interval '0', interval '2 seconds');
+  r := pg_temp.tt_ci('TO', 'c3000000-0000-4000-8000-000000000503', 'test:tt-court', 40.4001, interval '40 minutes');
+  b := pg_temp.vci('c3000000-0000-4000-8000-000000000504');
+  perform pg_temp.ok('T40 ...a check-in made since stays open, and the late one ends where it starts',
+    r.location_confirmed and r.checked_in_at = now() - interval '40 minutes' and r.expires_at = now()
+    and r.checked_out_at = now() - interval '20 minutes'
+    and b.checked_out_at is null and b.expires_at = now() + interval '120 minutes', r::text || ' ' || b::text);
+  perform pg_temp.as_user(pg_temp.p('TO'));
+  perform public.checkout_venue(null, null, now());
+
+  -- Refused there too, with why (before: an unstored row and no word).
+  perform pg_temp.as_user(pg_temp.p('TR'));
+  perform public.checkout_venue(p_id => 'c3000000-0000-4000-8000-000000000511', p_source => null,
+    p_at => now() - interval '1 hour');
+  e := pg_temp.err($q$select public.checkin_venue(p_id => 'c3000000-0000-4000-8000-000000000511', p_venue => 'test:tt-court',
+    p_at => now() - interval '13 hours', p_lat => 40.4001, p_lng => -100.0, p_accuracy_m => 10,
+    p_fix_at => now() - interval '13 hours 5 seconds', p_fix_age_ms => 46805000)$q$);
+  perform pg_temp.ok('T40 a late check-in whose check-out landed first, tapped 13 h ago: refused, why (pl:checkin.too_old)',
+    e ->> 'state' = 'P0001' and e ->> 'hint' = 'pl:checkin.too_old', e::text);
+  e := pg_temp.err($q$select public.checkin_venue(p_id => 'c3000000-0000-4000-8000-000000000511', p_venue => 'test:tt-court',
+    p_at => now() - interval '30 minutes', p_lat => 40.403, p_lng => -100.0, p_accuracy_m => 10,
+    p_fix_at => now() - interval '30 minutes 5 seconds', p_fix_age_ms => 1805000)$q$);
+  perform pg_temp.ok('T40 ...its fix 300 m from the court: refused, how far (pl:fix.not_at_court)',
+    e ->> 'state' = 'P0001' and e ->> 'hint' = 'pl:fix.not_at_court' and e ->> 'msg' like 'You need to be at the court to check in.%', e::text);
+  e := pg_temp.err($q$select public.checkin_venue(p_id => 'c3000000-0000-4000-8000-000000000511', p_venue => 'test:tt-court',
+    p_at => now() - interval '10 minutes', p_lat => 40.4001, p_lng => -100.0, p_accuracy_m => 10,
+    p_fix_at => now() - interval '7 minutes', p_fix_age_ms => 420000)$q$);
+  perform pg_temp.ok('T40 ...its fix 3 min after the tap: refused (pl:fix.after_tap)',
+    e ->> 'state' = 'P0001' and e ->> 'hint' = 'pl:fix.after_tap', e::text);
+  -- No fix (1.0.4 embedded bundles): lands closed as before, nothing stored, not an error.
+  perform pg_temp.as_user(pg_temp.p('TR'));
+  select * into r from public.checkin_venue(p_id => 'c3000000-0000-4000-8000-000000000511', p_venue => 'test:tt-court',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '30 minutes');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T40 ...with no fix (1.0.4 embedded) it lands closed as before: unconfirmed, nothing stored',
+    r.id = 'c3000000-0000-4000-8000-000000000511' and not r.location_confirmed
+    and r.checked_out_at = now() - interval '1 hour'
+    and not exists (select 1 from public.venue_checkins where user_id = pg_temp.p('TR')), r::text);
+
+  -- A Start at a court saved with no signal 40 min ago; End sent live 2 min
+  -- ago (with its fix), before the queue sent the Start.
+  perform pg_temp.as_user(pg_temp.p('TP'));
+  select public.end_play_session(p_id => 'f3000000-0000-4000-8000-000000000501', p_at => now() - interval '2 minutes',
+    p_lat => 40.4001, p_lng => -100.0, p_accuracy_m => 10, p_fix_age_ms => 2000) into n;
+  s := pg_temp.tt_start('TP', 'f3000000-0000-4000-8000-000000000501', 'test:tt-court', 40.4001, interval '40 minutes');
+  c := pg_temp.vci('f3000000-0000-4000-8000-000000000501');
+  perform pg_temp.ok('T40 an offline Start whose End landed first: stored ended, its check-in stored from the tap, closed at the End',
+    n = 0 and s.started_at = now() - interval '40 minutes' and s.ended_at = now() - interval '2 minutes'
+    and c.source = 'session' and c.location_confirmed and c.checked_in_at = now() - interval '40 minutes'
+    and c.expires_at = now() + interval '140 minutes' and c.checked_out_at = now() - interval '2 minutes',
+    s::text || ' ' || c::text);
+  perform pg_temp.as_admin();
+  select at_court into stored from public.play_sessions where id = 'f3000000-0000-4000-8000-000000000501';
+  j := pg_temp.validity('TP', 'f3000000-0000-4000-8000-000000000501');
+  perform pg_temp.ok('T40 ...so the session was at the court (at_court stored at once, and read back)',
+    stored and (j ->> 'at_court')::boolean, coalesce(stored::text, 'null') || ' ' || j::text);
+  perform pg_temp.ok('T40 ...and a replay of that Start stays as stored',
+    (pg_temp.tt_start('TP', 'f3000000-0000-4000-8000-000000000501', 'test:tt-court', 40.4001, interval '40 minutes')).ended_at
+      = now() - interval '2 minutes');
+
+  -- A Start too old, and one whose End came after its check-in would have ended.
+  perform pg_temp.as_user(pg_temp.p('TU'));
+  perform public.end_play_session(p_id => 'f3000000-0000-4000-8000-000000000502', p_at => now() - interval '11 hours');
+  s := pg_temp.tt_start('TU', 'f3000000-0000-4000-8000-000000000502', 'test:tt-court', 40.4001, interval '13 hours');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T40 a Start tapped 13 h ago whose End landed first: stored ended, no check-in, no error',
+    s.started_at = now() - interval '12 hours' and s.ended_at = now() - interval '11 hours'
+    and not exists (select 1 from public.venue_checkins where id = 'f3000000-0000-4000-8000-000000000502'), s::text);
+  perform pg_temp.as_user(pg_temp.p('TU'));
+  perform public.end_play_session(p_id => 'f3000000-0000-4000-8000-000000000503', p_at => now() - interval '30 minutes');
+  s := pg_temp.tt_start('TU', 'f3000000-0000-4000-8000-000000000503', 'test:tt-court', 40.4001, interval '4 hours');
+  c := pg_temp.vci('f3000000-0000-4000-8000-000000000503');
+  perform pg_temp.ok('T40 ...an End that came after its check-in would have ended: the check-in closed at its own end',
+    c.location_confirmed and c.checked_in_at = now() - interval '4 hours' and c.expires_at = now() - interval '1 hour'
+    and c.checked_out_at = now() - interval '1 hour', c::text);
+
+  -- Nothing opened since is touched: a live check-in at court Two and a
+  -- running session with no court stay open; the late check-in ends where
+  -- the newer one starts.
+  b := pg_temp.tt_ci('TZ', 'c3000000-0000-4000-8000-000000000521', 'test:tt-court2', 40.4101, interval '0', interval '2 seconds');
+  perform public.start_play_session(p_id => 'f3000000-0000-4000-8000-000000000521', p_kind => 'open_play');
+  perform public.end_play_session(p_id => 'f3000000-0000-4000-8000-000000000522', p_at => now() - interval '10 minutes');
+  s := pg_temp.tt_start('TZ', 'f3000000-0000-4000-8000-000000000522', 'test:tt-court', 40.4001, interval '1 hour');
+  c := pg_temp.vci('f3000000-0000-4000-8000-000000000522');
+  b := pg_temp.vci('c3000000-0000-4000-8000-000000000521');
+  perform pg_temp.ok('T40 ...touches nothing opened since; its check-in ends where the newer one starts',
+    c.checked_in_at = now() - interval '1 hour' and c.expires_at = now() and c.checked_out_at = now() - interval '10 minutes'
+    and b.checked_out_at is null
+    and (select ended_at is null from public.play_sessions where id = 'f3000000-0000-4000-8000-000000000521'),
+    c::text || ' ' || b::text);
+  perform pg_temp.as_user(pg_temp.p('TZ'));
+  perform public.end_play_session('f3000000-0000-4000-8000-000000000521', now());
+  perform public.checkout_venue(null, null, now());
+  perform pg_temp.as_admin();
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T40 block crashed', false, sqlerrm);
 end $$;
 
 

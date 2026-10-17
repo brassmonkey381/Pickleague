@@ -1661,9 +1661,15 @@ begin
   select * into r from public.checkin_venue(p_id => 'c0000000-0000-4000-8000-000000000701', p_venue => 'test:p1-c5',
     p_minutes => 120, p_source => 'manual', p_at => now() - interval '1 minute',
     p_lat => 40.0501, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 1000);
-  perform pg_temp.ok('T16 the late check-in lands closed: nothing stored, nothing else closed',
-    r.id = 'c0000000-0000-4000-8000-000000000701' and r.checked_out_at is not null
-    and not exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000701')
+  -- Since migration_checkin_tap_time.sql (review of 2026-10-16) a late
+  -- check-in with a fix confirmed at its tap (1 min before the fix here) is
+  -- stored as the closed visit it was, instead of an unstored row: from the
+  -- tap, ending where the check-in made since starts, closed at the check-out.
+  perform pg_temp.ok('T16 the late check-in lands closed: stored closed (confirmed at its tap), nothing else closed',
+    r.id = 'c0000000-0000-4000-8000-000000000701' and r.checked_out_at = now() and r.location_confirmed
+    and r.checked_in_at = now() - interval '61 seconds' and r.expires_at = now()
+    and exists (select 1 from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000701'
+                 and checked_out_at = now() and location_confirmed)
     and (select checked_out_at is null from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000702'),
     r::text);
   -- The End lands first (its Start timed out and is still on its way).
@@ -1673,9 +1679,12 @@ begin
   select * into s from public.start_play_session(p_id => 'e0000000-0000-4000-8000-000000000701', p_kind => 'open_play',
     p_venue => 'test:p1-c5', p_at => now() - interval '1 minute',
     p_lat => 40.0501, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now(), p_fix_age_ms => 1000);
-  perform pg_temp.ok('T16 the late Start is stored ended, with no check-in',
+  -- Its check-in (the fix confirmed at the tap) is stored closed at the End
+  -- (migration_checkin_tap_time.sql; before: none).
+  perform pg_temp.ok('T16 the late Start is stored ended, its check-in stored closed at the End',
     s.id = 'e0000000-0000-4000-8000-000000000701' and s.ended_at is not null
-    and not exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000701'), s::text);
+    and exists (select 1 from public.venue_checkins where id = 'e0000000-0000-4000-8000-000000000701'
+                 and source = 'session' and location_confirmed and checked_out_at = now()), s::text);
   perform pg_temp.ok('T16 ...and touches nothing opened since',
     (select ended_at is null from public.play_sessions where id = 'e0000000-0000-4000-8000-000000000702')
     and (select checked_out_at is null from public.venue_checkins where id = 'c0000000-0000-4000-8000-000000000702'));
