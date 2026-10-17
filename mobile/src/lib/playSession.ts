@@ -34,9 +34,14 @@
 // Also schedules a local "starting now" notice (with a Start session button)
 // for my upcoming drill sessions and scheduled matches.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { enqueueMutation, registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
+import {
+  enqueueMutation,
+  flushMutationQueue,
+  registerMutationHandler,
+  runOrQueue,
+} from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { TimeoutError, withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { isProbablyOffline, TimeoutError, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { createLiveSession } from '@just-messin-around/expo-foundation/session';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -50,10 +55,17 @@ import {
   takeFixIfAllowed,
   type CurrentCheckin,
 } from './courtCheckin';
-import { CHECKOUT_FIX_WAIT_MS, fixWithin, isValidFix, type DeviceFix } from './courtCheckinRules';
+import {
+  CHECKOUT_FIX_WAIT_MS,
+  checkinEndMs,
+  fixWithin,
+  isValidFix,
+  waitUntilSent,
+  type DeviceFix,
+} from './courtCheckinRules';
 import { endNeedsResend, isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
-import { untrackedReason } from './playStartRules';
+import { checkedInBySession, untrackedStartNotice } from './playStartRules';
 import { isRetryLater, noteRefusalNotice } from './refusalNotices';
 import { queuedRefusalNotice, untrackedStartNote, type UntrackedStartReason } from './refusals';
 import {
@@ -73,7 +85,7 @@ import {
   type PlayKind,
   type PlaySessionRow,
 } from '../data/playSessions';
-import { getMyCheckin, getVenueName } from '../data/venueCheckins';
+import { getMyCheckin, getVenueName, type VenueCheckin } from '../data/venueCheckins';
 
 export type PlayMeta = {
   kind: PlayKind;
@@ -187,6 +199,21 @@ async function markQueuedStart(id: string): Promise<void> {
   await AsyncStorage.setItem(QUEUED_STARTS_KEY, JSON.stringify([...list, id].slice(-20))).catch(() => {});
 }
 
+/**
+ * Before an End: if its Start still waits in the offline queue and there is a
+ * signal, ask the queue to send it and wait (at most CHECKOUT_FIX_WAIT_MS)
+ * until it has gone. Offline there is nothing to wait for: the End queues
+ * behind it. Never throws.
+ */
+async function sendQueuedStartFirst(id: string): Promise<boolean> {
+  if (!(await isPlayStartQueued(id)) || isProbablyOffline()) return true;
+  return waitUntilSent({
+    kick: () => void flushMutationQueue().catch(() => {}),
+    stillQueued: () => isPlayStartQueued(id),
+    ms: CHECKOUT_FIX_WAIT_MS,
+  });
+}
+
 async function unmarkQueuedStart(id: string): Promise<void> {
   const list = await readQueuedStarts();
   if (!list.includes(id)) return;
@@ -228,15 +255,6 @@ export const playStartUntracked = createSignal<{
   endedAtMs?: number | null;
 }>();
 
-/**
- * Is `cur` the check-in a session at `venueId` gave me (its own, or the one it
- * adopted)? A private check-in (saved without a fix by an older build) is
- * never adopted and shows me to nobody, so it doesn't count.
- */
-function sessionCheckedIn(cur: CurrentCheckin | null, sessionId: string, venueIds: (string | null | undefined)[]): boolean {
-  return !!cur && !cur.private && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
-}
-
 // A check that couldn't be made (offline): tried again on the next resume.
 let untrackedCheckPending: {
   payload: StartPayload;
@@ -248,11 +266,13 @@ let untrackedCheckPending: {
  * After a Start at a court lands: if it did not check me in (the fix didn't
  * confirm the court at the tap, or the tap was over 12 hours ago: the server
  * starts it untracked, no error), or checked me in only for a time already
- * over (synced late), stop naming the court on the island and say why,
- * instead of implying friends see me there. A replay from the offline queue
- * says it on a card (the player wasn't watching); a live Start, on the
- * island. When the check can't be made (offline) it is tried again on the
- * next resume; quiet once the session is over.
+ * over (synced late, or closed at an End that reached Pickleague first), stop
+ * naming the court on the island and say why, instead of implying friends see
+ * me there. A live Start the island still shows says it on the island; a
+ * replay from the offline queue, or a session already over here (the usual
+ * offline case: Start and End both queued, End cleared the island), on a card
+ * (lib/playStartRules.untrackedStartNotice). When a read fails (offline) the
+ * check is tried again on the next resume: a failed read is never "none".
  */
 async function noteUntrackedStart(
   payload: StartPayload,
@@ -260,28 +280,61 @@ async function noteUntrackedStart(
   opts: { queued?: boolean } = {},
 ): Promise<void> {
   const sessionId = payload.id;
+  const retryLater = () => {
+    untrackedCheckPending = { payload, row, queued: opts.queued };
+  };
   let cur: CurrentCheckin | null;
   try {
     cur = await refreshCurrentCheckin();
   } catch {
-    untrackedCheckPending = { payload, row, queued: opts.queued };
+    retryLater();
     return;
   }
-  if (untrackedCheckPending?.payload.id === sessionId) untrackedCheckPending = null;
   const s = playSession.get();
-  if (s.id !== sessionId || s.status === 'idle' || !s.meta?.venueId) return;
-  if (sessionCheckedIn(cur, sessionId, [row?.venue_id, payload.venueId])) return;
-  // The session's own check-in, when the server stored one (already over).
-  const sessionCheckin = isValidFix(payload.fix) ? await getMyCheckin(sessionId).catch(() => null) : null;
-  const reason = untrackedReason({ payload, row, cur, sessionCheckin, nowMs: Date.now() });
-  const endedAtMs = reason === 'synced_late' && sessionCheckin ? Date.parse(sessionCheckin.expires_at) : null;
-  const venueName = s.meta.venueName;
-  playSession.patchMeta({ venueName: null });
-  if (opts.queued) {
+  const showing = s.id === sessionId && s.status !== 'idle' && !!s.meta?.venueId;
+  const venueIds = [row?.venue_id, payload.venueId];
+  if (checkedInBySession(cur, sessionId, venueIds)) {
+    if (untrackedCheckPending?.payload.id === sessionId) untrackedCheckPending = null;
+    return;
+  }
+  // The session's own check-in, when the server stored one: it may count
+  // (the island is idle, so the current check-in hides it while its End is
+  // pending), or it was stored only after it had ended.
+  let sessionCheckin: VenueCheckin | null = null;
+  if (isValidFix(payload.fix)) {
+    try {
+      sessionCheckin = await getMyCheckin(sessionId);
+    } catch {
+      retryLater();
+      return;
+    }
+  }
+  if (untrackedCheckPending?.payload.id === sessionId) untrackedCheckPending = null;
+  const notice = untrackedStartNotice({
+    payload,
+    row,
+    cur,
+    sessionCheckin,
+    nowMs: Date.now(),
+    sessionId,
+    showing,
+    queued: !!opts.queued,
+  });
+  if (!notice) return;
+  const { reason } = notice;
+  const endedAtMs = reason === 'synced_late' && sessionCheckin ? checkinEndMs(sessionCheckin) : null;
+  const venueId = row?.venue_id ?? payload.venueId;
+  const venueName = showing
+    ? (s.meta?.venueName ?? null)
+    : venueId
+      ? await getVenueName(venueId).catch(() => null)
+      : null;
+  if (showing) playSession.patchMeta({ venueName: null });
+  if (!notice.onIsland) {
     await noteRefusalNotice({
       key: `start-untracked:${sessionId}`,
       title: reason === 'synced_late' ? 'Check-in saved late' : 'Not checked in',
-      body: untrackedStartNote(venueName, reason, { endedAtMs }),
+      body: untrackedStartNote(venueName, reason, { endedAtMs, over: !showing }),
       link: 'home/-',
     });
     return;
@@ -379,6 +432,11 @@ export function endPlay(): EndedPlay | null {
   void Promise.all([
     markEndPending(payload.id, Date.parse(payload.at)).catch(() => {}), // best-effort; the End goes out regardless
     atCourt ? fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS) : Promise.resolve(null),
+    // Its Start still in the offline queue (the signal just came back): let
+    // it land first, so this End closes its check-in with the stay fix. If
+    // the End still lands first, the server stores the Start ended with its
+    // check-in closed at the End (migration_checkin_tap_time.sql).
+    atCourt ? sendQueuedStartFirst(payload.id) : Promise.resolve(true),
   ])
     .then(async ([, fix]) => {
       const sent: EndPayload = fix ? { ...payload, fix } : payload;
@@ -589,7 +647,7 @@ export async function getActivePlay() {
   // in there (an untracked session at a court shows no court, as at Start).
   const checkedIn =
     !!row.venue_id &&
-    sessionCheckedIn(await refreshCurrentCheckin().catch(() => peekCurrentCheckin()), row.id, [row.venue_id]);
+    checkedInBySession(await refreshCurrentCheckin().catch(() => peekCurrentCheckin()), row.id, [row.venue_id]);
   const meta: PlayMeta = {
     kind: row.kind,
     label: PLAY_LABEL[row.kind],

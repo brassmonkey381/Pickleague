@@ -22,16 +22,19 @@
 // or a real refusal) is dropped and the player is told why. A check-out
 // carries when I really left and the fix taken at the tap, if one came back
 // within 3 s (the stay proof; the server dates it by its age, so a queued one
-// still counts); one that lands before its check-in makes that
-// check-in land closed (the server remembers the id). Extend is NOT queued: an
+// still counts). A check-out of a check-in still in the queue is sent behind
+// it when it can be (checkOut); one that lands first anyway makes that
+// check-in land closed: the server remembers the id and stores the check-in
+// closed at the check-out when its fix confirmed the court at the tap, or
+// refuses it with why. Extend is NOT queued: an
 // extension that lands after the check-in lapsed would be refused anyway, so
 // it fails loudly instead. It sends a fix when it can: without one the server
 // keeps a confirmed check-in at most 4 hours past its last confirming fix.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
+import { flushMutationQueue, registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { TimeoutError } from '@just-messin-around/expo-foundation/platform';
+import { isProbablyOffline, TimeoutError } from '@just-messin-around/expo-foundation/platform';
 import {
   getCurrentCoords,
   getForegroundLocationStatus,
@@ -41,7 +44,6 @@ import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
-import { shortTime } from './agenda';
 import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { titleWith } from './pushSubject';
 import { isRetryLater, noteRefusalNotice } from './refusalNotices';
@@ -63,11 +65,13 @@ import {
   impreciseFixMessage,
   isPreciseFix,
   isValidFix,
+  lapsedCheckinFacts,
   needsCourtToExtend,
   noFixMessage,
   refusedForQueueWait,
   rejectedCheckinNotice,
   syncedAfterItEnded,
+  waitUntilSent,
   type CheckinPayload,
   type CheckoutPayload,
   type DeviceFix,
@@ -97,6 +101,7 @@ export type CurrentCheckin = {
 
 const STORAGE_KEY = 'pickleague_current_checkin_v1';
 const REJECTED_KEY = 'pickleague_checkin_rejected_v1';
+const LEFT_KEY = 'pickleague_checkin_left_v1';
 const REMINDER_ID = 'checkin-extend';
 const MUTATION_CHECKIN = 'venue:checkin';
 const MUTATION_CHECKOUT = 'venue:checkout';
@@ -221,32 +226,69 @@ const live = (c: CurrentCheckin | null) => (c && new Date(c.expiresAt).getTime()
 
 /**
  * A queued check-in that landed: take the server's id and end time (it may be
- * a check-in I already had there). One that landed after it would have ended
- * is stored as a visit nobody saw: drop it from the card and say so once (the
- * card may have dropped it already when it ran out here).
+ * a check-in I already had there). One that landed after it had ended (its
+ * time ran out, or its check-out reached Pickleague first) is stored as a
+ * visit nobody saw: drop it from the card and say so once (the card may have
+ * dropped it already when it ran out or was checked out here). The times are
+ * the server's (lapsedCheckinFacts), and a check-out tapped here, even one
+ * still queued behind it, is the end it names.
  */
 async function adoptReplayed(payload: CheckinPayload, row: VenueCheckin): Promise<void> {
   const cached = await readStored();
   const mine = cached?.id === payload.id ? cached : null;
+  const left = await takeLeft(payload.id);
   if (syncedAfterItEnded(row)) {
     if (mine) await setCurrent(null);
     const venueName = mine?.venueName ?? (await getVenueName(row.venue_id).catch(() => null)) ?? null;
-    const tapMs = Date.parse(payload.at);
+    const facts = lapsedCheckinFacts({
+      row,
+      tapIso: payload.at,
+      leftAtMs: left?.leftAtMs ?? null,
+      // A newer check-in of mine is current: never "check in again".
+      newerCheckin: !mine && !!live(cached),
+    });
     await noteRefusalNotice({
       key: `checkin-late:${row.id}`,
       title: 'Check-in saved late',
-      body: lapsedCheckinNotice({
-        venueName,
-        tapMs: Number.isFinite(tapMs) ? tapMs : Date.parse(row.checked_in_at),
-        endedMs: Date.parse(row.expires_at),
-        syncedMs: Date.parse(row.created_at as string),
-      }),
+      body: lapsedCheckinNotice({ venueName, ...facts }),
       link: 'home/-',
     });
     return;
   }
   if (!mine) return;
   await setCurrent({ ...mine, id: row.id, venueId: row.venue_id, expiresAt: row.expires_at, source: row.source, queued: undefined });
+}
+
+// ── Check-outs tapped while their check-in was still queued ────────────────
+// So the "saved late" notice can say I had checked out (and when) instead of
+// "check in again", even while that check-out still waits behind its check-in.
+type Left = { id: string; leftAtMs: number; atMs: number };
+
+async function readLeft(): Promise<Left[]> {
+  try {
+    const raw = await AsyncStorage.getItem(LEFT_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v)
+      ? (v as Left[]).filter(
+          (r) => r && typeof r.id === 'string' && Number.isFinite(r.leftAtMs) && Date.now() - r.atMs < QUEUED_CHECKIN_MAX_AGE_MS,
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function noteLeft(id: string, leftAtMs: number): Promise<void> {
+  const list = (await readLeft()).filter((r) => r.id !== id);
+  await AsyncStorage.setItem(LEFT_KEY, JSON.stringify([...list, { id, leftAtMs, atMs: Date.now() }].slice(-20))).catch(() => {});
+}
+
+/** The check-out tapped here for this check-in, if any (forgotten once read). */
+async function takeLeft(id: string): Promise<Left | null> {
+  const list = await readLeft();
+  const hit = list.find((r) => r.id === id) ?? null;
+  if (hit) await AsyncStorage.setItem(LEFT_KEY, JSON.stringify(list.filter((r) => r !== hit))).catch(() => {});
+  return hit;
 }
 
 // ── Queued check-ins the server refused ─────────────────────────────────────
@@ -281,9 +323,11 @@ async function noteRejected(payload: CheckinPayload, error: unknown, opts: { noF
   const cached = await readStored();
   const venueName =
     cached?.id === payload.id ? cached.venueName : (await getVenueName(payload.venueId).catch(() => null)) ?? 'the court';
+  await takeLeft(payload.id);
   const notice = rejectedCheckinNotice({
     venueName,
-    timeLabel: shortTime(new Date(payload.at)),
+    // With its day when it wasn't today (a tap over 12 hours old never is).
+    tapMs: Date.parse(payload.at),
     noFix: opts.noFix,
     // Only an older server refuses a fix that was fresh at its own tap (it
     // judged the age at send): then the 2-minute wait is the reason. The
@@ -528,24 +572,61 @@ export async function extendCheckinByHour(
  * location is already allowed (never a prompt): proof I stayed at the court
  * (Phase 1.5). Without one it checks out exactly as before. `fix: false` skips
  * it (a geofence exit: I've left, so a fix there proves nothing).
+ *
+ * A check-in still in the offline queue: the tap is remembered (the "saved
+ * late" notice names it), and with a signal the queue is asked to send the
+ * check-in first, within the same 3 s, so the check-out (and its stay fix)
+ * lands behind it. Offline, the check-out queues behind it anyway. If the
+ * check-out still lands first, the server stores the check-in closed at it
+ * (migration_checkin_tap_time.sql); one the server refused meanwhile has
+ * nothing to close, and its refusal was said.
  */
 export async function checkOut(
   id: string | null,
   source?: CheckinSource,
   opts: { fix?: boolean } = {},
 ): Promise<{ queued: boolean }> {
-  const fix =
-    opts.fix === false ? null : await fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS);
+  const tapMs = Date.now();
   const cached = await readStored();
   const mine = cached && (id === null || cached.id === id) && (!source || cached.source === source) ? cached : null;
+  const queuedCheckin = mine?.queued ? mine : null;
+  if (queuedCheckin) await noteLeft(queuedCheckin.id, tapMs);
+  const sendFirst =
+    queuedCheckin && opts.fix !== false && !isProbablyOffline()
+      ? waitUntilSent({
+          kick: () => void flushMutationQueue().catch(() => {}),
+          stillQueued: async () => {
+            const c = await readStored();
+            return !!c && c.id === queuedCheckin.id && !!c.queued;
+          },
+          ms: CHECKOUT_FIX_WAIT_MS,
+        })
+      : Promise.resolve(true);
+  const [fix] = await Promise.all([
+    opts.fix === false ? Promise.resolve(null) : fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS),
+    sendFirst,
+  ]);
+  // Refused while we waited: nothing to close (and the server's "no such
+  // row" fallback must not close another check-in instead).
+  if (queuedCheckin && (await wasRejected(queuedCheckin.id))) {
+    await takeLeft(queuedCheckin.id);
+    return { queued: false };
+  }
   // Where and until when, for the notice if a queued check-out is refused later.
   const payload: CheckoutPayload = {
-    ...checkoutPayload(id, source, Date.now(), fix),
+    ...checkoutPayload(id, source, tapMs, fix),
     ...(mine ? { venueName: mine.venueName, until: mine.expiresAt } : {}),
   };
-  const { queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () =>
-    checkoutVenue(id, source, payload.at, payload.fix ?? null),
-  );
+  let queued: boolean;
+  try {
+    ({ queued } = await runOrQueue(MUTATION_CHECKOUT, payload, () =>
+      checkoutVenue(id, source, payload.at, payload.fix ?? null),
+    ));
+  } catch (e) {
+    // Refused: not checked out, so the "saved late" notice mustn't say so.
+    if (queuedCheckin) await takeLeft(queuedCheckin.id);
+    throw e;
+  }
   if (mine) await setCurrent(null);
   return { queued };
 }
@@ -562,6 +643,7 @@ export async function clearCheckinForSignOut(): Promise<void> {
   endedNote = null;
   await setCurrent(null);
   await AsyncStorage.removeItem(REJECTED_KEY).catch(() => {});
+  await AsyncStorage.removeItem(LEFT_KEY).catch(() => {});
 }
 
 // ── Lock-screen buttons on the "5 minutes left" reminder ────────────────────

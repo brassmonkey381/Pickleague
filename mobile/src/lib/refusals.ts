@@ -490,11 +490,13 @@ export type UntrackedStartReason =
 /**
  * The island's note when a Start at a court didn't check me in: why, and what
  * to do. `endedAtMs`: for 'synced_late', when the session's check-in ended.
+ * `over`: the session already ended on this device (a card after its End),
+ * so 'synced_late' doesn't ask to check in "if you're still there".
  */
 export function untrackedStartNote(
   venueName: string | null | undefined,
   reason: UntrackedStartReason,
-  o: { endedAtMs?: number | null; timeLabel?: (d: Date) => string; nowMs?: number } = {},
+  o: { endedAtMs?: number | null; over?: boolean; timeLabel?: (d: Date) => string; nowMs?: number } = {},
 ): string {
   const at = venueName?.trim() ? ` at ${venueName.trim()}` : '';
   const when = (ms: number) => (o.timeLabel ? o.timeLabel(new Date(ms)) : whenLabel(new Date(ms), o.nowMs));
@@ -509,7 +511,8 @@ export function untrackedStartNote(
       return `Not checked in${at}: the session reached Pickleague more than 12 hours after you started it, too late to check you in there, so only you see it. Check in from Home if you're at a court.`;
     case 'synced_late': {
       const ran = o.endedAtMs != null && Number.isFinite(o.endedAtMs) ? `ran until ${when(o.endedAtMs)}` : 'had already ended';
-      return `Your check-in${at} for this session ${ran}, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it. Check in from Home if you're still there.`;
+      const still = o.over ? '' : " Check in from Home if you're still there.";
+      return `Your check-in${at} for this session ${ran}, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it.${still}`;
     }
     case 'unconfirmed_late':
       return `Not checked in${at}: Pickleague couldn't confirm from your location that you were at the court when you tapped Start, so only you see this session. Check in from Home if you're at the court.`;
@@ -572,31 +575,43 @@ export function staleQueuedCheckinReason(): string {
 
 /**
  * Under Check in when it was saved with no signal (the court card and the
- * lock-screen notice): the server takes it up to 12 hours after the tap.
+ * lock-screen notice): the server takes it up to 12 hours after the tap,
+ * counted when it ARRIVES, and the queue sends only while Pickleague runs
+ * (a lock-screen check-in waits for the app), so the note names the action.
  */
-export const QUEUED_CHECKIN_NOTE = 'Saved with no signal. It counts if your phone is back online within 12 hours.';
+export const QUEUED_CHECKIN_NOTE =
+  'Saved with no signal. It counts if it reaches Pickleague within 12 hours, so open Pickleague once you have a signal.';
 
 /**
  * A check-in saved with no signal that reached Pickleague after it had
  * already ended (the server stores it, already over, and shows it to nobody).
- * Times in the device's zone: the tap, when it landed, when it ended.
+ * Times in the device's zone: the tap, when it landed, when it ended (all on
+ * the server's clock: courtCheckinRules.lapsedCheckinFacts).
+ *   checkedOut: it ended at the player's own check-out, not at its expiry;
+ *   checkInAgain (default true): offer "Check in again" (false once the
+ *     player checked out, or is checked in again already).
  */
 export function lapsedCheckinNotice(p: {
   venueName?: string | null;
   tapMs: number;
   endedMs: number;
   syncedMs: number;
+  checkedOut?: boolean;
+  checkInAgain?: boolean;
   timeLabel?: (d: Date) => string;
   nowMs?: number;
 }): string {
   const at = (ms: number) => (p.timeLabel ? p.timeLabel(new Date(ms)) : whenLabel(new Date(ms), p.nowMs));
   const court = p.venueName?.trim() ? ` at ${p.venueName.trim()}` : '';
-  return `Your check-in${court} (${at(p.tapMs)}) reached Pickleague at ${at(p.syncedMs)}, after it had ended at ${at(p.endedMs)}, so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court.`;
+  const when = p.checkedOut ? `after you had checked out (${at(p.endedMs)})` : `after it had ended at ${at(p.endedMs)}`;
+  const again = !p.checkedOut && p.checkInAgain !== false ? " Check in again if you're still at the court." : '';
+  return `Your check-in${court} (${at(p.tapMs)}) reached Pickleague at ${at(p.syncedMs)}, ${when}, so nobody saw you there. Pickleague still saved it as your visit.${again}`;
 }
 
 /**
  * The court card's line when a check-in saved with no signal runs out on the
- * device before it could be sent: it still goes, within 12 hours of the tap.
+ * device before it could be sent: it still goes, if it reaches Pickleague
+ * within 12 hours of the tap (sent while Pickleague is open with a signal).
  */
 export function queuedCheckinRanOutNote(p: {
   venueName: string;
@@ -605,5 +620,5 @@ export function queuedCheckinRanOutNote(p: {
   nowMs?: number;
 }): string {
   const at = p.timeLabel ? p.timeLabel(new Date(p.endedMs)) : whenLabel(new Date(p.endedMs), p.nowMs);
-  return `Your check-in at ${p.venueName} ended at ${at} before your phone had a signal to send it. It's sent when you're back online, if that's within 12 hours of when you tapped. Check in again if you're still at the court.`;
+  return `Your check-in at ${p.venueName} ended at ${at} before your phone had a signal to send it. It's sent the next time Pickleague is open with a signal, if that's within 12 hours of when you tapped. Check in again if you're still at the court.`;
 }

@@ -373,6 +373,12 @@ describe('the rest of the "said why" copy', () => {
       "Your check-in at Lakeside for this session ran until 17:10, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it. Check in from Home if you're still there.",
     );
     expect(untrackedStartNote('Lakeside', 'synced_late')).toContain('had already ended, but the session reached Pickleague after that');
+    // A card after the session ended here: no "if you're still there".
+    expect(
+      untrackedStartNote('Lakeside', 'synced_late', { endedAtMs: Date.parse('2026-10-16T17:10:00Z'), over: true, timeLabel: label }),
+    ).toBe(
+      'Your check-in at Lakeside for this session ran until 17:10, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it.',
+    );
     // True whatever the server: an older one judged the fix by its age at send.
     expect(untrackedStartNote('Lakeside', 'unconfirmed_late')).toBe(
       "Not checked in at Lakeside: Pickleague couldn't confirm from your location that you were at the court when you tapped Start, so only you see this session. Check in from Home if you're at the court.",
@@ -405,10 +411,14 @@ describe('the rest of the "said why" copy', () => {
 });
 
 describe('check-ins saved with no signal (judged at the tap, up to 12 hours)', () => {
-  it('the note under Check in names the 12 hours, no em dash', () => {
-    expect(QUEUED_CHECKIN_NOTE).toBe('Saved with no signal. It counts if your phone is back online within 12 hours.');
+  it('the note under Check in names the 12 hours and the action (open Pickleague), no em dash', () => {
+    // The 12 hours are counted when it reaches Pickleague, and the queue sends
+    // only while Pickleague runs: "back online" alone was the wrong condition.
+    expect(QUEUED_CHECKIN_NOTE).toBe(
+      'Saved with no signal. It counts if it reaches Pickleague within 12 hours, so open Pickleague once you have a signal.',
+    );
     expect(QUEUED_CHECKIN_NOTE).not.toContain('—');
-    expect(QUEUED_CHECKIN_NOTE).not.toMatch(/2 minutes/);
+    expect(QUEUED_CHECKIN_NOTE).not.toMatch(/2 minutes|back online/);
   });
 
   it('synced after it had ended: when I tapped, when it landed, when it ended (device zone), why, what to do', () => {
@@ -432,9 +442,37 @@ describe('check-ins saved with no signal (judged at the tap, up to 12 hours)', (
     );
   });
 
-  it('ran out on the device before it could be sent: it still goes, within 12 hours of the tap', () => {
+  it('synced after I had checked out: the check-out is the end it names, and no "check in again"', () => {
+    expect(
+      lapsedCheckinNotice({
+        venueName: 'Lakeside',
+        tapMs: Date.parse('2026-10-16T14:10:00Z'),
+        endedMs: Date.parse('2026-10-16T15:00:00Z'),
+        syncedMs: Date.parse('2026-10-16T17:05:00Z'),
+        checkedOut: true,
+        timeLabel: label,
+      }),
+    ).toBe(
+      'Your check-in at Lakeside (14:10) reached Pickleague at 17:05, after you had checked out (15:00), so nobody saw you there. Pickleague still saved it as your visit.',
+    );
+    // Checked in again since (or checked out after it had ended): its own end, no "check in again".
+    expect(
+      lapsedCheckinNotice({
+        venueName: 'Lakeside',
+        tapMs: Date.parse('2026-10-16T14:10:00Z'),
+        endedMs: Date.parse('2026-10-16T16:10:00Z'),
+        syncedMs: Date.parse('2026-10-16T17:05:00Z'),
+        checkInAgain: false,
+        timeLabel: label,
+      }),
+    ).toBe(
+      'Your check-in at Lakeside (14:10) reached Pickleague at 17:05, after it had ended at 16:10, so nobody saw you there. Pickleague still saved it as your visit.',
+    );
+  });
+
+  it('ran out on the device before it could be sent: it still goes, the next time Pickleague is open with a signal', () => {
     expect(queuedCheckinRanOutNote({ venueName: 'Lakeside', endedMs: Date.parse('2026-10-16T16:10:00Z'), timeLabel: label })).toBe(
-      "Your check-in at Lakeside ended at 16:10 before your phone had a signal to send it. It's sent when you're back online, if that's within 12 hours of when you tapped. Check in again if you're still at the court.",
+      "Your check-in at Lakeside ended at 16:10 before your phone had a signal to send it. It's sent the next time Pickleague is open with a signal, if that's within 12 hours of when you tapped. Check in again if you're still at the court.",
     );
   });
 

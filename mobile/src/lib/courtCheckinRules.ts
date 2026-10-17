@@ -254,20 +254,118 @@ export function offersUntrackedSession(e: unknown): boolean {
   );
 }
 
+/** A stored check-in's times, as the server returns them (its own clock). */
+export type CheckinTimes = Pick<VenueCheckin, 'expires_at' | 'created_at' | 'location_confirmed'> & {
+  checked_in_at?: string;
+  checked_out_at?: string | null;
+};
+
+/** When a stored check-in ended (or ends): its check-out when it has one before its expiry, else its expiry. */
+export function checkinEndMs(row: Pick<CheckinTimes, 'expires_at' | 'checked_out_at'>): number {
+  const expires = Date.parse(row.expires_at);
+  const out = row.checked_out_at ? Date.parse(row.checked_out_at) : NaN;
+  return Number.isFinite(out) && !(out > expires) ? out : expires;
+}
+
 /**
  * A confirmed check-in the server stored after it had already ended: saved
- * with no signal and synced later than tap + its minutes. Read from the
- * server's own two times (expires_at, created_at), so no clock offset can fake
- * it. A row "closed before stored" (a check-out that landed first) is never
- * one: it comes back unconfirmed.
+ * with no signal and synced later than tap + its minutes, or after its
+ * check-out (a check-out that reached Pickleague first: the current server
+ * stores it closed, migration_checkin_tap_time.sql; an older one sent back an
+ * unconfirmed row, never one). Read from the server's own times (its end,
+ * created_at), so no clock offset can fake it.
  */
-export function syncedAfterItEnded(
-  row: Pick<VenueCheckin, 'expires_at' | 'created_at' | 'location_confirmed'> | null | undefined,
-): boolean {
+export function syncedAfterItEnded(row: CheckinTimes | null | undefined): boolean {
   if (!row || row.location_confirmed === false || !row.created_at) return false;
-  const ended = Date.parse(row.expires_at);
+  const ended = checkinEndMs(row);
   const stored = Date.parse(row.created_at);
   return Number.isFinite(ended) && Number.isFinite(stored) && ended <= stored;
+}
+
+/**
+ * What the "Check-in saved late" notice says about a replay stored after it
+ * had ended (syncedAfterItEnded), every time on the server's clock so the
+ * three agree on a phone whose clock is off: the tap is the server's
+ * checked_in_at (the device's `tapIso` only when the row lacks it); a
+ * check-out tapped on this device (`leftAtMs`, device clock) is moved onto the
+ * server's clock by the time that passed on the phone since the tap.
+ *   checkedOut: the visit ended at the player's own check-out (the server's,
+ *     when it landed first; else the one tapped here), not at its expiry;
+ *   checkInAgain: offer "Check in again" only when nothing says the player
+ *     left (no check-out) and no newer check-in of theirs is current.
+ */
+export function lapsedCheckinFacts(p: {
+  row: Pick<CheckinTimes, 'expires_at' | 'created_at' | 'checked_in_at' | 'checked_out_at'>;
+  tapIso: string;
+  leftAtMs?: number | null;
+  newerCheckin?: boolean;
+}): { tapMs: number; endedMs: number; syncedMs: number; checkedOut: boolean; checkInAgain: boolean } {
+  const deviceTap = Date.parse(p.tapIso);
+  const serverTap = p.row.checked_in_at ? Date.parse(p.row.checked_in_at) : NaN;
+  const tapMs = Number.isFinite(serverTap) ? serverTap : deviceTap;
+  const expires = Date.parse(p.row.expires_at);
+  const syncedMs = p.row.created_at ? Date.parse(p.row.created_at) : NaN;
+  const serverOut = p.row.checked_out_at ? Date.parse(p.row.checked_out_at) : NaN;
+  const left = p.leftAtMs != null && Number.isFinite(p.leftAtMs) ? p.leftAtMs : null;
+  let endedMs = checkinEndMs(p.row);
+  let checkedOut = false;
+  if (Number.isFinite(serverOut) && serverOut < expires) {
+    checkedOut = true;
+  } else if (left != null && !Number.isFinite(serverOut)) {
+    const leftServer =
+      Number.isFinite(deviceTap) && Number.isFinite(tapMs) ? tapMs + Math.max(0, left - deviceTap) : left;
+    if (leftServer < expires) {
+      checkedOut = true;
+      endedMs = leftServer;
+    }
+  }
+  // A check-out tapped here after the check-in had ended still means I left.
+  // (A server check-out AT the expiry can't be told from the expiry job's.)
+  const leftAtAll = checkedOut || left != null;
+  return { tapMs, endedMs, syncedMs, checkedOut, checkInAgain: !leftAtAll && !p.newerCheckin };
+}
+
+/**
+ * Give a write still in the offline queue (a check-in, a Start) the chance to
+ * land before the write that closes it (its check-out, its End), so it isn't
+ * the closing write that reaches Pickleague first: ask the queue to send
+ * (`kick`), then wait until `stillQueued()` is false, at most `ms`. True when
+ * it left the queue in time (or can't be read). Never throws.
+ *
+ * Not an enqueue behind it: the kit's flush writes its own snapshot of the
+ * queue back when it ends, so an entry added while a flush runs can be lost
+ * (a check-out gone with no word). The server copes with either order anyway
+ * (migration_checkin_tap_time.sql stores a late check-in or Start closed at
+ * the check-out or End that landed first); waiting keeps the stay fix.
+ */
+export async function waitUntilSent(p: {
+  kick: () => void;
+  stillQueued: () => Promise<boolean>;
+  ms: number;
+  stepMs?: number;
+  nowMs?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<boolean> {
+  const now = p.nowMs ?? Date.now;
+  const sleep = p.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const until = now() + p.ms;
+  try {
+    p.kick();
+  } catch {
+    // the wait below still bounds it
+  }
+  for (;;) {
+    let queued: boolean;
+    try {
+      queued = await p.stillQueued();
+    } catch {
+      return true;
+    }
+    if (!queued) return true;
+    const left = until - now();
+    if (left <= 0) return false;
+    await sleep(Math.min(p.stepMs ?? 200, left));
+  }
 }
 
 /**
@@ -298,19 +396,28 @@ export function needsCourtToExtend(e: unknown): boolean {
  */
 export function rejectedCheckinNotice(p: {
   venueName: string;
-  /** The tap time, in the device's zone ("5:40 PM"). */
-  timeLabel: string;
+  /**
+   * The tap. Worded in the device's zone with its day when it wasn't today
+   * ("Tue 5:40 PM"): a refusal for being over 12 hours late is always
+   * another day's tap.
+   */
+  tapMs?: number;
+  /** A fixed label for the tap instead (tests). */
+  timeLabel?: string;
+  nowMs?: number;
   /** An older server refused it for syncing over 2 minutes late (refusedForQueueWait). */
   waitedTooLong: boolean;
   /** Saved by an older build with no fix at all: never sent. */
   noFix?: boolean;
   error: unknown;
 }): string {
+  const label = p.timeLabel;
   return queuedRefusalNotice({
     what: 'check_in',
     venueName: p.venueName,
-    tapMs: 0,
-    timeLabel: () => p.timeLabel,
+    tapMs: p.tapMs != null && Number.isFinite(p.tapMs) ? p.tapMs : Date.now(),
+    ...(label != null ? { timeLabel: () => label } : {}),
+    nowMs: p.nowMs,
     error: p.error,
     // Otherwise the server's own reason: too old, the fix away from the tap,
     // how far from the court, too vague.

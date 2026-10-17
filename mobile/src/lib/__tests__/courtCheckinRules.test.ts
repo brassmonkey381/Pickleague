@@ -2,8 +2,11 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
   APPROXIMATE_FIX_M,
   CHECKOUT_FIX_WAIT_MS,
+  checkinEndMs,
   checkoutFixArgs,
   fixWithin,
+  lapsedCheckinFacts,
+  waitUntilSent,
   FIX_MAX_ACCURACY_M,
   FIX_MAX_AGE_MS,
   FIX_REUSE_MS,
@@ -339,11 +342,100 @@ describe('syncedAfterItEnded (stored as a visit nobody saw)', () => {
     expect(syncedAfterItEnded(row('2026-10-16T18:05:00Z', '2026-10-16T18:05:00Z', true))).toBe(true);
   });
 
-  it('not one still running, a closed-before-stored row (unconfirmed), or a server that sent no created_at', () => {
+  it('not one still running, an older server\'s closed-before-stored row (unconfirmed), or a server that sent no created_at', () => {
     expect(syncedAfterItEnded(row('2026-10-16T19:40:00Z', '2026-10-16T18:05:00Z', true))).toBe(false);
     expect(syncedAfterItEnded(row('2026-10-16T17:40:00Z', '2026-10-16T18:05:00Z', false))).toBe(false);
     expect(syncedAfterItEnded(row('2026-10-16T17:40:00Z', undefined, true))).toBe(false);
     expect(syncedAfterItEnded(null)).toBe(false);
+  });
+
+  it('its check-out reached Pickleague first: the current server stores it closed, so it ended before it was stored', () => {
+    // Still running by its expiry, but closed at the check-out that landed first.
+    const closed = { ...row('2026-10-16T19:40:00Z', '2026-10-16T18:05:00Z', true), checked_out_at: '2026-10-16T18:00:00Z' };
+    expect(syncedAfterItEnded(closed)).toBe(true);
+    expect(checkinEndMs(closed)).toBe(Date.parse('2026-10-16T18:00:00Z'));
+    // A check-out after it was stored (a normal one) is not that.
+    expect(syncedAfterItEnded({ ...closed, checked_out_at: '2026-10-16T18:30:00Z' })).toBe(false);
+    // The end is never later than the expiry.
+    expect(checkinEndMs({ expires_at: '2026-10-16T17:40:00Z', checked_out_at: '2026-10-16T18:30:00Z' })).toBe(
+      Date.parse('2026-10-16T17:40:00Z'),
+    );
+  });
+});
+
+describe('lapsedCheckinFacts (the "saved late" notice, on the server clock)', () => {
+  const T = (hhmm: string) => Date.parse(`2026-10-16T${hhmm}:00Z`);
+  const iso = (hhmm: string) => new Date(T(hhmm)).toISOString();
+  // Tapped 14:00 (server) for 120 min, stored at 17:05.
+  const row = { checked_in_at: iso('14:00'), expires_at: iso('16:00'), created_at: iso('17:05'), checked_out_at: null };
+
+  it('a phone 10 min fast: the tap is the server\'s, so a 2-hour check-in reads as 2 hours', () => {
+    const f = lapsedCheckinFacts({ row, tapIso: iso('14:10') });
+    expect(f).toEqual({ tapMs: T('14:00'), endedMs: T('16:00'), syncedMs: T('17:05'), checkedOut: false, checkInAgain: true });
+    // The device's tap only when the row has none.
+    expect(lapsedCheckinFacts({ row: { ...row, checked_in_at: undefined }, tapIso: iso('14:10') }).tapMs).toBe(T('14:10'));
+  });
+
+  it('checked out here while it was still queued: that check-out is the end (moved onto the server clock), no "check in again"', () => {
+    // Phone 10 min fast: tapped 14:10 and checked out 15:00 on the phone = 14:50 on the server.
+    const f = lapsedCheckinFacts({ row, tapIso: iso('14:10'), leftAtMs: T('15:00') });
+    expect(f).toEqual({ tapMs: T('14:00'), endedMs: T('14:50'), syncedMs: T('17:05'), checkedOut: true, checkInAgain: false });
+  });
+
+  it('checked out here after it had ended anyway: ended at its expiry, still no "check in again"', () => {
+    const f = lapsedCheckinFacts({ row, tapIso: iso('14:00'), leftAtMs: T('16:30') });
+    expect(f).toEqual({ tapMs: T('14:00'), endedMs: T('16:00'), syncedMs: T('17:05'), checkedOut: false, checkInAgain: false });
+  });
+
+  it('its check-out reached Pickleague first: the server\'s check-out is the end', () => {
+    const f = lapsedCheckinFacts({ row: { ...row, expires_at: iso('18:00'), checked_out_at: iso('15:00') }, tapIso: iso('14:00') });
+    expect(f).toEqual({ tapMs: T('14:00'), endedMs: T('15:00'), syncedMs: T('17:05'), checkedOut: true, checkInAgain: false });
+  });
+
+  it('a newer check-in of mine is current: no "check in again"', () => {
+    expect(lapsedCheckinFacts({ row, tapIso: iso('14:00'), newerCheckin: true }).checkInAgain).toBe(false);
+  });
+});
+
+describe('waitUntilSent (a queued check-in or Start goes before what closes it)', () => {
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, sleep: async (ms: number) => void (t += ms) };
+  };
+
+  it('kicks the queue, then returns as soon as it has gone', async () => {
+    const c = clock();
+    const kick = vi.fn();
+    let polls = 0;
+    const sent = await waitUntilSent({ kick, stillQueued: async () => ++polls < 3, ms: 3_000, nowMs: c.now, sleep: c.sleep });
+    expect(sent).toBe(true);
+    expect(kick).toHaveBeenCalledTimes(1);
+    expect(polls).toBe(3);
+    expect(c.now()).toBe(400);
+  });
+
+  it('gives up after `ms` while it is still queued (offline, or another account\'s queue)', async () => {
+    const c = clock();
+    const sent = await waitUntilSent({ kick: () => {}, stillQueued: async () => true, ms: CHECKOUT_FIX_WAIT_MS, nowMs: c.now, sleep: c.sleep });
+    expect(sent).toBe(false);
+    expect(c.now()).toBe(CHECKOUT_FIX_WAIT_MS);
+  });
+
+  it('never throws: a failing kick or read ends the wait', async () => {
+    const c = clock();
+    await expect(
+      waitUntilSent({
+        kick: () => {
+          throw new Error('no queue');
+        },
+        stillQueued: async () => {
+          throw new Error('storage');
+        },
+        ms: 3_000,
+        nowMs: c.now,
+        sleep: c.sleep,
+      }),
+    ).resolves.toBe(true);
   });
 });
 
@@ -378,6 +470,21 @@ describe('rejectedCheckinNotice', () => {
       }),
     ).toBe(
       "Your check-in at Lakeside (5:40 AM) didn't go through. It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.",
+    );
+  });
+
+  it('over 12 hours late is always another day\'s tap: the notice gives its day (device zone)', () => {
+    const now = new Date(2026, 9, 16, 9, 0).getTime(); // Fri 9:00 AM
+    expect(
+      rejectedCheckinNotice({
+        venueName: 'Lakeside',
+        tapMs: new Date(2026, 9, 14, 17, 40).getTime(), // Wed 5:40 PM
+        nowMs: now,
+        waitedTooLong: false,
+        error: { message: 'This check-in was saved with no signal at ...', hint: 'pl:checkin.too_old' },
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (Wed 5:40 PM) didn't go through. It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.",
     );
   });
 
