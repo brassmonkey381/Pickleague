@@ -614,4 +614,6 @@ export type RootStackParamList = {
   Bookmarks: undefined;
   SubmitVenue: { lat?: number; lng?: number } | undefined;
   AdminVenueReview: undefined;
+  AdminBoundaries: undefined;
+  AdminBoundaryEditor: { venueId: string };
 };

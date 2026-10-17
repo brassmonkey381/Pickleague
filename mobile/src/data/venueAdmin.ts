@@ -5,6 +5,7 @@
 
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import type { BoundaryGeometry } from '@just-messin-around/expo-foundation/ui';
 
 /**
  * True if the caller qualifies for godmode (the app-admin allow-list).
@@ -72,4 +73,59 @@ export async function adminReviewVenue(
     p_city: edits?.city ?? null,
   });
   if (error) throw error;
+}
+
+// ── Court outlines (supabase/migration_admin_venue_boundary.sql) ────────────
+
+export type BoundaryFilter = 'all' | 'has' | 'missing';
+
+export type VenueBoundaryRow = {
+  id: string;
+  name: string;
+  city: string | null;
+  lat: number;
+  lng: number;
+  area_sqm: number | null;
+  has_boundary: boolean;
+  checkins: number;
+};
+
+/** Courts with their outline status, busiest first (godmode only). THROWS. */
+export async function adminListVenueBoundaries(query: string, filter: BoundaryFilter): Promise<VenueBoundaryRow[]> {
+  const data = await sbCall(() =>
+    supabase.rpc('admin_list_venue_boundaries', { p_query: query.trim(), p_filter: filter, p_limit: 100 }),
+  );
+  return (data ?? []) as VenueBoundaryRow[];
+}
+
+export type VenueForBoundary = {
+  id: string;
+  name: string;
+  city: string | null;
+  lat: number;
+  lng: number;
+  boundary: BoundaryGeometry | null;
+  area_sqm: number | null;
+  geofence_radius_m: number | null;
+};
+
+/** One court with its outline, for the editor. THROWS; null when not found. */
+export async function fetchVenueForBoundary(id: string): Promise<VenueForBoundary | null> {
+  const data = await sbCall(() =>
+    supabase
+      .from('venues')
+      .select('id, name, city, lat, lng, boundary, area_sqm, geofence_radius_m')
+      .eq('id', id)
+      .maybeSingle(),
+  );
+  return (data ?? null) as VenueForBoundary | null;
+}
+
+export type SavedBoundary = { area_sqm: number | null; has_boundary: boolean; pin_inside: boolean };
+
+/** Save (or clear, with null) a court's outline (godmode only). THROWS with the server's message. */
+export async function adminSaveVenueBoundary(id: string, boundary: BoundaryGeometry | null): Promise<SavedBoundary> {
+  const { data, error } = await supabase.rpc('admin_save_venue_boundary', { p_venue_id: id, p_boundary: boundary });
+  if (error) throw error;
+  return data as SavedBoundary;
 }

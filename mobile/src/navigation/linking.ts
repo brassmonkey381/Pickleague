@@ -71,6 +71,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Godmode: 'godmode',
       BlockedPlayers: 'blocked-players',
       ModerationQueue: 'moderation',
+      AdminBoundaries: 'admin/outlines',
+      AdminBoundaryEditor: 'admin/outlines/:venueId',
       // Wager deep links are registered only while the feature is on - an
       // unregistered path must not resolve to an unregistered screen.
       ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),

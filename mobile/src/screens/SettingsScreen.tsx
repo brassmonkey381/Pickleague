@@ -598,6 +598,13 @@ export default function SettingsScreen({ navigation }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
+              label="Court Outlines"
+              desc="Draw a building outline so check-ins pass anywhere inside"
+              onPress={() => navigation.navigate('AdminBoundaries')}
+            />
+            <Divider S={S} />
+            <ActionRow
+              S={S}
               label="Reported Content"
               desc="Act on player reports within 24 hours"
               onPress={() => navigation.navigate('ModerationQueue')}

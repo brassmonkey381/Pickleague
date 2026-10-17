@@ -85,6 +85,8 @@ import QrWalletScreen from '../screens/QrWalletScreen';
 import QrPassScreen from '../screens/QrPassScreen';
 import SubmitVenueScreen from '../screens/SubmitVenueScreen';
 import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
+import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
+import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -341,6 +343,8 @@ export default function AppNavigator() {
                 <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
                 <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />
                 <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
+                <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: '🛠️ Court Outlines' }} />
+                <Stack.Screen name="AdminBoundaryEditor" component={AdminBoundaryEditorScreen} options={{ title: 'Court outline' }} />
               </>
             ) : (
               <>
