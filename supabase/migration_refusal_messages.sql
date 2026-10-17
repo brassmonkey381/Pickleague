@@ -52,10 +52,11 @@
 -- uses errcode 42501.
 --
 -- Also: my_session_validity adds keys for the app to word outcomes with
--- (_pl_session_explain); the pending-match notice names who really recorded
--- it and gives the deadline in the recipient's zone; expire_pending_matches
--- tells the players why their match is gone and which session stopped
--- counting.
+-- (_pl_session_explain: who still has to confirm, whether a drill counts,
+-- why something recorded doesn't); the pending-match notice names who really
+-- recorded it and gives the deadline in the recipient's zone;
+-- expire_pending_matches tells the players why their match is gone and which
+-- session stopped counting (an ended one, or one still running).
 --
 -- Apply AFTER migration_validity_rules.sql (and after any re-run of the
 -- presence_p1_* files or that file, which define these functions with the
@@ -131,12 +132,20 @@ end $function$;
 --   match_pending          it counts only through a match still waiting for
 --                          the other team (open sessions too)
 --   confirm_by             the earliest deadline among those matches
---   why                    when nothing counts for it yet:
---     'match_counted_elsewhere'  a match the player recorded in its window
---                                counts for another of their sessions
---                                (match_at, counted_for_started_at)
+--   confirm_needed         who still has to confirm that match (the one with
+--                          the earliest deadline): 'theirs' (the other team),
+--                          'mine' (an opponent recorded it: the player's own
+--                          team), 'both' (a league member who didn't play
+--                          recorded it). Only while match_pending.
+--   drill_counted          a drill counts for it (so the app never credits a
+--                          drill for a session a match made count)
+--   why                    something the player recorded doesn't count for it:
+--     'match_counted_elsewhere'  (only when nothing counts) a match the player
+--                                recorded in its window counts for another of
+--                                their sessions (match_at, counted_for_started_at)
 --     'drill_not_during_session' a drill reviewed in its window wasn't held
---                                during it (drill_starts_at)
+--                                during it (drill_starts_at); also when a
+--                                match counts for it
 create or replace function public._pl_session_explain(p_session uuid)
 returns jsonb
 language plpgsql
@@ -158,6 +167,7 @@ declare
   v_other_at   timestamptz;
   v_reviewed   boolean := false;
   v_drill_at   timestamptz;
+  v_confirmer  text;
 begin
   select * into s from public.play_sessions ps where ps.id = p_session;
   if s.id is null then return '{}'::jsonb; end if;
@@ -188,6 +198,27 @@ begin
 
   v_pending := v_counted and not v_done and not v_drill;
 
+  -- Who still has to confirm the pending match it counts through (the one
+  -- with the earliest deadline, as confirm_by): the other team, the player's
+  -- own team (an opponent recorded it), or both (a non-player recorded it).
+  if v_pending then
+    select case
+             when (s.user_id in (m.player1_id, m.partner1_id) and m.team1_confirmed_by is not null)
+               or (s.user_id in (m.player2_id, m.partner2_id) and m.team2_confirmed_by is not null) then 'theirs'
+             when m.team1_confirmed_by is null and m.team2_confirmed_by is null then 'both'
+             else 'mine'
+           end
+      into v_confirmer
+      from public.matches m
+     where m.status = 'pending'
+       and (m.player1_id = s.user_id or m.player2_id = s.user_id
+            or m.partner1_id = s.user_id or m.partner2_id = s.user_id)
+       and (m.play_session_id = s.id or m.created_at between s.started_at and v_until)
+       and public._pl_match_session(s.user_id, m.play_session_id, m.created_at) = s.id
+     order by m.confirm_deadline nulls last, m.created_at, m.id
+     limit 1;
+  end if;
+
   -- Nothing counts here yet, on a session long enough to take something:
   -- did something the player recorded go elsewhere?
   if not v_counted and not v_drill
@@ -215,6 +246,18 @@ begin
        limit 1;
       if coalesce(v_reviewed, false) then v_why := 'drill_not_during_session'; end if;
     end if;
+  elsif v_counted and not v_drill then
+    -- A match counts for it: did the player also review a drill in its
+    -- window that doesn't (so the app can say why, never credit the drill)?
+    select true, d.starts_at into v_reviewed, v_drill_at
+      from public.drill_session_reviews r
+      join public.drill_sessions d on d.id = r.session_id
+     where r.user_id = s.user_id
+       and (d.player1_id = s.user_id or d.player2_id = s.user_id)
+       and r.created_at between s.started_at and v_until
+     order by r.created_at desc
+     limit 1;
+    if coalesce(v_reviewed, false) then v_why := 'drill_not_during_session'; end if;
   end if;
 
   return jsonb_strip_nulls(jsonb_build_object(
@@ -222,6 +265,8 @@ begin
     'ended_at', s.ended_at,
     'match_pending', v_pending,
     'confirm_by', case when v_pending then v_confirm_by end,
+    'confirm_needed', case when v_pending then v_confirmer end,
+    'drill_counted', v_drill,
     'why', v_why,
     'match_at', v_match_at,
     'counted_for_started_at', v_other_at,
@@ -861,8 +906,12 @@ $function$;
 
 -- _pl_notify_match_expired (new, internal): tell every player of a pending
 -- match the 1-hour cron just removed why it is gone, and which of their play
--- sessions stopped counting with it (p_valid_before: the sessions that were
--- valid before the delete). Times in each recipient's own zone. No entity_id:
+-- sessions stopped counting with it (p_valid_before: the sessions it may have
+-- counted for before the delete: ended ones that were valid, and the open one
+-- it counted for). An ended session is named when it is no longer valid; an
+-- open one (never stored valid until it ends) when it now needs a match or
+-- drill again, so a running session never goes on "counting" silently on a
+-- match that is gone. Times in each recipient's own zone. No entity_id:
 -- the match row is gone, and the app greys out a notice whose target is
 -- missing (lib/inboxRequests TARGET_TABLES); the tap opens Match History.
 -- Category notifyMatchResults (a result, not a request to answer).
@@ -915,12 +964,16 @@ begin
         from public.play_sessions ps
        where ps.id = any (coalesce(p_valid_before, '{}'::uuid[]))
          and ps.user_id = v_recipient
-         and not ps.valid
+         and ((ps.ended_at is not null and not ps.valid)
+              or (ps.ended_at is null
+                  and (select x.needs from public._pl_session_validity(ps.id) x) = 'match_or_drill'))
        order by ps.started_at
     loop
       v_body := v_body || format(' Your play session from %s no longer counts.',
                                  public._pickleague_local_label(v_lost.started_at, v_tz));
-      if v_lost.ended_at is not null and v_lost.ended_at + interval '2 hours' > now() then
+      if v_lost.ended_at is null then
+        v_body := v_body || ' Record a match or drill before you end it, or within 2 hours after, to make it count.';
+      elsif v_lost.ended_at + interval '2 hours' > now() then
         v_body := v_body || format(' Record a match or drill by %s to make it count.',
                                    public._pickleague_local_label(v_lost.ended_at + interval '2 hours', v_tz));
       end if;
@@ -957,11 +1010,15 @@ begin
        and coalesce(x.confirm_deadline, x.created_at + interval '1 hour') < now()
      order by x.created_at
   loop
-    -- The players' sessions that count right now and may count through it.
+    -- The players' sessions that may count through it right now: ended ones
+    -- that are valid, and the open one it counts for (open sessions are
+    -- never stored valid until they end).
     select coalesce(array_agg(ps.id), '{}'::uuid[]) into v_valid
       from public.play_sessions ps
-     where ps.valid
-       and ps.user_id in (m.player1_id, m.partner1_id, m.player2_id, m.partner2_id)
+     where ps.user_id in (m.player1_id, m.partner1_id, m.player2_id, m.partner2_id)
+       and (ps.valid
+            or (ps.ended_at is null
+                and public._pl_match_session(ps.user_id, m.play_session_id, m.created_at) = ps.id))
        and (ps.id = m.play_session_id
             or m.created_at between ps.started_at and coalesce(ps.ended_at, now()) + interval '2 hours');
 

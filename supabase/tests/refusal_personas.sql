@@ -422,6 +422,8 @@ begin
     (j ->> 'valid')::boolean and (j ->> 'match_pending')::boolean
     and (j ->> 'rewards_pending_confirmation')::boolean
     and (j ->> 'confirm_by')::timestamptz = now() + interval '1 hour' and not j ? 'why', j::text);
+  perform pg_temp.ok('T24 ...the recorder''s own team is confirmed, so the other team has to (confirm_needed theirs), and no drill counts',
+    j ->> 'confirm_needed' = 'theirs' and j -> 'drill_counted' = 'false'::jsonb, j::text);
 
   -- A late Start that overlaps the last one is moved; the stored start shows it.
   perform public.start_play_session(p_id => 'f2000000-0000-4000-8000-000000000203', p_kind => 'open_play',
@@ -618,4 +620,130 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('T27 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T28 who still has to confirm, a drill next to a match, a running session the expiry stops ════
+-- (the 2026-10-16 review of the refusal messages: End and MatchEntry name the
+-- team that still has to confirm; a drill review never takes credit for a
+-- session a match made count; the 1-hour expiry names a running session that
+-- counted only through the match it removed.)
+--   RK / RM open sessions with a pending match · RL their opponent ·
+--   RP an open session a drill made count · RN records matches it isn't in
+insert into _p values
+  ('RK', 'a2000000-0000-4000-8000-00000000000c'), ('RL', 'a2000000-0000-4000-8000-00000000000d'),
+  ('RM', 'a2000000-0000-4000-8000-00000000000e'), ('RP', 'a2000000-0000-4000-8000-00000000000f');
+insert into auth.users (id, email, raw_user_meta_data)
+select id, 'rf-' || lower(k) || '@pickleague.test',
+       jsonb_build_object('full_name', case k
+         when 'RK' then 'Kai Sessions' when 'RL' then 'Lou Opponent'
+         when 'RM' then 'Mia Sessions' when 'RP' then 'Pia Drill' end)
+  from _p where k in ('RK', 'RL', 'RM', 'RP');
+insert into public.league_members (league_id, user_id, role)
+select 'b2000000-0000-4000-8000-000000000001', id, 'member' from _p where k in ('RK', 'RL', 'RM', 'RP')
+on conflict do nothing;
+
+do $$
+declare
+  j   jsonb;
+  mm  uuid;
+  mp  uuid;
+  n   int;
+  r   record;
+begin
+  -- Three sessions running for 40 minutes.
+  perform pg_temp.as_user(pg_temp.p('RK'));
+  perform public.start_play_session(p_id => 'f2000000-0000-4000-8000-000000000301', p_kind => 'open_play',
+    p_at => now() - interval '40 minutes');
+  perform pg_temp.as_user(pg_temp.p('RM'));
+  perform public.start_play_session(p_id => 'f2000000-0000-4000-8000-000000000302', p_kind => 'open_play',
+    p_at => now() - interval '40 minutes');
+  perform pg_temp.as_user(pg_temp.p('RP'));
+  perform public.start_play_session(p_id => 'f2000000-0000-4000-8000-000000000303', p_kind => 'open_play',
+    p_at => now() - interval '40 minutes');
+
+  -- An opponent (RL) records RL vs RK: RL's team is confirmed at insert, RK's has to confirm.
+  perform pg_temp.as_user(pg_temp.p('RL'));
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
+                              winner_id, winner_team, status)
+  values ('b2000000-0000-4000-8000-000000000001', pg_temp.p('RL'), pg_temp.p('RK'), 11, 8, 'singles',
+          pg_temp.p('RL'), 'team1', 'pending');
+  perform pg_temp.as_user(pg_temp.p('RK'));
+  j := public.my_session_validity('f2000000-0000-4000-8000-000000000301');
+  perform pg_temp.ok('T28 an opponent recorded the match: the player''s own team has to confirm (confirm_needed mine)',
+    j ->> 'reason' = 'open' and j ->> 'needs' is null and (j ->> 'match_pending')::boolean
+    and j ->> 'confirm_needed' = 'mine' and (j ->> 'confirm_by')::timestamptz = now() + interval '1 hour', j::text);
+
+  -- RK then reviews yesterday's drill: the match still counts, the drill doesn't, and the server says why.
+  perform pg_temp.as_admin();
+  insert into public.drill_sessions (id, player1_id, player2_id, session_date, session_slot, starts_at, length_minutes)
+  values ('d2000000-0000-4000-8000-000000000003', pg_temp.p('RK'), pg_temp.p('RT'), current_date - 1, 40,
+          now() - interval '1 day', 60);
+  perform pg_temp.as_user(pg_temp.p('RK'));
+  perform public.submit_drill_review('d2000000-0000-4000-8000-000000000003', 4, 4, 4, 4, 4, null);
+  j := public.my_session_validity('f2000000-0000-4000-8000-000000000301');
+  perform pg_temp.ok('T28 a drill reviewed while a match counts, held another day: drill_counted false, with why and when',
+    j ->> 'needs' is null and j -> 'drill_counted' = 'false'::jsonb and j ->> 'why' = 'drill_not_during_session'
+    and (j ->> 'drill_starts_at')::timestamptz = now() - interval '1 day'
+    and (j ->> 'match_pending')::boolean and j ->> 'confirm_needed' = 'mine', j::text);
+
+  -- RN (a league member who didn't play) records RM vs RL: neither team is confirmed.
+  perform pg_temp.as_user(pg_temp.p('RN'));
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
+                              winner_id, winner_team, status)
+  values ('b2000000-0000-4000-8000-000000000001', pg_temp.p('RM'), pg_temp.p('RL'), 11, 9, 'singles',
+          pg_temp.p('RM'), 'team1', 'pending')
+  returning id into mm;
+  perform pg_temp.as_user(pg_temp.p('RM'));
+  j := public.my_session_validity('f2000000-0000-4000-8000-000000000302');
+  perform pg_temp.ok('T28 a non-player recorded the match: both teams have to confirm (confirm_needed both)',
+    j ->> 'needs' is null and (j ->> 'match_pending')::boolean and j ->> 'confirm_needed' = 'both', j::text);
+
+  -- RP reviews a drill held during the session: the drill is what counts.
+  perform pg_temp.as_admin();
+  insert into public.drill_sessions (id, player1_id, player2_id, session_date, session_slot, starts_at, length_minutes)
+  values ('d2000000-0000-4000-8000-000000000004', pg_temp.p('RP'), pg_temp.p('RT'), current_date, 41,
+          now() - interval '20 minutes', 60);
+  perform pg_temp.as_user(pg_temp.p('RP'));
+  perform public.submit_drill_review('d2000000-0000-4000-8000-000000000004', 4, 4, 4, 4, 4, null);
+  j := public.my_session_validity('f2000000-0000-4000-8000-000000000303');
+  perform pg_temp.ok('T28 a drill held during the running session counts for it (drill_counted true), nothing to confirm',
+    j ->> 'reason' = 'open' and j ->> 'needs' is null and j -> 'drill_counted' = 'true'::jsonb
+    and not (j ->> 'match_pending')::boolean and not j ? 'confirm_needed' and not j ? 'why', j::text);
+
+  -- RN also records RP vs RL. Both of RN's matches pass their hour unconfirmed.
+  perform pg_temp.as_user(pg_temp.p('RN'));
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
+                              winner_id, winner_team, status)
+  values ('b2000000-0000-4000-8000-000000000001', pg_temp.p('RP'), pg_temp.p('RL'), 11, 6, 'singles',
+          pg_temp.p('RP'), 'team1', 'pending')
+  returning id into mp;
+  perform pg_temp.as_admin();
+  update public.matches set confirm_deadline = now() - interval '1 minute' where id in (mm, mp);
+  select public.expire_pending_matches() into n;
+  perform pg_temp.ok('T28 the expiry removes both',
+    n >= 2 and not exists (select 1 from public.matches where id in (mm, mp)), n::text);
+
+  select body into r from public.notifications
+   where user_id = pg_temp.p('RM') and push_data ->> 'kind' = 'match_expired';
+  perform pg_temp.ok('T28 a running session that counted only through the removed match is named, with what to do',
+    r.body like 'Your match vs Lou Opponent (recorded %) was removed because neither team confirmed it within an hour. Record it again, and have both teams confirm it. Your play session from % no longer counts. Record a match or drill before you end it, or within 2 hours after, to make it count.',
+    r::text);
+  perform pg_temp.ok('T28 a running session that still counts through a drill is not named',
+    exists (select 1 from public.notifications where user_id = pg_temp.p('RP') and push_data ->> 'kind' = 'match_expired')
+    and not exists (select 1 from public.notifications
+                     where user_id = pg_temp.p('RP') and push_data ->> 'kind' = 'match_expired'
+                       and body like '%play session%'));
+  perform pg_temp.ok('T28 a player with no session hears only why each match is gone',
+    (select count(*) from public.notifications where user_id = pg_temp.p('RL') and push_data ->> 'kind' = 'match_expired') = 2
+    and not exists (select 1 from public.notifications
+                     where user_id = pg_temp.p('RL') and push_data ->> 'kind' = 'match_expired'
+                       and body like '%play session%'));
+  perform pg_temp.as_user(pg_temp.p('RM'));
+  j := public.my_session_validity('f2000000-0000-4000-8000-000000000302');
+  perform pg_temp.ok('T28 ...and that running session needs a match or drill again', j ->> 'needs' = 'match_or_drill', j::text);
+  perform pg_temp.as_admin();
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T28 block crashed', false, sqlerrm);
 end $$;
