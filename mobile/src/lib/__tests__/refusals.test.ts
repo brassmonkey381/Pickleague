@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
+  QUEUED_CHECKIN_NOTE,
   REFUSAL_CODES,
   confirmResultMessage,
   drillReviewRefusal,
   extendedNote,
   isAlreadyReviewedMessage,
+  lapsedCheckinNotice,
+  queuedCheckinRanOutNote,
   queuedRefusalNotice,
   refusalCode,
   refusalCopy,
@@ -36,6 +39,10 @@ const SERVER_CODES: RefusalCode[] = [
   'checkin.closed',
   'checkin.needs_fix',
   'session.not_yours',
+  // migration_checkin_tap_time.sql
+  'fix.after_tap',
+  'checkin.too_old',
+  'membership.locked',
   'match.removed',
   'match.already_confirmed',
   'match.scheduled',
@@ -353,10 +360,29 @@ describe('the rest of the "said why" copy', () => {
     expect(untrackedStartNote('Lakeside', 'not_at_court')).toBe(
       "Not checked in at Lakeside: you're not at the court, so only you see this session. Check in from Home when you get there.",
     );
-    expect(untrackedStartNote('Lakeside', 'stale')).toContain('reached Pickleague too late');
     expect(untrackedStartNote('Lakeside', 'imprecise')).toContain('Precise Location');
     expect(untrackedStartNote('Lakeside', 'no_fix')).toContain("couldn't get your location");
     expect(untrackedStartNote(null, 'court_gone')).toContain("isn't in Pickleague any more");
+  });
+
+  it('a Start that synced late (the fix is judged at the tap, up to 12 hours back)', () => {
+    expect(untrackedStartNote('Lakeside', 'too_old')).toBe(
+      "Not checked in at Lakeside: the session reached Pickleague more than 12 hours after you started it, too late to check you in there, so only you see it. Check in from Home if you're at a court.",
+    );
+    expect(untrackedStartNote('Lakeside', 'synced_late', { endedAtMs: Date.parse('2026-10-16T17:10:00Z'), timeLabel: label })).toBe(
+      "Your check-in at Lakeside for this session ran until 17:10, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it. Check in from Home if you're still there.",
+    );
+    expect(untrackedStartNote('Lakeside', 'synced_late')).toContain('had already ended, but the session reached Pickleague after that');
+    // True whatever the server: an older one judged the fix by its age at send.
+    expect(untrackedStartNote('Lakeside', 'unconfirmed_late')).toBe(
+      "Not checked in at Lakeside: Pickleague couldn't confirm from your location that you were at the court when you tapped Start, so only you see this session. Check in from Home if you're at the court.",
+    );
+    for (const r of ['too_old', 'synced_late', 'unconfirmed_late'] as const) {
+      const text = untrackedStartNote('Lakeside', r, { endedAtMs: T0, timeLabel: label });
+      expect(text, r).not.toContain('—');
+      expect(text, r).toMatch(/\.$/);
+      expect(text, r).toMatch(/Check in from Home/);
+    }
   });
 
   it('a Start that relied on my check-in there (no fix asked for): the check-in is the reason, not location', () => {
@@ -375,5 +401,77 @@ describe('the rest of the "said why" copy', () => {
     const now = new Date(2026, 9, 16, 18, 0).getTime();
     expect(whenLabel(new Date(2026, 9, 16, 17, 40), now)).toBe('5:40 PM');
     expect(whenLabel(new Date(2026, 9, 15, 17, 40), now)).toBe('Thu 5:40 PM');
+  });
+});
+
+describe('check-ins saved with no signal (judged at the tap, up to 12 hours)', () => {
+  it('the note under Check in names the 12 hours, no em dash', () => {
+    expect(QUEUED_CHECKIN_NOTE).toBe('Saved with no signal. It counts if your phone is back online within 12 hours.');
+    expect(QUEUED_CHECKIN_NOTE).not.toContain('—');
+    expect(QUEUED_CHECKIN_NOTE).not.toMatch(/2 minutes/);
+  });
+
+  it('synced after it had ended: when I tapped, when it landed, when it ended (device zone), why, what to do', () => {
+    expect(
+      lapsedCheckinNotice({
+        venueName: 'Lakeside',
+        tapMs: Date.parse('2026-10-16T14:10:00Z'),
+        endedMs: Date.parse('2026-10-16T16:10:00Z'),
+        syncedMs: Date.parse('2026-10-16T17:05:00Z'),
+        timeLabel: label,
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (14:10) reached Pickleague at 17:05, after it had ended at 16:10, so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court.",
+    );
+    // The default formatter is the device's zone ("5:40 PM", or "Thu 5:40 PM" another day).
+    const local = (h: number, m: number) => new Date(2026, 9, 16, h, m).getTime();
+    expect(
+      lapsedCheckinNotice({ venueName: null, tapMs: local(14, 10), endedMs: local(16, 10), syncedMs: local(17, 5), nowMs: local(17, 6) }),
+    ).toBe(
+      "Your check-in (2:10 PM) reached Pickleague at 5:05 PM, after it had ended at 4:10 PM, so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court.",
+    );
+  });
+
+  it('ran out on the device before it could be sent: it still goes, within 12 hours of the tap', () => {
+    expect(queuedCheckinRanOutNote({ venueName: 'Lakeside', endedMs: Date.parse('2026-10-16T16:10:00Z'), timeLabel: label })).toBe(
+      "Your check-in at Lakeside ended at 16:10 before your phone had a signal to send it. It's sent when you're back online, if that's within 12 hours of when you tapped. Check in again if you're still at the court.",
+    );
+  });
+
+  it('the new codes: reason first, then what to do, titled "Not checked in"', () => {
+    expect(refusalCopy('fix.after_tap')).toBe(
+      "Your location was taken more than 2 minutes after you tapped, so it can't show you were at the court then. Check in again when you're at the court.",
+    );
+    expect(refusalCopy('checkin.too_old')).toBe(
+      "It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.",
+    );
+    expect(refusalCopy('fix.stale')).toBe(
+      'Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court.',
+    );
+    expect(refusalTitle('fix.after_tap')).toBe('Not checked in');
+    expect(refusalTitle('checkin.too_old')).toBe('Not checked in');
+    expect(refusalCode({ message: 'x', hint: 'pl:fix.after_tap' })).toBe('fix.after_tap');
+    expect(refusalCode({ message: 'x', hint: 'pl:checkin.too_old' })).toBe('checkin.too_old');
+  });
+
+  it('a queued check-in refused for being over 12 hours old names the tap once', () => {
+    expect(
+      queuedRefusalNotice({
+        what: 'check_in',
+        venueName: 'Lakeside',
+        tapMs: T0,
+        timeLabel: label,
+        error: { code: 'P0001', message: 'This check-in was saved with no signal at ...', hint: 'pl:checkin.too_old' },
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (18:00) didn't go through. It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.",
+    );
+  });
+
+  it('a league membership move (P2): why, then what to do', () => {
+    expect(refusalCopy('membership.locked')).toBe(
+      "A league membership can't be moved to another league or player. Leave the league, then join the one you want.",
+    );
+    expect(refusalCode({ message: 'x', hint: 'pl:membership.locked' })).toBe('membership.locked');
   });
 });

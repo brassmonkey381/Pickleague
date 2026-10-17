@@ -32,7 +32,7 @@ import { FRIENDS_AT_COURTS_ENABLED } from './features';
 import { presenceConsentState } from './presenceConsent';
 import { checkedInVisibilityLine, DEFAULT_PRESENCE_SETTINGS } from './presencePrivacy';
 import { noteRefusalNotice } from './refusalNotices';
-import { queuedRefusalNotice, refusalCopy } from './refusals';
+import { QUEUED_CHECKIN_NOTE, queuedRefusalNotice, refusalCopy } from './refusals';
 import { loadPresenceSettings } from '../data/presenceSettings';
 import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
 import { listMyCourtFavorites } from '../data/courtFavorites';
@@ -131,7 +131,8 @@ registerActionHandler('court_checkin', {
     title: 'Checked in',
     body: (res as { visibility?: string } | null)?.visibility ?? 'Other players can see you are here.',
   }),
-  queued: { title: 'Checked in', body: 'Saved with no signal. It counts if it syncs within 2 minutes.' },
+  // The server takes it up to 12 hours after the tap (migration_checkin_tap_time.sql).
+  queued: { title: 'Checked in', body: QUEUED_CHECKIN_NOTE },
   run: async (d) => {
     const runStart = Date.now();
     await requireUser();

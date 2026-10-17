@@ -4,15 +4,19 @@
 // No manual check-ins (docs/play-sessions-presence.md, decision 6 and rule 1):
 // every check-in carries a fresh device fix, and checkin_venue on the server
 // decides whether it is inside the court's fence. No fix, no check-in; an
-// approximate fix (accuracy over 150 m) counts as none. A queued (offline)
-// check-in carries the fix taken at tap time and sends its age at every try
-// (measured on this device's clock), so the server's 2-minute freshness rule
-// refuses one that sat in the queue too long, whatever the phone's clock says.
+// approximate fix (accuracy over 150 m) counts as none. The fix is judged at
+// the TAP (supabase/migration_checkin_tap_time.sql, decided 2026-10-16): it
+// must be taken within 2 minutes of the tap. Every call sends the tap (`at`),
+// the fix time and the fix's age at send, all on this device's clock, so the
+// server works out how long ago the tap was without trusting the clock. A
+// queued (offline) check-in carries the fix taken at tap time and counts when
+// it syncs up to 12 hours after the tap; one that syncs after it would have
+// ended is stored as a visit nobody saw (the app says so once).
 // Check-out sends a fresh fix only when one comes back within 3 s (never
 // holding the check-out longer): the server reads it as proof the player
 // stayed (Phase 1.5, stay_confirmed).
-import type { CheckinSource } from '../data/venueCheckins';
-import { noFixQueuedCheckinReason, queuedRefusalNotice, staleQueuedCheckinReason } from './refusals';
+import type { CheckinSource, VenueCheckin } from '../data/venueCheckins';
+import { noFixQueuedCheckinReason, queuedRefusalNotice, refusalCode, staleQueuedCheckinReason } from './refusals';
 
 /** A device location fix, as checkin_venue and start_play_session take it. */
 export type DeviceFix = {
@@ -24,7 +28,10 @@ export type DeviceFix = {
   fixAt: string;
 };
 
-/** checkin_venue refuses a fix older than this, or more than a minute in the future. */
+/**
+ * The fix must be taken within this long of the tap (checkin_venue,
+ * start_play_session); a call with no tap (extend) counts from the send.
+ */
 export const FIX_MAX_AGE_MS = 2 * 60_000;
 const FIX_MAX_FUTURE_MS = 60_000;
 /** A fix this recent is reused for the next tap instead of waiting on the radio again. */
@@ -105,16 +112,18 @@ export type FixArgs = {
   p_accuracy_m: number | null;
   p_fix_at: string | null;
   /**
-   * How old the fix is at send time, on the device's own clock (so a phone
-   * whose clock is off still passes the server's 2-minute rule). Recomputed on
-   * every send, so a queued replay counts its time in the queue.
+   * How old the fix is at send time, on the device's own clock. Recomputed on
+   * every send. With the tap (p_at) and p_fix_at, both on the same clock, the
+   * server dates the fix (now - age) and the tap (the fix + (tap - fix time))
+   * on its own clock, so a phone whose clock is off is judged exactly.
    */
   p_fix_age_ms: number | null;
 };
 
 /**
  * The fix arguments checkin_venue, start_play_session and extend_checkin share
- * (all null: no fix). `nowMs` is the moment of sending.
+ * (all null: no fix). `nowMs` is the moment of sending. The callers send the
+ * tap as p_at alongside (extend sends none: its tap is the send).
  */
 export function fixArgs(f: DeviceFix | null | undefined, nowMs: number): FixArgs {
   return f
@@ -235,7 +244,43 @@ export function isStaleFixError(e: unknown): boolean {
 
 /** A refusal after which an untracked session (no court) is the way on. */
 export function offersUntrackedSession(e: unknown): boolean {
-  return isNotAtCourtError(e) || isImpreciseFixError(e) || isStaleFixError(e);
+  const code = refusalCode(e);
+  return (
+    isNotAtCourtError(e) ||
+    isImpreciseFixError(e) ||
+    isStaleFixError(e) ||
+    code === 'fix.after_tap' ||
+    code === 'checkin.too_old'
+  );
+}
+
+/**
+ * A confirmed check-in the server stored after it had already ended: saved
+ * with no signal and synced later than tap + its minutes. Read from the
+ * server's own two times (expires_at, created_at), so no clock offset can fake
+ * it. A row "closed before stored" (a check-out that landed first) is never
+ * one: it comes back unconfirmed.
+ */
+export function syncedAfterItEnded(
+  row: Pick<VenueCheckin, 'expires_at' | 'created_at' | 'location_confirmed'> | null | undefined,
+): boolean {
+  if (!row || row.location_confirmed === false || !row.created_at) return false;
+  const ended = Date.parse(row.expires_at);
+  const stored = Date.parse(row.created_at);
+  return Number.isFinite(ended) && Number.isFinite(stored) && ended <= stored;
+}
+
+/**
+ * A queued check-in an OLDER server refused for waiting in the queue: it
+ * judged the fix by its age when sent, so its "out of date" (fix.stale) on a
+ * fix that was fresh at its own tap means "it synced over 2 minutes late".
+ * The current server judges the fix at the tap, so it says fix.stale only for
+ * a fix taken over 2 minutes before the tap, and words its other reasons.
+ */
+export function refusedForQueueWait(error: unknown, fix: DeviceFix | null | undefined, tapIso: string): boolean {
+  if (refusalCode(error) !== 'fix.stale' || !isValidFix(fix)) return false;
+  const tapMs = Date.parse(tapIso);
+  return Number.isFinite(tapMs) && fixAgeMs(fix, tapMs) <= FIX_MAX_AGE_MS;
 }
 
 /**
@@ -255,8 +300,8 @@ export function rejectedCheckinNotice(p: {
   venueName: string;
   /** The tap time, in the device's zone ("5:40 PM"). */
   timeLabel: string;
-  /** The fix was past the 2-minute rule when it was sent. */
-  fixWasStale: boolean;
+  /** An older server refused it for syncing over 2 minutes late (refusedForQueueWait). */
+  waitedTooLong: boolean;
   /** Saved by an older build with no fix at all: never sent. */
   noFix?: boolean;
   error: unknown;
@@ -267,7 +312,9 @@ export function rejectedCheckinNotice(p: {
     tapMs: 0,
     timeLabel: () => p.timeLabel,
     error: p.error,
-    reason: p.noFix ? noFixQueuedCheckinReason() : p.fixWasStale ? staleQueuedCheckinReason() : null,
+    // Otherwise the server's own reason: too old, the fix away from the tap,
+    // how far from the court, too vague.
+    reason: p.noFix ? noFixQueuedCheckinReason() : p.waitedTooLong ? staleQueuedCheckinReason() : null,
   });
 }
 

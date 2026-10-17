@@ -13,8 +13,10 @@
 // check-ins and check-outs (lib/courtCheckin) and play session start / end
 // (lib/playSession). Each carries a client id and its real time, so a replay
 // lands once and at the right moment. A check-in also carries the location fix
-// taken at tap time; the server refuses one older than 2 minutes, so a
-// long-offline check-in is dropped and the player told, never applied late.
+// taken at tap time; the server judges that fix at the tap and takes the
+// check-in up to 12 hours later (stored already over, and said so, when it
+// would have ended by then). Past 12 hours it is refused, dropped and the
+// player told why.
 //
 // NOT queued, on purpose: matches, pickles, wagers, tournament operations,
 // invites. A match insert cascades through triggers into PLUPR, per-court

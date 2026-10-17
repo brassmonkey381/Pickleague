@@ -22,6 +22,12 @@ export type VenueCheckin = {
   source: CheckinSource;
   /** False for a private row: a check-in an older build made without a fix (nobody sees it). */
   location_confirmed?: boolean;
+  /**
+   * When the server stored it (its clock). A row whose expires_at is not after
+   * this was saved with no signal and synced after it had ended: stored as a
+   * visit, shown to nobody (migration_checkin_tap_time.sql).
+   */
+  created_at?: string;
 };
 
 /** resolve_court's answer: the canonical pickleball court at (or nearest to) a point. */
@@ -37,7 +43,13 @@ export type ResolvedCourt = {
 
 const BOUND = { timeoutMs: 9_000 };
 
-/** Rejects with "You need to be at the court to check in (about N m away)." when the fix is outside the fence. */
+/**
+ * Rejects with "You need to be at the court to check in (about N m away)." when
+ * the fix is outside the fence. `at` is the tap: the server judges the fix
+ * against it (within 2 minutes) and dates the check-in there, up to 12 hours
+ * back, using the fix's age at send to place both on its own clock. The row
+ * it returns is the full one (created_at included).
+ */
 export async function checkinVenue(p: {
   id: string;
   venueId: string;
@@ -116,6 +128,19 @@ export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | n
     BOUND,
   )) as VenueCheckin[] | null;
   return rows?.[0] ?? null;
+}
+
+/** One of my check-ins by id (owner-only read), open or not; null when the server has none. */
+export async function getMyCheckin(id: string): Promise<VenueCheckin | null> {
+  return ((await sbCall(
+    () =>
+      supabase
+        .from('venue_checkins')
+        .select('id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source, location_confirmed, created_at')
+        .eq('id', id)
+        .maybeSingle(),
+    BOUND,
+  )) ?? null) as VenueCheckin | null;
 }
 
 /**

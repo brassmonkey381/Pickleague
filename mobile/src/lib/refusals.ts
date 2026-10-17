@@ -30,10 +30,14 @@ export const REFUSAL_CODES = [
   'fix.imprecise',
   'fix.not_at_court',
   'fix.malformed',
+  // migration_checkin_tap_time.sql: the fix is judged at the tap.
+  'fix.after_tap',
   'checkin.none',
   'checkin.closed',
   'checkin.needs_fix',
+  'checkin.too_old',
   'session.not_yours',
+  'membership.locked',
   'match.removed',
   'match.already_confirmed',
   'match.scheduled',
@@ -187,7 +191,10 @@ export function refusalCopy(
     case 'court.favorites_full':
       return 'You can star up to 5 courts. Unstar one to add this one.';
     case 'fix.stale':
-      return "Your location is out of date: it's more than 2 minutes old. Try again at the court.";
+      // True from an older server too: a live call's tap is its send.
+      return 'Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court.';
+    case 'fix.after_tap':
+      return "Your location was taken more than 2 minutes after you tapped, so it can't show you were at the court then. Check in again when you're at the court.";
     case 'fix.stale_clock':
       return "Your location is out of date. Check that your phone's date and time are set automatically, then try again at the court.";
     case 'fix.imprecise':
@@ -215,6 +222,11 @@ export function refusalCopy(
         ? `${since}, and a check-in lasts at most 4 hours past that. Open Pickleague at the court to stay checked in.`
         : `${since}, and a check-in lasts at most 4 hours past that. Turn on location for Pickleague, then try again at the court.`;
     }
+    case 'checkin.too_old':
+      // No time here: queuedRefusalNotice already names the tap.
+      return "It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.";
+    case 'membership.locked':
+      return "A league membership can't be moved to another league or player. Leave the league, then join the one you want.";
     case 'session.not_yours':
       return "That play session belongs to another account, so it wasn't saved. Start a new session.";
     case 'match.removed':
@@ -287,6 +299,8 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
     case 'fix.malformed':
     case 'court.gone':
       return action === 'extend' ? 'Not extended' : 'Not checked in';
+    case 'fix.after_tap':
+    case 'checkin.too_old':
     case 'consent.declined':
     case 'consent.unknown_offline':
       return 'Not checked in';
@@ -450,22 +464,40 @@ function humanMessage(e: unknown): string | null {
 
 /**
  * Why a Start at a court didn't check me in there (the server starts it
- * untracked, no error). 'checkin_gone' / 'checkin_private': the start sheet
- * sent no fix because I looked checked in there, and that check-in had ended
- * or was a private one (saved without a fix), so it couldn't be adopted.
+ * untracked, no error), or checked me in only for a time already over.
+ *   'checkin_gone' / 'checkin_private': the start sheet sent no fix because I
+ *     looked checked in there, and that check-in had ended or was a private
+ *     one (saved without a fix), so it couldn't be adopted.
+ *   'too_old': the Start reached Pickleague more than 12 hours after its tap
+ *     (the server checks in only within 12 hours of the tap).
+ *   'synced_late': the server checked me in from the tap, but that check-in
+ *     had already ended when the Start synced (stored, shown to nobody).
+ *   'unconfirmed_late': a Start that synced late, whose location didn't
+ *     confirm the court at its tap. True from an older server too, which
+ *     judged the fix by its age when sent.
  */
 export type UntrackedStartReason =
   | 'court_gone'
   | 'no_fix'
   | 'imprecise'
-  | 'stale'
+  | 'too_old'
+  | 'synced_late'
+  | 'unconfirmed_late'
   | 'not_at_court'
   | 'checkin_gone'
   | 'checkin_private';
 
-/** The island's note when a Start at a court didn't check me in: why, and what to do. */
-export function untrackedStartNote(venueName: string | null | undefined, reason: UntrackedStartReason): string {
+/**
+ * The island's note when a Start at a court didn't check me in: why, and what
+ * to do. `endedAtMs`: for 'synced_late', when the session's check-in ended.
+ */
+export function untrackedStartNote(
+  venueName: string | null | undefined,
+  reason: UntrackedStartReason,
+  o: { endedAtMs?: number | null; timeLabel?: (d: Date) => string; nowMs?: number } = {},
+): string {
   const at = venueName?.trim() ? ` at ${venueName.trim()}` : '';
+  const when = (ms: number) => (o.timeLabel ? o.timeLabel(new Date(ms)) : whenLabel(new Date(ms), o.nowMs));
   switch (reason) {
     case 'court_gone':
       return "Not checked in: that court isn't in Pickleague any more, so only you see this session. Pick another court next time.";
@@ -473,8 +505,14 @@ export function untrackedStartNote(venueName: string | null | undefined, reason:
       return `Not checked in${at}: Pickleague couldn't get your location, so only you see this session. Check in from Home if you're at the court.`;
     case 'imprecise':
       return `Not checked in${at}: your location wasn't precise enough to confirm the court, so only you see this session. Turn on Precise Location for Pickleague to be seen there.`;
-    case 'stale':
-      return `Not checked in${at}: the session was saved with no signal and reached Pickleague too late to confirm you were there, so only you see it. Check in from Home if you're still at the court.`;
+    case 'too_old':
+      return `Not checked in${at}: the session reached Pickleague more than 12 hours after you started it, too late to check you in there, so only you see it. Check in from Home if you're at a court.`;
+    case 'synced_late': {
+      const ran = o.endedAtMs != null && Number.isFinite(o.endedAtMs) ? `ran until ${when(o.endedAtMs)}` : 'had already ended';
+      return `Your check-in${at} for this session ${ran}, but the session reached Pickleague after that, so nobody saw you there. Pickleague still counts you as at the court for it. Check in from Home if you're still there.`;
+    }
+    case 'unconfirmed_late':
+      return `Not checked in${at}: Pickleague couldn't confirm from your location that you were at the court when you tapped Start, so only you see this session. Check in from Home if you're at the court.`;
     case 'not_at_court':
       return `Not checked in${at}: you're not at the court, so only you see this session. Check in from Home when you get there.`;
     case 'checkin_gone':
@@ -521,7 +559,51 @@ export function noFixQueuedCheckinReason(): string {
   return "It was saved by an older version of Pickleague without your location. Check in again at the court.";
 }
 
-/** The check-in notice when the fix was past the 2-minute rule when it was finally sent. */
+/**
+ * The check-in notice when an OLDER server (before
+ * migration_checkin_tap_time.sql) refused a queued check-in because its fix
+ * was over 2 minutes old when finally sent. The current server judges the fix
+ * at the tap and takes a replay up to 12 hours later (courtCheckinRules
+ * refusedForQueueWait tells the two apart).
+ */
 export function staleQueuedCheckinReason(): string {
   return "It reached Pickleague more than 2 minutes after you tapped, too late to confirm you were there. Check in again when you're at the court.";
+}
+
+/**
+ * Under Check in when it was saved with no signal (the court card and the
+ * lock-screen notice): the server takes it up to 12 hours after the tap.
+ */
+export const QUEUED_CHECKIN_NOTE = 'Saved with no signal. It counts if your phone is back online within 12 hours.';
+
+/**
+ * A check-in saved with no signal that reached Pickleague after it had
+ * already ended (the server stores it, already over, and shows it to nobody).
+ * Times in the device's zone: the tap, when it landed, when it ended.
+ */
+export function lapsedCheckinNotice(p: {
+  venueName?: string | null;
+  tapMs: number;
+  endedMs: number;
+  syncedMs: number;
+  timeLabel?: (d: Date) => string;
+  nowMs?: number;
+}): string {
+  const at = (ms: number) => (p.timeLabel ? p.timeLabel(new Date(ms)) : whenLabel(new Date(ms), p.nowMs));
+  const court = p.venueName?.trim() ? ` at ${p.venueName.trim()}` : '';
+  return `Your check-in${court} (${at(p.tapMs)}) reached Pickleague at ${at(p.syncedMs)}, after it had ended at ${at(p.endedMs)}, so nobody saw you there. Pickleague still saved it as your visit. Check in again if you're still at the court.`;
+}
+
+/**
+ * The court card's line when a check-in saved with no signal runs out on the
+ * device before it could be sent: it still goes, within 12 hours of the tap.
+ */
+export function queuedCheckinRanOutNote(p: {
+  venueName: string;
+  endedMs: number;
+  timeLabel?: (d: Date) => string;
+  nowMs?: number;
+}): string {
+  const at = p.timeLabel ? p.timeLabel(new Date(p.endedMs)) : whenLabel(new Date(p.endedMs), p.nowMs);
+  return `Your check-in at ${p.venueName} ended at ${at} before your phone had a signal to send it. It's sent when you're back online, if that's within 12 hours of when you tapped. Check in again if you're still at the court.`;
 }

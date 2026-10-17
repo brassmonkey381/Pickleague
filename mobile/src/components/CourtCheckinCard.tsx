@@ -63,7 +63,7 @@ import {
   type CurrentCheckin,
 } from '../lib/courtCheckin';
 import { explainRefusal } from '../lib/refusalNotices';
-import { refusalCode, refusalCopy, type RefusalContext } from '../lib/refusals';
+import { QUEUED_CHECKIN_NOTE, refusalCode, refusalCopy, type RefusalContext } from '../lib/refusals';
 import {
   CHECKOUT_FIX_WAIT_MS,
   FIX_REUSE_MS,
@@ -315,7 +315,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         setNearby(null);
         setAddAt(null);
         setRosterKey((k) => k + 1);
-        if (next.queued) setMessage('Saved with no signal. It counts if it syncs within 2 minutes.');
+        if (next.queued) setMessage(QUEUED_CHECKIN_NOTE);
         else {
           noteGoodMoment(); // a check-in that went through (rating prompt)
           void claimAlertsOffer().then((show) => show && setAlertsOffer('ask'));

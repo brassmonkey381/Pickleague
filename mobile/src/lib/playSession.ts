@@ -14,8 +14,10 @@
 // End must never bring the island back, so End records a pending-End entry
 // first, keeps it after the End lands, and the resume check skips it
 // (./playEndPending).
-// When a Start at a court does not check me in (the fix didn't confirm it),
-// the island stops naming the court and says why once (playStartUntracked).
+// When a Start at a court does not check me in (the fix didn't confirm the
+// court at the tap, or the Start synced over 12 hours late), or its check-in
+// was already over when it synced, the island stops naming the court and says
+// why once (playStartUntracked; a card for a replay, lib/playStartRules).
 // Every refusal reaches the player (rule 11): a Start or End the server
 // refused, live or replayed from the queue, is said (lib/refusalNotices);
 // signed out, it waits in the queue like an offline one; a session the
@@ -48,19 +50,12 @@ import {
   takeFixIfAllowed,
   type CurrentCheckin,
 } from './courtCheckin';
-import {
-  CHECKOUT_FIX_WAIT_MS,
-  FIX_MAX_AGE_MS,
-  fixAgeMs,
-  fixWithin,
-  isPreciseFix,
-  isValidFix,
-  type DeviceFix,
-} from './courtCheckinRules';
+import { CHECKOUT_FIX_WAIT_MS, fixWithin, isValidFix, type DeviceFix } from './courtCheckinRules';
 import { endNeedsResend, isEndPending } from './playEndPending';
 import { clearEndPending, markEndPending, readPendingEnds } from './playEndPendingStore';
+import { untrackedReason } from './playStartRules';
 import { isRetryLater, noteRefusalNotice } from './refusalNotices';
-import { queuedRefusalNotice, type UntrackedStartReason } from './refusals';
+import { queuedRefusalNotice, untrackedStartNote, type UntrackedStartReason } from './refusals';
 import {
   drillMadeItCount,
   drillReviewNote,
@@ -78,7 +73,7 @@ import {
   type PlayKind,
   type PlaySessionRow,
 } from '../data/playSessions';
-import { getVenueName } from '../data/venueCheckins';
+import { getMyCheckin, getVenueName } from '../data/venueCheckins';
 
 export type PlayMeta = {
   kind: PlayKind;
@@ -154,9 +149,10 @@ registerMutationHandler(MUTATION_START, {
       throw e;
     }
     await unmarkQueuedStart(payload.id);
-    // The session may have checked me in (or adopted my check-in), or, with
-    // a fix that no longer confirms the court, not.
-    if (payload.venueId) void noteUntrackedStart(payload, row);
+    // The session may have checked me in (or adopted my check-in), checked me
+    // in only for a time already over, or not (the server judges the fix at
+    // the tap, up to 12 hours back). The player wasn't watching: a card.
+    if (payload.venueId) void noteUntrackedStart(payload, row, { queued: true });
   },
 });
 
@@ -222,8 +218,15 @@ async function noteEndRefused(payload: EndPayload, error: unknown): Promise<void
   });
 }
 
-/** Emits when a Start at a court did not check me in there (the island says so once, and why). */
-export const playStartUntracked = createSignal<{ venueName: string | null; reason: UntrackedStartReason }>();
+/**
+ * Emits when a Start at a court did not check me in there (the island says so
+ * once, and why). `endedAtMs`: for 'synced_late', when its check-in ended.
+ */
+export const playStartUntracked = createSignal<{
+  venueName: string | null;
+  reason: UntrackedStartReason;
+  endedAtMs?: number | null;
+}>();
 
 /**
  * Is `cur` the check-in a session at `venueId` gave me (its own, or the one it
@@ -234,57 +237,56 @@ function sessionCheckedIn(cur: CurrentCheckin | null, sessionId: string, venueId
   return !!cur && !cur.private && (cur.id === sessionId || venueIds.some((v) => !!v && cur.venueId === v));
 }
 
-/**
- * The reason, from what the Start sent, what came back (the server only
- * returns the row) and my check-in now.
- */
-function untrackedReason(
-  payload: StartPayload,
-  row: PlaySessionRow | null | undefined,
-  cur: CurrentCheckin | null,
-): UntrackedStartReason {
-  if (row && payload.venueId && !row.venue_id) return 'court_gone';
-  const fix = payload.fix;
-  if (!fix || !isValidFix(fix)) {
-    // No fix because the sheet relied on my check-in there: it had ended, or
-    // it was a private one nobody sees.
-    if (payload.viaCheckin) {
-      const there = !!cur && [row?.venue_id, payload.venueId].some((v) => !!v && cur.venueId === v);
-      return there && cur?.private ? 'checkin_private' : 'checkin_gone';
-    }
-    return 'no_fix';
-  }
-  if (!isPreciseFix(fix)) return 'imprecise';
-  if (fixAgeMs(fix, Date.now()) > FIX_MAX_AGE_MS) return 'stale';
-  return 'not_at_court';
-}
-
 // A check that couldn't be made (offline): tried again on the next resume.
-let untrackedCheckPending: { payload: StartPayload; row: PlaySessionRow | null | undefined } | null = null;
+let untrackedCheckPending: {
+  payload: StartPayload;
+  row: PlaySessionRow | null | undefined;
+  queued?: boolean;
+} | null = null;
 
 /**
  * After a Start at a court lands: if it did not check me in (the fix didn't
- * confirm the court: the server starts it untracked, no error), stop naming
- * the court on the island and say why, instead of implying friends see me
- * there. When the check can't be made (offline) it is tried again on the
+ * confirm the court at the tap, or the tap was over 12 hours ago: the server
+ * starts it untracked, no error), or checked me in only for a time already
+ * over (synced late), stop naming the court on the island and say why,
+ * instead of implying friends see me there. A replay from the offline queue
+ * says it on a card (the player wasn't watching); a live Start, on the
+ * island. When the check can't be made (offline) it is tried again on the
  * next resume; quiet once the session is over.
  */
-async function noteUntrackedStart(payload: StartPayload, row: PlaySessionRow | null | undefined): Promise<void> {
+async function noteUntrackedStart(
+  payload: StartPayload,
+  row: PlaySessionRow | null | undefined,
+  opts: { queued?: boolean } = {},
+): Promise<void> {
   const sessionId = payload.id;
   let cur: CurrentCheckin | null;
   try {
     cur = await refreshCurrentCheckin();
   } catch {
-    untrackedCheckPending = { payload, row };
+    untrackedCheckPending = { payload, row, queued: opts.queued };
     return;
   }
   if (untrackedCheckPending?.payload.id === sessionId) untrackedCheckPending = null;
   const s = playSession.get();
   if (s.id !== sessionId || s.status === 'idle' || !s.meta?.venueId) return;
   if (sessionCheckedIn(cur, sessionId, [row?.venue_id, payload.venueId])) return;
+  // The session's own check-in, when the server stored one (already over).
+  const sessionCheckin = isValidFix(payload.fix) ? await getMyCheckin(sessionId).catch(() => null) : null;
+  const reason = untrackedReason({ payload, row, cur, sessionCheckin, nowMs: Date.now() });
+  const endedAtMs = reason === 'synced_late' && sessionCheckin ? Date.parse(sessionCheckin.expires_at) : null;
   const venueName = s.meta.venueName;
   playSession.patchMeta({ venueName: null });
-  playStartUntracked.emit({ venueName, reason: untrackedReason(payload, row, cur) });
+  if (opts.queued) {
+    await noteRefusalNotice({
+      key: `start-untracked:${sessionId}`,
+      title: reason === 'synced_late' ? 'Check-in saved late' : 'Not checked in',
+      body: untrackedStartNote(venueName, reason, { endedAtMs }),
+      link: 'home/-',
+    });
+    return;
+  }
+  playStartUntracked.emit({ venueName, reason, endedAtMs });
 }
 
 registerMutationHandler(MUTATION_END, {
@@ -552,7 +554,10 @@ export async function getActivePlay() {
   const row = found && !isEndPending(pending, found.id, Date.now()) ? found : null;
   if (found && endNeedsResend(pending, found.id, Date.now())) resendLostEnd(found.id, pending[found.id]);
   // A Start at a court whose check-in read failed (offline): check again now.
-  if (untrackedCheckPending) void noteUntrackedStart(untrackedCheckPending.payload, untrackedCheckPending.row);
+  if (untrackedCheckPending) {
+    const { payload, row, queued } = untrackedCheckPending;
+    void noteUntrackedStart(payload, row, { queued });
+  }
   const shown = playSession.get();
   const shownMeta = shown.id && shown.status !== 'idle' && shown.meta && shown.startedAtMs != null
     ? { id: shown.id, startedAtMs: shown.startedAtMs, meta: shown.meta as PlayMeta }

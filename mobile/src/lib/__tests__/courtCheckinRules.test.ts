@@ -20,7 +20,9 @@ import {
   needsCourtToExtend,
   noFixMessage,
   offersUntrackedSession,
+  refusedForQueueWait,
   rejectedCheckinNotice,
+  syncedAfterItEnded,
   type DeviceFix,
 } from '../courtCheckinRules';
 
@@ -173,9 +175,13 @@ describe('fix refusals', () => {
     expect(isStaleFixError(far)).toBe(false);
   });
 
-  it('offers the untracked session after any of the three check-in refusals', () => {
+  it('offers the untracked session after any of the check-in refusals about the fix or the tap', () => {
     for (const e of [precise, stale, far]) expect(offersUntrackedSession(e)).toBe(true);
+    // migration_checkin_tap_time.sql: the fix away from the tap, a tap over 12 hours old.
+    expect(offersUntrackedSession({ message: 'Your location was taken ...', hint: 'pl:fix.after_tap' })).toBe(true);
+    expect(offersUntrackedSession({ message: 'This check-in was saved ...', hint: 'pl:checkin.too_old' })).toBe(true);
     expect(offersUntrackedSession({ message: 'Court not found' })).toBe(false);
+    expect(offersUntrackedSession({ message: 'x', hint: 'pl:checkin.closed' })).toBe(false);
     expect(offersUntrackedSession(null)).toBe(false);
   });
 
@@ -293,13 +299,61 @@ describe('isNotAtCourtError', () => {
   });
 });
 
+describe('refusedForQueueWait (an older server judged the fix by its age when sent)', () => {
+  const tap = new Date(NOW - 40 * 60_000).toISOString();
+  // The fix taken 5 s before the tap, the replay sent 40 min later.
+  const tapFix: DeviceFix = { ...fixAt(40 * 60_000 + 5_000) };
+  const staleCode = { message: 'Your location is out of date: ...', hint: 'pl:fix.stale' };
+  const staleOld = { message: "Your location is out of date: it's more than 2 minutes old. Try again at the court." };
+
+  it('an "out of date" on a fix that was fresh at its tap: the older server refused the wait', () => {
+    expect(refusedForQueueWait(staleCode, tapFix, tap)).toBe(true);
+    expect(refusedForQueueWait(staleOld, tapFix, tap)).toBe(true);
+  });
+
+  it('a fix already 3 min old at the tap: the current server\'s own reason, not the wait', () => {
+    const oldAtTap: DeviceFix = { ...fixAt(43 * 60_000) };
+    expect(refusedForQueueWait(staleCode, oldAtTap, tap)).toBe(false);
+  });
+
+  it('any other refusal is never the wait (too old, the fix after the tap, how far, too vague)', () => {
+    for (const hint of ['pl:checkin.too_old', 'pl:fix.after_tap', 'pl:fix.not_at_court', 'pl:fix.imprecise', 'pl:court.gone']) {
+      expect(refusedForQueueWait({ message: 'x', hint }, tapFix, tap)).toBe(false);
+    }
+    expect(refusedForQueueWait({ message: 'You need to be at the court to check in (about 240 m away).' }, tapFix, tap)).toBe(false);
+    expect(refusedForQueueWait(staleCode, null, tap)).toBe(false);
+    expect(refusedForQueueWait(staleCode, tapFix, 'not a time')).toBe(false);
+  });
+});
+
+describe('syncedAfterItEnded (stored as a visit nobody saw)', () => {
+  const row = (expires: string, created: string | undefined, confirmed?: boolean) => ({
+    expires_at: expires,
+    created_at: created,
+    location_confirmed: confirmed,
+  });
+
+  it('a confirmed row that ended before the server stored it', () => {
+    expect(syncedAfterItEnded(row('2026-10-16T17:40:00Z', '2026-10-16T18:05:00Z', true))).toBe(true);
+    // Ended the moment it was stored (a replay capped by a newer check-in).
+    expect(syncedAfterItEnded(row('2026-10-16T18:05:00Z', '2026-10-16T18:05:00Z', true))).toBe(true);
+  });
+
+  it('not one still running, a closed-before-stored row (unconfirmed), or a server that sent no created_at', () => {
+    expect(syncedAfterItEnded(row('2026-10-16T19:40:00Z', '2026-10-16T18:05:00Z', true))).toBe(false);
+    expect(syncedAfterItEnded(row('2026-10-16T17:40:00Z', '2026-10-16T18:05:00Z', false))).toBe(false);
+    expect(syncedAfterItEnded(row('2026-10-16T17:40:00Z', undefined, true))).toBe(false);
+    expect(syncedAfterItEnded(null)).toBe(false);
+  });
+});
+
 describe('rejectedCheckinNotice', () => {
-  it('explains the 2-minute rule when the queued fix had gone stale, then what to do', () => {
+  it('explains the old 2-minute rule only when an older server refused the wait, then what to do', () => {
     const text = rejectedCheckinNotice({
       venueName: 'Lakeside',
       timeLabel: '5:40 PM',
-      fixWasStale: true,
-      error: { message: 'You need to be at the court to check in (about 0 m away).' },
+      waitedTooLong: true,
+      error: { message: "Your location is out of date: it's more than 2 minutes old. Try again at the court." },
     });
     expect(text).toBe(
       "Your check-in at Lakeside (5:40 PM) didn't go through. It reached Pickleague more than 2 minutes after you tapped, too late to confirm you were there. Check in again when you're at the court.",
@@ -308,19 +362,45 @@ describe('rejectedCheckinNotice', () => {
 
   it('a check-in an older build saved without a fix gets its own reason (never the 2-minute one)', () => {
     expect(
-      rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', fixWasStale: true, noFix: true, error: null }),
+      rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', waitedTooLong: true, noFix: true, error: null }),
     ).toBe(
       "Your check-in at Lakeside (5:40 PM) didn't go through. It was saved by an older version of Pickleague without your location. Check in again at the court.",
     );
   });
 
-  it("otherwise words the server's reason: how far, then what to do", () => {
+  it('synced over 12 hours after the tap: says so (the tap time is in the first sentence)', () => {
+    expect(
+      rejectedCheckinNotice({
+        venueName: 'Lakeside',
+        timeLabel: '5:40 AM',
+        waitedTooLong: false,
+        error: { message: 'This check-in was saved with no signal at ...', hint: 'pl:checkin.too_old', details: '{"tapped_at": "2026-10-16T12:40:00Z", "limit_hours": 12}' },
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (5:40 AM) didn't go through. It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court.",
+    );
+  });
+
+  it('a fix taken over 2 minutes after the tap: says so', () => {
+    expect(
+      rejectedCheckinNotice({
+        venueName: 'Lakeside',
+        timeLabel: '5:40 PM',
+        waitedTooLong: false,
+        error: { message: 'Your location was taken ...', hint: 'pl:fix.after_tap' },
+      }),
+    ).toBe(
+      "Your check-in at Lakeside (5:40 PM) didn't go through. Your location was taken more than 2 minutes after you tapped, so it can't show you were at the court then. Check in again when you're at the court.",
+    );
+  });
+
+  it("not at the court with an old fix: the distance, never the 2-minute reason", () => {
     // The code and its DETAIL (migration_refusal_messages.sql)...
     expect(
       rejectedCheckinNotice({
         venueName: 'Lakeside',
         timeLabel: '5:40 PM',
-        fixWasStale: false,
+        waitedTooLong: false,
         error: { message: 'You need to be at the court to check in. ...', hint: 'pl:fix.not_at_court', details: '{"distance_m": 240}' },
       }),
     ).toBe(
@@ -331,13 +411,13 @@ describe('rejectedCheckinNotice', () => {
       rejectedCheckinNotice({
         venueName: 'Lakeside',
         timeLabel: '5:40 PM',
-        fixWasStale: false,
+        waitedTooLong: false,
         error: { message: 'You need to be at the court to check in (about 240 m away).' },
       }),
     ).toBe(
       "Your check-in at Lakeside (5:40 PM) didn't go through. You're about 240 m from Lakeside. You need to be at the court to check in, so try again when you get there.",
     );
-    expect(rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', fixWasStale: false, error: null })).toBe(
+    expect(rejectedCheckinNotice({ venueName: 'Lakeside', timeLabel: '5:40 PM', waitedTooLong: false, error: null })).toBe(
       "Your check-in at Lakeside (5:40 PM) didn't go through. Check in again when you're at the court.",
     );
   });

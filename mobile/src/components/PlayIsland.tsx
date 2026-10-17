@@ -58,8 +58,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   useSignal(playIslandExpand, () => setExpanded(true));
   // A Start at a court that didn't check me in: the island stops naming the
   // court (lib/playSession) and says why, once.
-  useSignal(playStartUntracked, ({ venueName, reason }) => {
-    toast.info(untrackedStartNote(venueName, reason));
+  useSignal(playStartUntracked, ({ venueName, reason, endedAtMs }) => {
+    toast.info(untrackedStartNote(venueName, reason, { endedAtMs }));
   });
   // The session the island showed is over on the server without this
   // device's End (the 6-hour expiry, another device, or its Start never

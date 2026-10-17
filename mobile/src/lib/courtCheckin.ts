@@ -14,8 +14,12 @@
 //
 // Queued writes: a check-in is safe to apply late because it carries its real
 // time (`at`), the fix taken at tap time, and a client id (replays land once).
-// The server refuses a fix older than 2 minutes, so a long-offline replay is
-// dropped and the player is told the next time the app is open. A check-out
+// The server judges the fix at the tap (taken within 2 minutes of it) and
+// takes the check-in up to 12 hours after the tap (migration_checkin_tap_time
+// .sql, decided 2026-10-16). One that lands while it would still run is
+// adopted as usual; one that lands after it would have ended is stored as a
+// visit nobody saw, and the player is told once; one refused (over 12 hours,
+// or a real refusal) is dropped and the player is told why. A check-out
 // carries when I really left and the fix taken at the tap, if one came back
 // within 3 s (the stay proof; the server dates it by its age, so a queued one
 // still counts); one that lands before its check-in makes that
@@ -41,7 +45,14 @@ import { shortTime } from './agenda';
 import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
 import { titleWith } from './pushSubject';
 import { isRetryLater, noteRefusalNotice } from './refusalNotices';
-import { extendedNote, queuedRefusalNotice, refusalCode, whenLabel } from './refusals';
+import {
+  extendedNote,
+  lapsedCheckinNotice,
+  queuedCheckinRanOutNote,
+  queuedRefusalNotice,
+  refusalCode,
+  whenLabel,
+} from './refusals';
 import { isEndPending } from './playEndPending';
 import { readPendingEnds } from './playEndPendingStore';
 import {
@@ -50,12 +61,13 @@ import {
   fixFromCoords,
   fixWithin,
   impreciseFixMessage,
-  isFixFresh,
   isPreciseFix,
   isValidFix,
   needsCourtToExtend,
   noFixMessage,
+  refusedForQueueWait,
   rejectedCheckinNotice,
+  syncedAfterItEnded,
   type CheckinPayload,
   type CheckoutPayload,
   type DeviceFix,
@@ -126,7 +138,7 @@ registerMutationHandler(MUTATION_CHECKIN, {
       await noteRejected(payload, e);
       throw e; // refused: the queue drops it, and the player was told why
     }
-    await adoptReplayed(payload.id, row);
+    await adoptReplayed(payload, row);
   },
 });
 registerMutationHandler(MUTATION_CHECKOUT, {
@@ -207,11 +219,34 @@ function scheduleReminder(c: CurrentCheckin): Promise<boolean> {
 
 const live = (c: CurrentCheckin | null) => (c && new Date(c.expiresAt).getTime() > Date.now() ? c : null);
 
-/** A queued check-in that landed: take the server's id and end time (it may be a check-in I already had there). */
-async function adoptReplayed(clientId: string, row: VenueCheckin): Promise<void> {
+/**
+ * A queued check-in that landed: take the server's id and end time (it may be
+ * a check-in I already had there). One that landed after it would have ended
+ * is stored as a visit nobody saw: drop it from the card and say so once (the
+ * card may have dropped it already when it ran out here).
+ */
+async function adoptReplayed(payload: CheckinPayload, row: VenueCheckin): Promise<void> {
   const cached = await readStored();
-  if (cached?.id !== clientId) return;
-  await setCurrent({ ...cached, id: row.id, venueId: row.venue_id, expiresAt: row.expires_at, source: row.source, queued: undefined });
+  const mine = cached?.id === payload.id ? cached : null;
+  if (syncedAfterItEnded(row)) {
+    if (mine) await setCurrent(null);
+    const venueName = mine?.venueName ?? (await getVenueName(row.venue_id).catch(() => null)) ?? null;
+    const tapMs = Date.parse(payload.at);
+    await noteRefusalNotice({
+      key: `checkin-late:${row.id}`,
+      title: 'Check-in saved late',
+      body: lapsedCheckinNotice({
+        venueName,
+        tapMs: Number.isFinite(tapMs) ? tapMs : Date.parse(row.checked_in_at),
+        endedMs: Date.parse(row.expires_at),
+        syncedMs: Date.parse(row.created_at as string),
+      }),
+      link: 'home/-',
+    });
+    return;
+  }
+  if (!mine) return;
+  await setCurrent({ ...mine, id: row.id, venueId: row.venue_id, expiresAt: row.expires_at, source: row.source, queued: undefined });
 }
 
 // ── Queued check-ins the server refused ─────────────────────────────────────
@@ -250,9 +285,11 @@ async function noteRejected(payload: CheckinPayload, error: unknown, opts: { noF
     venueName,
     timeLabel: shortTime(new Date(payload.at)),
     noFix: opts.noFix,
-    // Past the 2-minute rule when it was finally sent: that is the reason,
-    // whatever else the server said about it.
-    fixWasStale: !opts.noFix && !isFixFresh(payload.fix, Date.now()) && refusalCode(error) !== 'court.gone',
+    // Only an older server refuses a fix that was fresh at its own tap (it
+    // judged the age at send): then the 2-minute wait is the reason. The
+    // current server's reasons (over 12 hours, the fix away from the tap, how
+    // far from the court, too vague) are worded from its code.
+    waitedTooLong: !opts.noFix && refusedForQueueWait(error, payload.fix, payload.at),
     error,
   });
   const list = (await readRejected()).filter((r) => r.id !== payload.id);
@@ -328,13 +365,16 @@ export async function noFixReason(): Promise<string> {
 // owner, so another account signed in on this device never sees it.
 let endedNote: { userId: string; text: string } | null = null;
 
-function noteCheckinEnded(c: CurrentCheckin, how: 'expired' | 'closed'): void {
+function noteCheckinEnded(c: CurrentCheckin, how: 'expired' | 'closed' | 'queued'): void {
   endedNote = {
     userId: c.userId,
     text:
-      how === 'expired'
-        ? `Your check-in at ${c.venueName} ended at ${whenLabel(new Date(c.expiresAt))}. Check in again if you're still there.`
-        : `Your check-in at ${c.venueName} has ended. Check in again if you're still there.`,
+      how === 'queued'
+        ? // Still waiting for a signal: it goes when the phone is back online.
+          queuedCheckinRanOutNote({ venueName: c.venueName, endedMs: Date.parse(c.expiresAt) })
+        : how === 'expired'
+          ? `Your check-in at ${c.venueName} ended at ${whenLabel(new Date(c.expiresAt))}. Check in again if you're still there.`
+          : `Your check-in at ${c.venueName} has ended. Check in again if you're still there.`,
   };
 }
 
@@ -352,8 +392,9 @@ export async function peekCurrentCheckin(): Promise<CurrentCheckin | null> {
   const [c, uid] = await Promise.all([readStored(), currentUserId(supabase)]);
   if (!c || !uid || c.userId !== uid) return null;
   if (!live(c)) {
-    // Ran out on its own: forget it, and say so once.
-    if (!c.queued) noteCheckinEnded(c, 'expired');
+    // Ran out on its own: forget it, and say so once (a queued one that ran
+    // out before it could be sent still goes, within 12 hours of the tap).
+    noteCheckinEnded(c, c.queued ? 'queued' : 'expired');
     await setCurrent(null);
     return null;
   }
