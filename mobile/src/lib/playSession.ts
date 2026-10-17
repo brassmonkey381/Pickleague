@@ -392,7 +392,13 @@ export function startPlay(
     .catch(async (e: unknown) => {
       // Signed out right now: wait in the queue like an offline Start.
       if (isRetryLater(e)) {
-        await enqueueMutation(MUTATION_START, payload).catch(() => {});
+        try {
+          await enqueueMutation(MUTATION_START, payload);
+        } catch (queueError: unknown) {
+          // Not saved to send later either (kit 1.47+ throws rather than erase the queue).
+          await noteStartRefused(payload, queueError, "You're signed out, and Pickleague couldn't save it on this phone to send later.");
+          return;
+        }
         await markQueuedStart(id);
         return;
       }
@@ -405,7 +411,8 @@ export function startPlay(
 /** An End refused live (not a network failure: those queue). Signed out: it waits; else the player hears why. */
 async function onEndFailed(payload: EndPayload, e: unknown): Promise<void> {
   if (isRetryLater(e)) {
-    await enqueueMutation(MUTATION_END, payload).catch(() => clearEndPending(payload.id));
+    // Not saved to send later either: the island comes back and the player hears why.
+    await enqueueMutation(MUTATION_END, payload).catch((queueError: unknown) => noteEndRefused(payload, queueError));
     return;
   }
   await noteEndRefused(payload, e);
