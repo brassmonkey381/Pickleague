@@ -75,6 +75,16 @@ SUGGESTED WALKTHROUGH
 6. Any other player's profile -> the "..." button offers Report and Block
    (see REPORTING AND BLOCKING below).
 7. Settings -> Blocked players, and Delete account, are both available in-app.
+8. QR wallet (new): Home -> the QR button at the top. Add any image as a code
+   and pick any court; it opens full screen. The player's own invite QR code
+   is built in. This works anywhere.
+9. Drills (new): Home -> Drill. Request a partner, pick a time, then a court,
+   then Confirm; Home's "Up next" follows the request.
+10. Court check-in (new): it needs the phone to be physically at a court (a
+   fresh GPS fix inside the court's boundary, checked on our server), so it
+   cannot be completed from your location. The attached screen recording
+   shows it at a real court, including the arrival notification and its
+   Check in button. Every other feature works without being at a court.
 
 5. EXTERNAL SERVICES USED
 - Supabase (hosted PostgreSQL, Auth, Storage) - user accounts, all league and

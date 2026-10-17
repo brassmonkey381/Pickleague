@@ -22,11 +22,11 @@
         "webcredentials:www.pickleague.club"
       ],
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show nearby courts when searching.",
-        "NSContactsUsageDescription": "Pickleague uses your contacts so you can invite people you already play with to a league or match.",
-        "NSPhotoLibraryUsageDescription": "Pickleague uses your photo library so you can choose a profile picture.",
+        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show courts near you, and to confirm you're at a court when you check in or start a play session there.",
+        "NSContactsUsageDescription": "Pickleague uses your contacts so you can pick people to invite. Only the people you choose are sent.",
+        "NSPhotoLibraryUsageDescription": "Pickleague uses your photo library so you can choose a profile picture, or save your club's QR code to your QR wallet.",
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pickleague can tell you when you arrive at your home court or a court you play at, so you can check in with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pickleague can tell you when you arrive at a court you play at, so you can check in or open your club's QR code with one tap. It never checks you in on its own, and you can turn this off in Settings.",
         "UIBackgroundModes": [
           "location"
         ]
@@ -59,8 +59,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Pickleague uses your location to show nearby courts when searching.",
-          "locationAlwaysAndWhenInUsePermission": "Pickleague can tell you when you arrive at your home court or a court you play at, so you can check in with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+          "locationWhenInUsePermission": "Pickleague uses your location to show courts near you, and to confirm you're at a court when you check in or start a play session there.",
+          "locationAlwaysAndWhenInUsePermission": "Pickleague can tell you when you arrive at a court you play at, so you can check in or open your club's QR code with one tap. It never checks you in on its own, and you can turn this off in Settings.",
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }
@@ -75,14 +75,14 @@
       [
         "expo-contacts",
         {
-          "contactsPermission": "Pickleague uses your contacts so you can pick people to invite to an event vote."
+          "contactsPermission": "Pickleague uses your contacts so you can pick people to invite. Only the people you choose are sent."
         }
       ],
       "expo-secure-store",
       [
         "expo-image-picker",
         {
-          "photosPermission": "Pickleague uses your photo library so you can choose a profile picture.",
+          "photosPermission": "Pickleague uses your photo library so you can choose a profile picture, or save your club's QR code to your QR wallet.",
           "cameraPermission": false,
           "microphonePermission": false
         }
