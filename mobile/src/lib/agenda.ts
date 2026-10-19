@@ -147,6 +147,13 @@ export type AgendaTournamentInput = {
 /** drill_session_rsvps.status: 'on_my_way' is the stored value behind "Confirm". */
 export type DrillRsvp = 'on_my_way' | 'cant_make_it';
 
+/** Either player answered "Can't make it": the session didn't happen, so
+ *  nothing asks for a review of it (the server skips its reminders too,
+ *  migration_drill_cant_make_it_quiet.sql). */
+export function drillCalledOff(rsvps: { status: string }[] | null | undefined): boolean {
+  return (rsvps ?? []).some((r) => r.status === 'cant_make_it');
+}
+
 export type AgendaDrillInput = {
   id: string;
   partnerName: string;

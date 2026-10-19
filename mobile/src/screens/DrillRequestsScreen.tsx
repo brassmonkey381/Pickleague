@@ -20,6 +20,7 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
+import { drillCalledOff } from '../lib/agenda';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillRequest, DrillRequestMessage, DrillSession, RootStackParamList } from '../types';
 import { durationLabel } from '../lib/drillTime';
@@ -208,7 +209,8 @@ export default function DrillRequestsScreen({ route }: Props) {
           *,
           p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
           p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
-          drill_session_reviews(user_id)
+          drill_session_reviews(user_id),
+          drill_session_rsvps(user_id, status)
         `)
         .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
         .order('starts_at', { ascending: false, nullsFirst: false }));
@@ -225,7 +227,8 @@ export default function DrillRequestsScreen({ route }: Props) {
         const started = !r.starts_at || new Date(r.starts_at).getTime() <= now;
         // Only sessions this user hasn't reviewed yet.
         const reviewedByMe = (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === uid);
-        return started && !reviewedByMe;
+        // Not ones either of us called off: they never happened.
+        return started && !reviewedByMe && !drillCalledOff(r.drill_session_rsvps);
       })
       .map(r => ({
         ...r,

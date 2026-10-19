@@ -7,6 +7,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { drillCalledOff } from '../lib/agenda';
 import { useTheme } from '../lib/ThemeContext';
 import { DrillSession, RootStackParamList } from '../types';
 import DrillAvailabilityGrid from '../components/DrillAvailabilityGrid';
@@ -22,7 +23,7 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
 
-type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean };
+type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean; calledOff: boolean };
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Drill'> };
 
@@ -95,7 +96,8 @@ export default function DrillScreen({ navigation }: Props) {
           *,
           p1:profiles!drill_sessions_player1_id_fkey(id, full_name),
           p2:profiles!drill_sessions_player2_id_fkey(id, full_name),
-          drill_session_reviews(user_id)
+          drill_session_reviews(user_id),
+          drill_session_rsvps(user_id, status)
         `)
         .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
         .order('session_date')
@@ -136,6 +138,7 @@ export default function DrillScreen({ navigation }: Props) {
       partner_id: r.player1_id === uid ? r.player2_id : r.player1_id,
       partner_name: r.player1_id === uid ? (r.p2?.full_name ?? 'Unknown') : (r.p1?.full_name ?? 'Unknown'),
       reviewed: (r.drill_session_reviews ?? []).some((rv: any) => rv.user_id === uid),
+      calledOff: drillCalledOff(r.drill_session_rsvps),
     })));
 
     // Build the red overlay list:
@@ -366,6 +369,8 @@ export default function DrillScreen({ navigation }: Props) {
                     {sessionFilter === 'past' && (
                       s.reviewed ? (
                         <Text style={S.sessionReviewed}>✓ Reviewed</Text>
+                      ) : s.calledOff ? (
+                        <Text style={S.sessionReviewed}>Called off</Text>
                       ) : (
                         <TouchableOpacity style={S.sessionReviewBtn} onPress={() => setReviewTarget(s)}>
                           <Text style={S.sessionReviewBtnText}>📝 Review</Text>

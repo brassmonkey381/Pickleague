@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  drillCalledOff,
   AGENDA_CAP,
   agendaVisible,
   agendaWhen,
@@ -456,5 +457,16 @@ describe('league spotlight', () => {
     // Started already (it lives in NOW), and nothing at all.
     expect(spotlightNextLine({ openVotes: 0, nextEventAt: at(0, 9) }, NOW)).toBeNull();
     expect(spotlightNextLine({ openVotes: 0, nextEventAt: null }, NOW)).toBeNull();
+  });
+});
+
+describe('drillCalledOff', () => {
+  it('is true when either player answered cant_make_it', () => {
+    expect(drillCalledOff([{ status: 'on_my_way' }, { status: 'cant_make_it' }])).toBe(true);
+  });
+  it('is false with no answers or only on_my_way', () => {
+    expect(drillCalledOff(null)).toBe(false);
+    expect(drillCalledOff([])).toBe(false);
+    expect(drillCalledOff([{ status: 'on_my_way' }])).toBe(false);
   });
 });
