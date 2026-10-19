@@ -19,7 +19,8 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
 import { useBootstrapSession, signOutSafely, useTimeZoneSync } from '@just-messin-around/expo-foundation/supabase';
 import { getNativeBuild, startNetworkMonitor } from '@just-messin-around/expo-foundation/platform';
-import { OfflineBanner, UpdateReadyBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
+import { OfflineBanner, UpdateRequiredScreen } from '@just-messin-around/expo-foundation/ui';
+import LaunchUpdateHost from '../components/LaunchUpdateHost';
 import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
@@ -365,9 +366,10 @@ export default function AppNavigator() {
       {/* Connectivity banner — renders null while online, so it can sit
           unconditionally next to the toast stack. */}
       <OfflineBanner />
-      {/* "Update ready, restart?" nudge: renders null until an over-the-air
-          bundle has downloaded (never on web or in dev). */}
-      <UpdateReadyBanner text="A Pickleague update is ready. Restart to get the latest." />
+      {/* Applies over-the-air updates on its own: checks behind the splash at
+          launch and after 30+ min away (never mid-session). Null when there's
+          nothing to apply, on web and in dev. */}
+      <LaunchUpdateHost />
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}
