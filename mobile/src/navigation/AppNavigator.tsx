@@ -26,7 +26,9 @@ import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
 import { clearPlayForSignOut } from '../lib/playSession';
 import { endPresenceForSignOut } from '../lib/signOutPresence';
-import { stopCourtGeofencesForSignOut, syncCourtGeofences } from '../lib/courtGeofence';
+import { stopCourtGeofencesForSignOut } from '../lib/courtGeofence';
+import { clearCourtArrivalForSignOut } from '../lib/courtArrival';
+import CourtArrivalHost from '../components/CourtArrivalHost';
 import PlayIsland from '../components/PlayIsland';
 import PlayStartSheetHost from '../components/play/PlayStartSheet';
 import PlayEndSheetHost from '../components/play/PlayEndSheet';
@@ -178,7 +180,10 @@ export default function AppNavigator() {
         resetStreakShown();
         void clearCheckinForSignOut();
         void clearPlayForSignOut();
+        // Stop watching courts, forget their state, arrivals and reminders,
+        // and take down the notices naming them (the next account starts clean).
         void stopCourtGeofencesForSignOut();
+        void clearCourtArrivalForSignOut();
         endSession();
         resetSessionUser(null);
         return;
@@ -215,9 +220,6 @@ export default function AppNavigator() {
     if (!session) return;
     // Flush a pending guest-join destination once the logged-in stack mounts.
     flushPendingNavigation();
-    // Re-pick the fenced courts for arrival alerts (no-op unless turned on in
-    // Settings; never shows a permission sheet here).
-    void syncCourtGeofences();
     (async () => {
       // Guest-pass expiry / revocation: sign out if this is a guest whose 7 days
       // have lapsed, or if the profile is gone entirely (the hourly cleanup
@@ -370,6 +372,9 @@ export default function AppNavigator() {
           launch and after 30+ min away (never mid-session). Null when there's
           nothing to apply, on web and in dev. */}
       <LaunchUpdateHost />
+      {/* Court arrival: watched courts, stale "At X?" notices and the
+          once-a-minute check-in prompt monitor (renders nothing). */}
+      {!updateRequired && phase === 'ready' && <CourtArrivalHost userId={session?.user.id ?? null} />}
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}

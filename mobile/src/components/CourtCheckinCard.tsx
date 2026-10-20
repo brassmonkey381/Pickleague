@@ -32,10 +32,12 @@
 //
 // No court in range offers "Add this court" (SubmitVenue, prefilled with the
 // spot). After the first check-in that goes through, native shows a one-time
-// offer to turn on court arrival alerts (otherwise only in Settings). "Play
-// now" / "Start playing" open the "Where are you playing?" sheet.
+// offer to star that court, so arriving there next time checks you in; it
+// stars, then asks for "Always" location (otherwise the ☆ in the header, or
+// Settings > Check-in automation). "Play now" / "Start playing" open the
+// "Where are you playing?" sheet.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -45,6 +47,7 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
+import { peekQuery } from '@just-messin-around/expo-foundation/cache';
 import { useTheme } from '../lib/ThemeContext';
 import {
   askForLocation,
@@ -75,10 +78,20 @@ import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
 import CrowdLine from './court/CrowdLine';
+import CourtFavoriteStar from './court/CourtFavoriteStar';
 import { noteGoodMoment } from '../lib/ratingPrompt';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { ensurePresenceConsent } from '../lib/presenceConsent';
-import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
+import { COURT_STARS_ENABLED } from '../lib/features';
+import {
+  ALWAYS_LABEL,
+  arrivalSyncMessage,
+  askForArrivalLocation,
+  courtStarsChanged,
+} from '../lib/courtArrivalAsk';
+import { COURT_FAVORITES_KEY, MAX_COURT_FAVORITES, toggleCourtFavorite, type CourtFavorite } from '../data/courtFavorites';
+import { COURT_ARRIVAL_SETTINGS_KEY } from '../data/courtArrival';
+import type { CourtArrivalSettings } from '../lib/courtArrivalRules';
 import type { RootStackParamList } from '../types';
 
 const BOUND_MS = 10_000;
@@ -86,17 +99,25 @@ const BOUND_MS = 10_000;
 const CHECKIN_BOUND_MS = 16_000;
 // Check out waits at most 3 s for its stay-proof fix, then the write as before.
 const CHECKOUT_BOUND_MS = BOUND_MS + CHECKOUT_FIX_WAIT_MS;
-// Set the moment the arrival-alerts offer is shown, so it never asks twice.
-const ALERTS_OFFERED_KEY = 'pickleague_court_alerts_offered_v1';
-const ALWAYS_LABEL = Platform.OS === 'android' ? 'Allow all the time' : 'Always';
+// Set the moment the star offer is shown, so it never asks twice. A new key:
+// build 13's offer (pickleague_court_alerts_offered_v1) was for prompts only.
+const STAR_OFFERED_KEY = 'pickleague_court_star_offered_v1';
 
-/** True once per device: native, alerts off, never offered. Marks it offered. */
-async function claimAlertsOffer(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+/**
+ * True once per device, after a check-in at `venueId`: native, the star
+ * shown, that court not starred yet with room for it, and arrival check-ins
+ * not switched off (as far as this session knows). Marks it offered. Anything
+ * unknown (the star list not loaded) skips without marking, so it can come later.
+ */
+async function claimStarOffer(venueId: string): Promise<boolean> {
+  if (Platform.OS === 'web' || !COURT_STARS_ENABLED) return false;
+  const stars = peekQuery<CourtFavorite[]>(COURT_FAVORITES_KEY);
+  if (!stars || stars.some((f) => f.venue_id === venueId) || stars.length >= MAX_COURT_FAVORITES) return false;
+  const s = peekQuery<CourtArrivalSettings>(COURT_ARRIVAL_SETTINGS_KEY);
+  if (s && (s.court_radius_m <= 0 || !s.auto_checkin)) return false;
   try {
-    if (await AsyncStorage.getItem(ALERTS_OFFERED_KEY)) return false;
-    if (await getCourtAlertsEnabled()) return false;
-    await AsyncStorage.setItem(ALERTS_OFFERED_KEY, '1');
+    if (await AsyncStorage.getItem(STAR_OFFERED_KEY)) return false;
+    await AsyncStorage.setItem(STAR_OFFERED_KEY, '1');
     return true;
   } catch {
     return false; // can't remember we asked, so don't ask
@@ -205,7 +226,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   const lastFix = useRef<DeviceFix | null>(null);
   // Where "Find my court" found nothing: offered as "Add this court".
   const [addAt, setAddAt] = useState<{ lat: number; lng: number } | null>(null);
-  const [alertsOffer, setAlertsOffer] = useState<null | 'ask' | 'busy'>(null);
+  // The one-time "Star this court" offer, for the court just checked in at.
+  const [starOffer, setStarOffer] = useState<null | { venueId: string; venueName: string; busy: boolean }>(null);
   const [alertsResult, setAlertsResult] = useState<string | null>(null);
   const playing = playSession.useLiveSession().status !== 'idle';
   const mode: CourtCardMode = current ? 'checked_in' : nearby ? 'prompt' : 'idle';
@@ -318,7 +340,9 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         if (next.queued) setMessage(QUEUED_CHECKIN_NOTE);
         else {
           noteGoodMoment(); // a check-in that went through (rating prompt)
-          void claimAlertsOffer().then((show) => show && setAlertsOffer('ask'));
+          void claimStarOffer(next.venueId).then(
+            (show) => show && setStarOffer({ venueId: next.venueId, venueName: next.venueName, busy: false }),
+          );
         }
       },
       "Couldn't check you in. Try again.",
@@ -369,28 +393,39 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       { boundMs: CHECKOUT_BOUND_MS, refusal: { venueName: cur.venueName } },
     );
 
-  // Same path as the Settings toggle: the OS sheets ask for Always location;
-  // 0 fenced courts means it couldn't start, so leave it off. Not bounded:
-  // the user may sit on the permission sheet.
-  async function turnOnAlerts() {
-    setAlertsOffer('busy');
+  // The offer accepted: star the court, then the same ask as Settings' Allow
+  // (the OS sheets, only if "Always" is missing). Not bounded: the player may
+  // sit on the permission sheet.
+  async function starAndAsk(offer: { venueId: string; venueName: string }) {
+    // The result line is a live region on Android; iOS has none, so say it.
+    const tell = (text: string) => {
+      setAlertsResult(text);
+      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
+    };
+    setStarOffer({ ...offer, busy: true });
     try {
-      const n = await setCourtAlertsEnabled(true);
-      if (n === 0) {
-        await setCourtAlertsEnabled(false);
-        setAlertsResult(
-          `Arrival alerts are off: they need location set to "${ALWAYS_LABEL}". Change it in your phone's Settings for Pickleague, then turn them on in Settings > Court Arrival Alerts.`,
+      try {
+        await toggleCourtFavorite(offer.venueId, true, offer.venueName);
+      } catch (e) {
+        // The 5-court cap, a court that's gone: why, then what to do.
+        tell(
+          explainRefusal(e, "Couldn't star this court. Try again with the ☆ above.", {
+            action: 'favorite',
+            venueName: offer.venueName,
+          }),
         );
-      } else {
-        setAlertsResult(
-          `Arrival alerts are on for ${n} court${n === 1 ? '' : 's'}. You'll get a notification with a Check in button; it never checks you in on its own.`,
-        );
+        return;
       }
-    } catch {
-      await setCourtAlertsEnabled(false).catch(() => 0);
-      setAlertsResult("Couldn't turn on arrival alerts. Try again in Settings > Court Arrival Alerts.");
+      courtStarsChanged();
+      const r = await askForArrivalLocation();
+      const m = arrivalSyncMessage(r, { noticeOff: r.reason === 'stopped' });
+      tell(
+        m.ok
+          ? `Starred. Next time you arrive at ${offer.venueName} and stay a minute, we'll check you in. Leave within 5 minutes and it doesn't count. Change it in Settings > Check-in automation.`
+          : `Starred. ${m.message}`,
+      );
     } finally {
-      setAlertsOffer(null);
+      setStarOffer(null);
     }
   }
 
@@ -426,35 +461,36 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           style={S.hug}
         />
       ) : null}
-      {alertsOffer ? (
+      {starOffer ? (
         <View style={S.offer}>
-          <Text style={t.body}>Get a nudge when you arrive here next time?</Text>
+          <Text style={t.body}>Star this court and get checked in when you arrive?</Text>
           <Text style={[t.sub, S.gapSm]}>
-            A notification with a Check in button. It never checks you in on its own. Needs location set to "
+            Stay a minute and we check you in. Leave within 5 minutes and it doesn't count. Needs location set to "
             {ALWAYS_LABEL}".
           </Text>
           <View style={S.row}>
             <Button
-              title="Turn on"
+              title="Star it"
               size="sm"
-              loading={alertsOffer === 'busy'}
-              disabled={alertsOffer === 'busy'}
+              loading={starOffer.busy}
+              disabled={starOffer.busy}
               onPress={() => {
                 onTap?.('alerts_on');
-                void turnOnAlerts();
+                void starAndAsk(starOffer);
               }}
             />
             <Button
               title="Not now"
               size="sm"
               variant="outline"
-              disabled={alertsOffer === 'busy'}
-              onPress={tap('alerts_not_now', () => setAlertsOffer(null))}
+              disabled={starOffer.busy}
+              onPress={tap('alerts_not_now', () => setStarOffer(null))}
             />
           </View>
         </View>
       ) : null}
-      {alertsResult ? <Text style={[t.sub, S.gapSm]}>{alertsResult}</Text> : null}
+      {/* Always mounted, so a screen reader hears the star offer's result. */}
+      <View aria-live="polite">{alertsResult ? <Text style={[t.sub, S.gapSm]}>{alertsResult}</Text> : null}</View>
     </>
   );
 
@@ -475,6 +511,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             📍 {current.venueName}
             <Text style={t.sub}> · checked in · til {timeLabel(current.expiresAt)}</Text>
           </Text>
+          {/* Star the court you're at: next time, arriving checks you in. */}
+          <CourtFavoriteStar venueId={current.venueId} venueName={current.venueName} />
           {!playing && (
             <Button
               title="Start playing"
@@ -526,10 +564,11 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   if (nearby) {
     return (
       <Panel padded={false} emphasis style={S.panel}>
-        <View style={S.line}>
-          <Text style={t.title} numberOfLines={2}>
+        <View style={[S.line, S.titleRow]}>
+          <Text style={[t.title, S.flex]} numberOfLines={2}>
             📍 Check in at {nearby.name} for 2 hours?
           </Text>
+          <CourtFavoriteStar venueId={nearby.id} venueName={nearby.name} />
         </View>
         <HereLine key={`${nearby.id}:${rosterKey}`} venueId={nearby.id}>
           <Button
@@ -549,7 +588,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             onPress={tap('not_here', () => setNearby(null))}
           />
         </HereLine>
-        <CrowdLine venueId={nearby.id} venueName={nearby.name} star />
+        {/* No star here: the header has it (one per court on the card). */}
+        <CrowdLine venueId={nearby.id} venueName={nearby.name} />
         {footer}
       </Panel>
     );

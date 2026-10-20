@@ -18,6 +18,8 @@
   table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .94rem; display: block; overflow-x: auto; }
   th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid rgba(128,128,128,.25); vertical-align: top; }
   th { font-weight: 700; }
+  td p { margin: 0 0 .6rem; }
+  td p:last-child { margin-bottom: 0; }
   code { background: rgba(128,128,128,.15); padding: .1rem .3rem; border-radius: 4px; font-size: .9em; }
   a { color: #1f8a4c; }
   .home { display: inline-block; margin-top: 2.5rem; font-size: .92rem; }
@@ -26,7 +28,7 @@
 <body>
 
 <h1>Pickleague Privacy Policy</h1>
-<p class="meta">Last updated 17 October 2026</p>
+<p class="meta">Last updated 20 October 2026</p>
 
 <p>Pickleague is a pickleball league app: you record matches, run leagues and
 tournaments, and track a rating. This policy explains exactly what we collect,
@@ -54,29 +56,61 @@ the website at pickleague.club.</p>
   </tr>
   <tr>
     <td>Precise location</td>
-    <td>To show courts near you when you search, and to confirm you are at a court when you
-        check in or start a play session there. A check-in stores the court, the time, and the
-        one location fix that confirmed it (your coordinates, their accuracy, and the distance to
-        the court); we never record a route or follow you between courts. Background region
-        monitoring is opt-in: only if you turn on <strong>Court Arrival Alerts</strong> and allow
-        location &ldquo;Always&rdquo; does your phone watch up to 20 of your courts while the app is
-        closed, so it can offer a Check in button when you arrive. Who sees your check-ins follows
-        your setting (see the next row). Check-ins are deleted after 180 days.</td>
-    <td>When you search for courts, check in, or start a session at a court; in the background
-        only with Court Arrival Alerts on; always with your permission</td>
+    <td><p>To show courts near you when you search, to offer you a check-in when you are at a
+        court, and to confirm you are at a court when you check in or start a play session
+        there. A check-in you make yourself stores the court, the time, and the one location fix
+        that confirmed it (your coordinates, their accuracy, and the distance to the court); we
+        never record a route or follow you between courts.</p>
+        <p><strong>While Pickleague is open</strong> (the app or the website), and only if you
+        have already allowed location, it reads your location about once a minute and sends it
+        to one server function that looks for a court you are at, so it can offer you a
+        check-in. Those coordinates are used for that one lookup and are never stored or logged.
+        Pickleague never asks for location permission to do this.</p>
+        <p><strong>In the background</strong>, only if you allow location &ldquo;Always&rdquo;,
+        your phone watches up to 20 courts with its own region monitoring: the courts you starred
+        (at most 5) and the courts where you saved a QR code in the QR wallet. No other court is
+        watched, and region monitoring tells Pickleague nothing until you arrive at or leave one
+        of them. When you arrive at a starred court, your phone tells our server which court and
+        when (no coordinates; that note is kept at most 2 hours). If you are still there a minute
+        later, our server
+        <strong>checks you in automatically</strong> for 30 minutes. If you leave within 5
+        minutes of arriving, or tap <strong>Not here</strong> in that time, the check-in is
+        stopped or taken back: it is shown to nobody and counts for nothing. That no longer
+        applies once you confirmed it with <strong>Check in now</strong> or extended it, and
+        Not here after 5 minutes checks you out instead. An automatic check-in stores no location fix,
+        only the court and the time, and earns no rewards until your phone's own location fix
+        confirms you at that court. It starts only after you have chosen who sees you at the
+        courts, and it shows you there like any other check-in (see the next row). Pickleague
+        never checks you out automatically: when you leave while still checked in it can remind
+        you to check out, and otherwise the check-in ends on its own. Where it doesn't check you
+        in automatically, it only sends a check-in prompt. At a court with a saved QR code, your
+        phone offers that code; at one you haven't starred, nothing is sent unless you tap Check
+        in. Each check-in prompt leaves a note of the court and the time, deleted after 2 days,
+        so one court prompts you at most once every 30 minutes.</p>
+        <p>Change or turn this off in <strong>Settings &rarr; Check-in automation</strong>
+        (&ldquo;Notice me at starred courts&rdquo;, &ldquo;Check me in when I arrive&rdquo;, a
+        switch for each starred court, and &ldquo;Prompt me near other courts&rdquo;, off by
+        default), in the QR wallet (&ldquo;Show these codes when I arrive&rdquo;), or by not
+        allowing location &ldquo;Always&rdquo;. Who sees your check-ins follows your setting (see
+        the next row). Check-ins are deleted after 180 days.</p></td>
+    <td>When you search for courts, check in, or start a session at a court; about once a
+        minute while Pickleague is open, if you already allowed location; in the background only
+        if you allow location &ldquo;Always&rdquo;; always with your permission</td>
   </tr>
   <tr>
     <td>Court check-ins and play sessions</td>
     <td>So you, and the people you choose, can see who is playing at a court. A check-in records
-        the court, when you arrived and left, and how it was made (by you, from an arrival alert,
-        or by starting a play session). A play session records its kind (open play, a drill, a
+        the court, when you arrived and left, and how it was made (by you, from a check-in prompt,
+        automatically when you arrived at a starred court, or by starting a play session), and
+        whether an automatic one was taken back. A play session records its kind (open play, a drill, a
         match), its court, and when it started and ended. Who sees your name at a court follows
         <strong>Settings &rarr; Privacy &rarr; Who sees me at the courts</strong>: by default your
         friends and players in closed leagues you share. Everyone else sees only an anonymous
         &ldquo;a player&rdquo; in the count, blocked players never see your name, and you can
         pause sharing or hide from particular players. Check-ins are deleted after 180 days; play
         sessions stay, visible only to you, for your own history.</td>
-    <td>Only when you check in or start a session</td>
+    <td>When you check in or start a session, or when you arrive at a starred court with
+        automatic check-in on</td>
   </tr>
   <tr>
     <td>Contacts &mdash; name and phone number</td>

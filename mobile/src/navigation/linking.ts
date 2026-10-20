@@ -59,7 +59,9 @@ export const linking: LinkingOptions<RootStackParamList> = {
       PlayerProfile: 'players/:userId',
       Claim: 'claim',
       Notifications: 'notifications',
-      Settings: 'settings',
+      // settings/checkins opens "Check-in automation" (the push link of the
+      // same name, lib/pushLinks.ts); plain settings is unchanged.
+      Settings: 'settings/:focus?',
       About: 'about',
       Shop: 'shop',
       GiftPickles: 'gift-pickles',

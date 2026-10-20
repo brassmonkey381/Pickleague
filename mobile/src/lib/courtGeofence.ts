@@ -1,51 +1,86 @@
-// Court arrival alerts (work order 7f): when the phone enters a fenced court,
-// post a local "You're at <court>" notice with a Check in button. It never
-// checks in on its own (lower App Store review risk, and no surprise presence).
-// The button takes a fresh fix like every check-in (no manual check-ins), and
-// the server confirms it. Leaving the court checks out only check-ins this
-// feature opened.
+// Court geofences: which courts the phone watches in the background, and the
+// task the OS wakes when it enters or leaves one (Doggle parity,
+// state/court-arrival-doggle-parity.md B1). What an Enter or Exit then does
+// is lib/courtArrival's.
 //
-// QR wallet (lib/qrWallet): a court with a saved front desk code gets
-// "Tap to show your check-in QR code" instead, and the tap opens the code.
-// Those courts are fenced before any other, so the 20 limit never drops one.
+// Watched, at most 20 (the iOS per-app limit), in this order:
+//   1. QR wallet courts (lib/qrWallet), while "Show these codes when I
+//      arrive" is on for this phone: arriving shows the saved code.
+//   2. Starred courts, while "Notice me at starred courts" is above Off:
+//      arrival check-ins and prompts. A court with a mapped outline gets the
+//      circle of the same area, else the chosen distance (100 m by default).
+// One region per court: a starred QR court keeps its wallet place and code
+// but takes the starred circle. League-home and most-used courts are no
+// longer watched (they were in 1.0.4 build 13).
 //
-// Opt-in per device (Settings), because it needs "Always" location. Fences:
-// QR wallet courts, then my starred courts (with FRIENDS_AT_COURTS_ENABLED; the same order as
-// Home's YOUR COURTS), then my leagues' home courts (the stored
-// leagues.home_venue_id, else the pickleball court at the league's
-// coordinates), then the courts I check in at most; at most 20 (the iOS
-// per-app limit). Starring or unstarring a court re-syncs them.
+// Only an Enter after an Exit is an arrival: every registration makes the OS
+// re-report the regions the phone is already inside (region state below).
+//
+// A sync never asks for location unless `interactive` (starring a court, the
+// court card's offer, Settings' Allow, the QR wallet). If the starred courts
+// can't be read (no signal, nothing saved), the courts already watched stay
+// watched: syncing the rest would drop every starred court until the next
+// good sync, which is exactly when the player is out.
 //
 // defineCourtGeofenceTask() must run at the entry module's scope (index.ts):
 // the OS can wake the app headless to deliver an event. Native only.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { defineGeofenceTask, syncGeofences, type GeofenceRegion } from '@just-messin-around/expo-foundation/tracking';
-import { postLocalNotice } from '@just-messin-around/expo-foundation/platform/push';
-import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import {
+  buildRegions,
+  createRegionMetaStore,
+  createRegionStateStore,
+  defineGeofenceTask,
+  syncGeofencesDetailed,
+  type GeofenceSyncReason,
+} from '@just-messin-around/expo-foundation/tracking';
+import { resolveUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
-import { withTimeout } from '@just-messin-around/expo-foundation/platform';
-import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
-import { checkInAt, checkOut, impreciseFixReason, peekCurrentCheckin, takeCheckinFix } from './courtCheckin';
-import { offersUntrackedSession } from './courtCheckinRules';
-import { FRIENDS_AT_COURTS_ENABLED } from './features';
-import { presenceConsentState } from './presenceConsent';
-import { checkedInVisibilityLine, DEFAULT_PRESENCE_SETTINGS } from './presencePrivacy';
-import { noteRefusalNotice } from './refusalNotices';
-import { QUEUED_CHECKIN_NOTE, queuedRefusalNotice, refusalCopy } from './refusals';
-import { loadPresenceSettings } from '../data/presenceSettings';
-import { getMyLeagueCourts, getVenuesByIds, resolveCourtAt } from '../data/venueCheckins';
-import { listMyCourtFavorites } from '../data/courtFavorites';
-import { listPasses, walletRegionId } from './qrWallet';
+import { track } from './analytics';
+import { listPasses, walletRegionId, type WalletPass } from './qrWallet';
+import { handleCourtArrival, handleCourtDeparture, WALLET_NOTICE_KEY } from './courtArrival';
+import {
+  buildCourtRegionList,
+  MAX_COURT_REGIONS,
+  MAX_REGION_RADIUS_M,
+  mergeCourtRegion,
+  MIN_REGION_RADIUS_M,
+  STARRED_TIER,
+  starredTierRegions,
+  WALLET_TIER,
+  walletTierRegions,
+  type CourtRegionInfo,
+  type StarredCourtGeofence,
+  type WalletRegionSource,
+} from './courtArrivalRules';
+import { traceArrival } from './courtArrivalTrace';
+import { loadCourtArrivalSettings, loadStarredCourtGeofences } from '../data/courtArrival';
 
+/** Install-stable: the OS keeps the regions registered under this name across updates. */
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
-const ENABLED_KEY = 'pickleague_court_alerts_enabled_v1';
-const NAMES_KEY = 'pickleague_court_fence_names_v1';
-const LAST_NOTICE_KEY = 'pickleague_court_fence_last_notice_v1';
-// region id -> QR wallet pass id. Saved at sync, because the headless task
-// can't look the wallet up by user.
-const WALLET_KEY = 'pickleague_court_fence_wallet_v1';
-const RENOTIFY_MS = 3 * 3600_000;
+
+// 1.0.4 build 13's "Court arrival alerts" switch. Nobody outside TestFlight
+// has it, so it now means only "Show these codes when I arrive" (QR wallet
+// notices on this phone): absent or true = on.
+const WALLET_CODES_KEY = 'pickleague_court_alerts_enabled_v1';
+// What build 13 saved at each sync: region id -> name, and -> QR wallet pass.
+// Read only until the first sync of this build replaces the OS's regions,
+// then deleted.
+const LEGACY_NAMES_KEY = 'pickleague_court_fence_names_v1';
+const LEGACY_WALLET_KEY = 'pickleague_court_fence_wallet_v1';
+
+// Inside / outside per region, from the OS's own Enter and Exit events.
+const regionState = createRegionStateStore({ storageKey: 'pickleague_court_region_state_v1' });
+
+// What a wake needs to know about each watched court, saved at each sync.
+// missingMeansMember false: until this build's first sync, the OS still
+// watches build 13's league-home and most-used courts, which are not
+// members now (they stay silent).
+const regionMeta = createRegionMetaStore<CourtRegionInfo>({
+  idsKey: 'pickleague_court_region_ids_v1',
+  infoKey: 'pickleague_court_region_info_v1',
+  missingMeansMember: false,
+});
 
 async function readJson<T>(key: string, fallback: T): Promise<T> {
   try {
@@ -56,256 +91,203 @@ async function readJson<T>(key: string, fallback: T): Promise<T> {
   }
 }
 
-async function onEnter(regionId: string): Promise<void> {
-  const passId = (await readJson<Record<string, string>>(WALLET_KEY, {}))[regionId];
-  // A wallet spot picked by GPS has no court row: "qr:<pass id>".
-  const venueId = regionId.startsWith('qr:') ? null : regionId;
-  const current = await peekCurrentCheckin();
-  const checkedIn = !!venueId && current?.venueId === venueId;
-  if (checkedIn && !passId) return;
-  const last = await readJson<Record<string, number>>(LAST_NOTICE_KEY, {});
-  if (last[regionId] && Date.now() - last[regionId] < RENOTIFY_MS) return;
-  last[regionId] = Date.now();
-  await AsyncStorage.setItem(LAST_NOTICE_KEY, JSON.stringify(last)).catch(() => {});
-  const names = await readJson<Record<string, string>>(NAMES_KEY, {});
-  const name = names[regionId] ?? 'the courts';
-  if (passId) {
-    await postLocalNotice(`You're at ${name}`, 'Tap to show your check-in QR code.', {
-      // Check in stays on the notice at a catalog court you aren't checked in at.
-      ...(venueId && !checkedIn ? { categoryId: catalog.ids.court_checkin.id } : {}),
-      data: { ...(venueId ? { venue_id: venueId } : {}), venue_name: name, deepLink: `wallet/${passId}` },
-    });
-    return;
-  }
-  await postLocalNotice(`You're at ${name}`, 'Check in so other players know you are here.', {
-    categoryId: catalog.ids.court_checkin.id,
-    // A tap opens Home's court card, where Check in lives.
-    data: { venue_id: venueId, venue_name: name, deepLink: 'home/-' },
-  });
+/**
+ * What the last sync saved about a region, or null for one this build
+ * doesn't watch. Before this build's first sync, a QR wallet court that
+ * build 13 watched still opens its code (from the old keys).
+ */
+export async function courtRegionInfo(id: string): Promise<CourtRegionInfo | null> {
+  const info = await regionMeta.get(id).catch(() => null);
+  if (info) return info;
+  const passId = (await readJson<Record<string, string>>(LEGACY_WALLET_KEY, {}))[id];
+  if (!passId) return null;
+  const name = (await readJson<Record<string, string>>(LEGACY_NAMES_KEY, {}))[id];
+  return { name: name ?? 'the courts', starred: false, autoCheckin: false, passId };
 }
 
-async function onExit(venueId: string): Promise<void> {
-  const current = await peekCurrentCheckin();
-  if (current && current.venueId === venueId && current.source === 'geofence') {
-    // No check-out fix: I've left the fence, so one taken here proves no stay.
-    // No signal queues it; a refusal is said (the player isn't watching).
-    const tapMs = Date.now();
-    await checkOut(current.id, 'geofence', { fix: false }).catch((e: unknown) =>
-      noteRefusalNotice({
-        key: `checkout:${current.id}`,
-        title: "Check-out didn't go through",
-        body: queuedRefusalNotice({
-          what: 'check_out',
-          venueName: current.venueName,
-          tapMs,
-          error: e,
-          untilMs: Date.parse(current.expiresAt),
-        }),
-        link: 'home/-',
-      }),
-    );
-  }
+/** A starred court the phone watches (the foreground monitor leaves its arrivals to the geofence). */
+export async function isStarredCourtRegion(id: string): Promise<boolean> {
+  return (await regionMeta.get(id).catch(() => null))?.starred === true;
+}
+
+/**
+ * A per-court switch changed in Settings: wakes see it before the next sync.
+ * Does nothing for a court the phone doesn't watch.
+ */
+export function patchCourtRegionInfo(id: string, partial: Partial<CourtRegionInfo>): Promise<void> {
+  return regionMeta.patch(id, partial).catch(() => undefined);
 }
 
 /** Call once from index.ts at module scope. */
 export function defineCourtGeofenceTask(): void {
-  defineGeofenceTask(COURT_GEOFENCE_TASK, {
-    onEnter: (e) => onEnter(e.id),
-    onExit: (e) => onExit(e.id),
-  });
+  defineGeofenceTask(
+    COURT_GEOFENCE_TASK,
+    {
+      // The info read starts here and is awaited after the arrival is marked.
+      onEnter: (e) => handleCourtArrival(e.id, { arrival: e.arrival === true, info: courtRegionInfo(e.id) }),
+      onExit: (e) => handleCourtDeparture(e.id, { info: courtRegionInfo(e.id) }),
+    },
+    { regionState },
+  );
 }
 
-// The button's deadline: a 5 s fix, then the up-to-9 s write (the kit default
-// of 10 s cut real refusals off as "May not have saved").
-const COURT_CHECKIN_TIMEOUT_MS = 15_000;
-
-/** Who sees me now, from the cached settings (defaults when unreadable within 1 s). */
-async function visibilityNow(): Promise<string> {
-  const s = await withTimeout(loadPresenceSettings(), 1_000).catch(() => DEFAULT_PRESENCE_SETTINGS);
-  return checkedInVisibilityLine(s, Date.now());
-}
-
-registerActionHandler('court_checkin', {
-  timeoutMs: COURT_CHECKIN_TIMEOUT_MS,
-  success: (res) => ({
-    title: 'Checked in',
-    body: (res as { visibility?: string } | null)?.visibility ?? 'Other players can see you are here.',
-  }),
-  // The server takes it up to 12 hours after the tap (migration_checkin_tap_time.sql).
-  queued: { title: 'Checked in', body: QUEUED_CHECKIN_NOTE },
-  run: async (d) => {
-    const runStart = Date.now();
-    await requireUser();
-    if (!d.venue_id) {
-      throw new NeedsApp("This alert didn't say which court you're at. Open Pickleague to check in.", 'home/-', 'Not checked in');
-    }
-    const court = d.venue_name ?? null;
-    // The one-time "who sees you at the courts" sheet can't show on the lock
-    // screen: until it was accepted, check in from the app. No connection is
-    // its own reason (the answer may be on the server).
-    const consent = await presenceConsentState();
-    if (consent !== 'yes') {
-      throw new NeedsApp(
-        consent === 'unknown'
-          ? refusalCopy('consent.unknown_offline')
-          : 'First choose who sees you at the courts. Open Pickleague to choose, then check in.',
-        'home/-',
-        'Not checked in',
-      );
-    }
-    // Arrival alerts run on "Always" location, so this reads a fix without a
-    // dialog. 5 s leaves the write its share of the button's deadline.
-    const fix = await takeCheckinFix(5_000);
-    if (!fix) {
-      // An approximate location (Precise Location off) says so; else no fix at all.
-      throw new NeedsApp(
-        impreciseFixReason() ??
-          "Pickleague couldn't get your location to confirm you're at the court. Open Pickleague at the court to check in.",
-        'home/-',
-        'Not checked in',
-      );
-    }
-    try {
-      const c = await checkInAt({ id: d.venue_id, name: court ?? 'the courts' }, fix, { source: 'geofence' });
-      return c.queued ? { queued: true } : { ...c, visibility: await visibilityNow() };
-    } catch (e) {
-      // A refusal that lands after the button's deadline (its "May not have
-      // saved" notice is already up) still reaches the player.
-      if (Date.now() - runStart >= COURT_CHECKIN_TIMEOUT_MS - 250) {
-        void noteRefusalNotice({
-          key: `court_checkin:${d.venue_id}:${runStart}`,
-          title: "Check-in didn't go through",
-          body: queuedRefusalNotice({ what: 'check_in', venueName: court, tapMs: runStart, error: e }),
-          link: 'home/-',
-        });
-      }
-      // Why, in words: how far from the court, too vague, out of date, the
-      // court is gone, signed out (lib/refusals).
-      const why = refusalNeedsApp(e, { venueName: court, action: 'check_in' }, 'home/-');
-      if (why) throw why;
-      if (offersUntrackedSession(e)) throw new NeedsApp((e as Error).message, 'home/-', 'Not checked in');
-      throw e;
-    }
-  },
-});
-
-export async function getCourtAlertsEnabled(): Promise<boolean> {
-  return (await readJson<boolean>(ENABLED_KEY, false)) === true;
-}
-
-/** Which courts to fence: QR wallet courts, starred courts, league home courts, then my most-used check-in courts. */
-async function pickRegions(): Promise<{
-  regions: GeofenceRegion[];
-  names: Record<string, string>;
-  wallet: Record<string, string>;
-}> {
-  const uid = await currentUserId(supabase);
-  if (!uid) return { regions: [], names: {}, wallet: {} };
-  const regions: GeofenceRegion[] = [];
-  const names: Record<string, string> = {};
-  const wallet: Record<string, string> = {};
-  const add = (v: { id: string; name: string; lat: number; lng: number; radius?: number | null }) => {
-    if (names[v.id] || regions.length >= 20) return;
-    names[v.id] = v.name;
-    regions.push({ id: v.id, lat: v.lat, lng: v.lng, radiusM: v.radius ?? 100 });
-  };
-
-  // One pass per court is enough to open the wallet; the first saved wins.
-  for (const p of await listPasses()) {
-    const id = walletRegionId(p);
-    if (wallet[id]) continue;
-    add({ id, name: p.venueName, lat: p.lat, lng: p.lng });
-    if (names[id]) wallet[id] = p.id;
-  }
-
-  // Then starred courts, as in YOUR COURTS (ids are already canonical; the
-  // RPC has no radius, so the default). A failed read never drops the rest.
-  if (FRIENDS_AT_COURTS_ENABLED) {
-    const favs = await listMyCourtFavorites().catch(() => []);
-    for (const f of favs) {
-      if (f.lat == null || f.lng == null) continue;
-      add({ id: f.venue_id, name: f.venue_name, lat: f.lat, lng: f.lng });
-    }
-  }
-
-  const leagues = await getMyLeagueCourts(uid);
-  const stored = await getVenuesByIds([
-    ...new Set(leagues.map((l) => l.home_venue_id).filter((id): id is string => !!id)),
-  ]).catch(() => []);
-  for (const l of leagues) {
-    const home = l.home_venue_id ? stored.find((v) => v.id === l.home_venue_id) : null;
-    if (home) {
-      add({ id: home.id, name: home.name, lat: home.lat, lng: home.lng, radius: home.geofence_radius_m });
-      continue;
-    }
-    if (l.home_court_lat == null || l.home_court_lng == null) continue;
-    const v = await resolveCourtAt(l.home_court_lat, l.home_court_lng, 200).catch(() => null);
-    if (v) add({ id: v.id, name: v.name, lat: v.lat, lng: v.lng });
-  }
-
-  const recent = ((await sbCall(
-    () =>
-      supabase
-        .from('venue_checkins')
-        .select('venue_id, venues(name, lat, lng, geofence_radius_m)')
-        .eq('user_id', uid)
-        .order('checked_in_at', { ascending: false })
-        .limit(60),
-    { timeoutMs: 9_000 },
-  )) ?? []) as unknown as {
-    venue_id: string;
-    venues: { name: string; lat: number; lng: number; geofence_radius_m: number | null } | null;
-  }[];
-  const counts = new Map<string, { n: number; v: NonNullable<(typeof recent)[number]['venues']> }>();
-  for (const r of recent) {
-    if (!r.venues) continue;
-    const cur = counts.get(r.venue_id);
-    counts.set(r.venue_id, { n: (cur?.n ?? 0) + 1, v: r.venues });
-  }
-  for (const [id, { v }] of [...counts.entries()].sort((a, b) => b[1].n - a[1].n)) {
-    add({ id, name: v.name, lat: v.lat, lng: v.lng, radius: v.geofence_radius_m });
-  }
-  return { regions, names, wallet };
+// ── QR wallet codes on arrival (this phone) ─────────────────────────────────
+/** "Show these codes when I arrive": absent or true = on. */
+export async function getWalletArrivalCodesOn(): Promise<boolean> {
+  return (await readJson<unknown>(WALLET_CODES_KEY, true)) !== false;
 }
 
 /**
- * Turn arrival alerts on or off for this device. Turning on asks for Always
- * location (the OS sheet), so only call it with `interactive` from the
- * Settings toggle. Returns how many courts are fenced (0 = off / not allowed).
+ * Turn the QR wallet notices on or off for this phone, then resync.
+ * `interactive` (the wallet screen turning it on) may ask for "Always"
+ * location.
  */
-export async function setCourtAlertsEnabled(on: boolean): Promise<number> {
-  if (Platform.OS === 'web') return 0;
-  await AsyncStorage.setItem(ENABLED_KEY, JSON.stringify(on)).catch(() => {});
-  if (!on) {
-    await syncGeofences(COURT_GEOFENCE_TASK, []);
-    return 0;
-  }
-  return syncCourtGeofences(true);
+export async function setWalletArrivalCodesOn(
+  on: boolean,
+  opts: { interactive?: boolean } = {},
+): Promise<CourtGeofenceSyncResult> {
+  await AsyncStorage.setItem(WALLET_CODES_KEY, JSON.stringify(on)).catch(() => {});
+  return syncCourtGeofences({ interactive: on && opts.interactive === true });
 }
 
-/** Re-sync the fenced courts (startup: never shows a permission sheet). Never throws. */
-export async function syncCourtGeofences(interactive = false): Promise<number> {
-  if (Platform.OS === 'web') return 0;
+// ── Sync ────────────────────────────────────────────────────────────────────
+/**
+ * The foundation's reasons (ok, stopped, unsupported, no-foreground,
+ * no-background, error: the OS call threw), plus `offline`: the starred
+ * courts or the settings couldn't be read, so the courts already watched
+ * were kept.
+ */
+export type CourtGeofenceSyncReason = GeofenceSyncReason | 'offline';
+export type CourtGeofenceSyncResult = { count: number; reason: CourtGeofenceSyncReason };
+
+function walletSources(passes: WalletPass[]): WalletRegionSource[] {
+  return passes.map((p) => ({ regionId: walletRegionId(p), passId: p.id, name: p.venueName, lat: p.lat, lng: p.lng }));
+}
+
+/**
+ * The first sync that replaced build 13's regions: its saved names and wallet
+ * map go, and the QR notice's 3-hour stamps keep only QR wallet courts.
+ */
+async function forgetLegacyRegions(wallet: WalletRegionSource[]): Promise<void> {
   try {
-    if (!(await getCourtAlertsEnabled())) return 0;
-    const { regions, names, wallet } = await pickRegions();
-    await AsyncStorage.multiSet([
-      [NAMES_KEY, JSON.stringify(names)],
-      [WALLET_KEY, JSON.stringify(wallet)],
-    ]).catch(() => {});
-    return await syncGeofences(COURT_GEOFENCE_TASK, regions, {
-      skipPermissionRequest: !interactive,
-      minRadiusM: 75,
-      maxRadiusM: 300,
-    });
+    const [[, names], [, old]] = await AsyncStorage.multiGet([LEGACY_NAMES_KEY, LEGACY_WALLET_KEY]);
+    if (names == null && old == null) return;
+    await AsyncStorage.multiRemove([LEGACY_NAMES_KEY, LEGACY_WALLET_KEY]);
+    const stamps = await readJson<Record<string, unknown> | null>(WALLET_NOTICE_KEY, null);
+    if (stamps && typeof stamps === 'object') {
+      const keep = new Set(wallet.map((w) => w.regionId));
+      const next = Object.fromEntries(Object.entries(stamps).filter(([id]) => keep.has(id)));
+      await AsyncStorage.setItem(WALLET_NOTICE_KEY, JSON.stringify(next));
+    }
   } catch {
-    return 0;
+    // best-effort: the stamps age out in 3 hours anyway
   }
 }
 
-/** Sign-out: stop fencing (the next account picks its own courts). */
-export async function stopCourtGeofencesForSignOut(): Promise<void> {
-  if (Platform.OS === 'web') return;
-  await syncGeofences(COURT_GEOFENCE_TASK, []).catch(() => 0);
-  await AsyncStorage.multiRemove([NAMES_KEY, LAST_NOTICE_KEY, WALLET_KEY]).catch(() => {});
+async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
+  if (Platform.OS === 'web') return { count: 0, reason: 'unsupported' };
+  try {
+    const who = await resolveUserId(supabase);
+    // Can't tell who is signed in right now (an access token that expired
+    // with no signal to refresh it: opening the app at a park an hour after
+    // last using it): keep what is watched, as for any read that fails.
+    if (!who.resolved) {
+      traceArrival('sync', { reason: 'offline', interactive, session: 'unresolved' });
+      return { count: 0, reason: 'offline' };
+    }
+    // Signed out: watch nothing (the next account picks its own courts).
+    if (!who.userId) return await syncGeofencesDetailed(COURT_GEOFENCE_TASK, []);
+    // Unreadable with nothing saved: keep what is watched. (Doggle, with its
+    // settings unreadable, dropped every favorite.)
+    const settings = await loadCourtArrivalSettings().catch(() => null);
+    if (!settings) return { count: 0, reason: 'offline' };
+    const codesOn = await getWalletArrivalCodesOn();
+    let wallet: WalletRegionSource[] = [];
+    let starred: StarredCourtGeofence[] = [];
+    const built = await buildRegions(
+      [
+        {
+          name: WALLET_TIER,
+          load: async () => {
+            wallet = codesOn ? walletSources(await listPasses()) : [];
+            return walletTierRegions(wallet);
+          },
+        },
+        {
+          name: STARRED_TIER,
+          // Read fresh at every sync (a star from another device); the saved
+          // copy stands in when offline, and with none the sync is skipped.
+          required: true,
+          load: async () => {
+            starred = settings.court_radius_m > 0 ? await loadStarredCourtGeofences(true) : [];
+            return starredTierRegions(starred, settings.court_radius_m);
+          },
+        },
+      ],
+      { merge: mergeCourtRegion },
+    );
+    if (built.abort) {
+      traceArrival('sync', { reason: 'offline', interactive });
+      return { count: 0, reason: 'offline' };
+    }
+    const { regions, info } = buildCourtRegionList(built, { wallet, starred });
+    // Saved before registering: the OS re-reports every region at once, and
+    // those wakes read it.
+    await regionMeta.set(info);
+    const res = await syncGeofencesDetailed(COURT_GEOFENCE_TASK, regions, {
+      skipPermissionRequest: !interactive,
+      minRadiusM: MIN_REGION_RADIUS_M,
+      maxRadiusM: MAX_REGION_RADIUS_M,
+      maxRegions: MAX_COURT_REGIONS,
+      // Counted only when a sheet actually shows (the foundation calls these then).
+      onPermissionAsked: (kind) => track('location.permission_asked', { kind, surface: 'court_arrival' }),
+      onPermissionResult: (kind, granted) =>
+        track('location.permission_result', { kind, granted, surface: 'court_arrival' }),
+    });
+    if (res.reason === 'ok' || res.reason === 'stopped') await forgetLegacyRegions(wallet);
+    traceArrival('sync', { count: res.count, reason: res.reason, interactive });
+    return res;
+  } catch {
+    return { count: 0, reason: 'error' };
+  }
+}
+
+// One sync at a time, in order: a star, a Settings change and the app coming
+// to the front often ask together. A request made while another waits joins
+// it (asking for location if either did); the sign-out's stop queues behind.
+let tail: Promise<unknown> = Promise.resolve();
+let waiting: { interactive: boolean; promise: Promise<CourtGeofenceSyncResult> } | null = null;
+
+/**
+ * Re-pick the watched courts. Never shows a permission sheet unless
+ * `interactive`. Resolves how many are watched and why; never throws.
+ */
+export function syncCourtGeofences(opts: { interactive?: boolean } = {}): Promise<CourtGeofenceSyncResult> {
+  const interactive = opts.interactive === true;
+  if (waiting) {
+    waiting.interactive = waiting.interactive || interactive;
+    return waiting.promise;
+  }
+  const req = { interactive } as { interactive: boolean; promise: Promise<CourtGeofenceSyncResult> };
+  req.promise = tail.then(() => {
+    if (waiting === req) waiting = null;
+    return runSync(req.interactive);
+  });
+  tail = req.promise.catch(() => undefined);
+  waiting = req;
+  return req.promise;
+}
+
+/** A real sign-out: stop watching, and forget every court's state and info. */
+export function stopCourtGeofencesForSignOut(): Promise<void> {
+  const run = tail.then(async () => {
+    if (Platform.OS !== 'web') await syncGeofencesDetailed(COURT_GEOFENCE_TASK, []).catch(() => null);
+    await Promise.all([
+      regionState.clear().catch(() => undefined),
+      regionMeta.clear().catch(() => undefined),
+      AsyncStorage.multiRemove([LEGACY_NAMES_KEY, LEGACY_WALLET_KEY]).catch(() => {}),
+    ]);
+  });
+  tail = run.catch(() => undefined);
+  return run.catch(() => undefined);
 }

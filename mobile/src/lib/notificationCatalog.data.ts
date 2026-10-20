@@ -187,17 +187,36 @@ export const CATALOG = {
       league_join: { buttonTitle: 'Join', authenticationRequired: true },
     },
   },
-  // Local reminder 5 minutes before a court check-in expires.
+  // A check-in that is running: the local reminder 5 minutes before it ends,
+  // the server's "✅ Checked in at X" and "Still at X?" after an arrival
+  // check-in (and the phone's own copies for players it can't push to), and
+  // "Leaving X?". Every one carries the check-in's id: Check out without one
+  // checks out every open check-in.
   checkin_extend: {
     actions: {
       checkin_extend: { buttonTitle: 'Stay 1 more hour' },
       checkin_out: { buttonTitle: 'Check out' },
     },
   },
-  // Local notice when the phone enters a fenced court. Never auto-checks in.
+  // "Check in nearby?" where the automatic check-in doesn't apply (switched
+  // off, a play session running, no signal...): the server's push, or the
+  // phone's own copy, and the QR wallet notice at a catalog court. Check in
+  // takes a fresh fix like every check-in. Not now writes nothing (no handler).
   court_checkin: {
     actions: {
-      court_checkin: { buttonTitle: 'Check in' },
+      court_checkin: { buttonTitle: '✅ Check in' },
+      court_dismiss: { buttonTitle: 'Not now', destructive: true },
+    },
+  },
+  // "At <court>? 🏓": posted by the phone the moment it arrives at a starred
+  // court; the server checks the player in a minute later unless they leave
+  // (lib/courtArrival). Check in now is the same check-in as Check in above;
+  // Not here stops the arrival, or takes back the check-in it already became.
+  // Local only and registered from JS, so an OTA can add it.
+  court_arriving: {
+    actions: {
+      court_checkin_now: { buttonTitle: '✅ Check in now' },
+      court_not_here: { buttonTitle: 'Not here', destructive: true },
     },
   },
   // Local "starting now" for a scheduled drill session or match.

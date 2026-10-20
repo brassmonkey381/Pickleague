@@ -73,6 +73,19 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    backdated-tap and closed-before-stored assertions moved to the new behaviour), all passing against the live DB
    in a rolled-back transaction on 2026-10-16. Release: this SQL first, then the OTA.
 
+9. **Court arrival** (decided 2026-10-19; three files), after file 8 and `migration_admin_venue_boundary.sql`, in this order:
+   `supabase/migration_court_arrival_settings.sql` (settings, the per-court switch, the cleared-outline area fix),
+   `supabase/migration_court_arrival_queue.sql` (the queue, the minute, the take-back, "Still at", the expiry
+   push, rewards S4, hygiene, cron) and `supabase/migration_court_checkin_prompt.sql` (the "Check in nearby?" push
+   and the app-open scan), then the hardening re-run (its allowlist names the ten new client RPCs). Re-apply the
+   queue file right after any re-run of `migration_validity_rules.sql`, `migration_venue_checkins.sql`,
+   `migration_presence_p1_hygiene.sql` or `migration_moderation_report_block.sql`, and the settings file after any
+   re-run of `migration_add_venue_geofences.sql`: they put older bodies back. Before applying,
+   `supabase/tests/check-replaced-functions.mjs` compares the live bodies of the functions the queue file replaces
+   with the files they came from. The persona build applies the three files after file 8 and again after the
+   re-runs; `supabase/tests/court_arrival_personas.sql` has not run live yet. See
+   [Court arrival](#court-arrival-2026-10-19).
+
 ## Where the SQL differs from or sharpens this contract (2026-10-16)
 
 Signatures are exactly as below. Behaviour details the clients should know (error texts quoted here are the
@@ -178,7 +191,7 @@ presence_settings(user_id uuid pk -> profiles on delete cascade,
                   checkins_level text not null default 'leaguemates'  -- everyone|leaguemates|friends|hidden
                   plans_level    text not null default 'friends'      -- leaguemates|friends|hidden
                   paused_until timestamptz, consent_seen_at timestamptz,
-                  auto_checkin boolean not null default false,          -- read in Phase 2
+                  auto_checkin boolean not null default false,          -- default true since court arrival
                   updated_at timestamptz not null default now())         -- owner-only select, no write policies
 presence_hidden_from(user_id uuid, hidden_user_id uuid, created_at, pk(user_id, hidden_user_id))  -- owner-only
 friendships(id uuid pk, requester_id uuid, addressee_id uuid,
@@ -195,6 +208,10 @@ presence_closed_ids(user_id uuid, id uuid, closed_at, created_at, pk(user_id, id
 Phase 1.5 adds `venue_checkins.stay_confirmed` + check-out fix columns, `matches.play_session_id` and
 `play_sessions.valid` / `valid_reason` / `validated_at` / `rewards_pending_confirmation`: see
 [Phase 1.5](#phase-15-validity-rules).
+
+Court arrival adds the check-in automation settings to `presence_settings`, `court_favorites.auto_checkin`, the
+arrival columns on `venue_checkins` and the internal `pl_pending_arrivals` / `pl_throttle`: see
+[Court arrival](#court-arrival-2026-10-19).
 
 RLS: `venue_checkins_read` and `play_sessions_read` become `using (user_id = auth.uid())`. Clients may update only
 `league_members.role` (column grant), and no one may change a membership's `league_id` / `user_id` (trigger). Since
@@ -294,6 +311,10 @@ hide_presence_from(p_user uuid, p_hidden boolean) returns boolean
 list_presence_hidden() returns table(user_id uuid, full_name text, avatar_url text, avatar_emoji text, avatar_bg_color text)
 ```
 
+Since court arrival these are unchanged, and `get_my_presence_settings` still answers `auto_checkin` false when
+there is no row. The app reads and writes the check-in automation settings only through
+`get_court_arrival_settings` / `set_court_arrival_settings` ([Court arrival](#court-arrival-2026-10-19)).
+
 Internal (revoked from clients): `are_friends(a,b)`, `share_closed_league(a,b)`,
 `_pl_can_see_presence(viewer uuid, owner uuid, p_kind text) returns text` → `'named' | 'anonymous' | 'none'`:
 self → named; deleted owner → none; blocked either way → anonymous (counted, never named, whatever the level);
@@ -357,6 +378,10 @@ set_court_favorite(p_venue text, p_on boolean) returns boolean   -- canonicalise
 list_my_court_favorites() returns table(venue_id text, venue_name text, lat double precision, lng double precision)
 ```
 
+Both unchanged since court arrival. A star now also carries `court_favorites.auto_checkin` (default true;
+unstarring deletes the row, so a re-star starts on), read by `list_starred_court_geofences` and set by
+`set_starred_court_auto_checkin` ([Court arrival](#court-arrival-2026-10-19)).
+
 ## Notifications produced in Phase 1
 
 | kind (`push_data.kind`) | type | category (pref key) | entity_type / entity_id | deep link | buttons |
@@ -375,7 +400,9 @@ request" / "You'll see each other at the courts now." (names via the viewer-safe
   presence_hidden_from (both columns), friendships, close_friends (both), court_favorites and presence_closed_ids
   for the user.
 - Daily pg_cron job `pickleague-presence-retention` deletes venue_checkins older than 180 days, friend request log
-  rows older than 30 days and presence_closed_ids older than 2 days.
+  rows older than 30 days and presence_closed_ids older than 2 days. Since court arrival it also deletes
+  `pl_throttle` rows older than 2 days, and `_purge_account` also deletes the account's `pl_pending_arrivals`
+  (first), `pl_throttle` rows (scope = its id) and `push_outbox` rows.
 - Client: before `signOutSafely`, best-effort `checkout_venue(null, null, now)` and `end_play_session` for the open
   session, each bounded to 3 s, never blocking sign-out (`mobile/src/lib/signOutPresence.ts`, called from
   SettingsScreen doSignOut, the GuestJoinScreen rollback and AppNavigator's expired-guest sign-out). `p_source` is
@@ -987,3 +1014,183 @@ Matching how check-ins expire (`expires_at = tap + minutes`; the 10-minute `expi
   the island idle the session's own check-in decides: stored, confirmed and not after it ended means it checked me
   in (say nothing). A failed read is retried on the next resume, never read as "no check-in".
 - `offersUntrackedSession` also offers the untracked session after `fix.after_tap` and `checkin.too_old`.
+
+## Court arrival (2026-10-19)
+
+Decided by the user 2026-10-19 ([plan, Court arrival](./play-sessions-presence.md#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19)):
+automatic check-in at starred courts (Doggle parity) ships in 1.0.4 build 14. SQL: file 9 above (three files),
+written on `court-arrival-parity` (`584c1df`), not applied yet. Every client RPC below is SECURITY DEFINER,
+`search_path = ''`, revoked from public and anon, granted to authenticated and on the hardening allowlist; every
+internal one is revoked from authenticated too. No new refusal codes: signed out is `pl:auth.signed_out`, a bad
+argument `pl:request.bad`, a removed court (the prompt only) `pl:court.gone`; everything else is an answer.
+
+### Schema
+
+```
+presence_settings + court_radius_m       int not null default 100  check in (0,100,250,1000)  -- "Notice me at starred courts"
+                  + other_court_radius_m int not null default 0    (same check)               -- "Prompt me near other courts"
+                  + departure_reminder   boolean not null default true                        -- "Remind me to check out when I leave"
+                  + auto_checkin_set_at  timestamptz       -- when the player last chose "Check me in when I arrive"; null = never
+                    auto_checkin: default now true, and set true once on every row whose player never chose
+court_favorites   + auto_checkin boolean not null default true    -- the per-court switch; unstar deletes, re-star = on
+venue_checkins    + via_arrival        boolean not null default false  -- made by process_court_arrivals
+                  + arrival_confirmed  boolean not null default false  -- Check in now pressed: no take-back
+                  + taken_back_at      timestamptz                     -- taken back: closed, location_confirmed false
+                  + arrival_closed_ids uuid[]                          -- my check-ins elsewhere it closed (S11)
+                    index venue_checkins_arrival_open_idx (expires_at) where via_arrival and checked_out_at is null
+pl_pending_arrivals(user_id uuid -> profiles on delete cascade, venue_id text /* canonical, no FK on purpose */,
+                    arrived_at, due_at, cancelled_at, checkin_id uuid, created_at, pk(user_id, venue_id))
+                    -- an arrival waiting out its minute, or an Exit / Not here marker; no coordinates;
+                    -- RLS on, no policies, no client privileges; markers purged after 2 h
+pl_throttle(scope text, kind text, key text, last_at, pk(scope, kind, key))
+                    -- vendored foundation throttle (_pl_throttle_ok); scope = the player's id; kinds
+                    -- 'court_prompt' (key = venue, 30 min) and 'arrival_extend' (key = check-in id, once)
+venues              index venues_lat_lng_idx (lat, lng); venue_set_geom: a cleared outline also clears area_sqm
+```
+
+An arrival check-in is `source = 'geofence'`, `via_arrival`, `location_confirmed` (shown like any check-in),
+`checked_in_at` = the arrival, `expires_at` = the arrival + 30 min, and has **no fix** (S4): `arrival_fix_at`
+stays null, so `at_court` skips it (`_pl_session_validity`: `and not (c.via_arrival and c.arrival_fix_at is
+null)`), it proves no stay and earns nothing. Its first real fix (`_pl_checkin_stay_from_fix` on extend, a repeat
+check-in or a Start that adopts it; `_pl_record_checkout_fix` on a check-out fix taken during it) becomes its
+arrival fix and confirms no stay; a fix 5+ minutes after that one confirms the stay. `_pl_checkin_arrival_fix`
+leaves it null on insert.
+
+### RPCs (client)
+
+```
+get_court_arrival_settings() returns jsonb
+  -- {court_radius_m, other_court_radius_m, auto_checkin, auto_checkin_set_at, departure_reminder, consent_seen}
+  -- no row: 100, 0, true, null, true; consent_seen = consent_seen_at is not null
+set_court_arrival_settings(p_radius_m int default null, p_other_radius_m int default null,
+                           p_auto boolean default null, p_departure boolean default null) returns jsonb
+  -- null leaves a field as it is; a radius not in (0,100,250,1000) raises pl:request.bad;
+  -- p_auto (either way) stamps auto_checkin_set_at; returns the settings as above
+list_starred_court_geofences() returns jsonb
+  -- [{venue_id, name, lat, lng, radius_m, auto_checkin}] by name; radius_m = round(sqrt(area_sqm / pi()))::int
+  -- when the court has a mapped outline, else null (the phone uses court_radius_m); the phone clamps to 50-800 m
+set_starred_court_auto_checkin(p_venue text, p_on boolean) returns boolean   -- false when that court isn't starred
+queue_court_arrival(p_venue text, p_arrived_at timestamptz default null, p_checkin_id uuid default null)
+  returns jsonb   -- {queued, reason?, open?, pushable, due_at?, checkin_id?}
+cancel_court_arrival(p_venue text default null, p_left_at timestamptz default null,
+                     p_not_here boolean default false) returns jsonb   -- {dropped, closed, removed}
+confirm_court_arrival(p_venue text) returns boolean
+court_arrival_pending(p_venue text) returns boolean
+enqueue_court_checkin_prompt(p_venue text, p_venue_name text default null, p_reason text default null)
+  returns jsonb   -- {enqueued, reason?, pushable}
+court_prompt_scan(p_lat double precision, p_lng double precision, p_scan_m integer) returns jsonb
+  -- {inside: {venue_id, name} | null, nearby: [{venue_id, name, distance_m, starred, has_outline}]}
+```
+
+- `get_court_arrival_settings` is the only client-facing reader of `auto_checkin` (the server's
+  `_pl_court_arrival_off` reads it too). `get_my_presence_settings` and the other 1.0.4 RPCs are unchanged.
+- `queue_court_arrival` (the geofence Enter of a real arrival) answers in this order: `court_gone`; `off`
+  (switched off everywhere: "Check me in when I arrive" off, or "Notice me at starred courts" at Off) /
+  `off_here` (that court's switch off) / `not_starred`; `no_consent` (who sees me at the courts not chosen yet);
+  `already_checked_in` with `open: true` (an open check-in of mine at that court, never a taken-back one);
+  `recently_left` (an Exit or Not here there under 10 minutes before this arrival); `left` (an Exit from after
+  this arrival already landed); else `queued` with `due_at` (the arrival + 1 min) and `checkin_id`. A second
+  Enter for the same arrival keeps the first one's time and id. `p_arrived_at` is kept when under 10 minutes old,
+  else now. `p_checkin_id` is the id the check-in will get (a fresh one when missing or already used). Every answer
+  carries `pushable`: a push token AND `pushEnabled` exactly true AND `notifyAutoCheckins` not false. No cooldown:
+  only an open check-in there stops an arrival. The app prompts "Check in nearby?" for any reason except
+  `already_checked_in`, `left` and `court_gone`.
+- `cancel_court_arrival` (an Exit at `p_left_at`, kept within 2 hours, else now; or Not here at the press):
+  `dropped` = an arrival still waiting out its minute was stopped (with none, a marker refuses a late Enter from
+  before it and holds off the next arrival there for 10 minutes); `removed` = it had become a check-in and is
+  taken back: `via_arrival and not arrival_confirmed and taken_back_at is null and expires_at = checked_in_at + 30
+  min and checked_in_at <= left < checked_in_at + 5 min`, and no play session of mine at that court started at or
+  after `checked_in_at`; `closed` = for an Exit, the same as `removed` (a later Exit is left to the phone's
+  "Leaving X?"); for Not here, when nothing was removed, my open check-ins there begun by the press are checked out
+  at it. `p_venue` null (sign-out) stops every arrival of mine still waiting and checks out any arrival check-in
+  the job landed meanwhile; it never takes back (that would reopen a check-in the sign-out just closed).
+- A take-back (`_pl_take_back_arrival`) sets `taken_back_at`, closes the row at the leave time and sets
+  `location_confirmed = false` (shown to nobody, counted nowhere); it deletes its unsent "Checked in" / "Still at"
+  pushes and reopens the latest check-in in `arrival_closed_ids` that is still closed from the arrival, not taken
+  back, not a session's, not run out, when nothing else of mine is open. Rows are never deleted: `checkout_venue`
+  with an id it never stored closes all my open check-ins.
+- `confirm_court_arrival` (Check in now after the check-in landed) sets `arrival_confirmed` on my open arrival
+  check-in there and returns true when there is one (confirmed now or already). `court_arrival_pending` is true
+  while an arrival there is still waiting out its minute.
+- `enqueue_court_checkin_prompt` holds back with `already_checked_in` (a check-in of mine there open now or begun
+  in the last 2 hours, taken-back ones excluded) or `cooldown` (that court prompted me in the last 30 minutes,
+  recorded whether or not the push could reach me). `pushable` = a push token AND `pushEnabled` exactly true AND
+  `notifyCheckinPrompts` not false; only then is a push queued, otherwise the app posts the same words itself.
+- `court_prompt_scan`: pickleball courts only, never a rejected one, each as its facility (`canonical_id`).
+  `inside` = the smallest outline holding the point, at any distance. `nearby` = the 8 nearest facilities whose
+  nearest pin is within `p_scan_m` clamped to 10..500 m (so 1 km scans 500 m), nearest first; `has_outline` = any
+  row of the facility has one (the app drops those and applies its own radius per kind). The coordinates are used
+  for this one read: never stored, never logged, never put in an error.
+
+### Internal (revoked from clients)
+
+- `process_court_arrivals()`, pg_cron job `pickleague-process-court-arrivals`: `'20 seconds'` on pg_cron 1.5 or
+  later, else every minute. A: purges markers older than 2 hours. B: takes due arrivals. Quietly skipped: switched
+  off or unstarred meanwhile; an open check-in of mine at that court already; a confirmed check-in of mine
+  elsewhere begun after the arrival; checked out under this id before it landed (`presence_closed_ids`). Failure
+  push: the court is gone, a play session of mine is running (unended, started in the last 6 hours), or an error.
+  Else, under `checkin:<uid>`, it closes my open check-ins elsewhere (recorded in `arrival_closed_ids`), inserts
+  the arrival check-in (id = the phone's `checkin_id` unless used) and pushes "Checked in". C: "Still at" once
+  per arrival check-in whose 30 minutes are untouched, in its last 5 minutes. `checkin_venue` is not changed.
+- `expire_venue_checkins()` (the `*/10` job, now plpgsql) pushes "👋 Checked out" once for every manual or
+  geofence check-in it closes, one stored already over included; never for session check-ins.
+- `_pl_push_reaches(uid, pref)`, `_pl_court_arrival_off(uid, venue)` (`'off' | 'off_here' | 'not_starred' |
+  null`), `_pl_court_arrival_push(...)` (never raises), `_pl_take_back_arrival(uid, ids, left)`,
+  `_pl_throttle_ok(scope, kind, key, window)`, `_pl_court_arrival_rerun_repair()` (run by every apply of the queue
+  file: after a re-run of `migration_validity_rules.sql` it clears the arrival fixes no real fix gave and re-judges
+  the ended sessions an arrival check-in overlapped).
+- Replaced with the same signatures: `_pl_checkin_arrival_fix`, `_pl_checkin_stay_from_fix`,
+  `_pl_record_checkout_fix`, `_pl_session_validity`, `expire_venue_checkins`, `_purge_account` (now
+  `search_path = ''`) and `prune_presence_history`.
+
+### Pushes (straight into `push_outbox`: no notifications row, no feed entry)
+
+| `push_data.kind` | category (pref key) | buttons (send-push) | title / body | outbox expires |
+|---|---|---|---|---|
+| `arrival_checkin` | `notifyAutoCheckins` | Stay 1 more hour / Check out (`checkin_extend`), only with a `checkin_id` | "✅ Checked in at <court, else 'your starred court'>" / "You're checked in. Check out when you leave, or tap Stay 1 more hour if you're staying." | +30 min |
+| `arrival_extend` | `notifyAutoCheckins` | as above | "Still at <court, else 'the courts'>?" / "Your check-in ends in 5 minutes. Tap Stay 1 more hour if you're staying." | the check-in's end |
+| `arrival_failed` | `notifyAutoCheckins` | none | "Not checked in at <court, else 'your starred court'>" / "That court isn't in Pickleague anymore, so we couldn't check you in." · "You have a play session running, so we didn't check you in here." · "Something went wrong on our side, so we couldn't check you in. Open Pickleague to check in." | +30 min |
+| `arrival_expired` | `notifyAutoCheckins` | none | "👋 Checked out" / "Your visit to <court, else 'a court'> ended after your check-in window — tap to check back in if you're still there." | +2 h |
+| `court_prompt` | `notifyCheckinPrompts` | ✅ Check in / Not now (`court_checkin`), only with a `venue_id` | "Check in nearby?" / "You're near <court>." (or "You're near a court.") + the reason + " Tap to check in." | +30 min |
+
+- The outbox `kind` is the generic `'info'`; send-push branches on `push_data.kind`. `push_data` = `{kind,
+  venue_id, venue_name, checkin_id, expires_at, via_arrival}` with nulls stripped (`court_prompt`: `{kind,
+  venue_id, venue_name}`). The deep link is `home/-`, none for an arrival push without the court's name.
+- Prompt reasons, the same words as the app's local prompt: `recently_left` " You left under 10 minutes ago, so we
+  didn't check you in automatically."; `not_starred` " It isn't one of your starred courts anymore, so we didn't
+  check you in automatically."; `no_consent` " Choose who sees you at the courts first, so we didn't check you in
+  automatically."; anything else adds nothing.
+- `arrival_expired` uses `notifyAutoCheckins` for manual check-ins too, so switching "Auto check-ins" off also
+  silences "👋 Checked out" for check-ins made by hand.
+- `supabase/functions/send-push/index.ts`: `KNOWN_PREF_KEYS` += `notifyAutoCheckins`, `notifyCheckinPrompts`;
+  `PASS_KEYS` += `venue_id`, `venue_name`, `checkin_id`, `expires_at`, `via_arrival` (JSON booleans pass too, for
+  `via_arrival`); the buttons above are picked from `push_data.kind` before the entity check. Regenerate
+  `catalog.json` (`node scripts/push-catalog.mjs`, then `--check`) after the app's catalog gains
+  `court_arriving` and `court_dismiss`, then redeploy with `--no-verify-jwt` (the user runs it).
+
+### Client (built 2026-10-20; checked against the app code, not yet on a device)
+
+Code: `mobile/src/data/courtArrival.ts` (every RPC above), `lib/courtArrivalRules.ts` (pure rules and copy,
+vitest), `lib/courtArrival.ts` (Enter / Exit), `lib/courtGeofence.ts` (the watched courts),
+`lib/courtPromptMonitor.ts` (the app-open scan), `lib/courtCheckin.ts` (the notice buttons),
+`components/CourtArrivalSettingsPanel.tsx`.
+
+- Settings › Check-in automation reads `get_court_arrival_settings` (cache `me:courtArrivalSettings:v1`, 1 h,
+  a week stale-if-error) and writes through `set_court_arrival_settings` / `set_starred_court_auto_checkin`;
+  the geofence sync reads `list_starred_court_geofences` fresh each time (cache `me:starredCourtGeofences`).
+- A real arrival (Enter after Exit) with automatic check-in on calls `queue_court_arrival` with the phone's own
+  `checkin_id` (8 s), shows "At <court>? 🏓" (Check in now / Not here), and when the answer says
+  `pushable: false` schedules "Checked in" (at `due_at` + 20 s) and "Still at" (5 minutes before the end)
+  itself. When the phone knows the player hasn't chosen who sees them yet, it asks first without calling
+  the queue (the `no_consent` prompt).
+- Check in now: a fix and `checkin_venue` (then `confirm_court_arrival` if it returned the arrival row); with no
+  fix, `confirm_court_arrival` (4 s), then `court_arrival_pending` (3 s). Not here and Exit:
+  `cancel_court_arrival`, queued offline as `venue:arrival-cancel` (2 h, `p_left_at` = the queue time).
+  Sign-out: `cancel_court_arrival(null)` beside the existing check-out. Stay 1 more hour on an arrival row
+  sends no fix (`via_arrival`).
+- "Leaving <court>?" reads my open check-in through the cache `me:openCheckin` (30 s, a day stale-if-error;
+  selects `via_arrival`), so it fails quietly until `migration_court_arrival_queue.sql` is applied.
+- The app-open scan: `court_prompt_scan` once a minute with the larger of the two radii (10 m when both are
+  Off, which still finds an outline I'm inside), only with location already granted; prompts go through
+  `enqueue_court_checkin_prompt` first, and the phone posts the same words only when that throws, or enqueued
+  and not pushable.

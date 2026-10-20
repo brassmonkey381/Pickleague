@@ -4,11 +4,12 @@
 // clears local state, and by then the session that could close it is gone.
 //
 // So callers run this BEFORE signOutSafely, under the account that is signing
-// out: close every open check-in (any source) and end the open play session,
-// at the real time. Best-effort: each call is bounded to 3 s, they run in
-// parallel, nothing is queued (the queue is cleared on account change), and it
-// never throws, so it can never block or fail a sign-out. When a close this
-// device knows was needed doesn't land, the player is told what stays open
+// out: close every open check-in (any source), end the open play session and
+// stop any court arrival still waiting to check me in, at the real time.
+// Best-effort: each call is bounded to 3 s, they run in parallel, nothing is
+// queued (the queue is cleared on account change), and it never throws, so it
+// can never block or fail a sign-out. When a close this device knows was
+// needed doesn't land, the player is told what stays open
 // and until when (rule 11: no silent failure; lib/refusalNotices shows it on
 // the sign-in screen, or as a notification).
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
@@ -19,6 +20,7 @@ import { peekCurrentCheckin } from './courtCheckin';
 import { noteRefusalNotice } from './refusalNotices';
 import { signOutNotice } from './refusals';
 import { checkoutVenue } from '../data/venueCheckins';
+import { cancelCourtArrival } from '../data/courtArrival';
 import { endPlaySession, getMyActivePlaySession } from '../data/playSessions';
 
 const BOUND_MS = 3_000;
@@ -49,6 +51,10 @@ export async function endPresenceForSignOut(): Promise<void> {
       () => true,
       () => false,
     ),
+    // Arrivals still waiting out their minute (court arrival): stopped, so
+    // nobody is checked in after signing out. One the server's job already
+    // landed is checked out too. Nothing to tell when it doesn't land.
+    withTimeout(cancelCourtArrival(null, at), BOUND_MS).catch(() => null),
   ]);
   // What stays open and until when, and the action that ends each one
   // (Check out for the check-in, End for the session).

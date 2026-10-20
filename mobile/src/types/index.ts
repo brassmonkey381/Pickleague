@@ -587,7 +587,9 @@ export type RootStackParamList = {
   SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
   Profile: { userId?: string };
   UnlockProgress: undefined;
-  Settings: undefined;
+  // focus 'checkins': open "Check-in automation" and scroll to it (the
+  // settings/checkins link on the Not here notices, lib/courtArrivalRules).
+  Settings: { focus?: 'checkins' } | undefined;
   BlockedPlayers: undefined;
   UpgradeAccount: undefined;
   About: undefined;

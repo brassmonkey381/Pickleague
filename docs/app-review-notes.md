@@ -80,11 +80,26 @@ SUGGESTED WALKTHROUGH
    is built in. This works anywhere.
 9. Drills (new): Home -> Drill. Request a partner, pick a time, then a court,
    then Confirm; Home's "Up next" follows the request.
-10. Court check-in (new): it needs the phone to be physically at a court (a
-   fresh GPS fix inside the court's boundary, checked on our server), so it
-   cannot be completed from your location. The attached screen recording
-   shows it at a real court, including the arrival notification and its
-   Check in button. Every other feature works without being at a court.
+10. Court check-in (new): checking in by hand needs the phone to be
+   physically at a court (a fresh GPS fix inside the court's boundary, checked
+   on our server), so it cannot be completed from your location. The attached
+   screen recording shows it at a real court. Every other feature works
+   without being at a court.
+11. Check-in automation (new): Settings -> Check-in automation (tap the
+   heading to open it).
+   - Tap "Star a court" and search for any court, then tap Allow next to
+     "Background location" in the same section to allow "Always" location.
+     (At a court, the star on Home's court card also offers to ask for it.)
+     Pickleague never asks on app open.
+   - The section holds every control: "Notice me at starred courts" (Off /
+     100 m / 250 m / 1 km), "Check me in when I arrive" (on by default) with a
+     switch for each starred court, "Remind me to check out when I leave", and
+     "Prompt me near other courts" (off by default).
+   - Arriving at a starred court needs the phone to travel there, so the
+     attached screen recording shows it at a real court: "At <court>?" with
+     Check in now and Not here, then "Checked in at <court>" a minute later,
+     a take-back when leaving within 5 minutes, and "Leaving <court>?" when
+     leaving later. Details under PERMISSIONS below.
 
 5. EXTERNAL SERVICES USED
 - Supabase (hosted PostgreSQL, Auth, Storage) - user accounts, all league and
@@ -179,23 +194,54 @@ purchase, no cash-out, no staking, and no real money anywhere in the app.
 
 PERMISSIONS AND WHY THEY ARE REQUESTED
 - Location (when in use): to show pickleball courts near the player when they
-  search for a venue, and to confirm the court they are at when they check in
-  or start a play session there. A check-in needs a fresh GPS fix inside the
-  court's boundary (checked on our server); there are no manual check-ins. The
-  check-in stores the court, the time, and that one fix (coordinates, accuracy,
-  distance to the court). No route or continuous tracking. Check-ins are deleted
-  after 180 days.
-- Location (always), version 1.0.4+: ONLY if the player turns on Settings ->
-  Court Arrival Alerts (off by default). The app then asks iOS to watch up to
-  20 courts (courts where they saved a QR code in the QR wallet, courts they
-  starred, their league home courts and courts they have checked in at) with
-  region monitoring. Arriving shows a notification with a "Check in" button;
-  the app never checks anyone in on its own. Tapping it takes one location
-  fix, which our server uses to confirm the court and stores with the
-  check-in, as for any check-in. Leaving a court ends only a check-in that came from that
-  button. Region monitoring itself stores nothing: no continuous tracking, no
-  route. At a court with a saved QR code, the notification instead opens that
-  code (see QR wallet below). Turning the setting off stops all monitoring.
+  search for a venue, to confirm the court they are at when they check in or
+  start a play session there, and to offer a check-in while the app is open.
+  A check-in the player makes needs a fresh GPS fix inside the court's
+  boundary (checked on our server); there are no manual check-ins. That
+  check-in stores the court, the time, and that one fix (coordinates,
+  accuracy, distance to the court). While the app is open, and only if
+  location is already allowed (it never asks for this), the app reads the
+  location about once a minute and sends it to one server function that
+  finds a court the player is at, so it can offer "Check in nearby?" (inside
+  a court's mapped outline, near a starred court, or near any court if the
+  player turns on "Prompt me near other courts", off by default). Those
+  coordinates are used for that one lookup and are never stored or logged.
+  No route is recorded. Check-ins are deleted after 180 days.
+- Location (always), version 1.0.4: only if the player allows it. Pickleague
+  asks for "Always" only when the player stars a court, taps Allow in
+  Settings -> Check-in automation, accepts the offer on Home's court card, or
+  sets up arrival pop-ups in the QR wallet; never on app open. iOS region
+  monitoring then watches up to 20 courts: the courts the player starred (at
+  most 5) and the courts where they saved a QR code (see QR wallet below).
+  Nothing else is watched, and region monitoring itself stores nothing: no
+  continuous tracking, no route.
+  At a starred court, with "Check me in when I arrive" on (Settings ->
+  Check-in automation; on by default, with a switch for each starred court):
+  - Arriving shows "At <court>? 🏓 / Checking you in here in a minute." with
+    "Check in now" (checks in now when the phone gets a location fix at the
+    court; otherwise it confirms the check-in that is on its way) and "Not
+    here" (stops it).
+  - Still there a minute later, our server checks the player in for 30
+    minutes and sends "✅ Checked in at <court>" (Stay 1 more hour / Check
+    out). Five minutes before it ends: "Still at <court>?".
+  - Leaving within 5 minutes of arriving, or tapping Not here in that time,
+    stops or takes back the check-in: it is shown to nobody and counts for
+    nothing. That no longer applies once the player confirmed it with Check
+    in now or extended it, and Not here after 5 minutes checks them out.
+  - Leaving later while still checked in shows "Leaving <court>?" (Check out
+    / Stay 1 more hour). Pickleague never checks anyone out on its own; a
+    check-in that isn't extended ends after 30 minutes.
+  - The phone sends only the court and the arrival time, never coordinates.
+    An automatic check-in stores no location fix and earns nothing until a
+    fix from the phone confirms the player at that court.
+  - It starts only after the player has chosen who sees them at the courts
+    (the one-time sheet under Court presence below).
+  Otherwise (that switch off, a play session running, or that choice not
+  made yet) arriving shows "Check in nearby?" with "Check in", which takes
+  one location fix as for any check-in. At a court with a saved QR code, the
+  notification opens that code. "Notice me at starred courts" set to Off
+  stops watching starred courts, and "Show these codes when I arrive" in the
+  QR wallet stops the QR pop-ups.
 - Court presence: other players see a checked-in player's name only as the
   player allows in Settings -> Privacy -> Who sees me at the courts (default:
   friends and members of closed leagues they share; also Everyone, Friends, or
@@ -210,16 +256,18 @@ PERMISSIONS AND WHY THEY ARE REQUESTED
 - Photo library: only to select a profile picture, or to pick a QR code image
   for the QR wallet.
 - Notifications: optional, off by default. Used for match results, event
-  reminders, drill requests and tournament updates. Some notifications carry
-  buttons (for example "Can't make it", "Confirm", "Check in") that answer
-  without opening the app.
+  reminders, drill requests, tournament updates and court check-ins. Some
+  notifications carry buttons (for example "Can't make it", "Confirm",
+  "Check in", "Check in now", "Not here", "Stay 1 more hour", "Check out")
+  that answer without opening the app.
 Every permission is optional and the app remains usable if declined.
 
 QR WALLET
 Some clubs ask members to show a QR code at the front desk. A player can save
 an image of that code (picked from their photo library) and tie it to the
 club's court. The image is stored only on the device and never uploaded. With
-Court Arrival Alerts on, arriving at that court shows a notification that opens
+location set to "Always" and "Show these codes when I arrive" on (in the
+wallet, on by default), arriving at that court shows a notification that opens
 the code full screen. The wallet also shows the player's own invite link as a
 QR code (their public profile URL), with a Share button. Open it from the 🎟️ QR
 button in the Home top bar.
@@ -426,25 +474,58 @@ court" and "no coordinates stored" stop being true.
   already says this and goes live when master deploys.
 - **The §1 notes text is pasted at the next submission:** replace the **Location (when in
   use)** and **Location (always)** bullets in §1 with the block below, and add the **Court
-  presence** bullet after them.
+  presence** bullet after them. (Done. Since 2026-10-20 the block is the build 14 text: §7.)
 
 ```text
 - Location (when in use): to show pickleball courts near the player when they
-  search for a venue, and to confirm the court they are at when they check in
-  or start a play session there. A check-in needs a fresh GPS fix inside the
-  court's boundary (checked on our server); there are no manual check-ins. The
-  check-in stores the court, the time, and that one fix (coordinates, accuracy,
-  distance to the court). No route or continuous tracking. Check-ins are deleted
-  after 180 days.
-- Location (always), version 1.0.4+: ONLY if the player turns on Settings ->
-  Court Arrival Alerts (off by default). The app then asks iOS to watch up to
-  20 courts (courts they starred, their league home courts and courts they
-  have checked in at) with region monitoring. Arriving shows a notification
-  with a "Check in" button; the app never checks anyone in on its own. Tapping it takes one location fix,
-  which our server uses to confirm the court and stores with the check-in, as
-  for any check-in. Leaving a court ends only a check-in that came from that
-  button. Region monitoring itself stores nothing: no continuous tracking, no
-  route. Turning the setting off stops all monitoring.
+  search for a venue, to confirm the court they are at when they check in or
+  start a play session there, and to offer a check-in while the app is open.
+  A check-in the player makes needs a fresh GPS fix inside the court's
+  boundary (checked on our server); there are no manual check-ins. That
+  check-in stores the court, the time, and that one fix (coordinates,
+  accuracy, distance to the court). While the app is open, and only if
+  location is already allowed (it never asks for this), the app reads the
+  location about once a minute and sends it to one server function that
+  finds a court the player is at, so it can offer "Check in nearby?" (inside
+  a court's mapped outline, near a starred court, or near any court if the
+  player turns on "Prompt me near other courts", off by default). Those
+  coordinates are used for that one lookup and are never stored or logged.
+  No route is recorded. Check-ins are deleted after 180 days.
+- Location (always), version 1.0.4: only if the player allows it. Pickleague
+  asks for "Always" only when the player stars a court, taps Allow in
+  Settings -> Check-in automation, accepts the offer on Home's court card, or
+  sets up arrival pop-ups in the QR wallet; never on app open. iOS region
+  monitoring then watches up to 20 courts: the courts the player starred (at
+  most 5) and the courts where they saved a QR code (see QR wallet below).
+  Nothing else is watched, and region monitoring itself stores nothing: no
+  continuous tracking, no route.
+  At a starred court, with "Check me in when I arrive" on (Settings ->
+  Check-in automation; on by default, with a switch for each starred court):
+  - Arriving shows "At <court>? 🏓 / Checking you in here in a minute." with
+    "Check in now" (checks in now when the phone gets a location fix at the
+    court; otherwise it confirms the check-in that is on its way) and "Not
+    here" (stops it).
+  - Still there a minute later, our server checks the player in for 30
+    minutes and sends "✅ Checked in at <court>" (Stay 1 more hour / Check
+    out). Five minutes before it ends: "Still at <court>?".
+  - Leaving within 5 minutes of arriving, or tapping Not here in that time,
+    stops or takes back the check-in: it is shown to nobody and counts for
+    nothing. That no longer applies once the player confirmed it with Check
+    in now or extended it, and Not here after 5 minutes checks them out.
+  - Leaving later while still checked in shows "Leaving <court>?" (Check out
+    / Stay 1 more hour). Pickleague never checks anyone out on its own; a
+    check-in that isn't extended ends after 30 minutes.
+  - The phone sends only the court and the arrival time, never coordinates.
+    An automatic check-in stores no location fix and earns nothing until a
+    fix from the phone confirms the player at that court.
+  - It starts only after the player has chosen who sees them at the courts
+    (the one-time sheet under Court presence below).
+  Otherwise (that switch off, a play session running, or that choice not
+  made yet) arriving shows "Check in nearby?" with "Check in", which takes
+  one location fix as for any check-in. At a court with a saved QR code, the
+  notification opens that code. "Notice me at starred courts" set to Off
+  stops watching starred courts, and "Show these codes when I arrive" in the
+  QR wallet stops the QR pop-ups.
 - Court presence: other players see a checked-in player's name only as the
   player allows in Settings -> Privacy -> Who sees me at the courts (default:
   friends and members of closed leagues they share; also Everyone, Friends, or
@@ -454,4 +535,39 @@ court" and "no coordinates stored" stop being true.
   fix is never shown to anyone.
 ```
 
-Phase 2 (opt-in auto check-in) rewrites the **Location (always)** bullet again.
+The block above is the same three bullets as §1. Keep the two copies identical. Automatic
+check-in at starred courts ships in 1.0.4 (decided 2026-10-19), so the "never checks anyone in on
+its own" wording of build 13 is gone from both places: see §7.
+
+## 7. Court arrival: automatic check-in at starred courts (1.0.4 build 14)
+
+Decided by the user 2026-10-19: 1.0.4 was never submitted (TestFlight build 13 only), so no App
+Store user ever had the prompt-only arrival alerts. Automatic check-in therefore ships in 1.0.4,
+in build 14, with honest permission text and the §1 notes above. There is no 1.0.5 step.
+Background: [play-sessions-presence.md](play-sessions-presence.md#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19)
+and the [API contract](play-sessions-presence-api.md#court-arrival-2026-10-19).
+
+- **Permission strings** (`mobile/app.json`, the `infoPlist` entry and the expo-location plugin
+  option, identical in both places; they reach phones only with a native build):
+  - Always: "At courts you've starred, Pickleague can check you in automatically when you arrive
+    and stay a minute (leave within 5 minutes and it doesn't count). Otherwise it only sends
+    check-in prompts. At a court where you saved a QR code, it lets you open that code with one
+    tap when you arrive. You can turn this off in Settings."
+  - When in use (now also names the once-a-minute scan while the app is open): "Pickleague uses
+    your location to show courts near you, to offer a check-in when you're at a court while the
+    app is open, and to confirm you're at a court when you check in or start a play session
+    there."
+- **App Privacy questionnaire: no change expected.** Precise Location is already declared
+  (collected, linked to the user, App Functionality). An automatic check-in stores the court and
+  the time, no coordinates; the app-open scan's coordinates are used for one lookup and never
+  stored, so by Apple's definition they are not collected. Re-check if either ever changes.
+- **Privacy policy:** [`mobile/public/privacy.html`](../mobile/public/privacy.html) describes the
+  scan, the starred and QR-wallet courts, automatic check-in, the take-back and no automatic
+  check-out. It goes live when master deploys: land it before or with the OTA.
+- **Screen recording (build 14):** add the arrival flow to the §5 shot list, at a real court:
+  star a court (the "Always" prompt), walk away 200 m+, come back, "At <court>?", "✅ Checked in"
+  a minute later, then "Leaving <court>?". Also show Settings -> Check-in automation opened.
+  §1 item 11 says the recording shows this, so it must.
+- **Order:** server SQL and send-push first, then master + the OTA to runtime 1.0.4 (it reaches
+  only TestFlight build 13 phones), then build 14 with these strings and notes, device tests,
+  submit.

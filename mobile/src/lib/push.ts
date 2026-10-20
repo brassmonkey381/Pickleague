@@ -11,7 +11,7 @@
 //
 // Web is a no-op (Expo push tokens are native-only).
 
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   configurePushNotificationHandler,
   createAuthBoundPushTokens,
@@ -23,21 +23,46 @@ import { withRetry } from '@just-messin-around/expo-foundation/platform';
 import { sbCall, currentUserId, classifySbError } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { navigationRef, navigateWhenReady } from './navigationRef';
-import { catalog, handleNotificationAction, isAppAction, registerNotificationCategories } from './notificationActions';
+import {
+  catalog,
+  handleNotificationAction,
+  isAppAction,
+  openWhenActiveLink,
+  registerNotificationCategories,
+} from './notificationActions';
 import { linkForAction, linkOf, pushRoutes } from './pushLinks';
 import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from './features';
 import { redeemLeagueInvite } from '../data/leagueInvites';
+import { refreshMyOpenCheckin } from '../data/venueCheckins';
 import { loadUserPreferencesResult } from './userPreferences';
+import { ARRIVAL_CHECKIN_KIND, ARRIVAL_EXPIRED_KIND, showWhileAppActive } from './courtArrivalRules';
 // Side effect: registers the check-in / play-session buttons' handlers and
-// queued writes, so
-// they exist wherever responses are wired.
-import './courtCheckin';
+// queued writes, so they exist wherever responses are wired. ./courtCheckin
+// also has court arrival's Check in, Check in now and Not here, and the
+// queued Exit / Not here replay (with ../data/courtArrival). ./courtArrival
+// is the engine that posts those notices (index.ts loads it too, through
+// ./courtGeofence, for the geofence task).
+import { refreshCurrentCheckin } from './courtCheckin';
+import { monitorPromptShowsNow } from './courtArrival';
 import './playSession';
 import './friendActions';
 import { RootStackParamList } from '../types';
 
-// Show notifications while the app is foregrounded too.
-configurePushNotificationHandler({ showAlertWhenForeground: true });
+// While Pickleague is open, court arrival's own notices stay quiet except
+// "At X?" (it's the only way to say Not here before the check-in lands):
+// "Check in nearby?", "Checked in", "Still at", "Leaving X?" and the expiry
+// push, as in Doggle. The player is looking at the app, and the resync on
+// opening makes the OS re-report every watched court, whose prompts would
+// land now (lib/courtArrivalRules showWhileAppActive). The one exception is
+// a "Check in nearby?" from the foreground monitor's once-a-minute scan,
+// which runs only while the app is open (monitorPromptShows). Every other
+// notification shows as before, and so does everything handled while the
+// app is in the background.
+configurePushNotificationHandler({
+  showAlertWhenForeground: false,
+  showWhenForeground: (n) =>
+    AppState.currentState !== 'active' || showWhileAppActive(n.data) || monitorPromptShowsNow(n.data),
+});
 
 // MUST stay 'default': existing installs already have this channel, and
 // Android channel settings are immutable once created.
@@ -204,6 +229,33 @@ export function routeNotification(data: PushData | undefined | null): void {
   if (!routed) navigateWhenReady('Notifications');
 }
 
+type ReceivedNotification = { request?: { content?: { data?: unknown } } };
+type ReceivedListenerModule = {
+  addNotificationReceivedListener(cb: (n: ReceivedNotification) => void): { remove(): void };
+};
+
+/**
+ * Court arrival changed my open check-in on the server while the app is open
+ * ("✅ Checked in at X", "👋 Checked out", or the phone's own "Checked in" for
+ * a player the server can't push to): read it again, for the court card and
+ * for "Leaving X?" later. Returns the unsubscribe; nothing on a build without
+ * expo-notifications.
+ */
+function refreshOnArrivalPushes(): () => void {
+  try {
+    const N = require('expo-notifications') as ReceivedListenerModule;
+    const sub = N.addNotificationReceivedListener((n) => {
+      const data = n?.request?.content?.data as { kind?: unknown } | undefined;
+      if (data?.kind !== ARRIVAL_CHECKIN_KIND && data?.kind !== ARRIVAL_EXPIRED_KIND) return;
+      void refreshMyOpenCheckin();
+      void refreshCurrentCheckin().catch(() => null);
+    });
+    return () => sub.remove();
+  } catch {
+    return () => {};
+  }
+}
+
 /**
  * Wires up notification responses: button presses, plain taps while the app
  * runs, and the cold-start tap that launched it. Returns an unsubscribe. A
@@ -220,12 +272,21 @@ export function setupNotificationTapHandling(): () => void {
     // Link buttons (Record result, Text group, Open chat, ...) navigate like a
     // tap and write nothing.
     linkFor: (r) => (catalog.isLinkAction(r.action) ? linkForAction(r.action, r.data) : null),
-    onAction: handleNotificationAction,
+    onAction: async (r) => {
+      // Pressed with Pickleague open (the shade pulled down over it): once
+      // the write is done, open what it changed (Check in: Home's court
+      // card). Its notice shows as a banner meanwhile.
+      const open = AppState.currentState === 'active' ? openWhenActiveLink(r) : null;
+      await handleNotificationAction(r);
+      if (open) routeLink(open);
+    },
     onTap: (data) => routeNotification(data as PushData),
     storageKey: 'pickleague_push_handled_v1',
   });
+  const stopArrivalRefresh = refreshOnArrivalPushes();
   return () => {
     stopResponses();
     stopTokens();
+    stopArrivalRefresh();
   };
 }

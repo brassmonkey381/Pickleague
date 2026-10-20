@@ -55,6 +55,7 @@ import {
   takeFixIfAllowed,
   type CurrentCheckin,
 } from './courtCheckin';
+import { cancelAllScheduledArrivalNotices } from './courtArrivalNotice';
 import {
   CHECKOUT_FIX_WAIT_MS,
   checkinEndMs,
@@ -161,6 +162,8 @@ registerMutationHandler(MUTATION_START, {
       throw e;
     }
     await unmarkQueuedStart(payload.id);
+    // As for a live Start (startPlay).
+    void cancelAllScheduledArrivalNotices();
     // The session may have checked me in (or adopted my check-in), checked me
     // in only for a time already over, or not (the server judges the fix at
     // the tap, up to 12 hours back). The player wasn't watching: a card.
@@ -384,6 +387,10 @@ export function startPlay(
   void runOrQueue(MUTATION_START, payload, () => startPlaySession(payload))
     .then(({ queued, result }) => {
       if (queued) return markQueuedStart(id);
+      // The server now skips an arrival still waiting out its minute (a play
+      // session of mine is open), and a session adopts or closes one that
+      // landed: the phone's own "Checked in" / "Still at" (D3) would be wrong.
+      void cancelAllScheduledArrivalNotices();
       // The court card shows the session's check-in once it exists; a court
       // that didn't check me in stops being named (the queued replay checks
       // the same way when it lands).

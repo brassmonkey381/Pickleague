@@ -70,6 +70,8 @@ export type ActionPushData = {
   venue_name?: string | null;
   checkin_id?: string | null;
   expires_at?: string | null;
+  /** The check-in was made by the server on arrival, with no fix (court arrival). */
+  via_arrival?: boolean | null;
   title?: string;
   kind?: string;
   league_id?: string | null;
@@ -171,6 +173,14 @@ export type ActionHandler = {
    *  write waits for something first, e.g. a location fix, so a slow write isn't
    *  reported as "May not have saved" while it still lands. */
   timeoutMs?: number;
+  /** This button's own "may not have saved" notice (default TIMED_OUT). */
+  timedOut?: NoticeCopy;
+  /** This button's own failure notice, when mapError has nothing specific (default FAILED). */
+  failure?: NoticeCopy;
+  /** Pressed while Pickleague is open (the shade pulled down over it): where to
+   *  go once the write is done, so the player sees what it changed. The notice
+   *  still shows, as a banner. lib/push does the navigating. */
+  openWhenActive?: (d: ActionPushData) => string | null;
 };
 
 // ── Drill slot picks ────────────────────────────────────────────────────────
@@ -436,6 +446,17 @@ export function hasActionHandler(actionId: string): boolean {
   return actionId in HANDLERS;
 }
 
+/** Where a press made with Pickleague open should land once its write is done
+ *  (the handler's openWhenActive), or null. Never throws. */
+export function openWhenActiveLink(r: ParsedNotificationResponse): string | null {
+  const h = r.action ? HANDLERS[r.action] : undefined;
+  try {
+    return h?.openWhenActive?.(r.data as ActionPushData) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Event time votes (1st / 2nd / 3rd time, Both work) ──────────────────────
 /** vote_event_slots rejections; anything else falls through to mapError. */
 function voteError(e: unknown): NoticeCopy | null {
@@ -500,8 +521,8 @@ export async function handleNotificationAction(r: ParsedNotificationResponse): P
       return link ? { ...copy, data: { ...(copy.data ?? {}), deepLink: link } } : copy;
     },
     queued: h.queued,
-    timedOut: TIMED_OUT,
-    failure: FAILED,
+    timedOut: h.timedOut ?? TIMED_OUT,
+    failure: h.failure ?? FAILED,
     mapError,
   });
 }

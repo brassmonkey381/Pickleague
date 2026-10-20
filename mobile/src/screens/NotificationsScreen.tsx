@@ -143,9 +143,12 @@ const EMPTY_PAGE: NotificationPage = {
 };
 /** Bumped by "Clear all" (before and after its delete). A list fetch that
  *  began before a bump read rows the delete then removed, so its result is
- *  dropped: the foundation cache writes whatever a fetch returns, with no
- *  check for a setQueryData that landed meanwhile. Module-level, so it also
- *  covers a fetch still running for another chip's key. */
+ *  dropped. Since foundation 1.50 the cache also reruns a fetch that a
+ *  setQueryData on its key outran, so a chip refresh alone would no longer
+ *  write the deleted rows back; this stays because Load more reads outside the
+ *  cache and writes with setQueryData, and a fetch that lands before Clear
+ *  all's setQueryData is caught here too. Module-level, so it also covers a
+ *  fetch still running for another chip's key. */
 let clearGen = 0;
 
 /** A chip's rows, newest first, with `id` breaking created_at ties (one

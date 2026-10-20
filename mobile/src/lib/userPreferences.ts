@@ -37,6 +37,14 @@ export type Prefs = {
   /** Friend requests and "accepted your friend request" (category
    *  notifyFriendRequests on both). */
   notifyFriendRequests:     boolean;
+  /** Court arrival at starred courts: "Checked in at X", "Still at X?", "Not
+   *  checked in at X", and "Checked out" when any check-in runs out (category
+   *  notifyAutoCheckins, migration_court_arrival_queue.sql). The server also
+   *  reads it to tell the phone whether it can push to it. */
+  notifyAutoCheckins:       boolean;
+  /** "Check in nearby?" (category notifyCheckinPrompts,
+   *  migration_court_checkin_prompt.sql). */
+  notifyCheckinPrompts:     boolean;
   defaultMatchType:         MatchType;
   defaultScoreLimit:        ScoreLimit;
 };
@@ -51,6 +59,8 @@ export const DEFAULT_PREFS: Prefs = {
   notifyChallenges:         true,
   notifyDrillRequests:      true,
   notifyFriendRequests:     true,
+  notifyAutoCheckins:       true,
+  notifyCheckinPrompts:     true,
   defaultMatchType:         'doubles',
   defaultScoreLimit:        11,
 };

@@ -5,7 +5,8 @@ Phase 1.5 (validity rules) live 2026-10-16 (SQL applied after 440/440 on live, m
 hardened after an anti-gaming review the same day · Refusal messages (rule 11) built on `fix/refusals`
 2026-10-16 (`supabase/migration_refusal_messages.sql` not applied yet; apply it, then OTA) · Offline check-in time and
 old-build league joins built on `feat/offline-checkin` 2026-10-16 (`supabase/migration_checkin_tap_time.sql` not
-applied yet; apply it after the refusal file, then OTA) · **Source:** a 13-agent study of Doggle's walks /
+applied yet; apply it after the refusal file, then OTA) · Court arrival (automatic check-in at starred courts,
+decided 2026-10-19) built on `court-arrival-parity` (SQL not applied yet; ships in 1.0.4 build 14) · **Source:** a 13-agent study of Doggle's walks /
 check-ins / plans / routines and of Pickleague's existing presence code, with a gap critic and a fact-checker.
 Raw study output was kept in the session scratchpad; this doc is the durable record.
 
@@ -18,10 +19,10 @@ planned for later, or there on a regular schedule.
 |---|----------|----------|
 | 1 | Who sees your **name** at a court | **Friends + members of closed leagues you share.** Everyone else sees an anonymous "Player" in the crowd count; guests see counts only; blocked pairs never see each other. Plans and regular games: **friends only** by default. Open leagues never count (anyone can join one instantly). |
 | 2 | Does starting a play session check you in | **Yes.** A session at a court creates a `source='session'` check-in that ends with the session. An existing check-in at that court is adopted, not duplicated. |
-| 3 | Automatic check-in on arrival | **Build 1.0.5 in Phase 2.** Opt-in, default off, server-confirmed 10-min dwell, leaving cancels it. Needs new permission strings and App Store review. Phase 1 is prompt-only, as the shipped 1.0.4 permission text promises. |
+| 3 | Automatic check-in on arrival | **Changed 2026-10-19: ships in 1.0.4 (build 14), Doggle's model.** At starred courts, on by default (Settings › Check-in automation, with a switch per court): stay a minute and the server checks you in for 30 minutes, with no fix; leave within 5 minutes, or tap Not here, and it is taken back; no automatic check-out ("Leaving X?" asks). Presence only: it earns nothing until a real fix arrives, so decision 5 holds. Build 14 carries the honest "Always" text and review notes; 1.0.4 was never submitted, so no store user had the prompt-only alerts. See [Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19). *Was (2026-10-15): build 1.0.5 in Phase 2, opt-in, default off, server-confirmed 10-min dwell, leaving cancels it; Phase 1 prompt-only.* |
 | 4 | Who gets a push when a friend shows up | **Close friends only.** A ⭐ close-friend star on accepted friends (Doggle's model). Everyone else who can see you finds you in the in-app feed. |
 | 5 | Rewards for showing up | **Kept plans + streaks:** +25 pickles per kept plan (max 1/day, made at least 1 h ahead); valid sessions count toward the play streak (Phase 1.5 replaced the original 20+ min rule). **Only location-confirmed presence earns anything.** |
-| 6 | **No manual check-ins** | A check-in needs a GPS fix inside the court's fence, verified on the server. No fix: no check-in (start an untracked session instead, or make a plan). Rewards therefore only ever pay on confirmed presence. Say "keep manual" to revisit. |
+| 6 | **No manual check-ins** | A check-in needs a GPS fix inside the court's fence, verified on the server. No fix: no check-in (start an untracked session instead, or make a plan). Rewards therefore only ever pay on confirmed presence. Say "keep manual" to revisit. One exception since 2026-10-19: automatic check-ins at starred courts (decision 3) have no fix and pay nothing until one arrives. |
 | 7 | Android background location | Deferred to the Phase 2 native build (the first Android release). Recommendation: ship Android without it. |
 
 How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision itself is unchanged):
@@ -52,7 +53,9 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
    distance. A check-in saved with no signal therefore counts when it syncs, up to 12 hours after the tap.
    Calls from un-updated 1.0.4 clients (no fix) create a **private** unconfirmed row: shown to nobody, counted
    nowhere, earns nothing. A confirmed check-in stays confirmed: extending it needs a confirming fix, or stops 4
-   hours after its last one.
+   hours after its last one. One exception since 2026-10-19: the court arrival job's automatic check-ins
+   (`via_arrival`) are stored confirmed with no fix, and earn nothing until a real fix arrives
+   ([Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19)).
 2. **Privacy is read-time.** Raw `venue_checkins` / `play_sessions` rows are owner-only. Everyone else reads through
    SECURITY DEFINER RPCs that apply `_pl_can_see_presence(viewer, owner, kind)`, blocks, pauses and hide-from.
 3. **Allowlist.** Every new SECURITY DEFINER RPC is granted to `authenticated` **and** appended to the allowlist in
@@ -72,7 +75,8 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
 9. **1.0.4 compatibility.** Existing RPC signatures are kept (or replaced in one transaction so named-argument calls
    from 1.0.4 still resolve). New social screens are gated by `FRIENDS_AT_COURTS_ENABLED` in `lib/features.ts`:
    the Friends screen and requests, FriendButton / FriendsLink, Home "Friends at the courts", the crowd line, the
-   court star and friend push routes. NOT gated, because they ship with the check-ins they control: the consent
+   court star (until 2026-10-19; since then on its own `COURT_STARS_ENABLED`, on, because starring drives
+   automatic check-in) and friend push routes. NOT gated, because they ship with the check-ins they control: the consent
    sheet, Settings › Privacy "Who sees me at the courts" / "Hidden from", Pause sharing and "Hide my presence".
 10. **Hot files.** HomeScreen, homeData, agenda, inboxRequests, notificationActions and types/index change often.
     New code goes in new files, with one-line hooks in those files.
@@ -346,6 +350,67 @@ Doggle counterpart (same day, built in the Doggle repo): GPS required to check i
 stored but earn nothing), and a valid walk is 5+ min and 100+ m measured on the server from `walk_points`;
 duration-only walks save but never count.
 
+### Court arrival: automatic check-in at starred courts (decided 2026-10-19)
+
+**Status:** SQL written on `court-arrival-parity` (`584c1df`: `supabase/migration_court_arrival_settings.sql`,
+`migration_court_arrival_queue.sql`, `migration_court_checkin_prompt.sql`), not applied; persona tests
+(`supabase/tests/court_arrival_personas.sql`) not yet run live; the client is being built on the same branch on
+foundation 1.50.0. **Source:** a Doggle parity study (Doggle's favorite-park arrivals, minus routines and walks),
+kept locally with the user's decisions in `state/court-arrival-doggle-parity.md` and
+`state/court-arrival-decisions.md` (`state/` is not committed). Contract:
+[API, court arrival](./play-sessions-presence-api.md#court-arrival-2026-10-19).
+
+**Decided by the user, 2026-10-19:**
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | When automatic check-in ships | **In 1.0.4, build 14** (replaces decision 3's "build 1.0.5"). 1.0.4 was never submitted to Apple: the prompt-only arrival alerts (work order 7f) exist only on TestFlight build 13. Build 14 carries the honest "Always" text and review notes ([app-review-notes.md §7](./app-review-notes.md#7-court-arrival-automatic-check-in-at-starred-courts-104-build-14)). No version gate, no opt-in sheet, no star seeding. |
+| 2 | A separate background-watching switch | **None (Doggle).** "Always" is asked when you star a court, tap Allow in Settings, accept the court card's offer or use the QR wallet; never on app open. |
+| 3 | Players with notifications off | **The phone posts "Checked in" and "Still at" itself.** |
+| 4 | The court star | **Shown now**, on its own `COURT_STARS_ENABLED` flag (true), separate from `FRIENDS_AT_COURTS_ENABLED`. |
+
+How it works:
+
+- **Watched courts.** The phone's region monitoring watches up to 20 courts: QR-wallet courts first, then starred
+  courts (at most 5) while "Notice me at starred courts" is above Off. League-home and most-used courts are no
+  longer watched. A starred court's circle is its mapped outline's equal-area radius, else the player's distance
+  (Off / 100 m / 250 m / 1 km, default 100 m), clamped to 50-800 m.
+- **Arriving.** Only an Enter after an Exit is an arrival. With "Check me in when I arrive" on (everywhere and for
+  that court), the phone calls `queue_court_arrival` (court and time, no coordinates) and shows "At <court>? 🏓 /
+  Checking you in here in a minute." (Check in now / Not here). Still there a minute later, `process_court_arrivals`
+  (pg_cron, every 20 s) checks the player in for 30 minutes: source `geofence`, `via_arrival`, `checked_in_at` =
+  the arrival, no fix, and pushes "✅ Checked in at <court>"; "Still at <court>?" comes 5 minutes before the end.
+  Otherwise (switched off, a play session running, no consent yet, no signal) the arrival prompts "Check in
+  nearby?", which takes a fix like any check-in.
+- **Leaving.** Within 5 minutes of arriving, or Not here: taken back (`taken_back_at`, closed,
+  `location_confirmed = false`: shown to nobody, counted nowhere; kept, never deleted). Later: "Leaving <court>?"
+  (Check out / Stay 1 more hour). No automatic check-out.
+- **One open check-in per player.** An arrival check-in closes mine at another court; a take-back reopens it if
+  it hasn't run out.
+- **App open.** Once a minute (phone or web), only with location already granted, `court_prompt_scan` prompts
+  inside any court outline, at starred courts within the distance, and at other courts only when "Prompt me near
+  other courts" is above Off (default Off). The coordinates go to that one RPC and are never stored or logged.
+- **Every check-in that runs out** (manual or geofence, not a session's) now ends with "👋 Checked out".
+
+How decisions 5 and 6 still hold:
+
+- **Only location-confirmed presence earns anything (decision 5).** An arrival check-in is stored
+  `location_confirmed` (the people your setting allows see you at the court) but carries no fix, so
+  `arrival_fix_at` stays null: `at_court` skips it, it proves no stay, it earns nothing. Its first real fix (Check
+  in now with a fix, a repeat check-in, a Start that adopts it, a check-out fix) becomes its arrival fix and
+  confirms no stay; a fix 5+ minutes after that one confirms the stay, as for any check-in.
+- **No manual check-ins (decision 6)** gets one exception: an automatic check-in has no fix. It isn't manual (the
+  phone saw the arrival and the player stayed a minute), it is presence only, and it pays nothing. Limits: starred
+  courts only, the consent sheet first, a per-court switch, the 5-minute take-back, 30 minutes long.
+
+Shipping (the user's order):
+
+- [ ] Server: `state/court-arrival-apply.ps1` (the existing personas first as the 1.0.4 regression gate, then
+  files 1-3, the hardening re-run, the privilege check, the send-push deploy with `--no-verify-jwt`).
+- [ ] Land the branch on master (privacy.html goes live) and OTA to runtime 1.0.4 (only TestFlight build 13 phones
+  get it).
+- [ ] Build 14 of 1.0.4 with the new strings and review notes; device tests; submit.
+
 ### Phase 2: tell close friends, make sessions pay off (native build 1.0.5 + OTA)
 
 - Close-friend presence push ("Alex is playing at Lakeside · til 7:40 PM") with 90 min per friend+court throttle,
@@ -365,8 +430,11 @@ duration-only walks save but never count.
   (`matches.play_session_id` already exists from Phase 1.5), session history.
 - Kit 1.45: symmetric geofence region state (Exit only after a recorded Enter), `weekdayMask` hoist,
   `registerBeforeSignOut`, VenuePicker row-meta prop, PrivacySettingsPanel level overrides.
-- **Build 1.0.5:** opt-in auto check-in on arrival (server dwell 10 min, home/regular/favorite courts, default off),
-  honest permission strings and review notes, first Android release (decision 7).
+- **Build 1.0.5:** first Android release (decision 7). (Automatic check-in on arrival moved to 1.0.4 build 14:
+  [Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19).)
+- The close-friend push must not announce an automatic arrival check-in that can still be taken back: hold it
+  until 5 minutes after the arrival, or until it is confirmed or extended (Doggle defers its friend push the same
+  way).
 
 ### Phase 3: plan the next game
 
@@ -390,8 +458,10 @@ status, field debug logger.
 ## Skipped on purpose
 
 GPS route tracking / distance / pace (pickleball presence needs a court, not a route) · shareable session card ·
-session league attribution · tagging other players on a session · hot/trending courts · passive 60 s foreground
-proximity monitor · Live Activities, Realtime presence, DMs, vibes, multi-stop day plans, session kudos/photos.
+session league attribution · tagging other players on a session · hot/trending courts · Live Activities, Realtime
+presence, DMs, vibes, multi-stop day plans, session kudos/photos. (The passive 60 s foreground proximity monitor
+was on this list until 2026-10-19; it is ported now: the app-open scan in
+[Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19).)
 
 ## Doggle bugs not to copy
 

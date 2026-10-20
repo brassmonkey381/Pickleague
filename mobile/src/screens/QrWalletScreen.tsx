@@ -1,13 +1,15 @@
 // QR wallet: save the QR code a club asks for at the front desk, tied to its
-// court. With court arrival alerts on, walking up to that court posts a
-// notice whose tap opens the code full screen (QrPass). Codes stay on this
-// phone (lib/qrWallet). My invite link sits on top as a built-in code.
+// court. With "Show these codes when I arrive" on (this phone; on unless
+// turned off) and location set to "Always", walking up to that court posts a
+// notice whose tap opens the code full screen (QrPass). Saving a code is one
+// of the moments Pickleague asks for "Always" (decision D2). Codes stay on
+// this phone (lib/qrWallet). My invite link sits on top as a built-in code.
 import React, { useCallback, useState } from 'react';
 import { View, Text, Image, ScrollView, Pressable, StyleSheet, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
-import { Panel, SectionHeader, ConfirmModal, QrCode } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, ConfirmModal, QrCode, SettingSwitchRow } from '@just-messin-around/expo-foundation/ui';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -19,12 +21,25 @@ import CourtPicker, { type CourtResult } from '../components/CourtPicker';
 import { addPass, getPassImage, INVITE_PASS_ID, inviteUrl, listPasses, removePass, type WalletPass } from '../lib/qrWallet';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
-import { getCourtAlertsEnabled, setCourtAlertsEnabled, syncCourtGeofences } from '../lib/courtGeofence';
+import {
+  getWalletArrivalCodesOn,
+  setWalletArrivalCodesOn,
+  syncCourtGeofences,
+  type CourtGeofenceSyncResult,
+} from '../lib/courtGeofence';
+import { ALWAYS_LABEL, arrivalSyncMessage, askForArrivalLocation, backgroundLocationAllowed } from '../lib/courtArrivalAsk';
+import { courtArrivalResync } from '../data/courtArrival';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'QrWallet'> };
 
 const NATIVE = Platform.OS !== 'web';
-const ALWAYS_LABEL = Platform.OS === 'android' ? 'Allow all the time' : 'Always';
+
+/** What saving a code came to, said in one toast: where it shows up, or why not yet. */
+function savedMessage(courtName: string, r: CourtGeofenceSyncResult | null): { ok: boolean; message: string } {
+  if (!r) return { ok: true, message: 'Saved. Open it here at the desk.' };
+  if (r.reason === 'ok') return { ok: true, message: `Saved. It pops up when you arrive at ${courtName}.` };
+  return { ok: false, message: `Saved. ${arrivalSyncMessage(r).message}` };
+}
 
 export default function QrWalletScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
@@ -32,8 +47,11 @@ export default function QrWalletScreen({ navigation }: Props) {
   const [passes, setPasses] = useState<WalletPass[]>([]);
   const [meId, setMeId] = useState<string | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const [alertsOn, setAlertsOn] = useState(false);
-  const [alertsBusy, setAlertsBusy] = useState(false);
+  // "Show these codes when I arrive" (this phone), and whether the OS lets it
+  // (null: not known yet, or web).
+  const [codesOn, setCodesOn] = useState(true);
+  const [alwaysAllowed, setAlwaysAllowed] = useState<boolean | null>(null);
+  const [codesBusy, setCodesBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState('Front desk check-in');
   const [court, setCourt] = useState<CourtResult | null>(null);
@@ -47,7 +65,10 @@ export default function QrWalletScreen({ navigation }: Props) {
     setPasses(list);
     const pairs = await Promise.all(list.map(async (p) => [p.id, await getPassImage(p.id)] as const));
     setThumbs(Object.fromEntries(pairs.filter((x): x is readonly [string, string] => !!x[1])));
-    if (NATIVE) setAlertsOn(await getCourtAlertsEnabled());
+    if (NATIVE) {
+      setCodesOn(await getWalletArrivalCodesOn());
+      setAlwaysAllowed(await backgroundLocationAllowed());
+    }
   }
 
   useFocusEffect(useCallback(() => { void load(); }, []));
@@ -71,23 +92,36 @@ export default function QrWalletScreen({ navigation }: Props) {
     setImage(uri);
   }
 
-  async function turnOnAlerts(): Promise<boolean> {
-    setAlertsBusy(true);
+  // The switch is this phone's choice and stays as set; turning it on also
+  // asks for "Always" when it's missing, and says so if the OS still says no.
+  async function toggleCodes(on: boolean) {
+    setCodesBusy(true);
     try {
-      const n = await setCourtAlertsEnabled(true);
-      if (n === 0) {
-        await setCourtAlertsEnabled(false);
-        toast.error(`Arrival alerts need location set to "${ALWAYS_LABEL}". Change it in your phone's Settings for Pickleague.`);
-        return false;
+      const r = await setWalletArrivalCodesOn(on, { interactive: on });
+      setCodesOn(on);
+      setAlwaysAllowed(await backgroundLocationAllowed());
+      if (!on) {
+        toast.success("These codes won't pop up when you arrive.");
+        return;
       }
-      setAlertsOn(true);
-      return true;
-    } catch {
-      await setCourtAlertsEnabled(false).catch(() => 0);
-      toast.error("Couldn't turn on arrival alerts. Try again in Settings > Court Arrival Alerts.");
-      return false;
+      if (r.reason === 'ok') toast.success('These codes pop up when you arrive.');
+      else toast.error(arrivalSyncMessage(r).message);
     } finally {
-      setAlertsBusy(false);
+      setCodesBusy(false);
+    }
+  }
+
+  // "Always" is missing: the OS sheets (if it still shows them), then the
+  // watched courts again.
+  async function allowAlways() {
+    setCodesBusy(true);
+    try {
+      const m = arrivalSyncMessage(await askForArrivalLocation());
+      setAlwaysAllowed(await backgroundLocationAllowed());
+      if (m.ok) toast.success('These codes pop up when you arrive.');
+      else toast.error(m.message);
+    } finally {
+      setCodesBusy(false);
     }
   }
 
@@ -109,11 +143,12 @@ export default function QrWalletScreen({ navigation }: Props) {
       setCourt(null);
       setImage(null);
       setLabel('Front desk check-in');
-      if (NATIVE) {
-        if (alertsOn) await syncCourtGeofences();
-        else await turnOnAlerts();
-      }
-      toast.success(`Saved. ${NATIVE ? `It pops up when you arrive at ${court.name}.` : 'Open it here at the desk.'}`);
+      // Watch the new code's court, asking for "Always" if it's missing. With
+      // the switch off (or on web) it just waits here for the desk.
+      const r = NATIVE && codesOn ? await syncCourtGeofences({ interactive: true }) : null;
+      const m = savedMessage(court.name, r);
+      if (m.ok) toast.success(m.message);
+      else toast.error(m.message);
       await load();
     } catch (e) {
       toast.error((e as Error).message || "Couldn't save the QR code.");
@@ -127,7 +162,8 @@ export default function QrWalletScreen({ navigation }: Props) {
     setRemoving(null);
     if (!p) return;
     await removePass(p.id);
-    if (NATIVE && alertsOn) await syncCourtGeofences();
+    // Stop watching its court (CourtArrivalHost re-picks, no permission sheet).
+    if (NATIVE && codesOn) courtArrivalResync.emit();
     await load();
   }
 
@@ -138,12 +174,25 @@ export default function QrWalletScreen({ navigation }: Props) {
         screen. Codes stay on this phone.
       </Text>
 
-      {NATIVE && !alertsOn && passes.length > 0 ? (
-        <Panel>
-          <Text style={[styles.body, { color: c.text }]}>
-            Arrival alerts are off, so these codes won't pop up when you get to the court.
-          </Text>
-          <Button title="Turn on arrival alerts" onPress={() => void turnOnAlerts()} loading={alertsBusy} size="sm" style={styles.start} />
+      {NATIVE && passes.length > 0 ? (
+        <Panel padded={false}>
+          <SettingSwitchRow
+            label="Show these codes when I arrive"
+            hint="A notification at the court opens its code. On this phone only."
+            value={codesOn}
+            onChange={(on) => void toggleCodes(on)}
+            disabled={codesBusy}
+          />
+          {codesOn && alwaysAllowed === false ? (
+            // On, but the OS won't wake Pickleague at the court: say so, and
+            // offer the sheets again (they show only if never answered).
+            <View style={styles.allowBox}>
+              <Text style={[styles.body, { color: c.textSub }]}>
+                They pop up only with location set to "{ALWAYS_LABEL}". Change it in your phone's Settings for Pickleague.
+              </Text>
+              <Button title="Allow" onPress={() => void allowAlways()} loading={codesBusy} size="sm" style={styles.start} />
+            </View>
+          ) : null}
         </Panel>
       ) : null}
 
@@ -238,6 +287,7 @@ const styles = StyleSheet.create({
   intro: { fontSize: 14, lineHeight: 20 },
   body: { fontSize: 14, lineHeight: 20 },
   start: { alignSelf: 'flex-start', marginTop: SPACE.sm },
+  allowBox: { paddingHorizontal: SPACE.md, paddingBottom: SPACE.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: 1 },
   thumb: { width: 48, height: 48, borderRadius: 6, backgroundColor: '#fff' },
   inviteThumb: { alignItems: 'center', justifyContent: 'center' },

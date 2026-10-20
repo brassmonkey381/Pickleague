@@ -103,8 +103,9 @@ export default function AdminBoundaryEditorScreen({ navigation, route }: Props) 
         onRingChange={setRing}
       />
       <Text style={[styles.hint, { color: c.textSub }]}>
-        Trace the building or fenced courts, not the parking lot. The red dot is the court's pin; arrival alerts still
-        use a {venue.geofence_radius_m ?? 100} m circle around it.
+        Trace the building or fenced courts, not the parking lot. The red dot is the court's pin. Starred-court
+        arrival uses a circle with the same area as this outline; without one, the player's chosen distance around
+        the pin.
       </Text>
       <View style={styles.actions}>
         <Button title="Save outline" variant="success" onPress={() => void save(ring)} loading={saving} disabled={!canSave} style={styles.flex} />

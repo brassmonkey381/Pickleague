@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, Switch,
-  TextInput, TouchableOpacity, Linking, Platform,
+  View, Text, ScrollView, StyleSheet,
+  TextInput, TouchableOpacity, Linking,
 } from 'react-native';
 import Constants from 'expo-constants';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   sbCall,
   currentUserId,
@@ -16,7 +16,9 @@ import {
   SectionHeader,
   CollapsibleSection,
   SegmentedToggle,
+  SettingSwitchRow,
 } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -31,7 +33,8 @@ import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import PresencePrivacyRows from '../components/presence/PresencePrivacyRows';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
-import { getCourtAlertsEnabled, setCourtAlertsEnabled } from '../lib/courtGeofence';
+import CourtArrivalSettingsPanel from '../components/CourtArrivalSettingsPanel';
+import { clearArrivalTrace, readArrivalTrace, type ArrivalTraceEvent } from '../lib/courtArrivalTrace';
 import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { trackSectionToggle } from '../lib/analytics';
 import {
@@ -41,7 +44,7 @@ import {
   type Prefs,
 } from '../lib/userPreferences';
 
-type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'> };
+type Props = NativeStackScreenProps<RootStackParamList, 'Settings'>;
 
 type Colors = ReturnType<typeof useTheme>['colors'];
 type Styles = ReturnType<typeof makeStyles>;
@@ -60,6 +63,8 @@ type PushTypeKey =
   | 'notifyTournamentUpdates'
   | 'notifyChallenges'
   | 'notifyDrillRequests'
+  | 'notifyAutoCheckins'
+  | 'notifyCheckinPrompts'
   | 'notifyFriendRequests';
 
 const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
@@ -67,14 +72,22 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   // Its own switch, not folded into "Match results", because the consequence
   // of muting it is different in kind: unconfirmed matches are deleted after
   // an hour, so a missed confirm request loses a game you actually played.
-  // The copy says so plainly, and short enough that the 2-line clamp on
-  // ToggleRow never cuts the consequence off.
+  // The copy says so plainly, and short enough that the rows' 2-line clamp
+  // (hintLines) never cuts the consequence off.
   { key: 'notifyMatchConfirms', label: 'Match confirmations', desc: 'Score confirm requests. Unconfirmed matches are dropped after an hour' },
   { key: 'notifyEventReminders', label: 'Event reminders', desc: 'Before a league event starts, and before a scheduling vote closes' },
   { key: 'notifyLeagueUpdates', label: 'League announcements', desc: 'Admin posts and league news' },
   { key: 'notifyTournamentUpdates', label: 'Tournament updates', desc: 'Bracket results and schedule changes' },
   { key: 'notifyChallenges', label: 'Match challenges', desc: 'When someone challenges you to a match' },
   { key: 'notifyDrillRequests', label: 'Drilling', desc: 'Drill requests, answers and session reminders' },
+  // Court arrival (Check-in automation below). These gate the server's
+  // pushes; when it can't push to the phone (no token, push off), the phone
+  // shows its own "Checked in" / "Still at" and "Check in nearby?" (decision
+  // D3, lib/courtArrival), but never for a type switched off here. "Auto
+  // check-ins" also carries "👋 Checked out" when any check-in runs out
+  // (manual ones included), so its line says so.
+  { key: 'notifyAutoCheckins', label: 'Auto check-ins', desc: 'At your starred courts, and when a check-in ends' },
+  { key: 'notifyCheckinPrompts', label: 'Check-in prompts', desc: 'Near courts, when the app is open or you arrive' },
   ...(FRIENDS_AT_COURTS_ENABLED
     ? [{ key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' }]
     : []),
@@ -89,43 +102,22 @@ function Divider({ S }: { S: Styles }) {
   return <View style={S.divider} />;
 }
 
-function ToggleRow({ S, c, label, desc, value, onChange, disabled, inset = true }: {
-  S: Styles; c: Colors;
-  label: string; desc?: string; value: boolean; onChange: (v: boolean) => void; disabled?: boolean;
-  /** false inside a CollapsibleSection, whose body already pads its content. */
-  inset?: boolean;
-}) {
-  return (
-    // The whole row is the control: RNW's Switch is about 40x20, under the
-    // 44pt rule (and hitSlop doesn't apply on web).
-    <TouchableOpacity
-      style={[S.row, !inset && S.rowFlush, disabled && S.dim]}
-      onPress={() => onChange(!value)}
-      disabled={disabled}
-      activeOpacity={0.7}
-      accessibilityRole="switch"
-      accessibilityState={{ checked: value, disabled: !!disabled }}
-      accessibilityLabel={label}
-      accessibilityHint={desc}
-    >
-      <View style={S.rowText}>
-        <Text style={S.rowLabel}>{label}</Text>
-        {/* Clamped at 2 lines with no "more": every desc passed here is written
-            to fit 2 lines at phone width (~80 chars), so keep new ones that short. */}
-        {desc ? <Text style={S.rowDesc} numberOfLines={2}>{desc}</Text> : null}
-      </View>
-      {/* Visual only, so one tap toggles once (a live Switch would also fire
-          its own change) and a screen reader reads the row, not both. */}
-      <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-        <Switch
-          value={value}
-          disabled={disabled}
-          trackColor={{ false: c.border, true: c.primary }}
-          thumbColor={c.textInverse}
-        />
-      </View>
-    </TouchableOpacity>
-  );
+// The switch rows are the foundation's SettingSwitchRow (this screen's old
+// ToggleRow, hoisted in 1.50). Every hint here is written to fit 2 lines at
+// phone width (~80 chars) and passed hintLines={2}, so keep new ones that short.
+
+/** One trace event on one line: local time, kind, then its details. Never a coordinate (there are none). */
+function traceLine(e: ArrivalTraceEvent): string {
+  const d = new Date(e.at);
+  const p = (n: number) => String(n).padStart(2, '0');
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  const detail = e.detail
+    ? Object.entries(e.detail)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(' ')
+    : '';
+  return `${when}  ${e.kind}${detail ? `  ${detail}` : ''}`;
 }
 
 function ActionRow({ S, label, desc, onPress, danger, detail }: {
@@ -146,7 +138,7 @@ function ActionRow({ S, label, desc, onPress, danger, detail }: {
 
 // TODO: smoke-test in browser — toggle Theme (System/Light/Dark) and confirm
 // the Settings body flips between light and dark with no leftover light cards.
-export default function SettingsScreen({ navigation }: Props) {
+export default function SettingsScreen({ navigation, route }: Props) {
   const { colors, themeMode, setThemeMode } = useTheme();
   const S = makeStyles(colors);
   const [prefs, setPrefs]             = useState<Prefs>(DEFAULT_PREFS);
@@ -169,37 +161,53 @@ export default function SettingsScreen({ navigation }: Props) {
   const [deleting, setDeleting]         = useState(false);
 
   const status = useStatusMessage();
-  const [courtAlerts, setCourtAlerts] = useState(false);
-  const [courtAlertsBusy, setCourtAlertsBusy] = useState(false);
+
+  // "Check-in automation" starts collapsed; settings/checkins (the Not here
+  // notices) opens it and brings it into view, also when Settings is already
+  // open. The section's y is known only after layout, so a scroll asked for
+  // before then waits for onLayout.
+  const focusCheckins = route.params?.focus === 'checkins';
+  const [checkinsOpen, setCheckinsOpen] = useState(focusCheckins);
+  const scrollRef = useRef<ScrollView>(null);
+  const checkinsY = useRef<number | null>(null);
+  const scrollPending = useRef(false);
+  const scrollToCheckins = () => {
+    if (checkinsY.current == null) {
+      scrollPending.current = true;
+      return;
+    }
+    scrollPending.current = false;
+    scrollRef.current?.scrollTo({ y: Math.max(0, checkinsY.current - SPACE.md), animated: true });
+  };
+  useEffect(() => {
+    if (!focusCheckins) return;
+    setCheckinsOpen(true);
+    scrollToCheckins();
+    // route.params: the same link followed again is a new params object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCheckins, route.params]);
+
+  // Godmode: this phone's court arrival trace (lib/courtArrivalTrace), for the
+  // device tests. null = closed.
+  const [trace, setTrace] = useState<string | null>(null);
+  async function toggleTrace() {
+    if (trace !== null) {
+      setTrace(null);
+      return;
+    }
+    const events = await readArrivalTrace();
+    // Newest first: the run just made is what a device test looks at.
+    setTrace(events.length ? events.slice().reverse().map(traceLine).join('\n') : 'No arrival events on this phone yet.');
+  }
+  async function clearTrace() {
+    await clearArrivalTrace();
+    setTrace('No arrival events on this phone yet.');
+  }
 
   useEffect(() => {
     loadPrefs();
     loadProfile();
-    void getCourtAlertsEnabled().then(setCourtAlerts);
   }, []);
-
-  // Court arrival alerts: device-level, needs "Always" location. Turning on
-  // shows the OS permission sheets; 0 fenced courts means it couldn't start.
-  async function toggleCourtAlerts(val: boolean) {
-    setCourtAlertsBusy(true);
-    try {
-      const n = await setCourtAlertsEnabled(val);
-      if (val && n === 0) {
-        await setCourtAlertsEnabled(false);
-        setCourtAlerts(false);
-        status.error(
-          FRIENDS_AT_COURTS_ENABLED
-            ? 'Arrival alerts need location set to "Always" and at least one court (a court you starred, a league home court, or a court you checked in at).'
-            : 'Arrival alerts need location set to "Always" and at least one court (a league home court or a court you checked in at).',
-        );
-        return;
-      }
-      setCourtAlerts(val);
-      if (val) status.success(`Watching ${n} court${n === 1 ? '' : 's'}.`);
-    } finally {
-      setCourtAlertsBusy(false);
-    }
-  }
 
   async function loadPrefs() {
     const result = await loadUserPreferencesResult();
@@ -396,7 +404,7 @@ export default function SettingsScreen({ navigation }: Props) {
         : `${pushTypesOn} of ${PUSH_TYPES.length} on`;
 
   return (
-    <ScrollView style={S.screen} contentContainerStyle={S.container}>
+    <ScrollView ref={scrollRef} style={S.screen} contentContainerStyle={S.container}>
 
       <StatusBanner status={status.value} style={{ marginBottom: SPACE.sm }} />
 
@@ -464,11 +472,10 @@ export default function SettingsScreen({ navigation }: Props) {
             <Divider S={S} />
           </>
         )}
-        <ToggleRow
-          S={S}
-          c={colors}
+        <SettingSwitchRow
           label="Push notifications"
-          desc="Phone alerts. A type turned off still shows in the in-app bell."
+          hint="Phone alerts. A type turned off still shows in the in-app bell."
+          hintLines={2}
           value={prefs.pushEnabled}
           onChange={togglePush}
           disabled={!prefsReady || pushBusy}
@@ -486,12 +493,11 @@ export default function SettingsScreen({ navigation }: Props) {
         {PUSH_TYPES.map((p, i) => (
           <React.Fragment key={p.key}>
             {i > 0 ? <View style={S.dividerFlush} /> : null}
-            <ToggleRow
-              S={S}
-              c={colors}
+            <SettingSwitchRow
               inset={false}
               label={p.label}
-              desc={p.desc}
+              hint={p.desc}
+              hintLines={2}
               value={prefs[p.key]}
               onChange={(v) => savePrefs({ ...prefs, [p.key]: v })}
               disabled={!prefsReady}
@@ -500,22 +506,28 @@ export default function SettingsScreen({ navigation }: Props) {
         ))}
       </CollapsibleSection>
 
-      {Platform.OS !== 'web' && (
-        <>
-          <SectionHeader title="Court arrival alerts" />
-          <Panel padded={false} style={S.card}>
-            <ToggleRow
-              S={S}
-              c={colors}
-              label="Ask me to check in at the courts"
-              desc="A Check in prompt at your courts — never automatic. Needs location set to Always."
-              value={courtAlerts}
-              onChange={toggleCourtAlerts}
-              disabled={courtAlertsBusy}
-            />
-          </Panel>
-        </>
-      )}
+      {/* ── Check-in automation ─────────────── */}
+      {/* Starred courts, arrival check-ins and prompts (section F of the court
+          arrival plan). All platforms: the settings are per account, and web
+          says which ones apply on the phone. Children unmount on close. */}
+      <View
+        onLayout={(e) => {
+          checkinsY.current = e.nativeEvent.layout.y;
+          if (scrollPending.current) scrollToCheckins();
+        }}
+      >
+        <CollapsibleSection
+          compact
+          title="Check-in automation"
+          open={checkinsOpen}
+          onToggle={(open) => {
+            setCheckinsOpen(open);
+            trackSectionToggle({ screen: 'Settings', section: 'checkin_automation', open });
+          }}
+        >
+          <CourtArrivalSettingsPanel />
+        </CollapsibleSection>
+      </View>
 
       {/* ── Privacy ──────────────────────────── */}
       <SectionHeader title="Privacy" />
@@ -609,6 +621,21 @@ export default function SettingsScreen({ navigation }: Props) {
               desc="Act on player reports within 24 hours"
               onPress={() => navigation.navigate('ModerationQueue')}
             />
+            <Divider S={S} />
+            {/* Device-only: read from this phone, never uploaded. */}
+            <ActionRow
+              S={S}
+              label="Court arrival trace"
+              desc="This phone's last 200 arrival events"
+              detail={trace !== null ? 'Hide' : undefined}
+              onPress={() => void toggleTrace()}
+            />
+            {trace !== null ? (
+              <View style={S.traceBox}>
+                <Text style={S.traceText} selectable>{trace}</Text>
+                <Button title="Clear the trace" size="sm" variant="outline" onPress={() => void clearTrace()} style={S.hug} />
+              </View>
+            ) : null}
           </Panel>
         </>
       )}
@@ -697,17 +724,18 @@ function makeStyles(c: Colors) {
     cardTight:     { marginBottom: SPACE.sm, overflow: 'hidden' },
     // A one-line row is 44; a row with a description lands at 56 on its own.
     row:           { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 44 },
-    rowFlush:      { paddingHorizontal: 0 },
     rowText:       { flex: 1, minWidth: 0 },
     rowLabel:      t.title,
     rowDesc:       { ...t.sub, marginTop: SPACE.xxs },
     rowDetail:     { ...t.sub, color: c.textMuted, flexShrink: 1 },
     chevron:       { fontSize: FONT.size.h2, color: c.textMuted },
-    dim:           { opacity: 0.5 },
     divider:       { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
     dividerFlush:  { height: HAIRLINE, backgroundColor: c.border },
     dangerText:    { color: c.danger },
     themeTabs:     { borderBottomWidth: 0 },
+    hug:           { alignSelf: 'flex-start' },
+    traceBox:      { paddingHorizontal: SPACE.md, paddingBottom: SPACE.sm, gap: SPACE.xs },
+    traceText:     t.meta,
     passwordInput: { borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: SPACE.xs },
   });
 }

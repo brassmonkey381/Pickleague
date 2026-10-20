@@ -30,33 +30,56 @@
 // extension that lands after the check-in lapsed would be refused anyway, so
 // it fails loudly instead. It sends a fix when it can: without one the server
 // keeps a confirmed check-in at most 4 hours past its last confirming fix.
+//
+// Court arrival's lock-screen buttons live here too (state/court-arrival-
+// doggle-parity.md rows 30-37): one check-in behind "✅ Check in" and
+// "✅ Check in now", Not here on "At <court>?" with its offline queue, and
+// no fix on Stay 1 more hour for a check-in the server made on arrival. The
+// arrival itself is lib/courtArrival's.
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import { flushMutationQueue, registerMutationHandler, runOrQueue } from '@just-messin-around/expo-foundation/cache';
+import { AppState, Platform } from 'react-native';
+import {
+  flushMutationQueue,
+  onMutationQueueEvent,
+  registerMutationHandler,
+  runOrQueue,
+} from '@just-messin-around/expo-foundation/cache';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
-import { isProbablyOffline, TimeoutError } from '@just-messin-around/expo-foundation/platform';
+import { isProbablyOffline, TimeoutError, withTimeout } from '@just-messin-around/expo-foundation/platform';
 import {
   getCurrentCoords,
   getForegroundLocationStatus,
   requestForegroundLocationPermission,
 } from '@just-messin-around/expo-foundation/platform/location';
 import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin-around/expo-foundation/platform/push';
-import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import { currentUserId, resolveUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
-import { catalog, NeedsApp, refusalNeedsApp, registerActionHandler, requireUser } from './notificationActions';
+import {
+  catalog,
+  NeedsApp,
+  refusalNeedsApp,
+  registerActionHandler,
+  requireUser,
+  type ActionHandler,
+  type ActionPushData,
+} from './notificationActions';
 import { titleWith } from './pushSubject';
-import { isRetryLater, noteRefusalNotice } from './refusalNotices';
+import { explainRefusal, isRetryLater, noteRefusalNotice } from './refusalNotices';
 import {
   extendedNote,
   lapsedCheckinNotice,
+  QUEUED_CHECKIN_NOTE,
   queuedCheckinRanOutNote,
   queuedRefusalNotice,
   refusalCode,
+  refusalCopy,
   whenLabel,
 } from './refusals';
 import { isEndPending } from './playEndPending';
 import { readPendingEnds } from './playEndPendingStore';
+import { presenceConsentState } from './presenceConsent';
+import { checkedInVisibilityLine, DEFAULT_PRESENCE_SETTINGS } from './presencePrivacy';
 import {
   CHECKOUT_FIX_WAIT_MS,
   checkoutPayload,
@@ -68,6 +91,7 @@ import {
   lapsedCheckinFacts,
   needsCourtToExtend,
   noFixMessage,
+  offersUntrackedSession,
   refusedForQueueWait,
   rejectedCheckinNotice,
   syncedAfterItEnded,
@@ -77,6 +101,31 @@ import {
   type DeviceFix,
 } from './courtCheckinRules';
 import {
+  ARRIVAL_CANCEL_MAX_AGE_MS,
+  ARRIVAL_CHECKIN_MS,
+  ARRIVAL_NOTICE_KIND,
+  CHECK_IN_TIMED_OUT,
+  CHECKIN_ACTION_FIX_MS,
+  CHECKIN_ACTION_TIMEOUT_MS,
+  checkInOutcome,
+  checkInOutcomeCopy,
+  CHECKINS_SETTINGS_LINK,
+  isLocationRefusalCode,
+  NOT_HERE_FAILED,
+  NOT_HERE_TIMED_OUT,
+  NOT_HERE_TIMEOUT_MS,
+  notHereOutcome,
+  type CancelCourtArrivalResult,
+} from './courtArrivalRules';
+import {
+  arrivalNotice,
+  cancelAllScheduledArrivalNotices,
+  cancelArrivalLocalNotices,
+  cancelScheduledArrivalNotices,
+  dismissArrivalCheckinPushes,
+  reconcileArrivalLocalNotices,
+} from './courtArrivalNotice';
+import {
   checkinVenue,
   checkoutVenue,
   extendCheckin,
@@ -85,6 +134,17 @@ import {
   type CheckinSource,
   type VenueCheckin,
 } from '../data/venueCheckins';
+import { loadPresenceSettings } from '../data/presenceSettings';
+// Registers the base replay of a queued Exit / Not here; this file registers
+// over it below (a module runs after the files it imports).
+import {
+  ARRIVAL_CANCEL_MUTATION,
+  cancelCourtArrival,
+  cancelCourtArrivalOrQueue,
+  confirmCourtArrival,
+  courtArrivalPending,
+  type ArrivalCancelPayload,
+} from '../data/courtArrival';
 
 export type CurrentCheckin = {
   id: string;
@@ -93,11 +153,19 @@ export type CurrentCheckin = {
   venueName: string;
   expiresAt: string;
   source: CheckinSource;
+  /** When it began, as the server has it (none while it is still queued). */
+  checkedInAt?: string;
   /** Saved offline; not on the server yet. */
   queued?: boolean;
   /** Made by an older build without a fix: stored privately, nobody sees it (the card says so). */
   private?: boolean;
+  /** Made by the server on arrival at a starred court, with no fix (court
+   *  arrival): Stay 1 more hour sends none. Undefined: not known yet. */
+  viaArrival?: boolean;
 };
+
+/** A check-in row, with the arrival flag the server adds (migration_court_arrival_queue.sql). */
+type CheckinRow = VenueCheckin & { via_arrival?: boolean };
 
 const STORAGE_KEY = 'pickleague_current_checkin_v1';
 const REJECTED_KEY = 'pickleague_checkin_rejected_v1';
@@ -210,7 +278,22 @@ async function setCurrent(c: CurrentCheckin | null): Promise<void> {
   checkinChanged.emit(c);
 }
 
+/**
+ * An arrival check-in still in its first 30 minutes: the server's "Still at"
+ * (or this phone's own copy, for a player it can't push to) already comes 5
+ * minutes before the end, so a reminder from here would be a second one. Once
+ * it is extended, the server sends no more and this phone's reminder takes over.
+ */
+function arrivalStillAtCovers(c: CurrentCheckin): boolean {
+  if (c.viaArrival !== true || !c.checkedInAt) return false;
+  return Date.parse(c.expiresAt) - Date.parse(c.checkedInAt) === ARRIVAL_CHECKIN_MS;
+}
+
 function scheduleReminder(c: CurrentCheckin): Promise<boolean> {
+  if (arrivalStillAtCovers(c)) {
+    void cancelLocalNotification(REMINDER_ID);
+    return Promise.resolve(false);
+  }
   return scheduleLocalNotification({
     id: REMINDER_ID,
     at: new Date(c.expiresAt).getTime() - 5 * 60_000,
@@ -218,8 +301,24 @@ function scheduleReminder(c: CurrentCheckin): Promise<boolean> {
     body: 'Your check-in ends in 5 minutes.',
     categoryId: catalog.ids.checkin_extend.id,
     // A tap opens Home's court card (there is no court screen yet).
-    data: { checkin_id: c.id, expires_at: c.expiresAt, venue_id: c.venueId, venue_name: c.venueName, deepLink: 'home/-' },
+    data: {
+      checkin_id: c.id,
+      expires_at: c.expiresAt,
+      venue_id: c.venueId,
+      venue_name: c.venueName,
+      // Stay 1 more hour then sends no fix (the checkin_extend handler).
+      ...(c.viaArrival ? { via_arrival: true } : {}),
+      deepLink: 'home/-',
+    },
   });
+}
+
+/** The check-in's start and arrival flag, from a row the server returned. */
+function rowFacts(row: CheckinRow): Pick<CurrentCheckin, 'checkedInAt' | 'viaArrival'> {
+  return {
+    ...(row.checked_in_at ? { checkedInAt: row.checked_in_at } : {}),
+    ...(typeof row.via_arrival === 'boolean' ? { viaArrival: row.via_arrival } : {}),
+  };
 }
 
 const live = (c: CurrentCheckin | null) => (c && new Date(c.expiresAt).getTime() > Date.now() ? c : null);
@@ -256,7 +355,16 @@ async function adoptReplayed(payload: CheckinPayload, row: VenueCheckin): Promis
     return;
   }
   if (!mine) return;
-  await setCurrent({ ...mine, id: row.id, venueId: row.venue_id, expiresAt: row.expires_at, source: row.source, queued: undefined });
+  await setCurrent({
+    ...mine,
+    id: row.id,
+    venueId: row.venue_id,
+    expiresAt: row.expires_at,
+    source: row.source,
+    // The server may have handed back its arrival check-in at this court.
+    ...rowFacts(row),
+    queued: undefined,
+  });
 }
 
 // ── Check-outs tapped while their check-in was still queued ────────────────
@@ -392,6 +500,8 @@ export async function askForLocation(): Promise<boolean> {
 
 /** Like takeCheckinFix, but only when location is already allowed (never prompts). */
 export async function takeFixIfAllowed(timeoutMs = 6_000): Promise<DeviceFix | null> {
+  // An earlier read's "too vague" is not why this one came back empty.
+  lastImpreciseFix = null;
   if ((await getForegroundLocationStatus()) !== 'granted') return null;
   return takeCheckinFix(timeoutMs);
 }
@@ -455,6 +565,9 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   if (!uid) return null;
   const cached = await peekCurrentCheckin();
   const open = await getMyOpenCheckin(uid);
+  // The phone's own "Checked in" / "Still at" (D3) for an arrival the server
+  // never made a check-in of, or one that's over, go now: this read is fresh.
+  void reconcileArrivalLocalNotices(open).catch(() => undefined);
   // A play session's check-in whose End is still queued is over already.
   const ended = open?.source === 'session' && isEndPending(await readPendingEnds(), open.id, Date.now());
   const row = ended ? null : open;
@@ -470,6 +583,10 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   }
   const venueName =
     cached?.venueId === row.venue_id ? cached.venueName : (await getVenueName(row.venue_id)) ?? 'this court';
+  // Only the server makes arrival check-ins, always as 'geofence'; once
+  // known, the flag stays with the check-in.
+  const known = cached?.id === row.id ? cached.viaArrival : undefined;
+  const viaArrival = known ?? (row.source === 'geofence' ? await madeOnArrival(row.id) : false);
   const next: CurrentCheckin = {
     id: row.id,
     userId: uid,
@@ -477,18 +594,32 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
     venueName,
     expiresAt: row.expires_at,
     source: row.source,
+    checkedInAt: row.checked_in_at,
     ...(row.location_confirmed === false ? { private: true } : {}),
+    ...(viaArrival !== undefined ? { viaArrival } : {}),
   };
   if (
     !cached ||
     cached.id !== next.id ||
     cached.expiresAt !== next.expiresAt ||
     cached.queued ||
-    !!cached.private !== !!next.private
+    !!cached.private !== !!next.private ||
+    cached.viaArrival !== next.viaArrival ||
+    cached.checkedInAt !== next.checkedInAt
   ) {
     await setCurrent(next);
   }
   return next;
+}
+
+/**
+ * Whether my open check-in `id` was made by the server on arrival, from the
+ * cached read that has the flag (the reconcile read above doesn't ask for
+ * it). Undefined when that can't be told now (no signal, an older server).
+ */
+async function madeOnArrival(id: string): Promise<boolean | undefined> {
+  const open = await withTimeout(getMyOpenCheckin(), 3_000).catch(() => null);
+  return open?.id === id && typeof open.via_arrival === 'boolean' ? open.via_arrival : undefined;
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
@@ -522,9 +653,17 @@ export async function checkInAt(
     venueName: venue.name,
     expiresAt: result?.expires_at ?? new Date(Date.now() + minutes * 60_000).toISOString(),
     source: result?.source ?? payload.source,
+    // Handed back the server's arrival check-in here: viaArrival says so.
+    ...(result ? rowFacts(result as CheckinRow) : {}),
     ...(queued ? { queued: true } : {}),
   };
   await setCurrent(c);
+  // Checked in with a fix (the court card or a notice button): an arrival
+  // still waiting anywhere is skipped by the server now (this check-in is
+  // open), and one that landed was closed or extended by it, so the phone's
+  // own "Checked in" / "Still at" (D3) would be wrong. Queued: the server
+  // doesn't know of it yet, so the arrival may still land as announced.
+  if (!queued) void cancelAllScheduledArrivalNotices();
   return c;
 }
 
@@ -551,6 +690,8 @@ export async function extendCheckinByHour(
     if (code === 'checkin.closed' || code === 'checkin.none') void refreshCurrentCheckin().catch(() => null);
     throw e;
   }
+  // The phone's own "Still at" for an arrival check-in (D3) named the old end.
+  void cancelArrivalLocalNotices(c.id);
   const cached = await readStored();
   // The server may give less than an hour (4 hours ahead at most, and
   // without a confirming fix 4 hours past the last one): say which.
@@ -627,6 +768,9 @@ export async function checkOut(
     if (queuedCheckin) await takeLeft(queuedCheckin.id);
     throw e;
   }
+  // The phone's own "Still at" for an arrival check-in (D3) must not go off.
+  const closedId = id ?? mine?.id;
+  if (closedId) void cancelArrivalLocalNotices(closedId);
   if (mine) await setCurrent(null);
   return { queued };
 }
@@ -646,7 +790,9 @@ export async function clearCheckinForSignOut(): Promise<void> {
   await AsyncStorage.removeItem(LEFT_KEY).catch(() => {});
 }
 
-// ── Lock-screen buttons on the "5 minutes left" reminder ────────────────────
+// ── Stay 1 more hour / Check out ────────────────────────────────────────────
+// On the "5 minutes left" reminder, the server's "Checked in at X" and "Still
+// at X?" (and the phone's own copies of them), and "Leaving X?".
 registerActionHandler('checkin_extend', {
   // The reminder carries venue_name, so the notice names the court.
   // Waits up to 5 s for a fix, then the 9 s write.
@@ -667,7 +813,11 @@ registerActionHandler('checkin_extend', {
     // A fix confirms I am still there (it works in the background only with
     // "Always" location). Without one the server extends only so far past the
     // last confirming fix, then the app has to be opened at the court.
-    const fix = await takeFixIfAllowed(5_000);
+    // Not for a check-in the server made on arrival (via_arrival): it came
+    // from a circle whose edge can be far from the court's pin, so a fix there
+    // would be refused; without one the server extends it up to 4 hours past
+    // its check-in.
+    const fix = d.via_arrival === true ? null : await takeFixIfAllowed(5_000);
     try {
       return await extendCheckinByHour({ id: d.checkin_id, expiresAt: d.expires_at, venueName: d.venue_name }, fix);
     } catch (e) {
@@ -687,6 +837,323 @@ registerActionHandler('checkin_out', {
   queued: { title: 'Checked out', body: 'Saved. It syncs when you are back online.' },
   run: async (d) => {
     await requireUser();
-    return checkOut(d.checkin_id ?? null);
+    // An arrival check-in is a 'geofence' row. The phone makes this notice
+    // itself for a player without push, so its id may be one the server
+    // never stored (it skipped the arrival); the source keeps the server's
+    // "no such row" fallback from closing a check-in at another court.
+    return checkOut(d.checkin_id ?? null, d.via_arrival === true ? 'geofence' : undefined);
   },
 });
+
+// ── Check in / Check in now (court arrival) ─────────────────────────────────
+// One check-in behind "✅ Check in" ("Check in nearby?", the QR wallet notice)
+// and "✅ Check in now" ("At <court>?"), as in Doggle's performCheckIn. It
+// takes a fresh fix without ever asking for location (the lock screen can't
+// show the sheet) and checks in with it. "At X?" has a check-in of its own
+// coming a minute after the arrival, so a press there still has an answer
+// without a usable fix: that check-in already landed (confirm it, so leaving
+// no longer takes it back), or it is still waiting out its minute ("Checking
+// you in"). A location refusal while it is still coming says the same: that
+// check-in carries no fix, so it earns nothing until a real one arrives.
+
+/** Who sees me now, from the cached settings (defaults when unreadable within 1 s). */
+async function visibilityNow(): Promise<string> {
+  const s = await withTimeout(loadPresenceSettings(), 1_000).catch(() => DEFAULT_PRESENCE_SETTINGS);
+  return checkedInVisibilityLine(s, Date.now());
+}
+
+type CourtCheckinResult =
+  | { queued: true }
+  | { outcome: 'done'; visibility: string }
+  | { outcome: 'already' | 'arriving' };
+
+const NOT_CHECKED_IN = 'Not checked in';
+
+async function courtCheckin(d: ActionPushData, onArrivalNotice: boolean): Promise<CourtCheckinResult> {
+  const runStart = Date.now();
+  await requireUser();
+  const venueId = d.venue_id;
+  if (!venueId) {
+    throw new NeedsApp("This alert didn't say which court you're at. Open Pickleague to check in.", 'home/-', NOT_CHECKED_IN);
+  }
+  // "At X?" has done its job (Android leaves a pressed notice up).
+  if (onArrivalNotice) void arrivalNotice.dismiss(venueId);
+  const court = d.venue_name ?? null;
+  // The fix is read while consent is looked up: the button's 22 s also have
+  // to hold the write.
+  const [consent, fix] = await Promise.all([
+    presenceConsentState().catch(() => 'unknown' as const),
+    takeFixIfAllowed(CHECKIN_ACTION_FIX_MS),
+  ]);
+  // The one-time "who sees you at the courts" sheet can't show on the lock
+  // screen: until it was accepted, check in from the app. No connection is
+  // its own reason (the answer may be on the server). Not on "At X?": the
+  // server took that arrival only because the answer is already there.
+  if (consent === 'no' || (consent === 'unknown' && !onArrivalNotice)) {
+    throw new NeedsApp(
+      consent === 'unknown'
+        ? refusalCopy('consent.unknown_offline')
+        : 'First choose who sees you at the courts. Open Pickleague to choose, then check in.',
+      'home/-',
+      NOT_CHECKED_IN,
+    );
+  }
+  if (!fix) {
+    // "At X?": its check-in may have landed (confirming needs no fix) or be
+    // on its way. Each read is bounded (4 s, then 3 s), and an unanswered
+    // "still on its way?" counts as yes, as in Doggle.
+    const confirmed = onArrivalNotice ? await confirmCourtArrival(venueId).catch(() => null) : null;
+    const pending =
+      onArrivalNotice && confirmed !== true ? await courtArrivalPending(venueId).catch(() => null) : null;
+    const outcome = checkInOutcome({ onArrivalNotice, hasFix: false, confirmed, pending });
+    if (outcome === 'already' || outcome === 'arriving') return { outcome };
+    // An approximate location (Precise Location off) says so; else no fix at all.
+    throw new NeedsApp(
+      impreciseFixReason() ??
+        "Pickleague couldn't get your location to confirm you're at the court. Open Pickleague at the court to check in.",
+      'home/-',
+      NOT_CHECKED_IN,
+    );
+  }
+  let c: CurrentCheckin;
+  try {
+    c = await checkInAt({ id: venueId, name: court ?? 'the courts' }, fix, { source: 'geofence' });
+  } catch (e) {
+    const code = refusalCode(e);
+    if (onArrivalNotice && isLocationRefusalCode(code)) {
+      const pending = await courtArrivalPending(venueId).catch(() => null);
+      if (checkInOutcome({ onArrivalNotice, hasFix: true, pending, refusalCode: code }) === 'arriving') {
+        return { outcome: 'arriving' };
+      }
+    }
+    // A refusal that lands after the button's deadline (its "may not have
+    // saved" notice is already up) still reaches the player.
+    if (Date.now() - runStart >= CHECKIN_ACTION_TIMEOUT_MS - 250) {
+      void noteRefusalNotice({
+        key: `court_checkin:${venueId}:${runStart}`,
+        title: "Check-in didn't go through",
+        body: queuedRefusalNotice({ what: 'check_in', venueName: court, tapMs: runStart, error: e }),
+        link: 'home/-',
+      });
+    }
+    // Why, in words: how far from the court, too vague, out of date, the
+    // court is gone, signed out (lib/refusals).
+    const why = refusalNeedsApp(e, { venueName: court, action: 'check_in' }, 'home/-');
+    if (why) throw why;
+    if (offersUntrackedSession(e)) throw new NeedsApp((e as Error).message, 'home/-', NOT_CHECKED_IN);
+    throw e;
+  }
+  if (c.queued) return { queued: true };
+  // (checkInAt cancelled the phone's own "Checked in" / "Still at" for arrivals.)
+  // The server handed back its arrival check-in (this fix now backs it):
+  // confirm it, so leaving within 5 minutes no longer takes it back.
+  if (c.viaArrival) await confirmCourtArrival(venueId).catch(() => false);
+  const outcome = checkInOutcome({
+    onArrivalNotice,
+    hasFix: true,
+    checkin: { queued: false, viaArrival: c.viaArrival === true },
+  });
+  if (outcome === 'already') return { outcome };
+  return { outcome: 'done', visibility: await visibilityNow() };
+}
+
+const courtCheckinButton: ActionHandler = {
+  timeoutMs: CHECKIN_ACTION_TIMEOUT_MS,
+  timedOut: CHECK_IN_TIMED_OUT,
+  success: (res, d) => {
+    const r = res as CourtCheckinResult | null;
+    if (r && 'outcome' in r && r.outcome !== 'done') return checkInOutcomeCopy(r.outcome, d.venue_name);
+    return {
+      title: 'Checked in',
+      body: (r && 'visibility' in r ? r.visibility : null) ?? 'Other players can see you are here.',
+    };
+  },
+  // The server takes it up to 12 hours after the tap (migration_checkin_tap_time.sql).
+  queued: { title: 'Checked in', body: QUEUED_CHECKIN_NOTE },
+  // Pressed with Pickleague open: Home's court card shows what happened.
+  openWhenActive: () => 'home/-',
+  run: (d, _key, r) => courtCheckin(d, d.kind === ARRIVAL_NOTICE_KIND || r.action === 'court_checkin_now'),
+};
+registerActionHandler('court_checkin', courtCheckinButton);
+registerActionHandler('court_checkin_now', courtCheckinButton);
+
+// ── Not here (court arrival) ────────────────────────────────────────────────
+// On "At <court>?": don't check me in here this time, or take back the
+// check-in it already became (within 5 minutes of arriving, unless it was
+// confirmed); later than that, check me out. With no signal it waits in the
+// queue and the server acts on the press time (Doggle's performNotHere and
+// its arrival-cancel replay). The notice says what the server actually did.
+
+/** What a cancel did to the arrival's other notices. */
+function afterArrivalCancel(venueId: string, res: { queued: boolean; result?: CancelCourtArrivalResult | null }): void {
+  // Taken back or checked out: its "Checked in" / "Still at" (the server's,
+  // or this phone's own) describe a visit that is over.
+  if (res.result?.removed || res.result?.closed) void dismissArrivalCheckinPushes(venueId);
+  // Stopped before it became a check-in (or it will be, once sent): the
+  // phone's own "Checked in" must not go off.
+  else if (res.queued || res.result?.dropped) void cancelScheduledArrivalNotices(venueId);
+}
+
+// Not here presses waiting in the queue, kept on this phone so one that ages
+// out unsent is told, not lost: the queue drops it after 2 hours without
+// calling the replay below. Each entry's `at` is taken after the queue stored
+// it, so once it is 2 hours old the queue can only drop it, never send it.
+// Cleared on sign-out (lib/courtArrival clearCourtArrivalForSignOut).
+export const PENDING_NOT_HERE_KEY = 'pickleague_pending_not_here_v1';
+type PendingNotHere = { id: string; venueId: string; venueName?: string; at: number };
+/** Entries a replay is sending right now (never told as aged out mid-send). */
+const notHereRunning = new Set<string>();
+/** Entries a replay already sent or had refused, so one that ran before the
+ *  press was remembered isn't remembered after. */
+const notHereDone = new Set<string>();
+/** Entries already told in this run of the app. */
+const notHereTold = new Set<string>();
+
+async function readNotHere(): Promise<PendingNotHere[]> {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_NOT_HERE_KEY);
+    const v = raw ? (JSON.parse(raw) as unknown) : null;
+    return Array.isArray(v)
+      ? (v as PendingNotHere[]).filter((e) => e && typeof e.id === 'string' && typeof e.venueId === 'string' && typeof e.at === 'number')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeNotHere(list: PendingNotHere[]): Promise<void> {
+  try {
+    if (list.length) await AsyncStorage.setItem(PENDING_NOT_HERE_KEY, JSON.stringify(list));
+    else await AsyncStorage.removeItem(PENDING_NOT_HERE_KEY);
+  } catch {
+    // best-effort: at worst an aged-out press isn't told
+  }
+}
+
+async function rememberNotHere(e: Omit<PendingNotHere, 'at'>): Promise<void> {
+  if (notHereDone.has(e.id)) return;
+  const list = await readNotHere();
+  await writeNotHere([...list.filter((x) => x.id !== e.id), { ...e, at: Date.now() }]);
+}
+
+async function settleNotHere(id: string): Promise<void> {
+  notHereDone.add(id);
+  const list = await readNotHere();
+  if (list.some((e) => e.id === id)) await writeNotHere(list.filter((e) => e.id !== id));
+}
+
+/** The court's name for these notices: the one saved, else a 2 s lookup. */
+async function notHerePlace(venueId: string, name: string | null | undefined): Promise<string> {
+  return name || (await withTimeout(getVenueName(venueId), 2_000).catch(() => null)) || 'the court';
+}
+
+/** Tell each Not here that aged out unsent, once, and forget it. */
+async function reapNotHere(): Promise<void> {
+  const now = Date.now();
+  const list = await readNotHere();
+  const aged = list.filter((e) => now - e.at >= ARRIVAL_CANCEL_MAX_AGE_MS && !notHereRunning.has(e.id));
+  if (aged.length === 0) return;
+  await writeNotHere(list.filter((e) => !aged.includes(e)));
+  for (const e of aged) {
+    if (notHereTold.has(e.id)) continue;
+    notHereTold.add(e.id);
+    const place = await notHerePlace(e.venueId, e.venueName);
+    await noteRefusalNotice({
+      key: `not-here-aged:${e.venueId}:${e.id}`,
+      title: `"Not here" for ${place} wasn't sent`,
+      body:
+        'It waited over 2 hours for signal. If you were checked in there, that check-in stays. To stop automatic check-ins there, turn that court off in Settings, under Check-in automation.',
+      link: CHECKINS_SETTINGS_LINK,
+    });
+  }
+}
+
+registerActionHandler('court_not_here', {
+  timeoutMs: NOT_HERE_TIMEOUT_MS,
+  // Home's court card shows the visit (the push's own link may open a QR code).
+  timedOut: { ...NOT_HERE_TIMED_OUT, data: { deepLink: 'home/-' } },
+  failure: { ...NOT_HERE_FAILED, data: { deepLink: 'home/-' } },
+  success: (res, d) => {
+    const r = res as { queued?: boolean; result?: CancelCourtArrivalResult } | null;
+    const copy = notHereOutcome({ queued: r?.queued === true, result: r?.result ?? null }, d.venue_name);
+    return { title: copy.title, body: copy.body, data: { deepLink: copy.link } };
+  },
+  run: async (d) => {
+    // Signed out for sure, not just a session that can't be read right now (an
+    // expired token with no signal to refresh it): that press queues below
+    // and is sent once there's signal, like any other offline Not here.
+    const who = await resolveUserId(supabase);
+    if (who.resolved && !who.userId) await requireUser();
+    const venueId = d.venue_id;
+    if (!venueId) {
+      throw new NeedsApp("This alert didn't say which court it was about. Open Pickleague to check your visit.", 'home/-');
+    }
+    void arrivalNotice.dismiss(venueId);
+    // Its entry in the pending list below: the press time.
+    const notHereId = new Date().toISOString();
+    const venueName = d.venue_name ?? undefined;
+    const res = await cancelCourtArrivalOrQueue(venueId, { notHere: true, venueName, notHereId });
+    afterArrivalCancel(venueId, res);
+    if (res.queued) await rememberNotHere({ id: notHereId, venueId, ...(venueName ? { venueName } : {}) });
+    return res;
+  },
+});
+
+// A queued Exit or Not here, sent once there is signal. The queue time is the
+// Exit or the press, which the server acts on (within 2 hours; the queue
+// keeps it no longer). An Exit is automatic, so nothing is said about it. A
+// Not here was told "We'll stop the check-in here once you're back online":
+// one refused says so, and one that lands after the check-in counted, so the
+// server checked the player out instead, says that.
+registerMutationHandler(ARRIVAL_CANCEL_MUTATION, {
+  maxAgeMs: ARRIVAL_CANCEL_MAX_AGE_MS,
+  run: async (payload, meta) => {
+    const p = payload as Partial<ArrivalCancelPayload> | null;
+    if (!p || typeof p.venueId !== 'string') return;
+    const venueId = p.venueId;
+    const notHere = p.notHere === true;
+    const pendingId = typeof p.notHereId === 'string' ? p.notHereId : null;
+    if (pendingId) notHereRunning.add(pendingId);
+    let result: CancelCourtArrivalResult;
+    try {
+      result = await cancelCourtArrival(venueId, meta.queuedAt, notHere);
+    } catch (e) {
+      if (isRetryLater(e)) retryLater(e); // no signal / signed out: stays queued
+      if (pendingId) await settleNotHere(pendingId);
+      if (notHere) {
+        const place = await notHerePlace(venueId, p.venueName);
+        await noteRefusalNotice({
+          key: `not-here:${venueId}:${pendingId ?? meta.queuedAt}`,
+          title: `"Not here" for ${place} wasn't sent`,
+          body: `${explainRefusal(e, 'Something went wrong on our side.')} Open Pickleague to check out.`,
+          link: 'home/-',
+        });
+      }
+      throw e; // refused: the queue drops it
+    } finally {
+      if (pendingId) notHereRunning.delete(pendingId);
+    }
+    if (pendingId) await settleNotHere(pendingId);
+    afterArrivalCancel(venueId, { queued: false, result });
+    if (notHere && result.closed && !result.removed) {
+      const place = await notHerePlace(venueId, p.venueName);
+      await noteRefusalNotice({
+        key: `not-here-late:${venueId}:${pendingId ?? meta.queuedAt}`,
+        title: `Checked out of ${place}`,
+        body: 'Your "Not here" reached us after the check-in counted, so we checked you out instead.',
+        link: 'home/-',
+      });
+    }
+  },
+});
+
+// After any pass, and when the queue drops one (aged out), tell the ones that
+// aged out. Also when the app comes to the front, and at start: the queue may
+// have dropped one while Pickleague was closed.
+onMutationQueueEvent((e) => {
+  if (e.type === 'flushed' || (e.type === 'dropped' && e.mutationType === ARRIVAL_CANCEL_MUTATION)) void reapNotHere();
+});
+AppState.addEventListener('change', (s) => {
+  if (s === 'active') void reapNotHere();
+});
+void reapNotHere();

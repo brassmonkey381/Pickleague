@@ -92,7 +92,12 @@
     "checkin_out"
   ],
   "court_checkin": [
-    "court_checkin"
+    "court_checkin",
+    "court_dismiss"
+  ],
+  "court_arriving": [
+    "court_checkin_now",
+    "court_not_here"
   ],
   "play_start": [
     "play_start"

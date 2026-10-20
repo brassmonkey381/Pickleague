@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getActionFromState, getStateFromPath } from '@react-navigation/core';
+import { getActionFromState, getPathFromState, getStateFromPath } from '@react-navigation/core';
 import { StackRouter } from '@react-navigation/routers';
 import { defineNotificationCatalog } from '@just-messin-around/expo-foundation/push/catalog';
 import { CATALOG } from '../notificationCatalog.data';
@@ -106,6 +106,9 @@ describe('routes', () => {
     // Court arrival with a saved QR code opens that code; no id opens the wallet.
     expect(route('wallet/p1')).toEqual(['QrPass', { passId: 'p1' }]);
     expect(route('wallet/-')).toEqual(['QrWallet']);
+    // Not here's notices open Settings with "Check-in automation" open.
+    expect(route('settings/checkins')).toEqual(['Settings', { focus: 'checkins' }]);
+    expect(route('settings/-')).toEqual(['Settings', undefined]);
   });
 
   it('friend links: Friends only while friends are on; a player link always', () => {
@@ -191,6 +194,19 @@ describe('linking: Home under every cold deep link', () => {
     expect(getStateFromPath('play?initialTab=tournaments', linking.config)?.routes.at(-1)?.params).toEqual({
       initialTab: 'tournaments',
     });
+  });
+
+  it('settings/checkins opens Check-in automation; plain settings is unchanged', () => {
+    const s = getStateFromPath('settings/checkins', linking.config);
+    expect(s?.routes.map((r) => r.name)).toEqual(['Home', 'Settings']);
+    expect(s?.routes.at(-1)?.params).toEqual({ focus: 'checkins' });
+    expect(names('settings')).toEqual(['Home', 'Settings']);
+    // The optional segment leaves focus unset (the screen opens only for 'checkins').
+    const plain = getStateFromPath('settings', linking.config)?.routes.at(-1)?.params as { focus?: string } | undefined;
+    expect(plain?.focus).toBeUndefined();
+    // The web URL bar: no "/settings/undefined".
+    expect(getPathFromState(getStateFromPath('settings', linking.config)!, linking.config)).toBe('/settings');
+    expect(getPathFromState(s!, linking.config)).toBe('/settings/checkins');
   });
 
   it('Home itself stays a single route', () => {

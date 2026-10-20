@@ -5,7 +5,14 @@
 // Every write is idempotent server-side (client id, absolute end time), so
 // callers may retry or queue them. A check-in always carries a device fix: the
 // server confirms it is inside the court's fence (no manual check-ins).
-import { classifySbError, sbCall } from '@just-messin-around/expo-foundation/supabase';
+import { classifySbError, currentUserId, sbCall } from '@just-messin-around/expo-foundation/supabase';
+import {
+  cachedFetch,
+  invalidateQueries,
+  peekQuery,
+  provisional,
+  type ProvisionalResult,
+} from '@just-messin-around/expo-foundation/cache';
 import { supabase } from '../lib/supabase';
 import { checkoutFixArgs, fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 import { getSport } from '../sports/registry';
@@ -58,7 +65,7 @@ export async function checkinVenue(p: {
   at?: string;
   fix: DeviceFix;
 }): Promise<VenueCheckin> {
-  return sbCall(
+  const row = (await sbCall(
     () =>
       supabase.rpc('checkin_venue', {
         p_id: p.id,
@@ -69,7 +76,9 @@ export async function checkinVenue(p: {
         ...fixArgs(p.fix, Date.now()),
       }),
     BOUND,
-  ) as Promise<VenueCheckin>;
+  )) as VenueCheckin;
+  openCheckinChanged();
+  return row;
 }
 
 /**
@@ -79,10 +88,12 @@ export async function checkinVenue(p: {
  * stay checked in, open Pickleague at the court ...").
  */
 export async function extendCheckin(id: string, until: string, fix?: DeviceFix | null): Promise<VenueCheckin> {
-  return sbCall(
+  const row = (await sbCall(
     () => supabase.rpc('extend_checkin', { p_id: id, p_until: until, ...fixArgs(fix, Date.now()) }),
     BOUND,
-  ) as Promise<VenueCheckin>;
+  )) as VenueCheckin;
+  openCheckinChanged();
+  return row;
 }
 
 /**
@@ -100,11 +111,14 @@ export async function checkoutVenue(
   fix?: DeviceFix | null,
 ): Promise<number> {
   const base = { p_id: id, p_source: source ?? null, p_at: at ?? null };
-  const call = (withFix: boolean) =>
-    sbCall(
+  const call = async (withFix: boolean) => {
+    const n = (await sbCall(
       () => supabase.rpc('checkout_venue', withFix ? { ...base, ...checkoutFixArgs(fix, Date.now()) } : base),
       BOUND,
-    ) as Promise<number>;
+    )) as number;
+    openCheckinChanged();
+    return n;
+  };
   if (!fix) return call(false);
   try {
     return await call(true);
@@ -114,7 +128,24 @@ export async function checkoutVenue(
   }
 }
 
-export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | null> {
+/** My open check-in as the server has it, with what "Leaving X?" needs. */
+export type MyOpenCheckin = VenueCheckin & {
+  /** Made by the server on arrival at a starred court (no fix: Stay 1 more hour sends none). */
+  via_arrival?: boolean;
+  venue_name?: string | null;
+};
+
+/**
+ * The cached read of my open check-in, for court arrival's "Leaving X?",
+ * which a geofence wake reads with weak signal: 30 s fresh, then a day of
+ * stale-if-error. Refreshed on app open (CourtArrivalHost) and dropped by
+ * every check-in write in this file.
+ */
+export const MY_OPEN_CHECKIN_KEY = 'me:openCheckin';
+const OPEN_CHECKIN_TTL_MS = 30_000;
+const OPEN_CHECKIN_PERSIST_MS = 24 * 60 * 60_000;
+
+async function readMyOpenCheckin(userId: string): Promise<VenueCheckin | null> {
   const rows = (await sbCall(
     () =>
       supabase
@@ -128,6 +159,69 @@ export async function getMyOpenCheckin(userId: string): Promise<VenueCheckin | n
     BOUND,
   )) as VenueCheckin[] | null;
   return rows?.[0] ?? null;
+}
+
+async function fetchMyOpenCheckin(): Promise<MyOpenCheckin | null | ProvisionalResult<MyOpenCheckin | null>> {
+  const uid = await currentUserId(supabase);
+  // No session to read with: "unknown", not "none", so nothing is cached.
+  if (!uid) return provisional<MyOpenCheckin | null>(null);
+  const rows = (await sbCall(
+    () =>
+      supabase
+        .from('venue_checkins')
+        .select(
+          'id, user_id, venue_id, checked_in_at, expires_at, checked_out_at, source, location_confirmed, via_arrival, venues(name)',
+        )
+        .eq('user_id', uid)
+        .is('checked_out_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('checked_in_at', { ascending: false })
+        .limit(1),
+    BOUND,
+  )) as unknown as (VenueCheckin & { via_arrival?: boolean; venues?: { name: string } | null })[] | null;
+  const row = rows?.[0];
+  if (!row) return null;
+  const { venues, ...rest } = row;
+  return { ...rest, venue_name: venues?.name ?? null };
+}
+
+/**
+ * My open check-in.
+ * - With my id (refreshCurrentCheckin's reconcile, often right after a
+ *   write): read now, and a network failure throws, as before. An answer
+ *   that differs from the cached one drops the cache.
+ * - Without it: the cached read (`force` reads now, and still falls back to
+ *   the saved copy when offline).
+ */
+export async function getMyOpenCheckin(
+  userId?: string | null,
+  opts: { force?: boolean } = {},
+): Promise<MyOpenCheckin | null> {
+  if (userId) {
+    const row = await readMyOpenCheckin(userId);
+    const cached = peekQuery<MyOpenCheckin | null>(MY_OPEN_CHECKIN_KEY);
+    if (
+      cached !== undefined &&
+      ((cached?.id ?? null) !== (row?.id ?? null) || (cached?.expires_at ?? null) !== (row?.expires_at ?? null))
+    ) {
+      invalidateQueries(MY_OPEN_CHECKIN_KEY);
+    }
+    return row;
+  }
+  return cachedFetch(MY_OPEN_CHECKIN_KEY, fetchMyOpenCheckin, {
+    ttlMs: opts.force ? 0 : OPEN_CHECKIN_TTL_MS,
+    persistMs: OPEN_CHECKIN_PERSIST_MS,
+  });
+}
+
+/** Read my open check-in now (app open, the arrival push). Never throws. */
+export function refreshMyOpenCheckin(): Promise<MyOpenCheckin | null> {
+  return getMyOpenCheckin(null, { force: true }).catch(() => null);
+}
+
+/** A write here changed my open check-in: the next cached read asks the server. */
+function openCheckinChanged(): void {
+  invalidateQueries(MY_OPEN_CHECKIN_KEY);
 }
 
 /** One of my check-ins by id (owner-only read), open or not; null when the server has none. */

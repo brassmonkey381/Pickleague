@@ -55,6 +55,9 @@ export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: bool
     'notifications/': () => ['Notifications'],
     // Court arrival with a saved QR code: that code, full screen.
     'wallet/': (id) => (has(id) ? ['QrPass', { passId: id }] : ['QrWallet']),
+    // Not here's notices: Settings with "Check-in automation" open, where the
+    // per-court switch is. Any other id is plain Settings.
+    'settings/': (id) => ['Settings', id === 'checkins' ? { focus: 'checkins' } : undefined],
   };
   // The wager screens are not registered while wagering is off: a navigate to
   // them lands nowhere, so leave those links unrouted (-> Notifications list).

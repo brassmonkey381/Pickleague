@@ -22,11 +22,11 @@
         "webcredentials:www.pickleague.club"
       ],
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show courts near you, and to confirm you're at a court when you check in or start a play session there.",
+        "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show courts near you, to offer a check-in when you're at a court while the app is open, and to confirm you're at a court when you check in or start a play session there.",
         "NSContactsUsageDescription": "Pickleague uses your contacts so you can pick people to invite. Only the people you choose are sent.",
         "NSPhotoLibraryUsageDescription": "Pickleague uses your photo library so you can choose a profile picture, or save your club's QR code to your QR wallet.",
         "ITSAppUsesNonExemptEncryption": false,
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Pickleague can tell you when you arrive at a court you play at, so you can check in or open your club's QR code with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "At courts you've starred, Pickleague can check you in automatically when you arrive and stay a minute (leave within 5 minutes and it doesn't count). Otherwise it only sends check-in prompts. At a court where you saved a QR code, it lets you open that code with one tap when you arrive. You can turn this off in Settings.",
         "UIBackgroundModes": [
           "location"
         ]
@@ -59,8 +59,8 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Pickleague uses your location to show courts near you, and to confirm you're at a court when you check in or start a play session there.",
-          "locationAlwaysAndWhenInUsePermission": "Pickleague can tell you when you arrive at a court you play at, so you can check in or open your club's QR code with one tap. It never checks you in on its own, and you can turn this off in Settings.",
+          "locationWhenInUsePermission": "Pickleague uses your location to show courts near you, to offer a check-in when you're at a court while the app is open, and to confirm you're at a court when you check in or start a play session there.",
+          "locationAlwaysAndWhenInUsePermission": "At courts you've starred, Pickleague can check you in automatically when you arrive and stay a minute (leave within 5 minutes and it doesn't count). Otherwise it only sends check-in prompts. At a court where you saved a QR code, it lets you open that code with one tap when you arrive. You can turn this off in Settings.",
           "isIosBackgroundLocationEnabled": true,
           "isAndroidBackgroundLocationEnabled": true
         }

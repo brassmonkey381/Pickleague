@@ -35,13 +35,23 @@ export const WAGERS_ENABLED = false;
 /**
  * Friends at the courts (docs/play-sessions-presence.md, Phase 1): the Friends
  * screen, friend requests, FriendButton / FriendsLink, Home "Friends at the
- * courts", the crowd line, the court star and friend push routes. Off until
- * the presence SQL is live and its persona tests pass; then flipped by OTA.
+ * courts", the crowd line and friend push routes. Off until the presence SQL
+ * is live and its persona tests pass; then flipped by OTA.
  *
  * NOT behind this flag (they ship together, so a player is never shown at a
  * court without the means to control it): location-confirmed check-ins and
  * session check-ins, the one-time consent sheet, Settings > Privacy "Who sees
  * me at the courts" / "Hidden from", Pause sharing, and "Hide my presence" on
- * a player's ⋯ menu.
+ * a player's ⋯ menu. The court star has its own flag (below).
  */
 export const FRIENDS_AT_COURTS_ENABLED = false;
+
+/**
+ * The court star (☆ / ★, up to 5 courts), on its own flag since court arrival
+ * (state/court-arrival-decisions.md, D4): starred courts are where Pickleague
+ * checks you in when you arrive, so the star shows now on Home's court card
+ * and in Settings > Check-in automation, while the friends features above
+ * stay off. Home's "Friends at the courts" list still shows its star only
+ * when that section shows.
+ */
+export const COURT_STARS_ENABLED = true;
