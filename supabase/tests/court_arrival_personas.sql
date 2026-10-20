@@ -315,11 +315,12 @@ begin
 
   -- Every replaced function keeps its one signature and its attributes,
   -- except _purge_account's search_path ('' now; live: public).
+  -- The identity arguments list OUT parameters too (_pl_session_validity).
   with want(fn, args, definer, cfg) as (values
     ('_pl_checkin_arrival_fix', '', false, 'search_path=""'),
     ('_pl_checkin_stay_from_fix', '', false, 'search_path=""'),
     ('_pl_record_checkout_fix', 'p_ids uuid[], p_lat double precision, p_lng double precision, p_accuracy_m double precision, p_fix_age_ms double precision', true, 'search_path=""'),
-    ('_pl_session_validity', 'p_session uuid', true, 'search_path=""'),
+    ('_pl_session_validity', 'p_session uuid, OUT valid boolean, OUT reason text, OUT pending boolean, OUT needs text, OUT window_ends_at timestamp with time zone, OUT at_court boolean', true, 'search_path=""'),
     ('expire_venue_checkins', '', true, 'search_path=""'),
     ('_purge_account', 'p_uid uuid', true, 'search_path=""'),
     ('prune_presence_history', '', true, 'search_path=""'),
