@@ -55,9 +55,6 @@ export const ARRIVAL_SETTLE_MS = 60_000;
 /** The player's notification types, read before the phone stands in for a
  *  push it can't get (a geofence wake may have weak signal). */
 export const PREFS_LOOKUP_TIMEOUT_MS = 1_500;
-/** A "Check in nearby?" for a court the foreground monitor just prompted shows
- *  while the app is open, if it lands within this (send-push sends on insert). */
-export const IN_APP_PROMPT_SHOW_MS = 2 * 60_000;
 
 // ── Circles (S6) ──────────────────────────────────────────────────────────────
 export const COURT_RADIUS_CHOICES = [0, 100, 250, 1000] as const;
@@ -649,31 +646,13 @@ const HIDDEN_WHILE_ACTIVE = new Set<string>([
  * the only way to say Not here before the check-in lands); the court prompts,
  * the arrival pushes and "Leaving X?" stay quiet, as in Doggle (the player is
  * looking at the app, and an app-open resync makes the OS re-report every
- * region), except a prompt from the foreground monitor (monitorPromptShows).
- * Every other Pickleague notice keeps showing.
+ * region), the foreground monitor's prompts included. Every other Pickleague
+ * notice keeps showing.
  */
 export function showWhileAppActive(data: Record<string, unknown> | null | undefined): boolean {
   const kind = data?.kind;
   if (kind === ARRIVAL_NOTICE_KIND) return true;
   return !(typeof kind === 'string' && HIDDEN_WHILE_ACTIVE.has(kind));
-}
-
-/**
- * The exception to the rule above: a "Check in nearby?" for a court the
- * foreground monitor prompted under 2 minutes ago shows while the app is open.
- * That scan runs only while the app is open, so hidden its prompt would never
- * be seen (Doggle's is; Pickleague's permission text and privacy policy say
- * the scan offers a check-in). Prompts from the resync's re-reports stay
- * hidden. The server's push can't say who asked for it, so the court and the
- * time match it: `monitorPromptedAtMs` is when the monitor prompted that court.
- */
-export function monitorPromptShows(
-  data: Record<string, unknown> | null | undefined,
-  monitorPromptedAtMs: number | undefined,
-  nowMs: number,
-): boolean {
-  if (data?.kind !== COURT_PROMPT_KIND || typeof data.venue_id !== 'string') return false;
-  return monitorPromptedAtMs != null && nowMs - monitorPromptedAtMs < IN_APP_PROMPT_SHOW_MS;
 }
 
 // ── Which courts the phone watches (rows 5, 7, 8) ─────────────────────────────

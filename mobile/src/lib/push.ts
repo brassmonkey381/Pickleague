@@ -43,7 +43,6 @@ import { ARRIVAL_CHECKIN_KIND, ARRIVAL_EXPIRED_KIND, showWhileAppActive } from '
 // is the engine that posts those notices (index.ts loads it too, through
 // ./courtGeofence, for the geofence task).
 import { refreshCurrentCheckin } from './courtCheckin';
-import { monitorPromptShowsNow } from './courtArrival';
 import './playSession';
 import './friendActions';
 import { RootStackParamList } from '../types';
@@ -53,15 +52,14 @@ import { RootStackParamList } from '../types';
 // "Check in nearby?", "Checked in", "Still at", "Leaving X?" and the expiry
 // push, as in Doggle. The player is looking at the app, and the resync on
 // opening makes the OS re-report every watched court, whose prompts would
-// land now (lib/courtArrivalRules showWhileAppActive). The one exception is
-// a "Check in nearby?" from the foreground monitor's once-a-minute scan,
-// which runs only while the app is open (monitorPromptShows). Every other
-// notification shows as before, and so does everything handled while the
-// app is in the background.
+// land now (lib/courtArrivalRules showWhileAppActive). That includes the
+// prompts from the once-a-minute scan while the app is open, as in Doggle.
+// Every other notification shows as before, and so does everything handled
+// while the app is in the background.
 configurePushNotificationHandler({
   showAlertWhenForeground: false,
   showWhenForeground: (n) =>
-    AppState.currentState !== 'active' || showWhileAppActive(n.data) || monitorPromptShowsNow(n.data),
+    AppState.currentState !== 'active' || showWhileAppActive(n.data),
 });
 
 // MUST stay 'default': existing installs already have this channel, and

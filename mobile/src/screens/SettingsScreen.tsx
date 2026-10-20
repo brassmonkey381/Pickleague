@@ -87,7 +87,7 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   // check-ins" also carries "👋 Checked out" when any check-in runs out
   // (manual ones included), so its line says so.
   { key: 'notifyAutoCheckins', label: 'Auto check-ins', desc: 'At your starred courts, and when a check-in ends' },
-  { key: 'notifyCheckinPrompts', label: 'Check-in prompts', desc: 'Near courts, when the app is open or you arrive' },
+  { key: 'notifyCheckinPrompts', label: 'Check-in prompts', desc: 'Near courts, when you arrive' },
   ...(FRIENDS_AT_COURTS_ENABLED
     ? [{ key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' }]
     : []),

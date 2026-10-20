@@ -107,7 +107,7 @@ export async function courtPromptTick(): Promise<void> {
     const inside = scan.inside;
     if (inside && now - (cooldown.get(inside.venue_id) ?? 0) >= MONITOR_COOLDOWN_MS && !(await leftToGeofence(inside.venue_id))) {
       cooldown.set(inside.venue_id, now);
-      await promptCourtCheckin(inside.venue_id, inside.name, undefined, { fromMonitor: true });
+      await promptCourtCheckin(inside.venue_id, inside.name);
       prompted += 1;
     }
 
@@ -120,7 +120,7 @@ export async function courtPromptTick(): Promise<void> {
         if (radius <= 0 || court.distance_m > radius) continue;
         if (now - (cooldown.get(court.venue_id) ?? 0) < MONITOR_COOLDOWN_MS) continue;
         cooldown.set(court.venue_id, now);
-        await promptCourtCheckin(court.venue_id, court.name, undefined, { fromMonitor: true });
+        await promptCourtCheckin(court.venue_id, court.name);
         prompted += 1;
       }
     }

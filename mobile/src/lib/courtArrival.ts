@@ -62,7 +62,6 @@ import {
   decideQueueAnswer,
   DEPARTURE_COOLDOWN_MS,
   exitCancels,
-  monitorPromptShows,
   NAME_LOOKUP_TIMEOUT_MS,
   NEARBY_PROMPT_TITLE,
   nearbyPromptBody,
@@ -115,15 +114,6 @@ const promptedAt = new Map<string, number>();
 // (geofence events aren't serialized) must not post "At X?" after its Exit.
 const exitsMem = new Map<string, number>();
 const leftSince = (regionId: string, atMs: number) => (exitsMem.get(regionId) ?? 0) >= atMs;
-// When the foreground monitor last prompted each court: its "Check in nearby?"
-// shows while the app is open (lib/push asks monitorPromptShowsNow).
-const monitorPromptedAt = new Map<string, number>();
-
-/** lib/push's foreground rule: this notice is the foreground monitor's prompt. */
-export function monitorPromptShowsNow(data: Record<string, unknown> | null | undefined): boolean {
-  const venueId = typeof data?.venue_id === 'string' ? data.venue_id : null;
-  return monitorPromptShows(data, venueId ? monitorPromptedAt.get(venueId) : undefined, Date.now());
-}
 
 /**
  * Signed out for sure. A session that can't be read right now (an access
@@ -180,19 +170,16 @@ async function courtName(venueId: string, name: string | null | undefined): Prom
  * when I'm checked in there or was prompted in the last 30 minutes), the
  * phone's own copy only when the server can't be reached or can't push to
  * me (and "Check-in prompts" isn't switched off). Used by arrivals that ask
- * first and by the foreground monitor (`fromMonitor`: shown while the app is
- * open, where the others stay hidden).
+ * first and by the foreground monitor (hidden while the app is open, as in
+ * Doggle: lib/push).
  */
 export async function promptCourtCheckin(
   venueId: string,
   name?: string | null,
   reason?: NearbyPromptReason,
-  opts: { fromMonitor?: boolean } = {},
 ): Promise<void> {
   const mark = Date.now();
   if (AppState.currentState !== 'active') promptedAt.set(venueId, mark);
-  // Before the request: send-push sends on insert, so the push can land first.
-  if (opts.fromMonitor) monitorPromptedAt.set(venueId, mark);
   let answer: EnqueueCourtPromptAnswer | null = null;
   let muted = false;
   try {
@@ -220,7 +207,6 @@ export async function promptCourtCheckin(
     // Held back on purpose, or muted: nothing was shown, so nothing covers an arrival.
     if (delivery === 'held' || delivery === 'muted') {
       if (promptedAt.get(venueId) === mark) promptedAt.delete(venueId);
-      if (monitorPromptedAt.get(venueId) === mark) monitorPromptedAt.delete(venueId);
     }
     traceArrival('prompt', { id: venueId, delivery, reason: reason ?? null, held: a?.reason ?? null });
   } catch {
@@ -465,7 +451,6 @@ export async function handleCourtDeparture(
 export async function clearCourtArrivalForSignOut(): Promise<void> {
   promptedAt.clear();
   exitsMem.clear();
-  monitorPromptedAt.clear();
   await Promise.all([
     arrivals.clear(),
     departures.clear(),

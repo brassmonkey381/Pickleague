@@ -24,13 +24,11 @@ import {
   DEFAULT_COURT_ARRIVAL_SETTINGS,
   DEPARTURE_COOLDOWN_MS,
   exitCancels,
-  IN_APP_PROMPT_SHOW_MS,
   isLocationRefusalCode,
   isWalletOnlyRegionId,
   leavingNoticeCopy,
   MAX_COURT_REGIONS,
   mergeCourtRegion,
-  monitorPromptShows,
   NOT_HERE_FAILED,
   NOT_HERE_TIMED_OUT,
   nearbyPromptBody,
@@ -501,27 +499,6 @@ describe('showWhileAppActive (row 33)', () => {
     for (const kind of ['court_prompt', 'arrival_checkin', 'arrival_extend', 'arrival_failed', 'arrival_expired', 'checkin-departure']) {
       expect(showWhileAppActive({ kind })).toBe(false);
     }
-  });
-});
-
-describe("monitorPromptShows (the foreground monitor's prompt, while the app is open)", () => {
-  const now = 10_000_000;
-  const prompt = { kind: 'court_prompt', venue_id: 'v1' };
-
-  it('shows a "Check in nearby?" for a court the monitor prompted under 2 minutes ago', () => {
-    expect(monitorPromptShows(prompt, now - 5_000, now)).toBe(true);
-    expect(monitorPromptShows(prompt, now - IN_APP_PROMPT_SHOW_MS + 1, now)).toBe(true);
-  });
-
-  it('not one the monitor did not ask for, or asked for too long ago (a resync re-report)', () => {
-    expect(monitorPromptShows(prompt, undefined, now)).toBe(false);
-    expect(monitorPromptShows(prompt, now - IN_APP_PROMPT_SHOW_MS, now)).toBe(false);
-  });
-
-  it('only for the prompt kind with a court', () => {
-    expect(monitorPromptShows({ kind: 'arrival_checkin', venue_id: 'v1' }, now, now)).toBe(false);
-    expect(monitorPromptShows({ kind: 'court_prompt' }, now, now)).toBe(false);
-    expect(monitorPromptShows(null, now, now)).toBe(false);
   });
 });
 

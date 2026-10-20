@@ -195,14 +195,14 @@ purchase, no cash-out, no staking, and no real money anywhere in the app.
 PERMISSIONS AND WHY THEY ARE REQUESTED
 - Location (when in use): to show pickleball courts near the player when they
   search for a venue, to confirm the court they are at when they check in or
-  start a play session there, and to offer a check-in while the app is open.
+  start a play session there, and to look for the court they are at for check-in prompts.
   A check-in the player makes needs a fresh GPS fix inside the court's
   boundary (checked on our server); there are no manual check-ins. That
   check-in stores the court, the time, and that one fix (coordinates,
   accuracy, distance to the court). While the app is open, and only if
   location is already allowed (it never asks for this), the app reads the
   location about once a minute and sends it to one server function that
-  finds a court the player is at, so it can offer "Check in nearby?" (inside
+  finds a court the player is at, for the "Check in nearby?" prompt (inside
   a court's mapped outline, near a starred court, or near any court if the
   player turns on "Prompt me near other courts", off by default). Those
   coordinates are used for that one lookup and are never stored or logged.
@@ -479,14 +479,14 @@ court" and "no coordinates stored" stop being true.
 ```text
 - Location (when in use): to show pickleball courts near the player when they
   search for a venue, to confirm the court they are at when they check in or
-  start a play session there, and to offer a check-in while the app is open.
+  start a play session there, and to look for the court they are at for check-in prompts.
   A check-in the player makes needs a fresh GPS fix inside the court's
   boundary (checked on our server); there are no manual check-ins. That
   check-in stores the court, the time, and that one fix (coordinates,
   accuracy, distance to the court). While the app is open, and only if
   location is already allowed (it never asks for this), the app reads the
   location about once a minute and sends it to one server function that
-  finds a court the player is at, so it can offer "Check in nearby?" (inside
+  finds a court the player is at, for the "Check in nearby?" prompt (inside
   a court's mapped outline, near a starred court, or near any court if the
   player turns on "Prompt me near other courts", off by default). Those
   coordinates are used for that one lookup and are never stored or logged.
@@ -554,9 +554,8 @@ and the [API contract](play-sessions-presence-api.md#court-arrival-2026-10-19).
     check-in prompts. At a court where you saved a QR code, it lets you open that code with one
     tap when you arrive. You can turn this off in Settings."
   - When in use (now also names the once-a-minute scan while the app is open): "Pickleague uses
-    your location to show courts near you, to offer a check-in when you're at a court while the
-    app is open, and to confirm you're at a court when you check in or start a play session
-    there."
+    your location to show courts near you, to look for a court you're at for check-in prompts,
+    and to confirm you're at a court when you check in or start a play session there."
 - **App Privacy questionnaire: no change expected.** Precise Location is already declared
   (collected, linked to the user, App Functionality). An automatic check-in stores the court and
   the time, no coordinates; the app-open scan's coordinates are used for one lookup and never
