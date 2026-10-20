@@ -2,12 +2,13 @@
 -- Presence Phase 1 persona tests (docs/play-sessions-presence-api.md).
 --
 -- NOT runnable on its own: build-presence-test.mjs wraps it as
---   begin; <this file up to the marker> <the presence migrations, Phase 1.5 included>
---   <re-runs, migration_rls_hardening_2026q3.sql re-run> <the rest of this file,
---   with validity_personas.sql (Phase 1.5) at -- @@VALIDITY@@,
---   refusal_personas.sql (refusal messages) at -- @@REFUSALS@@ and
+--   begin; <this file up to the marker> <the presence migrations, Phase 1.5 and
+--   the court arrival files included> <re-runs, migration_rls_hardening_2026q3.sql
+--   re-runs> <the rest of this file, with validity_personas.sql (Phase 1.5) at
+--   -- @@VALIDITY@@, refusal_personas.sql (refusal messages) at -- @@REFUSALS@@,
 --   tap_time_personas.sql (offline check-in time, old-build league joins) at
---   -- @@TAPTIME@@> rollback;
+--   -- @@TAPTIME@@ and court_arrival_personas.sql (court arrival check-ins) at
+--   -- @@ARRIVALS@@> rollback;
 -- and the last statement selects the results. Run (from the linked checkout):
 --   node supabase/tests/build-presence-test.mjs <out.sql>
 --   supabase db query --linked -f <out.sql> -o csv
@@ -1705,6 +1706,9 @@ end $$;
 
 
 -- @@TAPTIME@@
+
+
+-- @@ARRIVALS@@
 
 
 -- ════ Results ════════════════════════════════════════════════════════════

@@ -139,7 +139,15 @@ begin
         'respond_friend_request','send_friend_request','set_close_friend','set_court_favorite',
         'set_presence_settings','suggest_friends','venue_crowd','venue_players_here',
         -- Presence Phase 1.5 (migration_validity_rules.sql).
-        'my_session_validity'
+        'my_session_validity',
+        -- Court outlines editor (migration_admin_venue_boundary.sql): shipped
+        -- 2026-10-17 without an entry here, so a re-run took the editor offline.
+        'admin_list_venue_boundaries','admin_save_venue_boundary',
+        -- Court arrival (migration_court_arrival_settings.sql,
+        -- migration_court_arrival_queue.sql, migration_court_checkin_prompt.sql).
+        'cancel_court_arrival','confirm_court_arrival','court_arrival_pending','court_prompt_scan',
+        'enqueue_court_checkin_prompt','get_court_arrival_settings','list_starred_court_geofences',
+        'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

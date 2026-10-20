@@ -62,6 +62,12 @@ const KNOWN_PREF_KEYS = new Set([
   // Friend requests and "accepted your friend request" (migration_presence_p1_friends.sql).
   // Without it they fell back to TYPE_TO_PREF.info: the master switch only.
   'notifyFriendRequests',
+  // Court arrival (migration_court_arrival_queue.sql): "Checked in at X",
+  // "Still at X?" and "Not checked in at X" at starred courts, and
+  // "Checked out" when any check-in runs out.
+  'notifyAutoCheckins',
+  // "Check in nearby?" (migration_court_checkin_prompt.sql).
+  'notifyCheckinPrompts',
 ]);
 
 type Row = OutboxRow & {
@@ -88,8 +94,13 @@ type Buttons = { category?: string; data: Record<string, unknown> };
 type Data = Record<string, unknown>;
 
 // push_data keys that ride on the push for the app (buttons, links, routing).
-// Everything else in push_data stays server-side.
-const PASS_KEYS = ['kind', 'league_id', 'invite_code', 'partner_id', 'rsvp_status'] as const;
+// Everything else in push_data stays server-side. The check-in keys are what
+// the Stay 1 more hour / Check out and Check in buttons read, the same keys
+// the phone's own "Still at X?" carries (lib/courtCheckin.ts).
+const PASS_KEYS = [
+  'kind', 'league_id', 'invite_code', 'partner_id', 'rsvp_status',
+  'venue_id', 'venue_name', 'checkin_id', 'expires_at', 'via_arrival',
+] as const;
 
 /**
  * Which buttons this recipient gets, from the entity's CURRENT state (at send
@@ -102,7 +113,8 @@ const baseData = (row: Row): Data => {
   const extra: Data = {};
   for (const k of PASS_KEYS) {
     const v = pd[k];
-    if (typeof v === 'string' && v.length > 0 && v.length <= 200) extra[k] = v;
+    // Short strings, and flags (via_arrival is a JSON boolean).
+    if ((typeof v === 'string' && v.length > 0 && v.length <= 200) || typeof v === 'boolean') extra[k] = v;
   }
   return {
     notification_id: row.notification_id,
@@ -395,10 +407,35 @@ async function friendButtons(row: Row, data: Data, kind: string | null): Promise
   return req?.status === 'pending' ? { category: CATEGORY.friend_request, data } : { data };
 }
 
+// ── Court arrival ───────────────────────────────────────────────────────────
+// These go straight into push_outbox with no entity (and no feed row):
+// push_data names the court and the check-in. null = not a court arrival push.
+function courtArrivalButtons(data: Data, kind: string | null): Buttons | null {
+  switch (kind) {
+    // "Checked in at X" / "Still at X?": Stay 1 more hour / Check out. Only
+    // with the check-in's id: Check out with no id checks out every open
+    // check-in the player has.
+    case 'arrival_checkin':
+    case 'arrival_extend':
+      return typeof data.checkin_id === 'string' ? { category: CATEGORY.checkin_extend, data } : { data };
+    // "Check in nearby?": Check in, which needs the court.
+    case 'court_prompt':
+      return typeof data.venue_id === 'string' ? { category: CATEGORY.court_checkin, data } : { data };
+    // "Not checked in at X" / "Checked out": nothing to answer.
+    case 'arrival_failed':
+    case 'arrival_expired':
+      return { data };
+    default:
+      return null;
+  }
+}
+
 async function resolveButtons(row: Row): Promise<Buttons> {
   const data = baseData(row);
-  if (!row.entity_id) return { data };
   const kind = kindOf(row);
+  const arrival = courtArrivalButtons(data, kind);
+  if (arrival) return arrival;
+  if (!row.entity_id) return { data };
   switch (row.entity_type) {
     case 'event':
       return eventButtons(row, data, kind);

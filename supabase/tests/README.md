@@ -56,6 +56,22 @@ No CI runner is wired up yet — these are **human-runnable** today.
     confirmations, no overlapping sessions, one session per match or drill,
     drills held during the session, `at_court`), and that a broken validity
     refresh never blocks a match, a drill review or an End.
+    `refusal_personas.sql` (`-- @@REFUSALS@@`) and `tap_time_personas.sql`
+    (`-- @@TAPTIME@@`) are spliced in the same way.
+    Court arrival (`court_arrival_personas.sql`, at `-- @@ARRIVALS@@`)
+    applies `migration_court_arrival_settings.sql`,
+    `migration_court_arrival_queue.sql` and `migration_court_checkin_prompt.sql`
+    after the other files, again after the re-runs of the older files (which
+    put older function bodies back), then re-runs the hardening file. It
+    checks the queue's answers, check-in after a minute, the take-back within
+    5 minutes (and the check-in it reopens elsewhere), Not here, "Still at",
+    the expiry push, no rewards without a real fix, the "Check in nearby?"
+    prompt and the app-open scan, settings, sign-out and account deletion,
+    one player never touching another's arrival, what re-applying the queue
+    file repairs after a re-run of `migration_validity_rules.sql`, and that
+    every client RPC (the court outline editor's included) is still
+    executable after the hardening re-run. Time is moved by backdating rows:
+    `now()` is fixed for the whole transaction.
     It cannot be pasted as is: build it first, then run the output.
 
     ```sh
@@ -67,6 +83,20 @@ No CI runner is wired up yet — these are **human-runnable** today.
     The first row is the summary (`SUMMARY: N passed, 0 failed`). The builder
     refuses any input with a top-level `begin;` / `commit;` / `end;` /
     `rollback;`, which would end the transaction early.
+
+- `check-replaced-functions.mjs`
+  - Run against live right before the court arrival files are applied. Those
+    files rewrite eight live functions from the repo files that last defined
+    them; this builds one read-only SQL file that compares each live body
+    with that file's and with the court arrival file's (whitespace ignored)
+    and fails with `DRIFT: ...` on anything else, so a change made on live by
+    hand is merged into the court arrival file instead of being reverted.
+
+    ```sh
+    node supabase/tests/check-replaced-functions.mjs /tmp/replaced_functions_check.sql
+    # from the linked checkout; any drift is an error ("DRIFT: ..."):
+    supabase db query --linked -f /tmp/replaced_functions_check.sql
+    ```
 
 ## How to run
 

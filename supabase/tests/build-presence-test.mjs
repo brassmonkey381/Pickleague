@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Build the presence persona test (Phase 1 + Phase 1.5 + refusal messages +
-// the offline check-in time and old-build league joins): one SQL file that is
+// the offline check-in time and old-build league joins + court arrival
+// check-ins): one SQL file that is
 //
 //   begin;
 //   <presence_p1_personas.sql up to -- @@MIGRATIONS@@>   (state captured before)
 //   <migration_league_members_lock_identity.sql, the five
 //    migration_presence_p1_*.sql files, migration_validity_rules.sql,
-//    migration_refusal_messages.sql and migration_checkin_tap_time.sql,
-//    in apply order>
+//    migration_refusal_messages.sql, migration_checkin_tap_time.sql and the
+//    three court arrival files, in apply order>
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -20,10 +21,17 @@
 //   <migration_venue_checkins.sql, migration_play_sessions.sql>
 //                                                        (re-runs of the superseded files
 //                                                         must keep the presence versions)
+//   <the three court arrival files again>                (re-applied, as their headers say:
+//                                                         the re-runs above put older bodies
+//                                                         of the functions they replace back)
+//   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
+//                                                         script does: nothing goes offline)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
 //    validity_personas.sql in place of -- @@VALIDITY@@,  (the Phase 1.5 section)
 //    refusal_personas.sql in place of -- @@REFUSALS@@,   (refusal messages and codes)
-//    tap_time_personas.sql in place of -- @@TAPTIME@@)   (offline check-in time, old-build joins)
+//    tap_time_personas.sql in place of -- @@TAPTIME@@,   (offline check-in time, old-build joins)
+//    court_arrival_personas.sql in place of              (court arrival check-ins, prompts,
+//    -- @@ARRIVALS@@)                                     the app-open scan)
 //   rollback;
 //
 // so the whole thing runs against the linked (live) database and leaves it
@@ -54,6 +62,16 @@ export const MIGRATIONS = [
   'migration_refusal_messages.sql',
   'migration_checkin_tap_time.sql',
 ];
+// Court arrival (Doggle parity), files 1 to 3 in apply order, after all of the
+// above. They replace functions that migration_validity_rules.sql and
+// migration_venue_checkins.sql also define, so they run again after those
+// files' re-runs below (their headers: re-apply after such a re-run), and the
+// hardening file once more after that.
+export const ARRIVALS = [
+  'migration_court_arrival_settings.sql',
+  'migration_court_arrival_queue.sql',
+  'migration_court_checkin_prompt.sql',
+];
 // Run again after all of the above, before the hardening re-run: the Phase 1
 // check-ins file must keep the Phase 1.5 checkout_venue and end_play_session
 // (its guards skip its own), and the Phase 1.5 file must be re-runnable. The
@@ -78,6 +96,8 @@ const REFUSALS = path.join(here, 'refusal_personas.sql');
 const REFUSALS_MARKER = '-- @@REFUSALS@@';
 const TAPTIME = path.join(here, 'tap_time_personas.sql');
 const TAPTIME_MARKER = '-- @@TAPTIME@@';
+const ARRIVAL_PERSONAS = path.join(here, 'court_arrival_personas.sql');
+const ARRIVALS_MARKER = '-- @@ARRIVALS@@';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
 function topLevel(sql) {
@@ -134,7 +154,7 @@ if (at < 0) {
 }
 
 const rest = body.slice(at + MARKER.length);
-for (const m of [VALIDITY_MARKER, REFUSALS_MARKER, TAPTIME_MARKER]) {
+for (const m of [VALIDITY_MARKER, REFUSALS_MARKER, TAPTIME_MARKER, ARRIVALS_MARKER]) {
   if (!rest.includes(m)) {
     console.error(`FAILED: ${path.basename(BODY)} has no "${m}" line.`);
     process.exit(1);
@@ -145,13 +165,17 @@ const parts = [
   'begin;',
   body.slice(0, at),
   ...MIGRATIONS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
+  ...ARRIVALS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
+  ...ARRIVALS.map((f) => `-- ════ ${f} (re-applied after the re-runs) ════\n${read(path.join(supa, f))}`),
+  `-- ════ ${HARDENING} (re-run after the court arrival files) ════\n${read(path.join(supa, HARDENING))}`,
   rest
     .replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`)
     .replace(REFUSALS_MARKER, () => `-- ════ ${path.basename(REFUSALS)} ════\n${read(REFUSALS)}`)
-    .replace(TAPTIME_MARKER, () => `-- ════ ${path.basename(TAPTIME)} ════\n${read(TAPTIME)}`),
+    .replace(TAPTIME_MARKER, () => `-- ════ ${path.basename(TAPTIME)} ════\n${read(TAPTIME)}`)
+    .replace(ARRIVALS_MARKER, () => `-- ════ ${path.basename(ARRIVAL_PERSONAS)} ════\n${read(ARRIVAL_PERSONAS)}`),
   'rollback;',
   '',
 ];

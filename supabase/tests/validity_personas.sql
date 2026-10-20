@@ -219,9 +219,11 @@ begin
     and has_column_privilege('authenticated', 'public.drill_sessions', 'reminder_dismissed_by', 'UPDATE')
     and has_column_privilege('authenticated', 'public.drill_sessions', 'notes', 'UPDATE')
     and not has_column_privilege('anon', 'public.drill_sessions', 'reminder_dismissed_by', 'UPDATE'));
+  -- Not an arrival check-in (migration_court_arrival_queue.sql, applied
+  -- before these personas): it has no fix, so no arrival fix until a real one.
   perform pg_temp.ok('V1 every confirmed check-in knows when its arrival fix was taken (backfill + insert trigger)',
-    not exists (select 1 from public.venue_checkins where location_confirmed and arrival_fix_at is null),
-    (select count(*)::text from public.venue_checkins where location_confirmed and arrival_fix_at is null));
+    not exists (select 1 from public.venue_checkins where location_confirmed and arrival_fix_at is null and not via_arrival),
+    (select count(*)::text from public.venue_checkins where location_confirmed and arrival_fix_at is null and not via_arrival));
   perform pg_temp.ok('V1 every ended session has been judged (backfill + the End trigger)',
     not exists (select 1 from public.play_sessions where ended_at is not null and valid_reason is null),
     (select count(*)::text from public.play_sessions where ended_at is not null and valid_reason is null));
