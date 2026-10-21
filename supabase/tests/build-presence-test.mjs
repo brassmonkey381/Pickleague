@@ -11,6 +11,9 @@
 //    three court arrival files, then migration_court_arrival_two_hours.sql,
 //    in apply order>
 //   <migration_court_star_cap_three.sql>                 (court stars capped at 3)
+//   <migration_court_routines.sql>                       (routine check-ins: replaces the
+//                                                         arrival processor, take-back,
+//                                                         gate, purge and prune)
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -28,6 +31,8 @@
 //                                                         of the functions they replace back)
 //   <migration_court_star_cap_three.sql again>           (re-applied: the refusal re-run puts
 //                                                         the 5-court set_court_favorite back)
+//   <migration_court_routines.sql again>                 (re-applied: the arrival files' second
+//                                                         run puts their bodies back)
 //   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
 //                                                         script does: nothing goes offline)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
@@ -89,6 +94,12 @@ export const ARRIVALS = [
 // set_court_favorite (migration_presence_p1_reads.sql, migration_refusal_messages.sql),
 // and again after their re-runs, which put the 5-court cap back.
 const STAR_CAP = 'migration_court_star_cap_three.sql';
+// Routine check-ins. It replaces process_court_arrivals, cancel_court_arrival
+// (migration_court_arrival_two_hours.sql), _pl_court_arrival_off,
+// _pl_take_back_arrival, _purge_account and prune_presence_history
+// (migration_court_arrival_queue.sql), so it goes after the arrival files and
+// the star cap in both passes, as on live.
+const ROUTINES = 'migration_court_routines.sql';
 const RERUN = [
   'migration_presence_p1_checkins.sql',
   'migration_validity_rules.sql',
@@ -178,11 +189,13 @@ const parts = [
   ...MIGRATIONS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   ...ARRIVALS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   `-- ════ ${STAR_CAP} ════\n${read(path.join(supa, STAR_CAP))}`,
+  `-- ════ ${ROUTINES} ════\n${read(path.join(supa, ROUTINES))}`,
   ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   ...ARRIVALS.map((f) => `-- ════ ${f} (re-applied after the re-runs) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${STAR_CAP} (re-applied after the re-runs) ════\n${read(path.join(supa, STAR_CAP))}`,
+  `-- ════ ${ROUTINES} (re-applied after the re-runs) ════\n${read(path.join(supa, ROUTINES))}`,
   `-- ════ ${HARDENING} (re-run after the court arrival files) ════\n${read(path.join(supa, HARDENING))}`,
   rest
     .replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`)

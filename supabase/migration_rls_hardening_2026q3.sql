@@ -151,7 +151,12 @@ begin
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).
         'schedule_league_match',
         -- Court stars capped at 3, Doggle's replace-one (migration_court_star_cap_three.sql).
-        'replace_court_favorite'
+        'replace_court_favorite',
+        -- Routine check-ins (migration_court_routines.sql).
+        'court_play_modes','delete_court_routine','get_court_routine_settings','list_my_court_routines',
+        'list_profile_court_routines','move_court_routine_occurrence','save_court_routine','set_checkin_plan',
+        'set_court_routine_active','set_routine_auto_checkin','skip_court_routine_occurrence',
+        'suggest_court_routines','unskip_court_routine_occurrence','venue_open_to_play'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
