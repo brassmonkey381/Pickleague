@@ -31,7 +31,7 @@
 // can't count), and plain unread notices only light a dot (and only those
 // whose target still exists: homeData's unreadLive).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -681,13 +681,16 @@ export default function HomeScreen({ navigation }: Props) {
             a11yLabel: 'Saved',
             onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
           },
-          {
-            key: 'wallet',
-            icon: <Text style={styles.savedGlyph}>🎟️</Text>,
-            caption: 'QR',
-            a11yLabel: 'QR wallet',
-            onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
-          },
+          // QR codes live only on the phone (device storage), so web has no wallet.
+          ...(Platform.OS === 'web'
+            ? []
+            : [{
+                key: 'wallet',
+                icon: <Text style={styles.savedGlyph}>🎟️</Text>,
+                caption: 'QR',
+                a11yLabel: 'QR wallet',
+                onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
+              }]),
           {
             // The number is what needs you (votes, RSVPs, invites, requests,
             // scores to confirm), so its label says so: "Notifications, 2
