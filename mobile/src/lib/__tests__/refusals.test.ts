@@ -30,6 +30,9 @@ const SERVER_CODES: RefusalCode[] = [
   'request.bad',
   'court.gone',
   'court.favorites_full',
+  // migration_court_star_cap_three.sql
+  'court.not_starred',
+  'court.already_starred',
   'fix.stale',
   'fix.stale_clock',
   'fix.imprecise',
@@ -39,6 +42,13 @@ const SERVER_CODES: RefusalCode[] = [
   'checkin.closed',
   'checkin.needs_fix',
   'session.not_yours',
+  // migration_schedule_match_rpc.sql
+  'schedule.not_member',
+  'schedule.player_not_member',
+  'schedule.same_player',
+  'schedule.in_past',
+  'schedule.too_far',
+  'schedule.use_rpc',
   // migration_checkin_tap_time.sql
   'fix.after_tap',
   'checkin.too_old',
@@ -168,6 +178,7 @@ describe('refusalCode: codes first, then the texts an older server sends', () =>
       ["You've sent 20 friend requests today. Try again tomorrow.", 'friend.daily_cap'],
       ['Only friends can be close friends', 'friend.not_friends'],
       ['You can star up to 5 courts. Remove one first.', 'court.favorites_full'],
+      ['You can star up to 3 courts. Unstar one to add this one.', 'court.favorites_full'],
     ];
     for (const [message, code] of cases) expect(refusalCode({ message }), message).toBe(code);
   });

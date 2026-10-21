@@ -225,7 +225,7 @@ PERMISSIONS AND WHY THEY ARE REQUESTED
   Settings -> Check-in automation, accepts the offer on Home's court card, or
   sets up arrival pop-ups in the QR wallet; never on app open. iOS region
   monitoring then watches up to 20 courts: the courts the player starred (at
-  most 5) and the courts where they saved a QR code (see QR wallet below).
+  most 3) and the courts where they saved a QR code (see QR wallet below).
   Nothing else is watched, and region monitoring itself stores nothing: no
   continuous tracking, no route.
   At a starred court, with "Check me in when I arrive" on (Settings ->
@@ -509,7 +509,7 @@ court" and "no coordinates stored" stop being true.
   Settings -> Check-in automation, accepts the offer on Home's court card, or
   sets up arrival pop-ups in the QR wallet; never on app open. iOS region
   monitoring then watches up to 20 courts: the courts the player starred (at
-  most 5) and the courts where they saved a QR code (see QR wallet below).
+  most 3) and the courts where they saved a QR code (see QR wallet below).
   Nothing else is watched, and region monitoring itself stores nothing: no
   continuous tracking, no route.
   At a starred court, with "Check me in when I arrive" on (Settings ->

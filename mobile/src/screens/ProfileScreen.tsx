@@ -627,6 +627,7 @@ export default function ProfileScreen({ navigation }: Props) {
     const { data } = await supabase
       .from('matches')
       .select('played_at, match_type, doubles_category, player1_id, partner1_id, player2_id, partner2_id, player1_rating_before, player1_rating_after, player2_rating_before, player2_rating_after')
+      .eq('status', 'completed')
       .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
       .order('played_at', { ascending: true })
       .limit(500);
@@ -638,6 +639,7 @@ export default function ProfileScreen({ navigation }: Props) {
       .from('matches')
       .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, player1_rating_before, player2_rating_before')
       .eq('match_type', 'doubles')
+      .eq('status', 'completed')
       .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
       .limit(500);
     if (!data || data.length === 0) return;

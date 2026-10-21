@@ -47,3 +47,4 @@ scripts/win/.enrich-state/
 
 # Local helper scripts / scratch state (per-machine, never committed)
 state/
+.claude/worktrees/

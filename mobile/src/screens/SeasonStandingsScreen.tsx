@@ -194,7 +194,8 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
         .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, played_at, game_scores,'
               + ' player1_rating_before, player1_rating_after,'
               + ' player2_rating_before, player2_rating_after')
-        .eq('league_id', leagueId)),
+        .eq('league_id', leagueId)
+        .eq('status', 'completed')),
       // Public "pickles wagered on this player" totals, scoped to this season.
       // Independent of everything above, so it rides along in the same batch
       // rather than adding a round trip after it.

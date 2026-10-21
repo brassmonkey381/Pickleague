@@ -231,6 +231,7 @@ declare
     'public.set_presence_settings(text,text,timestamptz,boolean,boolean)',
     'public.hide_presence_from(uuid,boolean)', 'public.list_presence_hidden()',
     'public.set_court_favorite(text,boolean)', 'public.list_my_court_favorites()',
+    'public.replace_court_favorite(text,text)',
     'public.send_friend_request(uuid)', 'public.respond_friend_request(uuid,boolean)',
     'public.cancel_friend_request(uuid)', 'public.remove_friend(uuid)',
     'public.set_close_friend(uuid,boolean)', 'public.friendship_status_with(uuid)',
@@ -604,21 +605,21 @@ begin
     v and (select array_agg(venue_id) from public.court_favorites) = array['test:p1-alpha']);
   perform public.set_court_favorite('test:p1-bravo', true);
   perform public.set_court_favorite('test:p1-c3', true);
-  perform public.set_court_favorite('test:p1-c4', true);
-  perform public.set_court_favorite('test:p1-c5', true);
+  -- The cap is 3 (migration_court_star_cap_three.sql, Doggle parity).
   begin
-    perform public.set_court_favorite('test:p1-c6', true);
-    perform pg_temp.ok('T7 a 6th favorite raises', false, 'no error');
+    perform public.set_court_favorite('test:p1-c4', true);
+    perform pg_temp.ok('T7 a 4th favorite raises', false, 'no error');
   exception when others then
-    perform pg_temp.ok('T7 a 6th favorite raises', sqlerrm like 'You can star up to 5 courts%', sqlerrm);
+    perform pg_temp.ok('T7 a 4th favorite raises', sqlerrm like 'You can star up to 3 courts%', sqlerrm);
   end;
   perform pg_temp.ok('T7 re-starring a favorite at the cap is fine', public.set_court_favorite('test:p1-alpha', true));
   select count(*) into n from public.list_my_court_favorites();
-  perform pg_temp.ok('T7 list shows 5, Alpha first',
-    n = 5 and (select venue_id from public.list_my_court_favorites() limit 1) = 'test:p1-alpha', n::text);
-  v := public.set_court_favorite('test:p1-c5', false);
+  perform pg_temp.ok('T7 list shows 3, Alpha first',
+    n = 3 and (select venue_id from public.list_my_court_favorites() limit 1) = 'test:p1-alpha', n::text);
+  v := public.set_court_favorite('test:p1-c3', false);
   select count(*) into n from public.list_my_court_favorites();
-  perform pg_temp.ok('T7 unstar', not v and n = 4, n::text);
+  perform pg_temp.ok('T7 unstar', not v and n = 2, n::text);
+  perform pg_temp.ok('T7 star again: room for a 3rd', public.set_court_favorite('test:p1-c3', true));
   perform pg_temp.as_admin();
 exception when others then
   perform pg_temp.ok('T7 block crashed', false, sqlerrm);
@@ -855,16 +856,18 @@ begin
   perform pg_temp.ok('T5 the close friend is starred',
     exists (select 1 from jsonb_array_elements(j -> 'now' -> 0 -> 'people') pp
              where (pp ->> 'user_id')::uuid = pg_temp.p('C') and (pp ->> 'is_close_friend')::boolean));
-  perform pg_temp.ok('T5 your courts: every favorite (O has 4), oldest first, with the crowd',
-    jsonb_array_length(j -> 'courts') = 4
+  perform pg_temp.ok('T5 your courts: every favorite (O has 3), oldest first, with the crowd',
+    jsonb_array_length(j -> 'courts') = 3
     and (select bool_and(c ->> 'reason' = 'favorite') from jsonb_array_elements(j -> 'courts') c)
     and j -> 'courts' -> 0 ->> 'venue_id' = 'test:p1-alpha'
     and (j -> 'courts' -> 0 ->> 'here_now')::int = 10 and (j -> 'courts' -> 0 ->> 'friends_here')::int = 2,
     (j -> 'courts')::text);
-  perform public.set_court_favorite('test:p1-c5', true);
+  -- At the cap a new court replaces one (replace_court_favorite, Doggle's flow).
+  perform public.replace_court_favorite('test:p1-c3', 'test:p1-c5');
   j := public.friends_at_courts();
-  perform pg_temp.ok('T5 your courts: a 5th star shows too (the newest)',
-    jsonb_array_length(j -> 'courts') = 5
+  perform pg_temp.ok('T5 your courts: a replacing star shows too (the newest), the replaced one doesn''t',
+    jsonb_array_length(j -> 'courts') = 3
+    and not exists (select 1 from jsonb_array_elements(j -> 'courts') c where c ->> 'venue_id' = 'test:p1-c3')
     and exists (select 1 from jsonb_array_elements(j -> 'courts') c where c ->> 'venue_id' = 'test:p1-c5'),
     (j -> 'courts')::text);
   perform pg_temp.as_user(pg_temp.p('F'));

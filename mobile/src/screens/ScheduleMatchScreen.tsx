@@ -11,6 +11,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { explainRefusal } from '../lib/refusalNotices';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'ScheduleMatch'>;
@@ -135,22 +136,23 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
     }
     setLoading(true);
     try {
-      // No auto-retry: nothing dedupes scheduled matches, so a retried insert
-      // that already landed would double-book the court.
+      // schedule_league_match (migration_schedule_match_rpc.sql) checks the
+      // league, the players and the time, and a replay of the same booking
+      // returns the first one. No auto-retry all the same: a lost reply is
+      // reported (the network line below), never resent behind the player.
       await sbCall(
-        () => supabase.from('matches').insert({
-          league_id: leagueId,
-          player1_id: player1Id,
-          player2_id: player2Id,
-          status: 'scheduled',
-          scheduled_at: scheduledAt.toISOString(),
+        () => supabase.rpc('schedule_league_match', {
+          p_league_id: leagueId,
+          p_player1_id: player1Id,
+          p_player2_id: player2Id,
+          p_scheduled_at: scheduledAt.toISOString(),
         }),
         { retries: 0 },
       );
       status.success('Match has been added to the calendar.');
       setTimeout(() => navigation.goBack(), 1200);
     } catch (e) {
-      status.error(friendlySbMessage(e, 'Could not schedule the match.', {
+      status.error(explainRefusal(e, 'Could not schedule the match.', {}, {
         network: "Lost the connection, so we can't tell whether this saved. Check the calendar before scheduling it again.",
       }));
     } finally {

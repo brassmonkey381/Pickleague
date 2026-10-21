@@ -25,6 +25,9 @@ export const REFUSAL_CODES = [
   'request.bad',
   'court.gone',
   'court.favorites_full',
+  // migration_court_star_cap_three.sql: replace_court_favorite.
+  'court.not_starred',
+  'court.already_starred',
   'fix.stale',
   'fix.stale_clock',
   'fix.imprecise',
@@ -52,6 +55,13 @@ export const REFUSAL_CODES = [
   'friend.unavailable',
   'friend.daily_cap',
   'friend.not_friends',
+  // migration_schedule_match_rpc.sql: schedule_league_match.
+  'schedule.not_member',
+  'schedule.player_not_member',
+  'schedule.same_player',
+  'schedule.in_past',
+  'schedule.too_far',
+  'schedule.use_rpc',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // The app's own.
@@ -124,7 +134,8 @@ const LEGACY: ReadonlyArray<[RegExp, RefusalCode]> = [
   [/^This player isn.t available/i, 'friend.unavailable'],
   [/^You.ve sent 20 friend requests today/i, 'friend.daily_cap'],
   [/^Only friends can be close friends/i, 'friend.not_friends'],
-  [/^You can star up to 5 courts/i, 'court.favorites_full'],
+  // Any cap: 5 before migration_court_star_cap_three.sql, 3 since.
+  [/^You can star up to \d+ courts/i, 'court.favorites_full'],
 ];
 
 /** The refusal's code: the server's HINT 'pl:<code>', else a known message. Null for anything else. */
@@ -193,7 +204,11 @@ export function refusalCopy(
         ? "That court isn't in Pickleague any more, so it can't be starred."
         : `${court ?? 'That court'} isn't in Pickleague any more, so you can't check in there. Find your court again.`;
     case 'court.favorites_full':
-      return 'You can star up to 5 courts. Unstar one to add this one.';
+      return 'You can star up to 3 courts. Unstar one to add this one.';
+    case 'court.not_starred':
+      return "That court isn't one of your starred courts any more. Pick one of your starred courts to replace.";
+    case 'court.already_starred':
+      return `${court ?? 'That court'} is already one of your starred courts.`;
     case 'fix.stale':
       // True from an older server too: a live call's tap is its send.
       return 'Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court.';
@@ -253,6 +268,18 @@ export function refusalCopy(
       return `You're not a member of ${ctx.leagueName?.trim() || 'this league'}, so you can't record matches there. Pick a league you're in.`;
     case 'match.score_invalid':
       return 'Each game needs a winner with at least 11 points and a 2-point lead. Check the scores, then record it again.';
+    case 'schedule.not_member':
+      return `You're not a member of ${ctx.leagueName?.trim() || 'this league'}, so you can't schedule matches in it.`;
+    case 'schedule.player_not_member':
+      return 'Both players need to be members of this league. Pick players from the league.';
+    case 'schedule.same_player':
+      return 'Pick two different players for the match.';
+    case 'schedule.in_past':
+      return 'That time has already passed. Pick a time in the future.';
+    case 'schedule.too_far':
+      return "That's more than a year away. Pick a time within the next year.";
+    case 'schedule.use_rpc':
+      return "Couldn't schedule the match because this version of Pickleague sent an outdated request. Update Pickleague, then try again.";
     case 'player.gone':
       return ctx.action === 'hide'
         ? "We couldn't find that player, so there's nothing to hide from."

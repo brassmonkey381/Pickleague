@@ -64,6 +64,7 @@ export default function HeadToHeadScreen({ route }: Props) {
         // opposite-team meetings and same-team partnerships in one query.
         sbCall(() => supabase.from('matches')
           .select('id, match_type, player1_id, partner1_id, player2_id, partner2_id, player1_score, player2_score, winner_team, status, played_at')
+          .eq('status', 'completed')
           .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
           .or(`player1_id.eq.${opponentId},partner1_id.eq.${opponentId},player2_id.eq.${opponentId},partner2_id.eq.${opponentId}`)
           .order('played_at', { ascending: false })
