@@ -34,6 +34,7 @@ import ShareLinkButton from '../components/ShareLinkButton';
 import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import ClaimAccountButton from '../components/ClaimAccountButton';
 import FriendButton from '../components/FriendButton';
+import PlannedCheckinsSection from '../components/routines/PlannedCheckinsSection';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -375,6 +376,9 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           style={styles.quickBtn}
         />
       </View>
+
+      {/* Routines: their planned check-ins, as their plans_level lets me see them. */}
+      <PlannedCheckinsSection profileId={userId} />
 
       {/* PLUPR strip + reliability (hidden) — global PLUPR is intentionally not
           shown on other players' profiles; PLUPR is being kept contained within

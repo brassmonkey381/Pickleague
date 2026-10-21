@@ -1,0 +1,428 @@
+// Routine check-ins, the pure side (state/routine-checkins-plan.md, Doggle's
+// data/routines.ts helpers): the shapes list_my_court_routines and friends
+// answer with, which routine stop is due at a court right now (an arrival
+// keys off it, maybe inside a geofence wake with no signal), and the words
+// for lengths, Closed group / Open play windows and play modes.
+//
+// PURE: no React Native, no Supabase. Only the foundation's scheduling
+// modules (themselves pure), so vitest covers it
+// (lib/__tests__/courtRoutineRules.test.ts).
+//
+// Copy rule (Doggle PlannedCheckinsSection): routines are "planned
+// check-ins", never a "usual" anything or "<name>'s schedule".
+import {
+  formatClockTime,
+  formatWeekdayMask,
+  minutesToClock,
+  wallClockIn,
+} from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
+import { stopDueAt, type RecurringStop } from '@just-messin-around/expo-foundation/scheduling/recurringStops';
+import {
+  formatDurationMinutes,
+  formatWindows,
+  formatWindowsFrom,
+  modeAt,
+  parseAbsoluteWindows,
+  parseWindows,
+  splitAbsoluteAt,
+  windowsToAbsolute,
+  type AbsoluteTimeWindow,
+  type TimeWindow,
+  type WindowRules,
+  type WindowsCopy,
+} from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+
+// ── Modes, hints, rules (the server's _pl_windows_problem mirrors these) ─────
+export type PlayMode = 'closed' | 'open';
+export const PLAY_MODES: readonly PlayMode[] = ['closed', 'open'];
+
+/** The plan's naming: "Closed group" (friends, or an equal-skill foursome) and "Open play". */
+export const PLAY_MODE_LABEL: Record<PlayMode, string> = { closed: 'Closed group', open: 'Open play' };
+/** A window with nothing said. */
+export const UNSAID_LABEL = 'Not set';
+
+/** The fixed hint lists (no free text, so nothing to moderate). */
+export const PLAY_HINTS: Record<PlayMode, { id: string; label: string }[]> = {
+  open: [
+    { id: 'all_levels', label: 'All levels' },
+    { id: 'near_my_level', label: 'Near my level' },
+    { id: '3.0+', label: '3.0+' },
+    { id: '3.5+', label: '3.5+' },
+    { id: '4.0+', label: '4.0+' },
+    { id: '4.5+', label: '4.5+' },
+  ],
+  closed: [
+    { id: 'friends', label: 'Friends' },
+    { id: 'competitive', label: 'Competitive' },
+  ],
+};
+
+/** foundation timeWindows rules, as the server checks them (migration_court_routines.sql). */
+export const PLAY_WINDOW_RULES: WindowRules<PlayMode> = {
+  stepMin: 15,
+  minWindowMin: 15,
+  maxWindows: 6,
+  modes: PLAY_MODES,
+  allowUnsaid: true,
+  hints: { open: PLAY_HINTS.open.map((h) => h.id), closed: PLAY_HINTS.closed.map((h) => h.id) },
+  maxGroup: 7,
+};
+
+/** "How long?" (30 min to 4 h on the server; these are the chips). */
+export const PLAY_LENGTH_OPTIONS = [60, 90, 120, 180, 240] as const;
+export const DEFAULT_PLAY_LENGTH_MIN = 120;
+export const MIN_PLAY_LENGTH_MIN = 30;
+export const MAX_PLAY_LENGTH_MIN = 240;
+/** Doggle's cap. */
+export const MAX_ROUTINES = 12;
+/** A new routine's time, before the player picks one. */
+export const DEFAULT_ROUTINE_TIME = '09:00';
+/** Routine courts fenced with no mapped outline: Doggle's 150 m. */
+export const ROUTINE_REGION_RADIUS_M = 150;
+
+/** push_data.kind of the server's reminder at each stop's time. */
+export const ROUTINE_REMINDER_KIND = 'routine_reminder';
+
+// ── Shapes ────────────────────────────────────────────────────────────────────
+export type RoutineOccurrence = {
+  planId: string;
+  plannedAt: string;
+  plannedEndAt: string | null;
+  /** 'cancelled' = skipped; 'completed' = checked in. */
+  status: 'planned' | 'cancelled' | 'completed';
+  windows: AbsoluteTimeWindow<PlayMode>[];
+};
+
+export type CourtRoutine = {
+  id: string;
+  venueId: string;
+  venueName: string;
+  lat: number | null;
+  lng: number | null;
+  /** The outline's equal-area circle; null without one. */
+  radiusM: number | null;
+  /** Still one of my starred courts; false: dormant until it is starred again. */
+  starred: boolean;
+  /** The court's own "Check me in when I arrive" switch. */
+  autoCheckin: boolean;
+  /** Wall clock in `tz`, "HH:MM". */
+  localTime: string;
+  /** Mon = 1 ... Sun = 64. */
+  days: number;
+  tz: string;
+  lengthMin: number;
+  /** Offsets from the start (minutes). Empty: the whole length, nothing said. */
+  windows: TimeWindow<PlayMode>[];
+  active: boolean;
+  next: RoutineOccurrence | null;
+  /** Every occurrence still in play (today's and tomorrow's at most). */
+  occurrences: RoutineOccurrence[];
+};
+
+export type RoutineSuggestion = {
+  venueId: string;
+  venueName: string;
+  localTime: string;
+  days: number;
+  lengthMin: number;
+  /** Distinct days seen in the last 6 weeks. */
+  visits: number;
+};
+
+/** A player's routine, as their profile shows it (others never see a group). */
+export type ProfileRoutine = {
+  venueId: string;
+  venueName: string;
+  localTime: string;
+  days: number;
+  tz: string;
+  lengthMin: number;
+  windows: TimeWindow<PlayMode>[];
+};
+
+/** court_play_modes' row for one check-in. */
+export type PlayModeRow = {
+  checkinId: string;
+  userId: string | null;
+  modeNow: PlayMode | null;
+  modeUntil: string | null;
+  nextOpenAt: string | null;
+  plannedEndAt: string | null;
+  /** Closed-group members this viewer may see named (decision 4). */
+  closedGroup: { userId: string; fullName: string | null }[];
+};
+
+export type CourtPlayModes = {
+  openNow: number;
+  closedNow: number;
+  unsaidNow: number;
+  players: PlayModeRow[];
+};
+
+// ── Parsing (untrusted JSON from the RPCs) ───────────────────────────────────
+const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const asMode = (v: unknown): PlayMode | null => (v === 'open' || v === 'closed' ? v : null);
+const STATUSES = new Set(['planned', 'cancelled', 'completed']);
+
+function parseOccurrence(raw: unknown): RoutineOccurrence | null {
+  const n = raw as Record<string, unknown> | null | undefined;
+  if (!n || !n.plan_id) return null;
+  const status = str(n.status);
+  return {
+    planId: str(n.plan_id),
+    plannedAt: str(n.planned_at),
+    plannedEndAt: strOrNull(n.planned_end_at),
+    status: (STATUSES.has(status) ? status : 'planned') as RoutineOccurrence['status'],
+    windows: parseAbsoluteWindows(n.windows, PLAY_MODES),
+  };
+}
+
+export function parseCourtRoutine(raw: unknown): CourtRoutine {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    id: str(r.id),
+    venueId: str(r.venue_id),
+    venueName: str(r.venue_name) || 'A court',
+    lat: numOrNull(r.lat),
+    lng: numOrNull(r.lng),
+    radiusM: numOrNull(r.radius_m),
+    starred: r.starred !== false,
+    autoCheckin: r.auto_checkin !== false,
+    localTime: str(r.local_time),
+    days: Number(r.days ?? 0),
+    tz: str(r.tz) || 'America/Los_Angeles',
+    lengthMin: Number(r.length_min ?? DEFAULT_PLAY_LENGTH_MIN),
+    windows: parseWindows(r.windows, PLAY_MODES),
+    active: r.active !== false,
+    next: parseOccurrence(r.next),
+    occurrences: Array.isArray(r.occurrences)
+      ? (r.occurrences as unknown[]).map(parseOccurrence).filter((o): o is RoutineOccurrence => o != null)
+      : [],
+  };
+}
+
+export function parseRoutineList(data: unknown): CourtRoutine[] {
+  return Array.isArray(data) ? data.map(parseCourtRoutine) : [];
+}
+
+export function parseSuggestions(data: unknown): RoutineSuggestion[] {
+  return (Array.isArray(data) ? data : []).map((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    return {
+      venueId: str(r.venue_id),
+      venueName: str(r.venue_name) || 'A court',
+      localTime: str(r.local_time),
+      days: Number(r.days ?? 0),
+      lengthMin: Number(r.length_min ?? DEFAULT_PLAY_LENGTH_MIN),
+      visits: Number(r.visits ?? 0),
+    };
+  });
+}
+
+export function parseProfileRoutines(data: unknown): ProfileRoutine[] {
+  return (Array.isArray(data) ? data : []).map((raw) => {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    return {
+      venueId: str(r.venue_id),
+      venueName: str(r.venue_name) || 'A court',
+      localTime: str(r.local_time),
+      days: Number(r.days ?? 0),
+      tz: str(r.tz),
+      lengthMin: Number(r.length_min ?? DEFAULT_PLAY_LENGTH_MIN),
+      windows: parseWindows(r.windows, PLAY_MODES),
+    };
+  });
+}
+
+export function parseCourtPlayModes(raw: unknown): CourtPlayModes {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const players = (Array.isArray(r.players) ? r.players : []).map((p): PlayModeRow => {
+    const x = (p ?? {}) as Record<string, unknown>;
+    return {
+      checkinId: str(x.checkin_id),
+      userId: strOrNull(x.user_id),
+      modeNow: asMode(x.mode_now),
+      modeUntil: strOrNull(x.mode_until),
+      nextOpenAt: strOrNull(x.next_open_at),
+      plannedEndAt: strOrNull(x.planned_end_at),
+      closedGroup: (Array.isArray(x.closed_group) ? x.closed_group : []).map((m) => {
+        const g = (m ?? {}) as Record<string, unknown>;
+        return { userId: str(g.user_id), fullName: strOrNull(g.full_name) };
+      }),
+    };
+  });
+  const n = (v: unknown) => Math.max(0, Math.floor(Number(v) || 0));
+  return { openNow: n(r.open_now), closedNow: n(r.closed_now), unsaidNow: n(r.unsaid_now), players };
+}
+
+// ── Which stop is due (Doggle routineStopDueAt, on the foundation's stopDueAt) ─
+/** A routine as a foundation recurring stop; a dormant one (court unstarred) never falls due. */
+export function routineStops(routines: readonly CourtRoutine[]): (RecurringStop & { routine: CourtRoutine })[] {
+  return routines.map((r) => ({
+    routine: r,
+    placeId: r.venueId,
+    localTime: r.localTime,
+    days: r.days,
+    tz: r.tz,
+    active: r.active && r.starred,
+    occurrences: [...r.occurrences, ...(r.next ? [r.next] : [])].map((o) => ({
+      id: o.planId,
+      plannedAt: o.plannedAt,
+      status: o.status,
+    })),
+  }));
+}
+
+/**
+ * The routine stop at `venueId` whose window is open at `at` (30 minutes
+ * before to 30 minutes after its time, the server's _pl_routine_plan_at), or
+ * null. A moved day opens at its new time; a skipped or kept one opens none.
+ */
+export function routineDueAt(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): { routine: CourtRoutine; dueAt: Date; planId: string | null } | null {
+  const due = stopDueAt(routineStops(routines), venueId, at);
+  return due ? { routine: due.stop.routine, dueAt: due.dueAt, planId: due.occurrence?.id ?? null } : null;
+}
+
+/**
+ * When the stop due at `venueId` is planned to end: its occurrence's planned
+ * end, else its time plus the routine's length. Null when none is due.
+ */
+export function routinePlannedEndAt(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): string | null {
+  const due = routineDueAt(routines, venueId, at);
+  if (!due) return null;
+  const occ = due.planId
+    ? [...due.routine.occurrences, ...(due.routine.next ? [due.routine.next] : [])].find((o) => o.planId === due.planId)
+    : null;
+  if (occ?.plannedEndAt) return occ.plannedEndAt;
+  return new Date(due.dueAt.getTime() + due.routine.lengthMin * 60_000).toISOString();
+}
+
+/**
+ * The fact decideArrival reads: a routine stop is due at this court and
+ * "Check me in at my routine courts" is on (null: unreadable, which is the
+ * default, on).
+ */
+export function routineArrivalDue(
+  routines: readonly CourtRoutine[] | null,
+  venueId: string,
+  routineAutoCheckin: boolean | null,
+  at: Date = new Date(),
+): boolean {
+  if (routineAutoCheckin === false || !routines) return false;
+  return routineDueAt(routines, venueId, at) != null;
+}
+
+// ── Words ─────────────────────────────────────────────────────────────────────
+export function playModeLabel(mode: PlayMode | null): string {
+  return mode ? PLAY_MODE_LABEL[mode] : UNSAID_LABEL;
+}
+
+export const WINDOWS_COPY: WindowsCopy<PlayMode> = { mode: playModeLabel };
+
+/** Windows that say something (a single unsaid window says nothing). */
+export function windowsSaySomething(windows: readonly { mode: PlayMode | null }[]): boolean {
+  return windows.some((w) => w.mode != null);
+}
+
+/** "Weekdays · 9 AM · 3 h". */
+export function routineTimeLine(r: { days: number; localTime: string; lengthMin: number }): string {
+  return `${formatWeekdayMask(r.days)} · ${formatClockTime(r.localTime)} · ${formatDurationMinutes(r.lengthMin)}`;
+}
+
+/** "9 AM–10:30 AM Closed group · 10:30 AM–12 PM Open play"; '' when nothing is said. */
+export function routineWindowsLine(r: { localTime: string; windows: readonly TimeWindow<PlayMode>[] }): string {
+  if (!windowsSaySomething(r.windows)) return '';
+  return formatWindows(r.windows, WINDOWS_COPY, { startClock: r.localTime });
+}
+
+/** "Closed group until 10:30 AM, then open play" at `at` (the server's _pl_windows_summary); '' after the last. */
+export function playModeNowLine(
+  windows: readonly AbsoluteTimeWindow<PlayMode>[],
+  at: Date = new Date(),
+  timeZone?: string | null,
+): string {
+  if (!windowsSaySomething(windows)) return '';
+  return formatWindowsFrom(windows, at, WINDOWS_COPY, { timeZone });
+}
+
+/** "12 PM" for an instant, on this device's clock. */
+export function clockLabel(iso: string | Date, timeZone?: string | null): string {
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (!Number.isFinite(d.getTime())) return '';
+  return formatClockTime(minutesToClock(wallClockIn(timeZone, d).minutes));
+}
+
+/**
+ * A roster row's play mode: "Open to play until 12 PM", "Closed group with
+ * Ann, Bob", "Closed group · open from 10:30 AM". '' when nothing is said.
+ */
+export function playerModeLine(row: Pick<PlayModeRow, 'modeNow' | 'modeUntil' | 'nextOpenAt' | 'closedGroup'>, timeZone?: string | null): string {
+  if (row.modeNow === 'open') {
+    return row.modeUntil ? `Open to play until ${clockLabel(row.modeUntil, timeZone)}` : 'Open to play';
+  }
+  if (row.modeNow === 'closed') {
+    const names = row.closedGroup.map((m) => m.fullName?.trim().split(/\s+/)[0]).filter((n): n is string => !!n);
+    const base = names.length ? `Closed group with ${names.join(', ')}` : 'Closed group';
+    return row.nextOpenAt ? `${base} · open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
+  }
+  return '';
+}
+
+/** "Stay until 12 PM" (the arrival_extend_until push's button means this). */
+export function stayUntilLabel(plannedEndAt: string, timeZone?: string | null): string {
+  return `Stay until ${clockLabel(plannedEndAt, timeZone)}`;
+}
+
+// ── A check-in's plan (set_checkin_plan) ──────────────────────────────────────
+/**
+ * Lengths a check-in that began at `checkedInAt` can still be planned to:
+ * the chips whose end is at least 15 minutes from now.
+ */
+export function checkinLengthOptions(checkedInAt: string, nowMs: number = Date.now()): number[] {
+  const start = Date.parse(checkedInAt);
+  if (!Number.isFinite(start)) return [...PLAY_LENGTH_OPTIONS];
+  return PLAY_LENGTH_OPTIONS.filter((m) => start + m * 60_000 >= nowMs + 15 * 60_000);
+}
+
+/** The editor's offsets on a check-in, made absolute from when it began (the server snaps both ends). */
+export function checkinPlanWindows(
+  windows: readonly TimeWindow<PlayMode>[],
+  checkedInAt: string,
+): AbsoluteTimeWindow<PlayMode>[] {
+  return windowsToAbsolute(windows, checkedInAt);
+}
+
+/**
+ * "Switch to open play now": the check-in's windows cut at `now`, the rest of
+ * the current one open (later windows stay). With no windows, closed or not
+ * said until now and open after. Null when it is open already.
+ */
+export function switchToOpenWindows(
+  current: readonly AbsoluteTimeWindow<PlayMode>[],
+  checkedInAt: string,
+  endAt: string,
+  now: Date = new Date(),
+): AbsoluteTimeWindow<PlayMode>[] | null {
+  const at = modeAt(current, now);
+  if (at?.mode === 'open') return null;
+  if (current.length > 0) return splitAbsoluteAt(current, now, 'open');
+  const start = Date.parse(checkedInAt);
+  const nowIso = now.toISOString();
+  const list: AbsoluteTimeWindow<PlayMode>[] = [];
+  // A minute in, there's a "before" worth keeping.
+  if (Number.isFinite(start) && now.getTime() - start >= 60_000) {
+    list.push({ startsAt: new Date(start).toISOString(), endsAt: nowIso, mode: null, hint: null, group: [] });
+  }
+  list.push({ startsAt: list.length ? nowIso : new Date(Number.isFinite(start) ? start : now.getTime()).toISOString(), endsAt: endAt, mode: 'open', hint: null, group: [] });
+  return list;
+}

@@ -62,6 +62,17 @@ export const REFUSAL_CODES = [
   'schedule.in_past',
   'schedule.too_far',
   'schedule.use_rpc',
+  // migration_court_routines.sql: routines, their windows, a check-in's plan.
+  'routine.not_starred',
+  'routine.limit',
+  'routine.not_found',
+  'routine.bad_days',
+  'routine.bad_time',
+  'routine.bad_length',
+  'windows.bad',
+  'plan.gone',
+  'plan.bad_time',
+  'plan.bad_end',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // The app's own.
@@ -76,8 +87,9 @@ export type RefusalCode = (typeof REFUSAL_CODES)[number];
 const CODE_SET: ReadonlySet<string> = new Set(REFUSAL_CODES);
 
 /** Which action was refused, where the same code reads differently. */
-/** 'view': opening a court's page (Courts, a shared court link). */
-export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view';
+/** 'view': opening a court's page (Courts, a shared court link). 'plan': a
+ *  check-in's planned end or play windows (set_checkin_plan). */
+export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view' | 'plan';
 
 export type RefusalContext = {
   action?: RefusalAction;
@@ -229,7 +241,9 @@ export function refusalCopy(
     case 'fix.malformed':
       return "Your location didn't come through, so Pickleague couldn't confirm you're at the court. Try again.";
     case 'checkin.none':
-      return "You're not checked in anywhere, so there's nothing to extend. Check in when you're at a court.";
+      return ctx.action === 'plan'
+        ? "You're not checked in anywhere, so there's nothing to plan. Check in when you're at a court."
+        : "You're not checked in anywhere, so there's nothing to extend. Check in when you're at a court.";
     case 'checkin.closed': {
       const ended = dateOf(detail.ended_at);
       return `Your check-in at ${court ?? 'the court'} already ended${ended ? ` at ${at(ended)}` : ''}. Check in again when you're at the court.`;
@@ -301,10 +315,61 @@ export function refusalCopy(
       return "You've sent 20 friend requests today. Try again tomorrow.";
     case 'friend.not_friends':
       return `You and ${person ?? 'this player'} aren't friends any more, so they can't be a close friend.`;
+    case 'routine.not_starred':
+      return `Routines are for your starred courts. Star ${court ?? 'this court'} first, then add it to your routine.`;
+    case 'routine.limit':
+      return 'You can have up to 12 routine check-ins. Delete one to add this one.';
+    case 'routine.not_found':
+      return "That routine isn't in your list any more. Pull to refresh.";
+    case 'routine.bad_days':
+      return 'Pick at least one day for this routine.';
+    case 'routine.bad_time':
+      return 'Pick a time for this routine.';
+    case 'routine.bad_length':
+      return 'Pick how long you play: 30 minutes to 4 hours.';
+    case 'windows.bad':
+      return windowsProblemCopy(str(detail.problem), typeof detail.index === 'number' ? detail.index : -1);
+    case 'plan.gone':
+      return "That routine check-in is already over, so it can't be changed. Pull to refresh.";
+    case 'plan.bad_time':
+      return 'Pick a later time on the same day.';
+    case 'plan.bad_end':
+      return 'Pick an end time later than now.';
     case 'consent.declined':
       return "Not checked in: first choose who sees you at the courts. Tap Check in when you're ready.";
     case 'consent.unknown_offline':
       return "No connection, so Pickleague couldn't check who you chose to see you at the courts. Open Pickleague at the court to check in.";
+  }
+}
+
+/**
+ * pl:windows.bad's DETAIL ({problem, index}: foundation validateWindows'
+ * problem, -1 for the list as a whole) in words. Index n is the (n+1)th
+ * window. An unknown problem reads as the app being out of date.
+ */
+export function windowsProblemCopy(problem: string, index = -1): string {
+  const which = index >= 0 ? `Play window ${index + 1}` : 'Your play windows';
+  switch (problem) {
+    case 'bad_length':
+      return 'Pick how long you play: 30 minutes to 4 hours.';
+    case 'empty':
+      return 'Add at least one play window.';
+    case 'too_many':
+      return 'You can split your time into at most 6 play windows. Remove one, then save.';
+    case 'off_step':
+    case 'malformed':
+      return `${which} doesn't start and end on a quarter hour. Move its ends, then save.`;
+    case 'too_short':
+      return `${which} is too short: each one needs at least 15 minutes.`;
+    case 'not_from_start':
+    case 'not_to_end':
+    case 'gap':
+    case 'overlap':
+      return 'Your play windows need to cover the whole time, one after another, with no gaps. Adjust them, then save.';
+    case 'group_too_big':
+      return `${which} has too many friends: a closed group can have at most 7.`;
+    default:
+      return "Those play windows don't fit the planned time. Update Pickleague, then set them again.";
   }
 }
 
@@ -351,6 +416,10 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
     case 'match.not_pending':
     case 'match.not_player':
       return 'Nothing to confirm';
+    case 'plan.gone':
+      return 'Already over';
+    case 'routine.not_found':
+      return 'Routine not found';
     default:
       return "That didn't go through";
   }

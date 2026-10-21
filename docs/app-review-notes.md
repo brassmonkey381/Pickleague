@@ -597,3 +597,32 @@ persona test passes; flipped after 1.0.4 is approved). For the 1.0.5 submission:
 - **Permission strings: no change.** The when-in-use string already says "show courts near you".
 - **Screen recording (§5):** Courts list with location allowed, a city search, one court page,
   Directions opening Maps.
+
+## 9. Routines: planned check-ins at starred courts (after 1.0.4, by OTA)
+
+Routine check-ins (`state/routine-checkins-plan.md`, Doggle's routines) are JS only and ship by
+OTA behind `ROUTINES_ENABLED` (off until `supabase/migration_court_routines.sql` is live, the
+hardening migration re-run and send-push redeployed with the new push kinds). For the next
+submission after the flag flips:
+
+- **Notes (§1):** add a step: Profile -> "My routine" (also Settings -> Check-in automation ->
+  "Manage my routine"). A routine is a starred court, a time, the days, how long you play (30 min
+  to 4 h) and, optionally, Closed group / Open play windows. Pickleague plans it for today and
+  tomorrow, sends one reminder at its time ("Check in" / "Skip today"), and arriving at that
+  court between 30 minutes before and 30 minutes after its time checks you in for as long as you
+  planned ("Check me in at my routine courts", on by default, in the same Settings section). A
+  check-in can also get a length and windows by hand ("Plan my play"), and "Switch to open play
+  now" opens the rest of it to anyone. Friends see your routines on your profile as "Planned
+  check-ins" (Settings -> Privacy -> "Who sees my planned check-ins", default Friends; blocked
+  and hidden-from players never do). Other players at a court see only "N here · M open to play".
+- **Permission strings: no change.** Routines live only at starred courts (the user's decision
+  of 2026-10-20), which the "Always" string already names; no new permission, plugin or module.
+- **App Privacy questionnaire: no change expected.** A routine stores a court, a time, days, a
+  length and windows; an arrival during one stores what any arrival check-in stores (no
+  coordinates).
+- **Privacy policy:** [`mobile/public/privacy.html`](../mobile/public/privacy.html) has a
+  "Routine check-ins" row (what is stored, who sees it, deleted with the account). Land it with
+  the OTA that flips the flag.
+- **Screen recording (§5):** My routine with one routine (Edit open: court, time, days, How long,
+  Closed group / Open play), a friend's profile showing Planned check-ins, the court card's "Plan
+  my play" and "Switch to open play now", and the reminder push with its two buttons.

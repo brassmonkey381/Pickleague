@@ -32,9 +32,25 @@ import { formatPluprShort } from '../lib/plupr';
 import { presenceRowLabel, sortPresenceRows } from '../lib/courtCrowd';
 import { getCourtPresence, type CourtPresenceRow } from '../data/courtPresence';
 import { courtPresenceTouched } from '../lib/courtCheckin';
+import { ROUTINES_ENABLED } from '../lib/features';
+import { playerModeLine } from '../lib/courtRoutineRules';
+import { getCourtPlayModes } from '../data/courtRoutines';
 
-/** One row of who's here (court_presence). */
-export type PlayerHere = CourtPresenceRow;
+/** One row of who's here (court_presence), with its play mode when routines
+ *  are on (court_play_modes: "Open to play until 12 PM", "Closed group"). */
+export type PlayerHere = CourtPresenceRow & { modeLine?: string };
+
+/** Rows with their mode lines (by check-in id; anonymous rows carry none). */
+async function withModes(venueId: string, rows: CourtPresenceRow[]): Promise<PlayerHere[]> {
+  if (!ROUTINES_ENABLED) return rows;
+  const modes = await getCourtPlayModes(venueId).catch(() => null);
+  if (!modes) return rows;
+  const byId = new Map(modes.players.map((m) => [m.checkinId, playerModeLine(m)]));
+  return rows.map((r) => {
+    const line = r.anonymous ? '' : byId.get(r.checkin_id) ?? '';
+    return line ? { ...r, modeLine: line } : r;
+  });
+}
 
 type Props = {
   venueId: string;
@@ -60,7 +76,7 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
   const [failed, setFailed] = useState(false);
   const load = async () => {
     try {
-      setPlayers(sortPresenceRows(await getCourtPresence(venueId)));
+      setPlayers(sortPresenceRows(await withModes(venueId, await getCourtPresence(venueId))));
       setFailed(false);
     } catch {
       setFailed(true);
@@ -105,9 +121,10 @@ function RowAvatar({ p, fill }: { p: PlayerHere; fill?: boolean }) {
 function rowSublabel(p: PlayerHere): string | null {
   if (p.anonymous) return null;
   const plupr = `PLUPR ${formatPluprShort(p.doubles_rating, undefined)}`;
-  if (p.is_close_friend) return `Close friend · ${plupr}`;
-  if (p.is_friend) return `Friend · ${plupr}`;
-  return plupr;
+  const mode = p.modeLine ? ` · ${p.modeLine}` : '';
+  if (p.is_close_friend) return `Close friend · ${plupr}${mode}`;
+  if (p.is_friend) return `Friend · ${plupr}${mode}`;
+  return plupr + mode;
 }
 
 /** The full roster: the foundation PresenceCard, compact, capped at `maxRows`
@@ -223,6 +240,7 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
             {presenceRowLabel(p)}
           </Text>
           {p.anonymous ? null : <Text style={t.sub}>PLUPR {formatPluprShort(p.doubles_rating, undefined)}</Text>}
+          {p.modeLine ? <Text style={t.sub}>{p.modeLine}</Text> : null}
         </View>
       ))}
       {n > 12 ? <Text style={t.sub}>and {n - 12} more</Text> : null}

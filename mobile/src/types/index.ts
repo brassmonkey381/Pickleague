@@ -624,4 +624,7 @@ export type RootStackParamList = {
   // venueId may be an alias id: the page opens its facility. Ids hold ':'
   // and '/' ('osm:way/123'), so links encode them (navigation/linking.ts).
   CourtDetail: { venueId: string };
+  // My routine (ROUTINES_ENABLED). newVenue opens the add sheet with that
+  // starred court picked ("Make it a routine" on a court).
+  Routines: { newVenue?: { venueId: string; venueName: string } } | undefined;
 };

@@ -80,3 +80,20 @@ export const COURT_STARS_ENABLED = true;
  * unregistered, nothing links to them and nothing fetches.
  */
 export const COURT_DISCOVERY_ENABLED = false;
+
+/**
+ * Routine check-ins (state/routine-checkins-plan.md, Doggle's routines): My
+ * routine (Profile and Settings > Check-in automation), the routine editor,
+ * Planned check-ins on profiles, the "Make it a routine?" card on Home, a
+ * check-in's planned length and Closed group / Open play windows, "Switch to
+ * open play now", "N here · M open to play" and the roster's play modes, and
+ * routine courts fenced first and checked in during their window.
+ *
+ * OFF until supabase/migration_court_routines.sql is live (with the hardening
+ * re-run that grants its RPCs) and send-push is redeployed with the new
+ * kinds; then flipped by OTA. Off, nothing renders, nothing fetches, and the
+ * geofence list and the arrival rules are exactly as before. (The
+ * routine_reminder / arrival_extend_until buttons register either way: only
+ * a server with routines sends a push that names them.)
+ */
+export const ROUTINES_ENABLED = false;

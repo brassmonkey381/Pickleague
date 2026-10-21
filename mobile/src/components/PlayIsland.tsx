@@ -23,6 +23,9 @@ import {
   syncPlayStartReminders,
 } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
+import { ROUTINES_ENABLED } from '../lib/features';
+import { switchToOpenWindows } from '../lib/courtRoutineRules';
+import { getCheckinPlan, setCheckinPlan } from '../data/courtRoutines';
 import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
 import { lostPlayNote, lostPlayOffersRecord } from '../lib/sessionValidity';
 import {
@@ -119,6 +122,37 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
                   explainRefusal(e, "Couldn't extend your check-in. Try again.", {
                     venueName: checkin.venueName,
                     action: 'extend',
+                  }),
+                );
+              }
+            },
+          },
+        ]
+      : []),
+    // Routines: the rest of this window becomes open play (set_checkin_plan).
+    ...(ROUTINES_ENABLED && checkin && !checkin.queued
+      ? [
+          {
+            label: 'Switch to open play now',
+            variant: 'secondary' as const,
+            timeoutMessage: STILL_WORKING,
+            onPress: async () => {
+              try {
+                const plan = await getCheckinPlan(checkin.id);
+                const next = plan
+                  ? switchToOpenWindows(plan.windows, plan.checkedInAt, plan.plannedEndAt ?? plan.expiresAt, new Date())
+                  : null;
+                if (!plan || !next) {
+                  toast.info("You're already open to play.");
+                  return;
+                }
+                await setCheckinPlan(checkin.id, null, next);
+                toast.success("You're open to play. Others here see it.");
+              } catch (e) {
+                toast.error(
+                  explainRefusal(e, "Couldn't switch to open play. Try again.", {
+                    venueName: checkin.venueName,
+                    action: 'plan',
                   }),
                 );
               }

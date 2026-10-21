@@ -79,6 +79,9 @@ export const DEPARTURE_NOTICE_KIND = 'checkin-departure';
 /** push_data.kind of the server's arrival pushes (the phone's D3 copies use the first two). */
 export const ARRIVAL_CHECKIN_KIND = 'arrival_checkin';
 export const ARRIVAL_EXTEND_KIND = 'arrival_extend';
+/** "Staying until 12 PM?": an arrival check-in at a routine court whose
+ *  planned end is later than the arrival length (migration_court_routines.sql). */
+export const ARRIVAL_EXTEND_UNTIL_KIND = 'arrival_extend_until';
 export const ARRIVAL_FAILED_KIND = 'arrival_failed';
 export const ARRIVAL_EXPIRED_KIND = 'arrival_expired';
 
@@ -139,6 +142,9 @@ export type CourtRegionInfo = {
   autoCheckin: boolean;
   /** The QR wallet pass to open at this court, when one is saved and shown. */
   passId?: string;
+  /** In my routine (an active routine at this starred court): fenced first,
+   *  and an arrival during a stop's window checks in (decideArrival). */
+  routine?: boolean;
 };
 
 // ── Arrival (Enter), rows 13-25 ───────────────────────────────────────────────
@@ -162,6 +168,15 @@ export type ArrivalFacts = {
   consent: 'yes' | 'no' | 'unknown';
   /** This court's QR wallet notice went out under 3 hours ago. */
   walletThrottled: boolean;
+  /**
+   * A routine stop is due here now (30 minutes before to 30 minutes after its
+   * time) and "Check me in at my routine courts" is on (lib/courtRoutineRules
+   * routineArrivalDue). Doggle's routine rule: such an arrival checks in even
+   * when "Check me in when I arrive" or "Notice me at starred courts" is
+   * off, as the server's _pl_court_arrival_off does. A court switched off
+   * for automatic check-in still asks (the server answers off_here).
+   */
+  routineDue?: boolean;
 };
 
 export type ArrivalAction =
@@ -189,8 +204,9 @@ function promptOrWallet(f: ArrivalFacts, reason?: NearbyPromptReason): ArrivalAc
 
 /**
  * Doggle's handleFavoriteProximity order (favoriteProximity.ts:562-599),
- * minus routines and the home rule (S1, S2). The mark comes first and does
- * not depend on anything after it.
+ * minus the home rule (S1, S2), with its routine rule (:334-359) as the
+ * `routineDue` fact. The mark comes first and does not depend on anything
+ * after it.
  */
 export function decideArrival(f: ArrivalFacts): ArrivalDecision {
   return { mark: f.arrival, ...arrivalAction(f) };
@@ -206,13 +222,16 @@ function arrivalAction(f: ArrivalFacts): ArrivalAction {
     if (!f.arrival || !info.passId) return { action: 'quiet', why: 'wallet_re_report' };
     return f.walletThrottled ? { action: 'quiet', why: 'wallet_throttled' } : { action: 'wallet' };
   }
+  // A routine stop due here: its arrival checks in whatever the two switches
+  // below say (only a real arrival; a re-report goes on as any other).
+  const routineArrival = f.routineDue === true && f.arrival;
   // "Notice me at starred courts" Off. A QR court keeps its notice.
-  if (f.settings && f.settings.court_radius_m <= 0) {
+  if (f.settings && f.settings.court_radius_m <= 0 && !routineArrival) {
     if (f.arrival && info.passId && !f.walletThrottled) return { action: 'wallet' };
     return { action: 'quiet', why: 'radius_off' };
   }
   // "Check me in when I arrive" off: every Enter asks first.
-  if (f.settings?.auto_checkin === false) return promptOrWallet(f);
+  if (f.settings?.auto_checkin === false && !routineArrival) return promptOrWallet(f);
   if (!f.arrival) {
     // A re-report after an arrival: that arrival already queued or prompted.
     return f.arrivedRecently ? { action: 'quiet', why: 're_report' } : promptOrWallet(f);
@@ -349,16 +368,25 @@ export function arrivalStillAtCopy(name: string | null | undefined): { title: st
  * When the phone's own "Checked in" and "Still at" go off for a queued
  * arrival (D3): just after the server's job would have checked the player in,
  * and 5 minutes before that 2-hour check-in ends. The server's arrival is
- * due_at minus a minute.
+ * due_at minus a minute. During a routine stop (`plannedEndIso`) the server
+ * ends it at the planned end when that comes first, but never under 30
+ * minutes after the arrival (migration_court_routines.sql, part B).
  */
-export function arrivalLocalSchedule(dueAtIso: string): {
+export function arrivalLocalSchedule(
+  dueAtIso: string,
+  plannedEndIso?: string | null,
+): {
   checkedInAtMs: number;
   stillAtAtMs: number;
   expiresAtIso: string;
 } | null {
   const due = Date.parse(dueAtIso);
   if (!Number.isFinite(due)) return null;
-  const expires = due - ARRIVAL_DUE_MS + ARRIVAL_CHECKIN_MS;
+  const arrived = due - ARRIVAL_DUE_MS;
+  const planned = plannedEndIso ? Date.parse(plannedEndIso) : NaN;
+  const expires = Number.isFinite(planned)
+    ? Math.min(arrived + ARRIVAL_CHECKIN_MS, Math.max(planned, arrived + LEGACY_ARRIVAL_CHECKIN_MS))
+    : arrived + ARRIVAL_CHECKIN_MS;
   return {
     checkedInAtMs: due + ARRIVAL_JOB_PERIOD_MS,
     stillAtAtMs: expires - STILL_AT_LEAD_MS,
@@ -651,6 +679,7 @@ const HIDDEN_WHILE_ACTIVE = new Set<string>([
   COURT_PROMPT_KIND,
   ARRIVAL_CHECKIN_KIND,
   ARRIVAL_EXTEND_KIND,
+  ARRIVAL_EXTEND_UNTIL_KIND,
   ARRIVAL_FAILED_KIND,
   ARRIVAL_EXPIRED_KIND,
   DEPARTURE_NOTICE_KIND,
@@ -674,8 +703,48 @@ export function showWhileAppActive(data: Record<string, unknown> | null | undefi
 /** A geofence circle (the foundation's GeofenceRegion). */
 export type CourtRegion = { id: string; lat: number; lng: number; radiusM: number };
 
+/** Routine courts come first, as Doggle fences routine stops before favorites. */
+export const ROUTINE_TIER = 'routine';
 export const WALLET_TIER = 'wallet';
 export const STARRED_TIER = 'starred';
+
+/** A routine court, as a region source (lib/courtRoutineRules CourtRoutine, flattened). */
+export type RoutineRegionSource = {
+  venueId: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  /** The outline's circle; null without one. */
+  radiusM: number | null;
+  autoCheckin: boolean;
+  /** An active routine at a court still starred (a dormant one isn't fenced). */
+  live: boolean;
+};
+
+/** Doggle's routine circle with no outline (favoriteGeofenceTask.ts:41). */
+export const ROUTINE_FALLBACK_RADIUS_M = 150;
+
+/**
+ * The routine tier: one circle per court with a live routine (several
+ * routines at one court share it), the outline's circle else 150 m. Fenced
+ * whatever "Notice me at starred courts" says: a routine stop checks in even
+ * with that Off (decideArrival).
+ */
+export function routineTierRegions(rows: readonly RoutineRegionSource[]): CourtRegion[] {
+  const out: CourtRegion[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (!r.live || r.lat == null || r.lng == null || seen.has(r.venueId)) continue;
+    seen.add(r.venueId);
+    out.push({
+      id: r.venueId,
+      lat: r.lat,
+      lng: r.lng,
+      radiusM: r.radiusM != null && r.radiusM > 0 ? r.radiusM : ROUTINE_FALLBACK_RADIUS_M,
+    });
+  }
+  return out;
+}
 
 /** A QR wallet pass, as a region source (lib/qrWallet walletRegionId gives the id). */
 export type WalletRegionSource = { regionId: string; passId: string; name: string; lat: number; lng: number };
@@ -727,13 +796,19 @@ const clampRadius = (m: number) => Math.min(MAX_REGION_RADIUS_M, Math.max(MIN_RE
 
 /**
  * The fenced list and what each wake needs to know about it, from
- * buildRegions' result (wallet tier first, then starred): at most 20, each
- * circle clamped to 50-800 m. The first saved pass names a wallet court's
- * code; a starred court is named as the server names it.
+ * buildRegions' result (routine tier first, then wallet, then starred): at
+ * most 20, each circle clamped to 50-800 m. The first saved pass names a
+ * wallet court's code; a starred court is named as the server names it. A
+ * routine court is a starred court (routines live only there), so it is
+ * `starred` whether or not the starred tier fenced it too.
  */
 export function buildCourtRegionList(
   built: { regions: readonly CourtRegion[]; tiersById: Record<string, readonly string[]> },
-  src: { wallet: readonly WalletRegionSource[]; starred: readonly StarredCourtGeofence[] },
+  src: {
+    wallet: readonly WalletRegionSource[];
+    starred: readonly StarredCourtGeofence[];
+    routine?: readonly RoutineRegionSource[];
+  },
 ): { regions: CourtRegion[]; info: (CourtRegionInfo & { id: string })[] } {
   const regions = built.regions
     .slice(0, MAX_COURT_REGIONS)
@@ -742,12 +817,14 @@ export function buildCourtRegionList(
     const tiers = built.tiersById[r.id] ?? [];
     const star = tiers.includes(STARRED_TIER) ? src.starred.find((s) => s.venue_id === r.id) : undefined;
     const pass = tiers.includes(WALLET_TIER) ? src.wallet.find((p) => p.regionId === r.id) : undefined;
+    const routine = tiers.includes(ROUTINE_TIER) ? src.routine?.find((x) => x.venueId === r.id && x.live) : undefined;
     return {
       id: r.id,
-      name: star?.name || pass?.name || '',
-      starred: !!star,
-      autoCheckin: star ? star.auto_checkin !== false : false,
+      name: star?.name || routine?.name || pass?.name || '',
+      starred: !!star || !!routine,
+      autoCheckin: star ? star.auto_checkin !== false : routine ? routine.autoCheckin !== false : false,
       ...(pass ? { passId: pass.passId } : {}),
+      ...(routine ? { routine: true } : {}),
     };
   });
   return { regions, info };

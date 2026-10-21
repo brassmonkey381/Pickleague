@@ -137,6 +137,8 @@ import {
   type VenueCheckin,
 } from '../data/venueCheckins';
 import { loadPresenceSettings } from '../data/presenceSettings';
+import { getCheckinPlan, skipRoutineOccurrence } from '../data/courtRoutines';
+import { ROUTINES_ENABLED } from './features';
 // Registers the base replay of a queued Exit / Not here; this file registers
 // over it below (a module runs after the files it imports).
 import {
@@ -164,6 +166,9 @@ export type CurrentCheckin = {
   /** Made by the server on arrival at a starred court, with no fix (court
    *  arrival): Stay 1 more hour sends none. Undefined: not known yet. */
   viaArrival?: boolean;
+  /** An arrival check-in's first end, as the server's arrival job set it
+   *  (routines can cut it short of 2 hours); read only with ROUTINES_ENABLED. */
+  arrivalUntil?: string;
 };
 
 /** A check-in row, with the arrival flag the server adds (migration_court_arrival_queue.sql). */
@@ -309,6 +314,9 @@ function touchCourts(c: CurrentCheckin | null): void {
  */
 function arrivalStillAtCovers(c: CurrentCheckin): boolean {
   if (c.viaArrival !== true || !c.checkedInAt) return false;
+  // A routine's arrival check-in may end at its planned end instead: the
+  // server's own test is expires_at = arrival_until.
+  if (c.arrivalUntil && Date.parse(c.arrivalUntil) === Date.parse(c.expiresAt)) return true;
   return arrivalCheckinUntouched(c.checkedInAt, c.expiresAt);
 }
 
@@ -610,6 +618,15 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
   // known, the flag stays with the check-in.
   const known = cached?.id === row.id ? cached.viaArrival : undefined;
   const viaArrival = known ?? (row.source === 'geofence' ? await madeOnArrival(row.id) : false);
+  // Routines: an arrival check-in's first end (it may be the planned end,
+  // under 2 hours), so this phone's "Still at" stays quiet while the
+  // server's covers it. Kept once known.
+  const arrivalUntil =
+    ROUTINES_ENABLED && viaArrival === true
+      ? cached?.id === row.id && cached.arrivalUntil
+        ? cached.arrivalUntil
+        : ((await withTimeout(getCheckinPlan(row.id), 3_000).catch(() => null))?.arrivalUntil ?? undefined)
+      : undefined;
   const next: CurrentCheckin = {
     id: row.id,
     userId: uid,
@@ -620,9 +637,11 @@ export async function refreshCurrentCheckin(): Promise<CurrentCheckin | null> {
     checkedInAt: row.checked_in_at,
     ...(row.location_confirmed === false ? { private: true } : {}),
     ...(viaArrival !== undefined ? { viaArrival } : {}),
+    ...(arrivalUntil ? { arrivalUntil } : {}),
   };
   if (
     !cached ||
+    cached.arrivalUntil !== next.arrivalUntil ||
     cached.id !== next.id ||
     cached.expiresAt !== next.expiresAt ||
     cached.queued ||
@@ -722,6 +741,40 @@ export async function extendCheckinByHour(
     requestedUntilMs: requested,
     gotUntilMs: Date.parse(row.expires_at),
     fixSent: !!fix,
+    venueName: c.venueName ?? (cached?.id === c.id ? cached.venueName : null),
+  });
+  if (cached?.id !== c.id) return { next: null, note };
+  const next = { ...cached, expiresAt: row.expires_at };
+  await setCurrent(next);
+  return { next, note };
+}
+
+/**
+ * "Stay until 12 PM" on "Staying until 12 PM?" (an arrival check-in at a
+ * routine court): extend_checkin to the routine's planned end, as one
+ * absolute time, so a replay can't add more. No fix: the arrival came from a
+ * circle whose edge can be far from the court's pin (as Stay 1 more hour on
+ * an arrival check-in). The server caps it at 4 hours (extendedNote says so).
+ */
+export async function extendCheckinUntil(
+  c: Pick<CurrentCheckin, 'id'> & { venueName?: string | null },
+  untilIso: string,
+): Promise<{ next: CurrentCheckin | null; note: { full: boolean; message: string } }> {
+  const requested = Date.parse(untilIso);
+  let row: VenueCheckin;
+  try {
+    row = await extendCheckin(c.id, new Date(requested).toISOString(), null);
+  } catch (e) {
+    const code = refusalCode(e);
+    if (code === 'checkin.closed' || code === 'checkin.none') void refreshCurrentCheckin().catch(() => null);
+    throw e;
+  }
+  void cancelArrivalLocalNotices(c.id);
+  const cached = await readStored();
+  const note = extendedNote({
+    requestedUntilMs: requested,
+    gotUntilMs: Date.parse(row.expires_at),
+    fixSent: false,
     venueName: c.venueName ?? (cached?.id === c.id ? cached.venueName : null),
   });
   if (cached?.id !== c.id) return { next: null, note };
@@ -849,6 +902,48 @@ registerActionHandler('checkin_extend', {
       const why = refusalNeedsApp(e, { venueName: d.venue_name, action: 'extend' });
       if (why) throw why;
       if (needsCourtToExtend(e)) throw new NeedsApp('Open Pickleague at the court to stay checked in.');
+      throw e;
+    }
+  },
+});
+// "Staying until 12 PM?": Stay until then (push_data.planned_end_at).
+registerActionHandler('checkin_stay_until', {
+  timeoutMs: 12_000,
+  success: (res, d) => {
+    const note = (res as { note?: { full: boolean; message: string } } | null)?.note;
+    return {
+      title: titleWith(note && !note.full ? 'Extended, not all the way' : 'Extended', d.venue_name),
+      body: note?.message ?? "You're checked in until you planned.",
+    };
+  },
+  run: async (d) => {
+    await requireUser();
+    if (!d.checkin_id || !d.planned_end_at) {
+      throw new NeedsApp("This reminder didn't say which check-in to extend. Open Pickleague to extend it.");
+    }
+    try {
+      return await extendCheckinUntil({ id: d.checkin_id, venueName: d.venue_name }, d.planned_end_at);
+    } catch (e) {
+      const why = refusalNeedsApp(e, { venueName: d.venue_name, action: 'extend' });
+      if (why) throw why;
+      throw e;
+    }
+  },
+});
+// The routine reminder's Skip today: that one occurrence (the routine carries on).
+registerActionHandler('routine_skip', {
+  success: (_res, d) => ({
+    title: titleWith('Skipped today', d.venue_name),
+    body: "We won't check you in there for this one. Your routine carries on.",
+  }),
+  run: async (d) => {
+    await requireUser();
+    if (!d.plan_id) throw new NeedsApp("This reminder didn't say which routine check-in to skip. Open Pickleague to skip it.");
+    try {
+      return await skipRoutineOccurrence(d.plan_id);
+    } catch (e) {
+      const why = refusalNeedsApp(e, { venueName: d.venue_name });
+      if (why) throw why;
       throw e;
     }
   },

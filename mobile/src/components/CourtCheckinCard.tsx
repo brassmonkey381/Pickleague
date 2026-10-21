@@ -72,6 +72,7 @@ import PauseSharingChip from './presence/PauseSharingChip';
 import CrowdLine from './court/CrowdLine';
 import CourtFavoriteStar from './court/CourtFavoriteStar';
 import CourtCheckInNotes from './court/CourtCheckInNotes';
+import CheckinPlanLine from './routines/CheckinPlanLine';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
 import type { RootStackParamList } from '../types';
@@ -369,6 +370,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             })}
           />
         </HereLine>
+        {/* Routines: how long and Closed group / Open play, "Switch to open play now". */}
+        <CheckinPlanLine checkinId={current.queued ? null : current.id} venueName={current.venueName} style={S.gapSm} />
         {current.private ? (
           // An older build checked in without a fix: stored, but shown to
           // nobody and counted nowhere (rule 1). Say so, and how to fix it.

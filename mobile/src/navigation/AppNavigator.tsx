@@ -80,7 +80,7 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import FriendsScreen from '../screens/FriendsScreen';
-import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
@@ -92,6 +92,7 @@ import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
 import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
 import CourtsScreen from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
+import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -357,6 +358,11 @@ export default function AppNavigator() {
                     <Stack.Screen name="Courts" component={CourtsScreen} options={{ title: '📍 Courts' }} />
                     <Stack.Screen name="CourtDetail" component={CourtDetailScreen} options={{ title: 'Court' }} />
                   </>
+                )}
+                {/* Routines stay unregistered while ROUTINES_ENABLED is false:
+                    their RPCs ship with migration_court_routines.sql. */}
+                {ROUTINES_ENABLED && (
+                  <Stack.Screen name="Routines" component={CourtRoutinesScreen} options={{ title: 'My routine' }} />
                 )}
               </>
             ) : (

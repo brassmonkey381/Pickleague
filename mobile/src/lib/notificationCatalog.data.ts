@@ -10,8 +10,8 @@
 //
 // Android shows at most 3 buttons. Action ids are unique across categories
 // except where the same button means the same write (event_decline,
-// event_vote_1 / event_vote_2, drill_accept, drill_decline, drill_reply) or the
-// same link (event_text_group).
+// event_vote_1 / event_vote_2, drill_accept, drill_decline, drill_reply,
+// court_checkin, checkin_out) or the same link (event_text_group).
 //
 // `link: true` buttons navigate like a tap and write nothing (lib/pushLinks.ts
 // says where); they must be `opensApp: true`. Anything irreversible, that
@@ -217,6 +217,28 @@ export const CATALOG = {
     actions: {
       court_checkin_now: { buttonTitle: '✅ Check in now' },
       court_not_here: { buttonTitle: 'Not here', destructive: true },
+    },
+  },
+  // "Staying until 12 PM?" (push_data.kind arrival_extend_until,
+  // migration_court_routines.sql): an arrival check-in at a routine court
+  // whose planned end is later than the arrival length, 5 minutes before it
+  // ends. Stay until then extends it to push_data.planned_end_at (the title
+  // and body name the time; a button title can't). Check out is the same
+  // write as on checkin_extend.
+  checkin_extend_until: {
+    actions: {
+      checkin_stay_until: { buttonTitle: 'Stay until then' },
+      checkin_out: { buttonTitle: 'Check out' },
+    },
+  },
+  // The reminder at a routine stop's time ("9 AM · Lakeside", push_data.kind
+  // routine_reminder, Doggle's Check in / Skip today). Check in is the same
+  // check-in as on "Check in nearby?" (a fresh fix); Skip today cancels that
+  // one occurrence (skip_court_routine_occurrence, push_data.plan_id).
+  routine_reminder: {
+    actions: {
+      court_checkin: { buttonTitle: '✅ Check in' },
+      routine_skip: { buttonTitle: 'Skip today', destructive: true },
     },
   },
   // Local "starting now" for a scheduled drill session or match.

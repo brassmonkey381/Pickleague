@@ -72,6 +72,11 @@ export type ActionPushData = {
   expires_at?: string | null;
   /** The check-in was made by the server on arrival, with no fix (court arrival). */
   via_arrival?: boolean | null;
+  /** A routine occurrence (routine_reminder: Skip today). */
+  plan_id?: string | null;
+  /** When the player said they'd stop (arrival_extend_until: Stay until then). */
+  planned_end_at?: string | null;
+  planned_at?: string | null;
   title?: string;
   kind?: string;
   league_id?: string | null;

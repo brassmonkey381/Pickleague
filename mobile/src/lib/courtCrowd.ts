@@ -1,4 +1,5 @@
-// The crowd line ("6 playing now · mostly 3.5–4.0 · 2 friends") and the roster
+// The crowd line ("6 playing now · mostly 3.5–4.0 · 2 friends"; with routines
+// "6 here · 4 open to play · mostly 3.5–4.0 · 2 friends") and the roster
 // rows of who is at a court (docs/play-sessions-presence.md, Phase 1 step 8).
 //
 // PURE: no React, no Supabase. The numbers come from venue_crowd /
@@ -48,12 +49,16 @@ function plural(n: number, one: string, many = `${one}s`): string {
 export function crowdLineText(
   c: CrowdNumbers | null | undefined,
   emptyText: string | null = null,
-  opts: { showFriends?: boolean } = {},
+  opts: { showFriends?: boolean; openNow?: number | null } = {},
 ): string | null {
   if (!c) return null;
   const n = Math.max(0, Math.floor(c.here_now ?? 0));
   if (n === 0) return emptyText;
-  const parts = [`${n} playing now`];
+  // Routines (venue_open_to_play): "6 here · 4 open to play"; none open, no part.
+  // Without the number (routines off, not loaded) the line is as before.
+  const open = opts.openNow == null ? null : Math.min(n, Math.max(0, Math.floor(opts.openNow)));
+  const parts = open == null ? [`${n} playing now`] : [`${n} here`];
+  if (open != null && open > 0) parts.push(`${open} open to play`);
   const band = bandLabel(c.band_low, c.band_high);
   if (band) parts.push(`mostly ${band}`);
   const f = opts.showFriends === false ? 0 : Math.max(0, Math.floor(c.friends_here ?? 0));

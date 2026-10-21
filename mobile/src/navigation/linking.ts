@@ -3,7 +3,7 @@
 // config; AppNavigator passes it to NavigationContainer.
 import type { LinkingOptions } from '@react-navigation/native';
 import type { RootStackParamList } from '../types';
-import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
 
 /**
  * Court discovery's paths (registered only while COURT_DISCOVERY_ENABLED).
@@ -95,6 +95,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       ...(FRIENDS_AT_COURTS_ENABLED ? { Friends: 'friends' } : {}),
       // And court discovery.
       ...(COURT_DISCOVERY_ENABLED ? COURT_LINKS : {}),
+      // And routines.
+      ...(ROUTINES_ENABLED ? { Routines: 'routines' } : {}),
       Bookmarks: 'bookmarks',
     },
   },

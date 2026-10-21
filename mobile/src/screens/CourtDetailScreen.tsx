@@ -43,7 +43,7 @@ import { checkGodmode } from '../lib/godmode';
 import { explainRefusal } from '../lib/refusalNotices';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
-import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
+import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
 import {
   courtCrowdText,
   courtDistanceLabel,
@@ -56,7 +56,9 @@ import {
 import { courtKey, useCourt, useCourtCrowds } from '../data/courtDiscovery';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import CourtFavoriteStar from '../components/court/CourtFavoriteStar';
-import CrowdLine from '../components/court/CrowdLine';
+import CrowdLine, { useOpenToPlay } from '../components/court/CrowdLine';
+import CheckinPlanLine from '../components/routines/CheckinPlanLine';
+import { useCourtFavoriteIds } from '../data/courtFavorites';
 import CourtCheckInNotes from '../components/court/CourtCheckInNotes';
 import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
@@ -135,6 +137,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
   const flow = useCourtCheckIn({ onCheckedIn: setCurrent, onCurrent: setCurrent });
   const crowd = useCourtCrowds([court.id], focused);
   const crowdNow = crowd.data[court.id];
+  const openNow = useOpenToPlay(court.id);
+  const starredIds = useCourtFavoriteIds(ROUTINES_ENABLED);
 
   // The last fix this page knows: one the check-in just took, else the
   // device location Play already has (never a prompt).
@@ -218,8 +222,21 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           <Text style={[t.sub, S.gapXs]}>You're not at this court. Check in once you get there.</Text>
         ) : null}
         <CourtCheckInNotes flow={flow} />
+        {here && current ? (
+          <CheckinPlanLine checkinId={current.queued ? null : current.id} venueName={court.name} style={S.gapXs} />
+        ) : null}
         {courtCrowdText(crowdNow, { friendsEnabled: FRIENDS_AT_COURTS_ENABLED }) ? (
-          <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} />
+          <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} openNow={openNow} />
+        ) : null}
+        {ROUTINES_ENABLED && starredIds.has(court.id) ? (
+          <TouchableOpacity
+            style={S.routineLink}
+            onPress={() => navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } })}
+            accessibilityRole="button"
+            accessibilityHint="Plan a weekly check-in at this court"
+          >
+            <Text style={[t.sub, { color: c.primary }]}>📅 Make it a routine ›</Text>
+          </TouchableOpacity>
         ) : null}
       </Panel>
 
@@ -296,5 +313,6 @@ const S = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
   share: { alignSelf: 'center' },
   gapXs: { marginTop: SPACE.xs },
+  routineLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   link: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
 });
