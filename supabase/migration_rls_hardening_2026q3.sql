@@ -149,7 +149,9 @@ begin
         'enqueue_court_checkin_prompt','get_court_arrival_settings','list_starred_court_geofences',
         'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin',
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).
-        'schedule_league_match'
+        'schedule_league_match',
+        -- Court stars capped at 3, Doggle's replace-one (migration_court_star_cap_three.sql).
+        'replace_court_favorite'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

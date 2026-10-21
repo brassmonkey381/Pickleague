@@ -45,7 +45,8 @@ import {
   STARRED_COURT_GEOFENCES_KEY,
   STARRED_COURT_GEOFENCES_TTL_MS,
 } from '../data/courtArrival';
-import { toggleCourtFavorite, useCourtFavorites } from '../data/courtFavorites';
+import { isCourtFavoritesFullError, toggleCourtFavorite, useCourtFavorites } from '../data/courtFavorites';
+import { useReplaceCourtStar } from './court/useReplaceCourtStar';
 import { COURT_RADIUS_CHOICES, type StarredCourtGeofence } from '../lib/courtArrivalRules';
 import { dropWaitingArrivalNotices } from '../lib/courtArrivalNotice';
 import { patchCourtRegionInfo } from '../lib/courtGeofence';
@@ -152,9 +153,11 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
     persistMs: COURT_ARRIVAL_PERSIST_MS,
   });
   const courts = query.data;
-  // Star a court patches this list before the write and checks the 5-court cap
+  // Star a court patches this list before the write and checks the 3-court cap
   // against it, so it's loaded here too (Home usually has it already).
   useCourtFavorites();
+  // A 4th star offers to replace one of the 3 (Doggle's "Replace a favorite?").
+  const { offerReplace, sheet } = useReplaceCourtStar();
   // The court mid-save, with the value its switch shows meanwhile.
   const [saving, setSaving] = useState<{ id: string; on: boolean } | null>(null);
   const [picking, setPicking] = useState(false);
@@ -185,8 +188,8 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
     }
   }
 
-  // Unstarring is here too: a court starred by mistake (or a sixth one the
-  // cap refuses) must not need a trip to the court, where the card's star is.
+  // Unstarring is here too: a court starred by mistake must not need a trip
+  // to the court, where the card's star is.
   async function unstar(court: StarredCourtGeofence) {
     setBusy(true);
     try {
@@ -222,12 +225,18 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
     }
     setBusy(true);
     try {
-      // Past 5 this throws today's "You can star up to 5 courts. Unstar one to add this one."
+      // Past 3 this throws "You can star up to 3 courts. ...": offer to replace one.
       await toggleCourtFavorite(id, true, pick.name);
       courtStarsChanged();
       setPicking(false);
       toast.success(`${pick.name} is one of your courts now.`);
     } catch (e) {
+      if (isCourtFavoritesFullError(e)) {
+        const shown = await offerReplace(id, pick.name, (replaced) => {
+          if (replaced) setPicking(false);
+        }).catch(() => false);
+        if (shown) return;
+      }
       toast.error(explainRefusal(e, "Couldn't star that court. Try again.", { action: 'favorite', venueName: pick.name }));
     } finally {
       setBusy(false);
@@ -257,6 +266,7 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
       <View style={S.inset}>
         <Text style={[t.meta, S.listHead]}>Couldn't load your starred courts.</Text>
         {starButton}
+        {sheet}
       </View>
     );
   }
@@ -292,6 +302,7 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
         </React.Fragment>
       ))}
       <View style={S.inset}>{starButton}</View>
+      {sheet}
     </View>
   );
 }

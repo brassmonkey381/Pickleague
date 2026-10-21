@@ -129,7 +129,7 @@ How Phase 1 applies decision 1 (from the 2026-10-16 privacy review; the decision
 4. **Duplicate courts:** `venues.canonical_id` (non-destructive) so presence, crowd counts and friends group by facility.
 5. **Mutual friends:** `friendships`, requests with lock-screen Accept, unfriend, block teardown, close-friend star column
    (used by Phase 2 pushes), suggestions from real co-play, an "Invite to Pickleague" link for an empty list.
-6. **My courts:** `court_favorites` (max 5), a star on court surfaces; feeds YOUR COURTS (every star shows) and the
+6. **My courts:** `court_favorites` (max 3, as Doggle; a 4th offers to replace one), a star on court surfaces; feeds YOUR COURTS (every star shows) and the
    geofence list (starred courts first; starring re-syncs the fences).
 7. **Session = presence:** start_play_session creates the session check-in when the fix confirms the court;
    PlayStartSheet ("Where are you playing?"); pending-End guard so a queued End never resurrects the island; an
@@ -372,7 +372,7 @@ kept locally with the user's decisions in `state/court-arrival-doggle-parity.md`
 How it works:
 
 - **Watched courts.** The phone's region monitoring watches up to 20 courts: QR-wallet courts first, then starred
-  courts (at most 5) while "Notice me at starred courts" is above Off. League-home and most-used courts are no
+  courts (at most 3) while "Notice me at starred courts" is above Off. League-home and most-used courts are no
   longer watched. A starred court's circle is its mapped outline's equal-area radius, else the player's distance
   (Off / 100 m / 250 m / 1 km, default 100 m), clamped to 50-800 m.
 - **Arriving.** Only an Enter after an Exit is an arrival. With "Check me in when I arrive" on (everywhere and for

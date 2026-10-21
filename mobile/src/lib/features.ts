@@ -56,7 +56,7 @@ export const WAGERS_ENABLED = false;
 export const FRIENDS_AT_COURTS_ENABLED = true;
 
 /**
- * The court star (☆ / ★, up to 5 courts), on its own flag since court arrival
+ * The court star (☆ / ★, up to 3 courts), on its own flag since court arrival
  * (state/court-arrival-decisions.md, D4): starred courts are where Pickleague
  * checks you in when you arrive, so the star shows now on Home's court card
  * and in Settings > Check-in automation, whatever the friends flag above says.

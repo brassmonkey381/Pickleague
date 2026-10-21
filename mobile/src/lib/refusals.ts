@@ -25,6 +25,9 @@ export const REFUSAL_CODES = [
   'request.bad',
   'court.gone',
   'court.favorites_full',
+  // migration_court_star_cap_three.sql: replace_court_favorite.
+  'court.not_starred',
+  'court.already_starred',
   'fix.stale',
   'fix.stale_clock',
   'fix.imprecise',
@@ -130,7 +133,8 @@ const LEGACY: ReadonlyArray<[RegExp, RefusalCode]> = [
   [/^This player isn.t available/i, 'friend.unavailable'],
   [/^You.ve sent 20 friend requests today/i, 'friend.daily_cap'],
   [/^Only friends can be close friends/i, 'friend.not_friends'],
-  [/^You can star up to 5 courts/i, 'court.favorites_full'],
+  // Any cap: 5 before migration_court_star_cap_three.sql, 3 since.
+  [/^You can star up to \d+ courts/i, 'court.favorites_full'],
 ];
 
 /** The refusal's code: the server's HINT 'pl:<code>', else a known message. Null for anything else. */
@@ -196,7 +200,11 @@ export function refusalCopy(
         ? "That court isn't in Pickleague any more, so it can't be starred."
         : `${court ?? 'That court'} isn't in Pickleague any more, so you can't check in there. Find your court again.`;
     case 'court.favorites_full':
-      return 'You can star up to 5 courts. Unstar one to add this one.';
+      return 'You can star up to 3 courts. Unstar one to add this one.';
+    case 'court.not_starred':
+      return "That court isn't one of your starred courts any more. Pick one of your starred courts to replace.";
+    case 'court.already_starred':
+      return `${court ?? 'That court'} is already one of your starred courts.`;
     case 'fix.stale':
       // True from an older server too: a live call's tap is its send.
       return 'Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court.';
