@@ -22,12 +22,24 @@
 --      migration_match_confirm_flow.sql; only the count removed). It ran
 --      only when deltas were applied, so an unspecified-category doubles
 --      match or one with a zero delta was never counted at all;
---   3. _pl_count_completed_match (AFTER insert / status update / delete):
---      +1 and last_match_at for each player when a row becomes 'completed'
---      (a confirm, or a godmode / server insert stored completed), -1 when a
---      completed row is deleted. update_plupr_ratings reads the count for
---      the K-factor in its BEFORE INSERT branch, so it still sees the count
---      before this match;
+--   3. the count follows recompute_all_plupr() exactly (the canonical
+--      rebuild): one per player for every completed league match and every
+--      completed tournament match with a winner, except doubles whose
+--      category is 'unspecified' (recompute skips them before counting);
+--      partners only on doubles. _pl_played_match_counts() is that counting,
+--      once, for the repair and the tests; trg_count_completed_match (matches)
+--      and trg_count_completed_tournament_match (tournament_matches) keep it
+--      as rows change: +1 when a row starts counting, -1 when it stops (a
+--      delete included). last_match_at moves to the match's time (league:
+--      played_at; tournament: scheduled_at, else created_at, as recompute
+--      orders them). update_plupr_ratings reads the count for the K-factor
+--      in its BEFORE INSERT branch, and update_plupr_for_tournament_match
+--      (on_tournament_match_completed) sorts before the new tournament
+--      trigger, so both still see the count before this match.
+--      _pl_repair_match_counts() (supabase/repair_match_counts.sql) sets the
+--      stored totals to it. A tournament match's category is worked out
+--      from the players' genders when it completes; recompute works it out
+--      when it runs, so a later gender change can still make them differ;
 --   4. the counters read completed matches only, each from its latest body
 --      in the repo with only the filter added:
 --        _grant_first_match_bonus      (migration_bump_base_pickle_grants.sql)
@@ -36,6 +48,12 @@
 --        _award_globetrotter_ii_badge  (migration_prod_reconcile_2026q3.sql)
 --        _award_progress_badges        (migration_progress_badge_triggers.sql)
 --        _reverse_match_side_effects   (migration_local_day_boundaries.sql)
+--      (first-match and first-doubles grants also record their amount);
+--   5. bonus refunds take back what was granted: first_match_bonus_grants
+--      and first_doubles_bonus_grants get an amount (backfilled: first match
+--      200 before the 500 bump, committed 2026-05-25 09:48 -07, else 500;
+--      first doubles 150), and the delete reversal refunds that amount (it
+--      took 200 back for a 500 grant).
 --
 -- Then run supabase/repair_match_counts.sql once to fix the stored totals.
 -- Apply AFTER the files above (a re-run of any of them puts its old body
@@ -87,47 +105,195 @@ revoke all on function public._apply_match_deltas_to_players(uuid, uuid, uuid, u
   from public, anon, authenticated;
 
 
--- ── 3. Count a match once, when it's confirmed ────────────────────────────
+-- ── 3. The count, as recompute_all_plupr() counts ─────────────────────────
+
+-- Every player's count and last match time, by recompute_all_plupr()'s rule
+-- (migration_prod_reconcile_2026q3.sql): its "combined" rows (league matches
+-- with coalesce(status, 'completed') = 'completed'; tournament matches
+-- completed with a winner), less doubles whose category is 'unspecified'
+-- (stored on the league row; classify_doubles_match for a tournament one),
+-- each counted for player 1 of each team, and the partners on doubles.
+create or replace function public._pl_played_match_counts()
+returns table (user_id uuid, n integer, last_at timestamptz)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with rows as (
+    select 'm'::text as src, m.id, m.played_at as ts, m.match_type,
+           m.player1_id as t1p1, m.partner1_id as t1p2, m.player2_id as t2p1, m.partner2_id as t2p2
+      from public.matches m
+     where coalesce(m.status, 'completed') = 'completed'
+       and not (m.match_type = 'doubles' and coalesce(m.doubles_category, '') = 'unspecified')
+    union all
+    select 't'::text, tm.id, coalesce(tm.scheduled_at, tm.created_at), tm.match_type,
+           tm.team1_player1, tm.team1_player2, tm.team2_player1, tm.team2_player2
+      from public.tournament_matches tm
+     where tm.status = 'completed' and tm.winner_team is not null
+       and not (tm.match_type = 'doubles'
+                and coalesce(public.classify_doubles_match(tm.team1_player1, tm.team1_player2,
+                                                           tm.team2_player1, tm.team2_player2), '') = 'unspecified')
+  ),
+  players as (
+    select distinct r.src, r.id, r.ts, u.uid
+      from rows r
+      cross join lateral (values (r.t1p1), (r.t2p1),
+                                 (case when r.match_type = 'doubles' then r.t1p2 end),
+                                 (case when r.match_type = 'doubles' then r.t2p2 end)) as u(uid)
+     where u.uid is not null
+  )
+  select p.uid, count(*)::integer, max(p.ts)
+    from players p
+   group by p.uid
+$$;
+revoke all on function public._pl_played_match_counts() from public, anon, authenticated;
+
+-- Moves the stored count by p_delta for each player (once each), and on a
+-- +1 moves last_match_at forward to p_at.
+create or replace function public._pl_bump_match_count(p_ids uuid[], p_delta integer, p_at timestamptz)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.profiles p
+     set total_matches_played = greatest(0, coalesce(p.total_matches_played, 0) + p_delta),
+         last_match_at = case when p_delta > 0 and p_at is not null
+                              then greatest(p.last_match_at, p_at) else p.last_match_at end
+   where p.id = any (p_ids)
+$$;
+revoke all on function public._pl_bump_match_count(uuid[], integer, timestamptz) from public, anon, authenticated;
+
+-- matches: counts while completed and not unspecified doubles.
 create or replace function public._pl_count_completed_match()
 returns trigger
 language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  v_old_counts boolean := false;
+  v_new_counts boolean := false;
+  v_old_ids    uuid[];
+  v_new_ids    uuid[];
 begin
-  if tg_op = 'DELETE' then
-    if old.status = 'completed' then
-      update public.profiles
-         set total_matches_played = greatest(0, coalesce(total_matches_played, 0) - 1)
-       where id in (old.player1_id, old.partner1_id, old.player2_id, old.partner2_id);
-    end if;
-    return old;
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_old_counts := coalesce(old.status, 'completed') = 'completed'
+                    and not (old.match_type = 'doubles' and coalesce(old.doubles_category, '') = 'unspecified');
+    v_old_ids := array_remove(array[old.player1_id, old.player2_id,
+                   case when old.match_type = 'doubles' then old.partner1_id end,
+                   case when old.match_type = 'doubles' then old.partner2_id end], null);
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_new_counts := coalesce(new.status, 'completed') = 'completed'
+                    and not (new.match_type = 'doubles' and coalesce(new.doubles_category, '') = 'unspecified');
+    v_new_ids := array_remove(array[new.player1_id, new.player2_id,
+                   case when new.match_type = 'doubles' then new.partner1_id end,
+                   case when new.match_type = 'doubles' then new.partner2_id end], null);
   end if;
 
-  if new.status = 'completed'
-     and (tg_op = 'INSERT' or old.status is distinct from 'completed') then
-    update public.profiles
-       set total_matches_played = coalesce(total_matches_played, 0) + 1,
-           last_match_at = greatest(last_match_at, coalesce(new.played_at, now()))
-     where id in (new.player1_id, new.partner1_id, new.player2_id, new.partner2_id);
-  elsif tg_op = 'UPDATE' and old.status = 'completed' and new.status <> 'completed' then
-    update public.profiles
-       set total_matches_played = greatest(0, coalesce(total_matches_played, 0) - 1)
-     where id in (old.player1_id, old.partner1_id, old.player2_id, old.partner2_id);
+  if v_old_counts and v_new_counts and v_old_ids = v_new_ids then
+    return null;   -- counted before and after, for the same players
   end if;
-  return new;
+  if v_old_counts then perform public._pl_bump_match_count(v_old_ids, -1, null); end if;
+  if v_new_counts then perform public._pl_bump_match_count(v_new_ids, 1, new.played_at); end if;
+  return null;
 end $$;
 revoke all on function public._pl_count_completed_match() from public, anon, authenticated;
 
 drop trigger if exists trg_count_completed_match on public.matches;
 create trigger trg_count_completed_match
-  after insert or delete or update of status on public.matches
+  after insert or delete
+     or update of status, match_type, doubles_category, player1_id, partner1_id, player2_id, partner2_id
+  on public.matches
   for each row execute function public._pl_count_completed_match();
+
+-- tournament_matches: counts while completed with a winner and not
+-- unspecified doubles.
+create or replace function public._pl_count_completed_tournament_match()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_old_counts boolean := false;
+  v_new_counts boolean := false;
+  v_old_ids    uuid[];
+  v_new_ids    uuid[];
+begin
+  if tg_op in ('UPDATE', 'DELETE') then
+    v_old_counts := old.status = 'completed' and old.winner_team is not null
+                    and not (old.match_type = 'doubles'
+                             and coalesce(public.classify_doubles_match(old.team1_player1, old.team1_player2,
+                                                                        old.team2_player1, old.team2_player2), '') = 'unspecified');
+    v_old_ids := array_remove(array[old.team1_player1, old.team2_player1,
+                   case when old.match_type = 'doubles' then old.team1_player2 end,
+                   case when old.match_type = 'doubles' then old.team2_player2 end], null);
+  end if;
+  if tg_op in ('INSERT', 'UPDATE') then
+    v_new_counts := new.status = 'completed' and new.winner_team is not null
+                    and not (new.match_type = 'doubles'
+                             and coalesce(public.classify_doubles_match(new.team1_player1, new.team1_player2,
+                                                                        new.team2_player1, new.team2_player2), '') = 'unspecified');
+    v_new_ids := array_remove(array[new.team1_player1, new.team2_player1,
+                   case when new.match_type = 'doubles' then new.team1_player2 end,
+                   case when new.match_type = 'doubles' then new.team2_player2 end], null);
+  end if;
+
+  if v_old_counts and v_new_counts and v_old_ids = v_new_ids then
+    return null;
+  end if;
+  if v_old_counts then perform public._pl_bump_match_count(v_old_ids, -1, null); end if;
+  if v_new_counts then
+    perform public._pl_bump_match_count(v_new_ids, 1, coalesce(new.scheduled_at, new.created_at));
+  end if;
+  return null;
+end $$;
+revoke all on function public._pl_count_completed_tournament_match() from public, anon, authenticated;
+
+-- Named to sort AFTER on_tournament_match_completed (AFTER triggers fire in
+-- name order), whose K-factor read must see the count before this match.
+drop trigger if exists trg_count_completed_tournament_match on public.tournament_matches;
+create trigger trg_count_completed_tournament_match
+  after insert or delete
+     or update of status, winner_team, match_type, team1_player1, team1_player2, team2_player1, team2_player2
+  on public.tournament_matches
+  for each row execute function public._pl_count_completed_tournament_match();
+
+-- Sets every profile's stored count and last match time to
+-- _pl_played_match_counts(); returns how many profiles changed. Run once by
+-- supabase/repair_match_counts.sql; a second run returns 0.
+create or replace function public._pl_repair_match_counts()
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare v_n integer;
+begin
+  with counts as (select c.user_id, c.n, c.last_at from public._pl_played_match_counts() c),
+  changed as (
+    update public.profiles p
+       set total_matches_played = coalesce(c.n, 0),
+           last_match_at        = c.last_at
+      from public.profiles p2
+      left join counts c on c.user_id = p2.id
+     where p2.id = p.id
+       and (p.total_matches_played is distinct from coalesce(c.n, 0)
+            or p.last_match_at is distinct from c.last_at)
+    returning p.id
+  )
+  select count(*) into v_n from changed;
+  return v_n;
+end $$;
+revoke all on function public._pl_repair_match_counts() from public, anon, authenticated;
 
 
 -- ── 4. Counters read completed matches only ───────────────────────────────
 
--- _grant_first_match_bonus: from migration_bump_base_pickle_grants.sql; only status = 'completed' added.
+-- _grant_first_match_bonus: from migration_bump_base_pickle_grants.sql; status = 'completed' added; the grant records its amount.
 create or replace function public._grant_first_match_bonus()
 returns trigger language plpgsql security definer as $$
 declare
@@ -153,7 +319,7 @@ begin
                or player2_id = v_uid or partner2_id = v_uid);
 
       if v_count = 1 then
-        insert into public.first_match_bonus_grants(user_id) values (v_uid)
+        insert into public.first_match_bonus_grants(user_id, amount) values (v_uid, 500)
           on conflict (user_id) do nothing;
 
         update public.profiles set pickles = coalesce(pickles, 0) + 500 where id = v_uid;
@@ -177,7 +343,7 @@ end;
 $$;
 revoke all on function public._grant_first_match_bonus() from public, anon, authenticated;
 
--- _grant_first_doubles_bonus: from migration_audit_fixes_2026q2.sql; only status = 'completed' added.
+-- _grant_first_doubles_bonus: from migration_audit_fixes_2026q2.sql; status = 'completed' added; the grant records its amount.
 create or replace function public._grant_first_doubles_bonus()
 returns trigger language plpgsql security definer as $$
 declare
@@ -204,7 +370,7 @@ begin
     if v_prior_count > 0 then continue; end if;
 
     begin
-      insert into public.first_doubles_bonus_grants (user_id) values (v_uid)
+      insert into public.first_doubles_bonus_grants (user_id, amount) values (v_uid, 150)
         on conflict (user_id) do nothing;
 
       update public.profiles set pickles = coalesce(pickles, 0) + 150 where id = v_uid;
@@ -435,7 +601,8 @@ end;
 $$;
 revoke all on function public._award_progress_badges(uuid) from public, anon, authenticated;
 
--- _reverse_match_side_effects: from migration_local_day_boundaries.sql; only status = 'completed' added.
+-- _reverse_match_side_effects: from migration_local_day_boundaries.sql; status = 'completed' added to the four "other matches" checks; the first-match and
+-- first-doubles refunds take back the recorded amount.
 CREATE OR REPLACE FUNCTION public._reverse_match_side_effects()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -457,6 +624,7 @@ declare
   v_streak_row       public.daily_play_streaks;
   v_badge_count      integer;
   v_tz               text;
+  v_refund           integer;
 begin
   -- Only act when reversing a COMPLETED match. Pending rows never
   -- applied side-effects (gated triggers), so nothing to undo.
@@ -563,12 +731,16 @@ begin
            and (player1_id = v_uid or partner1_id = v_uid
                 or player2_id = v_uid or partner2_id = v_uid);
 
-        if v_remaining = 0
-           and exists (select 1 from public.first_match_bonus_grants where user_id = v_uid) then
-          delete from public.first_match_bonus_grants where user_id = v_uid;
-          update public.profiles
-             set pickles = greatest(0, coalesce(pickles, 0) - 200)
-           where id = v_uid;
+        if v_remaining = 0 then
+          -- Take back what the grant gave (its ledger row says how much).
+          v_refund := null;
+          delete from public.first_match_bonus_grants where user_id = v_uid
+            returning coalesce(amount, 500) into v_refund;
+          if v_refund is not null then
+            update public.profiles
+               set pickles = greatest(0, coalesce(pickles, 0) - v_refund)
+             where id = v_uid;
+          end if;
         end if;
       exception when others then null;
       end;
@@ -589,12 +761,15 @@ begin
              and (player1_id = v_uid or partner1_id = v_uid
                   or player2_id = v_uid or partner2_id = v_uid);
 
-          if v_remaining_doub = 0
-             and exists (select 1 from public.first_doubles_bonus_grants where user_id = v_uid) then
-            delete from public.first_doubles_bonus_grants where user_id = v_uid;
-            update public.profiles
-               set pickles = greatest(0, coalesce(pickles, 0) - 150)
-             where id = v_uid;
+          if v_remaining_doub = 0 then
+            v_refund := null;
+            delete from public.first_doubles_bonus_grants where user_id = v_uid
+              returning coalesce(amount, 150) into v_refund;
+            if v_refund is not null then
+              update public.profiles
+                 set pickles = greatest(0, coalesce(pickles, 0) - v_refund)
+               where id = v_uid;
+            end if;
           end if;
         exception when others then null;
         end;
@@ -679,3 +854,12 @@ begin
 end;
 $function$;
 revoke all on function public._reverse_match_side_effects() from public, anon, authenticated;
+
+
+-- ── 5. Bonus ledgers record what they granted ─────────────────────────────
+alter table public.first_match_bonus_grants   add column if not exists amount integer;
+alter table public.first_doubles_bonus_grants add column if not exists amount integer;
+update public.first_match_bonus_grants
+   set amount = case when granted_at < timestamptz '2026-05-25 09:48:01-07' then 200 else 500 end
+ where amount is null;
+update public.first_doubles_bonus_grants set amount = 150 where amount is null;

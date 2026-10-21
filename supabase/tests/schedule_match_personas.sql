@@ -284,20 +284,50 @@ exception when others then
 end $$;
 
 
--- ════ T6 match counts: once, when confirmed (migration_match_count_fix.sql) ═
+-- ════ T6 match counts: recompute_all_plupr's rule, kept live (migration_match_count_fix.sql) ═
 -- S1 and S2 already have scheduled matches (T2) and no played one.
+
+-- Stored count = _pl_played_match_counts() (recompute_all_plupr's counting)
+-- for each listed persona; null when they all agree, else what differs.
+create function pg_temp.count_drift(ks text[]) returns text language sql as $$
+  select string_agg(format('%s stored %s counted %s', k, coalesce(p.total_matches_played, 0), coalesce(c.n, 0)), '; ')
+    from unnest(ks) as k
+    join public.profiles p on p.id = pg_temp.p(k)
+    left join public._pl_played_match_counts() c on c.user_id = p.id
+   where coalesce(p.total_matches_played, 0) <> coalesce(c.n, 0)
+$$;
+
+create function pg_temp.tmp(k text) returns integer language sql as $$
+  select coalesce(total_matches_played, 0) from public.profiles where id = pg_temp.p(k)
+$$;
+
 do $$
 declare
   v_m   uuid;
   v_g   uuid;
-  c1    integer;
-  c2    integer;
+  v_u   uuid;
+  v_t   uuid := 'b5c00000-0000-4000-8000-0000000000a1';
+  v_tm  uuid := 'b5c00000-0000-4000-8000-0000000000a2';
   b1    integer;
   b2    integer;
   v_pk  integer;
+  v_n   integer;
+  v_amt integer;
+  v_d   text;
 begin
-  select total_matches_played into b1 from public.profiles where id = pg_temp.p('S1');
-  select total_matches_played into b2 from public.profiles where id = pg_temp.p('S2');
+  -- The repair: everyone's stored count becomes recompute_all_plupr's count,
+  -- and a second run finds nothing left to change.
+  perform public._pl_repair_match_counts();
+  v_n := public._pl_repair_match_counts();
+  select count(*) into b1
+    from public.profiles p
+    left join public._pl_played_match_counts() c on c.user_id = p.id
+   where coalesce(p.total_matches_played, 0) <> coalesce(c.n, 0);
+  perform pg_temp.ok('T6 after the repair every stored count equals recompute_all_plupr''s count, and a second run changes nothing',
+    v_n = 0 and b1 = 0, format('second run changed %s, %s profiles differ', v_n, b1));
+
+  b1 := pg_temp.tmp('S1');
+  b2 := pg_temp.tmp('S2');
   select pickles into v_pk from public.profiles where id = pg_temp.p('S1');
 
   -- S1 records a played match against S2, as MatchEntry does: stored pending.
@@ -308,27 +338,29 @@ begin
           pg_temp.p('S1'), 'team1', 'pending')
   returning id into v_m;
   perform pg_temp.as_admin();
-  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
-  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
-  perform pg_temp.ok('T6 a pending match doesn''t count yet', c1 = b1 and c2 = b2,
-    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+  perform pg_temp.ok('T6 a pending match doesn''t count yet',
+    pg_temp.tmp('S1') = b1 and pg_temp.tmp('S2') = b2 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s, S2 %s -> %s; %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2'),
+           pg_temp.count_drift(array['S1', 'S2'])));
 
   -- S2 confirms it: counted exactly once for each player.
   perform pg_temp.as_user(pg_temp.p('S2'));
   perform public.confirm_match(v_m);
   perform pg_temp.as_admin();
-  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
-  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
   perform pg_temp.ok('T6 confirming adds exactly 1 for each player',
-    (select status from public.matches where id = v_m) = 'completed' and c1 = b1 + 1 and c2 = b2 + 1,
-    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+    (select status from public.matches where id = v_m) = 'completed'
+    and pg_temp.tmp('S1') = b1 + 1 and pg_temp.tmp('S2') = b2 + 1 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s, S2 %s -> %s; %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2'),
+           pg_temp.count_drift(array['S1', 'S2'])));
 
-  -- Their scheduled matches (T2) didn't make this their second match.
-  perform pg_temp.ok('T6 a scheduled match doesn''t cost the first-match bonus',
-    exists (select 1 from public.first_match_bonus_grants where user_id = pg_temp.p('S1'))
+  -- Their scheduled matches (T2) didn't make this their second match; the
+  -- grant records what it gave.
+  select amount into v_amt from public.first_match_bonus_grants where user_id = pg_temp.p('S1');
+  perform pg_temp.ok('T6 a scheduled match doesn''t cost the first-match bonus, and the grant records 500',
+    v_amt = 500
     and exists (select 1 from public.first_match_bonus_grants where user_id = pg_temp.p('S2'))
     and (select pickles from public.profiles where id = pg_temp.p('S1')) >= coalesce(v_pk, 0) + 500,
-    format('pickles %s -> %s', v_pk, (select pickles from public.profiles where id = pg_temp.p('S1'))));
+    format('amount %s, pickles %s -> %s', v_amt, v_pk, (select pickles from public.profiles where id = pg_temp.p('S1'))));
 
   -- A server-side (seed / godmode-style) insert stored completed: once.
   insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
@@ -336,17 +368,58 @@ begin
   values ('b5c00000-0000-4000-8000-000000000001', pg_temp.p('S2'), pg_temp.p('S1'), 11, 7, 'singles',
           pg_temp.p('S2'), 'team1', 'completed')
   returning id into v_g;
-  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
-  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
   perform pg_temp.ok('T6 a match inserted already completed adds exactly 1 for each player',
-    c1 = b1 + 2 and c2 = b2 + 2, format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+    pg_temp.tmp('S1') = b1 + 2 and pg_temp.tmp('S2') = b2 + 2 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s, S2 %s -> %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2')));
 
   -- Deleting a completed match takes it back off.
   delete from public.matches where id = v_g;
-  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
-  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
-  perform pg_temp.ok('T6 deleting a completed match takes 1 back off', c1 = b1 + 1 and c2 = b2 + 1,
-    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+  perform pg_temp.ok('T6 deleting a completed match takes 1 back off',
+    pg_temp.tmp('S1') = b1 + 1 and pg_temp.tmp('S2') = b2 + 1 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s, S2 %s -> %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2')));
+
+  -- Doubles with a player whose gender isn't set: 'unspecified', which
+  -- recompute_all_plupr never counts.
+  update public.profiles set gender = null where id in (pg_temp.p('SA'), pg_temp.p('SO'));
+  insert into public.matches (league_id, match_type, player1_id, partner1_id, player2_id, partner2_id,
+                              player1_score, player2_score, winner_team, status)
+  values ('b5c00000-0000-4000-8000-000000000001', 'doubles', pg_temp.p('S1'), pg_temp.p('SA'),
+          pg_temp.p('S2'), pg_temp.p('SO'), 11, 9, 'team1', 'completed')
+  returning id into v_u;
+  v_d := pg_temp.count_drift(array['S1', 'S2', 'SA', 'SO']);
+  perform pg_temp.ok('T6 an unspecified-category doubles match counts for nobody, as in recompute_all_plupr',
+    (select doubles_category from public.matches where id = v_u) = 'unspecified'
+    and pg_temp.tmp('S1') = b1 + 1 and v_d is null,
+    format('category %s, S1 %s -> %s; %s', (select doubles_category from public.matches where id = v_u),
+           b1, pg_temp.tmp('S1'), v_d));
+  delete from public.matches where id = v_u;
+
+  -- A tournament match counts when it completes with a winner.
+  insert into public.tournaments (id, name, format, match_type, status, created_by)
+  values (v_t, '[TEST] Sched count cup', 'round_robin', 'singles', 'active', pg_temp.p('SA'));
+  insert into public.tournament_matches (id, tournament_id, match_order, match_type, team1_player1, team2_player1, status)
+  values (v_tm, v_t, 0, 'singles', pg_temp.p('S1'), pg_temp.p('S2'), 'pending');
+  perform pg_temp.ok('T6 a pending tournament match doesn''t count',
+    pg_temp.tmp('S1') = b1 + 1 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s', b1, pg_temp.tmp('S1')));
+  update public.tournament_matches
+     set team1_score = 11, team2_score = 4, winner_team = 'team1', status = 'completed'
+   where id = v_tm;
+  perform pg_temp.ok('T6 a tournament match completed with a winner adds exactly 1 for each player',
+    pg_temp.tmp('S1') = b1 + 2 and pg_temp.tmp('S2') = b2 + 2 and pg_temp.count_drift(array['S1', 'S2']) is null,
+    format('S1 %s -> %s, S2 %s -> %s; %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2'),
+           pg_temp.count_drift(array['S1', 'S2'])));
+
+  -- Deleting S1's only completed league match refunds the first-match bonus:
+  -- the 500 it granted, not 200.
+  select pickles into v_pk from public.profiles where id = pg_temp.p('S1');
+  delete from public.matches where id = v_m;
+  perform pg_temp.ok('T6 deleting the only played match refunds what the first-match bonus granted (500)',
+    not exists (select 1 from public.first_match_bonus_grants where user_id = pg_temp.p('S1'))
+    and (select pickles from public.profiles where id = pg_temp.p('S1')) <= greatest(0, v_pk - 500),
+    format('pickles %s -> %s', v_pk, (select pickles from public.profiles where id = pg_temp.p('S1'))));
+  perform pg_temp.ok('T6 ...and the count drops back by 1', pg_temp.tmp('S1') = b1 + 1
+    and pg_temp.count_drift(array['S1', 'S2']) is null, format('S1 %s -> %s', b1, pg_temp.tmp('S1')));
 
   perform pg_temp.ok('T6 the old count-on-insert trigger is gone',
     not exists (select 1 from pg_trigger where tgname = 'on_match_player_stats'
