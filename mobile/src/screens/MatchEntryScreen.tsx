@@ -32,7 +32,8 @@ import { isMissingColumnError, shouldNoteRecorded, validityNote, type SessionVal
 import { linkDroppedNote, matchRecordedNote, NOT_A_PLAYER_NOTE, scoreProblem } from '../lib/matchRecording';
 import { explainRefusal } from '../lib/refusalNotices';
 import { refusalCopy } from '../lib/refusals';
-import { getMySessionValidity } from '../data/playSessions';
+import { getMyPlaySession, getMySessionValidity } from '../data/playSessions';
+import { getVenuesByIds } from '../data/venueCheckins';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -221,9 +222,36 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     const lg = leagueRes.data;
     if (lg?.home_court) {
       setLeagueHomeCourt(lg.home_court);
-      setLocation({ name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
+      // Only into an empty field: a play session's court may already be there.
+      setLocation(prev => prev ?? { name: lg.home_court, address: '', lat: lg.home_court_lat ?? 0, lng: lg.home_court_lng ?? 0, placeId: '' });
+      autoFilledCourtRef.current = lg.home_court;
     }
   }
+
+  // From a play session started at a court: default the location to that
+  // court. It beats a league's home-court auto-fill, never the user's own pick.
+  // Tournament matches keep the tournament's venue.
+  useEffect(() => {
+    if (!playSessionId || isTournamentMatch) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const local = playSession.get();
+        const venueId = local.id === playSessionId && local.meta
+          ? local.meta.venueId
+          : (await getMyPlaySession(playSessionId))?.venue_id ?? null;
+        if (!venueId) return;
+        const [court] = await getVenuesByIds([venueId]);
+        if (cancelled || !court) return;
+        setLocation(prev => (!prev || prev.name === autoFilledCourtRef.current)
+          ? { name: court.name, address: '', lat: court.lat, lng: court.lng, placeId: court.id, catalogId: court.id }
+          : prev);
+      } catch {
+        // Offline or no such session: the field stays as it is.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [playSessionId, isTournamentMatch]);
 
   // Build the pool of pickable players for a Home-launched match: every profile
   // who shares at least one league with the current user (union across the
