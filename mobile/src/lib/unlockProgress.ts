@@ -80,6 +80,7 @@ export async function computeBadgeProgress(userId: string): Promise<BadgeProgres
     sbCall(() => supabase
       .from('matches')
       .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
+      .eq('status', 'completed')
       .or(`player1_id.eq.${userId},partner1_id.eq.${userId},player2_id.eq.${userId},partner2_id.eq.${userId}`)
       .order('played_at', { ascending: false })
       .limit(200)),

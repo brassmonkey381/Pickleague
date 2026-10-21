@@ -39,6 +39,13 @@ const SERVER_CODES: RefusalCode[] = [
   'checkin.closed',
   'checkin.needs_fix',
   'session.not_yours',
+  // migration_schedule_match_rpc.sql
+  'schedule.not_member',
+  'schedule.player_not_member',
+  'schedule.same_player',
+  'schedule.in_past',
+  'schedule.too_far',
+  'schedule.use_rpc',
   // migration_checkin_tap_time.sql
   'fix.after_tap',
   'checkin.too_old',

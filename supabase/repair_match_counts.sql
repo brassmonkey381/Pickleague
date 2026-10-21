@@ -1,0 +1,26 @@
+-- ============================================================
+-- One-off repair: profiles.total_matches_played and last_match_at set to
+-- what recompute_all_plupr() counts (_pl_played_match_counts(), in
+-- migration_match_count_fix.sql): completed league matches plus completed
+-- tournament matches with a winner, unspecified-category doubles left out,
+-- partners counted on doubles.
+--
+-- Run ONCE, after migration_match_count_fix.sql (before it, every new
+-- insert keeps adding to the totals). Idempotent: a second run returns 0.
+-- Not a migration (no migration_ prefix): a data fix.
+--   supabase db query --linked -f supabase/repair_match_counts.sql -o csv
+-- Returns one row: how many profiles changed.
+--
+-- Preview first (read-only, nothing written):
+--
+--   select p.id, p.full_name,
+--          p.total_matches_played as stored, coalesce(c.n, 0) as counted,
+--          p.last_match_at as stored_last, c.last_at as counted_last
+--     from public.profiles p
+--     left join public._pl_played_match_counts() c on c.user_id = p.id
+--    where p.total_matches_played is distinct from coalesce(c.n, 0)
+--       or p.last_match_at is distinct from c.last_at
+--    order by abs(coalesce(p.total_matches_played, 0) - coalesce(c.n, 0)) desc;
+-- ============================================================
+
+select public._pl_repair_match_counts() as profiles_changed;

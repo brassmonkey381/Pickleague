@@ -164,7 +164,7 @@ async function loadLeaguesData(): Promise<LeaguesData> {
     // Newest first, so a truncated result drops the OLDEST matches: the
     // 30-day activity count behind the default "Most active" sort stays exact
     // while recent matches across all leagues are under the cap.
-    sbCall(() => supabase.from('matches').select('league_id, played_at').in('league_id', ids).order('played_at', { ascending: false })),
+    sbCall(() => supabase.from('matches').select('league_id, played_at').in('league_id', ids).eq('status', 'completed').order('played_at', { ascending: false })),
     uid
       ? sbCall(() => supabase.from('league_members').select('league_id, role').eq('user_id', uid).in('league_id', ids))
       : Promise.resolve([]),

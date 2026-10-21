@@ -64,7 +64,7 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
         sbCall(() => supabase.from('league_seasons').select('*').eq('league_id', leagueId).order('start_date', { ascending: false })),
         sbCall(() => supabase.from('tournaments').select('*').eq('league_id', leagueId).order('created_at', { ascending: false })),
         supabase.from('league_members').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
-        supabase.from('matches').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
+        supabase.from('matches').select('id', { count: 'exact', head: true }).eq('league_id', leagueId).eq('status', 'completed'),
       ]);
       setLeague(leagueRow as League);
       setSeasons((seasonRows ?? []) as LeagueSeason[]);

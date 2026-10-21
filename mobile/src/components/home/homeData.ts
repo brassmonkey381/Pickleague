@@ -257,6 +257,7 @@ async function loadLastMatches(leagueIds: string[]): Promise<Map<string, string>
         .from('matches')
         .select('played_at')
         .eq('league_id', id)
+        .eq('status', 'completed')
         .order('played_at', { ascending: false })
         .limit(1))) as { played_at: string | null }[] | null;
       const at = rows?.[0]?.played_at;
