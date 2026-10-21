@@ -18,6 +18,7 @@ export default function ShareLinkButton({
   title,
   style,
   onCopied,
+  onShare,
 }: {
   /** Canonical https URL of this screen's entity — the thing that unfurls. */
   url: string;
@@ -28,12 +29,15 @@ export default function ShareLinkButton({
   /** Fired when the desktop-web clipboard fallback was used, so the screen
    *  can flash "link copied" — the sheet opening is its own feedback. */
   onCopied?: () => void;
+  /** Fired on every press, before the sheet or the copy (analytics). */
+  onShare?: () => void;
 }) {
   const { colors } = useTheme();
   const [busy, setBusy] = useState(false);
 
   async function onPress() {
     if (busy) return;
+    onShare?.();
     setBusy(true);
     try {
       if (Platform.OS === 'web') {

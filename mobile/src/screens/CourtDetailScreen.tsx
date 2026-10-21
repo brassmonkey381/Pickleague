@@ -208,6 +208,7 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
               title={court.name}
               message={`${court.name} on Pickleague`}
               onCopied={() => setCopied(true)}
+              onShare={() => track('courts.share', { aliases: court.aliases.length })}
               style={S.share}
             />
           }
