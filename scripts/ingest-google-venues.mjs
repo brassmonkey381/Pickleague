@@ -3,7 +3,11 @@
 // ToS-compliantly (mirrors Doggle's ingest-google-businesses.mjs):
 //   • stores place_id (external_id) long-term — allowed forever;
 //   • display fields are a 30-day PERFORMANCE CACHE (details_expires_at); re-run to
-//     refresh, or --purge-expired drops stale google rows;
+//     refresh, or --purge-expired retires stale google rows: a row anything
+//     references (check-ins, stars, league home court, play session, drill court
+//     location, alias/canonical link, hand link, admin outline...) keeps its id,
+//     name and pin and loses its cached display fields; only unreferenced rows are
+//     deleted (public._pl_purge_expired_google_venues, migration_venue_data_guards.sql);
 //   • field-masked to the cheapest set we use; attribution stored per row;
 //   • dedups against existing (OSM/user) venues so we never duplicate a court.
 //
@@ -15,7 +19,9 @@
 //   # real run:
 //   SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. GOOGLE_PLACES_KEY=.. \
 //     node scripts/ingest-google-venues.mjs --bbox "37.2 -122.6 38.1 -121.6"
-//   # drop stale google rows past their 30-day cache:
+//   # retire stale google rows past their 30-day cache (preview first; --dry-run
+//   # still reads the database, so it needs the Supabase env):
+//   SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. node scripts/ingest-google-venues.mjs --purge-expired --dry-run
 //   SUPABASE_URL=.. SUPABASE_SERVICE_ROLE_KEY=.. node scripts/ingest-google-venues.mjs --purge-expired
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -79,7 +85,7 @@ async function main() {
   const grid = tiles(BBOX);
   const maxCalls = grid.length * SPORTS.length * MAX_PAGES;
 
-  if (DRY) {
+  if (DRY && !PURGE) {
     console.log(`DRY RUN — no Google calls, nothing written.`);
     console.log(`bbox ${BBOX.join(' ')} → ${grid.length} tiles (${TILE_KM} km) × ${SPORTS.length} sports (${SPORTS.join(', ')}) × up to ${MAX_PAGES} pages`);
     console.log(`= up to ${maxCalls} Text Search ${TIER} calls (realistic: far fewer — most tiles return 1 page).`);
@@ -108,11 +114,19 @@ async function main() {
   };
 
   if (PURGE) {
-    const res = await fetch(`${REST}/venues?source=eq.google&details_expires_at=lt.${encodeURIComponent(new Date().toISOString())}`, {
-      method: 'DELETE', headers: { ...H, Prefer: 'return=minimal' },
+    // Never a plain DELETE: venue_checkins and court_favorites cascade, and
+    // leagues / play_sessions / court_locations would lose their court.
+    const res = await fetch(`${REST}/rpc/_pl_purge_expired_google_venues`, {
+      method: 'POST', headers: H, body: JSON.stringify({ p_dry_run: DRY }),
     });
-    if (!res.ok) throw new Error(`purge ${res.status}: ${await res.text()}`);
-    console.log('Purged expired google venue rows.');
+    if (!res.ok) throw new Error(`purge ${res.status}: ${await res.text()} (is migration_venue_data_guards.sql applied?)`);
+    const r = await res.json();
+    const verb = r.dry_run ? 'Would' : 'Did';
+    console.log(`${r.dry_run ? 'DRY RUN — nothing written. ' : ''}${r.expired} expired google venue row(s).`);
+    console.log(`${verb} clear cached display fields on ${r.cleared} referenced row(s) (kept).`);
+    console.log(`${verb} delete ${r.deleted} unreferenced row(s).`);
+    if (r.kept_ids?.length) console.log(`Kept (first 50): ${r.kept_ids.join(', ')}`);
+    if (r.deleted_ids?.length) console.log(`${r.dry_run ? 'To delete' : 'Deleted'} (first 50): ${r.deleted_ids.join(', ')}`);
     return;
   }
 

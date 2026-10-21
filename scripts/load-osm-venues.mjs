@@ -14,6 +14,14 @@
 //   SQL files (apply with the Supabase CLI; no key needed):
 //     SQL_OUT=./out node scripts/load-osm-venues.mjs venues.geojsonseq
 //     then: for f in out/chunk-*.sql; do supabase db query --linked -f "$f"; done
+//
+// Admin outlines (venues.boundary_source = 'admin', drawn in the godmode
+// outline editor) are never overwritten: boundary, boundary_source and
+// geofence_radius_m stay as they are on those rows. PostgREST mode reads the
+// admin ids first and leaves those three columns out of their upsert; SQL
+// mode's ON CONFLICT keeps them. Needs migration_venue_data_guards.sql.
+// DRY_RUN=1 with SUPABASE_URL + key also reports how many parsed rows have an
+// admin outline that a real run would keep.
 import { createReadStream, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
@@ -170,6 +178,7 @@ function rowFor(f, regions) {
   const c = centroid(f.geometry);
   if (!c) return null;
   const kind = kindFor(t);
+  const boundary = boundaryFor(f.geometry);
   // osmium ids: n=node, w=open way, r=relation, a=area. Area ids encode their
   // source: even = way (id/2), odd = relation ((id-1)/2). Decode back to OSM type/id.
   const m = String(f.id ?? '').match(/^([anwr])(\d+)$/);
@@ -189,7 +198,8 @@ function rowFor(f, regions) {
     kind,
     lat: c.lat,
     lng: c.lng,
-    boundary: boundaryFor(f.geometry),
+    boundary,
+    boundary_source: boundary ? 'osm' : null,
     geofence_radius_m: geofenceRadiusFor(kind),
     address: t['addr:street'] ? `${t['addr:housenumber'] ?? ''} ${t['addr:street']}`.trim() : null,
     // city is owned by the offline geocoder (backfill_venue_cities) — NOT written
@@ -220,8 +230,10 @@ const COLS = [
   'id', 'sport', 'name', 'kind', 'lat', 'lng', 'address', 'region_slug',
   'surface', 'indoor', 'lit', 'covered', 'hoops', 'court_count', 'access', 'fee',
   'operator', 'website', 'phone', 'opening_hours', 'source', 'external_id',
-  'source_url', 'attribution', 'confirmation_status', 'boundary', 'geofence_radius_m',
+  'source_url', 'attribution', 'confirmation_status', 'boundary', 'boundary_source', 'geofence_radius_m',
 ];
+// Columns an admin outline owns: never overwritten on a boundary_source = 'admin' row.
+const ADMIN_KEPT = ['boundary', 'boundary_source', 'geofence_radius_m'];
 const BOOL_COLS = new Set(['indoor', 'lit', 'covered', 'fee']);
 const NUM_COLS = new Set(['lat', 'lng', 'hoops', 'court_count', 'geofence_radius_m']);
 const sqlStr = (v) => (v == null ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
@@ -235,8 +247,45 @@ function sqlVal(col, r) {
 }
 function chunkSql(rows) {
   const values = rows.map((r) => `(${COLS.map((c) => sqlVal(c, r)).join(',')})`).join(',\n');
-  const updates = COLS.filter((c) => c !== 'id').map((c) => `${c}=excluded.${c}`).join(', ');
+  const updates = COLS.filter((c) => c !== 'id')
+    .map((c) => ADMIN_KEPT.includes(c)
+      ? `${c}=case when venues.boundary_source = 'admin' then venues.${c} else excluded.${c} end`
+      : `${c}=excluded.${c}`)
+    .join(', ');
   return `insert into public.venues (${COLS.join(',')}) values\n${values}\non conflict (id) do update set ${updates};\n`;
+}
+
+// Ids of rows whose outline an admin drew (PostgREST mode). Paged, since
+// PostgREST caps a response at 1,000 rows by default.
+async function getAdminOutlineIds() {
+  if (!REST) return new Set();
+  const ids = new Set();
+  for (let from = 0; ; from += 1000) {
+    const res = await fetch(`${REST}/venues?select=id&boundary_source=eq.admin&order=id`, {
+      headers: { ...HEADERS, Range: `${from}-${from + 999}`, 'Range-Unit': 'items' },
+    });
+    if (!res.ok) throw new Error(`admin outline ids ${res.status}: ${await res.text()} (is migration_venue_data_guards.sql applied?)`);
+    const page = await res.json();
+    for (const r of page) ids.add(r.id);
+    if (page.length < 1000) return ids;
+  }
+}
+
+// An admin row's upsert body: everything but the columns its outline owns.
+function withoutAdminColumns(row) {
+  const out = { ...row };
+  for (const c of ADMIN_KEPT) delete out[c];
+  return out;
+}
+
+// PostgREST bulk upserts need every object to carry the same keys, so admin
+// rows go in their own request.
+async function upsertKeepingAdmin(rows, adminIds) {
+  const plain = rows.filter((r) => !adminIds.has(r.id));
+  const admin = rows.filter((r) => adminIds.has(r.id)).map(withoutAdminColumns);
+  if (plain.length) await upsert(plain);
+  if (admin.length) await upsert(admin);
+  return admin.length;
 }
 
 async function upsert(rows) {
@@ -251,6 +300,9 @@ async function upsert(rows) {
 async function main() {
   const regions = await getRegions();
   console.log(`Loaded ${regions.length} region(s).`);
+  // SQL mode protects admin outlines in its ON CONFLICT clause instead.
+  const adminIds = !SQL_OUT && REST ? await getAdminOutlineIds() : new Set();
+  if (REST && !SQL_OUT) console.log(`${adminIds.size} admin outline(s) will be kept as drawn.`);
   if (SQL_OUT) mkdirSync(SQL_OUT, { recursive: true });
   const input = (!FILE || FILE === '-') ? process.stdin : createReadStream(FILE);
   const rl = createInterface({ input, crlfDelay: Infinity });
@@ -274,16 +326,16 @@ async function main() {
   const rows = [...byId.values()];
   for (const r of rows) for (const s of r.sport) perSport[s] = (perSport[s] ?? 0) + 1;
   const CHUNK = Number(process.env.CHUNK_ROWS) || (SQL_OUT ? 400 : 1000);
-  let total = 0, withRegion = 0, chunk = 0;
+  let total = 0, withRegion = 0, chunk = 0, adminKept = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
     const batch = rows.slice(i, i + CHUNK);
     if (DRY_RUN) {
-      // no writes — just tally
+      adminKept += batch.filter((r) => adminIds.has(r.id)).length; // no writes — just tally
     } else if (SQL_OUT) {
       writeFileSync(join(SQL_OUT, `chunk-${String(chunk).padStart(4, '0')}.sql`), chunkSql(batch));
       chunk++;
     } else {
-      await upsert(batch);
+      adminKept += await upsertKeepingAdmin(batch, adminIds);
     }
     total += batch.length;
     withRegion += batch.filter((r) => r.region_slug).length;
@@ -292,6 +344,7 @@ async function main() {
   const breakdown = Object.entries(perSport).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ');
   console.log(`\n${DRY_RUN ? 'DRY RUN — nothing written. ' : 'Done. '}${total} venues (region-assigned ${withRegion}), skipped ${skipped}.`);
   console.log(`By sport: ${breakdown || '(none)'}`);
+  if (REST && !SQL_OUT) console.log(`${DRY_RUN ? 'Would keep' : 'Kept'} the admin outline on ${adminKept} row(s) in this file.`);
   if (SQL_OUT) console.log(`Wrote ${chunk} SQL chunk(s) to ${SQL_OUT}.`);
 }
 
