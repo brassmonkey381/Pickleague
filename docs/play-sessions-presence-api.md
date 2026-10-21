@@ -9,8 +9,8 @@ All RPCs below are `security definer`, `set search_path = ''` (or `public` where
 `supabase/migration_rls_hardening_2026q3.sql`. Errors are raised with human-readable messages (the client shows
 them via `friendlySbMessage`).
 
-Feature flag: `FRIENDS_AT_COURTS_ENABLED` in `mobile/src/lib/features.ts` (false until the persona tests pass
-on the live DB). Gate every new screen registration, linking path, push route and Home section on it. The
+Feature flag: `FRIENDS_AT_COURTS_ENABLED` in `mobile/src/lib/features.ts` (true since 2026-10-20, by OTA, after
+the persona tests passed 817/817 on the live DB). Gate every new screen registration, linking path, push route and Home section on it. The
 location-confirmed check-in and session changes are NOT gated (they replace existing behaviour), and neither are
 the player's own controls that ship with them: the one-time consent sheet, Settings › Privacy "Who sees me at the
 courts" / "Hidden from", Pause sharing and "Hide my presence" on the ⋯ menu.

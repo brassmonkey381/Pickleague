@@ -35,8 +35,17 @@ export const WAGERS_ENABLED = false;
 /**
  * Friends at the courts (docs/play-sessions-presence.md, Phase 1): the Friends
  * screen, friend requests, FriendButton / FriendsLink, Home "Friends at the
- * courts", the crowd line and friend push routes. Off until the presence SQL
- * is live and its persona tests pass; then flipped by OTA.
+ * courts", the crowd line, the Notifications "Friends" chip, the "Friend
+ * requests" push switch and friend push routes.
+ *
+ * ON since 2026-10-20, by OTA. Its precondition held: the presence Phase 1
+ * SQL is live (applied 2026-10-16) and the rolled-back persona suite
+ * (supabase/tests/presence_p1_personas.sql, with the court arrival personas)
+ * passed 817/817 against the live DB on 2026-10-20. Every RPC behind it
+ * (friend writes and reads, friends_at_courts, court_presence, venue_crowd)
+ * is granted to authenticated and in the migration_rls_hardening_2026q3
+ * allowlist. To turn it off again, flip this back: the screen unregisters and
+ * every surface renders nothing, with no fetches.
  *
  * NOT behind this flag (they ship together, so a player is never shown at a
  * court without the means to control it): location-confirmed check-ins and
@@ -44,14 +53,14 @@ export const WAGERS_ENABLED = false;
  * me at the courts" / "Hidden from", Pause sharing, and "Hide my presence" on
  * a player's ⋯ menu. The court star has its own flag (below).
  */
-export const FRIENDS_AT_COURTS_ENABLED = false;
+export const FRIENDS_AT_COURTS_ENABLED = true;
 
 /**
  * The court star (☆ / ★, up to 5 courts), on its own flag since court arrival
  * (state/court-arrival-decisions.md, D4): starred courts are where Pickleague
  * checks you in when you arrive, so the star shows now on Home's court card
- * and in Settings > Check-in automation, while the friends features above
- * stay off. Home's "Friends at the courts" list still shows its star only
- * when that section shows.
+ * and in Settings > Check-in automation, whatever the friends flag above says.
+ * Home's "Friends at the courts" list shows its star only when that section
+ * shows.
  */
 export const COURT_STARS_ENABLED = true;

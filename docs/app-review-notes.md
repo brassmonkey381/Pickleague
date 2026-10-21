@@ -166,10 +166,23 @@ their profile, a drill request, and inside a drill message thread:
   the reporter was looking at is captured with the report, so the content can
   still be acted on if the author edits or deletes it afterwards.
 - Block is immediate and mutual: the two players can no longer send each other
-  drill requests or messages, existing threads disappear for both, and they
-  stop appearing in each other's partner search. It is enforced on our server,
+  drill requests, friend requests or messages, existing threads disappear for
+  both, any friendship between them ends, they never see each other's name at
+  a court, and they stop appearing in each other's partner search and friend
+  suggestions. It is enforced on our server,
   not just hidden in the app. Blocks are listed and reversible in
   Settings -> Blocked players. A blocked user is not told they were blocked.
+
+FRIENDS
+Friends are mutual: a player sends a friend request (from another player's
+profile, or from the Friends screen: search, or "People you've played with"),
+and the other player accepts or declines it; declining is silent. Senders are limited
+to 20 requests a day, and guest passes and unclaimed placeholder profiles
+can't be added. Friends are what "Who sees me at the courts" means by
+Friends: they see each other's name when checked in at a court (see Court
+presence above), and Home shows "Friends at the courts". A friendship is
+visible only to the two players in it; either can remove it at any time
+without the other being told, and blocking ends it.
 
 Reports go to a queue we review within 24 hours. We can remove a profile photo,
 remove a display name or tagline, and delete the offending account outright -

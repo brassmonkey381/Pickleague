@@ -264,6 +264,7 @@ export default function FriendsScreen({ navigation, route }: Props) {
       () => unfriend(f.user_id),
       () => { setRemoveFor(null); return `${firstNameOf(f.full_name) ?? 'They'} is no longer a friend.`; },
       "Couldn't remove them just now.",
+      f.full_name,
     );
 
   // ── Tabs ──
@@ -307,7 +308,7 @@ export default function FriendsScreen({ navigation, route }: Props) {
                             disabled={!!busyId}
                             onPress={() => {
                               void run(r.user_id, () => answerFriendRequest(r.user_id, true),
-                                (res) => respondResultMessage(res, r.full_name), "Couldn't accept just now.");
+                                (res) => respondResultMessage(res, r.full_name), "Couldn't accept just now.", r.full_name);
                             }}
                           />
                           <Button
@@ -317,7 +318,7 @@ export default function FriendsScreen({ navigation, route }: Props) {
                             disabled={!!busyId}
                             onPress={() => {
                               void run(r.user_id, () => answerFriendRequest(r.user_id, false),
-                                (res) => respondResultMessage(res, r.full_name), "Couldn't decline just now.");
+                                (res) => respondResultMessage(res, r.full_name), "Couldn't decline just now.", r.full_name);
                             }}
                           />
                         </>
