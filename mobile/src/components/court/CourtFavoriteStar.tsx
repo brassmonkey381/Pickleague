@@ -1,5 +1,6 @@
-// ☆ / ★ "one of my courts" toggle, in its own 44 box. Up to 5 courts; a 6th
-// says so in a toast instead of failing quietly. Starred courts head Home's
+// ☆ / ★ "one of my courts" toggle, in its own 44 box. Up to 3 courts; a 4th
+// offers to replace one of the 3 (Doggle's "Replace a favorite?", the sheet in
+// useReplaceCourtStar) instead of failing quietly. Starred courts head Home's
 // YOUR COURTS, and they are where court arrival checks you in when you arrive
 // (lib/courtGeofence watches them; each change re-picks the watched courts).
 //
@@ -19,7 +20,8 @@ import { COURT_STARS_ENABLED } from '../../lib/features';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
-import { toggleCourtFavorite, useCourtFavorites } from '../../data/courtFavorites';
+import { isCourtFavoritesFullError, toggleCourtFavorite, useCourtFavorites } from '../../data/courtFavorites';
+import { useReplaceCourtStar } from './useReplaceCourtStar';
 import { dropWaitingArrivalNotices } from '../../lib/courtArrivalNotice';
 import {
   ALWAYS_LABEL,
@@ -54,6 +56,24 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
   // The "Always" offer after a star: null, shown, or asking the OS.
   const [offer, setOffer] = useState<null | 'ask' | 'busy'>(null);
   const name = venueName?.trim() || 'this court';
+  const { offerReplace, sheet } = useReplaceCourtStar();
+
+  // After a star (or a replace): the "Always" offer, only when asking could
+  // help and the offer says what will happen: native, "Notice me" not Off,
+  // "Check me in when I arrive" not off, the OS says "Always" is missing
+  // (unknown: don't ask), and not offered yet in this run of the app.
+  async function maybeOfferAlways() {
+    if (
+      !offeredThisRun &&
+      Platform.OS !== 'web' &&
+      !noticeMeOff() &&
+      !autoCheckinOff() &&
+      (await backgroundLocationAllowed()) === false
+    ) {
+      offeredThisRun = true;
+      setOffer('ask');
+    }
+  }
 
   async function toggle() {
     if (busy) return;
@@ -66,23 +86,16 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
       // Unstarred: the server skips an arrival still waiting here now.
       if (!adding) void dropWaitingArrivalNotices(venueId);
       courtStarsChanged();
-      // Only when asking could help and the offer says what will happen:
-      // native, "Notice me" not Off, "Check me in when I arrive" not off, the
-      // OS says "Always" is missing (unknown: don't ask), and not offered yet
-      // in this run of the app.
-      if (
-        adding &&
-        !offeredThisRun &&
-        Platform.OS !== 'web' &&
-        !noticeMeOff() &&
-        !autoCheckinOff() &&
-        (await backgroundLocationAllowed()) === false
-      ) {
-        offeredThisRun = true;
-        setOffer('ask');
-      }
+      if (adding) await maybeOfferAlways();
     } catch (e) {
-      // Why (the 5-court cap, a court that's gone), then what to do.
+      // 3 starred already: offer to replace one (Doggle's flow).
+      if (adding && isCourtFavoritesFullError(e)) {
+        const shown = await offerReplace(venueId, venueName, (replaced) => {
+          if (replaced) void maybeOfferAlways();
+        }).catch(() => false);
+        if (shown) return;
+      }
+      // Why (a court that's gone, or the cap with no list to offer), then what to do.
       toast.error(explainRefusal(e, "Couldn't change your courts just now. Try again.", { action: 'favorite', venueName }));
     } finally {
       setBusy(false);
@@ -121,6 +134,7 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
         onConfirm={() => void allow()}
         onClose={() => setOffer(null)}
       />
+      {sheet}
     </>
   );
 }

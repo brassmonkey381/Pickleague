@@ -156,7 +156,7 @@ Phase 1 ones; since file 7 every refusal has a code and a reworded text, listed 
   added.
 - **blocked_between** answers a signed-in caller only about pairs that include them (false otherwise); service
   code with no session gets the full answer. Internal code that judges two other people uses `_pl_blocked_pair`.
-- **friends_at_courts courts** lists every favorite (at most 5, oldest first), then fills up to 3 with league home
+- **friends_at_courts courts** lists every favorite (at most 3, oldest first), then fills up to 3 with league home
   courts and frequent courts.
 - **set_presence_settings:** `p_paused_until` is capped at 7 days ahead; a time already past clears the pause.
   get_my_presence_settings returns `paused_until = null` once a pause has run out.
@@ -200,7 +200,7 @@ friendships(id uuid pk, requester_id uuid, addressee_id uuid,
             unique (least(requester_id,addressee_id), greatest(requester_id,addressee_id)),
             check (requester_id <> addressee_id))      -- select for the two parties only
 close_friends(user_id uuid, friend_id uuid, created_at, pk(user_id, friend_id))  -- owner-only; requires accepted friendship
-court_favorites(user_id uuid, venue_id text, created_at, pk(user_id, venue_id))   -- owner-only; max 5 per user
+court_favorites(user_id uuid, venue_id text, created_at, pk(user_id, venue_id))   -- owner-only; max 3 per user (5 before migration_court_star_cap_three.sql)
 league_members  + admitted_closed boolean not null default false   -- made while the league was closed (server-set)
 presence_closed_ids(user_id uuid, id uuid, closed_at, created_at, pk(user_id, id))  -- internal; ids closed before stored
 ```
@@ -344,7 +344,7 @@ friends_at_courts(p_hours int default 12) returns jsonb
   --         others_here int}],
   --  courts: [{venue_id, venue_name, reason: 'favorite'|'home'|'frequent', here_now, band_low, band_high, friends_here}]}
   -- now: named people only (friends + closed-league mates per their settings), grouped by canonical venue, cap 100
-  -- courts: every favorite (max 5), then league home venues, then the viewer's most-visited (last 60 days),
+  -- courts: every favorite (max 3), then league home venues, then the viewer's most-visited (last 60 days),
   --         filled to 3
 ```
 
@@ -374,11 +374,15 @@ suggest_friends(p_limit int default 10) returns table(user_id uuid, full_name te
 ### Court favorites
 
 ```
-set_court_favorite(p_venue text, p_on boolean) returns boolean   -- canonicalises; raises past 5
+set_court_favorite(p_venue text, p_on boolean) returns boolean   -- canonicalises; raises past 3
+replace_court_favorite(p_remove_venue text, p_add_venue text) returns boolean
+  -- Doggle's replace_user_favorite: unstars one of my courts and stars another in one call (any
+  -- refusal undoes both); the new star's auto_checkin is the column default (on)
 list_my_court_favorites() returns table(venue_id text, venue_name text, lat double precision, lng double precision)
 ```
 
-Both unchanged since court arrival. A star now also carries `court_favorites.auto_checkin` (default true;
+migration_court_star_cap_three.sql (2026-10-20) lowered the cap from 5 to 3, added replace_court_favorite and
+deleted stars past the 3 oldest (only TestFlight accounts had more). A star now also carries `court_favorites.auto_checkin` (default true;
 unstarring deletes the row, so a re-star starts on), read by `list_starred_court_geofences` and set by
 `set_starred_court_auto_checkin` ([Court arrival](#court-arrival-2026-10-19)).
 
@@ -730,7 +734,9 @@ SQL: `supabase/migration_refusal_messages.sql` (file 7 above). App: `mobile/src/
 | `auth.signed_out` | every in-scope RPC with no user | You're signed out. Sign in to Pickleague and try again. | same |
 | `request.bad` | checkin_venue (no id, bad source, an id that is someone else's), start_play_session (no id) | Couldn't check you in because the app sent an incomplete request. Update Pickleague, then try again. / Couldn't save your play session because the app sent an incomplete request. Update Pickleague, then start again. | That didn't go through because this version of Pickleague sent an incomplete request. Update Pickleague, then try again. |
 | `court.gone` | checkin_venue, set_court_favorite | That court isn't in Pickleague any more, so you can't check in there. Find your court again. / ...so it can't be starred. | Lakeside isn't in Pickleague any more, so you can't check in there. Find your court again. |
-| `court.favorites_full` | set_court_favorite | You can star up to 5 courts. Unstar one to add this one. | same |
+| `court.favorites_full` | set_court_favorite, replace_court_favorite | You can star up to 3 courts. Unstar one to add this one. (5 before migration_court_star_cap_three.sql) | same; the app offers "Replace a starred court?" instead where it can |
+| `court.not_starred` | replace_court_favorite | That court isn't one of your starred courts any more. Pick one of your starred courts to replace. | same |
+| `court.already_starred` | replace_court_favorite | That court is already one of your starred courts. | Lakeside is already one of your starred courts. |
 | `fix.stale` | checkin_venue, extend_checkin | Your location is out of date: it was taken more than 2 minutes before you tapped. Try again at the court. (file 8; file 7: "...it's more than 2 minutes old...") | same |
 | `fix.after_tap` | checkin_venue (file 8) | Your location was taken more than 2 minutes after you tapped Check in, so it can't show you were at the court then. Check in again when you're at the court. | Your location was taken more than 2 minutes after you tapped, so it can't show you were at the court then. Check in again when you're at the court. |
 | `checkin.too_old` | checkin_venue (file 8) | This check-in was saved with no signal at Thu Oct 16, 5:40 AM and reached Pickleague more than 12 hours later, too late to count. Check in again when you're at the court. (DETAIL `{"tapped_at", "limit_hours": 12}`; the tap in the player's zone) | It reached Pickleague more than 12 hours after you tapped, too late to count. Check in again when you're at the court. (the queued notice names the tap first) |

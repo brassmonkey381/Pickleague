@@ -407,7 +407,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       try {
         await toggleCourtFavorite(offer.venueId, true, offer.venueName);
       } catch (e) {
-        // The 5-court cap, a court that's gone: why, then what to do.
+        // The 3-court cap (the offer needs room, so only if starred elsewhere
+        // since; the ☆ above offers the replace), a court that's gone: why, then what to do.
         tell(
           explainRefusal(e, "Couldn't star this court. Try again with the ☆ above.", {
             action: 'favorite',
