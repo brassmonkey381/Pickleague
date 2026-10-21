@@ -19,7 +19,7 @@ planned for later, or there on a regular schedule.
 |---|----------|----------|
 | 1 | Who sees your **name** at a court | **Friends + members of closed leagues you share.** Everyone else sees an anonymous "Player" in the crowd count; guests see counts only; blocked pairs never see each other. Plans and regular games: **friends only** by default. Open leagues never count (anyone can join one instantly). |
 | 2 | Does starting a play session check you in | **Yes.** A session at a court creates a `source='session'` check-in that ends with the session. An existing check-in at that court is adopted, not duplicated. |
-| 3 | Automatic check-in on arrival | **Changed 2026-10-19: ships in 1.0.4 (build 14), Doggle's model.** At starred courts, on by default (Settings › Check-in automation, with a switch per court): stay a minute and the server checks you in for 30 minutes, with no fix; leave within 5 minutes, or tap Not here, and it is taken back; no automatic check-out ("Leaving X?" asks). Presence only: it earns nothing until a real fix arrives, so decision 5 holds. Build 14 carries the honest "Always" text and review notes; 1.0.4 was never submitted, so no store user had the prompt-only alerts. See [Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19). *Was (2026-10-15): build 1.0.5 in Phase 2, opt-in, default off, server-confirmed 10-min dwell, leaving cancels it; Phase 1 prompt-only.* |
+| 3 | Automatic check-in on arrival | **Changed 2026-10-19: ships in 1.0.4 (build 14), Doggle's model.** At starred courts, on by default (Settings › Check-in automation, with a switch per court): stay a minute and the server checks you in for 2 hours, with no fix; leave within 5 minutes, or tap Not here, and it is taken back; no automatic check-out ("Leaving X?" asks). Presence only: it earns nothing until a real fix arrives, so decision 5 holds. Build 14 carries the honest "Always" text and review notes; 1.0.4 was never submitted, so no store user had the prompt-only alerts. See [Court arrival](#court-arrival-automatic-check-in-at-starred-courts-decided-2026-10-19). *Was (2026-10-15): build 1.0.5 in Phase 2, opt-in, default off, server-confirmed 10-min dwell, leaving cancels it; Phase 1 prompt-only.* |
 | 4 | Who gets a push when a friend shows up | **Close friends only.** A ⭐ close-friend star on accepted friends (Doggle's model). Everyone else who can see you finds you in the in-app feed. |
 | 5 | Rewards for showing up | **Kept plans + streaks:** +25 pickles per kept plan (max 1/day, made at least 1 h ahead); valid sessions count toward the play streak (Phase 1.5 replaced the original 20+ min rule). **Only location-confirmed presence earns anything.** |
 | 6 | **No manual check-ins** | A check-in needs a GPS fix inside the court's fence, verified on the server. No fix: no check-in (start an untracked session instead, or make a plan). Rewards therefore only ever pay on confirmed presence. Say "keep manual" to revisit. One exception since 2026-10-19: automatic check-ins at starred courts (decision 3) have no fix and pay nothing until one arrives. |
@@ -378,7 +378,7 @@ How it works:
 - **Arriving.** Only an Enter after an Exit is an arrival. With "Check me in when I arrive" on (everywhere and for
   that court), the phone calls `queue_court_arrival` (court and time, no coordinates) and shows "At <court>? 🏓 /
   Checking you in here in a minute." (Check in now / Not here). Still there a minute later, `process_court_arrivals`
-  (pg_cron, every 20 s) checks the player in for 30 minutes: source `geofence`, `via_arrival`, `checked_in_at` =
+  (pg_cron, every 20 s) checks the player in for 2 hours: source `geofence`, `via_arrival`, `checked_in_at` =
   the arrival, no fix, and pushes "✅ Checked in at <court>"; "Still at <court>?" comes 5 minutes before the end.
   Otherwise (switched off, a play session running, no consent yet, no signal) the arrival prompts "Check in
   nearby?", which takes a fix like any check-in.
@@ -401,7 +401,7 @@ How decisions 5 and 6 still hold:
   confirms no stay; a fix 5+ minutes after that one confirms the stay, as for any check-in.
 - **No manual check-ins (decision 6)** gets one exception: an automatic check-in has no fix. It isn't manual (the
   phone saw the arrival and the player stayed a minute), it is presence only, and it pays nothing. Limits: starred
-  courts only, the consent sheet first, a per-court switch, the 5-minute take-back, 30 minutes long.
+  courts only, the consent sheet first, a per-court switch, the 5-minute take-back, 2 hours long (30 minutes until 2026-10-20).
 
 Shipping (the user's order):
 

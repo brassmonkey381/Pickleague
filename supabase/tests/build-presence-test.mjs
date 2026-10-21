@@ -8,7 +8,8 @@
 //   <migration_league_members_lock_identity.sql, the five
 //    migration_presence_p1_*.sql files, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql and the
-//    three court arrival files, in apply order>
+//    three court arrival files, then migration_court_arrival_two_hours.sql,
+//    in apply order>
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -21,7 +22,7 @@
 //   <migration_venue_checkins.sql, migration_play_sessions.sql>
 //                                                        (re-runs of the superseded files
 //                                                         must keep the presence versions)
-//   <the three court arrival files again>                (re-applied, as their headers say:
+//   <the court arrival files again, two-hours last>      (re-applied, as their headers say:
 //                                                         the re-runs above put older bodies
 //                                                         of the functions they replace back)
 //   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
@@ -66,11 +67,14 @@ export const MIGRATIONS = [
 // above. They replace functions that migration_validity_rules.sql and
 // migration_venue_checkins.sql also define, so they run again after those
 // files' re-runs below (their headers: re-apply after such a re-run), and the
-// hardening file once more after that.
+// hardening file once more after that. migration_court_arrival_two_hours.sql
+// (arrival check-ins last 2 hours) replaces two of the queue file's functions,
+// so it goes after the three, in both passes.
 export const ARRIVALS = [
   'migration_court_arrival_settings.sql',
   'migration_court_arrival_queue.sql',
   'migration_court_checkin_prompt.sql',
+  'migration_court_arrival_two_hours.sql',
 ];
 // Run again after all of the above, before the hardening re-run: the Phase 1
 // check-ins file must keep the Phase 1.5 checkout_venue and end_play_session

@@ -9,6 +9,7 @@ import {
   arrivalCheckedInCopy,
   arrivalEntriesToSettle,
   arrivalLocalSchedule,
+  arrivalCheckinUntouched,
   arrivalNoticeCopy,
   arrivalStillAtCopy,
   buildCourtRegionList,
@@ -279,10 +280,19 @@ describe('copy', () => {
     const due = '2026-10-20T18:01:00.000Z';
     expect(arrivalLocalSchedule(due)).toEqual({
       checkedInAtMs: Date.parse('2026-10-20T18:01:20.000Z'),
-      stillAtAtMs: Date.parse('2026-10-20T18:25:00.000Z'),
-      expiresAtIso: '2026-10-20T18:30:00.000Z',
+      stillAtAtMs: Date.parse('2026-10-20T19:55:00.000Z'),
+      expiresAtIso: '2026-10-20T20:00:00.000Z',
     });
     expect(arrivalLocalSchedule('not a time')).toBeNull();
+  });
+
+  it('knows an arrival check-in nobody extended: 2 hours, or the old 30 minutes', () => {
+    const at = '2026-10-20T18:00:00.000Z';
+    expect(arrivalCheckinUntouched(at, '2026-10-20T20:00:00.000Z')).toBe(true);
+    expect(arrivalCheckinUntouched(at, '2026-10-20T18:30:00.000Z')).toBe(true);
+    expect(arrivalCheckinUntouched(at, '2026-10-20T21:00:00.000Z')).toBe(false);
+    expect(arrivalCheckinUntouched(at, '2026-10-20T19:30:00.000Z')).toBe(false);
+    expect(arrivalCheckinUntouched(at, 'not a time')).toBe(false);
   });
 });
 

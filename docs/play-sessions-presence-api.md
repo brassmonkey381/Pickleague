@@ -77,7 +77,9 @@ from the linked checkout. Then redeploy send-push with `--no-verify-jwt`.
    `supabase/migration_court_arrival_settings.sql` (settings, the per-court switch, the cleared-outline area fix),
    `supabase/migration_court_arrival_queue.sql` (the queue, the minute, the take-back, "Still at", the expiry
    push, rewards S4, hygiene, cron) and `supabase/migration_court_checkin_prompt.sql` (the "Check in nearby?" push
-   and the app-open scan), then the hardening re-run (its allowlist names the ten new client RPCs). Re-apply the
+   and the app-open scan), then the hardening re-run (its allowlist names the ten new client RPCs). Then
+   `supabase/migration_court_arrival_two_hours.sql` (arrival check-ins last 2 hours, not 30 minutes: it replaces
+   `process_court_arrivals` and `cancel_court_arrival`, so re-apply it after any re-run of the queue file). Re-apply the
    queue file right after any re-run of `migration_validity_rules.sql`, `migration_venue_checkins.sql`,
    `migration_presence_p1_hygiene.sql` or `migration_moderation_report_block.sql`, and the settings file after any
    re-run of `migration_add_venue_geofences.sql`: they put older bodies back. Before applying,
@@ -1049,7 +1051,8 @@ venues              index venues_lat_lng_idx (lat, lng); venue_set_geom: a clear
 ```
 
 An arrival check-in is `source = 'geofence'`, `via_arrival`, `location_confirmed` (shown like any check-in),
-`checked_in_at` = the arrival, `expires_at` = the arrival + 30 min, and has **no fix** (S4): `arrival_fix_at`
+`checked_in_at` = the arrival, `expires_at` = the arrival + 2 h (`_pl_arrival_length()`; 30 min before
+`migration_court_arrival_two_hours.sql`), and has **no fix** (S4): `arrival_fix_at`
 stays null, so `at_court` skips it (`_pl_session_validity`: `and not (c.via_arrival and c.arrival_fix_at is
 null)`), it proves no stay and earns nothing. Its first real fix (`_pl_checkin_stay_from_fix` on extend, a repeat
 check-in or a Start that adopts it; `_pl_record_checkout_fix` on a check-out fix taken during it) becomes its
@@ -1098,8 +1101,8 @@ court_prompt_scan(p_lat double precision, p_lng double precision, p_scan_m integ
 - `cancel_court_arrival` (an Exit at `p_left_at`, kept within 2 hours, else now; or Not here at the press):
   `dropped` = an arrival still waiting out its minute was stopped (with none, a marker refuses a late Enter from
   before it and holds off the next arrival there for 10 minutes); `removed` = it had become a check-in and is
-  taken back: `via_arrival and not arrival_confirmed and taken_back_at is null and expires_at = checked_in_at + 30
-  min and checked_in_at <= left < checked_in_at + 5 min`, and no play session of mine at that court started at or
+  taken back: `via_arrival and not arrival_confirmed and taken_back_at is null and _pl_arrival_untouched(checked_in_at,
+  expires_at) and checked_in_at <= left < checked_in_at + 5 min`, and no play session of mine at that court started at or
   after `checked_in_at`; `closed` = for an Exit, the same as `removed` (a later Exit is left to the phone's
   "Leaving X?"); for Not here, when nothing was removed, my open check-ins there begun by the press are checked out
   at it. `p_venue` null (sign-out) stops every arrival of mine still waiting and checks out any arrival check-in
@@ -1131,7 +1134,8 @@ court_prompt_scan(p_lat double precision, p_lng double precision, p_scan_m integ
   push: the court is gone, a play session of mine is running (unended, started in the last 6 hours), or an error.
   Else, under `checkin:<uid>`, it closes my open check-ins elsewhere (recorded in `arrival_closed_ids`), inserts
   the arrival check-in (id = the phone's `checkin_id` unless used) and pushes "Checked in". C: "Still at" once
-  per arrival check-in whose 30 minutes are untouched, in its last 5 minutes. `checkin_venue` is not changed.
+  per arrival check-in whose end is untouched (`_pl_arrival_untouched`: still 2 h, or 30 min for one made before
+  the two-hours file; extending or adopting only moves the end later), in its last 5 minutes. `checkin_venue` is not changed.
 - `expire_venue_checkins()` (the `*/10` job, now plpgsql) pushes "👋 Checked out" once for every manual or
   geofence check-in it closes, one stored already over included; never for session check-ins.
 - `_pl_push_reaches(uid, pref)`, `_pl_court_arrival_off(uid, venue)` (`'off' | 'off_here' | 'not_starred' |
