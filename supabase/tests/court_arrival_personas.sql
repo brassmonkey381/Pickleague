@@ -266,7 +266,8 @@ declare
     'public._pl_court_arrival_off(uuid,text)',
     'public._pl_court_arrival_push(uuid,text,text,text,text,text,uuid,timestamptz,boolean,timestamptz)',
     'public._pl_take_back_arrival(uuid,uuid[],timestamptz)', 'public.process_court_arrivals()',
-    'public._pl_court_arrival_rerun_repair()'];
+    'public._pl_court_arrival_rerun_repair()',
+    'public._pl_arrival_length()', 'public._pl_arrival_untouched(timestamptz,timestamptz)'];
   v_replaced text[] := array[
     'public.expire_venue_checkins()', 'public._purge_account(uuid)', 'public.prune_presence_history()',
     'public._pl_session_validity(uuid)',
@@ -352,6 +353,26 @@ begin
     from want w
    where not coalesce((select p.prosrc like '%' || w.needle || '%' from pg_proc p where p.oid = to_regprocedure(w.sig)), false);
   perform pg_temp.ok('A1 the arrival bodies are live after the older files'' re-runs (re-applied in order)', v_bad is null, v_bad);
+
+  -- migration_court_arrival_two_hours.sql went after the queue file both
+  -- times: the 2-hour bodies are the live ones, the length written once.
+  with want(sig, needle) as (values
+    ('public.process_court_arrivals()', 'r.arrived_at + public._pl_arrival_length()'),
+    ('public.process_court_arrivals()', 'public._pl_arrival_untouched(c.checked_in_at, c.expires_at)'),
+    ('public.cancel_court_arrival(text,timestamptz,boolean)', 'public._pl_arrival_untouched(c.checked_in_at, c.expires_at)'))
+  select string_agg(w.sig || ' (' || w.needle || ')', ', ') into v_bad
+    from want w
+   where not coalesce((select p.prosrc like '%' || w.needle || '%'
+                         and p.prosrc not like '%checked_in_at + interval ''30 minutes''%'
+                         and p.prosrc not like '%arrived_at + interval ''30 minutes''%'
+                         from pg_proc p where p.oid = to_regprocedure(w.sig)), false);
+  perform pg_temp.ok('A1 arrival check-ins last 2 hours: the two-hours bodies are live after the queue file''s re-run',
+    v_bad is null and public._pl_arrival_length() = interval '2 hours', v_bad);
+  perform pg_temp.ok('A1 _pl_arrival_untouched: 2 hours or the old 30 minutes, nothing else',
+    public._pl_arrival_untouched(now(), now() + interval '2 hours')
+    and public._pl_arrival_untouched(now(), now() + interval '30 minutes')
+    and not public._pl_arrival_untouched(now(), now() + interval '3 hours')
+    and not public._pl_arrival_untouched(now(), now() + interval '90 minutes'));
 
   perform pg_temp.ok('A1 pl_pending_arrivals and pl_throttle: RLS on, nothing for clients',
     (select bool_and(c.relrowsecurity) from pg_class c
@@ -551,11 +572,11 @@ begin
   perform pg_temp.ca_wait('HH', interval '70 seconds');
   perform pg_temp.ca_process();
   r := pg_temp.vci('c7000000-0000-4000-8000-000000000101');
-  perform pg_temp.ok('A4 still there a minute later: checked in from the arrival for 30 minutes, presence only (no fix)',
+  perform pg_temp.ok('A4 still there a minute later: checked in from the arrival for 2 hours, presence only (no fix)',
     r.user_id = pg_temp.p('HH') and r.venue_id = 'test:ca-alpha' and r.source = 'geofence'
     and r.via_arrival and r.location_confirmed and not r.arrival_confirmed and r.taken_back_at is null
     and r.checked_in_at = now() - interval '70 seconds'
-    and r.expires_at = now() - interval '70 seconds' + interval '30 minutes'
+    and r.expires_at = now() - interval '70 seconds' + interval '2 hours'
     and r.checked_out_at is null and r.fix_at is null and r.arrival_fix_at is null and not r.stay_confirmed
     and r.arrival_closed_ids is null, r::text);
   w := pg_temp.ca_pending('HH', 'test:ca-alpha');
@@ -929,11 +950,13 @@ begin
 
   -- HX: Stay 1 more hour, which sends no fix on an arrival check-in.
   perform pg_temp.ca_ready('HX', array['test:ca-alpha']);
-  perform pg_temp.ca_arrive('HX', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000911');
+  -- The app asks for an hour past the end (max(end, now) + 1 h).
+  r := pg_temp.ca_arrive('HX', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000911');
   perform pg_temp.as_user(pg_temp.p('HX'));
-  select * into r from public.extend_checkin('c7000000-0000-4000-8000-000000000911', now() + interval '1 hour');
+  select * into r from public.extend_checkin('c7000000-0000-4000-8000-000000000911', r.expires_at + interval '1 hour');
   perform pg_temp.ok('A12 Stay 1 more hour on an arrival check-in with no fix (1.0.4''s extend_checkin, unchanged): extends',
-    r.expires_at = now() + interval '1 hour' and r.fix_at is null and r.arrival_fix_at is null and r.location_confirmed,
+    r.expires_at = now() - interval '2 minutes' + interval '3 hours'
+    and r.fix_at is null and r.arrival_fix_at is null and r.location_confirmed,
     r::text);
   j := pg_temp.ca_cancel('HX', 'test:ca-alpha');
   r := pg_temp.vci('c7000000-0000-4000-8000-000000000911');
@@ -950,7 +973,7 @@ begin
   r := pg_temp.vci('c7000000-0000-4000-8000-000000000921');
   perform pg_temp.ok('A12 a Start at the court adopts it; an Exit within 5 minutes then takes nothing back',
     not (j ->> 'removed')::boolean and r.checked_out_at is null and r.taken_back_at is null
-    and r.expires_at > r.checked_in_at + interval '30 minutes', j::text || ' ' || r::text);
+    and r.expires_at > r.checked_in_at + interval '2 hours', j::text || ' ' || r::text);
   perform pg_temp.as_user(pg_temp.p('HJ'));
   perform public.end_play_session('e7000000-0000-4000-8000-000000000921', now());
   perform pg_temp.as_admin();
@@ -1003,7 +1026,7 @@ begin
   perform pg_temp.ca_ready('HT', array['test:ca-alpha']);
   perform pg_temp.ca_arrive('HT', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000b01');
   perform pg_temp.ok('A14 no "Still at" while more than 5 minutes are left', pg_temp.ca_pushes('HT', 'arrival_extend') = 0);
-  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000b01', interval '25 minutes');
+  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000b01', interval '1 hour 55 minutes');
   perform pg_temp.ca_process();
   o := pg_temp.ca_push_row('HT', 'arrival_extend');
   perform pg_temp.ok('A14 5 minutes before an arrival check-in ends: "Still at <court>?", worth sending until it ends',
@@ -1019,14 +1042,27 @@ begin
 
   -- HZ: extended by its player, then 3 minutes from its end.
   perform pg_temp.ca_ready('HZ', array['test:ca-alpha']);
-  perform pg_temp.ca_arrive('HZ', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000b11');
+  r := pg_temp.ca_arrive('HZ', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000b11');
   perform pg_temp.as_user(pg_temp.p('HZ'));
-  select * into r from public.extend_checkin('c7000000-0000-4000-8000-000000000b11', now() + interval '30 minutes');
-  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000b11', interval '27 minutes');
+  select * into r from public.extend_checkin('c7000000-0000-4000-8000-000000000b11', r.expires_at + interval '1 hour');
+  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000b11', interval '2 hours 55 minutes');
   perform pg_temp.ca_process();
   r := pg_temp.vci('c7000000-0000-4000-8000-000000000b11');
   perform pg_temp.ok('A14 never for a check-in its player extended',
     r.expires_at = now() + interval '3 minutes' and pg_temp.ca_pushes('HZ', 'arrival_extend') = 0, r::text);
+
+  -- HT again: an arrival check-in made before migration_court_arrival_two_hours.sql
+  -- (30 minutes long), 3 minutes from its end, still gets its "Still at".
+  perform pg_temp.as_admin();
+  update public.venue_checkins set checked_out_at = now() where id = 'c7000000-0000-4000-8000-000000000b01';
+  insert into public.venue_checkins
+    (id, user_id, venue_id, checked_in_at, expires_at, source, location_confirmed, via_arrival)
+  values ('c7000000-0000-4000-8000-000000000b21', pg_temp.p('HT'), 'test:ca-bravo',
+          now() - interval '27 minutes', now() + interval '3 minutes', 'geofence', true, true);
+  perform pg_temp.ca_process();
+  perform pg_temp.ok('A14 an arrival check-in made 30 minutes long (before the 2 hours) still gets its "Still at"',
+    pg_temp.ca_pushes('HT', 'arrival_extend', 'c7000000-0000-4000-8000-000000000b21') = 1);
+  update public.venue_checkins set checked_out_at = now() where id = 'c7000000-0000-4000-8000-000000000b21';
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('A14 block crashed', false, sqlerrm);
@@ -1106,7 +1142,7 @@ begin
   -- HA: an arrival check-in that ran out 10 minutes ago.
   perform pg_temp.ca_ready('HA', array['test:ca-alpha']);
   perform pg_temp.ca_arrive('HA', 'test:ca-alpha', 'c7000000-0000-4000-8000-000000000d11');
-  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000d11', interval '38 minutes');
+  perform pg_temp.ca_age('c7000000-0000-4000-8000-000000000d11', interval '2 hours 8 minutes');
   -- HB: a session's check-in that ran out an hour ago.
   perform pg_temp.as_user(pg_temp.p('HB'));
   perform public.start_play_session(p_id => 'e7000000-0000-4000-8000-000000000d21', p_kind => 'open_play',
@@ -1538,7 +1574,7 @@ begin
   perform pg_temp.ok('A22 ...HIA''s arrival check-in is as it was: open, unconfirmed, not taken back',
     a.user_id = pg_temp.p('HIA') and a.checked_out_at is null and a.taken_back_at is null
     and a.location_confirmed and not a.arrival_confirmed
-    and a.expires_at = a.checked_in_at + interval '30 minutes', a::text);
+    and a.expires_at = a.checked_in_at + interval '2 hours', a::text);
   w := pg_temp.ca_pending('HIA', 'test:ca-bravo');
   perform pg_temp.ok('A22 ...HIA''s arrival waiting at Bravo still waits, and HIA has no Exit marker at Alpha',
     w.cancelled_at is null and w.checkin_id = 'c7000000-0000-4000-8000-000000001202'

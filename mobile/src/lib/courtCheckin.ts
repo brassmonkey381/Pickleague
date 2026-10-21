@@ -102,8 +102,8 @@ import {
 } from './courtCheckinRules';
 import {
   ARRIVAL_CANCEL_MAX_AGE_MS,
-  ARRIVAL_CHECKIN_MS,
   ARRIVAL_NOTICE_KIND,
+  arrivalCheckinUntouched,
   CHECK_IN_TIMED_OUT,
   CHECKIN_ACTION_FIX_MS,
   CHECKIN_ACTION_TIMEOUT_MS,
@@ -279,14 +279,15 @@ async function setCurrent(c: CurrentCheckin | null): Promise<void> {
 }
 
 /**
- * An arrival check-in still in its first 30 minutes: the server's "Still at"
- * (or this phone's own copy, for a player it can't push to) already comes 5
- * minutes before the end, so a reminder from here would be a second one. Once
- * it is extended, the server sends no more and this phone's reminder takes over.
+ * An arrival check-in nobody has extended yet (still the length the server
+ * gave it): the server's "Still at" (or this phone's own copy, for a player it
+ * can't push to) already comes 5 minutes before the end, so a reminder from
+ * here would be a second one. Once it is extended, the server sends no more
+ * and this phone's reminder takes over.
  */
 function arrivalStillAtCovers(c: CurrentCheckin): boolean {
   if (c.viaArrival !== true || !c.checkedInAt) return false;
-  return Date.parse(c.expiresAt) - Date.parse(c.checkedInAt) === ARRIVAL_CHECKIN_MS;
+  return arrivalCheckinUntouched(c.checkedInAt, c.expiresAt);
 }
 
 function scheduleReminder(c: CurrentCheckin): Promise<boolean> {

@@ -230,7 +230,7 @@ PERMISSIONS AND WHY THEY ARE REQUESTED
     in now or extended it, and Not here after 5 minutes checks them out.
   - Leaving later while still checked in shows "Leaving <court>?" (Check out
     / Stay 1 more hour). Pickleague never checks anyone out on its own; a
-    check-in that isn't extended ends after 30 minutes.
+    check-in that isn't extended ends after 2 hours.
   - The phone sends only the court and the arrival time, never coordinates.
     An automatic check-in stores no location fix and earns nothing until a
     fix from the phone confirms the player at that court.
@@ -514,7 +514,7 @@ court" and "no coordinates stored" stop being true.
     in now or extended it, and Not here after 5 minutes checks them out.
   - Leaving later while still checked in shows "Leaving <court>?" (Check out
     / Stay 1 more hour). Pickleague never checks anyone out on its own; a
-    check-in that isn't extended ends after 30 minutes.
+    check-in that isn't extended ends after 2 hours.
   - The phone sends only the court and the arrival time, never coordinates.
     An automatic check-in stores no location fix and earns nothing until a
     fix from the phone confirms the player at that court.

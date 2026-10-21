@@ -60,7 +60,8 @@ No CI runner is wired up yet — these are **human-runnable** today.
     (`-- @@TAPTIME@@`) are spliced in the same way.
     Court arrival (`court_arrival_personas.sql`, at `-- @@ARRIVALS@@`)
     applies `migration_court_arrival_settings.sql`,
-    `migration_court_arrival_queue.sql` and `migration_court_checkin_prompt.sql`
+    `migration_court_arrival_queue.sql` and `migration_court_checkin_prompt.sql`,
+    then `migration_court_arrival_two_hours.sql` (arrival check-ins last 2 hours),
     after the other files, again after the re-runs of the older files (which
     put older function bodies back), then re-runs the hardening file. It
     checks the queue's answers, check-in after a minute, the take-back within

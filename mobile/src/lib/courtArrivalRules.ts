@@ -43,11 +43,15 @@ export const MONITOR_TICK_MS = 60_000;
 export const MONITOR_COOLDOWN_MS = 2 * 60 * 60_000;
 /** QR wallet notice: once per court per 3 hours (as before). */
 export const WALLET_RENOTIFY_MS = 3 * 60 * 60_000;
-/** The server's arrival check-in: due a minute after arriving, 30 minutes long,
+/** The server's arrival check-in: due a minute after arriving, 2 hours long
+ *  (supabase/migration_court_arrival_two_hours.sql, _pl_arrival_length),
  *  "Still at" 5 minutes before the end; its job runs every 20 seconds. */
 export const ARRIVAL_DUE_MS = 60_000;
 export const ARRIVAL_JOB_PERIOD_MS = 20_000;
-export const ARRIVAL_CHECKIN_MS = 30 * 60_000;
+export const ARRIVAL_CHECKIN_MS = 2 * 60 * 60_000;
+/** How long an arrival check-in lasted before that file (Doggle's 30 minutes):
+ *  one made then, or by a server not yet updated, is still recognised. */
+export const LEGACY_ARRIVAL_CHECKIN_MS = 30 * 60_000;
 export const STILL_AT_LEAD_MS = 5 * 60_000;
 /** How long after the phone's own "Checked in" (D3) the server has surely
  *  decided: without sub-minute pg_cron its job runs only once a minute. */
@@ -344,7 +348,7 @@ export function arrivalStillAtCopy(name: string | null | undefined): { title: st
 /**
  * When the phone's own "Checked in" and "Still at" go off for a queued
  * arrival (D3): just after the server's job would have checked the player in,
- * and 5 minutes before that 30-minute check-in ends. The server's arrival is
+ * and 5 minutes before that 2-hour check-in ends. The server's arrival is
  * due_at minus a minute.
  */
 export function arrivalLocalSchedule(dueAtIso: string): {
@@ -360,6 +364,17 @@ export function arrivalLocalSchedule(dueAtIso: string): {
     stillAtAtMs: expires - STILL_AT_LEAD_MS,
     expiresAtIso: new Date(expires).toISOString(),
   };
+}
+
+/**
+ * An arrival check-in whose end is still the one the server's job gave it:
+ * nobody extended it and no play session adopted it (both only ever move the
+ * end later, by an hour or more). The server's _pl_arrival_untouched, same
+ * rule: the current length or the old 30 minutes.
+ */
+export function arrivalCheckinUntouched(checkedInAtIso: string, expiresAtIso: string): boolean {
+  const len = Date.parse(expiresAtIso) - Date.parse(checkedInAtIso);
+  return len === ARRIVAL_CHECKIN_MS || len === LEGACY_ARRIVAL_CHECKIN_MS;
 }
 
 /** One court's phone-made pair (D3): the check-in id, when "Checked in" goes off, and when "Still at" does. */
