@@ -80,7 +80,7 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import FriendsScreen from '../screens/FriendsScreen';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
@@ -90,6 +90,8 @@ import SubmitVenueScreen from '../screens/SubmitVenueScreen';
 import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
 import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
 import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
+import CourtsScreen from '../screens/CourtsScreen';
+import CourtDetailScreen from '../screens/CourtDetailScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -348,6 +350,14 @@ export default function AppNavigator() {
                 <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
                 <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: '🛠️ Court Outlines' }} />
                 <Stack.Screen name="AdminBoundaryEditor" component={AdminBoundaryEditorScreen} options={{ title: 'Court outline' }} />
+                {/* Court discovery stays unregistered while COURT_DISCOVERY_ENABLED
+                    is false: its RPCs ship with migration_court_discovery_p1.sql. */}
+                {COURT_DISCOVERY_ENABLED && (
+                  <>
+                    <Stack.Screen name="Courts" component={CourtsScreen} options={{ title: '📍 Courts' }} />
+                    <Stack.Screen name="CourtDetail" component={CourtDetailScreen} options={{ title: 'Court' }} />
+                  </>
+                )}
               </>
             ) : (
               <>

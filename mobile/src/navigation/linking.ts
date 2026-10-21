@@ -3,7 +3,20 @@
 // config; AppNavigator passes it to NavigationContainer.
 import type { LinkingOptions } from '@react-navigation/native';
 import type { RootStackParamList } from '../types';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+
+/**
+ * Court discovery's paths (registered only while COURT_DISCOVERY_ENABLED).
+ * A venue id holds ':' and '/' ('osm:way/123', 'g:<place id>'): React
+ * Navigation percent-encodes a param's '/' (and anything outside RFC 3986's
+ * pchar) when it builds the URL and decodes it when it reads one, so
+ * /courts/osm:way%2F123 opens 'osm:way/123'. lib/courtDiscovery courtShareUrl
+ * builds the shared link the same way. Exported for the round-trip tests.
+ */
+export const COURT_LINKS = {
+  Courts: 'courts',
+  CourtDetail: 'courts/:venueId',
+} as const;
 
 export const linking: LinkingOptions<RootStackParamList> = {
   // Both origins are live and both are shared: ShareLinkButton builds
@@ -80,6 +93,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),
       // Same for Friends (?tab=find picks the tab).
       ...(FRIENDS_AT_COURTS_ENABLED ? { Friends: 'friends' } : {}),
+      // And court discovery.
+      ...(COURT_DISCOVERY_ENABLED ? COURT_LINKS : {}),
       Bookmarks: 'bookmarks',
     },
   },

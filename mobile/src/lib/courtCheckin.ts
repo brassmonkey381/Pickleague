@@ -40,6 +40,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import {
   flushMutationQueue,
+  invalidateQueries,
   onMutationQueueEvent,
   registerMutationHandler,
   runOrQueue,
@@ -55,6 +56,7 @@ import { cancelLocalNotification, scheduleLocalNotification } from '@just-messin
 import { currentUserId, resolveUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from './supabase';
 import { uuidv4 } from './analytics';
+import { venueCrowdKey } from '../data/venueCrowd';
 import {
   catalog,
   NeedsApp,
@@ -181,6 +183,9 @@ const REJECTED_KEEP_MS = 3 * 24 * HOUR_MS;
 
 /** Emits whenever the current check-in changes (null = not checked in). */
 export const checkinChanged = createSignal<CurrentCheckin | null>();
+/** Emits the courts a check-in or check-out just changed (the old one and
+ *  the new one), so a list of who's there refetches at once. */
+export const courtPresenceTouched = createSignal<string[]>();
 /** Emits the notice when a queued check-in is refused on replay. */
 export const checkinRejected = createSignal<string>();
 
@@ -275,7 +280,24 @@ async function setCurrent(c: CurrentCheckin | null): Promise<void> {
   }
   if (c) void scheduleReminder(c);
   else void cancelLocalNotification(REMINDER_ID);
+  touchCourts(c);
   checkinChanged.emit(c);
+}
+
+// The check-in the crowd numbers last saw (by id: a refresh that finds the
+// same one changes nothing, a queued one that reached the server does).
+let lastTouched: { id: string; venueId: string } | null = null;
+
+/** A new check-in, a check-out or a replayed queued one: the crowd at the
+ *  courts it left and joined is stale (venue:crowd:<id>, shared by CrowdLine
+ *  and the Courts list), and so is who's there. */
+function touchCourts(c: CurrentCheckin | null): void {
+  const prev = lastTouched;
+  if ((prev?.id ?? null) === (c?.id ?? null)) return;
+  lastTouched = c ? { id: c.id, venueId: c.venueId } : null;
+  const ids = [...new Set([prev?.venueId, c?.venueId].filter((v): v is string => !!v))];
+  for (const id of ids) invalidateQueries(venueCrowdKey(id));
+  if (ids.length > 0) courtPresenceTouched.emit(ids);
 }
 
 /**

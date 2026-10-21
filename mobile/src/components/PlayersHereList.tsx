@@ -24,13 +24,14 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { usePollWhileActive } from '@just-messin-around/expo-foundation/hooks';
+import { usePollWhileActive, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { AvatarPile, PresenceCard } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { formatPluprShort } from '../lib/plupr';
 import { presenceRowLabel, sortPresenceRows } from '../lib/courtCrowd';
 import { getCourtPresence, type CourtPresenceRow } from '../data/courtPresence';
+import { courtPresenceTouched } from '../lib/courtCheckin';
 
 /** One row of who's here (court_presence). */
 export type PlayerHere = CourtPresenceRow;
@@ -57,15 +58,20 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
   const focused = useIsFocused();
   const [players, setPlayers] = useState<PlayerHere[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const load = async () => {
+    try {
+      setPlayers(sortPresenceRows(await getCourtPresence(venueId)));
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  };
+  // My own check-in or check-out here: show it now, not at the next poll.
+  useSignal(courtPresenceTouched, (ids) => {
+    if (focused && ids.includes(venueId)) void load();
+  });
   usePollWhileActive(
-    async () => {
-      try {
-        setPlayers(sortPresenceRows(await getCourtPresence(venueId)));
-        setFailed(false);
-      } catch {
-        setFailed(true);
-      }
-    },
+    load,
     60_000,
     // Covered by another screen (Home stays mounted under the native stack):
     // stop. Refocusing re-arms the poll and fetches at once; the last roster

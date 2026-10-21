@@ -583,3 +583,17 @@ and the [API contract](play-sessions-presence-api.md#court-arrival-2026-10-19).
 - **Order:** server SQL and send-push first, then master + the OTA to runtime 1.0.4 (it reaches
   only TestFlight build 13 phones), then build 14 with these strings and notes, device tests,
   submit.
+
+## 8. Courts: find a court, open its page (1.0.5)
+
+Court discovery Phase 1 (`state/court-discovery-plan.md`) is JS only and ships by OTA behind
+`COURT_DISCOVERY_ENABLED` (off until `supabase/migration_court_discovery_p1.sql` is live and its
+persona test passes; flipped after 1.0.4 is approved). For the 1.0.5 submission:
+
+- **Notes (§1):** add a step: Home -> Courts tile (or "Browse courts ›" on the court card) lists
+  nearby pickleball courts, nearest first; tapping one opens its page (facts, leagues there,
+  who's here, Directions, Share, Check in). Location is asked only from "Use my location"; a city
+  search works without it. Signed-in only.
+- **Permission strings: no change.** The when-in-use string already says "show courts near you".
+- **Screen recording (§5):** Courts list with location allowed, a city search, one court page,
+  Directions opening Maps.

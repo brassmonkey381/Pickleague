@@ -10,6 +10,8 @@
 //
 // Tapping the court chip opens who's here: the crowd line ("6 playing now ·
 // mostly 3.5–4.0 · 2 friends") with the ☆ "my courts" star, then the roster.
+// With COURT_DISCOVERY_ENABLED it opens the court's page instead (CourtDetail,
+// which has the same crowd, star and roster, plus the facts and Check in).
 //
 // Content rules: no "Not set" / "Unknown" / zero values for non-admins. A
 // league without a home court shows nothing there to members; an admin gets a
@@ -22,6 +24,8 @@
 // just pills.
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Chip, ClampText } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -32,6 +36,8 @@ import { leagueRoleChip } from '../../lib/entityGlyph';
 import PlayersHereList from '../PlayersHereList';
 import CrowdLine from '../court/CrowdLine';
 import { useCourtPresence } from './useCourtPresence';
+import { COURT_DISCOVERY_ENABLED } from '../../lib/features';
+import type { RootStackParamList } from '../../types';
 
 export type LeagueIdentityProps = {
   league: {
@@ -73,6 +79,7 @@ export default function LeagueIdentity({
   const t = textStyles(c);
   const presence = useCourtPresence(league.home_court_lat, league.home_court_lng, league.home_venue_id);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Subscribes, so the chip re-renders to the (shorter) nickname once the cache loads.
   const courtName = useCourtName();
 
@@ -95,10 +102,16 @@ export default function LeagueIdentity({
               {...chipProps}
               hitBox
               label={`📍 ${courtShort}${hereCount ? ` · ${hereCount} here` : ''} ${rosterOpen ? '▾' : '›'}`}
-              onPress={() => setRosterOpen((v) => !v)}
+              onPress={() => {
+                const venueId = presence.venueId;
+                if (COURT_DISCOVERY_ENABLED && venueId) navigation.navigate('CourtDetail', { venueId });
+                else setRosterOpen((v) => !v);
+              }}
               accessibilityRole="button"
               accessibilityLabel={`Home court: ${court}${hereCount ? `, ${hereCount} here` : ''}`}
-              accessibilityHint={rosterOpen ? "Hides who's here" : "Shows who's here"}
+              accessibilityHint={
+                COURT_DISCOVERY_ENABLED ? "Opens the court's page" : rosterOpen ? "Hides who's here" : "Shows who's here"
+              }
             />
           ) : (
             <Chip {...chipProps} label={`📍 ${courtShort}`} />

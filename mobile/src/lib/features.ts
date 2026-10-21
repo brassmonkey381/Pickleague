@@ -64,3 +64,19 @@ export const FRIENDS_AT_COURTS_ENABLED = true;
  * shows.
  */
 export const COURT_STARS_ENABLED = true;
+
+/**
+ * Court discovery, Phase 1 (state/court-discovery-plan.md): the Courts list
+ * (nearby courts, nearest first, with a name filter) and each court's page
+ * (facts, leagues, who's here, Directions, Share, Check in). Gates the
+ * Courts / CourtDetail screens, their routes and links (pickleague.club/courts,
+ * /courts/<encoded id>) and every entry point together: Home's Courts tile,
+ * "Browse courts ›" on the court card, the home-court chip on a league, and
+ * the Friends at the courts rows.
+ *
+ * OFF until supabase/migration_court_discovery_p1.sql is live and
+ * supabase/tests/court_discovery_personas.sql passes against it; then flipped
+ * by OTA after 1.0.4 is approved (the plan's ship note). Off, the screens are
+ * unregistered, nothing links to them and nothing fetches.
+ */
+export const COURT_DISCOVERY_ENABLED = false;

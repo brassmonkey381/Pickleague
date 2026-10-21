@@ -473,6 +473,7 @@ export default function HomeScreen({ navigation }: Props) {
     switch (target) {
       case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
       case 'play': navigation.navigate('Play'); break;
+      case 'courts': navigation.navigate('Courts'); break;
       case 'drill': navigation.navigate('Drill'); break;
       case 'shop': navigation.navigate('Shop'); break;
       case 'wagers': navigation.navigate('MyWagers'); break;

@@ -41,15 +41,22 @@ function plural(n: number, one: string, many = `${one}s`): string {
  * `emptyText` (null by default, so a surface that already says "No one else
  * here yet" doesn't say it twice). null for no numbers at all (not loaded, or
  * the read failed): a crowd line never claims "nobody" it doesn't know.
+ * `showFriends: false` leaves the friends part out ("6 playing now · mostly
+ * 3.5–4.0"): the anonymous turnout without the friends feature (court
+ * discovery, decision 4).
  */
-export function crowdLineText(c: CrowdNumbers | null | undefined, emptyText: string | null = null): string | null {
+export function crowdLineText(
+  c: CrowdNumbers | null | undefined,
+  emptyText: string | null = null,
+  opts: { showFriends?: boolean } = {},
+): string | null {
   if (!c) return null;
   const n = Math.max(0, Math.floor(c.here_now ?? 0));
   if (n === 0) return emptyText;
   const parts = [`${n} playing now`];
   const band = bandLabel(c.band_low, c.band_high);
   if (band) parts.push(`mostly ${band}`);
-  const f = Math.max(0, Math.floor(c.friends_here ?? 0));
+  const f = opts.showFriends === false ? 0 : Math.max(0, Math.floor(c.friends_here ?? 0));
   if (f > 0) parts.push(plural(f, 'friend'));
   return parts.join(' · ');
 }

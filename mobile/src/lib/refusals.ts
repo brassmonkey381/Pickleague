@@ -66,7 +66,8 @@ export type RefusalCode = (typeof REFUSAL_CODES)[number];
 const CODE_SET: ReadonlySet<string> = new Set(REFUSAL_CODES);
 
 /** Which action was refused, where the same code reads differently. */
-export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm';
+/** 'view': opening a court's page (Courts, a shared court link). */
+export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view';
 
 export type RefusalContext = {
   action?: RefusalAction;
@@ -185,6 +186,9 @@ export function refusalCopy(
         ? "Couldn't save your play session because this version of Pickleague sent an incomplete request. Update Pickleague, then start again."
         : "That didn't go through because this version of Pickleague sent an incomplete request. Update Pickleague, then try again.";
     case 'court.gone':
+      if (ctx.action === 'view') {
+        return `${court ?? 'That court'} isn't in Pickleague any more. It may have been merged with another court; search Courts to find it.`;
+      }
       return ctx.action === 'favorite'
         ? "That court isn't in Pickleague any more, so it can't be starred."
         : `${court ?? 'That court'} isn't in Pickleague any more, so you can't check in there. Find your court again.`;
@@ -298,6 +302,7 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
     case 'fix.imprecise':
     case 'fix.malformed':
     case 'court.gone':
+      if (action === 'view') return 'Court not found';
       return action === 'extend' ? 'Not extended' : 'Not checked in';
     case 'fix.after_tap':
     case 'checkin.too_old':

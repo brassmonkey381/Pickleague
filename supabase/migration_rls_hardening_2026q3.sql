@@ -147,7 +147,9 @@ begin
         -- migration_court_arrival_queue.sql, migration_court_checkin_prompt.sql).
         'cancel_court_arrival','confirm_court_arrival','court_arrival_pending','court_prompt_scan',
         'enqueue_court_checkin_prompt','get_court_arrival_settings','list_starred_court_geofences',
-        'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin'
+        'queue_court_arrival','set_court_arrival_settings','set_starred_court_auto_checkin',
+        -- Court discovery Phase 1 (migration_court_discovery_p1.sql).
+        'get_court','list_courts_nearby'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

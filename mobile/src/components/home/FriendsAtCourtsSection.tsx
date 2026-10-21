@@ -12,7 +12,8 @@
 // TTL 30 s, kept a day), apart from Home's main payload so homeData.ts stays
 // untouched; refreshed every minute while Home is focused and the app is in
 // the foreground. No Realtime. Tapping a court shows who's there underneath
-// (court_presence, with the anonymous rows).
+// (court_presence, with the anonymous rows), or, with COURT_DISCOVERY_ENABLED,
+// opens the court's page (which has that roster too).
 //
 // Hidden when nothing is live and no courts are known, and while
 // FRIENDS_AT_COURTS_ENABLED is off. Guests get an empty payload from the
@@ -25,7 +26,7 @@ import { usePollWhileActive } from '@just-messin-around/expo-foundation/hooks';
 import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
 import { useTheme } from '../../lib/ThemeContext';
 import { trackHomeTap } from '../../lib/analytics';
 import {
@@ -68,6 +69,11 @@ function FriendsAtCourtsBody() {
 
   const toggle = (venueId: string, target: string, position: number) => {
     trackHomeTap({ section: 'friends_courts', target, position });
+    if (COURT_DISCOVERY_ENABLED) {
+      // Registered by the court discovery screens (same flag); by name.
+      navigation.dispatch(CommonActions.navigate({ name: 'CourtDetail', params: { venueId } }));
+      return;
+    }
     setOpenId((cur) => (cur === venueId ? null : venueId));
   };
 
@@ -127,8 +133,10 @@ function FriendsAtCourtsBody() {
                     subtitle={yourCourtSubtitle(court)}
                     action={<CourtFavoriteStar venueId={court.venue_id} venueName={court.venue_name} />}
                     lastRow={i === data.courts.length - 1 && !open}
-                    // Nobody there: nothing to open.
-                    onPress={court.here_now > 0 ? () => toggle(court.venue_id, 'court_row', i) : undefined}
+                    // Nobody there: nothing to open (a court's page always has something).
+                    onPress={
+                      COURT_DISCOVERY_ENABLED || court.here_now > 0 ? () => toggle(court.venue_id, 'court_row', i) : undefined
+                    }
                   />
                   {open ? <Roster venueId={court.venue_id} /> : null}
                 </React.Fragment>
