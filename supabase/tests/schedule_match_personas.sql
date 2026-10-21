@@ -2,7 +2,7 @@
 -- schedule_league_match persona tests (migration_schedule_match_rpc.sql).
 --
 -- Standalone and rolled back: nothing it writes survives. Apply
--- migration_schedule_match_rpc.sql (and re-run
+-- migration_schedule_match_rpc.sql and migration_match_count_fix.sql (and re-run
 -- migration_rls_hardening_2026q3.sql) first, then run from the linked
 -- checkout:
 --   supabase db query --linked -f supabase/tests/schedule_match_personas.sql -o csv
@@ -281,6 +281,79 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('T5 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ T6 match counts: once, when confirmed (migration_match_count_fix.sql) ═
+-- S1 and S2 already have scheduled matches (T2) and no played one.
+do $$
+declare
+  v_m   uuid;
+  v_g   uuid;
+  c1    integer;
+  c2    integer;
+  b1    integer;
+  b2    integer;
+  v_pk  integer;
+begin
+  select total_matches_played into b1 from public.profiles where id = pg_temp.p('S1');
+  select total_matches_played into b2 from public.profiles where id = pg_temp.p('S2');
+  select pickles into v_pk from public.profiles where id = pg_temp.p('S1');
+
+  -- S1 records a played match against S2, as MatchEntry does: stored pending.
+  perform pg_temp.as_user(pg_temp.p('S1'));
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
+                              winner_id, winner_team, status)
+  values ('b5c00000-0000-4000-8000-000000000001', pg_temp.p('S1'), pg_temp.p('S2'), 11, 5, 'singles',
+          pg_temp.p('S1'), 'team1', 'pending')
+  returning id into v_m;
+  perform pg_temp.as_admin();
+  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
+  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
+  perform pg_temp.ok('T6 a pending match doesn''t count yet', c1 = b1 and c2 = b2,
+    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+
+  -- S2 confirms it: counted exactly once for each player.
+  perform pg_temp.as_user(pg_temp.p('S2'));
+  perform public.confirm_match(v_m);
+  perform pg_temp.as_admin();
+  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
+  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
+  perform pg_temp.ok('T6 confirming adds exactly 1 for each player',
+    (select status from public.matches where id = v_m) = 'completed' and c1 = b1 + 1 and c2 = b2 + 1,
+    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+
+  -- Their scheduled matches (T2) didn't make this their second match.
+  perform pg_temp.ok('T6 a scheduled match doesn''t cost the first-match bonus',
+    exists (select 1 from public.first_match_bonus_grants where user_id = pg_temp.p('S1'))
+    and exists (select 1 from public.first_match_bonus_grants where user_id = pg_temp.p('S2'))
+    and (select pickles from public.profiles where id = pg_temp.p('S1')) >= coalesce(v_pk, 0) + 500,
+    format('pickles %s -> %s', v_pk, (select pickles from public.profiles where id = pg_temp.p('S1'))));
+
+  -- A server-side (seed / godmode-style) insert stored completed: once.
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type,
+                              winner_id, winner_team, status)
+  values ('b5c00000-0000-4000-8000-000000000001', pg_temp.p('S2'), pg_temp.p('S1'), 11, 7, 'singles',
+          pg_temp.p('S2'), 'team1', 'completed')
+  returning id into v_g;
+  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
+  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
+  perform pg_temp.ok('T6 a match inserted already completed adds exactly 1 for each player',
+    c1 = b1 + 2 and c2 = b2 + 2, format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+
+  -- Deleting a completed match takes it back off.
+  delete from public.matches where id = v_g;
+  select total_matches_played into c1 from public.profiles where id = pg_temp.p('S1');
+  select total_matches_played into c2 from public.profiles where id = pg_temp.p('S2');
+  perform pg_temp.ok('T6 deleting a completed match takes 1 back off', c1 = b1 + 1 and c2 = b2 + 1,
+    format('S1 %s -> %s, S2 %s -> %s', b1, c1, b2, c2));
+
+  perform pg_temp.ok('T6 the old count-on-insert trigger is gone',
+    not exists (select 1 from pg_trigger where tgname = 'on_match_player_stats'
+                 and tgrelid = 'public.matches'::regclass), null);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('T6 block crashed (is migration_match_count_fix.sql applied?)', false, sqlerrm);
 end $$;
 
 

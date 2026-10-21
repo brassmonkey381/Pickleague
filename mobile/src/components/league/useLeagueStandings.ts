@@ -239,6 +239,7 @@ export async function loadLeagueStandings(args: LoadLeagueStandingsArgs): Promis
     const matches = ((await sbCall(() => supabase.from('matches')
       .select(STANDINGS_MATCH_COLUMNS)
       .eq('league_id', leagueId)
+      .neq('status', 'scheduled')
       .gte('played_at', addDaysIso(w.start, -1))
       .lte('played_at', addDaysIso(w.end.slice(0, 10), 2)))) ?? []) as unknown as StandingsMatch[];
     const summary = summarize(locked, matches);
@@ -316,6 +317,7 @@ async function loadFinalRows(
     sbCall(() => supabase.from('matches')
       .select(STANDINGS_MATCH_COLUMNS)
       .eq('league_id', leagueId)
+      .neq('status', 'scheduled')
       .gte('played_at', addDaysIso(season.start_date, -1))
       .lte('played_at', addDaysIso(lastEnd, 2))),
   ]);

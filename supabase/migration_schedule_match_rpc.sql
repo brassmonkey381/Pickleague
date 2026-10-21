@@ -17,10 +17,11 @@
 --     winner, so it stored a made-up 7-11 loss for player 1 in
 --     player1/2_rating_after and pending_delta1/2 (never applied, but the
 --     rating history reads rating_after);
---   * update_player_match_stats (migration_add_match_metadata.sql), where
---     that trigger is installed, counted the scheduled match as played:
---     total_matches_played + 1 (which also lowers the PLUPR K-factor) and
---     last_match_at = now for both players.
+--   * on_match_player_stats (migration_add_match_metadata.sql, live)
+--     counted it as played: total_matches_played + 1 (which also lowers the
+--     PLUPR K-factor) and last_match_at = now for both players. Fixed for
+--     every status in migration_match_count_fix.sql (a match counts once,
+--     when it's confirmed).
 --
 -- This file:
 --   1. schedule_league_match(p_league_id, p_player1_id, p_player2_id,
@@ -36,8 +37,6 @@
 --      sets pl.schedule_match_rpc for its own insert, a setting PostgREST
 --      never lets a request set) and godmode may write one. Everything else
 --      as in migration_validity_rules.sql.
---   3. update_player_match_stats skips scheduled rows: a scheduled match
---      isn't a played one.
 --
 -- Refusal codes (HINT 'pl:<code>', mobile/src/lib/refusals.ts):
 --   auth.signed_out, request.bad (missing arguments),
@@ -185,31 +184,3 @@ begin
   return new;
 end $$;
 revoke all on function public._pl_matches_client_insert_guard() from public, anon, authenticated;
-
-
--- ── 3. A scheduled match isn't a played one ────────────────────────────────
--- From migration_add_match_metadata.sql (security definer kept; search_path
--- pinned, every name is qualified). Pending and completed rows as before.
-create or replace function public.update_player_match_stats()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-  if new.status = 'scheduled' then return new; end if;
-  update public.profiles
-  set
-    total_matches_played = total_matches_played + 1,
-    last_match_at        = coalesce(new.played_at, now())
-  where id in (
-    new.player1_id,
-    new.player2_id,
-    new.partner1_id,
-    new.partner2_id
-  )
-  and id is not null;
-  return new;
-end;
-$$;
-revoke all on function public.update_player_match_stats() from public, anon, authenticated;

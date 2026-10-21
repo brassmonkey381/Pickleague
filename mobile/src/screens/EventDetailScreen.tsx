@@ -266,6 +266,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
         + ' pn2:profiles!matches_partner2_id_fkey(full_name)'
       )
       .eq('event_id', eventId)
+      .neq('status', 'scheduled')
       .order('played_at', { ascending: false });
     setEventMatches((mRows ?? []) as unknown as EventMatchRow[]);
 

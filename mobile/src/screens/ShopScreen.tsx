@@ -132,6 +132,7 @@ export default function ShopScreen({ navigation }: Props) {
         const matches = await sbCall(() => supabase
           .from('matches')
           .select('match_type, player1_id, partner1_id, player2_id, partner2_id, winner_team, location_name')
+          .eq('status', 'completed')
           .or(`player1_id.eq.${uid},partner1_id.eq.${uid},player2_id.eq.${uid},partner2_id.eq.${uid}`)
           .order('played_at', { ascending: false })
           .limit(200));

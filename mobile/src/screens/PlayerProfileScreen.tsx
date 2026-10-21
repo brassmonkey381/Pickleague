@@ -103,6 +103,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
           .limit(6)),
         supabase.from('matches')
           .select('id', { count: 'exact', head: true })
+          .eq('status', 'completed')
           .or(`player1_id.eq.${userId},player2_id.eq.${userId},partner1_id.eq.${userId},partner2_id.eq.${userId}`),
         sbCall(() => supabase.from('player_shop_purchases')
           .select('id, shop_item_id, purchased_at, gifted_by_user_id, gift_message, item:shop_items(category, name, description, icon)')
@@ -146,6 +147,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         .from('matches')
         .select('player1_id, partner1_id, player2_id, partner2_id, winner_team, player1_rating_before, player2_rating_before')
         .eq('match_type', 'doubles')
+        .eq('status', 'completed')
         .or(`player1_id.eq.${myId},partner1_id.eq.${myId},player2_id.eq.${myId},partner2_id.eq.${myId}`)
         .limit(500)) as DoublesMatch[];
     } catch {

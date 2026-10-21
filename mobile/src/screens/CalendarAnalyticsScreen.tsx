@@ -67,6 +67,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
         player1:profiles!matches_player1_id_fkey(id, full_name),
         player2:profiles!matches_player2_id_fkey(id, full_name)
       `)
+      .eq('status', 'completed')
       .order('played_at', { ascending: false });
     if (leagueId) query = query.eq('league_id', leagueId);
     return query;
