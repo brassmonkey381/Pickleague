@@ -175,6 +175,15 @@ begin
   perform pg_temp.ok('T2 a replay of the same booking (players either way round) returns the first one, no double booking',
     v_id2 = v_id and v_n = 1, format('first %s, replay %s, %s scheduled', v_id, v_id2, v_n));
 
+  -- Only a scheduled match may go without a score.
+  begin
+    insert into public.matches (league_id, match_type, player1_id, player2_id, status)
+    values ('b5c00000-0000-4000-8000-000000000001', 'singles', pg_temp.p('S1'), pg_temp.p('S2'), 'pending');
+    perform pg_temp.ok('T2 a pending match with no score is refused', false, 'went through');
+  exception when check_violation then
+    perform pg_temp.ok('T2 a pending match with no score is refused', sqlerrm like '%matches_scores_unless_scheduled%', sqlerrm);
+  end;
+
   -- A time within the 5-minute clock slack still books.
   perform pg_temp.as_user(pg_temp.p('S1'));
   v_id2 := public.schedule_league_match('b5c00000-0000-4000-8000-000000000001', pg_temp.p('S1'), pg_temp.p('S2'),
@@ -378,9 +387,9 @@ begin
     pg_temp.tmp('S1') = b1 + 1 and pg_temp.tmp('S2') = b2 + 1 and pg_temp.count_drift(array['S1', 'S2']) is null,
     format('S1 %s -> %s, S2 %s -> %s', b1, pg_temp.tmp('S1'), b2, pg_temp.tmp('S2')));
 
-  -- Doubles with a player whose gender isn't set: 'unspecified', which
-  -- recompute_all_plupr never counts.
-  update public.profiles set gender = null where id in (pg_temp.p('SA'), pg_temp.p('SO'));
+  -- Doubles with a player who prefers not to say (gender is NOT NULL live):
+  -- 'unspecified', which recompute_all_plupr never counts.
+  update public.profiles set gender = 'prefer-not-to-say' where id in (pg_temp.p('SA'), pg_temp.p('SO'));
   insert into public.matches (league_id, match_type, player1_id, partner1_id, player2_id, partner2_id,
                               player1_score, player2_score, winner_team, status)
   values ('b5c00000-0000-4000-8000-000000000001', 'doubles', pg_temp.p('S1'), pg_temp.p('SA'),

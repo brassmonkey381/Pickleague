@@ -4,9 +4,10 @@
 --
 -- Before this file, ScheduleMatchScreen inserted into public.matches directly
 -- ({league_id, player1_id, player2_id, status 'scheduled', scheduled_at}).
--- That insert itself went through (scores are nullable, the status check
--- allows 'scheduled', and _pl_matches_client_insert_guard keeps a scheduled
--- row scheduled), but nothing checked it:
+-- On the live database that insert never landed: player1_score and
+-- player2_score are NOT NULL there (schema.sql and matches_score_sanity_check
+-- both expect them nullable; live drifted), so no scheduled row exists. Had
+-- it landed, nothing checked it:
 --   * any league member could write status 'scheduled' straight to the REST
 --     API with scores and a winner filled in, past every confirmation, and
 --     the client stats that don't filter on status (calendar W/L, partner
@@ -24,6 +25,9 @@
 --     when it's confirmed).
 --
 -- This file:
+--   0. Scores: NOT NULL dropped on player1/2_score; a new check keeps them
+--      required on every match that isn't 'scheduled' (all existing rows
+--      have both, so it validates).
 --   1. schedule_league_match(p_league_id, p_player1_id, p_player2_id,
 --      p_scheduled_at) -> the match id. SECURITY DEFINER. The caller must be
 --      a current member of the league (the rule the old insert policy
@@ -50,6 +54,14 @@
 --   supabase db query --linked -f supabase/migration_schedule_match_rpc.sql
 -- Tested by supabase/tests/schedule_match_personas.sql.
 -- ============================================================
+
+
+-- ── 0. Scores: empty only while scheduled ─────────────────────────────────
+alter table public.matches alter column player1_score drop not null;
+alter table public.matches alter column player2_score drop not null;
+alter table public.matches drop constraint if exists matches_scores_unless_scheduled;
+alter table public.matches add constraint matches_scores_unless_scheduled
+  check (status = 'scheduled' or (player1_score is not null and player2_score is not null));
 
 
 -- ── 1. schedule_league_match ───────────────────────────────────────────────
