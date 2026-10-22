@@ -4,9 +4,9 @@ import { StackRouter } from '@react-navigation/routers';
 import { defineNotificationCatalog } from '@just-messin-around/expo-foundation/push/catalog';
 import { CATALOG } from '../notificationCatalog.data';
 import { linkForAction, linkOf, pushRoutes } from '../pushLinks';
-import { COURT_LINKS, linking } from '../../navigation/linking';
+import { COURT_LINKS, DISCOVER_LINK, discoverAwareStateFromPath, linking } from '../../navigation/linking';
 import { courtPathSegment } from '../courtDiscovery';
-import { COURT_DISCOVERY_ENABLED } from '../features';
+import { COURT_DISCOVERY_ENABLED, DISCOVER_ENABLED } from '../features';
 
 const routes = pushRoutes({ wagersEnabled: false });
 
@@ -121,6 +121,8 @@ describe('routes', () => {
     expect(on['friends/']('-', '')).toEqual(['Friends', { tab: 'requests' }]);
     expect(on['friends/']('find', '')).toEqual(['Friends', { tab: 'find' }]);
     expect(on['friend/']('u1', '')).toEqual(['Friends', { tab: 'requests' }]);
+    // Discover off: the invite code opens the Leagues list.
+    expect(route('invite_code/AB12CD')).toEqual(['Leagues', { prefillInviteCode: 'AB12CD' }]);
     // "Accepted your friend request" without its own link opens their profile.
     expect(linkOf({ entity_type: 'friend', entity_id: 'u1', kind: 'friend_accepted' })).toBe('player/u1');
     expect(linkOf({ entity_type: 'friend', entity_id: 'u1', deepLink: 'friends/-', kind: 'friend_request' })).toBe('friends/-');
@@ -176,6 +178,10 @@ describe('linking: Home under every cold deep link', () => {
     expect(names('tournaments/t1/members')).toEqual(['Home', 'TournamentMembers']);
   });
 
+  // The config itself (React Navigation's own getStateFromPath). The app's
+  // linking runs the Discover rewrite first (the 'Discover' block below), so
+  // play / leagues / tournaments open Discover; their config entries stay so
+  // the alias routes keep a path.
   it('existing paths resolve to the same screens', () => {
     const cases: [string, string][] = [
       ['play', 'Play'],
@@ -277,5 +283,128 @@ describe('court discovery links (venue ids hold ":" and "/")', () => {
       expect(screens).not.toHaveProperty('CourtDetail');
       expect(screens).not.toHaveProperty('Courts');
     }
+  });
+});
+
+describe('Discover: push routes (plan §8)', () => {
+  const on = pushRoutes({ wagersEnabled: false, friendsEnabled: true, discoverEnabled: true });
+  const routeOn = (link: string) => {
+    const prefix = Object.keys(on).filter((p) => link.startsWith(p)).sort((a, b) => b.length - a.length)[0];
+    if (!prefix) return null;
+    const [id, ...rest] = link.slice(prefix.length).split('/');
+    return on[prefix](id, rest.join('/'));
+  };
+
+  it('an invite code opens Leagues with Join with code filled in', () => {
+    expect(routeOn('invite_code/AB12CD')).toEqual(['Discover', { tab: 'leagues', prefillInviteCode: 'AB12CD' }]);
+    expect(routeOn('invite_code/-')).toBeNull();
+  });
+
+  it("friend pushes open Players on the old Friends tab's view", () => {
+    expect(routeOn('friends/-')).toEqual(['Discover', { tab: 'players', players: 'requests' }]);
+    expect(routeOn('friends/friends')).toEqual(['Discover', { tab: 'players', players: 'friends' }]);
+    expect(routeOn('friends/find')).toEqual(['Discover', { tab: 'players', players: 'find' }]);
+    expect(routeOn('friend/u1')).toEqual(['Discover', { tab: 'players', players: 'requests' }]);
+  });
+
+  it("friend pushes stay unrouted while friends are off, even with Discover", () => {
+    const noFriends = pushRoutes({ wagersEnabled: false, friendsEnabled: false, discoverEnabled: true });
+    expect(noFriends['friends/']).toBeUndefined();
+    expect(noFriends['friend/']).toBeUndefined();
+  });
+
+  it('home/, settings/ and the rest are unchanged', () => {
+    expect(routeOn('home/-')).toEqual(['Home']);
+    expect(routeOn('settings/checkins')).toEqual(['Settings', { focus: 'checkins' }]);
+    expect(routeOn('league/l1')).toEqual(['LeagueDetail', { leagueId: 'l1', leagueName: 'League' }]);
+    expect(routeOn('player/u1')).toEqual(['PlayerProfile', { userId: 'u1', userName: 'Player' }]);
+  });
+});
+
+describe('Discover: links (plan §8)', () => {
+  // The table as it is while Discover is on (it ships on with court
+  // discovery), whatever the flag says in this build.
+  const config = {
+    ...linking.config!,
+    screens: { ...linking.config!.screens, ...COURT_LINKS, Discover: DISCOVER_LINK },
+  } as NonNullable<typeof linking.config>;
+  const resolve = (path: string) => discoverAwareStateFromPath(path, config);
+  const last = (path: string) => resolve(path)?.routes.at(-1);
+
+  it('the app linking runs the rewrite exactly when Discover is on', () => {
+    if (DISCOVER_ENABLED) {
+      expect(linking.getStateFromPath).toBe(discoverAwareStateFromPath);
+      expect(linking.config?.screens).toHaveProperty('Discover', DISCOVER_LINK);
+    } else {
+      expect(linking.getStateFromPath).toBeUndefined();
+      expect(linking.config?.screens).not.toHaveProperty('Discover');
+    }
+  });
+
+  it('/discover and /discover/:tab open Discover with Home underneath', () => {
+    expect(resolve('discover')?.routes.map((r) => r.name)).toEqual(['Home', 'Discover']);
+    expect((last('discover')?.params as { tab?: string } | undefined)?.tab).toBeUndefined();
+    for (const tab of ['leagues', 'tournaments', 'places', 'players']) {
+      const s = resolve(`discover/${tab}`);
+      expect(s?.routes.map((r) => r.name), tab).toEqual(['Home', 'Discover']);
+      expect(s?.routes.at(-1)?.params, tab).toEqual({ tab });
+    }
+  });
+
+  it('the old lists open Discover on their tab, with their params', () => {
+    expect(last('play')).toMatchObject({ name: 'Discover', params: { tab: 'leagues' } });
+    expect(last('play?initialTab=tournaments')).toMatchObject({ name: 'Discover', params: { tab: 'tournaments' } });
+    expect(last('leagues')).toMatchObject({ name: 'Discover', params: { tab: 'leagues' } });
+    expect(last('leagues?prefillInviteCode=AB12CD')?.params).toEqual({ tab: 'leagues', prefillInviteCode: 'AB12CD' });
+    expect(last('tournaments')).toMatchObject({ name: 'Discover', params: { tab: 'tournaments' } });
+    expect(last('courts')).toMatchObject({ name: 'Discover', params: { tab: 'places' } });
+    expect(last('friends')).toMatchObject({ name: 'Discover', params: { tab: 'players' } });
+    expect(last('friends?tab=find')?.params).toEqual({ tab: 'players', players: 'find' });
+    expect(resolve('/friends?tab=requests')?.routes.map((r) => r.name)).toEqual(['Home', 'Discover']);
+  });
+
+  it('a centre on /courts comes back as numbers (Places reads only numbers)', () => {
+    expect(last('courts?lat=37.77&lng=-122.42')?.params).toEqual({ tab: 'places', lat: 37.77, lng: -122.42 });
+    expect(last('discover/places?lat=37.77&lng=-122.42')?.params).toEqual({ tab: 'places', lat: 37.77, lng: -122.42 });
+    // '' and junk are no centre (Number('') would be 0, the Gulf of Guinea).
+    const junk = last('discover/places?lat=&lng=abc')?.params as { lat?: unknown; lng?: unknown };
+    expect(junk.lat).toBeUndefined();
+    expect(junk.lng).toBeUndefined();
+  });
+
+  it('a web URL with ?mine=true does not turn Mine on (the screen wants true, not the string)', () => {
+    const p = last('play?initialTab=tournaments&mine=true')?.params as Record<string, unknown>;
+    expect(p).toEqual({ tab: 'tournaments' });
+    const q = last('discover/leagues?mine=true')?.params as Record<string, unknown>;
+    expect(q.mine).not.toBe(true);
+  });
+
+  it("deep links that are not the old lists are untouched (a court's page, a league, a league's tournaments)", () => {
+    expect(last(`courts/${courtPathSegment('osm:way/123')}`)).toMatchObject({ name: 'CourtDetail', params: { venueId: 'osm:way/123' } });
+    expect(last('leagues/l1')).toMatchObject({ name: 'LeagueDetail', params: { leagueId: 'l1' } });
+    expect(last('tournaments/t1')).toMatchObject({ name: 'TournamentDetail', params: { tournamentId: 't1' } });
+    expect(last('tournaments?leagueId=l1')).toMatchObject({ name: 'Tournaments', params: { leagueId: 'l1' } });
+    expect(last('settings/checkins')).toMatchObject({ name: 'Settings', params: { focus: 'checkins' } });
+    expect(resolve('')?.routes.map((r) => r.name)).toEqual(['Home']);
+  });
+
+  it('the address bar says /discover/<tab>, with the rest in the query', () => {
+    const path = (params: Record<string, unknown>) =>
+      getPathFromState({ routes: [{ name: 'Home' }, { name: 'Discover', params }], index: 1 } as never, config);
+    expect(path({ tab: 'places' })).toBe('/discover/places');
+    expect(path({ tab: 'players', players: 'requests' })).toBe('/discover/players?players=requests');
+    expect(path({ tab: 'places', lat: 37.77, lng: -122.42 })).toBe('/discover/places?lat=37.77&lng=-122.42');
+    expect(getPathFromState({ routes: [{ name: 'Discover' }] } as never, config)).toBe('/discover');
+  });
+
+  it('a URL round-trips through the address bar', () => {
+    for (const url of ['/discover/leagues', '/discover/players?players=find', '/discover/places?lat=1.5&lng=-2.25']) {
+      expect(getPathFromState(resolve(url)!, config)).toBe(url);
+    }
+  });
+
+  it('a warm link to Discover navigates (no stack reset)', () => {
+    const action = getActionFromState(resolve('courts')!, config);
+    expect(action).toMatchObject({ type: 'NAVIGATE', payload: { name: 'Discover', params: { tab: 'places' } } });
   });
 });

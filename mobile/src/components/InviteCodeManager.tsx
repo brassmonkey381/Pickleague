@@ -14,6 +14,7 @@ import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
+import { DISCOVER_ENABLED } from '../lib/features';
 
 export type InviteScope = 'league' | 'tournament';
 
@@ -351,7 +352,10 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
       <View style={S.infoBox}>
         <Text style={S.infoText}>
-          Recipients open the app, go to {scopeType === 'league' ? 'Leagues' : 'Tournaments'}, tap "Join with Code", and enter this code.
+          {DISCOVER_ENABLED
+            // One code table (redeem_invite_code): Enter code on Leagues takes a tournament's code too.
+            ? 'Recipients open the app, go to Discover › Leagues, tap + then "Enter code", and enter this code.'
+            : `Recipients open the app, go to ${scopeType === 'league' ? 'Leagues' : 'Tournaments'}, tap "Join with Code", and enter this code.`}
           {'\n\n'}
           Codes expire after 7 days. You can revoke and regenerate at any time.
         </Text>

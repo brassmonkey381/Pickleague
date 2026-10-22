@@ -75,6 +75,7 @@ import CourtCheckInNotes from './court/CourtCheckInNotes';
 import CheckinPlanLine from './routines/CheckinPlanLine';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { openDiscover } from '../lib/discoverNav';
 import type { RootStackParamList } from '../types';
 
 // Check out waits at most 3 s for its stay-proof fix, then the write as before.
@@ -464,7 +465,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         <TouchableOpacity
           style={[S.link, S.browse]}
           activeOpacity={0.6}
-          onPress={tap('browse_courts', () => navigation.navigate('Courts'))}
+          onPress={tap('browse_courts', () => openDiscover(navigation, { tab: 'places' }))}
           accessibilityRole="button"
           accessibilityLabel="Discover courts"
           accessibilityHint="Shows the courts near you, as a list or a map"

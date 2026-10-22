@@ -1,4 +1,5 @@
-// A way into the Friends screen. Two looks:
+// A way to your friends: Discover › Players (the Friends screen while Discover
+// is off). Two looks:
 //   - row:  "🤝 Friends            [2 requests] ›", a 48 tall strip (Profile,
 //           and the Notifications Requests / Friends chips).
 //   - link: a bare "Friends ›" (44 box) for a section header's trailing slot,
@@ -15,6 +16,7 @@ import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-arou
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
+import { openDiscover } from '../lib/discoverNav';
 import { useFriendRequests } from '../lib/useFriends';
 import { incomingCount } from '../lib/friendship';
 import type { RootStackParamList } from '../types';
@@ -38,9 +40,10 @@ export function FriendsLink({ variant = 'row', label = 'Friends', style, onPress
   if (!FRIENDS_AT_COURTS_ENABLED) return null;
   const waiting = incomingCount(data);
 
+  // Discover › Players (the Friends screen while Discover is off).
   const open = () => {
     onPress?.();
-    navigation.navigate('Friends', waiting > 0 ? { tab: 'requests' } : undefined);
+    openDiscover(navigation, { tab: 'players', players: waiting > 0 ? 'requests' : 'friends' });
   };
   const a11y = waiting > 0
     ? `${label}, ${waiting} friend ${waiting === 1 ? 'request' : 'requests'} waiting`

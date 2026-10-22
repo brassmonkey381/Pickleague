@@ -26,8 +26,9 @@ export const TOURS: Record<TourKey, TourStep[]> = {
 };
 
 // Fired the moment a tour actually starts (first run AND a manual replay), so
-// the screens that host its anchors can make them reachable: Play switches to
-// its Leagues tab, and the Leagues list closes its filter sheet and clears the
+// the screens that host its anchors can make them reachable: Discover (Play,
+// while Discover is off) switches to its Leagues tab, and the Leagues list
+// closes its filter sheet and clears the
 // Discover chips + route-param chips that could hide the first joinable row.
 // A signal rather than a direct call because the engine is created once at
 // module level and the screens come and go.

@@ -31,7 +31,7 @@ import {
   registerNotificationCategories,
 } from './notificationActions';
 import { linkForAction, linkOf, pushRoutes } from './pushLinks';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from './features';
+import { DISCOVER_ENABLED, FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from './features';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { refreshMyOpenCheckin } from '../data/venueCheckins';
 import { loadUserPreferencesResult } from './userPreferences';
@@ -186,7 +186,7 @@ const go = (name: string, params?: Record<string, unknown>) => {
 // The route table lives in lib/pushLinks.ts (pure, tested). Mirrors
 // NotificationsScreen.handleTap, which routes through routeNotification too.
 const router = createDeepLinkRouter(
-  pushRoutes({ wagersEnabled: WAGERS_ENABLED, friendsEnabled: FRIENDS_AT_COURTS_ENABLED }),
+  pushRoutes({ wagersEnabled: WAGERS_ENABLED, friendsEnabled: FRIENDS_AT_COURTS_ENABLED, discoverEnabled: DISCOVER_ENABLED }),
   go,
 );
 
@@ -202,7 +202,9 @@ async function openLeagueInvite(code: string): Promise<void> {
   } catch {
     // offline or timed out: the manual page can retry
   }
-  go('Leagues', { prefillInviteCode: code });
+  // Join with code, filled in: Discover's Leagues tab (else the Leagues list).
+  if (DISCOVER_ENABLED) go('Discover', { tab: 'leagues', prefillInviteCode: code });
+  else go('Leagues', { prefillInviteCode: code });
 }
 
 /** Route an in-app link ("<prefix><id>"); false when nothing matches. */

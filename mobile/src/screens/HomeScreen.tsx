@@ -45,6 +45,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { openDiscover } from '../lib/discoverNav';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -425,7 +426,8 @@ export default function HomeScreen({ navigation }: Props) {
       case 'DrillRequests': navigation.navigate('DrillRequests', target.params); break;
       case 'MatchHistory': navigation.navigate('MatchHistory', target.params); break;
       case 'LeagueMembers': navigation.navigate('LeagueMembers', target.params); break;
-      case 'Friends': navigation.navigate('Friends', target.params); break;
+      // Friend requests: Discover › Players (else the Friends screen).
+      case 'Friends': openDiscover(navigation, { tab: 'players', players: target.params.tab }); break;
     }
   }, [navigation]);
   const openLeague = (l: { id: string; name: string }) =>
@@ -474,8 +476,10 @@ export default function HomeScreen({ navigation }: Props) {
     tap('quick', target, position);
     switch (target) {
       case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
-      case 'play': navigation.navigate('Play'); break;
-      case 'courts': navigation.navigate('Courts'); break;
+      // Discover (plan §8): Play opens its Leagues tab (the old Play hub's
+      // first tab), the Discover tile its Places tab (the old Courts screen).
+      case 'play': openDiscover(navigation, { tab: 'leagues' }); break;
+      case 'courts': openDiscover(navigation, { tab: 'places' }); break;
       case 'drill': navigation.navigate('Drill'); break;
       case 'shop': navigation.navigate('Shop'); break;
       case 'wagers': navigation.navigate('MyWagers'); break;
@@ -607,8 +611,8 @@ export default function HomeScreen({ navigation }: Props) {
           }}
           onNext={(target) => { tap('spotlight', 'next'); go(target); }}
           onStartSeason={(l) => { tap('spotlight', 'start_season'); openLeague(l); }}
-          onAllLeagues={() => { tap('spotlight', 'all_leagues'); navigation.navigate('Play', { initialTab: 'leagues', mine: true }); }}
-          onMyTournaments={() => { tap('spotlight', 'my_tournaments'); navigation.navigate('Play', { initialTab: 'tournaments', mine: true }); }}
+          onAllLeagues={() => { tap('spotlight', 'all_leagues'); openDiscover(navigation, { tab: 'leagues', mine: true }); }}
+          onMyTournaments={() => { tap('spotlight', 'my_tournaments'); openDiscover(navigation, { tab: 'tournaments', mine: true }); }}
         />,
       );
     }
@@ -621,7 +625,7 @@ export default function HomeScreen({ navigation }: Props) {
           leagueJoin={leagueJoin}
           distanceById={joinDistances}
           onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
-          onBrowse={() => { tap('join', 'browse'); navigation.navigate('Play', { initialTab: 'leagues' }); }}
+          onBrowse={() => { tap('join', 'browse'); openDiscover(navigation, { tab: 'leagues' }); }}
           onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
           onJoinPressed={(kind, i) => tap('join', kind, i)}
         />,
@@ -648,7 +652,7 @@ export default function HomeScreen({ navigation }: Props) {
         items={openItems.rows}
         total={openItems.total}
         totalIsFloor={data.openCapped}
-        onSeeAll={() => { tap('open_near_you', 'see_all'); navigation.navigate('Play'); }}
+        onSeeAll={() => { tap('open_near_you', 'see_all'); openDiscover(navigation, { tab: 'leagues' }); }}
         nearby={!!coords}
         now={now}
         onPress={(item, i) => {
@@ -689,7 +693,8 @@ export default function HomeScreen({ navigation }: Props) {
                 key: 'discover',
                 icon: 'search' as const,
                 a11yLabel: 'Discover courts',
-                onPress: () => { tap('top_bar', 'discover'); navigation.navigate('Courts'); },
+                // Places, as the magnifier opened the courts before (plan C5).
+                onPress: () => { tap('top_bar', 'discover'); openDiscover(navigation, { tab: 'places' }); },
               }]
             : []),
           {
