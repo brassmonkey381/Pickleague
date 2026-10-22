@@ -151,7 +151,10 @@ begin
         -- ScheduleMatchScreen (migration_schedule_match_rpc.sql).
         'schedule_league_match',
         -- Court stars capped at 3, Doggle's replace-one (migration_court_star_cap_three.sql).
-        'replace_court_favorite'
+        'replace_court_favorite',
+        -- Referrals (migration_referrals.sql). referral_preview is also granted
+        -- to anon there (the signed-out web invite landing).
+        'claim_referral','my_referral_code','my_referral_stats','referral_preview'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

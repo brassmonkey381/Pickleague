@@ -197,3 +197,13 @@ Until then, run these tests manually before merging any change to
 `migration_generate_playoff_bracket.sql`,
 `migration_advance_non_mlp_playoff.sql`, or any other migration that
 touches playoff bracket generation or advancement.
+
+- `referral_personas.sql` (+ `build-referral-test.mjs`)
+  - Referrals (`migration_referrals.sql`, Doggle parity): applies the
+    migration twice and re-runs `migration_rls_hardening_2026q3.sql` inside
+    one rolled-back transaction, then checks grants, the claim refusals (self,
+    double, 30-day age, guest, unknown, blank, unclaimed), pay-on-claim,
+    metadata link at sign-up with pay on confirmation, the guest upgrade path,
+    idempotent re-pay, a confirmation that survives a broken payout, the 1/5/10
+    milestones, stats, preview, RLS, the column guard, the daily nudge and the
+    click purge.
