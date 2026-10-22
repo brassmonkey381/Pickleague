@@ -3,6 +3,13 @@
 // A flag here is for work that is MERGED but not SHIPPABLE - the code stays
 // on master so it does not rot on a branch, while every user-visible entry
 // point stays dark until the flag flips.
+//
+// PREVIEW: EXPO_PUBLIC_FEATURE_PREVIEW=1 in the environment of a LOCAL dev
+// server (state/preview-web.ps1) turns on the features below that are built
+// but not yet released, to try them before flipping them for everyone. It is
+// never set in mobile/.env, on Vercel or in EAS, so shipped bundles keep each
+// flag exactly as written.
+const PREVIEW = process.env.EXPO_PUBLIC_FEATURE_PREVIEW === '1';
 
 /**
  * Pickle wagering (bet earned pickles on match outcomes, exact scores, and
@@ -87,7 +94,7 @@ export const COURT_STARS_ENABLED = true;
  * by OTA after 1.0.4 is approved (the plan's ship note). Off, the screens are
  * unregistered, nothing links to them and nothing fetches.
  */
-export const COURT_DISCOVERY_ENABLED = false;
+export const COURT_DISCOVERY_ENABLED = PREVIEW;
 
 /**
  * Routine check-ins (state/routine-checkins-plan.md, Doggle's routines): My
@@ -104,7 +111,7 @@ export const COURT_DISCOVERY_ENABLED = false;
  * routine_reminder / arrival_extend_until buttons register either way: only
  * a server with routines sends a push that names them.)
  */
-export const ROUTINES_ENABLED = false;
+export const ROUTINES_ENABLED = PREVIEW;
 
 /**
  * Referrals, Doggle parity (state/referrals-plan.md): invite links
@@ -122,4 +129,4 @@ export const ROUTINES_ENABLED = false;
  * screen registers, no link path resolves, no storage is read and no RPC is
  * called: the app behaves exactly as before.
  */
-export const REFERRALS_ENABLED = false;
+export const REFERRALS_ENABLED = PREVIEW;
