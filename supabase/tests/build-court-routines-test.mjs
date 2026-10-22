@@ -2,8 +2,9 @@
 // Build the routine check-ins persona test: court_routines_personas.sql with
 // migration_court_routines.sql (twice: it must be re-runnable), then
 // migration_court_routines_planned_end.sql (twice: it replaces the plan-link
-// trigger function, so it goes after every run of the routines file, and it
-// must be re-runnable too) and then migration_rls_hardening_2026q3.sql (a
+// trigger function, the materializer and save_court_routine, so it goes after
+// every run of the routines file, and it must be re-runnable too) and then
+// migration_rls_hardening_2026q3.sql (a
 // re-run must keep the new client RPCs online) in place of its
 // -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.

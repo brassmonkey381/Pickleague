@@ -296,7 +296,10 @@ export function routineDueAt(
 
 /**
  * When the stop due at `venueId` is planned to end: its occurrence's planned
- * end, else its time plus the routine's length. Null when none is due.
+ * end, else its time plus the routine's length. Null when none is due. An
+ * arrival's guess (lib/courtArrival: a background wake may have only an old
+ * copy, and the weekly time is Doggle's fallback); how long a check-in asks
+ * uses routineOccurrenceEndAt.
  */
 export function routinePlannedEndAt(
   routines: readonly CourtRoutine[],
@@ -313,21 +316,98 @@ export function routinePlannedEndAt(
 }
 
 /**
+ * The occurrence a check-in at `venueId` at `at` keeps, from this copy: the
+ * server's _pl_routine_plan_at, a planned one at that court whose window (30
+ * minutes either side of its time) holds `at`, the nearest when two do.
+ * Null when there is none here.
+ */
+export function routineOccurrenceAt(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): { routine: CourtRoutine; occurrence: RoutineOccurrence } | null {
+  let best: { routine: CourtRoutine; occurrence: RoutineOccurrence } | null = null;
+  let bestGap = Infinity;
+  for (const routine of routines) {
+    if (routine.venueId !== venueId) continue;
+    for (const occurrence of [...routine.occurrences, ...(routine.next ? [routine.next] : [])]) {
+      const t = Date.parse(occurrence.plannedAt);
+      const gap = Math.abs(at.getTime() - t);
+      if (occurrence.status !== 'planned' || !Number.isFinite(t) || gap > ROUTINE_DUE_MS || gap >= bestGap) continue;
+      best = { routine, occurrence };
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/**
+ * The planned end of the routine occurrence a check-in at `venueId` at `at`
+ * keeps (routineOccurrenceAt), else null. Only an occurrence counts: the
+ * server links a check-in to nothing else, so a stop due by its weekly time
+ * alone (a routine saved after its time today on a server before round 3, or
+ * a copy older than the occurrence) takes nothing there. Counting it made
+ * Home say "Check in at X until 12:34 PM?" and the tap ask 170 minutes for a
+ * check-in with no windows and no planned end (probe X4).
+ * readRoutinesForCheckin reads the copy fresh first in that case
+ * (routineDueWithoutOccurrence).
+ */
+export function routineOccurrenceEndAt(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): string | null {
+  const hit = routineOccurrenceAt(routines, venueId, at);
+  if (!hit) return null;
+  return (
+    hit.occurrence.plannedEndAt ??
+    new Date(Date.parse(hit.occurrence.plannedAt) + hit.routine.lengthMin * 60_000).toISOString()
+  );
+}
+
+/**
+ * A routine stop is due at `venueId` at `at` by its weekly time, but this
+ * copy has no occurrence for it: the copy may predate the one the server
+ * made (it makes today's while its window is open, and re-makes it on an
+ * edit), so read it fresh before deciding how long a check-in asks.
+ */
+export function routineDueWithoutOccurrence(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): boolean {
+  return routineDueAt(routines, venueId, at) != null && routineOccurrenceAt(routines, venueId, at) == null;
+}
+
+/**
+ * What a check-in asks checkin_venue for when nothing else says, and the
+ * least it ever asks (D1, the user's rule: "pickleball sessions should start
+ * at 2 hours"): a check-in by hand or from a notification's button never ends
+ * before 2 hours, a routine stop's or not.
+ */
+export const DEFAULT_CHECKIN_MINUTES = 120;
+
+/**
  * How long a check-in made by hand at `venueId` at `at` asks checkin_venue
- * for when a routine stop is due there: to the stop's planned end, in whole
- * minutes rounded up, at least 30 (the server's floor on a routine
- * check-in's planned end) and at most 240 (checkin_venue's cap). Null when
- * none is due. The server links the check-in to the occurrence and takes its
- * closed / open windows and planned end, but keeps the length asked (as
- * Doggle does), so the default 2 hours would end a 3-hour split before its
- * open part.
+ * for when a routine stop with an occurrence is due there: to the stop's
+ * planned end, in whole minutes rounded up, at least 2 hours (D1) and at most
+ * 240 (checkin_venue's cap). Null when none is due, or it has no occurrence
+ * in this copy (routineOccurrenceEndAt): the caller's 2 hours. The server
+ * links the check-in to the occurrence and takes its closed / open windows
+ * and planned end, but keeps the length asked (as Doggle does), so the
+ * default 2 hours would end a 3-hour split before its open part.
  */
 export function routineCheckinMinutes(
   routines: readonly CourtRoutine[],
   venueId: string,
   at: Date = new Date(),
 ): number | null {
-  return minutesToPlannedEnd(routinePlannedEndAt(routines, venueId, at), at);
+  return atLeastDefault(minutesToPlannedEnd(routineOccurrenceEndAt(routines, venueId, at), at));
+}
+
+/** D1's floor on minutes to a routine's end (null stays null: the caller's default). */
+function atLeastDefault(minutes: number | null): number | null {
+  return minutes == null ? null : Math.max(DEFAULT_CHECKIN_MINUTES, minutes);
 }
 
 /**
@@ -342,10 +422,12 @@ export function minutesToPlannedEnd(endIso: string | null | undefined, at: Date 
 }
 
 /**
- * Until when Check in here runs at `venueId` at `at` when a routine stop is
- * due there: its planned end, or `at` + 30 minutes / 4 hours when that bound
+ * Until when Check in here runs at `venueId` at `at` when a routine stop with
+ * an occurrence is due there: its planned end, or `at` + 4 hours when that
  * comes first (what the tap asks for: routineCheckinMinutes). Null when none
- * is due. Home's card works it out on each render, on a minute tick, so its
+ * is due, it has no occurrence in this copy, or its end is 2 hours away or
+ * less (the tap asks the default 2 hours then, D1: the card says "for 2
+ * hours"). Home's card works it out on each render, on a minute tick, so its
  * "until" never drifts and follows a stop's window opening or closing (it
  * kept minutes read once and added them to the clock on every render).
  */
@@ -354,11 +436,12 @@ export function routineCheckinUntil(
   venueId: string,
   at: Date = new Date(),
 ): string | null {
-  const end = routinePlannedEndAt(routines, venueId, at);
-  const minutes = minutesToPlannedEnd(end, at);
+  const end = routineOccurrenceEndAt(routines, venueId, at);
+  const minutes = routineCheckinMinutes(routines, venueId, at);
   if (!end || minutes == null) return null;
   const raw = (Date.parse(end) - at.getTime()) / 60_000;
-  return raw >= MIN_PLAY_LENGTH_MIN && raw <= MAX_PLAY_LENGTH_MIN ? end : new Date(at.getTime() + minutes * 60_000).toISOString();
+  if (raw <= DEFAULT_CHECKIN_MINUTES) return null;
+  return raw <= MAX_PLAY_LENGTH_MIN ? end : new Date(at.getTime() + minutes * 60_000).toISOString();
 }
 
 /** A routine stop's window around its time (the server's _pl_routine_plan_at): 30 minutes either side. */
@@ -371,9 +454,10 @@ const ROUTINE_DUE_MS = 30 * 60_000;
  * that court, as a check-in by hand does. The tapped routine reminder's own
  * occurrence first (its push carries planned_at and planned_end_at: no read,
  * and a moved day is right) while `at` is inside its window, else my
- * routines (routineCheckinMinutes; null: not read). Null when no stop is due
- * (the caller's 2 hours). Every button asked 2 hours before, so a 3-hour
- * split closed 2 h / open 1 h ended still closed.
+ * routines (routineCheckinMinutes; null: not read). Never under 2 hours
+ * (D1). Null when no stop with an occurrence is due (the caller's 2 hours).
+ * Every button asked 2 hours before, so a 3-hour split closed 2 h / open 1 h
+ * ended still closed.
  */
 export function buttonCheckinMinutes(
   routines: readonly CourtRoutine[] | null,
@@ -383,7 +467,7 @@ export function buttonCheckinMinutes(
 ): number | null {
   const planned = reminder?.plannedAt ? Date.parse(reminder.plannedAt) : NaN;
   if (Number.isFinite(planned) && Math.abs(at.getTime() - planned) <= ROUTINE_DUE_MS) {
-    const m = minutesToPlannedEnd(reminder?.plannedEndAt, at);
+    const m = atLeastDefault(minutesToPlannedEnd(reminder?.plannedEndAt, at));
     if (m != null) return m;
   }
   return routines ? routineCheckinMinutes(routines, venueId, at) : null;
@@ -609,21 +693,49 @@ type CheckinPlanFacts = {
   expiresAt: string;
   plannedEndAt: string | null;
   windows: readonly AbsoluteTimeWindow<PlayMode>[];
+  /** The last confirming fix and whether the check-in is location-confirmed (set_checkin_plan's reach; unknown: confirmed). */
+  fixAt?: string | null;
+  locationConfirmed?: boolean | null;
 };
 
 /**
- * The latest of a check-in's planned end, its end and its last window's end,
- * 30 minutes to 4 hours after the check-in (ms). NaN when the check-in time
+ * The latest of a check-in's planned end, its end and its last window's end
+ * (ms), at least 30 minutes after the check-in. NaN when the check-in time
  * doesn't parse or nothing does.
  */
-function checkinPlanLatestEndMs(plan: CheckinPlanFacts): number {
+function checkinPlanLatestRawMs(plan: CheckinPlanFacts): number {
   const start = Date.parse(plan.checkedInAt);
   if (!Number.isFinite(start)) return NaN;
   const ends = [plan.plannedEndAt, plan.expiresAt, ...plan.windows.map((w) => w.endsAt)]
     .map((v) => (v ? Date.parse(v) : NaN))
     .filter((v) => Number.isFinite(v));
   if (ends.length === 0) return NaN;
-  return Math.min(start + MAX_PLAY_LENGTH_MIN * 60_000, Math.max(start + MIN_PLAY_LENGTH_MIN * 60_000, Math.max(...ends)));
+  return Math.max(start + MIN_PLAY_LENGTH_MIN * 60_000, Math.max(...ends));
+}
+
+/**
+ * checkinPlanLatestRawMs, at most 4 hours after the check-in: the longest
+ * "How long?" the sheet shows. NaN as there.
+ */
+function checkinPlanLatestEndMs(plan: CheckinPlanFacts): number {
+  const start = Date.parse(plan.checkedInAt);
+  return Math.min(start + MAX_PLAY_LENGTH_MIN * 60_000, checkinPlanLatestRawMs(plan));
+}
+
+/**
+ * The latest planned end set_checkin_plan keeps for this check-in at `now`:
+ * its own end, or later up to 4 hours from now and, location-confirmed (or
+ * unknown), 4 hours past its last fix (else past the check-in). The server
+ * cuts a later one to this.
+ */
+function checkinPlanReachMs(plan: CheckinPlanFacts, now: Date): number {
+  let reach = now.getTime() + EXTEND_CAP_MS;
+  if (plan.locationConfirmed !== false) {
+    const last = Date.parse(plan.fixAt || plan.checkedInAt);
+    if (Number.isFinite(last)) reach = Math.min(reach, last + EXTEND_CAP_MS);
+  }
+  const exp = Date.parse(plan.expiresAt);
+  return Number.isFinite(exp) ? Math.max(reach, exp) : reach;
 }
 
 /**
@@ -658,9 +770,12 @@ export type CheckinPlanSheetStart = {
   lengthMin: number;
   windows: TimeWindow<PlayMode>[];
   /**
-   * The check-in's latest end (checkinPlanStartLength's, before the grid):
-   * the planned end Save sends while "How long?" is still `lengthMin`. Null
-   * when the check-in time doesn't parse.
+   * The check-in's latest end (its planned end, its end or its last
+   * window's end), as far as set_checkin_plan keeps it (checkinPlanReachMs):
+   * the planned end Save sends while "How long?" is still `lengthMin`. Past
+   * the 4 hours the sheet shows when the server takes it (a check-in kept
+   * going with fixes), so Save never cuts it to the check-in + 4 h. Null when
+   * the check-in time doesn't parse.
    */
   endAt: string | null;
   /**
@@ -669,29 +784,77 @@ export type CheckinPlanSheetStart = {
    * puts a boundary still at that offset back on its own minute.
    */
   boundaries: Record<number, string>;
+  /**
+   * The check-in's windows from the check-in to `endAt`, at their own
+   * minutes: Save sends them as they are when the player changed nothing
+   * (length and windows as opened). [] when they say nothing.
+   */
+  original: AbsoluteTimeWindow<PlayMode>[];
+  /**
+   * Leading windows the 15-minute grid can't show: they end less than half a
+   * step after the check-in (9:23 in on a routine closed until 9:30). Save
+   * puts them back in front while the first window keeps the kind it opened
+   * with. [] when there are none.
+   */
+  lead: AbsoluteTimeWindow<PlayMode>[];
 };
 
 /**
- * What the plan sheet opens with: the starting length (checkinPlanStartLength)
- * and the check-in's windows at that length, none cut before the player picks
- * a length, plus the exact end and boundaries (checkinPlanToSave).
+ * What the plan sheet opens with at `now`: the starting length
+ * (checkinPlanStartLength) and the check-in's windows at that length, none
+ * cut before the player picks a length, plus the exact end, boundaries, the
+ * windows as they are and any leading sliver (checkinPlanToSave).
  */
-export function checkinPlanSheetStart(plan: CheckinPlanFacts): CheckinPlanSheetStart {
+export function checkinPlanSheetStart(plan: CheckinPlanFacts, now: Date = new Date()): CheckinPlanSheetStart {
   const lengthMin = checkinPlanStartLength(plan);
   const windows = checkinPlanEditorWindows(plan.windows, plan.checkedInAt, lengthMin);
   const start = Date.parse(plan.checkedInAt);
-  const latest = checkinPlanLatestEndMs(plan);
-  const endMs = Number.isFinite(latest) ? latest : start + lengthMin * 60_000;
+  const latest = checkinPlanLatestRawMs(plan);
+  const endMs = Number.isFinite(latest) ? Math.min(latest, checkinPlanReachMs(plan, now)) : start + lengthMin * 60_000;
+  const step = PLAY_WINDOW_RULES.stepMin ?? 15;
   const boundaries: Record<number, string> = {};
+  let original: AbsoluteTimeWindow<PlayMode>[] = [];
+  const lead: AbsoluteTimeWindow<PlayMode>[] = [];
   if (Number.isFinite(endMs)) {
-    const step = PLAY_WINDOW_RULES.stepMin ?? 15;
-    for (const w of spanCheckinWindows(plan.windows, plan.checkedInAt, new Date(endMs).toISOString()).slice(1)) {
+    const endIso = new Date(endMs).toISOString();
+    const spanned = spanCheckinWindows(plan.windows, plan.checkedInAt, endIso);
+    for (const w of spanned.slice(1)) {
       const key = Math.round(Math.round((Date.parse(w.startsAt) - start) / 60_000) / step) * step;
       if (!(key in boundaries)) boundaries[key] = w.startsAt;
     }
+    if (windowsSaySomething(spanned)) original = spanned;
+    // The windows the editor was given (to `lengthMin`): those whose end
+    // rounds to the check-in on the grid are dropped there.
+    const shown = spanCheckinWindows(plan.windows, plan.checkedInAt, new Date(start + lengthMin * 60_000).toISOString());
+    for (let i = 0; i < shown.length - 1; i++) {
+      if (Math.round(Math.round((Date.parse(shown[i].endsAt) - start) / 60_000) / step) !== 0) break;
+      lead.push(shown[i]);
+    }
+    // Nothing lost when the first window shown is of the same kind.
+    if (lead.length && sameKind(lead[lead.length - 1], shown[lead.length])) lead.length = 0;
   }
-  return { lengthMin, windows, endAt: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null, boundaries };
+  return {
+    lengthMin,
+    windows,
+    endAt: Number.isFinite(endMs) ? new Date(endMs).toISOString() : null,
+    boundaries,
+    original,
+    lead,
+  };
 }
+
+/** Same mode, hint and group (foundation sameWindowKind, for either window shape). */
+function sameKind(a: { mode: PlayMode | null; hint?: string | null; group?: string[] }, b: { mode: PlayMode | null; hint?: string | null; group?: string[] }): boolean {
+  const g = (x?: string[]) => [...(x ?? [])].sort().join(',');
+  return (a.mode ?? null) === (b.mode ?? null) && (a.hint ?? null) === (b.hint ?? null) && g(a.group) === g(b.group);
+}
+
+/** The editor's windows are the ones the sheet opened with (bounds and kinds). */
+function sameEditorWindows(a: readonly TimeWindow<PlayMode>[], b: readonly TimeWindow<PlayMode>[]): boolean {
+  return a.length === b.length && a.every((w, i) => w.startMin === b[i].startMin && w.endMin === b[i].endMin && sameKind(w, b[i]));
+}
+
+const copyAbsolute = (w: AbsoluteTimeWindow<PlayMode>): AbsoluteTimeWindow<PlayMode> => ({ ...w, group: [...(w.group ?? [])] });
 
 /**
  * What the plan sheet's Save sends set_checkin_plan: the windows it shows for
@@ -702,9 +865,17 @@ export function checkinPlanSheetStart(plan: CheckinPlanFacts): CheckinPlanSheetS
  * open and save moved both onto the 15-minute grid from the check-in: a 9:29
  * check-in planned to 12:00, closed until 11:00, saved until 12:14 with the
  * split at 10:59.
+ *
+ * Nothing changed (the opening length and windows): the check-in's own
+ * windows and end, exactly (`start.original`), so an open and save changes
+ * nothing the grid can't show: minutes, a sliver, a part past 4 hours. A
+ * leading sliver the grid dropped (`start.lead`) goes back in front while the
+ * first window keeps the kind it opened with: 9:23 in on a routine closed
+ * until 9:30 saved open from 9:23 before.
  */
 export function checkinPlanToSave(
-  start: Pick<CheckinPlanSheetStart, 'lengthMin' | 'endAt' | 'boundaries'>,
+  start: Pick<CheckinPlanSheetStart, 'lengthMin' | 'endAt' | 'boundaries'> &
+    Partial<Pick<CheckinPlanSheetStart, 'windows' | 'original' | 'lead'>>,
   windows: readonly TimeWindow<PlayMode>[],
   lengthMin: number,
   checkedInAt: string,
@@ -712,7 +883,15 @@ export function checkinPlanToSave(
   const s = Date.parse(checkedInAt);
   const gridEnd = s + lengthMin * 60_000;
   const exactEnd = lengthMin === start.lengthMin && start.endAt ? Date.parse(start.endAt) : NaN;
-  const list = checkinPlanWindowsToSave(windows, lengthMin, checkedInAt);
+  if (
+    Number.isFinite(exactEnd) &&
+    start.original?.length &&
+    start.windows &&
+    sameEditorWindows(windows, start.windows)
+  ) {
+    return { plannedEnd: new Date(exactEnd), windows: start.original.map(copyAbsolute) };
+  }
+  let list = checkinPlanWindowsToSave(windows, lengthMin, checkedInAt);
   let end = Number.isFinite(exactEnd) ? exactEnd : gridEnd;
   for (let i = 1; i < list.length; i++) {
     const exact = start.boundaries[Math.round((Date.parse(list[i].startsAt) - s) / 60_000)];
@@ -726,6 +905,22 @@ export function checkinPlanToSave(
   if (list.length > 0) {
     if (Date.parse(list[list.length - 1].startsAt) >= end) end = gridEnd;
     list[list.length - 1].endsAt = new Date(end).toISOString();
+  }
+  const lead = start.lead ?? [];
+  const opened = start.windows?.[0];
+  if (
+    lead.length > 0 &&
+    list.length > 0 &&
+    windows.length > 0 &&
+    opened &&
+    sameKind(windows[0], opened) &&
+    list.length + lead.length <= (PLAY_WINDOW_RULES.maxWindows ?? 6)
+  ) {
+    const cut = lead[lead.length - 1].endsAt;
+    if (Date.parse(cut) < Date.parse(list[0].endsAt)) {
+      list[0].startsAt = cut;
+      list = [...lead.map(copyAbsolute), ...list];
+    }
   }
   return { plannedEnd: new Date(end), windows: list };
 }

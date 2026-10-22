@@ -20,7 +20,8 @@
 -- Courts near 40.7 N, 100.0 W (far from every real venue; a fix 11 m north is
 -- lat + 0.0001): test:cr-home (+ duplicate row test:cr-home-osm), cr-two,
 -- cr-three, cr-unstarred, cr-crowd, cr-arr, cr-off, cr-man, cr-split,
--- cr-split3a, cr-split3b, cr-split3c, cr-split4a, cr-split4b, cr-split3d.
+-- cr-split3a, cr-split3b, cr-split3c, cr-split4a, cr-split4b, cr-split3d,
+-- cr-late, cr-late2, cr-late3, cr-late4, cr-early.
 --
 -- Personas:
 --   RO owner (CRUD, windows, DST, midnight, skip / move / undo, privacy)
@@ -40,6 +41,12 @@
 --   RQ4 RQ5 RQ6 "Stay until" within extend_checkin's caps on a 4-hour
 --   routine (by hand 10 minutes early; an arrival), and the routine
 --   reminder's Check in asking the routine's length (R16)
+--   RT RT2 RT3 RT4 a routine saved or edited during its stop's window acts
+--   today: saved 10 minutes after its time then a check-in by hand, an edit,
+--   a skip then an edit, a time moved out of the window, the clock edges
+--   (R17; review round 3, gap 1)
+--   RE checked in before a routine stop's window opens: the open check-in
+--   does not take the occurrence (Doggle parity over D2, R18)
 -- ============================================================
 
 begin;
@@ -66,13 +73,15 @@ insert into _p values
   ('RP',  'a8000000-0000-4000-8000-000000000019'), ('RQ',  'a8000000-0000-4000-8000-00000000001a'),
   ('RQ2', 'a8000000-0000-4000-8000-00000000001b'), ('RQ3', 'a8000000-0000-4000-8000-00000000001c'),
   ('RQ4', 'a8000000-0000-4000-8000-00000000001d'), ('RQ5', 'a8000000-0000-4000-8000-00000000001e'),
-  ('RQ6', 'a8000000-0000-4000-8000-00000000001f');
+  ('RQ6', 'a8000000-0000-4000-8000-00000000001f'), ('RT',  'a8000000-0000-4000-8000-000000000020'),
+  ('RT2', 'a8000000-0000-4000-8000-000000000021'), ('RT3', 'a8000000-0000-4000-8000-000000000022'),
+  ('RT4', 'a8000000-0000-4000-8000-000000000023'), ('RE',  'a8000000-0000-4000-8000-000000000024');
 grant select on _p to authenticated, anon;
 
 -- Ids picked in advance (check-ins, sessions).
 create temp table _ids (k text primary key, id uuid not null default gen_random_uuid());
 insert into _ids (k) values ('RA'), ('RA2'), ('RA3'), ('RM'), ('C1'), ('C2'), ('C3'), ('C5'), ('C6'), ('C7'), ('RP'),
-  ('RQ'), ('RQ2'), ('RQ3'), ('RQ4'), ('RQ5'), ('RQ6');
+  ('RQ'), ('RQ2'), ('RQ3'), ('RQ4'), ('RQ5'), ('RQ6'), ('RT'), ('RT2'), ('RE');
 grant select on _ids to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -154,7 +163,12 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:cr-split3c',   array['pickleball'], 'CR Test Courts Split 3C',  'court', 40.81, -100.0, 'google', 100),
   ('test:cr-split4a',   array['pickleball'], 'CR Test Courts Split 4A',  'court', 40.82, -100.0, 'google', 100),
   ('test:cr-split4b',   array['pickleball'], 'CR Test Courts Split 4B',  'court', 40.83, -100.0, 'google', 100),
-  ('test:cr-split3d',   array['pickleball'], 'CR Test Courts Split 3D',  'court', 40.84, -100.0, 'google', 100);
+  ('test:cr-split3d',   array['pickleball'], 'CR Test Courts Split 3D',  'court', 40.84, -100.0, 'google', 100),
+  ('test:cr-late',      array['pickleball'], 'CR Test Courts Late',      'court', 40.85, -100.0, 'google', 100),
+  ('test:cr-late2',     array['pickleball'], 'CR Test Courts Late 2',    'court', 40.86, -100.0, 'google', 100),
+  ('test:cr-late3',     array['pickleball'], 'CR Test Courts Late 3',    'court', 40.87, -100.0, 'google', 100),
+  ('test:cr-late4',     array['pickleball'], 'CR Test Courts Late 4',    'court', 40.88, -100.0, 'google', 100),
+  ('test:cr-early',     array['pickleball'], 'CR Test Courts Early',     'court', 40.89, -100.0, 'google', 100);
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m, canonical_id) values
   ('test:cr-home-osm', array['pickleball'], 'CR Test Courts Home', 'court', 40.70005, -100.0, 'osm', 100, 'test:cr-home');
 
@@ -165,12 +179,15 @@ select pg_temp.p(k), v from (values
   ('RW', 'test:cr-arr'), ('RX', 'test:cr-off'), ('RN', 'test:cr-off'), ('RM', 'test:cr-man'), ('RP', 'test:cr-split'),
   ('RU', 'test:cr-home'), ('RD', 'test:cr-home'),
   ('RQ', 'test:cr-split3a'), ('RQ2', 'test:cr-split3b'), ('RQ3', 'test:cr-split3c'),
-  ('RQ4', 'test:cr-split4a'), ('RQ5', 'test:cr-split4b'), ('RQ6', 'test:cr-split3d')) s(k, v);
+  ('RQ4', 'test:cr-split4a'), ('RQ5', 'test:cr-split4b'), ('RQ6', 'test:cr-split3d'),
+  ('RT', 'test:cr-late'), ('RT2', 'test:cr-late2'), ('RT3', 'test:cr-late3'), ('RT4', 'test:cr-late4'),
+  ('RE', 'test:cr-early')) s(k, v);
 
 -- Consent (arrivals need it); RA and RN have automatic check-in off.
 insert into public.presence_settings (user_id, consent_seen_at, auto_checkin)
 select pg_temp.p(k), now(), k not in ('RA', 'RN')
-  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3', 'RQ4', 'RQ5', 'RQ6');
+  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3', 'RQ4', 'RQ5', 'RQ6',
+                      'RT', 'RT2', 'RT3', 'RT4', 'RE');
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
 select pg_temp.p(a), pg_temp.p(b), 'accepted', now() from (values
@@ -302,7 +319,9 @@ begin
   -- The replaced ones keep their one signature (no overloads beside them).
   select string_agg(w.fn || ' ' || got.n, '; ') into v_bad
     from (values ('_pl_court_arrival_off'), ('_pl_take_back_arrival'), ('cancel_court_arrival'),
-                 ('process_court_arrivals'), ('_purge_account'), ('prune_presence_history')) w(fn)
+                 ('process_court_arrivals'), ('_purge_account'), ('prune_presence_history'),
+                 -- replaced again by migration_court_routines_planned_end.sql
+                 ('_pl_checkin_link_plan'), ('_pl_materialize_court_routines'), ('save_court_routine')) w(fn)
     cross join lateral (select count(*) as n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
                          where ns.nspname = 'public' and p.proname = w.fn) got
    where got.n <> 1;
@@ -341,6 +360,12 @@ begin
   perform pg_temp.ok('R1 the plan link takes the occurrence''s planned end (migration_court_routines_planned_end.sql, applied after the routines file)',
     (select prosrc like '%new.planned_end_at := greatest(v_occ.planned_end_at, new.checked_in_at + interval ''30 minutes'')%'
        from pg_proc where oid = 'public._pl_checkin_link_plan()'::regprocedure));
+  perform pg_temp.ok('R1 an occurrence is made while its window is open, and a save re-makes the ones in play (same file)',
+    (select prosrc like '%continue when v_at <= p_now - interval ''30 minutes'';%'
+            and prosrc like '%generate_series(v_today - 1, v_today + 1, interval ''1 day'')%'
+       from pg_proc where oid = 'public._pl_materialize_court_routines(uuid,timestamptz)'::regprocedure)
+    and (select prosrc like '%status = ''planned'' and planned_at > now() - interval ''30 minutes'';%'
+           from pg_proc where oid = 'public.save_court_routine(uuid,text,time without time zone,integer,text,integer,jsonb)'::regprocedure));
   perform pg_temp.ok('R1 both venue_checkins triggers exist once',
     (select count(*) from pg_trigger where tgrelid = 'public.venue_checkins'::regclass
       and tgname in ('trg_venue_checkins_plan_link', 'trg_venue_checkins_plan_kept') and not tgisinternal) = 2);
@@ -617,12 +642,14 @@ begin
   perform pg_temp.as_admin();
   nn := pg_temp.routine('RO', 'test:cr-three', '00:15');
   delete from public.court_plans where routine_id in (m.id, nn.id);
-  n := public._pl_materialize_court_routines(m.id, '2027-12-01 23:40+00');
+  -- A time whose window is over is not made (31 minutes past; R17 has one
+  -- still in its window, which is).
+  n := public._pl_materialize_court_routines(m.id, '2027-12-02 00:01+00');
   o := pg_temp.occ(m.id, '2027-12-02');
-  perform pg_temp.ok('R5 23:30 at 23:40: today''s is past, tomorrow''s is made, ending after midnight',
-    n = 1 and (pg_temp.occ(m.id, '2027-12-01')).id is null
+  perform pg_temp.ok('R5 23:30 at 00:01: last night''s window is over, so not made; tonight''s and tomorrow''s are, ending after midnight',
+    n = 2 and (pg_temp.occ(m.id, '2027-12-01')).id is null and (pg_temp.occ(m.id, '2027-12-03')).id is not null
     and o.planned_at = '2027-12-02 23:30+00' and o.planned_end_at = '2027-12-03 01:00+00'
-    and (o.windows -> 1 ->> 'starts_at')::timestamptz = '2027-12-03 00:30+00', coalesce(row_to_json(o)::text, 'none'));
+    and (o.windows -> 1 ->> 'starts_at')::timestamptz = '2027-12-03 00:30+00', n || ' ' || coalesce(row_to_json(o)::text, 'none'));
   n := public._pl_materialize_court_routines(nn.id, '2027-12-01 23:40+00');
   o := pg_temp.occ(nn.id, '2027-12-02');
   perform pg_temp.ok('R5 00:15 at 23:40: the next one is 35 minutes later, dated the next day',
@@ -1545,6 +1572,220 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('R16 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ R17 a routine saved or edited during its window acts today ═══════════
+-- Review round 3, gap 1 (live, rolled back: probe X4). A routine saved at
+-- 9:44 for 9:34 got only tomorrow's occurrence, and an edit during the window
+-- kept today's old one, so a check-in by hand kept nothing (no windows, no
+-- planned end) while the app counted the stop as due. Now the materializer
+-- makes an occurrence while its window is open (its time no more than 30
+-- minutes ago) and a save re-makes the planned ones still in play
+-- (migration_court_routines_planned_end.sql). RT saves 10 minutes after its
+-- time, then checks in by hand asking what the app asks now (to the planned
+-- end, never under 2 hours: D1); RT2 edits during the window, then checks
+-- in; RT3 skips today, then edits; RT4 moves the time out of the window, then
+-- the clock edges (+29 / +31 minutes, a window across midnight, in 2027).
+create function pg_temp.late_routine(k text, p_venue text, p_ago interval, p_length int, p_windows jsonb default null)
+returns jsonb language plpgsql as $$
+begin
+  perform pg_temp.as_user(pg_temp.p(k));
+  return public.save_court_routine(null, p_venue, ((now() at time zone 'UTC') - p_ago)::time,
+                                   127, 'UTC', p_length, p_windows);
+end $$;
+-- A routine's occurrences at an instant (a duplicate counts 2), and the first.
+create function pg_temp.occs_at(p_routine uuid, p_at timestamptz) returns int language sql stable as $$
+  select count(*)::int from public.court_plans where routine_id = p_routine and planned_at = p_at
+$$;
+create function pg_temp.occ_at(p_routine uuid, p_at timestamptz) returns public.court_plans language sql stable as $$
+  select * from public.court_plans where routine_id = p_routine and planned_at = p_at order by created_at, id limit 1
+$$;
+-- What the app asks for a check-in by hand at a stop with an occurrence
+-- (lib/courtRoutineRules routineCheckinMinutes): to its planned end, rounded
+-- up, 2 to 4 hours (D1).
+create function pg_temp.app_minutes(p_end timestamptz) returns int language sql stable as $$
+  select least(240, greatest(120, ceil(extract(epoch from (p_end - now())) / 60)::int))
+$$;
+
+do $$
+declare
+  r     public.court_routines;
+  pl    public.court_plans;
+  pl2   public.court_plans;
+  c     public.venue_checkins;
+  j     jsonb;
+  n     int;
+  v_at  timestamptz := date_trunc('minute', now() - interval '10 minutes');
+  v_min int;
+begin
+  -- RT: saved at 9:44 for 9:34 (10 minutes after its time), closed 2 h then open 1 h.
+  j := pg_temp.late_routine('RT', 'test:cr-late', interval '10 minutes', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT', 'test:cr-late');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.ok('R17 saved 10 minutes after its time: today''s occurrence is made (its window is open), windows and planned end from its time',
+    pl.id is not null and pl.status = 'planned' and pl.planned_end_at = v_at + interval '180 minutes'
+    and (pl.windows -> 0 ->> 'starts_at')::timestamptz = v_at
+    and (pl.windows -> 1 ->> 'starts_at')::timestamptz = v_at + interval '120 minutes'
+    and pl.windows -> 0 ->> 'mode' = 'closed' and pl.windows -> 1 ->> 'mode' = 'open',
+    coalesce(row_to_json(pl)::text, 'none (as on the old server: only the next day''s)'));
+  perform pg_temp.ok('R17 ... and the save''s answer (the app''s copy) has it as next',
+    exists (select 1 from jsonb_array_elements(j) x where x ->> 'id' = r.id::text and x -> 'next' ->> 'plan_id' = pl.id::text),
+    j::text);
+  perform public.materialize_court_routines();
+  perform pg_temp.ok('R17 ... the 15-minute job keeps it (not tidied away) and makes it once',
+    (pg_temp.plan(pl.id)).status = 'planned' and pg_temp.occs_at(r.id, v_at) = 1);
+
+  -- A check-in by hand, asking what the app asks now.
+  v_min := pg_temp.app_minutes(pl.planned_end_at);
+  perform pg_temp.as_user(pg_temp.p('RT'));
+  perform public.checkin_venue(p_id => pg_temp.i('RT'), p_venue => 'test:cr-late', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.8501, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RT'));
+  perform pg_temp.ok('R17 a check-in by hand then keeps it: windows and planned end, running to the end of the split (probe X4: all null)',
+    v_min between 169 and 171 and c.plan_id = pl.id and c.play_windows = pl.windows and c.planned_end_at = pl.planned_end_at
+    and c.expires_at >= pl.planned_end_at and c.expires_at < pl.planned_end_at + interval '1 minute'
+    and (pg_temp.plan(pl.id)).status = 'completed'
+    and public._pl_checkin_mode_at(c.play_windows, now()) = 'closed'
+    and public._pl_checkin_mode_at(c.play_windows, pl.planned_at + interval '150 minutes') = 'open',
+    'minutes ' || v_min || ' ' || row_to_json(c)::text);
+
+  -- Edited during the window after the check-in: the kept occurrence stays.
+  perform pg_temp.as_user(pg_temp.p('RT'));
+  perform public.save_court_routine(r.id, 'test:cr-late', r.local_time, 127, 'UTC', 120, null);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R17 an edit during the window leaves a kept occurrence kept, linked and alone (no second one)',
+    (pg_temp.plan(pl.id)).status = 'completed' and (pg_temp.plan(pl.id)).checkin_id = c.id
+    and pg_temp.occs_at(r.id, v_at) = 1 and (pg_temp.vci(c.id)).plan_id = pl.id);
+
+  -- RT2: saved 10 minutes after its time (3 h, closed then open), then edited
+  -- in the window to 2 h, open play 1 h then closed group.
+  perform pg_temp.late_routine('RT2', 'test:cr-late2', interval '10 minutes', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT2', 'test:cr-late2');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.as_user(pg_temp.p('RT2'));
+  perform public.save_court_routine(r.id, 'test:cr-late2', r.local_time, 127, 'UTC', 120,
+    jsonb_build_array(pg_temp.w(0, 60, 'open', 'all_levels'), pg_temp.w(60, 120, 'closed')));
+  perform pg_temp.as_admin();
+  pl2 := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.ok('R17 an edit during the window re-makes today''s occurrence with the new length and windows (it kept the old ones)',
+    pl.id is not null and pl2.id is not null and pl2.id <> pl.id and (pg_temp.plan(pl.id)).id is null
+    and pl2.status = 'planned' and pg_temp.occs_at(r.id, v_at) = 1
+    and pl2.planned_end_at = v_at + interval '120 minutes'
+    and pl2.windows -> 0 ->> 'mode' = 'open' and pl2.windows -> 0 ->> 'hint' = 'all_levels'
+    and (pl2.windows -> 1 ->> 'starts_at')::timestamptz = v_at + interval '60 minutes' and pl2.windows -> 1 ->> 'mode' = 'closed',
+    coalesce(row_to_json(pl2)::text, 'none'));
+  -- 110 minutes to its end: the app asks 2 hours (D1).
+  v_min := pg_temp.app_minutes(pl2.planned_end_at);
+  perform pg_temp.as_user(pg_temp.p('RT2'));
+  perform public.checkin_venue(p_id => pg_temp.i('RT2'), p_venue => 'test:cr-late2', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.8601, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RT2'));
+  perform pg_temp.ok('R17 ... a check-in by hand then takes the edited plan (open now), lasting the 2 hours asked (D1)',
+    v_min = 120 and c.plan_id = pl2.id and c.play_windows = pl2.windows and c.planned_end_at = pl2.planned_end_at
+    and c.expires_at = c.checked_in_at + interval '120 minutes'
+    and public._pl_checkin_mode_at(c.play_windows, now()) = 'open', 'minutes ' || v_min || ' ' || row_to_json(c)::text);
+
+  -- RT3: skipped today in the window, then edited: still skipped.
+  perform pg_temp.late_routine('RT3', 'test:cr-late3', interval '10 minutes', 90, null);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT3', 'test:cr-late3');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.as_user(pg_temp.p('RT3'));
+  perform public.skip_court_routine_occurrence(pl.id);
+  perform public.save_court_routine(r.id, 'test:cr-late3', r.local_time, 127, 'UTC', 120, null);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R17 a day skipped in its window stays skipped through an edit (not re-made)',
+    pl.id is not null and (pg_temp.plan(pl.id)).status = 'cancelled' and pg_temp.occs_at(r.id, v_at) = 1);
+
+  -- RT4: saved 10 minutes after its time, then moved 45 minutes back.
+  perform pg_temp.late_routine('RT4', 'test:cr-late4', interval '10 minutes', 60, null);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT4', 'test:cr-late4');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.as_user(pg_temp.p('RT4'));
+  perform public.save_court_routine(r.id, 'test:cr-late4', ((now() at time zone 'UTC') - interval '45 minutes')::time,
+                                    127, 'UTC', 60, null);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R17 an edit moving the time 45 minutes back: today''s occurrence goes, none is made for a window already over, the next is at the new time',
+    pl.id is not null and (pg_temp.plan(pl.id)).id is null
+    and not exists (select 1 from public.court_plans x where x.routine_id = r.id and x.planned_at <= now())
+    and exists (select 1 from public.court_plans x where x.routine_id = r.id and x.status = 'planned'
+                 and x.planned_at = date_trunc('minute', now() - interval '45 minutes') + interval '1 day'));
+
+  -- The clock edges (2027, in the future whenever this runs).
+  perform pg_temp.as_user(pg_temp.p('RT4'));
+  perform public.save_court_routine(null, 'test:cr-late4', '07:00', 127, 'UTC', 60, null);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT4', 'test:cr-late4', '07:00');
+  delete from public.court_plans where routine_id = r.id;
+  n := public._pl_materialize_court_routines(r.id, '2027-12-01 07:29+00');
+  perform pg_temp.ok('R17 the clock: 29 minutes after its time today''s is still made (and tomorrow''s)',
+    n = 2 and (pg_temp.occ(r.id, '2027-12-01')).planned_at = '2027-12-01 07:00+00', n::text);
+  delete from public.court_plans where routine_id = r.id;
+  n := public._pl_materialize_court_routines(r.id, '2027-12-01 07:31+00');
+  perform pg_temp.ok('R17 ... 31 minutes after, its window is over: only tomorrow''s',
+    n = 1 and (pg_temp.occ(r.id, '2027-12-01')).id is null and (pg_temp.occ(r.id, '2027-12-02')).id is not null, n::text);
+  perform pg_temp.as_user(pg_temp.p('RT4'));
+  perform public.save_court_routine(null, 'test:cr-late4', '23:50', 127, 'UTC', 60, null);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RT4', 'test:cr-late4', '23:50');
+  delete from public.court_plans where routine_id = r.id;
+  n := public._pl_materialize_court_routines(r.id, '2027-12-02 00:10+00');
+  perform pg_temp.ok('R17 ... a window across midnight: at 00:10, last night''s 23:50 is made, dated that day',
+    n = 3 and (pg_temp.occ(r.id, '2027-12-01')).planned_at = '2027-12-01 23:50+00', n::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R17 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ R18 a check-in open before a stop's window keeps nothing (Doggle) ═════
+-- D2 (review round 3): a check-in still open when a routine stop's window
+-- opens would adopt the occurrence, unless Doggle does something different.
+-- It does: a Doggle check-in keeps a routine stop only when it is made within
+-- the stop's window (0443 _link_checkin_to_matching_plan at insert, and the
+-- process_planned_checkin_rewards sweep, both on created_at); one already
+-- open keeps nothing, the reminder skips the player ("Already there", 0415
+-- process_routine_reminders) and the unkept stop goes 30 minutes after its
+-- time. Pickleague does the same; pinned here. RE checked in by hand an hour
+-- ago; the stop is 10 minutes from now (its window opened 20 minutes ago).
+do $$
+declare
+  pl public.court_plans;
+  c  public.venue_checkins;
+begin
+  perform pg_temp.as_user(pg_temp.p('RE'));
+  perform public.checkin_venue(p_id => pg_temp.i('RE'), p_venue => 'test:cr-early', p_minutes => 120, p_source => 'manual',
+    p_at => null, p_lat => 40.8901, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  update public.venue_checkins
+     set checked_in_at = checked_in_at - interval '60 minutes', created_at = created_at - interval '60 minutes',
+         fix_at = fix_at - interval '60 minutes', arrival_fix_at = arrival_fix_at - interval '60 minutes',
+         expires_at = expires_at - interval '60 minutes'
+   where id = pg_temp.i('RE');
+  perform pg_temp.due_routine('RE', 'test:cr-early', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RE');
+  perform public.materialize_court_routines();
+  perform public.process_court_routine_reminders();
+  c := pg_temp.vci(pg_temp.i('RE'));
+  perform pg_temp.ok('R18 a check-in open before the window opened does not take the occurrence (Doggle: only one made in the window does)',
+    pl.id is not null and c.checked_out_at is null and c.expires_at > now()
+    and c.plan_id is null and c.play_windows is null and c.planned_end_at is null
+    and (pg_temp.plan(pl.id)).status = 'planned', row_to_json(c)::text);
+  perform pg_temp.ok('R18 ... and no reminder for it: already there (Doggle''s "Already there", no nudge)',
+    pg_temp.pushes('RE', 'routine_reminder') = 0);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R18 block crashed', false, sqlerrm);
 end $$;
 
 

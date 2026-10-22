@@ -137,8 +137,13 @@ import {
   type VenueCheckin,
 } from '../data/venueCheckins';
 import { loadPresenceSettings } from '../data/presenceSettings';
-import { getCheckinPlan, getMyCourtRoutinesOffline, skipRoutineOccurrence } from '../data/courtRoutines';
-import { buttonCheckinMinutes, type CourtRoutine } from './courtRoutineRules';
+import { getCheckinPlan, getMyCourtRoutinesOffline, loadMyCourtRoutines, skipRoutineOccurrence } from '../data/courtRoutines';
+import {
+  buttonCheckinMinutes,
+  DEFAULT_CHECKIN_MINUTES,
+  routineDueWithoutOccurrence,
+  type CourtRoutine,
+} from './courtRoutineRules';
 import { ROUTINES_ENABLED } from './features';
 // Registers the base replay of a queued Exit / Not here; this file registers
 // over it below (a module runs after the files it imports).
@@ -666,31 +671,44 @@ async function madeOnArrival(id: string): Promise<boolean | undefined> {
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
-/** What a check-in asks checkin_venue for when nothing else says (its default too). */
-export const DEFAULT_CHECKIN_MINUTES = 120;
-/** How long a check-in by hand waits for my routines when this device has no copy. */
+/** What a check-in asks checkin_venue for when nothing else says, and the least it asks (D1). */
+export { DEFAULT_CHECKIN_MINUTES };
+/** How long a check-in waits for my routines when this device has no copy, or reads it fresh. */
 const ROUTINES_READ_MS = 2_000;
 
 /**
- * My routines, for how long a check-in asks: the copy on this device, a
- * fetch only when there is none (2 s at most). Null with ROUTINES_ENABLED
- * off, or when they can't be read.
+ * My routines, for how long a check-in at `venueId` asks: the copy on this
+ * device, a fetch only when there is none (2 s at most). When a stop is due
+ * there by its weekly time but the copy has no occurrence for it
+ * (routineDueWithoutOccurrence), the copy is read fresh first
+ * (loadMyCourtRoutines: kept 5 minutes, else a read, 2 s at most; the copy as
+ * it was when that fails): the server may have made it since (today's during
+ * its window, on a save or an edit, or on another phone), and only a stop
+ * with an occurrence runs a check-in to its end (routineOccurrenceEndAt).
+ * Null with ROUTINES_ENABLED off, or when they can't be read.
  */
-export async function readRoutinesForCheckin(): Promise<CourtRoutine[] | null> {
+export async function readRoutinesForCheckin(
+  venueId?: string | null,
+  at: Date = new Date(),
+): Promise<CourtRoutine[] | null> {
   if (!ROUTINES_ENABLED) return null;
-  return withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
+  const copy = await withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
+  if (!venueId || !copy || !routineDueWithoutOccurrence(copy, venueId, at)) return copy;
+  return withTimeout(loadMyCourtRoutines(), ROUTINES_READ_MS).catch(() => copy);
 }
 
 /**
  * How long a check-in at `venueId` asks for (by hand, or a notification's
- * Check in): to the planned end of a routine stop due there now, 30 minutes
- * to 4 hours, else 2 hours. A tapped routine reminder's own occurrence
- * (`reminder`: its push's planned_at / planned_end_at) needs no read; else my
- * routines (readRoutinesForCheckin), 2 hours when they can't be read. The
- * server links such a check-in to the occurrence and takes its closed / open
- * windows and planned end, but keeps the length asked (Doggle's ordinary
- * check-in), so 2 hours ended a 3-hour routine split closed 2 h / open 1 h
- * while still closed.
+ * Check in): to the planned end of a routine stop due there now with the
+ * occurrence the server will link, 2 to 4 hours (D1: never under 2 hours),
+ * else 2 hours. A tapped routine reminder's own occurrence (`reminder`: its
+ * push's planned_at / planned_end_at) needs no read; else my routines
+ * (readRoutinesForCheckin), 2 hours when they can't be read. The server links
+ * such a check-in to the occurrence and takes its closed / open windows and
+ * planned end, but keeps the length asked (Doggle's ordinary check-in), so 2
+ * hours ended a 3-hour routine split closed 2 h / open 1 h while still
+ * closed. A stop with no occurrence links nothing, so it asks 2 hours (probe
+ * X4, a routine saved after its time on the old server, asked 170 minutes).
  */
 export async function manualCheckinMinutes(
   venueId: string,
@@ -700,7 +718,7 @@ export async function manualCheckinMinutes(
   if (!ROUTINES_ENABLED) return DEFAULT_CHECKIN_MINUTES;
   const pushed = buttonCheckinMinutes(null, venueId, at, reminder);
   if (pushed != null) return pushed;
-  return buttonCheckinMinutes(await readRoutinesForCheckin(), venueId, at) ?? DEFAULT_CHECKIN_MINUTES;
+  return buttonCheckinMinutes(await readRoutinesForCheckin(venueId, at), venueId, at) ?? DEFAULT_CHECKIN_MINUTES;
 }
 
 /**

@@ -204,10 +204,12 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   }, []);
 
   // How long Check in here asks for: to the end of a routine stop due here
-  // (manualCheckinMinutes), else 2 hours. My routines are read once per court
-  // found (that also readies them for the tap); the end itself is worked out
-  // on each render, on a minute tick, so "until" never drifts and follows a
-  // stop's window opening or closing while the card is up.
+  // with its occurrence (manualCheckinMinutes), else 2 hours. My routines are
+  // read when a court is found and on a minute tick (this phone's copy, read
+  // fresh only while a stop is due here without an occurrence in it, as the
+  // tap does), which also readies them for the tap; the end itself is worked
+  // out on each render, so "until" never drifts and follows a stop's window
+  // opening or closing while the card is up.
   const [nearbyRoutines, setNearbyRoutines] = useState<CourtRoutine[] | null>(null);
   const [, setMinuteTick] = useState(0);
   const nearbyId = nearby?.id ?? null;
@@ -215,12 +217,17 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     setNearbyRoutines(null);
     if (!nearbyId) return;
     let live = true;
-    readRoutinesForCheckin()
-      .then((r) => {
-        if (live) setNearbyRoutines(r);
-      })
-      .catch(() => {});
-    const tick = setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    const read = () =>
+      readRoutinesForCheckin(nearbyId)
+        .then((r) => {
+          if (live) setNearbyRoutines(r);
+        })
+        .catch(() => {});
+    void read();
+    const tick = setInterval(() => {
+      setMinuteTick((n) => n + 1);
+      void read();
+    }, 60_000);
     return () => {
       live = false;
       clearInterval(tick);

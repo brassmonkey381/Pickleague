@@ -21,9 +21,12 @@ import {
   type StarredCourtGeofence,
   type WalletRegionSource,
 } from '../courtArrivalRules';
-import { applyWindowEdit, modeAt, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import { applyWindowEdit, modeAt, windowsToAbsolute, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import {
   buttonCheckinMinutes,
+  DEFAULT_CHECKIN_MINUTES,
+  routineDueWithoutOccurrence,
+  routineOccurrenceEndAt,
   checkinLengthOptions,
   checkinPlanEditorWindows,
   checkinPlanLine,
@@ -51,6 +54,7 @@ import {
   switchToOpenWindows,
   type CourtRoutine,
   type PlayMode,
+  type RoutineOccurrence,
 } from '../courtRoutineRules';
 import { crowdLineText } from '../courtCrowd';
 import { refusalCode, refusalMessage, windowsProblemCopy } from '../refusals';
@@ -72,6 +76,24 @@ function routine(over: Partial<CourtRoutine> = {}): CourtRoutine {
 // Tuesday 2026-10-20, 9:00 PDT = 16:00Z.
 const TUE_9 = new Date('2026-10-20T16:00:00Z');
 const at = (min: number) => new Date(TUE_9.getTime() + min * 60_000);
+
+/**
+ * `r` with Tuesday's occurrence (`startMin` from 9:00), as
+ * list_my_court_routines sends it: the server makes today's while its window
+ * is still open (migration_court_routines_planned_end.sql), so a copy read
+ * since has it.
+ */
+function withToday(r: CourtRoutine, startMin = 0, status: RoutineOccurrence['status'] = 'planned'): CourtRoutine {
+  const plannedAt = at(startMin);
+  const occ: RoutineOccurrence = {
+    planId: 'p-today',
+    plannedAt: plannedAt.toISOString(),
+    plannedEndAt: at(startMin + r.lengthMin).toISOString(),
+    status,
+    windows: windowsToAbsolute(r.windows, plannedAt),
+  };
+  return { ...r, occurrences: [occ], next: occ };
+}
 
 describe('routineDueAt (Doggle routineStopDueAt, -30 / +30)', () => {
   it('is due from 30 minutes before to 30 minutes after, on its days only', () => {
@@ -508,22 +530,24 @@ describe('a check-in by hand on a 3-hour split reaches its open part', () => {
     windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')],
   };
 
-  it('a check-in by hand asks for the routine\'s length: to its planned end, 30 minutes to 4 hours', () => {
-    expect(routineCheckinMinutes([split()], 'v1', at(-10))).toBe(190);
-    expect(routineCheckinMinutes([split()], 'v1', at(20))).toBe(160);
+  it('a check-in by hand asks for the routine\'s length: to its planned end, 2 to 4 hours', () => {
+    // Today's occurrence in my copy (the server makes it; round 3 needs it).
+    const r = [withToday(split())];
+    expect(routineCheckinMinutes(r, 'v1', at(-10))).toBe(190);
+    expect(routineCheckinMinutes(r, 'v1', at(20))).toBe(160);
     // Seconds past the minute round up, so the check-in never ends before the plan.
-    expect(routineCheckinMinutes([split()], 'v1', new Date(at(20).getTime() + 30_000))).toBe(160);
+    expect(routineCheckinMinutes(r, 'v1', new Date(at(20).getTime() + 30_000))).toBe(160);
     // Not due (another court, or after the window): the caller's 2 hours.
-    expect(routineCheckinMinutes([split()], 'v2', at(0))).toBeNull();
-    expect(routineCheckinMinutes([split()], 'v1', at(45))).toBeNull();
+    expect(routineCheckinMinutes(r, 'v2', at(0))).toBeNull();
+    expect(routineCheckinMinutes(r, 'v1', at(45))).toBeNull();
     // A 4-hour routine checked in 25 minutes early: checkin_venue's 4 hours.
-    expect(routineCheckinMinutes([routine({ lengthMin: 240 })], 'v1', at(-25))).toBe(240);
-    // 25 minutes into a 30-minute routine: the server's 30-minute floor.
-    expect(routineCheckinMinutes([routine({ lengthMin: 30 })], 'v1', at(25))).toBe(30);
+    expect(routineCheckinMinutes([withToday(routine({ lengthMin: 240 }))], 'v1', at(-25))).toBe(240);
+    // 25 minutes into a 30-minute routine: never under 2 hours (D1; it was the server's 30-minute floor).
+    expect(routineCheckinMinutes([withToday(routine({ lengthMin: 30 }))], 'v1', at(25))).toBe(DEFAULT_CHECKIN_MINUTES);
   });
 
   it('asked that way, the check-in is still running, and open, in the routine\'s last hour', () => {
-    const minutes = routineCheckinMinutes([split()], 'v1', at(-10))!;
+    const minutes = routineCheckinMinutes([withToday(split())], 'v1', at(-10))!;
     const ends = at(-10).getTime() + minutes * 60_000;
     expect(ends).toBe(at(180).getTime());
     expect(modeAt(oldCheckin.windows, at(150))?.mode).toBe('open');
@@ -640,8 +664,8 @@ describe('a routine check-in, round 2 of the review', () => {
     // Pressed after its window (9:40): the server won't link it, so the reminder says nothing ...
     expect(buttonCheckinMinutes(null, 'v1', at(40), reminder)).toBeNull();
     // ... and "At X?" / "Check in nearby?" (no reminder) read my routines.
-    expect(buttonCheckinMinutes([split()], 'v1', at(-10), null)).toBe(190);
-    expect(buttonCheckinMinutes([split()], 'v2', at(-10), null)).toBeNull();
+    expect(buttonCheckinMinutes([withToday(split())], 'v1', at(-10), null)).toBe(190);
+    expect(buttonCheckinMinutes([withToday(split())], 'v2', at(-10), null)).toBeNull();
     // The 2 hours they asked before ended a 3-hour split still closed; this length reaches the open hour.
     const ends = at(-10).getTime() + 190 * 60_000;
     expect(modeAt([abs(0, 120, 'closed'), abs(120, 180, 'open')], at(150))?.mode).toBe('open');
@@ -649,14 +673,16 @@ describe('a routine check-in, round 2 of the review', () => {
   });
 
   it('Home\'s card: "until" is the planned end on every render, and follows the stop\'s window', () => {
-    expect(routineCheckinUntil([split()], 'v1', at(-10))).toBe(iso(180));
-    expect(routineCheckinUntil([split()], 'v1', new Date(at(-9).getTime() + 37_000))).toBe(iso(180));
-    expect(routineCheckinUntil([split()], 'v1', at(29))).toBe(iso(180));
+    const r = [withToday(split())];
+    expect(routineCheckinUntil(r, 'v1', at(-10))).toBe(iso(180));
+    expect(routineCheckinUntil(r, 'v1', new Date(at(-9).getTime() + 37_000))).toBe(iso(180));
+    expect(routineCheckinUntil(r, 'v1', at(29))).toBe(iso(180));
     // The window closes at 9:30: the card goes back to "for 2 hours".
-    expect(routineCheckinUntil([split()], 'v1', at(31))).toBeNull();
+    expect(routineCheckinUntil(r, 'v1', at(31))).toBeNull();
     // A 4-hour stop at 8:35: what the tap asks, 4 hours from now.
-    expect(routineCheckinUntil([routine({ lengthMin: 240 })], 'v1', at(-25))).toBe(iso(215));
-    expect(routineCheckinUntil([routine({ lengthMin: 240 })], 'v1', at(-24))).toBe(iso(216));
+    const four = [withToday(routine({ lengthMin: 240 }))];
+    expect(routineCheckinUntil(four, 'v1', at(-25))).toBe(iso(215));
+    expect(routineCheckinUntil(four, 'v1', at(-24))).toBe(iso(216));
   });
 
   it('the plan sheet opens a 9:29 check-in planned to 12:00 at 2 h 30 min, and an open and save changes nothing', () => {
@@ -715,6 +741,141 @@ describe('a routine check-in, round 2 of the review', () => {
     expect(checkinPlanLine({ plannedEndAt: iso(180), windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')] }, at(30), TZ)).toBe(
       playModeNowLine([abs(0, 120, 'closed'), abs(120, 180, 'open')], at(30), TZ),
     );
+  });
+});
+
+// ── Round 3: a routine saved after its time, D1 (never under 2 hours), the
+// plan sheet's open and save with a sliver first window or past 4 hours. ────
+describe('a routine check-in, round 3 of the review', () => {
+  const span = (list: readonly TimeWindow<PlayMode>[] | null) =>
+    (list ?? []).map((w) => `${w.startMin}-${w.endMin}:${w.mode}`).join(' ');
+  const abs = (s: number, e: number, mode: PlayMode | null) => ({
+    startsAt: at(s).toISOString(),
+    endsAt: at(e).toISOString(),
+    mode,
+    hint: null,
+    group: [] as string[],
+  });
+  const absSpan = (list: readonly { startsAt: string; endsAt: string; mode: PlayMode | null }[]) =>
+    list.map((w) => `${(Date.parse(w.startsAt) - TUE_9.getTime()) / 60_000}-${(Date.parse(w.endsAt) - TUE_9.getTime()) / 60_000}:${w.mode}`).join(' ');
+  const iso = (min: number) => at(min).toISOString();
+  // The routine 9:00-12:00, closed group 2 h, then open play 1 h.
+  const split = () =>
+    routine({
+      windows: [
+        { startMin: 0, endMin: 120, mode: 'closed', hint: null, group: [] },
+        { startMin: 120, endMin: 180, mode: 'open', hint: null, group: [] },
+      ],
+    });
+
+  it('a routine saved after its time has no occurrence today (the old server): 2 hours asked and said, not "until 12 PM" (probe X4)', () => {
+    // Saved at 9:07 for 9:00: the server before round 3 made only the next day's.
+    const copy = [split()];
+    // An arrival still keys off the weekly time (Doggle's routineStopDueAt) ...
+    expect(routineDueAt(copy, 'v1', at(7))?.planId).toBeNull();
+    expect(routineDueWithoutOccurrence(copy, 'v1', at(7))).toBe(true);
+    // ... but a check-in runs to a routine's end only with an occurrence the server links.
+    expect(routineOccurrenceEndAt(copy, 'v1', at(7))).toBeNull();
+    expect(routineCheckinMinutes(copy, 'v1', at(7))).toBeNull();
+    expect(routineCheckinUntil(copy, 'v1', at(7))).toBeNull();
+    expect(buttonCheckinMinutes(copy, 'v1', at(7), null)).toBeNull();
+    // Not due at all: nothing to read fresh.
+    expect(routineDueWithoutOccurrence(copy, 'v1', at(45))).toBe(false);
+    expect(routineDueWithoutOccurrence(copy, 'v2', at(7))).toBe(false);
+  });
+
+  it('with today\'s occurrence (made during its window now, re-made on an edit) the check-in runs to its end', () => {
+    const fresh = [withToday(split())];
+    expect(routineDueWithoutOccurrence(fresh, 'v1', at(7))).toBe(false);
+    expect(routineOccurrenceEndAt(fresh, 'v1', at(7))).toBe(iso(180));
+    expect(routineCheckinMinutes(fresh, 'v1', at(7))).toBe(173);
+    expect(routineCheckinUntil(fresh, 'v1', at(7))).toBe(iso(180));
+    // Edited at 9:07 to 2 h 30 min: today's occurrence is re-made with the new end.
+    const edited = [withToday(routine({ lengthMin: 150 }))];
+    expect(routineCheckinMinutes(edited, 'v1', at(7))).toBe(143);
+    expect(routineCheckinUntil(edited, 'v1', at(7))).toBe(iso(150));
+    // Kept already (checked in): no stop is due, so nothing is asked.
+    expect(routineCheckinMinutes([withToday(split(), 0, 'completed')], 'v1', at(7))).toBeNull();
+    // A moved occurrence's own end wins over the weekly length.
+    const moved = withToday(split(), 20);
+    expect(routineOccurrenceEndAt([moved], 'v1', at(40))).toBe(iso(200));
+    // Two routines at one court 15 minutes apart: the server makes only one of
+    // them (30 minutes apart at least), and a check-in keeps that one, as
+    // _pl_routine_plan_at does, whichever the weekly times find first.
+    const pair = [routine({ id: 'r2', localTime: '09:15', lengthMin: 60, windows: [] }), withToday(split())];
+    expect(routineDueAt(pair, 'v1', at(10))?.routine.id).toBe('r2');
+    expect(routineOccurrenceEndAt(pair, 'v1', at(10))).toBe(iso(180));
+    expect(routineDueWithoutOccurrence(pair, 'v1', at(10))).toBe(false);
+    expect(routineCheckinMinutes(pair, 'v1', at(10))).toBe(170);
+  });
+
+  it('D1: a check-in never ends before 2 hours, whatever the routine\'s length', () => {
+    expect(DEFAULT_CHECKIN_MINUTES).toBe(120);
+    // A 1-hour routine checked in 10 minutes early: 70 minutes to its end, 2 hours asked.
+    const hour = [withToday(routine({ lengthMin: 60, windows: [] }))];
+    expect(routineCheckinMinutes(hour, 'v1', at(-10))).toBe(120);
+    // ... and the card says "for 2 hours", not "until 10 AM".
+    expect(routineCheckinUntil(hour, 'v1', at(-10))).toBeNull();
+    // A 2-hour routine: on time, 2 hours (the default); 10 minutes early, to its end.
+    const two = [withToday(routine({ lengthMin: 120, windows: [] }))];
+    expect(routineCheckinMinutes(two, 'v1', at(0))).toBe(120);
+    expect(routineCheckinUntil(two, 'v1', at(0))).toBeNull();
+    expect(routineCheckinMinutes(two, 'v1', at(-10))).toBe(130);
+    expect(routineCheckinUntil(two, 'v1', at(-10))).toBe(iso(120));
+    // The routine reminder's Check in on a 1-hour stop: 2 hours too.
+    expect(buttonCheckinMinutes(null, 'v1', at(5), { plannedAt: iso(0), plannedEndAt: iso(60) })).toBe(120);
+    // Capped as before: 4 hours.
+    expect(buttonCheckinMinutes(null, 'v1', at(-25), { plannedAt: iso(0), plannedEndAt: iso(240) })).toBe(240);
+  });
+
+  it('the plan sheet keeps a first window with minutes left (the 15-minute grid drops it) on an open and save', () => {
+    // Routine 9:00: closed group 30 minutes, then open play to 12:00. Checked in by hand at 9:23.
+    const plan = { checkedInAt: iso(23), expiresAt: iso(180), plannedEndAt: iso(180), windows: [abs(0, 30, 'closed'), abs(30, 180, 'open')] };
+    const start = checkinPlanSheetStart(plan, at(25));
+    // 7 closed minutes can't show on the 15-minute grid.
+    expect(start.lengthMin).toBe(150);
+    expect(span(start.windows)).toBe('0-150:open');
+    // Opened and saved: the plan as it was (before: open from 9:23).
+    const saved = checkinPlanToSave(start, start.windows, start.lengthMin, plan.checkedInAt);
+    expect(saved.plannedEnd.toISOString()).toBe(iso(180));
+    expect(absSpan(saved.windows)).toBe('23-30:closed 30-180:open');
+    // 3 hours picked: the closed minutes stay in front, the rest on the grid.
+    const three = checkinPlanToSave(start, fitCheckinPlanWindows(start.windows, 180), 180, plan.checkedInAt);
+    expect(three.plannedEnd.toISOString()).toBe(iso(203));
+    expect(absSpan(three.windows)).toBe('23-30:closed 30-203:open');
+    // The first window changed to Closed group: that is the plan from the check-in.
+    const closed = applyWindowEdit(start.windows, { type: 'update', index: 0, patch: { mode: 'closed' } }, 150, PLAY_WINDOW_RULES)!;
+    expect(absSpan(checkinPlanToSave(start, closed, 150, plan.checkedInAt).windows)).toBe('23-180:closed');
+  });
+
+  it('the plan sheet keeps a planned end more than 4 hours after the check-in when the server takes it', () => {
+    // Checked in 8:00, kept going with a fix at 11:00 to 1 PM: closed to 11, open to 1.
+    const long = {
+      checkedInAt: iso(-60), expiresAt: iso(240), plannedEndAt: iso(240), fixAt: iso(120), locationConfirmed: true,
+      windows: [abs(-60, 120, 'closed'), abs(120, 240, 'open')],
+    };
+    const start = checkinPlanSheetStart(long, at(150));
+    expect(start.lengthMin).toBe(240);
+    expect(span(start.windows)).toBe('0-180:closed 180-240:open');
+    expect(start.endAt).toBe(iso(240));
+    const saved = checkinPlanToSave(start, start.windows, start.lengthMin, long.checkedInAt);
+    // Before: cut to 12 PM (8:00 + 4 h), the check-in ended an hour early.
+    expect(saved.plannedEnd.toISOString()).toBe(iso(240));
+    expect(absSpan(saved.windows)).toBe('-60-120:closed 120-240:open');
+
+    // A 4-hour routine checked in by hand at 8:31 (4 hours asked, ends 12:31, planned 1 PM).
+    const early = {
+      checkedInAt: iso(-29), expiresAt: iso(211), plannedEndAt: iso(240), fixAt: iso(-29), locationConfirmed: true,
+      windows: [abs(0, 120, 'closed'), abs(120, 240, 'open')],
+    };
+    // Without a newer fix set_checkin_plan stops at 12:31, so that is the end kept ...
+    expect(checkinPlanSheetStart(early, at(0)).endAt).toBe(iso(211));
+    // ... with one (Stay 1 more hour with location at 9:00) it takes 1 PM.
+    const fixed = checkinPlanSheetStart({ ...early, fixAt: iso(0) }, at(0));
+    expect(fixed.endAt).toBe(iso(240));
+    const kept = checkinPlanToSave(fixed, fixed.windows, fixed.lengthMin, early.checkedInAt);
+    expect(kept.plannedEnd.toISOString()).toBe(iso(240));
+    expect(absSpan(kept.windows)).toBe('-29-120:closed 120-240:open');
   });
 });
 
