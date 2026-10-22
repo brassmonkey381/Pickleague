@@ -16,10 +16,11 @@
 //
 // - Opening view: Discover's `players` param (a friend-request push says
 //   'requests', the old Friends > Find says 'find'), consumed once; else
-//   Requests when something waits on you; else Friends.
+//   Requests when something waits on you (on a cold open, once the requests
+//   load, unless the player picked a view first); else Friends.
 // - Header "+" (only while this tab shows): Find a player · Invite a friend.
-//   Invite shares the referral link when referrals are on (you both earn),
-//   else the profile link.
+//   Invite shares the referral link when referrals are on (you both get
+//   REFERRAL_REWARD_PICKLES), else the profile link.
 // - Every write goes through lib/useFriends: the row moves at once, then the
 //   lists refetch; a failure puts it back and says why.
 // - The search is UserPickerModal with realPeopleOnly (no unclaimed DUPR
@@ -52,6 +53,7 @@ import { shareInvite } from '../../lib/share';
 import { useRefresh } from '../../lib/useRefresh';
 import { track } from '../../lib/analytics';
 import { REFERRALS_ENABLED } from '../../lib/features';
+import { REFERRAL_REWARD_PICKLES } from '../../lib/referralRules';
 import AppRefreshControl from '../AppRefreshControl';
 import ConfirmModal from '../ConfirmModal';
 import { SkeletonList } from '../Skeleton';
@@ -181,11 +183,21 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   // The opening view: the param's, else Requests when anything waits on me
   // (from the cache, so a warm open lands right), else Friends.
   const [view, setView] = useState<PlayersView>(() => viewParam ?? (incoming.length > 0 ? 'requests' : 'friends'));
+  // A cold open (nothing cached yet) chose Friends blind: when the requests
+  // first arrive with something waiting, move to Requests, unless a view was
+  // asked for or the player has picked one since.
+  const viewSettledRef = useRef(viewParam != null || requestsQ.data !== undefined);
+  useEffect(() => {
+    if (viewSettledRef.current || requestsQ.data === undefined) return;
+    viewSettledRef.current = true;
+    if (incoming.length > 0) setView('requests');
+  }, [requestsQ.data, incoming.length]);
   // A push opening an already-mounted panel updates the param.
   const consumeRef = useRef(onViewConsumed);
   consumeRef.current = onViewConsumed;
   useEffect(() => {
     if (!viewParam) return;
+    viewSettledRef.current = true;
     setView(viewParam);
     consumeRef.current?.();
   }, [viewParam]);
@@ -297,7 +309,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   const plusActions: ActionSheetAction[] = [
     { label: '🔍 Find a player', onPress: () => { queuedRef.current = () => setPickerOpen(true); } },
     {
-      label: canRefer ? '↗ Invite a friend (you both earn 🥒)' : '↗ Invite a friend',
+      // The Invite & Earn panel's wording, with the amount.
+      label: canRefer ? `↗ Invite a friend (you both get ${REFERRAL_REWARD_PICKLES} 🥒)` : '↗ Invite a friend',
       onPress: () => { queuedRef.current = () => { void invite('best'); }; },
     },
   ];
@@ -328,6 +341,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     );
 
   const changeView = (next: PlayersView) => {
+    viewSettledRef.current = true;
     if (next === view) return;
     setView(next);
     track('discover.players_view', { view: next });
@@ -370,6 +384,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                             size="sm"
                             variant="success"
                             title="Accept"
+                            accessibilityLabel={`Accept ${r.full_name ?? 'this player'}'s friend request`}
                             loading={busyId === r.user_id}
                             disabled={!!busyId}
                             onPress={() => {
@@ -381,6 +396,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                             size="sm"
                             variant="outline"
                             title="Decline"
+                            accessibilityLabel={`Decline ${r.full_name ?? 'this player'}'s friend request`}
                             disabled={!!busyId}
                             onPress={() => {
                               void run(r.user_id, () => answerFriendRequest(r.user_id, false),
@@ -413,6 +429,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                             size="sm"
                             variant="outline"
                             title="Cancel"
+                            accessibilityLabel={`Cancel your friend request to ${r.full_name ?? 'this player'}`}
                             loading={busyId === r.user_id}
                             disabled={!!busyId}
                             onPress={() => {
@@ -507,11 +524,14 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           renderSkeleton={() => <SkeletonList rows={3} variant="row" />}
           renderEmpty={() => (
             <Panel>
+              {/* Not a dead end (Friends' empty state points here): search. */}
               <EmptyState
                 compact
                 icon="🏓"
                 title="No one yet"
                 subtitle="Play a match, drill or join a league, and they show up here."
+                actionLabel="Search players"
+                onAction={() => setPickerOpen(true)}
               />
             </Panel>
           )}
@@ -530,6 +550,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                     <Button
                       size="sm"
                       title="➕ Add"
+                      // Not "heavy plus sign Add": who, and what.
+                      accessibilityLabel={`Add ${s.full_name ?? 'this player'} as a friend`}
                       loading={busyId === s.user_id}
                       disabled={!!busyId}
                       onPress={() => { void add(s); }}
@@ -551,9 +573,11 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           style={[S.search, { borderColor: c.border, backgroundColor: c.surface }]}
           onPress={() => setPickerOpen(true)}
           activeOpacity={0.7}
-          accessibilityRole="search"
+          // A button that opens the search (role "search" made it a landmark
+          // on web and a "search field" to VoiceOver).
+          accessibilityRole="button"
           accessibilityLabel="Search players by name"
-          accessibilityHint="Opens a player's profile"
+          accessibilityHint="Opens player search"
         >
           <Text style={S.searchGlyph}>🔍</Text>
           <Text style={[t.sub, S.flex]} numberOfLines={1}>Search players by name or @username</Text>

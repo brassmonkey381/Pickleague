@@ -26,8 +26,8 @@
 //   brings Leagues forward with Join with code open; players picks Players'
 //   view; lat / lng centre Places. Each one-shot param is consumed.
 // - The leagues tour (FTUE "Join a league") selects Leagues when it starts.
-// - Once per device: "Leagues and tournaments live here now." (they used to be
-//   the Play tile's screen).
+// - Once per device, on the Leagues or Tournaments tab: "Leagues and
+//   tournaments live here now." (they used to be the Play tile's screen).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -115,9 +115,13 @@ export default function DiscoverScreen({ navigation, route }: Props) {
   // list's token; a list mounting later must not inherit another's).
   const [mineTokens, setMineTokens] = useState<MineTokens>({ leagues: 0, tournaments: 0 });
   useEffect(() => {
-    if (params?.mine !== true || !tab) return;
-    const target: keyof MineTokens = tab === 'tournaments' ? 'tournaments' : 'leagues';
-    setMineTokens((m) => ({ ...m, [target]: m[target] + 1 }));
+    if (params?.mine === undefined || !tab) return;
+    if (params.mine === true) {
+      const target: keyof MineTokens = tab === 'tournaments' ? 'tournaments' : 'leagues';
+      setMineTokens((m) => ({ ...m, [target]: m[target] + 1 }));
+    }
+    // Anything else came from a URL (the string 'true'): ignored, as before,
+    // and cleared so the address bar doesn't keep it.
     navigation.setParams({ mine: undefined });
   }, [params?.mine, tab, navigation]);
 
@@ -132,14 +136,21 @@ export default function DiscoverScreen({ navigation, route }: Props) {
   useEffect(() => onTourStart((key) => { if (key === 'leagues') selectTab('leagues'); }), [selectTab]);
 
   // ── The one-time notice ──
+  // It is about leagues and tournaments, so it waits for one of their tabs: a
+  // first open on Places (🔍) or Players (a friend-request push) doesn't show
+  // or spend it.
   const { activeTour } = useTour();
   const tourRef = useRef(activeTour);
   tourRef.current = activeTour;
+  const onListTab = tab === 'leagues' || tab === 'tournaments';
+  const noticeTriedRef = useRef(false);
   useEffect(() => {
+    if (!onListTab || noticeTriedRef.current) return;
     let alive = true;
     const timer = setTimeout(() => {
-      // Not over a spotlight tour (FTUE "Join a league" lands here): next time.
+      // Not over a spotlight tour (FTUE "Join a league" lands here): later.
       if (!alive || tourRef.current) return;
+      noticeTriedRef.current = true;
       void (async () => {
         try {
           if (await AsyncStorage.getItem(MOVED_NOTICE_KEY)) return;
@@ -154,9 +165,9 @@ export default function DiscoverScreen({ navigation, route }: Props) {
       alive = false;
       clearTimeout(timer);
     };
-    // Once per visit.
+    // Tried once per visit, on the first Leagues or Tournaments view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [onListTab]);
 
   // ── Tab badges: only what waits on you (friend requests) ──
   const playersBadge = usePlayersBadge(TABS.includes('players'));
@@ -195,7 +206,7 @@ export default function DiscoverScreen({ navigation, route }: Props) {
             />
           );
         case 'places':
-          return <CourtsScreen navigation={navigation} route={route} active={active} />;
+          return <CourtsScreen navigation={navigation} route={route} active={active} inDiscover />;
         case 'players':
           return (
             <PlayersPanel
@@ -219,6 +230,10 @@ export default function DiscoverScreen({ navigation, route }: Props) {
           label: DISCOVER_TAB_LABELS[k],
           iconName: TAB_ICONS[k],
           count: k === 'players' ? playersBadge : undefined,
+          // Say what the badge counts ("Players, 2" alone doesn't).
+          accessibilityLabel: k === 'players' && playersBadge > 0
+            ? `${DISCOVER_TAB_LABELS[k]}, ${playersBadge} friend ${playersBadge === 1 ? 'request' : 'requests'} waiting`
+            : undefined,
         }))}
         // Nothing selected for the few ms before the stored tab loads.
         value={tab ?? ('' as DiscoverTab)}
@@ -235,7 +250,9 @@ export default function DiscoverScreen({ navigation, route }: Props) {
 const S = StyleSheet.create({
   screen: { flex: 1 },
   tabs: {
-    paddingHorizontal: SPACE.md,
+    // 8, not 12: four tiles need the width for "Tournaments" at 360-375 px
+    // (the foundation's tiles note has the sums).
+    paddingHorizontal: SPACE.sm,
     paddingTop: SPACE.sm + 2,
     paddingBottom: SPACE.sm,
     borderBottomWidth: HAIRLINE,

@@ -108,6 +108,7 @@ import SubmitVenueScreen from '../screens/SubmitVenueScreen';
 import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
 import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
 import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
+import { CourtsRouteScreen } from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 
@@ -403,9 +404,12 @@ export default function AppNavigator() {
                     is false: its RPCs ship with migration_court_discovery_p1.sql. */}
                 {COURT_DISCOVERY_ENABLED && (
                   <>
-                    {/* The courts near you are Discover's Places tab now
-                        (CourtsScreen is its body); Courts is an alias. */}
-                    <Stack.Screen name="Courts" component={CourtsAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                    {/* The courts near you: Discover's Places tab while Discover
+                        is on (CourtsScreen is its body; Courts is an alias),
+                        else their own screen, as before. */}
+                    {DISCOVER_ENABLED
+                      ? <Stack.Screen name="Courts" component={CourtsAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                      : <Stack.Screen name="Courts" component={CourtsRouteScreen} options={{ title: 'Discover' }} />}
                     <Stack.Screen name="CourtDetail" component={CourtDetailScreen} options={{ title: 'Court' }} />
                   </>
                 )}

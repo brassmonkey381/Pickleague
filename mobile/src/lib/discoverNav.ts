@@ -11,11 +11,6 @@ export function discoverTarget(params: DiscoverParams): [string, Record<string, 
   return legacyRouteForDiscover(params, { courts: COURT_DISCOVERY_ENABLED, friends: FRIENDS_AT_COURTS_ENABLED });
 }
 
-/** Whether a Discover tab can be opened at all (hide a link that would go nowhere). */
-export function canOpenDiscover(params: DiscoverParams): boolean {
-  return discoverTarget(params) != null;
-}
-
 /** Open Discover on `params.tab` (a navigate: a focused Discover just switches tab). */
 export function openDiscover(navigation: { dispatch: (action: ReturnType<typeof CommonActions.navigate>) => void }, params: DiscoverParams): void {
   const target = discoverTarget(params);

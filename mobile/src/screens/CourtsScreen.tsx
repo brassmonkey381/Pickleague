@@ -34,11 +34,13 @@
 // Places tab's body, mounted by DiscoverScreen on the tab's first visit (the
 // old Courts route replaces itself with Discover { tab: 'places' }). lat / lng
 // come from Discover's params. `active` (this tab is the one showing): only
-// then does it own the header "+" (Add a court) and poll the crowds.
+// then does it poll the crowds and, in Discover, own the header "+" (Add a
+// court), which replaces the inline "+ Add a court". While Discover is off the
+// Courts route renders it alone, as before (CourtsRouteScreen, below).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useIsFocused, type RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActionSheetModal,
   FilterSearchField,
@@ -95,6 +97,9 @@ type Props = {
   route: RouteProp<RootStackParamList, 'Discover'>;
   /** Discover's Places tab is the one showing (default true). */
   active?: boolean;
+  /** Mounted as Discover's Places tab: the header "+" adds a court, so the
+   *  inline "+ Add a court" goes. Off (the Courts route alone), as before. */
+  inDiscover?: boolean;
 };
 
 type Center = LatLngLike & { label: string | null; from: 'route' | 'city' | 'device' };
@@ -110,7 +115,7 @@ const CHIP_OPTIONS: FilterChipOption[] = [
 type Extra = { key: string | null; rows: CourtRow[]; lastPage: CourtRow[] | null; loading: boolean };
 const NO_EXTRA: Extra = { key: null, rows: [], lastPage: null, loading: false };
 
-export default function CourtsScreen({ navigation, route, active = true }: Props) {
+export default function CourtsScreen({ navigation, route, active = true, inDiscover = false }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const toast = useToast();
@@ -290,7 +295,7 @@ export default function CourtsScreen({ navigation, route, active = true }: Props
 
   const addCourt = () => navigation.navigate('SubmitVenue', center ? { lat: center.lat, lng: center.lng } : undefined);
   // Discover's header "+" follows the tab: here it adds a court.
-  usePlayHeaderPlus(navigation, live, 'Add a court', addCourt);
+  usePlayHeaderPlus(navigation, inDiscover && live, 'Add a court', addCourt);
 
   const locationPanel = <LocationPanel onCity={pickCity} onDevice={useDevice} radiusMi={radiusMi} />;
 
@@ -355,11 +360,14 @@ export default function CourtsScreen({ navigation, route, active = true }: Props
           </Text>
         </TouchableOpacity>
         <View style={S.flex} />
-        <TouchableOpacity style={S.link} onPress={addCourt} accessibilityRole="button" accessibilityLabel="Add a court">
-          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            + Add a court
-          </Text>
-        </TouchableOpacity>
+        {/* In Discover the header "+" adds a court. */}
+        {inDiscover ? null : (
+          <TouchableOpacity style={S.link} onPress={addCourt} accessibilityRole="button" accessibilityLabel="Add a court">
+            <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              + Add a court
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -554,3 +562,15 @@ const S = StyleSheet.create({
   result: { minHeight: 44, justifyContent: 'center' },
   mapKey: { marginTop: SPACE.xs },
 });
+
+/** The Courts route while Discover is off: the courts near you on their own
+ *  screen, as before Discover (titled Discover, inline "+ Add a court"). Its
+ *  params ({ lat, lng }) are the ones this body reads. */
+export function CourtsRouteScreen({ navigation, route }: NativeStackScreenProps<RootStackParamList, 'Courts'>) {
+  return (
+    <CourtsScreen
+      navigation={navigation as unknown as Props['navigation']}
+      route={route as unknown as Props['route']}
+    />
+  );
+}
