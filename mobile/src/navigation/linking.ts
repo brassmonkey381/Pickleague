@@ -111,7 +111,12 @@ export const linking: LinkingOptions<RootStackParamList> = {
       MatchEntry: 'match-entry',
       MatchHistory: 'matches',
       CalendarAnalytics: 'analytics/calendar',
-      SeasonStandings: 'seasons/:seasonId/standings',
+      // /leagues/:leagueId/standings is the league's CURRENT standings (the
+      // screen resolves the season), a link that stays right across seasons.
+      SeasonStandings: {
+        path: 'seasons/:seasonId/standings',
+        alias: ['leagues/:leagueId/standings'],
+      },
       Profile: {
         path: 'profile/:userId?',
       },

@@ -204,6 +204,21 @@ describe('linking: Home under every cold deep link', () => {
     });
   });
 
+  it("standings links: a season's, and a league's current one (Saved's one tap)", () => {
+    const season = getStateFromPath('seasons/s1/standings?leagueId=l1', linking.config);
+    expect(season?.routes.map((r) => r.name)).toEqual(['Home', 'SeasonStandings']);
+    expect(season?.routes.at(-1)?.params).toEqual({ seasonId: 's1', leagueId: 'l1' });
+    const league = getStateFromPath('leagues/l1/standings', linking.config);
+    expect(league?.routes.map((r) => r.name)).toEqual(['Home', 'SeasonStandings']);
+    expect(league?.routes.at(-1)?.params).toEqual({ leagueId: 'l1' });
+    // The league page itself is unchanged.
+    expect(names('leagues/l1')).toEqual(['Home', 'LeagueDetail']);
+    // Saved's tap keeps the season URL on web.
+    expect(getPathFromState({
+      routes: [{ name: 'SeasonStandings', params: { seasonId: 's1', leagueId: 'l1' } }],
+    } as never, linking.config)).toBe('/seasons/s1/standings?leagueId=l1');
+  });
+
   it('settings/checkins opens Check-in automation; plain settings is unchanged', () => {
     const s = getStateFromPath('settings/checkins', linking.config);
     expect(s?.routes.map((r) => r.name)).toEqual(['Home', 'Settings']);

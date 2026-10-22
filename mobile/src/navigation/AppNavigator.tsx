@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, TouchableOpacity, View } from 'react-native';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -153,6 +153,21 @@ function SettingsGear() {
       accessibilityLabel="Settings"
     >
       <Icon name="gear" size={22} color={colors.text} />
+    </TouchableOpacity>
+  );
+}
+
+/** Me's header: Saved (your leagues' standings live there), the same 🔖 as Home's top bar. */
+function SavedButton() {
+  return (
+    <TouchableOpacity
+      onPress={() => navigateWhenReady('Bookmarks')}
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityRole="button"
+      accessibilityLabel="Saved"
+      accessibilityHint="Your saved leagues, tournaments and players, with your standings"
+    >
+      <Text style={{ fontSize: 20 }} maxFontSizeMultiplier={1.3}>🔖</Text>
     </TouchableOpacity>
   );
 }
@@ -370,16 +385,28 @@ export default function AppNavigator() {
                 <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
                 <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params.title })} />
                 <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
-                <Stack.Screen name="SeasonStandings" component={SeasonStandingsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Season' })} />
+                <Stack.Screen name="SeasonStandings" component={SeasonStandingsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Season' : 'Standings' })} />
                 <Stack.Screen
                   name="Profile"
                   component={ProfileScreen}
-                  // Me: Settings one tap away (Home's top bar has the other gear).
-                  // Only on my own profile, not on another player's.
+                  // Me: Saved and Settings one tap away (Home's top bar has the
+                  // others), as Doggle's Me holds Favorites. Saved is where your
+                  // leagues' standings are, so it rides on Me even without the
+                  // bottom bar. Only on my own profile, not on another player's.
                   options={({ route }) => {
                     const uid = route.params?.userId;
                     const mine = !uid || uid === session?.user.id;
-                    return { title: 'Profile', headerRight: PLAY_NAV_ENABLED && mine ? () => <SettingsGear /> : undefined };
+                    return {
+                      title: 'Profile',
+                      headerRight: mine
+                        ? () => (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <SavedButton />
+                              {PLAY_NAV_ENABLED ? <SettingsGear /> : null}
+                            </View>
+                          )
+                        : undefined,
+                    };
                   }}
                 />
                 <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
@@ -439,7 +466,7 @@ export default function AppNavigator() {
                 {REFERRALS_ENABLED && (
                   <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ title: 'Invite' }} />
                 )}
-                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Bookmarks' }} />
+                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Saved' }} />
                 <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: '🎟️ QR Wallet' }} />
                 <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
                 <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />

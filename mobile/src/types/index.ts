@@ -541,7 +541,7 @@ export type RootStackParamList = {
   Tournaments: { leagueId?: string; leagueName?: string };
   CreateTournament: { leagueId?: string };
   // focus: Home's Up next row opens the screen scrolled to that control.
-  TournamentDetail: { tournamentId: string; tournamentName: string; focus?: 'invite' | 'next_match' };
+  TournamentDetail: { tournamentId: string; tournamentName: string; focus?: 'invite' | 'next_match' | 'standings' };
   TournamentMembers: { tournamentId: string; tournamentName: string };
   TournamentInvitePlayers: { tournamentId: string; tournamentName: string };
   TournamentMatchHistory: { tournamentId: string; title: string };
@@ -602,7 +602,14 @@ export type RootStackParamList = {
     highlightMatchId?: string;
   };
   CalendarAnalytics: { userId?: string; leagueId?: string; title: string };
-  SeasonStandings: { seasonId: string; leagueId: string; leagueName: string };
+  // A link may carry only one id: /seasons/:seasonId/standings (no ?leagueId)
+  // or /leagues/:leagueId/standings (the league's current season); the screen
+  // resolves the other. focusMe scrolls to my row once it lands (Saved).
+  SeasonStandings: {
+    seasonId?: string; leagueId?: string; leagueName?: string; focusMe?: boolean;
+    /** Open on this period's tab (the one Saved's line named) instead of the default. */
+    period?: number;
+  };
   Profile: { userId?: string };
   UnlockProgress: undefined;
   // focus 'checkins': open "Check-in automation" and scroll to it (the
