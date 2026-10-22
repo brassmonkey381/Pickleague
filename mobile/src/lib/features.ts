@@ -89,12 +89,12 @@ export const COURT_STARS_ENABLED = true;
  * draw maps by OTA; Android needs EXPO_PUBLIC_GOOGLE_MAPS_KEY in its native
  * build (app.config.js), and its tiles are blank until then.
  *
- * OFF until supabase/migration_court_discovery_p1.sql is live and
- * supabase/tests/court_discovery_personas.sql passes against it; then flipped
- * by OTA after 1.0.4 is approved (the plan's ship note). Off, the screens are
- * unregistered, nothing links to them and nothing fetches.
+ * ON since 2026-10-22 (the user: ship it to everyone):
+ * migration_court_discovery_p1.sql is live and court_discovery_personas.sql
+ * passed against it. Off, the screens are unregistered, nothing links to them
+ * and nothing fetches.
  */
-export const COURT_DISCOVERY_ENABLED = PREVIEW;
+export const COURT_DISCOVERY_ENABLED = true;
 
 /**
  * Routine check-ins (state/routine-checkins-plan.md, Doggle's routines): My
@@ -104,14 +104,14 @@ export const COURT_DISCOVERY_ENABLED = PREVIEW;
  * open play now", "N here · M open to play" and the roster's play modes, and
  * routine courts fenced first and checked in during their window.
  *
- * OFF until supabase/migration_court_routines.sql is live (with the hardening
- * re-run that grants its RPCs) and send-push is redeployed with the new
- * kinds; then flipped by OTA. Off, nothing renders, nothing fetches, and the
+ * ON since 2026-10-22: migration_court_routines.sql is live (with the
+ * hardening re-run that grants its RPCs) and send-push is redeployed with the
+ * new kinds. Off, nothing renders, nothing fetches, and the
  * geofence list and the arrival rules are exactly as before. (The
  * routine_reminder / arrival_extend_until buttons register either way: only
  * a server with routines sends a push that names them.)
  */
-export const ROUTINES_ENABLED = PREVIEW;
+export const ROUTINES_ENABLED = true;
 
 /**
  * Referrals, Doggle parity (state/referrals-plan.md): invite links
@@ -122,11 +122,12 @@ export const ROUTINES_ENABLED = PREVIEW;
  * Invite & Earn section on Profile. 2500 pickles to each side once the new
  * account confirms its email; badges and bonuses at 1 / 5 / 10 friends.
  *
- * OFF until the user has tested it. Its backend is
+ * ON since 2026-10-22: everything below is live, with the profiles column
+ * guard (players can't write their own pickles). Its backend is
  * supabase/migration_referrals.sql (plus the record-invite-click and
  * claim-deferred-invite edge functions and the INVITE_CLICK_SALT secret);
  * the persona suite is supabase/tests/referral_personas.sql. While off, no
  * screen registers, no link path resolves, no storage is read and no RPC is
  * called: the app behaves exactly as before.
  */
-export const REFERRALS_ENABLED = PREVIEW;
+export const REFERRALS_ENABLED = true;

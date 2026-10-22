@@ -6,6 +6,7 @@ import { CATALOG } from '../notificationCatalog.data';
 import { linkForAction, linkOf, pushRoutes } from '../pushLinks';
 import { COURT_LINKS, linking } from '../../navigation/linking';
 import { courtPathSegment } from '../courtDiscovery';
+import { COURT_DISCOVERY_ENABLED } from '../features';
 
 const routes = pushRoutes({ wagersEnabled: false });
 
@@ -267,8 +268,14 @@ describe('court discovery links (venue ids hold ":" and "/")', () => {
     expect(getStateFromPath('courts', config)?.routes.map((r) => r.name)).toEqual(['Home', 'Courts']);
   });
 
-  it('while the flag is off, /courts paths are not registered', () => {
-    expect(linking.config?.screens).not.toHaveProperty('CourtDetail');
-    expect(linking.config?.screens).not.toHaveProperty('Courts');
+  it('/courts paths are registered exactly when the flag is on', () => {
+    const screens = linking.config?.screens;
+    if (COURT_DISCOVERY_ENABLED) {
+      expect(screens).toHaveProperty('Courts', COURT_LINKS.Courts);
+      expect(screens).toHaveProperty('CourtDetail', COURT_LINKS.CourtDetail);
+    } else {
+      expect(screens).not.toHaveProperty('CourtDetail');
+      expect(screens).not.toHaveProperty('Courts');
+    }
   });
 });
