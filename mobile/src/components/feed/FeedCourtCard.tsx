@@ -1,31 +1,40 @@
-// One court in one day of the Pickleague Feed (Doggle's FeedParkCard, with
-// the player's avatar and PLUPR where Doggle shows the dog). The header is the
-// court (★ for a starred court, a pin otherwise; tap opens its page) with its
-// crowd line and "Options ▾" today / "Plan ▾" tomorrow. Its lines run in time
-// order: friends who came and went today (faded), friends here now (with their
-// play mode), then my routine stops. Each line's time chip opens what I can do
-// with it. Over 6 lines the oldest finished visits give way first.
+// One court in one day of the Pickleague Feed: the feed's top layer (Doggle's
+// FeedParkCard, with the player's avatar and PLUPR where Doggle shows the
+// dog). The header is the court (★ for a starred court, a pin otherwise; tap
+// opens its page) with its crowd line and, today, one-tap [Check in] and
+// [▶ Play] at this court; tomorrow "Plan ▾". Its lines run in time order:
+// friends who came and went today (faded), friends here now (with their play
+// mode), then what is coming there (league events, booked matches,
+// tournaments, drills, votes, my routine stops). Each person / stop line's
+// time chip opens what I can do with it; a league line opens its screen. Over
+// 6 lines the oldest finished visits give way first.
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Avatar, type ChipTone } from '@just-messin-around/expo-foundation/ui';
-import { FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
+import { FeedActionPill, FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { formatPluprShort } from '../../lib/plupr';
 import { playerModeLine, playModeNowLine, type PlayModeRow } from '../../lib/courtRoutineRules';
-import { capCourtLines, type DayBandKey, type FeedCourtCard as Card, type FeedCourtLine } from '../../lib/pickleagueFeed';
+import { capCourtLines, type DayBandKey, type FeedCourtCard as Card, type FeedCourtLine, type FeedSheetLine } from '../../lib/pickleagueFeed';
 
 const AVATAR = 36;
 
 export type FeedCourtCardActions = {
   openCourt: (card: Card) => void;
-  /** "Options ▾" (today) / "Plan ▾" (tomorrow): the court's options sheet. */
+  /** "Plan ▾" (tomorrow): the court's options sheet. */
   courtOptions: (card: Card, day: DayBandKey) => void;
+  /** Today's [Check in]: one tap, at this court. */
+  checkIn: (card: Card) => void;
+  /** Today's [▶ Play] (and the empty card's "▶ Start playing"): the start sheet at this court. */
+  play: (card: Card) => void;
+  /** A league-side line (event, match, tournament, drill, vote) on this card. */
+  renderAgenda: (line: Extract<FeedCourtLine, { kind: 'agenda' }>, card: Card, day: DayBandKey) => React.ReactNode;
   /** A line's time chip: its action sheet. */
-  openLine: (line: FeedCourtLine, card: Card, day: DayBandKey) => void;
+  openLine: (line: FeedSheetLine, card: Card, day: DayBandKey) => void;
   openPerson: (userId: string, name: string) => void;
   /** This line's action is running / another one is. */
   lineState: (key: string) => { busy: boolean; disabled: boolean };
@@ -71,7 +80,7 @@ export default function FeedCourtCard({
       : crowdLineText(card.crowd, null, { openNow, showFriends: false }) ??
         (card.othersHere > 0 ? `+${card.othersHere} other${card.othersHere === 1 ? '' : 's'} here` : null);
 
-  function chip(l: FeedCourtLine): { label: string; tone: ChipTone } {
+  function chip(l: Exclude<FeedCourtLine, { kind: 'agenda' }>): { label: string; tone: ChipTone } {
     if (l.kind === 'here') return { label: l.viaSession ? 'Playing now' : 'Here now', tone: 'success' };
     if (l.kind === 'left') return { label: 'Left', tone: 'neutral' };
     if (l.stop.status === 'cancelled') return { label: 'Skipped', tone: 'neutral' };
@@ -79,7 +88,7 @@ export default function FeedCourtCard({
     return { label: `At ${stopClock(l.stop.at)}`, tone: started ? 'neutral' : 'warning' };
   }
 
-  function trailing(l: FeedCourtLine, who: string) {
+  function trailing(l: Exclude<FeedCourtLine, { kind: 'agenda' }>, who: string) {
     const ch = chip(l);
     const { busy, disabled } = actions.lineState(l.key);
     return (
@@ -155,9 +164,8 @@ export default function FeedCourtCard({
     );
   }
 
-  // "Options", not "Check in": the sheet opens the court page to check in (the
-  // feed can't check in by itself yet).
-  const optionsLabel = day === 'today' ? 'Options' : day === 'tomorrow' ? 'Plan' : null;
+  // Today: check in / play right here. Tomorrow: plan (a routine).
+  const optionsLabel = day === 'tomorrow' ? 'Plan' : null;
 
   return (
     <View style={[styles.card, { borderColor: c.border }]}>
@@ -187,7 +195,27 @@ export default function FeedCourtCard({
           </TouchableOpacity>
         ) : null}
       </View>
-      {crowd ? (
+      {/* Today: the crowd line beside one-tap Check in / ▶ Play (the name
+          keeps the whole first line, a long court name stays readable). */}
+      {day === 'today' ? (
+        <View style={styles.subHeader}>
+          <Text style={[t.meta, styles.subText, { color: c.textSub }]} numberOfLines={1}>
+            {crowd ?? ''}
+          </Text>
+          <FeedActionPill
+            label="Check in"
+            iconName="pin"
+            onPress={() => actions.checkIn(card)}
+            accessibilityLabel={`Check in at ${card.venueName}`}
+          />
+          <FeedActionPill
+            label="▶ Play"
+            filled
+            onPress={() => actions.play(card)}
+            accessibilityLabel={`Start playing at ${card.venueName}`}
+          />
+        </View>
+      ) : crowd ? (
         <Text style={[t.meta, styles.crowd, { color: c.textSub }]} numberOfLines={1}>
           {crowd}
         </Text>
@@ -195,15 +223,22 @@ export default function FeedCourtCard({
 
       <View style={styles.rows}>
         {shown.length === 0 ? (
-          <Text style={[t.meta, { color: c.textSub }]}>
-            {day === 'today'
-              ? friendsFailed
-                ? "Couldn't load who's here. Pull down to try again."
-                : 'No friends here or planned yet today.'
-              : 'Nothing planned here yet.'}
-          </Text>
+          day === 'today' && !friendsFailed ? (
+            <Text style={[t.meta, { color: c.textSub }]}>Nothing planned</Text>
+          ) : (
+            <Text style={[t.meta, { color: c.textSub }]}>
+              {day === 'today' ? "Couldn't load who's here. Pull down to try again." : 'Nothing planned yet.'}
+            </Text>
+          )
         ) : null}
         {shown.map((l) => {
+          if (l.kind === 'agenda') {
+            return (
+              <View key={l.key} style={styles.agendaRow}>
+                {actions.renderAgenda(l, card, day)}
+              </View>
+            );
+          }
           const own = l.kind === 'stop';
           const past = l.kind === 'left' || (l.kind === 'stop' && l.stop.status === 'cancelled');
           return (
@@ -237,6 +272,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
   headerAction: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  subHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  subText: { flex: 1, minWidth: 0 },
+  agendaRow: { marginHorizontal: -4 },
   crowd: { marginTop: 2 },
   shrink: { flexShrink: 1 },
   rows: { gap: 4, marginTop: 8 },

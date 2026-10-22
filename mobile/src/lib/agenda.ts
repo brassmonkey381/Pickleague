@@ -46,6 +46,8 @@ export type AgendaKind =
   | 'event'
   | 'tournament'
   | 'drill'
+  // A league match booked for a time (matches.status 'scheduled').
+  | 'match'
   | 'match_confirm'
   | 'drill_request'
   // A drill request I sent, still waiting on the other player (lib/inboxRequests).
@@ -75,6 +77,18 @@ export type AgendaTarget =
   | { screen: 'LeagueMembers'; params: { leagueId: string; leagueName: string } }
   // Friend requests to me (the 'friends/' landing).
   | { screen: 'Friends'; params: { tab: 'requests' } };
+
+/** Where something happens, as its row stored it (any of these may be
+ *  missing): the Pickleague Feed nests it under the court it matches
+ *  (foundation matchPlace). Absent in a payload cached before the feed's
+ *  court layer: such a row goes to the band's "Elsewhere". */
+export type AgendaPlace = {
+  /** A catalog court (venues.id): a league's home_venue_id, a drill court's venue_id. */
+  venueId?: string | null;
+  name?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
 
 export type AgendaItem = {
   key: string;
@@ -107,6 +121,8 @@ export type AgendaItem = {
    *  inline [Confirm] (rsvp_drill_session 'on_my_way'). The one inline write on
    *  Up next: an RSVP, nothing rating-related. Takes the place of `action`. */
   confirmDrillId?: string;
+  /** Where it happens (the feed's court cards). */
+  place?: AgendaPlace | null;
 };
 
 export type AgendaBucket = 'live' | 'needsYou' | 'today' | 'thisWeek';
@@ -126,6 +142,8 @@ export type AgendaEventInput = {
   iVoted: boolean;
   /** "I can't make it" (event_declines). */
   iDeclined: boolean;
+  /** league_events.location_*, else the league's home court. */
+  place?: AgendaPlace | null;
 };
 
 export type AgendaTournamentInput = {
@@ -142,6 +160,8 @@ export type AgendaTournamentInput = {
   /** tournaments.registration_closes_at: an invite's deadline (else the
    *  start). Absent in a payload cached before P3. */
   registrationClosesAt?: string | null;
+  /** tournaments.location_*. */
+  place?: AgendaPlace | null;
 };
 
 /** drill_session_rsvps.status: 'on_my_way' is the stored value behind "Confirm". */
@@ -168,6 +188,18 @@ export type AgendaDrillInput = {
   /** My answer and my partner's (drill_session_rsvps). */
   myRsvp?: DrillRsvp | null;
   partnerRsvp?: DrillRsvp | null;
+  /** The drill request's court (location_name, its court_locations venue / lat / lng). */
+  place?: AgendaPlace | null;
+};
+
+/** A league match booked for a time (matches.status 'scheduled'), mine. */
+export type AgendaMatchInput = {
+  id: string;
+  opponentName: string;
+  leagueName: string | null;
+  scheduledAt: string;
+  /** matches.location_*, else the league's home court. */
+  place?: AgendaPlace | null;
 };
 
 function ms(iso: string | null | undefined): number | null {
@@ -202,6 +234,7 @@ export function eventAgendaItems(events: readonly AgendaEventInput[], now: numbe
         status: "you haven't voted",
         target: eventTarget(e.id, e.title),
         action: { label: 'Vote', target: eventTarget(e.id, e.title, 'vote'), slug: 'vote' },
+        place: e.place ?? null,
       });
       continue;
     }
@@ -226,6 +259,7 @@ export function eventAgendaItems(events: readonly AgendaEventInput[], now: numbe
       status: e.iVoted ? "you're in" : 'RSVP open',
       target: eventTarget(e.id, e.title),
       action: rsvpOpen ? { label: 'RSVP', target: eventTarget(e.id, e.title, 'rsvp'), slug: 'rsvp' } : null,
+      place: e.place ?? null,
     });
   }
   return out;
@@ -280,6 +314,7 @@ export function tournamentAgendaItems(regs: readonly AgendaTournamentInput[], no
         : invited
           ? { label: 'Respond', target: tournamentTarget(r.id, r.name, 'invite'), slug: 'invite' }
           : null,
+      place: r.place ?? null,
     });
   }
   return out;
@@ -322,6 +357,7 @@ export function drillAgendaItems(drills: readonly AgendaDrillInput[], now?: numb
       startsAt: d.startsAt,
       endsAt: end != null ? new Date(end).toISOString() : null,
       action: null,
+      place: d.place ?? (court ? { name: court } : null),
     };
     let item: AgendaItem;
     if (d.partnerRsvp === 'cant_make_it' && d.myRsvp !== 'cant_make_it') {
@@ -352,6 +388,31 @@ export function drillAgendaItems(drills: readonly AgendaDrillInput[], now?: numb
     const today = now == null || (start != null && calendarDayDiff(new Date(start), new Date(now)) === 0);
     if (today && !item.confirmDrillId) item.dismissibleDrillId = d.id;
     out.push(item);
+  }
+  return out;
+}
+
+/** My booked league matches -> agenda items ("Match vs Sam"), through the
+ *  week, kept for 2 hours after their time. */
+export function matchAgendaItems(matches: readonly AgendaMatchInput[], now: number): AgendaItem[] {
+  const out: AgendaItem[] = [];
+  for (const m of matches) {
+    const start = ms(m.scheduledAt);
+    if (start == null || start + 2 * HOUR_MS <= now) continue;
+    out.push({
+      key: `match-${m.id}`,
+      kind: 'match',
+      title: `Match vs ${firstWord(m.opponentName)}`,
+      leagueName: m.leagueName,
+      startsAt: m.scheduledAt,
+      endsAt: new Date(start + 2 * HOUR_MS).toISOString(),
+      needsYou: false,
+      deadline: null,
+      status: 'scheduled',
+      target: { screen: 'MatchHistory', params: { title: 'My matches', initialMyMatchesOnly: true, highlightMatchId: m.id } },
+      action: null,
+      place: m.place ?? null,
+    });
   }
   return out;
 }
