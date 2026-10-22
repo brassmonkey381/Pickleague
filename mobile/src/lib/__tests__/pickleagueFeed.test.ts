@@ -1,0 +1,321 @@
+import { describe, it, expect } from 'vitest';
+import {
+  buildPickleagueFeed,
+  capCourtLines,
+  previewRows,
+  routineHeaderLine,
+  signedUpTournaments,
+  COURT_ROWS_CAP,
+  MAX_FEED_COURTS,
+  type FeedCourtLine,
+  type FeedInput,
+  type FeedPerson,
+} from '../pickleagueFeed';
+import type { AgendaItem, AgendaTournamentInput } from '../agenda';
+import type { CourtRoutine } from '../courtRoutineRules';
+import type { FriendAtCourt, FriendsAtCourts } from '../friendsAtCourts';
+
+// Thu Oct 22 2026, 3 PM local.
+const NOW = new Date(2026, 9, 22, 15, 0).getTime();
+const at = (day: number, h: number, m = 0) => new Date(2026, 9, day, h, m).toISOString();
+
+const base = (p: Partial<FeedInput> = {}): FeedInput => ({
+  now: NOW,
+  events: [],
+  tournaments: [],
+  drills: [],
+  requests: [],
+  starred: [],
+  routines: [],
+  friendsAtCourts: null,
+  friendIds: new Set(),
+  ...p,
+});
+
+const friend = (id: string, p: Partial<FriendAtCourt> = {}): FriendAtCourt => ({
+  user_id: id,
+  full_name: `Name ${id}`,
+  avatar_url: null,
+  avatar_emoji: null,
+  avatar_bg_color: null,
+  is_close_friend: false,
+  via_session: false,
+  session_kind: null,
+  checked_in_at: at(22, 14),
+  expires_at: at(22, 17),
+  ...p,
+});
+
+const fac = (now: FriendsAtCourts['now'], courts: FriendsAtCourts['courts'] = []): FriendsAtCourts => ({ now, courts });
+
+const group = (venue: string, people: FriendAtCourt[], others = 0) => ({
+  venue_id: venue,
+  venue_name: `Court ${venue}`,
+  lat: null,
+  lng: null,
+  since: people[0]?.checked_in_at ?? at(22, 14),
+  until: null,
+  people,
+  others_here: others,
+});
+
+const routine = (p: Partial<CourtRoutine> = {}): CourtRoutine => ({
+  id: 'r1',
+  venueId: 'v-routine',
+  venueName: 'Lakeside',
+  lat: null,
+  lng: null,
+  radiusM: null,
+  starred: true,
+  autoCheckin: true,
+  localTime: '18:00',
+  days: 1 | 4 | 8 | 16 | 32 | 64 | 2,
+  tz: 'America/Los_Angeles',
+  lengthMin: 120,
+  windows: [],
+  active: true,
+  next: null,
+  occurrences: [
+    { planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', windows: [] },
+    { planId: 'p-tomorrow', plannedAt: at(23, 18), plannedEndAt: at(23, 20), status: 'planned', windows: [] },
+  ],
+  ...p,
+});
+
+const tournament = (id: string, myStatus: string, p: Partial<AgendaTournamentInput> = {}): AgendaTournamentInput => ({
+  id,
+  name: `T ${id}`,
+  leagueName: null,
+  startTime: at(24, 9),
+  status: 'registration',
+  myStatus,
+  invited: false,
+  ...p,
+});
+
+const request = (key: string): AgendaItem => ({
+  key,
+  kind: 'match_confirm',
+  title: 'Confirm score',
+  leagueName: 'Dinks',
+  startsAt: null,
+  endsAt: null,
+  needsYou: true,
+  deadline: null,
+  status: 'waiting on you',
+  requestedAt: at(22, 9),
+  target: { screen: 'MatchHistory', params: { title: 'x', initialMyMatchesOnly: true, highlightMatchId: 'm' } },
+  action: null,
+});
+
+describe('which items qualify', () => {
+  it('is empty with nothing loaded', () => {
+    const f = buildPickleagueFeed(base());
+    expect(f.total).toBe(0);
+    expect(f.days).toEqual([]);
+    expect(f.needsYou).toEqual([]);
+  });
+
+  it('shows only tournaments I signed up for (or was invited to)', () => {
+    const regs = [
+      tournament('in', 'approved'),
+      tournament('req', 'pending'),
+      tournament('wait', 'waitlisted'),
+      tournament('inv', 'pending', { invited: true }),
+      tournament('out', 'withdrawn'),
+      tournament('no', 'rejected'),
+      tournament('done', 'approved', { status: 'completed' }),
+    ];
+    expect(signedUpTournaments(regs).map((t) => t.id)).toEqual(['in', 'req', 'wait', 'inv']);
+    const f = buildPickleagueFeed(base({ tournaments: regs }));
+    const keys = [...f.needsYou, ...f.days.flatMap((d) => d.rows)].map((r) => r.key).sort();
+    expect(keys).toEqual(['tournament-in', 'tournament-inv', 'tournament-req', 'tournament-wait']);
+    // The invite waits on me: pinned on top.
+    expect(f.needsYou.map((r) => r.key)).toEqual(['tournament-inv']);
+  });
+
+  it('leaves out non-starred courts: frequent and league home courts get no card', () => {
+    const f = buildPickleagueFeed(
+      base({
+        starred: [{ venueId: 'v-star', venueName: 'Star Park' }],
+        friendsAtCourts: fac([], [
+          { venue_id: 'v-star', venue_name: 'Star Park', reason: 'favorite', here_now: 3, band_low: null, band_high: null, friends_here: 0 },
+          { venue_id: 'v-freq', venue_name: 'Often', reason: 'frequent', here_now: 9, band_low: null, band_high: null, friends_here: 0 },
+          { venue_id: 'v-home', venue_name: 'Home Ct', reason: 'home', here_now: 4, band_low: null, band_high: null, friends_here: 0 },
+        ]),
+      }),
+    );
+    const today = f.days.find((d) => d.key === 'today')!;
+    expect(today.courts.map((c) => c.venueId)).toEqual(['v-star']);
+    expect(today.courts[0].crowd?.here_now).toBe(3);
+    // Every star has a Today and a Tomorrow card, even empty; neither counts.
+    expect(f.days.map((d) => d.key)).toEqual(['today', 'tomorrow']);
+    expect(f.total).toBe(0);
+  });
+
+  it('shows friends at any court, but never someone who is not my friend', () => {
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: new Set(['f1']),
+        friendsAtCourts: fac([
+          group('v1', [friend('f1'), friend('mate')], 2),
+          group('v2', [friend('stranger')]),
+        ]),
+      }),
+    );
+    const today = f.days[0];
+    expect(today.courts.map((c) => c.venueId)).toEqual(['v1']);
+    const lines = today.courts[0].lines;
+    expect(lines.map((l) => l.key)).toEqual(['here|v1|f1']);
+    // The league mate the read named counts with the anonymous others.
+    expect(today.courts[0].othersHere).toBe(3);
+    expect(f.total).toBe(1);
+  });
+
+  it('shows no friend lines until the friends list is known', () => {
+    const f = buildPickleagueFeed(base({ friendIds: null, friendsAtCourts: fac([group('v1', [friend('f1')])]) }));
+    expect(f.days).toEqual([]);
+  });
+
+  it('keeps a friend who left earlier today as a Left line, drops one who left yesterday', () => {
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: new Set(['a', 'b']),
+        friendsAtCourts: fac([
+          group('v1', [
+            friend('a', { checked_in_at: at(22, 9), expires_at: at(22, 11) }),
+            friend('b', { checked_in_at: at(21, 20), expires_at: at(21, 23) }),
+          ]),
+        ]),
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.kind)).toEqual(['left']);
+  });
+
+  it('hides a live event Home shows on its own card', () => {
+    const events = [
+      { id: 'e1', title: 'Ladder', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(22, 14), endsAt: at(22, 16) }, iVoted: true, iDeclined: false },
+    ];
+    expect(buildPickleagueFeed(base({ events })).days[0].rows.map((r) => r.key)).toEqual(['event-e1']);
+    expect(buildPickleagueFeed(base({ events, hideKeys: new Set(['event-e1']) })).days).toEqual([]);
+  });
+});
+
+describe('day bands and ordering', () => {
+  it('puts each scheduled item in its day and requests on top', () => {
+    const events = [
+      { id: 'later', title: 'Sat', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(24, 10), endsAt: at(24, 12) }, iVoted: true, iDeclined: false },
+      { id: 'tmrw', title: 'Fri', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(23, 18), endsAt: at(23, 20) }, iVoted: true, iDeclined: false },
+      { id: 'today', title: 'Tonight', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(22, 19), endsAt: at(22, 21) }, iVoted: true, iDeclined: false },
+      { id: 'next-week', title: 'Far', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(30, 10), endsAt: at(30, 12) }, iVoted: true, iDeclined: false },
+      { id: 'vote', title: 'Pick a day', leagueName: 'Dinks', status: 'voting', voteEndsAt: at(23, 9), slot: null, iVoted: false, iDeclined: false },
+    ];
+    const f = buildPickleagueFeed(base({ events, requests: [request('req-1')] }));
+    expect(f.needsYou.map((r) => r.key)).toEqual(['vote-vote', 'req-1']);
+    expect(f.days.map((d) => [d.key, d.rows.map((r) => r.key)])).toEqual([
+      ['today', ['event-today']],
+      ['tomorrow', ['event-tmrw']],
+      ['later', ['event-later']],
+    ]);
+    expect(f.days.map((d) => d.title)).toEqual(['Today', 'Tomorrow', 'Later this week']);
+    expect(f.total).toBe(5);
+  });
+
+  it('files my routine stops under their day, drops dormant routines and finished stops', () => {
+    const f = buildPickleagueFeed(base({ routines: [routine()] }));
+    expect(f.days.map((d) => [d.key, d.courts.map((c) => c.lines.map((l) => l.key))])).toEqual([
+      ['today', [['stop|p-today']]],
+      ['tomorrow', [['stop|p-tomorrow']]],
+    ]);
+    expect(f.days[0].courts[0].routine).toBe(true);
+
+    const dormant = buildPickleagueFeed(base({ routines: [routine({ starred: false })] }));
+    expect(dormant.days).toEqual([]);
+    const paused = buildPickleagueFeed(base({ routines: [routine({ active: false })] }));
+    expect(paused.days).toEqual([]);
+
+    const over = routine({
+      occurrences: [{ planId: 'p-am', plannedAt: at(22, 9), plannedEndAt: at(22, 11), status: 'planned', windows: [] }],
+    });
+    expect(buildPickleagueFeed(base({ routines: [over] })).days).toEqual([]);
+  });
+
+  it('shows a skipped stop (for Undo) without counting it', () => {
+    const skipped = routine({
+      occurrences: [{ planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'cancelled', windows: [] }],
+    });
+    const f = buildPickleagueFeed(base({ routines: [skipped] }));
+    expect(f.days[0].courts[0].lines).toHaveLength(1);
+    expect(f.days[0].count).toBe(0);
+    expect(f.total).toBe(0);
+  });
+
+  it('orders a court card: left, here (close friends first), then stops', () => {
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: new Set(['a', 'b', 'c']),
+        starred: [{ venueId: 'v-routine', venueName: 'Lakeside' }],
+        routines: [routine()],
+        friendsAtCourts: fac([
+          group('v-routine', [
+            friend('a', { checked_in_at: at(22, 13) }),
+            friend('b', { checked_in_at: at(22, 14), is_close_friend: true }),
+            friend('c', { checked_in_at: at(22, 8), expires_at: at(22, 10) }),
+          ]),
+        ]),
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.key)).toEqual([
+      'left|v-routine|c',
+      'here|v-routine|b',
+      'here|v-routine|a',
+      'stop|p-today',
+    ]);
+  });
+
+  it('puts courts with friends first and caps the cards per day', () => {
+    const groups = Array.from({ length: 8 }, (_, i) => group(`v${i}`, Array.from({ length: i + 1 }, (_, j) => friend(`f${i}-${j}`))));
+    const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
+    const f = buildPickleagueFeed(base({ friendIds: ids, starred: [{ venueId: 'quiet', venueName: 'Aaa' }], friendsAtCourts: fac(groups) }));
+    const today = f.days[0];
+    expect(today.courts).toHaveLength(MAX_FEED_COURTS);
+    expect(today.courts.map((c) => c.venueId)).toEqual(['v7', 'v6', 'v5', 'v4', 'v3', 'v2']);
+  });
+});
+
+describe('caps', () => {
+  const p = (id: string): FeedPerson => ({ userId: id, name: id, avatarUrl: null, avatarEmoji: null, avatarBgColor: null, isCloseFriend: false });
+  const left = (id: string): FeedCourtLine => ({ kind: 'left', key: `l${id}`, person: p(id), at: at(22, 8), endedAt: at(22, 9) });
+  const here = (id: string): FeedCourtLine => ({ kind: 'here', key: `h${id}`, person: p(id), at: at(22, 14), until: null, viaSession: false });
+
+  it('keeps every line under the cap', () => {
+    expect(capCourtLines([left('1'), here('2')])).toEqual({ shown: [left('1'), here('2')], more: 0 });
+  });
+
+  it('drops the oldest finished visits first, then cuts at the cap', () => {
+    const lines = [left('1'), left('2'), here('3'), here('4'), here('5'), here('6'), here('7')];
+    const { shown, more } = capCourtLines(lines);
+    expect(shown).toHaveLength(COURT_ROWS_CAP);
+    expect(shown.map((l) => l.key)).toEqual(['l2', 'h3', 'h4', 'h5', 'h6', 'h7']);
+    expect(more).toBe(1);
+    const many = Array.from({ length: 9 }, (_, i) => here(String(i)));
+    expect(capCourtLines(many).more).toBe(3);
+  });
+
+  it('previews rows until expanded', () => {
+    expect(previewRows([1, 2, 3, 4, 5], 3, false)).toEqual({ shown: [1, 2, 3], more: 2 });
+    expect(previewRows([1, 2, 3, 4, 5], 3, true)).toEqual({ shown: [1, 2, 3, 4, 5], more: 0 });
+    expect(previewRows([1], 3, false)).toEqual({ shown: [1], more: 0 });
+  });
+});
+
+describe('routineHeaderLine', () => {
+  it('names the first live routine and counts the rest', () => {
+    expect(routineHeaderLine([])).toBe('Set up a routine');
+    expect(routineHeaderLine([routine({ active: false })])).toBe('Set up a routine');
+    const one = routineHeaderLine([routine({ days: 2 | 8 })]);
+    expect(one.startsWith('My routine: ')).toBe(true);
+    expect(one.endsWith(' at Lakeside')).toBe(true);
+    expect(routineHeaderLine([routine(), routine({ id: 'r2' })]).endsWith(', +1 more')).toBe(true);
+  });
+});
