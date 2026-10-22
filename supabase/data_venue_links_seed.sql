@@ -18,6 +18,9 @@
 -- Left out on purpose: '[google] Tennis Courts <-> [osm] Tennis Courts'
 -- (20 m). The name is generic, so a name + distance lookup can't pin one pair;
 -- if it is pickleball, the v1 50 m rule already merges it.
+-- Also left out: '[osm] Municipal Tennis and Pickleball Center' x2 (33 m).
+-- Live has 22 rows of that name (one per court, Santa Barbara), so the
+-- lookup matched 24 pairs (2026-10-21).
 --
 -- Needs migration_venue_data_guards.sql.
 --   supabase db query --linked -f supabase/data_venue_links_seed.sql -o csv
@@ -42,7 +45,6 @@ begin
       ('Pickleball Courts | Leydecker Park',        'google', 'Leydecker Park',                    'google', 154, true),
       ('Pioneer Stadium',                           'osm',    'Pioneer Stadium',                   'osm',      2, false),
       ('High Country Sports Arena',                 'osm',    'High Country Sports Arena',         'osm',      5, false),
-      ('Municipal Tennis and Pickleball Center',    'osm',    'Municipal Tennis and Pickleball Center', 'osm', 33, false),
       ('Haas Pavilion',                             'google', 'Haas Pavilion',                     'osm',      5, false),
       ('Tice Creek Fitness Center at Rossmoor',     'google', 'Tice Creek Fitness Center',         'osm',      6, false),
       ('City Sports Club',                          'google', 'City Sports Club',                  'osm',     25, false),
