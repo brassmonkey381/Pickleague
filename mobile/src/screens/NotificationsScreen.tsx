@@ -66,6 +66,7 @@ import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { linkOf } from '../lib/pushLinks';
 import { routeLink } from '../lib/push';
+import { openDiscover } from '../lib/discoverNav';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { entityTileColors, type EntityKind } from '../lib/entityGlyph';
 import {
@@ -482,7 +483,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
       let res: Awaited<ReturnType<typeof redeemLeagueInvite>> | null = null;
       try { res = await redeemLeagueInvite(code); } catch { res = null; }
       if (!res?.joined) {
-        navigation.navigate('Leagues', { prefillInviteCode: code });
+        openDiscover(navigation, { tab: 'leagues', prefillInviteCode: code });
         return true;
       }
       navigation.navigate('LeagueDetail', { leagueId: res.leagueId, leagueName: res.leagueName ?? 'League' });
@@ -495,8 +496,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
 
     if (error || !row?.success) {
       // Fall back to the current behavior — manual retry on the Leagues
-      // Join-with-Code page.
-      navigation.navigate('Leagues', { prefillInviteCode: code });
+      // Join-with-Code page (Discover's Leagues tab).
+      openDiscover(navigation, { tab: 'leagues', prefillInviteCode: code });
       return true;
     }
 

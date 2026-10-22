@@ -80,7 +80,23 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import FriendsScreen from '../screens/FriendsScreen';
-import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, REFERRALS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import DiscoverScreen from '../screens/DiscoverScreen';
+import {
+  CourtsAlias,
+  DISCOVER_ALIAS_OPTIONS,
+  FriendsAlias,
+  LeaguesAlias,
+  PlayAlias,
+  TournamentsRoute,
+} from '../screens/DiscoverAliases';
+import {
+  COURT_DISCOVERY_ENABLED,
+  DISCOVER_ENABLED,
+  FRIENDS_AT_COURTS_ENABLED,
+  REFERRALS_ENABLED,
+  ROUTINES_ENABLED,
+  WAGERS_ENABLED,
+} from '../lib/features';
 import InviteLandingScreen from '../screens/InviteLandingScreen';
 import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
@@ -92,7 +108,7 @@ import SubmitVenueScreen from '../screens/SubmitVenueScreen';
 import AdminVenueReviewScreen from '../screens/AdminVenueReviewScreen';
 import AdminBoundariesScreen from '../screens/AdminBoundariesScreen';
 import AdminBoundaryEditorScreen from '../screens/AdminBoundaryEditorScreen';
-import CourtsScreen from '../screens/CourtsScreen';
+import { CourtsRouteScreen } from '../screens/CourtsScreen';
 import CourtDetailScreen from '../screens/CourtDetailScreen';
 import CourtRoutinesScreen from '../screens/CourtRoutinesScreen';
 
@@ -290,8 +306,24 @@ export default function AppNavigator() {
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-                <Stack.Screen name="Play" component={PlayScreen} options={{ title: 'Play' }} />
-                <Stack.Screen name="Leagues" component={LeaguesScreen} options={{ title: 'Leagues' }} />
+                {/* Discover (Leagues · Tournaments · Places · Players). While it
+                    is on, Play, Leagues, Courts, Friends and the league-less
+                    Tournaments are aliases that replace themselves with it on
+                    the matching tab (screens/DiscoverAliases.tsx). */}
+                {DISCOVER_ENABLED && (
+                  <Stack.Screen name="Discover" component={DiscoverScreen} options={{ title: 'Discover' }} />
+                )}
+                {DISCOVER_ENABLED ? (
+                  <>
+                    <Stack.Screen name="Play" component={PlayAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                    <Stack.Screen name="Leagues" component={LeaguesAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                  </>
+                ) : (
+                  <>
+                    <Stack.Screen name="Play" component={PlayScreen} options={{ title: 'Play' }} />
+                    <Stack.Screen name="Leagues" component={LeaguesScreen} options={{ title: 'Leagues' }} />
+                  </>
+                )}
                 <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params.leagueName })} />
                 <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params.leagueName + ' Members' })} />
                 <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Invite Players' }} />
@@ -308,7 +340,16 @@ export default function AppNavigator() {
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
                 <Stack.Screen name="Claim" component={ClaimAccountScreen} options={{ title: 'Claim account' }} />
                 <Stack.Screen name="HeadToHead" component={HeadToHeadScreen} options={({ route }) => ({ title: `You vs ${route.params.opponentName}` })} />
-                <Stack.Screen name="Tournaments" component={TournamentsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' })} />
+                {/* With Discover on, a league's own list (leagueId) renders as
+                    before and the full list replaces itself with Discover. */}
+                <Stack.Screen
+                  name="Tournaments"
+                  component={DISCOVER_ENABLED ? TournamentsRoute : TournamentsScreen}
+                  options={({ route }) =>
+                    DISCOVER_ENABLED && !route.params?.leagueId
+                      ? DISCOVER_ALIAS_OPTIONS
+                      : { title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' }}
+                />
                 <Stack.Screen name="CreateTournament" component={CreateTournamentScreen} options={{ title: 'New Tournament' }} />
                 <Stack.Screen name="TournamentDetail" component={TournamentDetailScreen} options={({ route }) => ({ title: route.params.tournamentName })} />
                 <Stack.Screen name="TournamentMembers" component={TournamentMembersScreen} options={({ route }) => ({ title: route.params.tournamentName + ' Members' })} />
@@ -341,7 +382,9 @@ export default function AppNavigator() {
                 {/* Friends stays unregistered while FRIENDS_AT_COURTS_ENABLED is
                     false: its RPCs ship with the presence SQL. */}
                 {FRIENDS_AT_COURTS_ENABLED && (
-                  <Stack.Screen name="Friends" component={FriendsScreen} options={{ title: 'Friends' }} />
+                  DISCOVER_ENABLED
+                    ? <Stack.Screen name="Friends" component={FriendsAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                    : <Stack.Screen name="Friends" component={FriendsScreen} options={{ title: 'Friends' }} />
                 )}
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}
@@ -361,8 +404,12 @@ export default function AppNavigator() {
                     is false: its RPCs ship with migration_court_discovery_p1.sql. */}
                 {COURT_DISCOVERY_ENABLED && (
                   <>
-                    {/* Discover, as in Doggle: the courts near you, list or map. */}
-                    <Stack.Screen name="Courts" component={CourtsScreen} options={{ title: 'Discover' }} />
+                    {/* The courts near you: Discover's Places tab while Discover
+                        is on (CourtsScreen is its body; Courts is an alias),
+                        else their own screen, as before. */}
+                    {DISCOVER_ENABLED
+                      ? <Stack.Screen name="Courts" component={CourtsAlias} options={DISCOVER_ALIAS_OPTIONS} />
+                      : <Stack.Screen name="Courts" component={CourtsRouteScreen} options={{ title: 'Discover' }} />}
                     <Stack.Screen name="CourtDetail" component={CourtDetailScreen} options={{ title: 'Court' }} />
                   </>
                 )}

@@ -726,9 +726,19 @@ export function trackHomeTap(p: HomeTapProps): void {
 
 export type PlayList = 'leagues' | 'tournaments';
 
-/** `play.tab`: the Play underline toggle switched to `tab` (a user tap, not the initial mount). */
+/** `play.tab`: the Play underline toggle switched to `tab` (a user tap, not the initial mount).
+ *  Only while Discover is off: Discover's tabs send `discover.tab` instead. */
 export function trackPlayTab(tab: PlayList): void {
   track('play.tab', { tab });
+}
+
+/** `discover.tab`: the Discover tab showing (Doggle's trackDiscoverTab). `via`
+ *  'open' is the tab the screen opened on, 'tap' a switch after it: counting
+ *  only the switches would make the opening tab look the least used. It
+ *  replaces `play.tab` (the Play hub folded into Discover's Leagues and
+ *  Tournaments tabs). */
+export function trackDiscoverTab(tab: string, via: 'open' | 'tap'): void {
+  track('discover.tab', { tab, via });
 }
 
 export type PlayFilterProps = {

@@ -131,3 +131,24 @@ export const ROUTINES_ENABLED = true;
  * called: the app behaves exactly as before.
  */
 export const REFERRALS_ENABLED = true;
+
+/**
+ * Discover, one screen with four tabs in the user's order: Leagues ·
+ * Tournaments · Places · Players (state/feed-discover-play-plan.md §4, P2). The
+ * Play hub (Leagues + Tournaments), the Courts screen and the Friends screen
+ * fold into it: their routes stay registered as aliases that replace
+ * themselves with Discover on the right tab (screens/DiscoverAliases.tsx),
+ * their links (/play, /leagues, /tournaments, /courts, /friends) open
+ * /discover/<tab>, and the friend and invite-code pushes land on its tabs.
+ *
+ * PREVIEW only for now: merged, but not shown to players until the plan's §13
+ * web smoke test passes signed in (each tab, Places' map after switching tabs,
+ * the tab bar at 375 px and 1280 px; state/preview-web.ps1 serves it). Then
+ * drop `PREVIEW &&`. The plan's C4 registers Discover when any of
+ * PLAY_NAV_ENABLED, HOME_FEED_ENABLED or COURT_DISCOVERY_ENABLED is on: OR the
+ * first two in here when P1 / P3 add them. Inside, each tab follows its own
+ * flag: Places needs COURT_DISCOVERY_ENABLED, Players
+ * FRIENDS_AT_COURTS_ENABLED. Off, every old screen is itself again (Courts
+ * included) and nothing names Discover.
+ */
+export const DISCOVER_ENABLED = PREVIEW && COURT_DISCOVERY_ENABLED;

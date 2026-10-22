@@ -14,6 +14,7 @@ import ConfirmModal from './ConfirmModal';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
+import { DISCOVER_ENABLED } from '../lib/features';
 
 export type InviteScope = 'league' | 'tournament';
 
@@ -184,13 +185,14 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
       ? `\n💸 I'll cover ${invite.pickle_subsidy} 🥒 of your entry fee!`
       : '';
     const target = scopeType === 'league' ? 'league' : 'tournament';
-    const joinUrl = scopeType === 'league'
-      ? 'https://www.pickleague.club/leagues'
-      : 'https://www.pickleague.club/tournaments';
+    // Both kinds: code entry is on the leagues list (one code table,
+    // redeem_invite_code), and the link opens it with the code filled in
+    // (/leagues is Discover › Leagues while Discover is on).
+    const joinUrl = `https://www.pickleague.club/leagues?prefillInviteCode=${encodeURIComponent(code)}`;
     return (
       `You're invited to join the ${target} "${scopeName}" on Pickleague! 🥒\n` +
       `Use invite code: ${code}${subsidyLine}\n\n` +
-      `Join here: ${joinUrl} (then tap "Join with Code" and enter the code)`
+      `Join here: ${joinUrl} (or open Leagues, tap + then "Enter code")`
     );
   }
 
@@ -351,7 +353,8 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
       <View style={S.infoBox}>
         <Text style={S.infoText}>
-          Recipients open the app, go to {scopeType === 'league' ? 'Leagues' : 'Tournaments'}, tap "Join with Code", and enter this code.
+          {/* One code table (redeem_invite_code): Enter code on Leagues takes a tournament's code too. */}
+          Recipients open the app, go to {DISCOVER_ENABLED ? 'Discover › Leagues' : 'Play › Leagues'}, tap + then "Enter code", and enter this code.
           {'\n\n'}
           Codes expire after 7 days. You can revoke and regenerate at any time.
         </Text>

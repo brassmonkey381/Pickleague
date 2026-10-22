@@ -1,6 +1,8 @@
-// Play > Tournaments (plan section 4). The same body is mounted by the Play tab
-// and by the standalone 'Tournaments' route (LeagueDetail -> Tournaments
-// {leagueId}, which keeps its league-scoped list).
+// Discover › Tournaments (state/feed-discover-play-plan.md §4; was Play >
+// Tournaments). The same body is mounted by Discover's Tournaments tab (the
+// Play tab while Discover is off) and by the standalone 'Tournaments' route
+// (LeagueDetail -> Tournaments {leagueId}, which keeps its league-scoped list;
+// without a leagueId that route is an alias of Discover).
 //
 //   [Q] Search tournaments, courts, leagues  x     search covers EVERY status
 //   MINE  2                                        invites first; hidden at 0
@@ -68,6 +70,7 @@ import {
 import PlayListChrome from '../components/play/PlayListChrome';
 import DistanceFilterGroup from '../components/play/DistanceFilterGroup';
 import { usePlayHeaderPlus } from '../components/play/HeaderPlusButton';
+import { openDiscover } from '../lib/discoverNav';
 import { usePlayFilterState } from '../components/play/usePlayFilterState';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import { usePlayUserId } from '../components/play/usePlayUserId';
@@ -365,7 +368,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
 
   const browseLeagues = useCallback(() => {
     if (onBrowseLeagues) onBrowseLeagues();
-    else navigation.navigate('Play', { initialTab: 'leagues' });
+    else openDiscover(navigation, { tab: 'leagues' });
   }, [onBrowseLeagues, navigation]);
 
   // Registration deadline passed (tournament may still be in 'registration'

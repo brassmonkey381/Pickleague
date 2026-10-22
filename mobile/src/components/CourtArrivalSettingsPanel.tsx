@@ -41,6 +41,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import CourtPicker, { type CourtResult } from './CourtPicker';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { openDiscover } from '../lib/discoverNav';
 import type { RootStackParamList } from '../types';
 import RoutineSettingsSection from './routines/RoutineSettingsSection';
 import {
@@ -260,7 +261,8 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
       size="sm"
       variant="outline"
       iconName="search"
-      onPress={() => navigation.navigate('Courts')}
+      // Discover › Places, where the ☆ on each court stars it.
+      onPress={() => openDiscover(navigation, { tab: 'places' })}
       disabled={busy}
       style={[S.hug, S.starButton]}
     />

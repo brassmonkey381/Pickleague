@@ -1,3 +1,7 @@
+import type { DiscoverParams } from '../lib/discoverTabs';
+
+export type { DiscoverParams, DiscoverTab, PlayersView } from '../lib/discoverTabs';
+
 export type Gender = 'male' | 'female' | 'other' | 'prefer-not-to-say';
 
 export type Profile = {
@@ -509,6 +513,14 @@ export type RootStackParamList = {
   // www.pickleague.club/invite/CODE (REFERRALS_ENABLED only; both stacks).
   InviteLanding: { code: string };
   Home: undefined;
+  // Discover (DISCOVER_ENABLED): Leagues · Tournaments · Places · Players, one
+  // screen (lib/discoverTabs.ts). tab picks the tab (else the one used last,
+  // else Leagues); mine / prefillInviteCode go to Leagues or Tournaments,
+  // players to Players, lat / lng to Places. Link: discover/:tab?.
+  Discover: DiscoverParams | undefined;
+  // While Discover is on, Play, Leagues, Courts, Friends and the league-less
+  // Tournaments are aliases that replace themselves with Discover on that tab
+  // (lib/discoverTabs discoverParamsForLegacy); their params ride along.
   // mine: a Home "All yours (N)" visit turns the Mine-only chip on for that
   // visit. Route params are never persisted (usePersistedState skips them).
   // prefillInviteCode: passed through to the embedded Leagues body, which opens

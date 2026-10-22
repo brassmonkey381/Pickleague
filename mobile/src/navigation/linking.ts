@@ -1,9 +1,41 @@
 // The deep-link table for the root stack. Its own module (pure: no
 // react-native import) so vitest can run getStateFromPath against the real
 // config; AppNavigator passes it to NavigationContainer.
+// core, not native: native's index pulls in react-native, which vitest can't load.
+import { getStateFromPath as defaultGetStateFromPath } from '@react-navigation/core';
 import type { LinkingOptions } from '@react-navigation/native';
 import type { RootStackParamList } from '../types';
-import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, REFERRALS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import {
+  COURT_DISCOVERY_ENABLED,
+  DISCOVER_ENABLED,
+  FRIENDS_AT_COURTS_ENABLED,
+  REFERRALS_ENABLED,
+  ROUTINES_ENABLED,
+  WAGERS_ENABLED,
+} from '../lib/features';
+import { rewriteLegacyDiscoverPath } from '../lib/discoverTabs';
+
+/**
+ * Discover's path (registered only while DISCOVER_ENABLED): /discover opens the
+ * tab used last, /discover/<leagues|tournaments|places|players> that tab. Its
+ * other params ride in the query (?players=requests, ?lat=..&lng=..,
+ * ?prefillInviteCode=..). lat / lng parse back to numbers (Places reads only
+ * numbers). Exported for the tests.
+ */
+export const DISCOVER_LINK = {
+  path: 'discover/:tab?',
+  parse: { lat: finiteOrUndefined, lng: finiteOrUndefined },
+} as const;
+
+/** A query number, or undefined for '' and junk (Number('') is 0, Number('x') NaN). */
+function finiteOrUndefined(v: string): number | undefined {
+  const n = Number(v);
+  return v.trim() !== '' && Number.isFinite(n) ? n : undefined;
+}
+
+/** React Navigation's getStateFromPath after the old-list rewrite (lib/discoverTabs). */
+export const discoverAwareStateFromPath: typeof defaultGetStateFromPath = (path, options) =>
+  defaultGetStateFromPath(rewriteLegacyDiscoverPath(path), options);
 
 /**
  * Court discovery's paths (registered only while COURT_DISCOVERY_ENABLED).
@@ -26,6 +58,15 @@ export const linking: LinkingOptions<RootStackParamList> = {
   // matches no prefix lands on Home instead of the screen the sender meant, so
   // both must be listed here AND in ios.associatedDomains.
   prefixes: ['https://pickleague.club', 'https://www.pickleague.club', 'pickleague://'],
+  // While Discover is on, the old list links open it on their tab, with what
+  // they carried: /play -> /discover/leagues (?initialTab=tournaments ->
+  // /discover/tournaments), /leagues -> /discover/leagues (?prefillInviteCode
+  // kept), /tournaments -> /discover/tournaments (with ?leagueId it stays the
+  // league's list), /courts -> /discover/places (?lat&lng kept), /friends ->
+  // /discover/players (?tab=find -> ?players=find). Rewritten before parsing,
+  // so no alias screen mounts and the address bar shows /discover/<tab>.
+  // /courts/<venue id> and every other path are untouched.
+  ...(DISCOVER_ENABLED ? { getStateFromPath: discoverAwareStateFromPath } : {}),
   config: {
     // Home sits under every deep link. Without it a cold open of
     // /leagues/:id (web URL, universal link, or a cold-start push routed
@@ -45,6 +86,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Register: 'register',
       GuestJoin: 'g/:token',
       Home: '',
+      ...(DISCOVER_ENABLED ? { Discover: DISCOVER_LINK } : {}),
       Play: 'play',
       Leagues: 'leagues',
       LeagueDetail: 'leagues/:leagueId',

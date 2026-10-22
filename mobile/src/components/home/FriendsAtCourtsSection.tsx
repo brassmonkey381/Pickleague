@@ -27,6 +27,7 @@ import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
+import { openDiscover } from '../../lib/discoverNav';
 import { useTheme } from '../../lib/ThemeContext';
 import { trackHomeTap } from '../../lib/analytics';
 import {
@@ -86,8 +87,8 @@ function FriendsAtCourtsBody() {
           a11yLabel: 'See your friends',
           onPress: () => {
             trackHomeTap({ section: 'friends_courts', target: 'header' });
-            // Registered by the Friends screen (same flag); by name, not typed here.
-            navigation.dispatch(CommonActions.navigate({ name: 'Friends' }));
+            // Discover › Players, else the Friends screen (same flag).
+            openDiscover(navigation, { tab: 'players', players: 'friends' });
           },
         }}
       />

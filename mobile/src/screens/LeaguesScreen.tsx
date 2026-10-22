@@ -1,6 +1,8 @@
-// Play > Leagues (plan section 4). The same body is mounted by the Play tab
-// and by the standalone 'Leagues' route (FTUE "Join a league", the
-// invite_code push), so both get the same list, anchors and Join-with-Code.
+// Discover › Leagues (state/feed-discover-play-plan.md §4; was Play > Leagues).
+// The same body is mounted by Discover's Leagues tab and, while Discover is
+// off, by the Play tab and the standalone 'Leagues' route (FTUE "Join a
+// league", the invite_code push), so all get the same list, anchors and
+// Join-with-Code. With Discover on, 'Leagues' and 'Play' are aliases of it.
 //
 //   [Q] Search leagues, courts, admins      x     fixed chrome, outside the list
 //   (chips ... only once Discover > 6 rows)  [Filters]

@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
+import { discoverTarget } from '../lib/discoverNav';
 import { Profile } from '../types';
 
 // The three starter quests (join a league, set up your profile, record a
@@ -133,11 +134,17 @@ export function useFtueChecklist({ profile, navigation, onClaimed, inLeague: inL
   };
 
   // Arm the matching spotlight tour BEFORE navigating so it starts once the
-  // destination screen's first anchor mounts (no-op if already seen).
+  // destination screen's first anchor mounts (no-op if already seen). The
+  // leagues tour runs on Discover's Leagues tab, which registers its anchors
+  // only while it is the tab showing (plan C5), so it is opened on that tab.
+  const openLeagues = () => {
+    const target = discoverTarget({ tab: 'leagues' });
+    if (target) navigation.navigate(target[0], target[1]);
+  };
   const defs: { id: FtueStepId; title: string; navTo: () => void }[] = [
-    { id: 'join_league',   title: 'Join a league',           navTo: () => { armTour('leagues'); navigation.navigate('Leagues'); } },
+    { id: 'join_league',   title: 'Join a league',           navTo: () => { armTour('leagues'); openLeagues(); } },
     { id: 'setup_profile', title: 'Set up your profile',     navTo: () => { armTour('profile'); navigation.navigate('Profile', {}); } },
-    { id: 'first_match',   title: 'Record your first match', navTo: () => { armTour('leagues'); navigation.navigate('Leagues'); } },
+    { id: 'first_match',   title: 'Record your first match', navTo: () => { armTour('leagues'); openLeagues(); } },
   ];
 
   const steps: FtueStep[] = defs.map(d => {

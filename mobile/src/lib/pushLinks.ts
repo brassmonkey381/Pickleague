@@ -20,8 +20,11 @@ const has = (id: string | undefined | null): string | undefined => (id && id !==
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 
 /** The route table. `wagersEnabled` / `friendsEnabled`: the wager screens and
- *  the Friends screen exist only when their flag is on. */
-export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: boolean }): Routes {
+ *  the Friends screen exist only when their flag is on. `discoverEnabled`:
+ *  Discover holds the leagues list and the friends (its Leagues and Players
+ *  tabs), so an invite code and the friend pushes open it there directly. */
+export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: boolean; discoverEnabled?: boolean }): Routes {
+  const discover = !!opts.discoverEnabled;
   const routes: Routes = {
     'tournament/': (id) => (has(id) ? ['TournamentDetail', { tournamentId: id, tournamentName: 'Tournament' }] : null),
     'league/': (id) => (has(id) ? ['LeagueDetail', { leagueId: id, leagueName: 'League' }] : null),
@@ -29,8 +32,11 @@ export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: bool
     'league_members/': (id) => (has(id) ? ['LeagueMembers', { leagueId: id, leagueName: 'League' }] : null),
     // "Pick new times" after a vote cancelled the event.
     'league_new_event/': (id) => (has(id) ? ['CreateEvent', { leagueId: id }] : null),
-    // A league invite code that could not be redeemed from the push.
-    'invite_code/': (id) => (has(id) ? ['Leagues', { prefillInviteCode: id }] : null),
+    // A league invite code that could not be redeemed from the push: Join
+    // with code, filled in (Discover's Leagues tab, else the Leagues list).
+    'invite_code/': (id) => (has(id)
+      ? (discover ? ['Discover', { tab: 'leagues', prefillInviteCode: id }] : ['Leagues', { prefillInviteCode: id }])
+      : null),
     'event/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event' }] : null),
     // Organizer: open the event with the group-text composer up.
     'event_nudge/': (id) => (has(id) ? ['EventDetail', { eventId: id, title: 'Event', openNudge: true }] : null),
@@ -66,11 +72,14 @@ export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: bool
     routes['wager/'] = () => ['MyWagers'];
   }
   // Likewise the Friends screen (FRIENDS_AT_COURTS_ENABLED). A friend request
-  // ('friends/-') opens its Requests tab.
+  // ('friends/-') opens its Requests tab. With Discover on, the friends live
+  // in its Players tab: the same view, there.
   if (opts.friendsEnabled) {
-    routes['friends/'] = (id) => ['Friends', { tab: id === 'friends' || id === 'find' ? id : 'requests' }];
+    const friends = (tab: 'requests' | 'friends' | 'find'): Route =>
+      discover ? ['Discover', { tab: 'players', players: tab }] : ['Friends', { tab }];
+    routes['friends/'] = (id) => friends(id === 'friends' || id === 'find' ? id : 'requests');
     // A friend notice without its own link (entity friend/<the other player>).
-    routes['friend/'] = () => ['Friends', { tab: 'requests' }];
+    routes['friend/'] = () => friends('requests');
   }
   return routes;
 }
