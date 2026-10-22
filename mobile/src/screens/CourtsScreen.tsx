@@ -19,7 +19,16 @@
 // The catalog is cached a day (data/courtDiscovery); the crowd on each row is
 // one venue_crowd call per page, polled once a minute while this screen is
 // focused. Offline, the cached list still renders under the app's
-// OfflineBanner. Pickleball courts only (decision 2). No map yet (Phase 2).
+// OfflineBanner. Pickleball courts only (decision 2).
+//
+// Discover (Phase 2): the screen is titled Discover, and List / Map works like
+// Doggle's Discover places: the small toggle ends the count line, and Map puts
+// the foundation's RadiusPlacesMap (Apple Maps on iOS, Google on Android, OSM
+// tiles on web; lib/maps) over the same list. A pin opens CourtPinModal (the
+// row, with its star, plus Directions and View details). The map is guarded:
+// if it throws (an old build without the native module, say), the screen goes
+// back to the list with a toast. Starring anywhere here goes through the same
+// 3-court cap and "Replace a starred court?" sheet as everywhere else.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -31,7 +40,9 @@ import {
   PlaceDiscoveryView,
   type ActionSheetAction,
   type FilterChipOption,
+  type PlaceDiscoveryViewMode,
 } from '@just-messin-around/expo-foundation/ui';
+import { RadiusPlacesMap, type RadiusMapPlace } from '@just-messin-around/expo-foundation/ui/maps';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -61,8 +72,12 @@ import {
   useNearestCityLabel,
   type CitySuggestion,
 } from '../data/courtDiscovery';
-import { toggleCourtFavorite, useCourtFavoriteIds } from '../data/courtFavorites';
+import { isCourtFavoritesFullError, toggleCourtFavorite, useCourtFavoriteIds } from '../data/courtFavorites';
 import { courtStarsChanged } from '../lib/courtArrivalAsk';
+import { dropWaitingArrivalNotices } from '../lib/courtArrivalNotice';
+import { googleMapsKey } from '../lib/maps';
+import { useReplaceCourtStar } from '../components/court/useReplaceCourtStar';
+import CourtPinModal from '../components/court/CourtPinModal';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import DistanceFilterGroup from '../components/play/DistanceFilterGroup';
 import CourtListRow from '../components/court/CourtListRow';
@@ -115,6 +130,8 @@ export default function CourtsScreen({ navigation, route }: Props) {
   const [sort, setSort] = useState<CourtSort>('nearest');
   const [sortOpen, setSortOpen] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [view, setView] = useState<PlaceDiscoveryViewMode>('list');
+  const [pinned, setPinned] = useState<CourtRow | null>(null);
 
   useEffect(() => {
     track('courts.open', { has_location: !!coords, from_route: typeof routeLat === 'number' });
@@ -204,18 +221,49 @@ export default function CourtsScreen({ navigation, route }: Props) {
     [navigation],
   );
 
+  // The screen-reader "Star" action on a row (the ☆ itself is CourtFavoriteStar).
+  // Same rules: past 3 it offers to replace one.
+  const { offerReplace, sheet: replaceSheet } = useReplaceCourtStar();
   const toggleStar = useCallback(
     async (row: CourtRow) => {
       const adding = !starredIds.has(row.id);
       try {
         await toggleCourtFavorite(row.id, adding, row.name);
+        if (!adding) void dropWaitingArrivalNotices(row.id);
         courtStarsChanged();
         toast.success(adding ? `${row.name} is one of your courts now.` : `${row.name} is off your courts.`);
       } catch (e) {
+        if (adding && isCourtFavoritesFullError(e) && (await offerReplace(row.id, row.name).catch(() => false))) return;
         toast.error(explainRefusal(e, "Couldn't change your courts just now. Try again.", { action: 'favorite', venueName: row.name }));
       }
     },
-    [starredIds, toast],
+    [starredIds, toast, offerReplace],
+  );
+
+  const changeView = (v: PlaceDiscoveryViewMode) => {
+    setView(v);
+    track('courts.filter', { kind: 'view', view: v });
+  };
+
+  // A map that throws (no native module in this build, say): back to the list.
+  const mapFailed = useCallback(() => {
+    setView('list');
+    setPinned(null);
+    toast.error("The map couldn't open on this device. Here's the list.");
+    track('courts.map_error', {});
+  }, [toast]);
+
+  const mapPins = useMemo<RadiusMapPlace[]>(
+    () =>
+      visible.map((r) => ({
+        id: r.id,
+        lat: r.lat,
+        lng: r.lng,
+        label: r.name,
+        // Your starred courts stand out, as their ★ does in the list.
+        color: starredIds.has(r.id) ? c.warning : c.primary,
+      })),
+    [visible, starredIds, c.warning, c.primary],
   );
 
   const sortActions: ActionSheetAction[] = COURT_SORTS.map((k) => ({
@@ -314,6 +362,27 @@ export default function CourtsScreen({ navigation, route }: Props) {
         radiusM={radiusM}
         radiusOptions={RADIUS_OPTIONS}
         onRadiusChange={changeRadius}
+        view={view}
+        onViewChange={changeView}
+        mapPlacement="above"
+        togglePlacement="countLine"
+        onMapError={mapFailed}
+        renderMap={() => (
+          <View>
+            <RadiusPlacesMap
+              centerLat={center.lat}
+              centerLng={center.lng}
+              radiusMeters={radiusM}
+              places={mapPins}
+              apiKey={googleMapsKey}
+              height={280}
+              onPlacePress={(id) => setPinned(visible.find((r) => r.id === id) ?? null)}
+            />
+            <Text style={[t.hint, S.mapKey]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              Blue pin: the middle of your search. Gold pins: your starred courts.
+            </Text>
+          </View>
+        )}
         header={header}
         keyOf={(r) => r.id}
         renderItem={(r) => (
@@ -355,6 +424,17 @@ export default function CourtsScreen({ navigation, route }: Props) {
         style={S.view}
       />
       <ActionSheetModal visible={sortOpen} title="Sort courts" actions={sortActions} onClose={() => setSortOpen(false)} />
+      <CourtPinModal
+        court={pinned}
+        crowd={pinned ? crowd.data[pinned.id] : undefined}
+        starred={pinned ? starredIds.has(pinned.id) : false}
+        onClose={() => setPinned(null)}
+        onViewDetails={(row) => {
+          setPinned(null);
+          openCourt(row);
+        }}
+      />
+      {replaceSheet}
     </View>
   );
 }
@@ -456,4 +536,5 @@ const S = StyleSheet.create({
   hug: { alignSelf: 'flex-start' },
   gapXs: { marginBottom: SPACE.xs },
   result: { minHeight: 44, justifyContent: 'center' },
+  mapKey: { marginTop: SPACE.xs },
 });

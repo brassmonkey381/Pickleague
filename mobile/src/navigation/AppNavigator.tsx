@@ -361,7 +361,8 @@ export default function AppNavigator() {
                     is false: its RPCs ship with migration_court_discovery_p1.sql. */}
                 {COURT_DISCOVERY_ENABLED && (
                   <>
-                    <Stack.Screen name="Courts" component={CourtsScreen} options={{ title: '📍 Courts' }} />
+                    {/* Discover, as in Doggle: the courts near you, list or map. */}
+                    <Stack.Screen name="Courts" component={CourtsScreen} options={{ title: 'Discover' }} />
                     <Stack.Screen name="CourtDetail" component={CourtDetailScreen} options={{ title: 'Court' }} />
                   </>
                 )}

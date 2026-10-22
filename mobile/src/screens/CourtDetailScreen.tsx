@@ -9,6 +9,7 @@
 //   1.2 mi · 6 courts
 //   [Check in] [Directions] [↗ Share]
 //   6 playing now · mostly 3.5–4.0
+//   [map: the court, its mapped outline drawn on it]
 //   WHO'S HERE        (PlayersHereList)
 //   ABOUT             (FactList: courts, surface, lights, hours, ...)
 //   LEAGUES HERE      (the leagues the player can see)
@@ -19,6 +20,10 @@
 // otherwise Directions is the way there. It is the same flow as Home's card
 // (lib/useCourtCheckIn). An alias id opens its facility, and the URL moves to
 // the facility's id. A court that is gone says so (refusals 'view').
+//
+// The map (Phase 2) is Doggle's place map: the foundation PlaceMap, interactive
+// on every platform (lib/maps), with the court's outline (venues.boundary) as
+// rings. It sits in an ErrorBoundary: a map that fails leaves the page whole.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -28,6 +33,7 @@ import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import {
   Badge,
   EmptyState,
+  ErrorBoundary,
   FactList,
   Panel,
   PlaceHeader,
@@ -35,6 +41,7 @@ import {
   SectionHeader,
   type FactRow,
 } from '@just-messin-around/expo-foundation/ui';
+import { PlaceMap } from '@just-messin-around/expo-foundation/ui/maps';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -43,11 +50,13 @@ import { checkGodmode } from '../lib/godmode';
 import { explainRefusal } from '../lib/refusalNotices';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
+import { googleMapsKey, hasGoogleMaps, placeMapMode } from '../lib/maps';
 import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
 import {
   courtCrowdText,
   courtDistanceLabel,
   courtFactChips,
+  courtOutlineRings,
   courtPrimaryAction,
   courtShareUrl,
   metersBetween,
@@ -240,6 +249,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         ) : null}
       </Panel>
 
+      <CourtMap court={court} />
+
       <SectionHeader title="Who's here" />
       <Panel>
         <PlayersHereList venueId={court.id} venueName={court.name} />
@@ -284,6 +295,27 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         </TouchableOpacity>
       ) : null}
     </ScrollView>
+  );
+}
+
+/** The court on a map, its outline drawn when it has one. Nothing if the map can't draw. */
+function CourtMap({ court }: { court: CourtDetail }) {
+  const mode = placeMapMode();
+  const rings = React.useMemo(() => courtOutlineRings(court.boundary), [court.boundary]);
+  // Interactive maps are free; only the static image needs a key (Doggle's rule).
+  if (mode === 'static' && !hasGoogleMaps) return null;
+  return (
+    <ErrorBoundary fallback={() => null}>
+      <PlaceMap
+        lat={court.lat}
+        lng={court.lng}
+        apiKey={googleMapsKey}
+        mode={mode}
+        height={200}
+        boundary={rings.length > 0 ? rings : undefined}
+        interactive
+      />
+    </ErrorBoundary>
   );
 }
 

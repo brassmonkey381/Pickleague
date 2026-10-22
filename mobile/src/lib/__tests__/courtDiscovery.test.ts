@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  courtOutlineRings,
   courtCrowdText,
   courtDistanceLabel,
   courtFactChips,
@@ -225,5 +226,31 @@ describe('links', () => {
     expect(cityLabel({ city: 'Alameda', state_code: 'CA' })).toBe('Alameda, CA');
     expect(cityLabel({ city: '' })).toBeNull();
     expect(cityLabel(null)).toBeNull();
+  });
+});
+
+describe('court outline on the page map', () => {
+  const sq = [[-122.1, 37.1], [-122.0, 37.1], [-122.0, 37.2], [-122.1, 37.1]];
+  it('reads a Polygon as {lat, lng} rings', () => {
+    expect(courtOutlineRings({ type: 'Polygon', coordinates: [sq] })).toEqual([
+      [
+        { lat: 37.1, lng: -122.1 },
+        { lat: 37.1, lng: -122.0 },
+        { lat: 37.2, lng: -122.0 },
+        { lat: 37.1, lng: -122.1 },
+      ],
+    ]);
+  });
+  it('reads every ring of a MultiPolygon', () => {
+    expect(courtOutlineRings({ type: 'MultiPolygon', coordinates: [[sq], [sq]] })).toHaveLength(2);
+  });
+  it('drops malformed positions and rings too small to draw', () => {
+    const bad = [[-122.1, 37.1], ['x', 1], [-122.0, 37.2]];
+    expect(courtOutlineRings({ type: 'Polygon', coordinates: [bad] })).toEqual([]);
+  });
+  it('is empty for no outline, a point, or junk', () => {
+    expect(courtOutlineRings(null)).toEqual([]);
+    expect(courtOutlineRings({ type: 'Point', coordinates: [-122, 37] })).toEqual([]);
+    expect(courtOutlineRings('nope')).toEqual([]);
   });
 });

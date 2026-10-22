@@ -44,6 +44,7 @@ import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
+import { COURT_DISCOVERY_ENABLED } from '../lib/features';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -681,6 +682,16 @@ export default function HomeScreen({ navigation }: Props) {
         // The app's web column is 720 (AppNavigator's WebMaxWidth).
         contentStyle={styles.topBarContent}
         actions={[
+          // Discover (the courts near you), always one tap away like Doggle's
+          // Discover tab. The magnifier reads without a caption (Doggle's icon).
+          ...(COURT_DISCOVERY_ENABLED
+            ? [{
+                key: 'discover',
+                icon: 'search' as const,
+                a11yLabel: 'Discover courts',
+                onPress: () => { tap('top_bar', 'discover'); navigation.navigate('Courts'); },
+              }]
+            : []),
           {
             key: 'saved',
             icon: <Text style={styles.savedGlyph}>🔖</Text>,

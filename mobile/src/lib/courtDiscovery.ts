@@ -368,6 +368,26 @@ function inRing(p: LatLngLike, ring: number[][]): boolean {
   return inside;
 }
 
+/**
+ * The court's outline for its page map (PlaceMap `boundary`): every ring of a
+ * Polygon / MultiPolygon as {lat, lng} points, skipping malformed positions
+ * and rings left with under 3 points. [] for no outline or anything else.
+ */
+export function courtOutlineRings(boundary: unknown): LatLngLike[][] {
+  const rings: LatLngLike[][] = [];
+  for (const poly of boundaryPolygons(boundary)) {
+    if (!Array.isArray(poly)) continue;
+    for (const ring of poly) {
+      if (!Array.isArray(ring)) continue;
+      const pts = ring
+        .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+        .map(([lng, lat]) => ({ lat, lng }));
+      if (pts.length >= 3) rings.push(pts);
+    }
+  }
+  return rings;
+}
+
 /** Inside a GeoJSON outline (an outer ring, not in one of its holes). */
 export function pointInBoundary(p: LatLngLike, boundary: unknown): boolean {
   return boundaryPolygons(boundary).some(

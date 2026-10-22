@@ -1,6 +1,8 @@
 // Home's quick row (plan section 3): labelled 64px tiles in one row.
-//   Record (league members only) · Play · Courts · Drill · Shop · History
-// Courts shows while COURT_DISCOVERY_ENABLED is on. Six tiles at 375 px: the
+//   Discover · Record (league members only) · Play · Drill · Shop · History
+// Discover (the courts near you, list or map) shows while
+// COURT_DISCOVERY_ENABLED is on, first, as Doggle's Home shortcuts put
+// Discover first. Six tiles at 375 px: the
 // row is 343 wide inside Home's 16 px gutters, so with the gap cut to 4 px
 // each tile is about 53 px, wide enough for "History" (the longest label, about
 // 45 px at the meta size).
@@ -33,9 +35,9 @@ export default function QuickRow({ showRecord, onPress }: Props) {
   const emoji = (e: string) => <Text style={styles.emoji}>{e}</Text>;
 
   const tiles: Tile[] = [
+    ...(COURT_DISCOVERY_ENABLED ? [{ key: 'courts' as const, label: 'Discover', icon: emoji('🔍') }] : []),
     ...(showRecord ? [{ key: 'record' as const, label: 'Record', icon: emoji('📝') }] : []),
     { key: 'play', label: 'Play', icon: <BallIcon size={GLYPH} /> },
-    ...(COURT_DISCOVERY_ENABLED ? [{ key: 'courts' as const, label: 'Courts', icon: emoji('📍') }] : []),
     { key: 'drill', label: 'Drill', icon: <DumbbellIcon size={GLYPH} /> },
     { key: 'shop', label: 'Shop', icon: emoji('🛒') },
     ...(WAGERS_ENABLED ? [{ key: 'wagers' as const, label: 'Wagers', icon: emoji('🎲') }] : []),
