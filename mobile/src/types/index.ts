@@ -605,7 +605,11 @@ export type RootStackParamList = {
   // A link may carry only one id: /seasons/:seasonId/standings (no ?leagueId)
   // or /leagues/:leagueId/standings (the league's current season); the screen
   // resolves the other. focusMe scrolls to my row once it lands (Saved).
-  SeasonStandings: { seasonId?: string; leagueId?: string; leagueName?: string; focusMe?: boolean };
+  SeasonStandings: {
+    seasonId?: string; leagueId?: string; leagueName?: string; focusMe?: boolean;
+    /** Open on this period's tab (the one Saved's line named) instead of the default. */
+    period?: number;
+  };
   Profile: { userId?: string };
   UnlockProgress: undefined;
   // focus 'checkins': open "Check-in automation" and scroll to it (the

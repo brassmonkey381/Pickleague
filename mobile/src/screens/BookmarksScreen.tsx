@@ -37,7 +37,7 @@ import { displayCourtName } from '../lib/courtNickname';
 import { dateLabel, dateSubLabel, durationLabel } from '../lib/drillTime';
 import { drillWhen } from '../lib/drillWhen';
 import {
-  leagueSuggestions, savedStandingA11y, savedStandingLine, tournamentFinishLine,
+  leagueSuggestions, savedStandingA11y, savedStandingLine, savedStandingsParams, tournamentFinishLine,
   type SavedStanding, type TournamentFinish,
 } from '../lib/savedStandings';
 import {
@@ -99,19 +99,23 @@ export default function BookmarksScreen({ navigation }: Props) {
       const savedLeagueIds = rows.filter(r => r.target_type === 'league').map(r => r.target_id);
       const suggested = leagueSuggestions(mine, new Set(savedLeagueIds));
       const tournamentIds = rows.filter(r => r.target_type === 'tournament').map(r => r.target_id);
-      const [enriched, st, fin] = await Promise.all([
-        enrich(rows),
+      // Started now, applied after the list paints: the lines are decoration,
+      // so the rows don't wait on up to three more round trips.
+      const extras = Promise.all([
         loadSavedStandings([...savedLeagueIds, ...suggested.map(l => l.id)], uid, { force })
           .catch(() => ({} as Record<string, SavedStanding>)),
         loadTournamentFinishes(tournamentIds, uid, { force })
           .catch(() => new Map<string, TournamentFinish>()),
       ]);
+      const enriched = await enrich(rows);
       setItems(enriched);
-      setStandings(st);
-      setFinishes(fin);
       setSuggestions(suggested);
       setLoaded(true);
       setLoadError(null);
+      setLoading(false);
+      const [st, fin] = await extras;
+      setStandings(st);
+      setFinishes(fin);
     } catch (e) {
       setLoadError(friendlySbMessage(e, "Couldn't load your bookmarks."));
     } finally {
@@ -154,8 +158,9 @@ export default function BookmarksScreen({ navigation }: Props) {
   function openLeague(leagueId: string, name: string, from: 'saved' | 'suggested') {
     const st = standings[leagueId];
     track('saved_league_open', { from, to: st?.seasonId ? 'standings' : 'league', kind: st?.kind ?? null });
-    if (st?.seasonId) {
-      navigation.navigate('SeasonStandings', { seasonId: st.seasonId, leagueId, leagueName: name, focusMe: true });
+    const params = savedStandingsParams(st, leagueId, name);
+    if (params) {
+      navigation.navigate('SeasonStandings', params);
     } else {
       navigation.navigate('LeagueDetail', { leagueId, leagueName: name });
     }
@@ -326,6 +331,9 @@ export default function BookmarksScreen({ navigation }: Props) {
                         {b.missing ? null : (
                           <Pressable
                             onPress={() => handleTap(b)}
+                            // 24 px wide box; slop on the trailing side only (🔖 Remove sits
+                            // to its left) brings the target to 44 without widening the row.
+                            hitSlop={{ right: 20 }}
                             style={({ pressed }) => [S.chevronBox, pressed && S.pressed]}
                             accessibilityRole="button"
                             accessibilityLabel={opensStandings

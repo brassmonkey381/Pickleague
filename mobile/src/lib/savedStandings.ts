@@ -171,6 +171,30 @@ export function savedLeagueStanding(i: SavedStandingInput): SavedStanding {
 }
 
 /**
+ * A standing whose reads came back truncated (at the row cap): keep the season
+ * (the tap still opens its standings) but show no rank and no line.
+ */
+export function unknownStanding(s: SavedStanding): SavedStanding {
+  return { ...s, kind: 'none', period: null, myRank: null };
+}
+
+/**
+ * The SeasonStandings params a Saved league row's tap uses, or null to open
+ * the league page instead. Carries the period the line named ("P6 locked"),
+ * which differs from the screen's default tab when the next period starts
+ * tomorrow, so the tap lands on the table the line described.
+ */
+export function savedStandingsParams(
+  s: SavedStanding | undefined,
+  leagueId: string,
+  leagueName: string,
+): { seasonId: string; leagueId: string; leagueName: string; focusMe: true; period?: number } | null {
+  if (!s?.seasonId) return null;
+  const base = { seasonId: s.seasonId, leagueId, leagueName, focusMe: true as const };
+  return (s.kind === 'live' || s.kind === 'locked') && s.period != null ? { ...base, period: s.period } : base;
+}
+
+/**
  * The row's one line:
  *   live      "You #3 of 16 · Fall 2026 · P7"
  *   locked    "You #3 of 16 · Fall 2026 · P6 locked"

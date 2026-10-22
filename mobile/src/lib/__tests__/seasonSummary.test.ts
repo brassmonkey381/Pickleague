@@ -123,6 +123,13 @@ describe('computeSeasonStandings', () => {
     expect(rows.find((r) => r.user_id === 'd')).toMatchObject({ wins: 1, losses: 2 });
   });
 
+  it('breaks a full tie on user_id, so member order never changes the ranks', () => {
+    const fwd = computeSeasonStandings([{ user_id: 'z' }, { user_id: 'm' }, { user_id: 'b' }], [], 3.5);
+    const rev = computeSeasonStandings([{ user_id: 'b' }, { user_id: 'z' }, { user_id: 'm' }], [], 3.5);
+    expect(fwd.map((r) => r.user_id)).toEqual(['b', 'm', 'z']);
+    expect(rev.map((r) => [r.user_id, r.rank])).toEqual(fwd.map((r) => [r.user_id, r.rank]));
+  });
+
   it('partners share the nominal player delta and the window is inclusive', () => {
     const m: StandingsMatch = {
       ...singles('a', 'b', 'team2', '2026-09-14T23:59:59', -0.1, 0.3),

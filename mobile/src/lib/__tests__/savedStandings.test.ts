@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   leagueSuggestions, liveMatchWindow, pickLeagueSeasons, rankedPeriod, savedLeagueStanding,
-  savedStandingA11y, savedStandingLine, standingsSeasonFor, tournamentFinishLine, tournamentFinishes,
+  savedStandingA11y, savedStandingLine, savedStandingsParams, standingsSeasonFor, tournamentFinishLine,
+  tournamentFinishes, unknownStanding,
   type SavedSeason, type SavedStanding, type SavedStandingInput,
 } from '../savedStandings';
 import type { StandingsMatch } from '../seasonSummary';
@@ -185,5 +186,46 @@ describe('standingsSeasonFor', () => {
     expect(standingsSeasonFor([season({ id: 'c', status: 'completed' }), season({ id: 'a' })], 'L')).toBe('a');
     expect(standingsSeasonFor([season({ id: 'c', status: 'completed' })], 'L')).toBe('c');
     expect(standingsSeasonFor([], 'L')).toBeNull();
+  });
+});
+
+describe('savedStandingsParams (the tap lands on the period the line named)', () => {
+  it('locked on the lock day: opens P3, not the default tab (P4 starts tomorrow and is empty)', () => {
+    const st = savedLeagueStanding(input({
+      today: '2026-10-19',
+      snaps: [1, 2, 3].flatMap((p) => ['me', 'a'].map((u, i) => ({
+        season_id: 's1', period_number: p, user_id: u, rank_at_snapshot: i + 1,
+      }))),
+    }));
+    expect(st.kind).toBe('locked');
+    expect(savedStandingsParams(st, 'L', 'Tue Night')).toEqual({
+      seasonId: 's1', leagueId: 'L', leagueName: 'Tue Night', focusMe: true, period: 3,
+    });
+  });
+  it('live: carries the live period', () => {
+    const st = savedLeagueStanding(input({ matches: [match('me', 'a', 'team1', '2026-10-21T18:00:00Z')] }));
+    expect(st.kind).toBe('live');
+    expect(savedStandingsParams(st, 'L', 'x')?.period).toBe(4);
+  });
+  it('final / upcoming: no period (the screen picks Final or its default)', () => {
+    const fin = savedLeagueStanding(input({ current: null, completed: season({ id: 'c', status: 'completed' }) }));
+    expect(savedStandingsParams(fin, 'L', 'x')).toEqual({ seasonId: 'c', leagueId: 'L', leagueName: 'x', focusMe: true });
+    const up = savedLeagueStanding(input({ current: season({ start_date: '2026-11-03' }) }));
+    expect(savedStandingsParams(up, 'L', 'x')?.period).toBeUndefined();
+  });
+  it('no season: null (open the league page)', () => {
+    expect(savedStandingsParams(savedLeagueStanding(input({ current: null })), 'L', 'x')).toBeNull();
+    expect(savedStandingsParams(undefined, 'L', 'x')).toBeNull();
+  });
+});
+
+describe('unknownStanding (a read came back at the row cap)', () => {
+  it('drops the rank and the line but keeps the season for the tap', () => {
+    const st = savedLeagueStanding(input({ matches: [match('me', 'a', 'team1', '2026-10-21T18:00:00Z')] }));
+    expect(st.myRank).toBe(1);
+    const u = unknownStanding(st);
+    expect(u).toMatchObject({ kind: 'none', myRank: null, period: null, seasonId: 's1' });
+    expect(savedStandingLine(u)).toBeNull();
+    expect(savedStandingsParams(u, 'L', 'x')).toEqual({ seasonId: 's1', leagueId: 'L', leagueName: 'x', focusMe: true });
   });
 });

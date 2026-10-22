@@ -215,7 +215,11 @@ export function computeSeasonStandings(
         rank: 0,
       };
     })
-    .sort((a, b) => b.rating - a.rating || (b.wins - b.losses) - (a.wins - a.losses) || b.wins - a.wins)
+    // Final tiebreak on user_id: without it, players still level (e.g. 0-0 at
+    // baseline) came out in league_members response order, so two reads of the
+    // same table (SeasonStandings vs Saved) could rank them differently.
+    .sort((a, b) => b.rating - a.rating || (b.wins - b.losses) - (a.wins - a.losses) || b.wins - a.wins
+      || (a.user_id < b.user_id ? -1 : a.user_id > b.user_id ? 1 : 0))
     .map((r, i) => ({ ...r, rank: i + 1 }));
 }
 

@@ -363,6 +363,10 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
     setActiveTab(prev => {
       if (prev !== null) return prev;
       if (s?.status === 'completed') return 'final';
+      // A caller (Saved) named the period its line ranked: open on that tab.
+      // Number(): from a deep link it arrives as a string.
+      const asked = Number(route.params?.period);
+      if (Number.isInteger(asked) && asked >= 1 && asked <= (s?.total_periods ?? 0)) return asked;
       return findLivePeriod(s, new Set(lockedByPeriod.keys()), todayIsoDate) ?? s?.total_periods ?? 1;
     });
   }
