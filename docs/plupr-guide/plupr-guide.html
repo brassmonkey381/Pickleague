@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLUPR Player Guide</title>
+<meta name="description" content="A plain-language guide to PLUPR, Pickleague's skill rating: what moves it, what stays inside a league season, and how to use it to find a good game.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap">
+<style>
+  @page { size: Letter; margin: 0.5in; }
+  * { box-sizing: border-box; }
+  :root {
+    --green: #1b5e20;
+    --green-2: #2e7d32;
+    --green-3: #4c8c4a;
+    --leaf: #7cb342;
+    --mint: #e8f5e9;
+    --mint-2: #c8e6c9;
+    --mint-3: #a5d6a7;
+    --cream: #fbf8ee;
+    --cream-2: #ece5cf;
+    --paper: #ffffff;
+    --ink: #17241a;
+    --ink-2: #33413a;
+    --muted: #55625a;
+    --line: #d3dbd3;
+    --down: #8e2a1f;
+    --down-bg: #fbecea;
+    --amber: #7a4f00;
+    --amber-bg: #fff4dc;
+    --desk: #e7e2d2;
+  }
+  html { background: var(--desk); }
+  body {
+    margin: 0;
+    background: var(--desk);
+    color: var(--ink);
+    font-family: "Nunito", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.42;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  h1, h2, h3, .display { font-family: "Fredoka", "Nunito", "Segoe UI", system-ui, Arial, sans-serif; }
+  p { margin: 0 0 6px; }
+  ul { margin: 0; padding-left: 18px; }
+  li { margin: 0 0 3px; }
+  b, strong { font-weight: 800; }
+
+  /* ---------- Pages ---------- */
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    padding: 0.5in;
+    margin: 24px auto;
+    background: var(--paper);
+    box-shadow: 0 2px 16px rgba(0, 0, 0, .12);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    break-before: page;
+    break-inside: avoid;
+  }
+  .sheet:first-of-type { break-before: auto; }
+  @media print {
+    html, body { background: #fff; }
+    .sheet { width: auto; height: 9.95in; padding: 0; margin: 0; box-shadow: none; }
+  }
+  @media screen and (max-width: 800px) {
+    .sheet { width: auto; height: auto; padding: 16px; margin: 0 0 12px; overflow: visible; }
+    .cols, .cols-3, .faq { grid-template-columns: 1fr !important; }
+    .table-wrap { overflow-x: auto; }
+  }
+
+  .foot {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1.5px solid var(--mint-2);
+    padding-top: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  /* ---------- Section header ---------- */
+  .sec-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 12px; }
+  .sec-num {
+    flex: none;
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    background: var(--green);
+    color: #fff;
+    font-family: "Fredoka", "Nunito", "Segoe UI", Arial, sans-serif;
+    font-weight: 700;
+    font-size: 21px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .kicker { text-transform: uppercase; letter-spacing: .09em; font-size: 11px; font-weight: 800; color: var(--green-2); margin: 0 0 1px; }
+  h2 { font-size: 27px; line-height: 1.1; margin: 0; color: var(--green); font-weight: 700; }
+  .lead { font-size: 14px; margin: 6px 0 0; color: var(--ink-2); }
+
+  /* ---------- Figures ---------- */
+  figure { margin: 0; }
+  figure.infographic { margin: 4px 0 10px; break-inside: avoid; }
+  figure.infographic svg { display: block; width: 100%; height: auto; overflow: visible; /* edge strokes at x=0 / x=720 aren't half-clipped */ }
+  figcaption { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  svg text { font-family: "Nunito", "Segoe UI", system-ui, Arial, sans-serif; fill: var(--ink); }
+  svg .t-xl { font-family: "Fredoka", "Nunito", "Segoe UI", Arial, sans-serif; font-weight: 700; }
+  svg .t-title { font-size: 15.5px; font-weight: 800; }
+  svg .t-body { font-size: 12.5px; }
+  svg .t-small { font-size: 11.5px; }
+  svg .t-bold { font-weight: 800; }
+  svg .t-white { fill: #fff; }
+  svg .t-green { fill: var(--green); }
+  svg .t-muted { fill: var(--muted); }
+  svg .t-down { fill: var(--down); }
+  svg .t-mint { fill: var(--mint); }
+
+  /* ---------- Blocks ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .cols-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .card {
+    background: var(--cream);
+    border: 1px solid var(--cream-2);
+    border-radius: 12px;
+    padding: 9px 12px 8px;
+    break-inside: avoid;
+  }
+  .card h3 { font-size: 15px; margin: 0 0 3px; color: var(--green); font-weight: 600; }
+  .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+  .card.mint { background: var(--mint); border-color: var(--mint-2); }
+  .card.warn { background: var(--amber-bg); border-color: #ecd9a8; }
+  .note { font-size: 12px; color: var(--ink-2); }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .05em;
+    line-height: 1.35;
+    padding: 0 7px;
+    border-radius: 999px;
+    vertical-align: 1px;
+    white-space: nowrap;
+  }
+  .tag.app { background: var(--green); color: #fff; border: 1.5px solid var(--green); }
+  .tag.tip { background: #fff; color: var(--amber); border: 1.5px dashed var(--amber); }
+
+  /* ---------- Tables ---------- */
+  table.grid { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  table.grid th {
+    background: var(--green); color: #fff; text-align: left;
+    padding: 6px 8px; font-size: 12px; font-weight: 800; line-height: 1.25;
+  }
+  table.grid th:first-child { border-top-left-radius: 10px; }
+  table.grid th:last-child { border-top-right-radius: 10px; }
+  table.grid td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.3; }
+  table.grid tr:nth-child(even) td { background: #f8f8f1; }
+  table.grid td:first-child { font-weight: 800; }
+  table.grid .sub { display: block; font-weight: 600; color: var(--muted); font-size: 11.5px; }
+  .y { color: var(--green); font-weight: 800; white-space: nowrap; }
+  .n { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .p { color: var(--amber); font-weight: 800; }
+
+  /* ---------- Cover ---------- */
+  .cover .brand-row { display: flex; justify-content: space-between; align-items: center; }
+  .brand { font-family: "Fredoka", "Nunito", "Segoe UI", Arial, sans-serif; font-size: 20px; font-weight: 700; color: var(--green); }
+  .pill { display: inline-block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--green); border: 1.5px solid var(--green); border-radius: 999px; padding: 2px 10px; }
+  .cover h1 { font-size: 64px; line-height: 1.0; margin: 58px 0 14px; color: var(--green); font-weight: 700; letter-spacing: -.5px; }
+  .promise { font-size: 19px; color: var(--ink-2); max-width: 580px; margin: 0 0 30px; }
+  .take-h { font-size: 13px; text-transform: uppercase; letter-spacing: .09em; color: var(--green-2); font-weight: 800; margin: 34px 0 10px; font-family: "Nunito", "Segoe UI", Arial, sans-serif; }
+  .takeaways { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+  .takeaways li { background: var(--mint); border: 1px solid var(--mint-2); border-radius: 14px; padding: 12px 12px 10px; margin: 0; }
+  .takeaways .ico { width: 34px; height: 34px; border-radius: 50%; background: var(--green); color: #fff; font-weight: 800; font-size: 17px; display: flex; align-items: center; justify-content: center; margin-bottom: 6px; font-family: "Fredoka", "Nunito", "Segoe UI", Arial, sans-serif; }
+  .takeaways h3 { font-size: 16px; margin: 0 0 4px; color: var(--green); font-weight: 600; line-height: 1.15; }
+  .takeaways p { margin: 0; font-size: 12.5px; }
+  .toc { margin-top: 30px; border-top: 2px solid var(--mint-2); padding-top: 10px; }
+  .toc ol { list-style: none; padding: 0; margin: 0; columns: 2; column-gap: 24px; }
+  .toc li { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; break-inside: avoid; border-bottom: 1px dotted var(--line); }
+  .toc .pg { margin-left: auto; font-weight: 800; color: var(--green); }
+
+  /* ---------- FAQ ---------- */
+  .faq { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+  .qa { border-left: 4px solid var(--green-2); padding: 2px 0 2px 10px; break-inside: avoid; }
+  .qa h3 { font-family: "Nunito", "Segoe UI", Arial, sans-serif; font-size: 15px; font-weight: 800; color: var(--green); margin: 0 0 2px; }
+  .qa p { margin: 0; font-size: 13.5px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { background: #fff; border: 1.5px solid var(--green-2); color: var(--green); border-radius: 999px; padding: 2px 10px; font-size: 12px; font-weight: 800; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- PAGE 1 · COVER                                                -->
+<!-- ============================================================ -->
+<section class="sheet cover" id="cover">
+  <div class="brand-row">
+    <div class="brand">🥒 Pickleague</div>
+    <div class="pill">Player guide</div>
+  </div>
+
+  <h1>Your PLUPR,<br>explained</h1>
+  <p class="promise">What moves your number, what never does, and how to use it to find a great game.</p>
+
+  <svg viewBox="0 0 720 170" role="img" aria-label="Illustration: a pickleball court, a pickle mascot and a confirmed 11 to 7 score">
+    <!-- pickle mascot -->
+    <g transform="translate(70 88) rotate(-18)">
+      <ellipse cx="0" cy="0" rx="30" ry="62" fill="#7cb342" stroke="#33691e" stroke-width="3"/>
+      <circle cx="-12" cy="-30" r="3" fill="#33691e"/><circle cx="10" cy="-12" r="3" fill="#33691e"/>
+      <circle cx="-8" cy="14" r="3" fill="#33691e"/><circle cx="12" cy="34" r="3" fill="#33691e"/>
+      <circle cx="-14" cy="44" r="2.5" fill="#33691e"/>
+      <circle cx="-9" cy="-44" r="4" fill="#17241a"/><circle cx="9" cy="-44" r="4" fill="#17241a"/>
+      <path d="M-10,-30 Q0,-20 10,-30" fill="none" stroke="#17241a" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <!-- court -->
+    <rect x="150" y="15" width="420" height="140" rx="6" fill="#2e7d32" stroke="#ffffff" stroke-width="3"/>
+    <rect x="296" y="15" width="128" height="140" fill="#66bb6a"/>
+    <rect x="150" y="15" width="420" height="140" rx="6" fill="none" stroke="#ffffff" stroke-width="3"/>
+    <line x1="296" y1="15" x2="296" y2="155" stroke="#fff" stroke-width="3"/>
+    <line x1="424" y1="15" x2="424" y2="155" stroke="#fff" stroke-width="3"/>
+    <line x1="150" y1="85" x2="296" y2="85" stroke="#fff" stroke-width="3"/>
+    <line x1="424" y1="85" x2="570" y2="85" stroke="#fff" stroke-width="3"/>
+    <line x1="360" y1="6" x2="360" y2="164" stroke="#1b5e20" stroke-width="6"/>
+    <line x1="360" y1="6" x2="360" y2="164" stroke="#ffffff" stroke-width="2" stroke-dasharray="3 5"/>
+    <path d="M220,124 Q360,-12 492,54" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-dasharray="6 6"/>
+    <circle cx="502" cy="58" r="13" fill="#e6ee9c" stroke="#827717" stroke-width="2.5"/>
+    <circle cx="498" cy="54" r="2" fill="#827717"/><circle cx="507" cy="56" r="2" fill="#827717"/><circle cx="501" cy="63" r="2" fill="#827717"/>
+    <!-- score card -->
+    <rect x="598" y="34" width="112" height="98" rx="12" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
+    <text x="654" y="58" text-anchor="middle" class="t-small t-bold t-muted">FINAL</text>
+    <text x="654" y="92" text-anchor="middle" class="t-xl t-green" style="font-size:30px">11–7</text>
+    <rect x="612" y="104" width="84" height="20" rx="10" fill="#1b5e20"/>
+    <text x="654" y="118" text-anchor="middle" class="t-small t-bold t-white">✓ confirmed</text>
+  </svg>
+
+  <h2 class="take-h">3 things to know</h2>
+  <ol class="takeaways">
+    <li>
+      <div class="ico">✓</div>
+      <h3>Only confirmed scores count</h3>
+      <p>The other team confirms within an hour, then your numbers move. No confirm, no change.</p>
+    </li>
+    <li>
+      <div class="ico">↻</div>
+      <h3>Seasons restart. Your overall doesn't.</h3>
+      <p>League standings reset every period. Your overall PLUPR keeps building with every match.</p>
+    </li>
+    <li>
+      <div class="ico">≈</div>
+      <h3>Close numbers, close games</h3>
+      <p>Compare PLUPRs to pick fair opponents, balanced doubles teams and good practice partners.</p>
+    </li>
+  </ol>
+
+  <nav class="toc" aria-label="Contents">
+    <ol>
+      <li><span>What is your overall PLUPR?</span><span class="pg">2</span></li>
+      <li><span>What makes it move</span><span class="pg">3</span></li>
+      <li><span>How big a move?</span><span class="pg">4</span></li>
+      <li><span>Leagues and seasons</span><span class="pg">5</span></li>
+      <li><span>Tournaments, events and everything else</span><span class="pg">6</span></li>
+      <li><span>Is this a good match?</span><span class="pg">7</span></li>
+      <li><span>Quick answers</span><span class="pg">8</span></li>
+    </ol>
+  </nav>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>1 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 2 · OVERALL PLUPR                                        -->
+<!-- ============================================================ -->
+<section class="sheet" id="overall">
+  <header class="sec-head">
+    <div class="sec-num">1</div>
+    <div>
+      <p class="kicker">The basics</p>
+      <h2>What is your overall PLUPR?</h2>
+      <p class="lead">PLUPR is Pickleague's skill rating. Your <b>overall PLUPR</b> is your main number: the one other players see next to your name in league member and tournament lists. Higher means stronger. Behind it sit a few more specific numbers.</p>
+    </div>
+  </header>
+
+  <figure class="infographic" id="ig-plupr-hub">
+    <svg viewBox="0 0 720 402" role="img" aria-labelledby="hub-title hub-desc">
+      <title id="hub-title">How your PLUPR numbers connect</title>
+      <desc id="hub-desc">Overall PLUPR sits in the centre. Singles, Doubles and Mixed PLUPR sit above it; a singles, doubles or mixed match moves that number and overall together. Below left, League PLUPR is its own number: one per league, moved by that league's matches and its tournaments, and reset every season period. Below right, two more things move overall: stand-alone tournament matches, at full size, and the tournament top-3 prize boost.</desc>
+      <defs>
+        <marker id="hubArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#1b5e20"/>
+        </marker>
+      </defs>
+
+      <!-- category boxes -->
+      <rect x="10" y="6" width="210" height="64" rx="12" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <text x="115" y="32" text-anchor="middle" class="t-title t-green">Singles PLUPR</text>
+      <text x="115" y="54" text-anchor="middle" class="t-body">1-on-1 matches</text>
+
+      <rect x="255" y="6" width="210" height="64" rx="12" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <text x="360" y="32" text-anchor="middle" class="t-title t-green">Doubles PLUPR</text>
+      <text x="360" y="54" text-anchor="middle" class="t-body">Men's or women's doubles</text>
+
+      <rect x="500" y="6" width="210" height="64" rx="12" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <text x="605" y="32" text-anchor="middle" class="t-title t-green">Mixed PLUPR</text>
+      <text x="605" y="54" text-anchor="middle" class="t-body">Men and women on court</text>
+
+      <!-- connectors: match type moves both ends -->
+      <line x1="170" y1="72" x2="292" y2="170" stroke="#1b5e20" stroke-width="2.5" marker-start="url(#hubArrow)" marker-end="url(#hubArrow)"/>
+      <line x1="360" y1="72" x2="360" y2="131" stroke="#1b5e20" stroke-width="2.5" marker-start="url(#hubArrow)" marker-end="url(#hubArrow)"/>
+      <line x1="550" y1="72" x2="428" y2="170" stroke="#1b5e20" stroke-width="2.5" marker-start="url(#hubArrow)" marker-end="url(#hubArrow)"/>
+
+      <rect x="161" y="99" width="116" height="23" rx="11.5" fill="#ffffff" stroke="#1b5e20" stroke-width="1.5"/>
+      <text x="219" y="115" text-anchor="middle" class="t-small t-bold">singles match</text>
+      <rect x="443" y="99" width="116" height="23" rx="11.5" fill="#ffffff" stroke="#1b5e20" stroke-width="1.5"/>
+      <text x="501" y="115" text-anchor="middle" class="t-small t-bold">mixed match</text>
+      <rect x="298" y="90" width="124" height="23" rx="11.5" fill="#ffffff" stroke="#1b5e20" stroke-width="1.5"/>
+      <text x="360" y="106" text-anchor="middle" class="t-small t-bold">doubles match</text>
+
+      <!-- hub -->
+      <circle cx="360" cy="213" r="80" fill="#1b5e20"/>
+      <circle cx="360" cy="213" r="72" fill="none" stroke="#7cb342" stroke-width="2"/>
+      <text x="360" y="186" text-anchor="middle" class="t-small t-bold t-mint" style="letter-spacing:2px">OVERALL</text>
+      <text x="360" y="221" text-anchor="middle" class="t-xl t-white" style="font-size:31px">PLUPR</text>
+      <text x="360" y="244" text-anchor="middle" class="t-body t-mint">your main number</text>
+
+      <!-- league number (separate) and the other overall inputs -->
+      <line x1="318" y1="282" x2="300" y2="310" stroke="#55625a" stroke-width="2" stroke-dasharray="5 5"/>
+      <text x="290" y="300" text-anchor="end" class="t-small t-muted" style="font-style:italic">its own number</text>
+      <line x1="420" y1="310" x2="405" y2="285" stroke="#1b5e20" stroke-width="2.5" marker-end="url(#hubArrow)"/>
+      <text x="432" y="300" text-anchor="start" class="t-small t-muted" style="font-style:italic">also feeds overall</text>
+
+      <rect x="10" y="310" width="335" height="88" rx="12" fill="#fbf8ee" stroke="#55625a" stroke-width="1.8" stroke-dasharray="7 4"/>
+      <text x="177" y="334" text-anchor="middle" class="t-title">League PLUPR</text>
+      <text x="177" y="353" text-anchor="middle" class="t-body">One for each league you're in</text>
+      <text x="177" y="370" text-anchor="middle" class="t-body">Your league's matches and its tournaments</text>
+      <text x="177" y="387" text-anchor="middle" class="t-body">Resets every season period</text>
+
+      <rect x="375" y="310" width="335" height="88" rx="12" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <text x="542" y="334" text-anchor="middle" class="t-title t-green">Also moves overall</text>
+      <text x="542" y="353" text-anchor="middle" class="t-body">Stand-alone tournament matches,</text>
+      <text x="542" y="370" text-anchor="middle" class="t-body">at full size (twice a league match)</text>
+      <text x="542" y="387" text-anchor="middle" class="t-body">Tournament top-3 prize boost</text>
+    </svg>
+    <figcaption>Each two-way arrow is one kind of match. It moves your overall and that one number together.</figcaption>
+  </figure>
+
+  <figure class="infographic" id="ig-scale">
+    <svg viewBox="0 0 720 96" role="img" aria-labelledby="scale-title">
+      <title id="scale-title">The PLUPR scale: a 2.00 floor, Beginner 2.5 to 3.25, Intermediate 3.25 to 4.0, Advanced 4.0 to 5.0, Expert 5.0 and up. Everyone starts at 3.25. Top Rated badge at 4.00.</title>
+      <defs>
+        <pattern id="hatchFloor" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="7" height="7" fill="#f2f2ee"/><line x1="0" y1="0" x2="0" y2="7" stroke="#b9bdb5" stroke-width="2"/>
+        </pattern>
+      </defs>
+      <text x="266" y="20" text-anchor="end" class="t-small t-bold">Everyone starts at 3.25 ▾</text>
+      <text x="405" y="20" text-anchor="start" class="t-small t-bold">▾ Top Rated badge at 4.00</text>
+      <line x1="263" y1="25" x2="263" y2="70" stroke="#17241a" stroke-width="2"/>
+      <line x1="409" y1="25" x2="409" y2="70" stroke="#17241a" stroke-width="2"/>
+
+      <rect x="20" y="32" width="96" height="32" fill="url(#hatchFloor)"/>
+      <rect x="118" y="32" width="144" height="32" fill="#e8f5e9"/>
+      <rect x="264" y="32" width="144" height="32" fill="#a5d6a7"/>
+      <rect x="410" y="32" width="192" height="32" fill="#4c8c4a"/>
+      <rect x="604" y="32" width="96" height="32" fill="#1b5e20"/>
+      <text x="68" y="53" text-anchor="middle" class="t-small t-bold t-muted">below 2.5</text>
+      <text x="190" y="53" text-anchor="middle" class="t-body t-bold">Beginner</text>
+      <text x="336" y="53" text-anchor="middle" class="t-body t-bold">Intermediate</text>
+      <text x="506" y="53" text-anchor="middle" class="t-body t-bold t-white">Advanced</text>
+      <text x="652" y="53" text-anchor="middle" class="t-body t-bold t-white">Expert</text>
+
+      <text x="20" y="86" text-anchor="start" class="t-small">2.00 floor</text>
+      <text x="117" y="86" text-anchor="middle" class="t-small">2.5</text>
+      <text x="263" y="86" text-anchor="middle" class="t-small">3.25</text>
+      <text x="409" y="86" text-anchor="middle" class="t-small">4.0</text>
+      <text x="603" y="86" text-anchor="middle" class="t-small">5.0</text>
+      <text x="700" y="86" text-anchor="end" class="t-small">no ceiling →</text>
+    </svg>
+    <figcaption>The scale, with the skill bands the app uses. New players show “Not Rated” until their first rated match.</figcaption>
+  </figure>
+
+  <div class="table-wrap">
+  <table class="grid" aria-label="Which matches feed which numbers">
+    <thead>
+      <tr><th style="width:36%">Match</th><th>Overall</th><th>Singles / Doubles / Mixed</th><th>League PLUPR</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Singles match</td><td><span class="y">✓ Half size</span></td><td><span class="y">✓ Singles</span></td><td><span class="y">✓ Full size</span></td></tr>
+      <tr><td>Men's or women's doubles</td><td><span class="y">✓ Half size</span></td><td><span class="y">✓ Doubles</span></td><td><span class="y">✓ Full size</span></td></tr>
+      <tr><td>Mixed doubles<span class="sub">a man and a woman on the court</span></td><td><span class="y">✓ Half size</span></td><td><span class="y">✓ Mixed</span></td><td><span class="y">✓ Full size</span></td></tr>
+      <tr><td>Tournament match, inside a league</td><td><span class="n">— No</span></td><td><span class="n">— No</span></td><td><span class="y">✓ Full size</span></td></tr>
+      <tr><td>Tournament match, no league</td><td><span class="y">✓ Full size</span></td><td><span class="y">✓ Matching one</span></td><td><span class="n">— No</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note" style="margin-top:6px">Every regular match belongs to a league. Recording from Home just asks you to pick one. A league match moves your overall half as far as your league PLUPR. A stand-alone tournament match has no league number, so it moves your overall the full amount.</p>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>2 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 3 · WHAT MAKES IT MOVE                                   -->
+<!-- ============================================================ -->
+<section class="sheet" id="what-moves">
+  <header class="sec-head">
+    <div class="sec-num">2</div>
+    <div>
+      <p class="kicker">Score recording</p>
+      <h2>What makes it move</h2>
+      <p class="lead">Your numbers move when a score is recorded <b>and</b> the other side confirms it. Until then, nothing changes.</p>
+    </div>
+  </header>
+
+  <figure class="infographic" id="ig-match-flow">
+    <svg viewBox="0 0 720 412" role="img" aria-labelledby="flow-title flow-desc">
+      <title id="flow-title">The life of a recorded match</title>
+      <desc id="flow-desc">Step 1, record the score: it is saved as pending and your team counts as confirmed. Step 2, the other side confirms within 1 hour. Step 3, numbers update. If no one confirms within an hour, the match is removed and nothing changes. Tournament matches skip the confirm step. A lane below lists things that never move PLUPR.</desc>
+      <defs>
+        <marker id="flowArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#1b5e20"/>
+        </marker>
+        <marker id="flowArrowGrey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#55625a"/>
+        </marker>
+        <pattern id="hatchLane" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="10" height="10" fill="#f6f5f0"/><line x1="0" y1="0" x2="0" y2="10" stroke="#e2e0d6" stroke-width="3"/>
+        </pattern>
+      </defs>
+
+      <!-- tournament bypass -->
+      <path d="M100,50 C100,8 620,8 620,50" fill="none" stroke="#55625a" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#flowArrowGrey)"/>
+      <rect x="128" y="7" width="464" height="24" rx="12" fill="#ffffff" stroke="#55625a" stroke-width="1.5"/>
+      <text x="360" y="23" text-anchor="middle" class="t-small t-bold">Tournament matches skip step 2: they count once the result is entered</text>
+
+      <!-- step 1 -->
+      <rect x="0" y="52" width="200" height="132" rx="14" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <circle cx="28" cy="80" r="15" fill="#1b5e20"/>
+      <text x="28" y="86" text-anchor="middle" class="t-title t-white">1</text>
+      <text x="52" y="86" class="t-title t-green">Record the score</text>
+      <text x="16" y="116" class="t-body">Saved as <tspan class="t-bold">pending</tspan>.</text>
+      <text x="16" y="134" class="t-body">The recorder's team</text>
+      <text x="16" y="152" class="t-body">counts as confirmed.</text>
+
+      <line x1="202" y1="118" x2="258" y2="118" stroke="#1b5e20" stroke-width="3" marker-end="url(#flowArrow)"/>
+
+      <!-- step 2 -->
+      <rect x="260" y="52" width="200" height="132" rx="14" fill="#e8f5e9" stroke="#1b5e20" stroke-width="2"/>
+      <circle cx="288" cy="80" r="15" fill="#1b5e20"/>
+      <text x="288" y="86" text-anchor="middle" class="t-title t-white">2</text>
+      <text x="312" y="86" class="t-title t-green">They confirm</text>
+      <text x="276" y="116" class="t-body">Within <tspan class="t-bold">1 hour</tspan>.</text>
+      <text x="276" y="134" class="t-body">Recorder didn't play?</text>
+      <text x="276" y="152" class="t-body">Then both teams</text>
+      <text x="276" y="170" class="t-body">confirm.</text>
+
+      <line x1="462" y1="118" x2="518" y2="118" stroke="#1b5e20" stroke-width="3" marker-end="url(#flowArrow)"/>
+
+      <!-- step 3 -->
+      <rect x="520" y="52" width="200" height="132" rx="14" fill="#1b5e20"/>
+      <circle cx="548" cy="80" r="15" fill="#ffffff"/>
+      <text x="548" y="86" text-anchor="middle" class="t-title t-green">3</text>
+      <text x="572" y="86" class="t-title t-white">Numbers update</text>
+      <text x="536" y="116" class="t-body t-white">Your league PLUPR,</text>
+      <text x="536" y="134" class="t-body t-white">your overall and one of</text>
+      <text x="536" y="152" class="t-body t-white">singles, doubles or</text>
+      <text x="536" y="170" class="t-body t-white">mixed, all at once. ✓</text>
+
+      <!-- expiry branch -->
+      <line x1="360" y1="186" x2="360" y2="220" stroke="#55625a" stroke-width="2.5" marker-end="url(#flowArrowGrey)"/>
+      <text x="380" y="207" class="t-small t-bold t-muted">No confirm within 1 hour</text>
+      <rect x="190" y="222" width="340" height="52" rx="12" fill="#ffffff" stroke="#55625a" stroke-width="1.8" stroke-dasharray="7 4"/>
+      <text x="360" y="243" text-anchor="middle" class="t-body t-bold">The match is removed and everyone gets a notice.</text>
+      <text x="360" y="262" text-anchor="middle" class="t-body">Nothing moved, so there's nothing to undo.</text>
+
+      <!-- never counts lane -->
+      <rect x="0" y="290" width="720" height="120" rx="14" fill="url(#hatchLane)" stroke="#8e2a1f" stroke-width="1.8"/>
+      <text x="16" y="312" class="t-title t-down">✗ Never moves PLUPR</text>
+
+      <g class="t-small">
+        <rect x="16" y="322" width="214" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="123" y="338" text-anchor="middle" class="t-small t-bold">Pending (unconfirmed) scores</text>
+        <rect x="240" y="322" width="128" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="304" y="338" text-anchor="middle" class="t-small t-bold">Expired matches</text>
+        <rect x="378" y="322" width="250" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="503" y="338" text-anchor="middle" class="t-small t-bold">Scheduled matches (no score yet)</text>
+
+        <rect x="16" y="352" width="70" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="51" y="368" text-anchor="middle" class="t-small t-bold">Drills</text>
+        <rect x="96" y="352" width="200" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="196" y="368" text-anchor="middle" class="t-small t-bold">Play sessions &amp; check-ins</text>
+        <rect x="306" y="352" width="96" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="354" y="368" text-anchor="middle" class="t-small t-bold">Routines</text>
+        <rect x="412" y="352" width="128" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="476" y="368" text-anchor="middle" class="t-small t-bold">Court arrivals</text>
+
+        <rect x="16" y="382" width="128" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="80" y="398" text-anchor="middle" class="t-small t-bold">Pickles &amp; shop</text>
+        <rect x="154" y="382" width="78" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="193" y="398" text-anchor="middle" class="t-small t-bold">Badges</text>
+        <rect x="242" y="382" width="210" height="24" rx="12" fill="#fff" stroke="#8e2a1f" stroke-width="1.3"/>
+        <text x="347" y="398" text-anchor="middle" class="t-small t-bold">Season prize pools (pickles)</text>
+      </g>
+    </svg>
+    <figcaption>Read left to right. The striped lane lists things that never move PLUPR, however they turn out.</figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card mint">
+      <h3>Check before you confirm</h3>
+      <p>Once a match is confirmed, players can't edit or delete it. Wrong score? There's no reject button: don't confirm, and it's removed after an hour. Then record the right score.</p>
+    </div>
+    <div class="card mint">
+      <h3>Doubles needs everyone's gender</h3>
+      <p>Each doubles player needs a gender (“prefer not to say” counts as not set). Set yours in your profile, or the recorder picks one for that match before saving. It decides whether the match counts as doubles or mixed.</p>
+    </div>
+    <div class="card">
+      <h3>Guests count</h3>
+      <p>Matches with guests are rated like any other match. Their numbers also shape what's expected of you.</p>
+    </div>
+    <div class="card">
+      <h3>Confirm in one tap</h3>
+      <p>Confirm straight from the push notification, or in Match History, which shows the time left, like “42m left”.</p>
+    </div>
+    <div class="card">
+      <h3>Tournament matches work differently</h3>
+      <p>No confirm step. Any player in the match, or the organizer, can enter the result. It counts at once, and after that not even the organizer can change it. Check before saving.</p>
+    </div>
+    <div class="card mint">
+      <h3>See the change</h3>
+      <p>Match History shows how much each confirmed match moved your overall PLUPR, like “+0.06”. Your league PLUPR moved twice that. Tournament bracket matches don't show a change.</p>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>3 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 4 · HOW BIG A MOVE                                       -->
+<!-- ============================================================ -->
+<section class="sheet" id="how-big">
+  <header class="sec-head">
+    <div class="sec-num">3</div>
+    <div>
+      <p class="kicker">Size of the change</p>
+      <h2>How big a move?</h2>
+      <p class="lead">Every match compares what was expected with what happened. The bigger the surprise, the bigger the move. Winning isn't the whole story: the score counts too.</p>
+    </div>
+  </header>
+
+  <figure class="infographic" id="ig-move-size">
+    <svg viewBox="0 0 720 392" role="img" aria-labelledby="move-title move-desc">
+      <title id="move-title">How far your PLUPR moves in seven common results</title>
+      <desc id="move-desc">Beat a much stronger player: big jump. Even match and you win: gain. Close loss to a much stronger player: also a gain, which can beat an even-match win. Favourite who wins by more than expected: small gain. Favourite who wins by less than expected: small drop. Even match and you lose: drop. Lose to a weaker player: big drop.</desc>
+      <defs>
+        <pattern id="hatchDown" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#fbecea"/><line x1="0" y1="0" x2="0" y2="8" stroke="#e7b9b2" stroke-width="3"/>
+        </pattern>
+      </defs>
+
+      <text x="500" y="22" text-anchor="end" class="t-body t-bold t-down">← goes down</text>
+      <text x="520" y="22" text-anchor="start" class="t-body t-bold t-green">goes up →</text>
+
+      <!-- row backgrounds -->
+      <rect x="0" y="36" width="720" height="48" fill="#f8f8f1"/>
+      <rect x="0" y="132" width="720" height="48" fill="#f8f8f1"/>
+      <rect x="0" y="228" width="720" height="48" fill="#f8f8f1"/>
+      <rect x="0" y="324" width="720" height="48" fill="#f8f8f1"/>
+
+      <!-- labels -->
+      <text x="12" y="65" class="t-body t-bold">You beat a much stronger player</text>
+      <text x="12" y="113" class="t-body t-bold">Even match, and you win</text>
+      <text x="12" y="153" class="t-body t-bold">You lose a close one to a</text>
+      <text x="12" y="170" class="t-body">much stronger player</text>
+      <text x="12" y="201" class="t-body t-bold">You're the favourite and win</text>
+      <text x="12" y="218" class="t-body">by more than expected</text>
+      <text x="12" y="249" class="t-body t-bold">You're the favourite and win,</text>
+      <text x="12" y="266" class="t-body">but by less than expected</text>
+      <text x="12" y="305" class="t-body t-bold">Even match, and you lose</text>
+      <text x="12" y="353" class="t-body t-bold">You lose to a weaker player</text>
+
+      <!-- center axis -->
+      <line x1="510" y1="32" x2="510" y2="376" stroke="#17241a" stroke-width="1.6"/>
+      <text x="510" y="389" text-anchor="middle" class="t-small t-muted">no change</text>
+
+      <!-- up bars -->
+      <path d="M510,47 H688 L702,60 L688,73 H510 Z" fill="#1b5e20"/>
+      <text x="682" y="65" text-anchor="end" class="t-body t-bold t-white">Big jump</text>
+
+      <path d="M510,95 H608 L622,108 L608,121 H510 Z" fill="#2e7d32"/>
+      <text x="561" y="113" text-anchor="middle" class="t-body t-bold t-white">Gain</text>
+
+      <path d="M510,143 H608 L622,156 L608,169 H510 Z" fill="#2e7d32"/>
+      <text x="561" y="161" text-anchor="middle" class="t-body t-bold t-white">Gain</text>
+      <text x="630" y="153" class="t-small t-bold t-green">can beat an</text>
+      <text x="630" y="168" class="t-small t-bold t-green">even-match win</text>
+
+      <path d="M510,191 H556 L570,204 L556,217 H510 Z" fill="#4c8c4a"/>
+      <text x="578" y="209" class="t-body t-bold t-green">Small gain</text>
+
+      <!-- down bars -->
+      <path d="M510,239 H464 L450,252 L464,265 H510 Z" fill="url(#hatchDown)" stroke="#8e2a1f" stroke-width="1.6"/>
+      <text x="442" y="257" text-anchor="end" class="t-body t-bold t-down">Small drop</text>
+
+      <path d="M510,287 H412 L398,300 L412,313 H510 Z" fill="url(#hatchDown)" stroke="#8e2a1f" stroke-width="1.6"/>
+      <text x="390" y="305" text-anchor="end" class="t-body t-bold t-down">Drop</text>
+
+      <path d="M510,335 H332 L318,348 L332,361 H510 Z" fill="url(#hatchDown)" stroke="#8e2a1f" stroke-width="1.6"/>
+      <text x="340" y="353" class="t-body t-bold t-down">Big drop</text>
+    </svg>
+    <figcaption>Arrow length shows roughly how far your number moves. No numbers needed: the direction and size are what matter.</figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card mint">
+      <h3>Who you play</h3>
+      <p>Beat someone stronger and you jump further. Lose to someone weaker and you drop further.</p>
+    </div>
+    <div class="card mint">
+      <h3>The score, not just the win</h3>
+      <p>The gap between two players predicts a winning margin. Beat that margin and you go up; fall short and you can go down, even in a win. Multi-game matches add up the points from every game.</p>
+    </div>
+    <div class="card">
+      <h3>New players in the match</h3>
+      <p>Moves are bigger when the <b>Team 1 player</b> slot (not the partner) holds someone with fewer than 15 matches. Everyone in that match moves by that same step.</p>
+    </div>
+    <div class="card">
+      <h3>Your partner</h3>
+      <p>In doubles, each team is the average of its two players' overall PLUPRs. Partners always get the same change. A strong partner raises what's expected, so a win earns a little less.</p>
+    </div>
+  </div>
+  <div class="card warn" style="margin-top:10px">
+    <h3>League number vs overall</h3>
+    <p>A league match moves your league PLUPR twice as far as your overall. A stand-alone tournament match has no league number, so it moves your overall the full amount: twice what the same result in a league would. For an even match between regulars, your overall usually moves by just a few hundredths. That's normal: it builds slowly and steadily.</p>
+  </div>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>4 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 5 · LEAGUES AND SEASONS                                  -->
+<!-- ============================================================ -->
+<section class="sheet" id="seasons">
+  <header class="sec-head">
+    <div class="sec-num">4</div>
+    <div>
+      <p class="kicker">Leagues</p>
+      <h2>Leagues and seasons</h2>
+      <p class="lead">A season is its own mini-competition with its own standings. Your overall PLUPR runs alongside it and is never reset.</p>
+    </div>
+  </header>
+
+  <div class="cols">
+    <div class="card">
+      <h3>Stays inside the season</h3>
+      <ul>
+        <li>Each period ranks players by their <b>league PLUPR</b>.</li>
+        <li>The admin sets the season's <b>baseline</b> when creating it, usually 3.50. It's pre-filled from a level in the league name, like “4.5 League”.</li>
+        <li>At each lock, league PLUPR goes back to the baseline. The top 5 get a small head start.</li>
+        <li>Before the first lock, new members sit at 3.25 and returning members keep last season's finish.</li>
+        <li>Your final season rank.</li>
+      </ul>
+    </div>
+    <div class="card mint">
+      <h3>Keeps going, season after season</h3>
+      <ul>
+        <li><b>Overall PLUPR.</b> Every confirmed match adds to it; league matches count at half size. No period lock or season end ever resets it.</li>
+        <li>Your match history.</li>
+        <li>Badges and pickles you've earned.</li>
+      </ul>
+      <p class="note" style="margin-top:6px">Season prize pools pay <b>pickles</b>, never rating.</p>
+    </div>
+  </div>
+
+  <figure class="infographic" id="ig-season-timeline" style="margin-top:12px">
+    <svg viewBox="0 0 720 334" role="img" aria-labelledby="season-title season-desc">
+      <title id="season-title">A league season timeline</title>
+      <desc id="season-desc">Season starts: the Live tab starts everyone at the baseline. Periods of play end in automatic locks: ranks are saved, the number 1 player gets the Period Champion badge, and league PLUPR resets to the baseline with a head start for the top 5. The season ends only when an admin completes it: the final rank is your middle rank across periods, with Crown, Silver and Bronze badges, and the admin pays the prize pool in pickles. Underneath, overall PLUPR keeps flowing and is never reset.</desc>
+      <defs>
+        <marker id="seasonArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#2e7d32"/>
+        </marker>
+      </defs>
+
+      <text x="0" y="16" class="t-small t-bold t-green" style="letter-spacing:1.5px">LEAGUE SEASON · SELF-CONTAINED</text>
+
+      <!-- track -->
+      <line x1="40" y1="70" x2="680" y2="70" stroke="#1b5e20" stroke-width="6" stroke-linecap="round"/>
+      <text x="135" y="58" text-anchor="middle" class="t-small t-bold">Period 1</text>
+      <text x="325" y="58" text-anchor="middle" class="t-small t-bold">Period 2</text>
+      <text x="490" y="58" text-anchor="middle" class="t-small t-bold">more periods…</text>
+
+      <!-- start -->
+      <circle cx="40" cy="70" r="15" fill="#ffffff" stroke="#1b5e20" stroke-width="4"/>
+      <path d="M35,62 L47,70 L35,78 Z" fill="#1b5e20"/>
+      <text x="40" y="40" text-anchor="middle" class="t-small t-bold">Start</text>
+
+      <!-- locks -->
+      <g>
+        <circle cx="230" cy="70" r="18" fill="#ffffff" stroke="#1b5e20" stroke-width="3"/>
+        <path d="M224,69 v-5 a6,6 0 0 1 12,0 v5" fill="none" stroke="#1b5e20" stroke-width="2.6"/>
+        <rect x="221" y="68" width="18" height="12" rx="2" fill="#1b5e20"/>
+        <text x="230" y="40" text-anchor="middle" class="t-small t-bold">Lock</text>
+      </g>
+      <g>
+        <circle cx="420" cy="70" r="18" fill="#ffffff" stroke="#1b5e20" stroke-width="3"/>
+        <path d="M414,69 v-5 a6,6 0 0 1 12,0 v5" fill="none" stroke="#1b5e20" stroke-width="2.6"/>
+        <rect x="411" y="68" width="18" height="12" rx="2" fill="#1b5e20"/>
+        <text x="420" y="40" text-anchor="middle" class="t-small t-bold">Lock</text>
+      </g>
+      <g>
+        <circle cx="560" cy="70" r="18" fill="#ffffff" stroke="#1b5e20" stroke-width="3"/>
+        <path d="M554,69 v-5 a6,6 0 0 1 12,0 v5" fill="none" stroke="#1b5e20" stroke-width="2.6"/>
+        <rect x="551" y="68" width="18" height="12" rx="2" fill="#1b5e20"/>
+        <text x="560" y="40" text-anchor="middle" class="t-small t-bold">Lock</text>
+      </g>
+
+      <!-- trophy -->
+      <circle cx="680" cy="70" r="20" fill="#1b5e20"/>
+      <path d="M671,58 H689 V64 A9,9 0 0 1 671,64 Z" fill="#ffffff"/>
+      <path d="M671,60 h-5 a4,5 0 0 0 6,7 M689,60 h5 a4,5 0 0 1 -6,7" fill="none" stroke="#ffffff" stroke-width="2"/>
+      <rect x="677" y="72" width="6" height="5" fill="#ffffff"/>
+      <rect x="672" y="77" width="16" height="4" rx="1" fill="#ffffff"/>
+      <text x="700" y="40" text-anchor="end" class="t-small t-bold">Season end</text>
+
+      <!-- connectors to callouts -->
+      <line x1="40" y1="86" x2="40" y2="104" stroke="#55625a" stroke-width="1.8"/>
+      <line x1="230" y1="89" x2="230" y2="104" stroke="#55625a" stroke-width="1.8"/>
+      <line x1="680" y1="91" x2="680" y2="104" stroke="#55625a" stroke-width="1.8"/>
+
+      <!-- callout A -->
+      <rect x="0" y="104" width="200" height="136" rx="12" fill="#fbf8ee" stroke="#ece5cf" stroke-width="1.5"/>
+      <text x="12" y="125" class="t-title t-green">Season starts</text>
+      <text x="12" y="145" class="t-body">The <tspan class="t-bold">Live</tspan> tab starts</text>
+      <text x="12" y="161" class="t-body">everyone at the baseline</text>
+      <text x="12" y="177" class="t-body">(usually 3.50).</text>
+      <text x="12" y="199" class="t-body">Play league matches.</text>
+      <text x="12" y="215" class="t-body">Live updates as scores</text>
+      <text x="12" y="231" class="t-body">are confirmed.</text>
+
+      <!-- callout B -->
+      <rect x="212" y="104" width="270" height="136" rx="12" fill="#e8f5e9" stroke="#c8e6c9" stroke-width="1.5"/>
+      <text x="224" y="125" class="t-title t-green">Every period lock</text>
+      <text x="224" y="145" class="t-body">Locks automatically on its date.</text>
+      <text x="224" y="161" class="t-body">Ranks are saved. #1 earns the</text>
+      <text x="224" y="177" class="t-body"><tspan class="t-bold">Period Champion</tspan> badge.</text>
+      <text x="224" y="199" class="t-body">League PLUPR resets to the baseline.</text>
+      <text x="224" y="215" class="t-body">Top 5 get a head start: +0.20, +0.15,</text>
+      <text x="224" y="231" class="t-body">+0.10, +0.05, +0.02.</text>
+
+      <!-- callout C -->
+      <rect x="494" y="104" width="226" height="136" rx="12" fill="#fbf8ee" stroke="#ece5cf" stroke-width="1.5"/>
+      <text x="506" y="125" class="t-title t-green">Admin ends the season</text>
+      <text x="506" y="145" class="t-body">Not automatic: an admin taps</text>
+      <text x="506" y="161" class="t-body">Complete. Final rank = your</text>
+      <text x="506" y="177" class="t-body"><tspan class="t-bold">middle</tspan> rank across periods.</text>
+      <text x="506" y="199" class="t-body">Crown, Silver, Bronze badges;</text>
+      <text x="506" y="215" class="t-body"><tspan class="t-bold">Period Sweeper</tspan>: #1 every time.</text>
+      <text x="506" y="231" class="t-body">Admin pays the pool in pickles.</text>
+
+      <!-- overall lane -->
+      <rect x="0" y="252" width="720" height="80" rx="14" fill="#ffffff" stroke="#2e7d32" stroke-width="2"/>
+      <text x="16" y="272" class="t-small t-bold t-green" style="letter-spacing:1.5px">OVERALL PLUPR · KEEPS FLOWING</text>
+      <text x="704" y="272" text-anchor="end" class="t-small t-muted">every confirmed match counts · seasons never reset it</text>
+      <path d="M30,312 C90,302 130,318 190,306 S290,297 340,303 S440,291 500,297 S600,290 676,296" fill="none" stroke="#2e7d32" stroke-width="4" stroke-linecap="round" marker-end="url(#seasonArrow)"/>
+      <g>
+        <line x1="230" y1="294" x2="230" y2="314" stroke="#55625a" stroke-width="1.2"/>
+        <text x="230" y="327" text-anchor="middle" class="t-small t-muted" style="font-style:italic">no reset</text>
+        <line x1="420" y1="286" x2="420" y2="314" stroke="#55625a" stroke-width="1.2"/>
+        <text x="420" y="327" text-anchor="middle" class="t-small t-muted" style="font-style:italic">no reset</text>
+        <line x1="560" y1="284" x2="560" y2="314" stroke="#55625a" stroke-width="1.2"/>
+        <text x="560" y="327" text-anchor="middle" class="t-small t-muted" style="font-style:italic">no reset</text>
+      </g>
+    </svg>
+    <figcaption>Your “middle” rank means one bad period won't sink your season.</figcaption>
+  </figure>
+
+  <div class="table-wrap">
+  <table class="grid" aria-label="Season standings tabs">
+    <thead><tr><th style="width:20%">Standings tab</th><th>What the PLUPR column shows</th><th style="width:28%">Wins and losses</th></tr></thead>
+    <tbody>
+      <tr><td>Live</td><td>An estimate: the baseline plus your Match History changes this period. No head start.</td><td>This period only</td></tr>
+      <tr><td>Locked</td><td>Your official league PLUPR when the period locked</td><td>Season to date</td></tr>
+      <tr><td>Final</td><td>Middle period rank, plus your head start for next season</td><td>Season to date</td></tr>
+      <tr><td>No season running</td><td>Members listed by overall PLUPR</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note" style="margin-top:6px">At a lock, your official league PLUPR takes over. It moves twice as far per match as the Live estimate and includes your head start and the league's tournament matches, so numbers, and sometimes ranks, can change. Wins and losses count each game of a multi-game match.</p>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>5 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 6 · TOURNAMENTS AND EVERYTHING ELSE                      -->
+<!-- ============================================================ -->
+<section class="sheet" id="everything-else">
+  <header class="sec-head">
+    <div class="sec-num">5</div>
+    <div>
+      <p class="kicker">Features</p>
+      <h2>Tournaments, events and everything else</h2>
+      <p class="lead">Lots of features <i>use</i> PLUPR. Only a few <i>change</i> it.</p>
+    </div>
+  </header>
+
+  <div class="table-wrap">
+  <table class="grid" aria-label="Which features move PLUPR, have standings or pay pickles">
+    <thead>
+      <tr><th style="width:28%">Feature</th><th style="width:21%">Moves overall PLUPR?</th><th style="width:19%">Moves league PLUPR?</th><th style="width:14%">Own standings?</th><th>Pickles?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>League match<span class="sub">once confirmed</span></td><td><span class="y">✓ Yes</span><span class="sub">half size</span></td><td><span class="y">✓ Yes</span><span class="sub">full size</span></td><td>Season</td><td>Rewards &amp; badges</td></tr>
+      <tr><td>Match recorded from Home<span class="sub">you pick a league; a tournament tag doesn't change how it counts</span></td><td><span class="y">✓ Yes</span><span class="sub">half size</span></td><td><span class="y">✓ Yes</span><span class="sub">full size</span></td><td>Season</td><td>Rewards &amp; badges</td></tr>
+      <tr><td>Tournament match in a league</td><td><span class="n">— No</span></td><td><span class="y">✓ Yes</span></td><td>Tournament</td><td>Entry fee, prize pot</td></tr>
+      <tr><td>Stand-alone tournament match</td><td><span class="y">✓ Yes</span><span class="sub">full size</span></td><td><span class="n">— No</span></td><td>Tournament</td><td>Entry fee, prize pot</td></tr>
+      <tr><td>Tournament prize payout<span class="sub">1st, 2nd, 3rd</span></td><td><span class="y">✓ +0.50 / +0.25 / +0.10</span><span class="sub">once; league tournaments too</span></td><td><span class="n">— No</span></td><td>—</td><td>Prize pot</td></tr>
+      <tr><td>Period lock &amp; season end</td><td><span class="n">— No</span></td><td><span class="p">↻ Resets to baseline</span><span class="sub">top 5 get a head start</span></td><td>Period &amp; final ranks</td><td>Prize pool, paid by an admin</td></tr>
+      <tr><td>Event<span class="sub">voting and scheduling</span></td><td>Only via matches played there</td><td>Only via matches</td><td><span class="n">— No</span></td><td>—</td></tr>
+      <tr><td>Drill</td><td><span class="n">— No</span></td><td><span class="n">— No</span></td><td>1–5 reviews</td><td>Yes</td></tr>
+      <tr><td>Play session, check-in, routine</td><td><span class="n">— No</span></td><td><span class="n">— No</span></td><td><span class="n">— No</span></td><td>Reward pickles</td></tr>
+      <tr><td>Badges</td><td><span class="n">— No</span><span class="sub">Top Rated needs 4.00</span></td><td><span class="n">— No</span></td><td><span class="n">— No</span></td><td>150 per badge</td></tr>
+      <tr><td>DUPR import</td><td><span class="p">Sets your start</span><span class="sub">before your first match only</span></td><td><span class="n">— No</span></td><td>—</td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 class="display" style="font-size:18px;color:var(--green);margin:14px 0 8px">Tournaments at a glance</h3>
+  <div class="cols">
+    <div class="card mint">
+      <h3>No confirm step</h3>
+      <p>Any player in the match, or the organizer, can enter the result. It counts at once, and after that not even the organizer can change it. Check before saving.</p>
+    </div>
+    <div class="card mint">
+      <h3>Top-3 boost needs a payout</h3>
+      <p>The organizer completes the tournament, then taps <b>Pay out prizes</b>, which only shows when there's a pickle pot. The boost goes to your overall, in league tournaments too. In single elimination, both losing semi-finalists count as 3rd.</p>
+    </div>
+    <div class="card">
+      <h3>Seeding reads PLUPR, never changes it</h3>
+      <p>Organizers seed randomly or by overall PLUPR; doubles teams by partner average. Standings count wins first. PLUPR only breaks late ties.</p>
+    </div>
+    <div class="card">
+      <h3>MLP: every game counts on its own</h3>
+      <p>Men's and women's games count as doubles, the mixed games as mixed, and the Dreambreaker as singles.</p>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>6 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 7 · IS THIS A GOOD MATCH?                                -->
+<!-- ============================================================ -->
+<section class="sheet" id="good-match">
+  <header class="sec-head">
+    <div class="sec-num">6</div>
+    <div>
+      <p class="kicker">Finding a game</p>
+      <h2>Is this a good match?</h2>
+      <p class="lead">The gap between two PLUPRs tells you how close a game will probably be. <span class="tag app">IN THE APP</span> marks what Pickleague does; <span class="tag tip">OUR TIP</span> marks friendly advice.</p>
+    </div>
+  </header>
+
+  <figure class="infographic" id="ig-gap-bands">
+    <svg viewBox="0 0 720 154" role="img" aria-labelledby="gap-title gap-desc">
+      <title id="gap-title">What a PLUPR gap means for the game</title>
+      <desc id="gap-desc">Gap 0 to 0.25: toss-up. 0.25 to 0.5: close. 0.5 to 1.0: stretch. 1.0 to 1.5: lopsided. Over 1.5: mismatch. A typical game to 11 goes from even at 0, to 11-9 at 0.25, 11-6 at 0.5, 11-3 at 1.0, 11-2 at 1.5 and 11-1 at 2.0 and above.</desc>
+      <defs>
+        <pattern id="hatchMis" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="#f1f1ec"/><line x1="0" y1="0" x2="0" y2="8" stroke="#c9ccc4" stroke-width="3"/>
+        </pattern>
+      </defs>
+
+      <!-- brackets -->
+      <text x="218" y="14" text-anchor="middle" class="t-small t-bold t-green">Great game</text>
+      <path d="M152,24 V30 H286 V24" fill="none" stroke="#1b5e20" stroke-width="1.6"/>
+      <text x="356" y="14" text-anchor="middle" class="t-small t-bold t-green">Good for the underdog</text>
+      <path d="M290,24 V30 H423 V24" fill="none" stroke="#1b5e20" stroke-width="1.6"/>
+      <text x="562" y="14" text-anchor="middle" class="t-small t-bold t-green">Lesson game, or mix the teams</text>
+      <path d="M427,24 V30 H698 V24" fill="none" stroke="#1b5e20" stroke-width="1.6"/>
+
+      <!-- band row -->
+      <text x="0" y="60" class="t-body t-bold">PLUPR gap</text>
+      <text x="0" y="77" class="t-small t-muted">you vs them</text>
+      <rect x="150" y="40" width="67" height="44" rx="4" fill="#1b5e20"/>
+      <rect x="219" y="40" width="67" height="44" fill="#2e7d32"/>
+      <rect x="288" y="40" width="136" height="44" fill="#a5d6a7"/>
+      <rect x="426" y="40" width="136" height="44" fill="#dcedc8"/>
+      <rect x="564" y="40" width="136" height="44" rx="4" fill="url(#hatchMis)"/>
+      <text x="183" y="67" text-anchor="middle" class="t-body t-bold t-white">Toss-up</text>
+      <text x="252" y="67" text-anchor="middle" class="t-body t-bold t-white">Close</text>
+      <text x="356" y="67" text-anchor="middle" class="t-body t-bold">Stretch</text>
+      <text x="494" y="67" text-anchor="middle" class="t-body t-bold">Lopsided</text>
+      <text x="632" y="67" text-anchor="middle" class="t-body t-bold">Mismatch</text>
+
+      <!-- ticks -->
+      <g stroke="#17241a" stroke-width="1.4">
+        <line x1="150" y1="86" x2="150" y2="93"/><line x1="218" y1="86" x2="218" y2="93"/>
+        <line x1="287" y1="86" x2="287" y2="93"/><line x1="425" y1="86" x2="425" y2="93"/>
+        <line x1="563" y1="86" x2="563" y2="93"/><line x1="700" y1="86" x2="700" y2="93"/>
+      </g>
+      <text x="150" y="107" text-anchor="start" class="t-small t-bold">0</text>
+      <text x="218" y="107" text-anchor="middle" class="t-small t-bold">0.25</text>
+      <text x="287" y="107" text-anchor="middle" class="t-small t-bold">0.5</text>
+      <text x="425" y="107" text-anchor="middle" class="t-small t-bold">1.0</text>
+      <text x="563" y="107" text-anchor="middle" class="t-small t-bold">1.5</text>
+      <text x="700" y="107" text-anchor="end" class="t-small t-bold">2.0+</text>
+
+      <!-- typical score row -->
+      <line x1="0" y1="118" x2="720" y2="118" stroke="#d3dbd3" stroke-width="1"/>
+      <text x="0" y="142" class="t-body t-bold">Typical game to 11</text>
+      <text x="150" y="142" text-anchor="start" class="t-body">even</text>
+      <text x="218" y="142" text-anchor="middle" class="t-body">11–9</text>
+      <text x="287" y="142" text-anchor="middle" class="t-body">11–6</text>
+      <text x="425" y="142" text-anchor="middle" class="t-body">11–3</text>
+      <text x="563" y="142" text-anchor="middle" class="t-body">11–2</text>
+      <text x="700" y="142" text-anchor="end" class="t-body">11–1</text>
+      <line x1="0" y1="153" x2="720" y2="153" stroke="#d3dbd3" stroke-width="1"/>
+    </svg>
+    <figcaption>Singles: compare the two players. Doubles: compare the two team averages.</figcaption>
+  </figure>
+
+  <div class="cols-3">
+    <div class="card">
+      <h3>Opponents <span class="tag tip">OUR TIP</span></h3>
+      <ul>
+        <li>Within 0.25: a coin flip.</li>
+        <li>Up to 0.5: still a real match.</li>
+        <li>0.5 to 1.0: worth it for the underdog. You only drop if you lose by more than expected.</li>
+        <li>Over 1.5: little at stake either way.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Practice partners</h3>
+      <p><span class="tag tip">OUR TIP</span> Stay within about 0.5. To improve, drill with someone 0.25 to 0.5 above you.</p>
+      <p><span class="tag app">IN THE APP</span> Drill Search's <b>Skill match</b> sort puts the closest PLUPR first.</p>
+    </div>
+    <div class="card">
+      <h3>Partners <span class="tag app">IN THE APP</span></h3>
+      <p><b>Your chemistry together</b>, on a player's profile, compares your win rate with them against your win rate with other partners. It gives a verdict after 5 doubles matches together.</p>
+    </div>
+  </div>
+
+  <figure class="infographic" id="ig-doubles-balance" style="margin-top:10px">
+    <svg viewBox="0 0 720 176" role="img" aria-labelledby="dbl-title dbl-desc">
+      <title id="dbl-title">Balancing a doubles game with four players rated 4.2, 3.8, 3.4 and 3.0</title>
+      <desc id="dbl-desc">Stacking the top two makes teams averaging 4.0 and 3.2, a gap of 0.8, a stretch. Pairing strongest with weakest makes two teams averaging 3.6, a gap of 0, a toss-up.</desc>
+
+      <!-- left panel -->
+      <rect x="0" y="0" width="352" height="174" rx="14" fill="#fbecea" stroke="#8e2a1f" stroke-width="1.6" stroke-dasharray="7 4"/>
+      <text x="16" y="24" class="t-title t-down">✗ Stack the top two together</text>
+      <rect x="16" y="38" width="134" height="86" rx="10" fill="#ffffff" stroke="#c9ccc4"/>
+      <circle cx="52" cy="70" r="21" fill="#1b5e20"/><text x="52" y="75" text-anchor="middle" class="t-body t-bold t-white">4.2</text>
+      <circle cx="114" cy="70" r="21" fill="#4c8c4a"/><text x="114" y="75" text-anchor="middle" class="t-body t-bold t-white">3.8</text>
+      <text x="83" y="114" text-anchor="middle" class="t-body t-bold">avg 4.0</text>
+      <text x="176" y="86" text-anchor="middle" class="t-body t-bold t-muted">vs</text>
+      <rect x="202" y="38" width="134" height="86" rx="10" fill="#ffffff" stroke="#c9ccc4"/>
+      <circle cx="238" cy="70" r="21" fill="#a5d6a7" stroke="#4c8c4a"/><text x="238" y="75" text-anchor="middle" class="t-body t-bold">3.4</text>
+      <circle cx="300" cy="70" r="21" fill="#ffffff" stroke="#4c8c4a" stroke-width="1.5"/><text x="300" y="75" text-anchor="middle" class="t-body t-bold">3.0</text>
+      <text x="269" y="114" text-anchor="middle" class="t-body t-bold">avg 3.2</text>
+      <text x="176" y="152" text-anchor="middle" class="t-body t-bold t-down">Gap 0.8: a stretch</text>
+
+      <!-- right panel -->
+      <rect x="368" y="0" width="352" height="174" rx="14" fill="#e8f5e9" stroke="#1b5e20" stroke-width="1.8"/>
+      <text x="384" y="24" class="t-title t-green">✓ Strongest with weakest</text>
+      <rect x="384" y="38" width="134" height="86" rx="10" fill="#ffffff" stroke="#c9ccc4"/>
+      <circle cx="420" cy="70" r="21" fill="#1b5e20"/><text x="420" y="75" text-anchor="middle" class="t-body t-bold t-white">4.2</text>
+      <circle cx="482" cy="70" r="21" fill="#ffffff" stroke="#4c8c4a" stroke-width="1.5"/><text x="482" y="75" text-anchor="middle" class="t-body t-bold">3.0</text>
+      <text x="451" y="114" text-anchor="middle" class="t-body t-bold">avg 3.6</text>
+      <text x="544" y="86" text-anchor="middle" class="t-body t-bold t-muted">vs</text>
+      <rect x="570" y="38" width="134" height="86" rx="10" fill="#ffffff" stroke="#c9ccc4"/>
+      <circle cx="606" cy="70" r="21" fill="#4c8c4a"/><text x="606" y="75" text-anchor="middle" class="t-body t-bold t-white">3.8</text>
+      <circle cx="668" cy="70" r="21" fill="#a5d6a7" stroke="#4c8c4a"/><text x="668" y="75" text-anchor="middle" class="t-body t-bold">3.4</text>
+      <text x="637" y="114" text-anchor="middle" class="t-body t-bold">avg 3.6</text>
+      <text x="544" y="152" text-anchor="middle" class="t-body t-bold t-green">Gap 0.0: a toss-up</text>
+    </svg>
+  </figure>
+
+  <div class="cols">
+    <div class="card mint">
+      <h3>Balancing doubles</h3>
+      <p><span class="tag app">IN THE APP</span> Tournament organizers: <b>Snake-Pair (balanced)</b> pairs strongest with weakest. MLP's Snake-Draft does the same for teams of 4.</p>
+      <p><span class="tag tip">OUR TIP</span> Aim for team averages within 0.25, and keep each player within about 1.0 of the court's average. Opponents aim at the weaker player, and the numbers can't see that.</p>
+    </div>
+    <div class="card mint">
+      <h3>Where to compare numbers <span class="tag app">IN THE APP</span></h3>
+      <ul>
+        <li><b>League Members</b> shows everyone's PLUPR. Admins: “Suggest” lists players within 1.75 of the average.</li>
+        <li><b>Players here</b> at a court: doubles PLUPR (can differ from overall), or a band like “3.5–4.0”.</li>
+        <li><b>Drill Search:</b> “+0.16 vs you”. Organizers: invites list players within 1.5 of the field.</li>
+        <li>Check-in tags like “3.5+” are just labels, not checked against PLUPR.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>7 / 8</span></footer>
+</section>
+
+<!-- ============================================================ -->
+<!-- PAGE 8 · QUICK ANSWERS                                        -->
+<!-- ============================================================ -->
+<section class="sheet" id="faq">
+  <header class="sec-head">
+    <div class="sec-num">7</div>
+    <div>
+      <p class="kicker">FAQ</p>
+      <h2>Quick answers</h2>
+      <p class="lead">The questions players ask most.</p>
+    </div>
+  </header>
+
+  <div class="faq">
+    <div class="qa">
+      <h3>Why didn't my PLUPR change?</h3>
+      <p>Usually the match isn't confirmed yet. It also won't move if the match expired or was only scheduled. A scheduled match never counts: after you play, record the score as a new match. Drills, check-ins and pickles never move it.</p>
+    </div>
+    <div class="qa">
+      <h3>What if nobody confirms my match?</h3>
+      <p>After one hour the match is removed and everyone gets a notice. Nothing moved, so there's nothing to undo. Record it again and ask the other team to confirm.</p>
+    </div>
+    <div class="qa">
+      <h3>The score someone entered is wrong. What now?</h3>
+      <p>Don't confirm it. There's no reject button, so it's removed after an hour. Then record the right score. Once a match is confirmed, players can't edit or delete it.</p>
+    </div>
+    <div class="qa">
+      <h3>Does a tournament count?</h3>
+      <p>Yes. Matches in a league tournament count toward that league's PLUPR, not your overall. Stand-alone tournament matches count toward your overall at full size, twice a league match. If the organizer pays out prizes, 1st, 2nd and 3rd get a one-time overall boost (+0.50, +0.25, +0.10), in league tournaments too.</p>
+    </div>
+    <div class="qa">
+      <h3>Does a bad league season lower my overall PLUPR?</h3>
+      <p>Season resets and ranks never touch your overall. The league matches themselves do: each one, won or lost, moves your overall by half as much as your league PLUPR.</p>
+    </div>
+    <div class="qa">
+      <h3>I won. Why did my PLUPR go down?</h3>
+      <p>You were the favourite and won by less than expected. Win by more than the gap predicts and you go up. The flip side: a close loss to a much stronger side can raise you.</p>
+    </div>
+    <div class="qa">
+      <h3>Where do I see my PLUPR?</h3>
+      <p>Your profile doesn't show it right now. Your overall PLUPR appears in a league's Members list, tournament player lists and Drill Search. Match History shows how much each regular match moved your overall. The Locked and Final standings tabs show your league PLUPR; the Live tab shows an estimate.</p>
+    </div>
+    <div class="qa">
+      <h3>Why does it say “Not Rated”?</h3>
+      <p>You haven't played a rated match yet. Everyone starts at 3.25, or at an imported DUPR. Your number appears after your first confirmed match.</p>
+    </div>
+    <div class="qa">
+      <h3>Can I start from my DUPR rating?</h3>
+      <p>Yes, if your confirmed email matches a synced DUPR club roster and you haven't played a match here yet. After that, DUPR is only linked: your PLUPR is earned from matches here. League PLUPR always starts at 3.25.</p>
+    </div>
+    <div class="qa">
+      <h3>Do guests count? What about pickles?</h3>
+      <p>Guests count: matches with guests are rated like any other. Pickles, badges and season prize pools never change PLUPR. The tournament top-3 boost is the one prize that does.</p>
+    </div>
+  </div>
+
+  <div class="card mint" style="margin-top:16px">
+    <h3>The 10-second version</h3>
+    <div class="chips" style="margin-top:6px">
+      <span class="chip">Confirm within the hour</span>
+      <span class="chip">Set genders for doubles</span>
+      <span class="chip">Check the score before you confirm</span>
+      <span class="chip">Seasons reset; overall keeps going</span>
+      <span class="chip">Gap under 0.5 = a close game</span>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Pickleague · pickleague.club</span><span>8 / 8</span></footer>
+</section>
+
+</body>
+</html>
