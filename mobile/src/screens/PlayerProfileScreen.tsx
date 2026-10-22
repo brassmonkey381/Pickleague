@@ -35,6 +35,7 @@ import PlayerModerationMenu from '../components/PlayerModerationMenu';
 import ClaimAccountButton from '../components/ClaimAccountButton';
 import FriendButton from '../components/FriendButton';
 import PlannedCheckinsSection from '../components/routines/PlannedCheckinsSection';
+import { TestAccountSwitch } from '../components/TestAccountSwitches';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -357,6 +358,10 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       {/* Add friend / Requested / Accept / Friends ✓ (renders nothing on
           yourself, unclaimed placeholders, or while friends are off). */}
       <FriendButton userId={userId} meId={meId} profile={profile} style={styles.friendRow} />
+
+      {/* God mode only: mark this account as a test account (renders nothing
+          for everyone else, or on yourself). */}
+      <TestAccountSwitch profileId={userId} meId={meId} style={styles.block} />
 
       {/* ── 2. Quick row ───────────────────────────────────────── */}
       <View style={styles.quickRow}>

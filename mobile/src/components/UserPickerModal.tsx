@@ -41,16 +41,14 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
-    let q = supabase
-      .from('profiles')
+    // discover_players (migration_hide_test_accounts.sql): never deleted
+    // accounts ([deleted account] tombstones keep shared match history intact,
+    // they are not people you can pick), test accounts left out while God mode
+    // hides them, ordered by name, at most 500. realPeopleOnly also leaves out
+    // unclaimed placeholders and guest passes.
+    supabase
+      .rpc('discover_players', { p_real_people_only: realPeopleOnly })
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
-      // Deleted accounts survive as [deleted account] tombstones so shared
-      // match history stays intact — they are not people you can pick.
-      .is('deleted_at', null);
-    // Both columns are not null default false.
-    if (realPeopleOnly) q = q.eq('is_unclaimed', false).eq('is_guest', false);
-    q.order('full_name')
-      .limit(500)
       .then(({ data }) => {
         setUsers((data ?? []) as PickedUser[]);
         setLoading(false);

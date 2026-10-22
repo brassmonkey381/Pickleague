@@ -19,6 +19,7 @@ import { setClipboard } from '../lib/clipboard';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import { verifyTournament, CheckResult } from '../lib/bracketVerification';
 import { BallIcon } from '../components/PickleIcons';
+import { HideTestAccountsSwitch } from '../components/TestAccountSwitches';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Godmode'> };
 
@@ -311,6 +312,15 @@ export default function GodmodeScreen({ navigation }: Props) {
       </Text>
 
       <StatusBanner status={status.value} style={S.banner} />
+
+      <Text style={S.sectionHeader}>Test accounts</Text>
+      <View style={S.card}>
+        <HideTestAccountsSwitch />
+        <Text style={S.previewNote}>
+          Seeded, SIM, QA and review accounts are test accounts, and so is every account made
+          below. Mark or unmark anyone else from their profile.
+        </Text>
+      </View>
 
       <Text style={S.sectionHeader}>Quick-create test account</Text>
       <View style={S.card}>

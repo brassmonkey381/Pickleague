@@ -161,7 +161,10 @@ begin
         'suggest_court_routines','unskip_court_routine_occurrence','venue_open_to_play',
         -- Referrals (migration_referrals.sql). referral_preview is also granted
         -- to anon there (the signed-out web invite landing).
-        'claim_referral','my_referral_code','my_referral_stats','referral_preview'
+        'claim_referral','my_referral_code','my_referral_stats','referral_preview',
+        -- Hide test accounts from discovery (migration_hide_test_accounts.sql).
+        'discover_players','get_hide_test_accounts','set_hide_test_accounts',
+        'get_profile_test_account','set_profile_test_account'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

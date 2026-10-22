@@ -227,15 +227,17 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       ? memberRatings.reduce((a, b) => a + b, 0) / memberRatings.length
       : myRating;
 
+    // Suggested players to invite: discover_players (migration_hide_test_accounts.sql)
+    // never offers a tombstoned account, nor a test account while God mode
+    // hides them.
     const candidates = await sbCall(() => supabase
-      .from('profiles')
-      .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')
-      .not('id', 'in', `(${memberIds.join(',')})`)
-      // Suggested players to invite — a tombstoned account is not one.
-      .is('deleted_at', null)
-      .gte('rating', avgElo - 1.75)
-      .lte('rating', avgElo + 1.75)
-      .limit(50));
+      .rpc('discover_players', {
+        p_exclude: memberIds,
+        p_min_rating: avgElo - 1.75,
+        p_max_rating: avgElo + 1.75,
+        p_limit: 50,
+      })
+      .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')) as any[] | null;
 
     const scored: SuggestedPlayer[] = (candidates ?? []).map((p: any) => {
       const av: boolean[] = Array.isArray(p.availability) && p.availability.length === TOTAL_CELLS

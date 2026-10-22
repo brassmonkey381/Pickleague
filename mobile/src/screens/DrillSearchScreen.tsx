@@ -80,15 +80,13 @@ export default function DrillSearchScreen({ route }: Props) {
     const myRating  = myProfile?.rating ?? 3.25;
     const me: Me = { id: uid, rating: myRating, avail: myWeekly, shots: myShots, partner: myPartner };
 
+    // discover_players (migration_hide_test_accounts.sql) leaves out deleted
+    // accounts (deletion also clears drilling_enabled, but the exclusion should
+    // not depend on a side effect of the scrub) and test accounts while God
+    // mode hides them.
     const others = await sbCall(() => supabase
-      .from('profiles')
-      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')
-      .eq('drilling_enabled', true)
-      // Deletion also clears drilling_enabled, so this is belt and braces —
-      // but the exclusion should not depend on a side effect of the scrub.
-      .is('deleted_at', null)
-      .neq('id', uid)
-      .limit(100)) as any[];
+      .rpc('discover_players', { p_drilling_only: true, p_exclude: [uid], p_limit: 100 })
+      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')) as any[];
 
     const dates   = rollingDates();
     const myDated = expandWeeklyToDates(myWeekly, dates);

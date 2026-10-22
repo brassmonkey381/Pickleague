@@ -102,13 +102,32 @@ No CI runner is wired up yet — these are **human-runnable** today.
     supabase db query --linked -f /tmp/court_discovery_p1_test.sql -o csv
     ```
 
+- `hide_test_accounts_personas.sql` (+ `build-hide-test-accounts-test.mjs`)
+  - Hide test accounts from discovery: applies
+    `migration_hide_test_accounts.sql` twice and re-runs
+    `migration_rls_hardening_2026q3.sql` inside one rolled-back transaction,
+    then checks the backfill and the new-account marking, grants, that only a
+    God mode admin may read or change the switch or a profile's flag (a clear
+    `pl:admin.only` refusal for everyone else, the profiles table included),
+    and, with the switch off and on, what an ordinary player, a test account
+    and the admin find in `discover_players`, `suggest_friends`,
+    `court_presence`, `venue_players_here` and `venue_crowd`; friends lists and
+    friend requests are unaffected. Build it first, then run the output:
+
+    ```sh
+    node supabase/tests/build-hide-test-accounts-test.mjs /tmp/hide_test_accounts_test.sql
+    # from the linked checkout:
+    supabase db query --linked -f /tmp/hide_test_accounts_test.sql -o csv
+    ```
+
 - `check-replaced-functions.mjs`
-  - Run against live right before the court arrival files are applied. Those
-    files rewrite eight live functions from the repo files that last defined
+  - Run against live right before the court arrival files or
+    `migration_hide_test_accounts.sql` are applied. Those
+    files rewrite live functions from the repo files that last defined
     them; this builds one read-only SQL file that compares each live body
-    with that file's and with the court arrival file's (whitespace ignored)
+    with that file's and with the replacing file's (whitespace ignored)
     and fails with `DRIFT: ...` on anything else, so a change made on live by
-    hand is merged into the court arrival file instead of being reverted.
+    hand is merged into the replacing file instead of being reverted.
 
     ```sh
     node supabase/tests/check-replaced-functions.mjs /tmp/replaced_functions_check.sql

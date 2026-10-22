@@ -37,13 +37,11 @@ export default function MultiUserPickerModal({
   useEffect(() => {
     if (!visible) return;
     setLoading(true);
+    // See UserPickerModal: discover_players leaves out tombstoned accounts
+    // (and test accounts while God mode hides them), by name, at most 500.
     supabase
-      .from('profiles')
+      .rpc('discover_players')
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
-      // See UserPickerModal: tombstoned accounts are not selectable people.
-      .is('deleted_at', null)
-      .order('full_name')
-      .limit(500)
       .then(({ data }) => {
         setUsers((data ?? []) as MultiPickedUser[]);
         setLoading(false);
