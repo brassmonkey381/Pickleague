@@ -618,4 +618,13 @@ export type RootStackParamList = {
   AdminVenueReview: undefined;
   AdminBoundaries: undefined;
   AdminBoundaryEditor: { venueId: string };
+  // Court discovery (COURT_DISCOVERY_ENABLED). Courts centres on lat/lng when
+  // given, else the device location (never prompting) or a searched city.
+  Courts: { lat?: number; lng?: number } | undefined;
+  // venueId may be an alias id: the page opens its facility. Ids hold ':'
+  // and '/' ('osm:way/123'), so links encode them (navigation/linking.ts).
+  CourtDetail: { venueId: string };
+  // My routine (ROUTINES_ENABLED). newVenue opens the add sheet with that
+  // starred court picked ("Make it a routine" on a court).
+  Routines: { newVenue?: { venueId: string; venueName: string } } | undefined;
 };

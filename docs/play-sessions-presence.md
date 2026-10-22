@@ -425,7 +425,7 @@ Shipping (the user's order):
 - Kit: a High-accuracy option for `getCurrentCoords` (check-ins need fixes under 150 m; Balanced often returns
   cell-level fixes on Android) and iOS `accuracyAuthorization`, so "Precise Location off" isn't guessed from the
   accuracy number.
-- Court screen (`court/<venueId>`), court check-in sheet, On my way + Need players, Play island presence actions.
+- Court screen (one `CourtDetail` at `courts/:venueId`, shipped with court discovery Phase 1; `state/court-discovery-plan.md` decision 6), court check-in sheet, On my way + Need players, Play island presence actions.
 - Session summary (builds on the Phase 1.5 end sheet `PlayEndSheet`), Discard, MatchEntry "Players here"
   (`matches.play_session_id` already exists from Phase 1.5), session history.
 - Kit 1.45: symmetric geofence region state (Exit only after a recorded Enter), `weekdayMask` hoist,

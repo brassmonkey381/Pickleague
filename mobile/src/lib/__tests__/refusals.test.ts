@@ -85,6 +85,7 @@ describe('every refusal code has its own plain words', () => {
       { action: 'start' as const },
       { action: 'favorite' as const },
       { action: 'hide' as const },
+      { action: 'view' as const },
     ];
     for (const code of REFUSAL_CODES) {
       for (const ctx of contexts) {
@@ -295,6 +296,23 @@ describe('extendedNote: +1 h answered with less', () => {
     expect(
       extendedNote({ requestedUntilMs: T0, gotUntilMs: T0 - 45 * 60_000, fixSent: true, timeLabel: label, nowMs: NOW }),
     ).toEqual({ full: false, message: 'Checked in until 17:15.' });
+  });
+});
+
+describe("court.gone on a court's page ('view')", () => {
+  it('says the court is gone and where to look, never "check in"', () => {
+    expect(refusalCopy('court.gone', { action: 'view', venueName: 'Lakeside' })).toBe(
+      "Lakeside isn't in Pickleague any more. It may have been merged with another court; search Courts to find it.",
+    );
+    expect(refusalCopy('court.gone', { action: 'view' })).toMatch(/^That court isn't in Pickleague any more\./);
+    expect(refusalCopy('court.gone', { action: 'view' })).not.toMatch(/check in/i);
+    expect(refusalMessage({ message: 'x', hint: 'pl:court.gone' }, { action: 'view' })).toContain('search Courts');
+    expect(refusalTitle('court.gone', 'view')).toBe('Court not found');
+  });
+
+  it('check-in and star copy are unchanged', () => {
+    expect(refusalCopy('court.gone', { venueName: 'Lakeside' })).toContain("so you can't check in there");
+    expect(refusalCopy('court.gone', { action: 'favorite' })).toContain("can't be starred");
   });
 });
 

@@ -59,6 +59,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import FriendsLink from '../components/FriendsLink';
+import { ROUTINES_ENABLED } from '../lib/features';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
 // ── PLUPR history chart ───────────────────────────────────────────────
@@ -1073,6 +1074,17 @@ export default function ProfileScreen({ navigation }: Props) {
 
       {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
       <FriendsLink style={styles.block} />
+
+      {/* My routine (Doggle's Profile button; ROUTINES_ENABLED). */}
+      {ROUTINES_ENABLED ? (
+        <Button
+          size="sm"
+          variant="outline"
+          title="📅 My routine"
+          onPress={() => navigation.navigate('Routines')}
+          style={[styles.block, { alignSelf: 'flex-start' }]}
+        />
+      ) : null}
 
       {/* ── 4. Coming up ────────────────────────────────────────── */}
       {comingCount > 0 && (

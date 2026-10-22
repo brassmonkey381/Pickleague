@@ -99,6 +99,14 @@
     "court_checkin_now",
     "court_not_here"
   ],
+  "checkin_extend_until": [
+    "checkin_stay_until",
+    "checkin_out"
+  ],
+  "routine_reminder": [
+    "court_checkin",
+    "routine_skip"
+  ],
   "play_start": [
     "play_start"
   ],

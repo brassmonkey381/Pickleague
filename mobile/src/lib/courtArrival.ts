@@ -85,6 +85,15 @@ import {
   type EnqueueCourtPromptAnswer,
 } from '../data/courtArrival';
 import { getMyOpenCheckin, getVenueName } from '../data/venueCheckins';
+import { peekQuery } from '@just-messin-around/expo-foundation/cache';
+import { ROUTINES_ENABLED } from './features';
+import { routineArrivalDue, routinePlannedEndAt } from './courtRoutineRules';
+import {
+  COURT_ROUTINE_SETTINGS_KEY,
+  getMyCourtRoutinesOffline,
+  loadCourtRoutineSettings,
+  type CourtRoutineSettings,
+} from '../data/courtRoutines';
 
 // ── What this phone remembers ───────────────────────────────────────────────
 // Arrivals it saw, by region (ms). Within 2 hours a re-report of the region
@@ -258,6 +267,8 @@ export async function queueCourtArrival(
   venueId: string,
   info: CourtRegionInfo | null,
   arrivedAtMs: number,
+  /** A routine stop's planned end, when one is due here (its check-in may end there). */
+  routineEndIso: string | null = null,
 ): Promise<{ handled: boolean; reason?: NearbyPromptReason }> {
   let answer: QueueCourtArrivalAnswer | null = null;
   try {
@@ -283,7 +294,7 @@ export async function queueCourtArrival(
   ]);
   // Left while this was in flight: the Exit already cancelled it.
   if (leftSince(venueId, arrivedAtMs)) return { handled: true };
-  const when = answer?.due_at ? arrivalLocalSchedule(answer.due_at) : null;
+  const when = answer?.due_at ? arrivalLocalSchedule(answer.due_at, routineEndIso) : null;
   const checkinId = answer?.checkin_id;
   const local = answer?.pushable === false && !muted && !!when && !!checkinId;
   if (local && when && checkinId) {
@@ -303,6 +314,27 @@ export async function queueCourtArrival(
   }
   return { handled: true };
 }
+
+/**
+ * A routine stop of mine is due at this court now and "Check me in at my
+ * routine courts" is on, from the copies on this phone (a week on disk; the
+ * settings unreadable count as on, the default). Never waits on the network
+ * when a copy exists.
+ */
+async function routineDueHere(venueId: string, atMs: number): Promise<{ due: boolean; plannedEndAt: string | null }> {
+  const cachedSettings = peekQuery<CourtRoutineSettings>(COURT_ROUTINE_SETTINGS_KEY);
+  const [routines, settings] = await Promise.all([
+    getMyCourtRoutinesOffline().catch(() => null),
+    cachedSettings ? Promise.resolve(cachedSettings) : loadCourtRoutineSettings().catch(() => null),
+  ]);
+  const at = new Date(atMs);
+  if (!routineArrivalDue(routines, venueId, settings ? settings.routine_auto_checkin : null, at)) {
+    return { due: false, plannedEndAt: null };
+  }
+  return { due: true, plannedEndAt: routines ? routinePlannedEndAt(routines, venueId, at) : null };
+}
+
+const NOT_DUE = { due: false, plannedEndAt: null } as const;
 
 /**
  * The geofence Enter. `arrival`: the region was last seen outside
@@ -325,7 +357,7 @@ export async function handleCourtArrival(
     if (await signedOut()) return;
     // Only a starred court needs the rest; the rules don't read them otherwise.
     const starred = info?.starred === true;
-    const [settings, recently, session, consent, walletThrottled] = await Promise.all([
+    const [settings, recently, session, consent, walletThrottled, routine] = await Promise.all([
       starred ? settingsOrNull() : Promise.resolve(null),
       starred && !opts.arrival ? arrivedRecently(regionId) : Promise.resolve(false),
       starred && opts.arrival ? playSessionRunning() : Promise.resolve(false),
@@ -333,8 +365,13 @@ export async function handleCourtArrival(
         ? withTimeout(presenceConsentState(), NAME_LOOKUP_TIMEOUT_MS).catch(() => 'unknown' as const)
         : Promise.resolve('unknown' as const),
       info?.passId ? walletNotices.within(regionId).catch(() => false) : Promise.resolve(false),
+      // A routine stop due here, from this phone's copy (no network wait).
+      ROUTINES_ENABLED && info?.routine && opts.arrival
+        ? withTimeout(routineDueHere(regionId, arrivedAtMs), NAME_LOOKUP_TIMEOUT_MS).catch(() => NOT_DUE)
+        : Promise.resolve(NOT_DUE),
     ]);
     const d = decideArrival({
+      routineDue: routine.due,
       arrival: opts.arrival,
       info,
       settings,
@@ -358,7 +395,7 @@ export async function handleCourtArrival(
       await promptCourtCheckin(regionId, info?.name || null, d.reason);
       return;
     }
-    const res = await queueCourtArrival(regionId, info, arrivedAtMs);
+    const res = await queueCourtArrival(regionId, info, arrivedAtMs, routine.plannedEndAt);
     if (!res.handled) await askFirst(regionId, info, res.reason);
   } catch {
     // best-effort

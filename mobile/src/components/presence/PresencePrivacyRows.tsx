@@ -6,9 +6,10 @@
 //   Hidden from                                        ›
 //   2 players
 //
-// "Who sees my planned games" (presence_settings.plans_level) returns with
-// Phase 3, when games can be planned (court_plans); until then it would be a
-// control for nothing.
+// "Who sees my planned check-ins" (presence_settings.plans_level, default
+// friends) shows with ROUTINES_ENABLED: routines are the first planned games
+// (court_plans), seen on a profile's PLANNED CHECK-INS. Until then it would be
+// a control for nothing.
 //
 // Each opens a sheet: the level list (saved on tap), or the hide-from list with
 // a Show button per player (people are added from the "⋯" menu on a profile).
@@ -32,9 +33,13 @@ import {
   CHECKINS_LEVELS,
   LEAGUEMATES_NOTE,
   OTHERS_NOTE,
+  PLANS_LEVELS,
   checkinsLevelLabel,
+  plansLevelLabel,
   type CheckinsLevel,
+  type PlansLevel,
 } from '../../lib/presencePrivacy';
+import { ROUTINES_ENABLED } from '../../lib/features';
 import {
   hidePresenceFrom,
   setPresenceSettings,
@@ -45,7 +50,7 @@ import {
 import LevelChoiceList from './LevelChoiceList';
 
 type Colors = ReturnType<typeof useTheme>['colors'];
-type Sheet = null | 'checkins' | 'hidden';
+type Sheet = null | 'checkins' | 'plans' | 'hidden';
 
 export default function PresencePrivacyRows() {
   const { colors: c } = useTheme();
@@ -75,6 +80,17 @@ export default function PresencePrivacyRows() {
         desc={s ? checkinsLevelLabel(s.checkins_level) : settingsFailed ? "Couldn't load. Tap to retry" : 'Loading…'}
         onPress={open('checkins')}
       />
+      {ROUTINES_ENABLED ? (
+        <>
+          <View style={S.divider} />
+          <Row
+            S={S}
+            label="Who sees my planned check-ins"
+            desc={s ? plansLevelLabel(s.plans_level) : settingsFailed ? "Couldn't load. Tap to retry" : 'Loading…'}
+            onPress={open('plans')}
+          />
+        </>
+      ) : null}
       <View style={S.divider} />
       <Row
         S={S}
@@ -97,6 +113,17 @@ export default function PresencePrivacyRows() {
           options={CHECKINS_LEVELS}
           value={s.checkins_level}
           save={(level) => setPresenceSettings({ checkinsLevel: level })}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
+      {s && ROUTINES_ENABLED ? (
+        <LevelSheet<PlansLevel>
+          visible={sheet === 'plans'}
+          title="Who sees my planned check-ins"
+          intro="Who sees your routine check-ins (when and where you plan to play) on your profile. Blocked players and players you hide from never do."
+          options={PLANS_LEVELS}
+          value={s.plans_level}
+          save={(level) => setPresenceSettings({ plansLevel: level })}
           onClose={() => setSheet(null)}
         />
       ) : null}

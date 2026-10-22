@@ -64,7 +64,9 @@ const KNOWN_PREF_KEYS = new Set([
   'notifyFriendRequests',
   // Court arrival (migration_court_arrival_queue.sql): "Checked in at X",
   // "Still at X?" and "Not checked in at X" at starred courts, and
-  // "Checked out" when any check-in runs out.
+  // "Checked out" when any check-in runs out. Also routines
+  // (migration_court_routines.sql): the reminder at each stop's time and
+  // "Staying until 12 PM?".
   'notifyAutoCheckins',
   // "Check in nearby?" (migration_court_checkin_prompt.sql).
   'notifyCheckinPrompts',
@@ -96,10 +98,13 @@ type Data = Record<string, unknown>;
 // push_data keys that ride on the push for the app (buttons, links, routing).
 // Everything else in push_data stays server-side. The check-in keys are what
 // the Stay 1 more hour / Check out and Check in buttons read, the same keys
-// the phone's own "Still at X?" carries (lib/courtCheckin.ts).
+// the phone's own "Still at X?" carries (lib/courtCheckin.ts). plan_id is
+// what the routine reminder's Skip today cancels; planned_end_at is where
+// "Staying until 12 PM?"'s Stay until then extends to.
 const PASS_KEYS = [
   'kind', 'league_id', 'invite_code', 'partner_id', 'rsvp_status',
   'venue_id', 'venue_name', 'checkin_id', 'expires_at', 'via_arrival',
+  'plan_id', 'planned_at', 'planned_end_at',
 ] as const;
 
 /**
@@ -418,6 +423,19 @@ function courtArrivalButtons(data: Data, kind: string | null): Buttons | null {
     case 'arrival_checkin':
     case 'arrival_extend':
       return typeof data.checkin_id === 'string' ? { category: CATEGORY.checkin_extend, data } : { data };
+    // "Staying until 12 PM?" (routines): Stay until then / Check out, which
+    // need the check-in and the planned end. Without the end, the plain pair.
+    case 'arrival_extend_until':
+      if (typeof data.checkin_id !== 'string') return { data };
+      return typeof data.planned_end_at === 'string'
+        ? { category: CATEGORY.checkin_extend_until, data }
+        : { category: CATEGORY.checkin_extend, data };
+    // "9 AM · Lakeside" (a routine stop's time): Check in needs the court,
+    // Skip today the occurrence.
+    case 'routine_reminder':
+      return typeof data.venue_id === 'string' && typeof data.plan_id === 'string'
+        ? { category: CATEGORY.routine_reminder, data }
+        : { data };
     // "Check in nearby?": Check in, which needs the court.
     case 'court_prompt':
       return typeof data.venue_id === 'string' ? { category: CATEGORY.court_checkin, data } : { data };

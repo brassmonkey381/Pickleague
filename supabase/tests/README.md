@@ -85,6 +85,23 @@ No CI runner is wired up yet — these are **human-runnable** today.
     refuses any input with a top-level `begin;` / `commit;` / `end;` /
     `rollback;`, which would end the transaction early.
 
+- `court_discovery_personas.sql` (+ `build-court-discovery-p1-test.mjs`)
+  - Court discovery Phase 1: applies `migration_venue_data_guards.sql` (Phase 0),
+    `migration_court_discovery_p1.sql` twice and re-runs
+    `migration_rls_hardening_2026q3.sql` inside one rolled-back transaction, then
+    checks `list_courts_nearby` and `get_court` on test courts in the open
+    Pacific: the Lincoln Park pair is one row, rejected rows and aliases are
+    hidden, a sport matches through an alias, blank facts fill from aliases,
+    a private league is counted only for its members, `get_court(alias)`
+    opens the facility, the refusals (`pl:court.gone`, `pl:request.bad`,
+    `pl:auth.signed_out`), keyset paging, anon denied, and that
+    `venues_point_geog_idx` serves the prefilter with seq scans off.
+
+    ```sh
+    node supabase/tests/build-court-discovery-p1-test.mjs /tmp/court_discovery_p1_test.sql
+    supabase db query --linked -f /tmp/court_discovery_p1_test.sql -o csv
+    ```
+
 - `check-replaced-functions.mjs`
   - Run against live right before the court arrival files are applied. Those
     files rewrite eight live functions from the repo files that last defined

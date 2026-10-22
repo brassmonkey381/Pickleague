@@ -9,6 +9,12 @@
 // Renders nothing while FRIENDS_AT_COURTS_ENABLED is off, before the first
 // read lands, or when nobody is there (unless `emptyText` is given): the
 // surfaces it sits on already say "No one else here yet".
+//
+// A list passes `crowd` instead (court discovery): the numbers come from one
+// batched venue_crowd read per page (data/courtDiscovery useCourtCrowds), so
+// the row never polls on its own. With `crowd` the line shows whatever the
+// friends flag says (decision 4: the anonymous turnout is useful alone), and
+// the "· 2 friends" part follows `showFriends` (default: the friends flag).
 import React, { useCallback } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
@@ -16,10 +22,11 @@ import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { usePollWhileActive } from '@just-messin-around/expo-foundation/hooks';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { FRIENDS_AT_COURTS_ENABLED } from '../../lib/features';
+import { FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../../lib/features';
 import { useTheme } from '../../lib/ThemeContext';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { getOneVenueCrowd, venueCrowdKey, type VenueCrowd } from '../../data/venueCrowd';
+import { getOpenToPlay, venueOpenToPlayKey } from '../../data/courtRoutines';
 import CourtFavoriteStar from './CourtFavoriteStar';
 
 const POLL_MS = 60_000;
@@ -37,6 +44,22 @@ export function useVenueCrowd(venueId: string | null): VenueCrowd | undefined {
   return enabled ? data : undefined;
 }
 
+/**
+ * Routines: how many there are open to play now (venue_open_to_play), polled
+ * with the crowd. undefined without ROUTINES_ENABLED or before it loads.
+ */
+export function useOpenToPlay(venueId: string | null): number | undefined {
+  const focused = useIsFocused();
+  const enabled = ROUTINES_ENABLED && !!venueId;
+  const fetcher = useCallback(() => getOpenToPlay(venueId as string), [venueId]);
+  const { data, refresh } = useCachedQuery<number>(venueOpenToPlayKey(venueId ?? '-'), fetcher, {
+    ttlMs: 30_000,
+    enabled,
+  });
+  usePollWhileActive(refresh, POLL_MS, enabled && focused ? venueId : null);
+  return enabled ? data : undefined;
+}
+
 type Props = {
   venueId: string;
   venueName?: string | null;
@@ -44,18 +67,45 @@ type Props = {
   star?: boolean;
   /** What to say when nobody is there (default: render nothing). */
   emptyText?: string | null;
+  /**
+   * The numbers, read by the caller (one batched read for a whole list). Given
+   * (even undefined while it loads), the line never polls on its own and shows
+   * whatever FRIENDS_AT_COURTS_ENABLED says.
+   */
+  crowd?: VenueCrowd | null;
+  /** Routines: "· M open to play" (and "N here"). A list passing `crowd` passes this too
+   *  (one read per page); without `crowd` the line reads it itself unless given. */
+  openNow?: number | null;
+  /** Include "· N friends". Default: FRIENDS_AT_COURTS_ENABLED. */
+  showFriends?: boolean;
   style?: StyleProp<ViewStyle>;
 };
 
 export default function CrowdLine(props: Props) {
+  if ('crowd' in props) return <CrowdLineView {...props} crowd={props.crowd} />;
   return FRIENDS_AT_COURTS_ENABLED ? <CrowdLineBody {...props} /> : null;
 }
 
-function CrowdLineBody({ venueId, venueName, star, emptyText = null, style }: Props) {
+function CrowdLineBody(props: Props) {
+  const crowd = useVenueCrowd(props.venueId);
+  const openNow = useOpenToPlay(props.venueId);
+  return <CrowdLineView {...props} crowd={crowd} openNow={'openNow' in props ? props.openNow : openNow} />;
+}
+
+
+function CrowdLineView({
+  venueId,
+  venueName,
+  star,
+  emptyText = null,
+  crowd,
+  showFriends = FRIENDS_AT_COURTS_ENABLED,
+  openNow,
+  style,
+}: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const crowd = useVenueCrowd(venueId);
-  const text = crowdLineText(crowd, emptyText);
+  const text = crowdLineText(crowd, emptyText, { showFriends, openNow });
   if (!text && !star) return null;
   return (
     <View style={[S.row, style]}>

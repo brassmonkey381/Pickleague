@@ -85,6 +85,7 @@ import JoinCodeModal from '../components/home/JoinCodeModal';
 import QuickRow, { type QuickTarget } from '../components/home/QuickRow';
 import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYouSection';
 import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
+import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
 import StreakBonusModal from '../components/home/StreakBonusModal';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
@@ -473,6 +474,7 @@ export default function HomeScreen({ navigation }: Props) {
     switch (target) {
       case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
       case 'play': navigation.navigate('Play'); break;
+      case 'courts': navigation.navigate('Courts'); break;
       case 'drill': navigation.navigate('Drill'); break;
       case 'shop': navigation.navigate('Shop'); break;
       case 'wagers': navigation.navigate('MyWagers'); break;
@@ -629,6 +631,11 @@ export default function HomeScreen({ navigation }: Props) {
   sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
 
   if (courtMode === 'idle') sections.push(court);
+
+  // Routines: "Make it a routine?" from my check-ins (renders nothing when flagged off or none).
+  sections.push(
+    <RoutineSuggestionCard key="routine-suggestion" onOpenRoutines={() => navigation.navigate('Routines')} />,
+  );
 
   // FRIENDS AT THE COURTS: its own read and cache; renders nothing when empty or flagged off.
   sections.push(<FriendsAtCourtsSection key="friends-courts" />);

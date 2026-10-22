@@ -4,6 +4,11 @@
 // is lib/courtArrival's.
 //
 // Watched, at most 20 (the iOS per-app limit), in this order:
+//   0. Routine courts (ROUTINES_ENABLED), while "Check me in at my routine
+//      courts" is on: a starred court with an active routine, the outline's
+//      circle else 150 m (Doggle fences routine stops first). Whatever
+//      "Notice me at starred courts" says: an arrival during a stop's window
+//      checks in even with that Off (lib/courtArrivalRules decideArrival).
 //   1. QR wallet courts (lib/qrWallet), while "Show these codes when I
 //      arrive" is on for this phone: arriving shows the saved code.
 //   2. Starred courts, while "Notice me at starred courts" is above Off:
@@ -45,16 +50,44 @@ import {
   MAX_REGION_RADIUS_M,
   mergeCourtRegion,
   MIN_REGION_RADIUS_M,
+  ROUTINE_TIER,
+  routineTierRegions,
   STARRED_TIER,
   starredTierRegions,
   WALLET_TIER,
   walletTierRegions,
   type CourtRegionInfo,
+  type RoutineRegionSource,
   type StarredCourtGeofence,
   type WalletRegionSource,
 } from './courtArrivalRules';
 import { traceArrival } from './courtArrivalTrace';
+import { ROUTINES_ENABLED } from './features';
 import { loadCourtArrivalSettings, loadStarredCourtGeofences } from '../data/courtArrival';
+import { getMyCourtRoutinesOffline, loadCourtRoutineSettings, loadMyCourtRoutines } from '../data/courtRoutines';
+import type { CourtRoutine } from './courtRoutineRules';
+
+/** My routines as region sources: one per routine (routineTierRegions keeps one per court). */
+export function routineRegionSources(list: readonly CourtRoutine[]): RoutineRegionSource[] {
+  return list.map((r) => ({
+    venueId: r.venueId,
+    name: r.venueName,
+    lat: r.lat,
+    lng: r.lng,
+    radiusM: r.radiusM,
+    autoCheckin: r.autoCheckin,
+    live: r.active && r.starred,
+  }));
+}
+
+/** The routine tier's courts: fresh when the network answers, else this phone's copy, else none. */
+async function routineSourcesForSync(): Promise<RoutineRegionSource[]> {
+  if (!ROUTINES_ENABLED) return [];
+  const settings = await loadCourtRoutineSettings().catch(() => null);
+  if (settings?.routine_auto_checkin === false) return [];
+  const list = await loadMyCourtRoutines(true).catch(() => getMyCourtRoutinesOffline().catch(() => [] as CourtRoutine[]));
+  return routineRegionSources(list);
+}
 
 /** Install-stable: the OS keeps the regions registered under this name across updates. */
 export const COURT_GEOFENCE_TASK = 'pickleague-court-geofence';
@@ -204,8 +237,18 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
     const codesOn = await getWalletArrivalCodesOn();
     let wallet: WalletRegionSource[] = [];
     let starred: StarredCourtGeofence[] = [];
+    let routine: RoutineRegionSource[] = [];
     const built = await buildRegions(
       [
+        {
+          // Never required: with no copy at all, the starred tier still
+          // watches these courts (routines live only at starred courts).
+          name: ROUTINE_TIER,
+          load: async () => {
+            routine = await routineSourcesForSync();
+            return routineTierRegions(routine);
+          },
+        },
         {
           name: WALLET_TIER,
           load: async () => {
@@ -230,7 +273,7 @@ async function runSync(interactive: boolean): Promise<CourtGeofenceSyncResult> {
       traceArrival('sync', { reason: 'offline', interactive });
       return { count: 0, reason: 'offline' };
     }
-    const { regions, info } = buildCourtRegionList(built, { wallet, starred });
+    const { regions, info } = buildCourtRegionList(built, { wallet, starred, routine });
     // Saved before registering: the OS re-reports every region at once, and
     // those wakes read it.
     await regionMeta.set(info);

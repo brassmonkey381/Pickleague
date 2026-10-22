@@ -1,0 +1,512 @@
+// My routine (Doggle's RoutinesScreen): routine check-ins at my starred
+// courts, each with today's and tomorrow's occurrences (Skip / Undo / Change
+// today's time), Pause / Resume, suggestions from my check-ins, and "Check
+// me in at my routine courts". Reached from Profile ("My routine") and from
+// Settings > Check-in automation ("Manage my routine"). Registered only with
+// ROUTINES_ENABLED.
+//
+// A routine at a court no longer starred stays, dormant (no occurrences, no
+// arrival check-in), and says so: star the court again to turn it back on.
+import React from 'react';
+import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { LoadingState, Panel, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import {
+  WEEKDAYS_MASK,
+  clockTimes,
+  formatClockTime,
+  formatWeekdayMask,
+  localDateIn,
+  maskHas,
+  minutesToClock,
+  wallClockIn,
+  zonedClockToDate,
+  zoneSuffix,
+} from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
+import { formatDurationMinutes } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import { useTheme } from '../lib/ThemeContext';
+import { useToast } from '../lib/useToast';
+import { explainRefusal } from '../lib/refusalNotices';
+import {
+  DEFAULT_PLAY_LENGTH_MIN,
+  DEFAULT_ROUTINE_TIME,
+  routineTimeLine,
+  routineWindowsLine,
+  type CourtRoutine,
+  type RoutineOccurrence,
+  type RoutineSuggestion,
+} from '../lib/courtRoutineRules';
+import {
+  COURT_ROUTINE_SETTINGS_KEY,
+  MY_COURT_ROUTINES_KEY,
+  MY_COURT_ROUTINES_PERSIST_MS,
+  MY_COURT_ROUTINES_TTL_MS,
+  deleteCourtRoutine,
+  fetchMyCourtRoutines,
+  getCourtRoutineSettings,
+  loadRoutineSuggestions,
+  moveRoutineOccurrence,
+  saveCourtRoutine,
+  setCourtRoutineActive,
+  setRoutineAutoCheckin,
+  skipRoutineOccurrence,
+  unskipRoutineOccurrence,
+} from '../data/courtRoutines';
+import { useCourtFavorites } from '../data/courtFavorites';
+import { listMyFriends } from '../data/friends';
+import type { FriendRow } from '../lib/friendship';
+import RoutineEditSheet, { type RoutineDraft } from '../components/routines/RoutineEditSheet';
+import { ROUTINE_DISMISSED_KEY, routineSuggestionKey } from '../components/routines/RoutineSuggestionCard';
+import type { RootStackParamList } from '../types';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'Routines'>;
+
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return 'Today';
+  if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+  return d.toLocaleDateString(undefined, { weekday: 'short' });
+}
+
+/** An occurrence's time on this device's clock (it matches dayLabel). */
+function timeLabel(iso: string, fallback: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return formatClockTime(fallback);
+  return formatClockTime(`${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`);
+}
+
+function occurrencesOf(r: CourtRoutine): RoutineOccurrence[] {
+  const list = r.occurrences.length ? r.occurrences : r.next ? [r.next] : [];
+  return [...list].sort((a, b) => a.plannedAt.localeCompare(b.plannedAt));
+}
+
+/** The next weekday it runs when the server hasn't planned one yet (it plans two days ahead). */
+function nextDayName(r: CourtRoutine): string | null {
+  const { isoWeekday } = wallClockIn(r.tz);
+  for (let ahead = 2; ahead <= 8; ahead += 1) {
+    const iso = ((isoWeekday - 1 + ahead) % 7) + 1;
+    if (maskHas(r.days, iso)) return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][iso - 1];
+  }
+  return null;
+}
+
+/** "Change today's time": the routine's zone, later than now, the same day. */
+function moveChoices(o: RoutineOccurrence, tz: string): { id: string; name: string }[] {
+  const date = localDateIn(tz, new Date(o.plannedAt));
+  const nowMin = date === localDateIn(tz) ? wallClockIn(tz).minutes : -1;
+  const from = Math.max(5 * 60, Math.ceil((nowMin + 1) / 15) * 15);
+  return clockTimes(15, from, 23 * 60 + 45).map((id) => ({ id, name: formatClockTime(id) }));
+}
+
+export default function CourtRoutinesScreen({ route, navigation }: Props) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const toast = useToast();
+
+  const routinesQ = useCachedQuery(MY_COURT_ROUTINES_KEY, fetchMyCourtRoutines, {
+    ttlMs: MY_COURT_ROUTINES_TTL_MS,
+    persistMs: MY_COURT_ROUTINES_PERSIST_MS,
+  });
+  const settingsQ = useCachedQuery(COURT_ROUTINE_SETTINGS_KEY, getCourtRoutineSettings, { ttlMs: 60 * 60_000 });
+  const starred = useCourtFavorites().data ?? [];
+  const routines = routinesQ.data ?? [];
+
+  const [friends, setFriends] = React.useState<FriendRow[]>([]);
+  const [suggestions, setSuggestions] = React.useState<RoutineSuggestion[]>([]);
+  const [dismissed, setDismissed] = React.useState<Set<string>>(new Set());
+  const [editing, setEditing] = React.useState<RoutineDraft | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [prefBusy, setPrefBusy] = React.useState(false);
+  const [moving, setMoving] = React.useState<{ o: RoutineOccurrence; r: CourtRoutine } | null>(null);
+
+  const refreshRoutines = routinesQ.refresh;
+  useFocusEffect(
+    React.useCallback(() => {
+      let on = true;
+      void refreshRoutines().catch(() => {});
+      listMyFriends()
+        .then((f) => on && setFriends(f))
+        .catch(() => {});
+      loadRoutineSuggestions()
+        .then((s) => on && setSuggestions(s))
+        .catch(() => {});
+      AsyncStorage.getItem(ROUTINE_DISMISSED_KEY)
+        .then((raw) => on && setDismissed(new Set(raw ? (JSON.parse(raw) as string[]) : [])))
+        .catch(() => {});
+      return () => {
+        on = false;
+      };
+    }, [refreshRoutines]),
+  );
+
+  // Opened from a court ("Make it a routine"): the add sheet, that court picked.
+  const newVenue = route.params?.newVenue;
+  React.useEffect(() => {
+    if (!newVenue) return;
+    navigation.setParams({ newVenue: undefined });
+    setEditing({ ...newDraft(), venueId: newVenue.venueId, venueName: newVenue.venueName });
+  }, [newVenue, navigation]);
+
+  function newDraft(): RoutineDraft {
+    const only = starred.length === 1 ? starred[0] : null;
+    return {
+      id: null,
+      venueId: only?.venue_id ?? '',
+      venueName: only?.venue_name ?? '',
+      localTime: DEFAULT_ROUTINE_TIME,
+      days: WEEKDAYS_MASK,
+      lengthMin: DEFAULT_PLAY_LENGTH_MIN,
+      windows: [],
+    };
+  }
+
+  async function onSave(draft: RoutineDraft) {
+    setSaving(true);
+    try {
+      // One window with nothing said is the same as none.
+      const windows = draft.windows.length === 1 && draft.windows[0].mode == null ? [] : draft.windows;
+      await saveCourtRoutine({ ...draft, windows });
+      setEditing(null);
+      toast.success(draft.id ? 'Routine updated' : 'Added to your routine. Friends see it as a planned check-in.');
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't save that routine. Try again.", { venueName: draft.venueName }));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!editing?.id) return;
+    setDeleting(true);
+    try {
+      await deleteCourtRoutine(editing.id);
+      setEditing(null);
+      toast.success('Routine deleted');
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't delete that routine. Try again."));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function run(id: string, fn: () => Promise<unknown>, done: string, fail: string) {
+    setBusyId(id);
+    try {
+      await fn();
+      toast.success(done);
+    } catch (e) {
+      toast.error(explainRefusal(e, fail));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function addSuggestion(s: RoutineSuggestion) {
+    const key = routineSuggestionKey(s);
+    await run(
+      key,
+      () =>
+        saveCourtRoutine({ venueId: s.venueId, localTime: s.localTime, days: s.days, lengthMin: s.lengthMin, windows: [] }),
+      'Added to your routine',
+      "Couldn't add that routine. Try again.",
+    );
+    setSuggestions((list) => list.filter((x) => routineSuggestionKey(x) !== key));
+  }
+
+  function dismissSuggestion(s: RoutineSuggestion) {
+    const next = new Set(dismissed).add(routineSuggestionKey(s));
+    setDismissed(next);
+    AsyncStorage.setItem(ROUTINE_DISMISSED_KEY, JSON.stringify([...next])).catch(() => {});
+  }
+
+  async function setAutoCheckin(on: boolean) {
+    setPrefBusy(true);
+    try {
+      await setRoutineAutoCheckin(on);
+      void settingsQ.refresh().catch(() => {});
+      toast.success(on ? "We'll check you in when you arrive" : 'Routine check-ins off');
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't update that setting. Try again."));
+    } finally {
+      setPrefBusy(false);
+    }
+  }
+
+  async function moveTo(hhmm: string) {
+    const m = moving;
+    setMoving(null);
+    if (!m) return;
+    const date = localDateIn(m.r.tz, new Date(m.o.plannedAt));
+    const at = zonedClockToDate(date, hhmm, m.r.tz);
+    if (!at) return;
+    await run(m.o.planId, () => moveRoutineOccurrence(m.o.planId, at), `Moved to ${formatClockTime(hhmm)}`, "Couldn't change the time. Try again.");
+  }
+
+  const shownSuggestions = suggestions.filter((s) => !dismissed.has(routineSuggestionKey(s)));
+  const autoOn = settingsQ.data?.routine_auto_checkin !== false;
+
+  if (routinesQ.loading && !routinesQ.data) return <LoadingState />;
+
+  return (
+    <View style={S.fill}>
+      <ScrollView contentContainerStyle={S.content}>
+        <Text style={[t.bodySub, S.sub]}>
+          The courts you play at the same time most weeks. Pickleague plans each one for you: you get a nudge at its time,
+          arriving checks you in for as long as you play, and friends see it as a planned check-in.
+        </Text>
+
+        {shownSuggestions.length > 0 ? (
+          <View style={S.block}>
+            <Text style={[t.label, S.label]}>FROM YOUR CHECK-INS</Text>
+            {shownSuggestions.map((s) => {
+              const key = routineSuggestionKey(s);
+              return (
+                <Panel key={key} padded={false} style={[S.card, { borderColor: c.primary }]}>
+                  <Text style={t.title} numberOfLines={2}>
+                    {formatWeekdayMask(s.days)} around {formatClockTime(s.localTime)} at {s.venueName}
+                  </Text>
+                  <Text style={[t.meta, S.cardMeta]}>
+                    You checked in there on {s.visits} different days in the last 6 weeks, for about{' '}
+                    {formatDurationMinutes(s.lengthMin)}.
+                  </Text>
+                  <View style={S.cardActions}>
+                    <Button
+                      title="Make it a routine"
+                      iconName="plus"
+                      size="sm"
+                      loading={busyId === key}
+                      disabled={busyId != null}
+                      onPress={() => void addSuggestion(s)}
+                    />
+                    <TouchableOpacity onPress={() => dismissSuggestion(s)} style={S.textBtn} accessibilityRole="button">
+                      <Text style={[t.sub, { color: c.textSub }]}>Not now</Text>
+                    </TouchableOpacity>
+                  </View>
+                </Panel>
+              );
+            })}
+          </View>
+        ) : null}
+
+        <View style={S.block}>
+          <Text style={[t.label, S.label]}>MY ROUTINE</Text>
+          {routines.length === 0 ? (
+            <Panel padded={false} style={S.card}>
+              <Text style={[t.bodySub, { color: c.textMuted }]}>
+                Nothing yet. Add the starred court you play at the same time most weeks, like Tuesday and Thursday at 9.
+              </Text>
+            </Panel>
+          ) : (
+            routines.map((r) => {
+              const windowsLine = routineWindowsLine(r);
+              const dormant = !r.starred;
+              return (
+                <Panel key={r.id} padded={false} style={[S.card, (!r.active || dormant) && S.paused]}>
+                  <View style={S.cardTop}>
+                    <View style={S.cardBody}>
+                      <Text style={t.title} numberOfLines={1}>
+                        {formatClockTime(r.localTime)}
+                        {zoneSuffix(r.tz)} · {r.venueName}
+                      </Text>
+                      <Text style={[t.meta, S.cardMeta]} numberOfLines={1}>
+                        {routineTimeLine(r)}
+                      </Text>
+                      {windowsLine ? (
+                        <Text style={[t.meta, S.cardMeta]} numberOfLines={2}>
+                          {windowsLine}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <TouchableOpacity
+                      onPress={() =>
+                        setEditing({
+                          id: r.id,
+                          venueId: r.venueId,
+                          venueName: r.venueName,
+                          localTime: r.localTime,
+                          days: r.days,
+                          lengthMin: r.lengthMin,
+                          windows: r.windows,
+                          tz: r.tz,
+                        })
+                      }
+                      style={S.edit}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${r.venueName}`}
+                    >
+                      <Text style={[t.sub, { color: c.primary }]}>Edit</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {dormant ? (
+                    <Text style={[t.sub, S.status, { color: c.textSub }]}>
+                      {r.venueName} isn't starred any more, so this routine is off. Star it again to turn it back on.
+                    </Text>
+                  ) : r.active && occurrencesOf(r).length > 0 ? (
+                    occurrencesOf(r).map((o) => {
+                      const day = dayLabel(o.plannedAt);
+                      const ahead = new Date(o.plannedAt).getTime() > Date.now();
+                      const busy = busyId === o.planId;
+                      return (
+                        <View key={o.planId} style={S.statusRow}>
+                          <Text style={[t.sub, S.statusText, { color: c.textSub }]} numberOfLines={1}>
+                            {o.status === 'completed'
+                              ? `${day} · checked in ✓`
+                              : o.status === 'cancelled'
+                                ? `${day} · skipped`
+                                : `${day} ${timeLabel(o.plannedAt, r.localTime)}`}
+                          </Text>
+                          {o.status === 'planned' ? (
+                            <>
+                              <TouchableOpacity
+                                disabled={busyId != null}
+                                onPress={() => setMoving({ o, r })}
+                                style={[S.pill, { borderColor: c.border }]}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Change ${day.toLowerCase()}'s time`}
+                              >
+                                <Text style={[t.sub, { color: c.textSub }]}>Change time</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                disabled={busyId != null}
+                                onPress={() =>
+                                  void run(o.planId, () => skipRoutineOccurrence(o.planId), `Skipped ${day.toLowerCase()}`, "Couldn't skip. Try again.")
+                                }
+                                style={[S.pill, { borderColor: c.border }]}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Skip ${day}`}
+                              >
+                                <Text style={[t.sub, { color: c.textSub }]}>{busy ? 'Skipping…' : `Skip ${day.toLowerCase()}`}</Text>
+                              </TouchableOpacity>
+                            </>
+                          ) : null}
+                          {o.status === 'cancelled' && ahead ? (
+                            <TouchableOpacity
+                              disabled={busyId != null}
+                              onPress={() => void run(o.planId, () => unskipRoutineOccurrence(o.planId), 'Back on', "Couldn't undo. Try again.")}
+                              style={[S.pill, { borderColor: c.primary }]}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Undo skipping ${day}`}
+                            >
+                              <Text style={[t.sub, { color: c.primary }]}>{busy ? 'Undoing…' : 'Undo'}</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <Text style={[t.sub, S.status, { color: c.textSub }]} numberOfLines={1}>
+                      {!r.active ? 'Paused' : nextDayName(r) ? `Next: ${nextDayName(r)}` : ''}
+                    </Text>
+                  )}
+                  {!dormant ? (
+                    <View style={S.statusRow}>
+                      <TouchableOpacity
+                        disabled={busyId != null}
+                        onPress={() =>
+                          void run(r.id, () => setCourtRoutineActive(r.id, !r.active), r.active ? 'Paused' : 'Resumed', "Couldn't update. Try again.")
+                        }
+                        style={[S.pill, { borderColor: c.border }]}
+                        accessibilityRole="button"
+                      >
+                        <Text style={[t.sub, { color: c.textSub }]}>{r.active ? 'Pause this routine' : 'Resume'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </Panel>
+              );
+            })
+          )}
+          <Button title="Add a routine" iconName="plus" variant="outline" onPress={() => setEditing(newDraft())} style={S.add} />
+        </View>
+
+        {settingsQ.data ? (
+          <View style={S.block}>
+            <Text style={[t.label, S.label]}>WHEN YOU ARRIVE</Text>
+            <Panel padded={false} style={S.card}>
+              <View style={S.switchRow}>
+                <View style={S.cardBody}>
+                  <Text style={t.title}>Check me in at my routine courts</Text>
+                  <Text style={[t.meta, S.cardMeta]}>
+                    Arriving between 30 minutes before and 30 minutes after a routine's time checks you in for as long as
+                    you play, even with "Check me in when I arrive" off. A court switched off in Check-in automation still
+                    asks first. Needs Location set to Always (on your phone).
+                  </Text>
+                </View>
+                <Switch
+                  value={autoOn}
+                  onValueChange={(on) => void setAutoCheckin(on)}
+                  disabled={prefBusy}
+                  trackColor={{ false: c.border, true: c.primary }}
+                  accessibilityLabel="Check me in at my routine courts"
+                />
+              </View>
+            </Panel>
+          </View>
+        ) : null}
+      </ScrollView>
+
+      <RoutineEditSheet
+        visible={editing != null}
+        initial={editing}
+        starred={starred}
+        friends={friends}
+        saving={saving}
+        deleting={deleting}
+        onSave={(d) => void onSave(d)}
+        onDelete={editing?.id ? () => void onDelete() : undefined}
+        onClose={() => setEditing(null)}
+      />
+      <SingleSelectModal
+        visible={moving != null}
+        title="Change today's time"
+        items={moving ? moveChoices(moving.o, moving.r.tz) : []}
+        selectedId={moving ? timeLabelClock(moving.o.plannedAt, moving.r.tz) : null}
+        onPick={(id) => {
+          if (id) void moveTo(id);
+          else setMoving(null);
+        }}
+        onClose={() => setMoving(null)}
+        searchPlaceholder="e.g. 9:30"
+      />
+    </View>
+  );
+}
+
+/** "HH:MM" of an instant in the routine's zone. */
+function timeLabelClock(iso: string, tz: string): string {
+  return minutesToClock(wallClockIn(tz, new Date(iso)).minutes);
+}
+
+const S = StyleSheet.create({
+  fill: { flex: 1 },
+  content: { padding: SPACE.lg, paddingBottom: 32, width: '100%', maxWidth: 720, alignSelf: 'center' },
+  sub: { marginTop: SPACE.xs },
+  block: { marginTop: 18 },
+  label: { marginBottom: 10 },
+  card: { borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: 10 },
+  paused: { opacity: 0.6 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardBody: { flex: 1, minWidth: 0 },
+  cardMeta: { marginTop: 2 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: 10 },
+  textBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.xs },
+  edit: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+  status: { marginTop: 10 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: 10, flexWrap: 'wrap' },
+  statusText: { flex: 1, minWidth: 120 },
+  pill: { borderWidth: 1.5, borderRadius: 14, minHeight: 36, justifyContent: 'center', paddingHorizontal: 10 },
+  add: { marginTop: SPACE.xs },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+});

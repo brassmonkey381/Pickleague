@@ -1,7 +1,7 @@
 // Settings > Check-in automation (state/court-arrival-doggle-parity.md section
-// F): Doggle's FavoriteCheckinSettingsPanel without walks or routines. At
-// starred courts Pickleague can check you in when you arrive; everywhere else
-// it only sends prompts.
+// F): Doggle's FavoriteCheckinSettingsPanel without walks (routines: "At your
+// routine courts", ROUTINES_ENABLED). At starred courts Pickleague can check
+// you in when you arrive; everywhere else it only sends prompts.
 //
 // The settings are per account (get_court_arrival_settings, and the
 // per-court switch on court_favorites), so a second phone and the web show
@@ -33,6 +33,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { explainRefusal } from '../lib/refusalNotices';
 import CourtPicker, { type CourtResult } from './CourtPicker';
+import RoutineSettingsSection from './routines/RoutineSettingsSection';
 import {
   COURT_ARRIVAL_PERSIST_MS,
   COURT_ARRIVAL_SETTINGS_KEY,
@@ -418,6 +419,7 @@ export default function CourtArrivalSettingsPanel() {
               disabled={busy}
             />
           </Panel>
+          <RoutineSettingsSection />
         </>
       )}
     </View>

@@ -36,27 +36,26 @@
 // stars, then asks for "Always" location (otherwise the ☆ in the header, or
 // Settings > Check-in automation). "Play now" / "Start playing" open the
 // "Where are you playing?" sheet.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+//
+// The check-in flow itself (consent, the location ask, the bounds, the
+// refusal lines, the queued note, the star offer) is lib/useCourtCheckIn,
+// shared with a court's page; its lines render through CourtCheckInNotes.
+// With COURT_DISCOVERY_ENABLED the idle row also offers "Browse courts ›".
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
-import { peekQuery } from '@just-messin-around/expo-foundation/cache';
 import { useTheme } from '../lib/ThemeContext';
 import {
-  askForLocation,
-  checkInAt,
   checkinChanged,
   checkinRejected,
   checkOut,
   extendCheckinByHour,
-  noFixReason,
   peekCurrentCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
@@ -65,64 +64,21 @@ import {
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
-import { explainRefusal } from '../lib/refusalNotices';
-import { QUEUED_CHECKIN_NOTE, refusalCode, refusalCopy, type RefusalContext } from '../lib/refusals';
-import {
-  CHECKOUT_FIX_WAIT_MS,
-  FIX_REUSE_MS,
-  isFixFresh,
-  offersUntrackedSession,
-  type DeviceFix,
-} from '../lib/courtCheckinRules';
+import { CHECKOUT_FIX_WAIT_MS, FIX_REUSE_MS, isFixFresh } from '../lib/courtCheckinRules';
+import { CHECKIN_BOUND_MS, CHECKIN_BOUND_MS_DEFAULT, useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
 import PauseSharingChip from './presence/PauseSharingChip';
 import CrowdLine from './court/CrowdLine';
 import CourtFavoriteStar from './court/CourtFavoriteStar';
-import { noteGoodMoment } from '../lib/ratingPrompt';
+import CourtCheckInNotes from './court/CourtCheckInNotes';
+import CheckinPlanLine from './routines/CheckinPlanLine';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
-import { ensurePresenceConsent } from '../lib/presenceConsent';
-import { COURT_STARS_ENABLED } from '../lib/features';
-import {
-  ALWAYS_LABEL,
-  arrivalSyncMessage,
-  askForArrivalLocation,
-  courtStarsChanged,
-} from '../lib/courtArrivalAsk';
-import { COURT_FAVORITES_KEY, MAX_COURT_FAVORITES, toggleCourtFavorite, type CourtFavorite } from '../data/courtFavorites';
-import { COURT_ARRIVAL_SETTINGS_KEY } from '../data/courtArrival';
-import type { CourtArrivalSettings } from '../lib/courtArrivalRules';
+import { COURT_DISCOVERY_ENABLED } from '../lib/features';
 import type { RootStackParamList } from '../types';
 
-const BOUND_MS = 10_000;
-// Check in may first wait up to 6 s for a fix, then the write.
-const CHECKIN_BOUND_MS = 16_000;
 // Check out waits at most 3 s for its stay-proof fix, then the write as before.
-const CHECKOUT_BOUND_MS = BOUND_MS + CHECKOUT_FIX_WAIT_MS;
-// Set the moment the star offer is shown, so it never asks twice. A new key:
-// build 13's offer (pickleague_court_alerts_offered_v1) was for prompts only.
-const STAR_OFFERED_KEY = 'pickleague_court_star_offered_v1';
-
-/**
- * True once per device, after a check-in at `venueId`: native, the star
- * shown, that court not starred yet with room for it, and arrival check-ins
- * not switched off (as far as this session knows). Marks it offered. Anything
- * unknown (the star list not loaded) skips without marking, so it can come later.
- */
-async function claimStarOffer(venueId: string): Promise<boolean> {
-  if (Platform.OS === 'web' || !COURT_STARS_ENABLED) return false;
-  const stars = peekQuery<CourtFavorite[]>(COURT_FAVORITES_KEY);
-  if (!stars || stars.some((f) => f.venue_id === venueId) || stars.length >= MAX_COURT_FAVORITES) return false;
-  const s = peekQuery<CourtArrivalSettings>(COURT_ARRIVAL_SETTINGS_KEY);
-  if (s && (s.court_radius_m <= 0 || !s.auto_checkin)) return false;
-  try {
-    if (await AsyncStorage.getItem(STAR_OFFERED_KEY)) return false;
-    await AsyncStorage.setItem(STAR_OFFERED_KEY, '1');
-    return true;
-  } catch {
-    return false; // can't remember we asked, so don't ask
-  }
-}
+const CHECKOUT_BOUND_MS = CHECKIN_BOUND_MS_DEFAULT + CHECKOUT_FIX_WAIT_MS;
 
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -203,7 +159,8 @@ export type CourtCardTap =
   | 'start_playing'
   | 'add_court'
   | 'alerts_on'
-  | 'alerts_not_now';
+  | 'alerts_not_now'
+  | 'browse_courts';
 
 type Props = {
   onModeChange?: (mode: CourtCardMode) => void;
@@ -217,18 +174,21 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   const S = makeStyles(c);
   const [current, setCurrent] = useState<CurrentCheckin | null>(null);
   const [nearby, setNearby] = useState<ResolvedCourt | null>(null);
-  const [busy, setBusy] = useState<null | 'find' | 'checkin' | 'extend' | 'out'>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  // No fix, or a fix outside the fence: offer an untracked session instead.
-  const [offerUntracked, setOfferUntracked] = useState(false);
   const [rosterKey, setRosterKey] = useState(0);
-  // The fix "Find my court" used; Check in reuses it while it is recent.
-  const lastFix = useRef<DeviceFix | null>(null);
   // Where "Find my court" found nothing: offered as "Add this court".
   const [addAt, setAddAt] = useState<{ lat: number; lng: number } | null>(null);
-  // The one-time "Star this court" offer, for the court just checked in at.
-  const [starOffer, setStarOffer] = useState<null | { venueId: string; venueName: string; busy: boolean }>(null);
-  const [alertsResult, setAlertsResult] = useState<string | null>(null);
+  // The shared check-in flow (busy, the outcome line, the untracked offer,
+  // the fix "Find my court" took, the one-time star offer).
+  const flow = useCourtCheckIn({
+    onCheckedIn: (next) => {
+      setCurrent(next);
+      setNearby(null);
+      setAddAt(null);
+      setRosterKey((k) => k + 1);
+    },
+    onCurrent: setCurrent,
+  });
+  const { busy, setMessage, offerUntracked, setOfferUntracked, lastFix, run, noFix } = flow;
   const playing = playSession.useLiveSession().status !== 'idle';
   const mode: CourtCardMode = current ? 'checked_in' : nearby ? 'prompt' : 'idle';
 
@@ -262,49 +222,6 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
   });
 
-  async function run(
-    kind: NonNullable<typeof busy>,
-    fn: () => Promise<void>,
-    failMsg: string,
-    opts: { boundMs?: number; askLocation?: boolean; consent?: boolean; refusal?: RefusalContext } = {},
-  ) {
-    setBusy(kind);
-    setMessage(null);
-    setOfferUntracked(false);
-    setAlertsResult(null);
-    try {
-      // The one-time "who sees you at the courts" sheet and the permission
-      // sheet wait on the player, so they sit outside the bound; the fix and
-      // the write don't. Not now on the consent sheet: no check-in, and the
-      // card says why (rule 11: nothing refused silently).
-      if (opts.consent && !(await ensurePresenceConsent())) {
-        setMessage(refusalCopy('consent.declined'));
-        return;
-      }
-      if (opts.askLocation) await askForLocation();
-      await withTimeout(fn(), opts.boundMs ?? BOUND_MS);
-    } catch (e) {
-      // Why, then what to do (lib/refusals): how far from the court, too
-      // vague, too old, the court is gone, the check-in already ended,
-      // signed out.
-      setMessage(explainRefusal(e, failMsg, opts.refusal));
-      if (kind === 'checkin' && offersUntrackedSession(e)) setOfferUntracked(true);
-      // A check-in the server already ended: stop showing it.
-      const code = refusalCode(e);
-      if (code === 'checkin.closed' || code === 'checkin.none') {
-        void refreshCurrentCheckin().then(setCurrent).catch(() => {});
-      }
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  /** No fix: say why, and offer the untracked session. */
-  async function noFix() {
-    setMessage(await noFixReason());
-    setOfferUntracked(true);
-  }
-
   const findCourt = () =>
     run(
       'find',
@@ -325,34 +242,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       { askLocation: true },
     );
 
-  const checkIn = (v: ResolvedCourt) =>
-    run(
-      'checkin',
-      async () => {
-        const fix = isFixFresh(lastFix.current, Date.now(), FIX_REUSE_MS) ? lastFix.current : await takeCheckinFix(6_000);
-        if (!fix) return noFix();
-        lastFix.current = fix;
-        const next = await checkInAt({ id: v.id, name: v.name }, fix);
-        setCurrent(next);
-        setNearby(null);
-        setAddAt(null);
-        setRosterKey((k) => k + 1);
-        if (next.queued) setMessage(QUEUED_CHECKIN_NOTE);
-        else {
-          noteGoodMoment(); // a check-in that went through (rating prompt)
-          void claimStarOffer(next.venueId).then(
-            (show) => show && setStarOffer({ venueId: next.venueId, venueName: next.venueName, busy: false }),
-          );
-        }
-      },
-      "Couldn't check you in. Try again.",
-      {
-        boundMs: CHECKIN_BOUND_MS,
-        askLocation: true,
-        consent: true,
-        refusal: { venueName: v.name, action: 'check_in' },
-      },
-    );
+  const checkIn = (v: ResolvedCourt) => flow.checkIn({ id: v.id, name: v.name });
 
   // The untracked session: a timer only I see, no court, no presence.
   const startUntracked = () => {
@@ -393,43 +283,6 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       { boundMs: CHECKOUT_BOUND_MS, refusal: { venueName: cur.venueName } },
     );
 
-  // The offer accepted: star the court, then the same ask as Settings' Allow
-  // (the OS sheets, only if "Always" is missing). Not bounded: the player may
-  // sit on the permission sheet.
-  async function starAndAsk(offer: { venueId: string; venueName: string }) {
-    // The result line is a live region on Android; iOS has none, so say it.
-    const tell = (text: string) => {
-      setAlertsResult(text);
-      if (Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
-    };
-    setStarOffer({ ...offer, busy: true });
-    try {
-      try {
-        await toggleCourtFavorite(offer.venueId, true, offer.venueName);
-      } catch (e) {
-        // The 3-court cap (the offer needs room, so only if starred elsewhere
-        // since; the ☆ above offers the replace), a court that's gone: why, then what to do.
-        tell(
-          explainRefusal(e, "Couldn't star this court. Try again with the ☆ above.", {
-            action: 'favorite',
-            venueName: offer.venueName,
-          }),
-        );
-        return;
-      }
-      courtStarsChanged();
-      const r = await askForArrivalLocation();
-      const m = arrivalSyncMessage(r, { noticeOff: r.reason === 'stopped' });
-      tell(
-        m.ok
-          ? `Starred. Next time you arrive at ${offer.venueName} and stay a minute, we'll check you in. Leave within 5 minutes and it doesn't count. Change it in Settings > Check-in automation.`
-          : `Starred. ${m.message}`,
-      );
-    } finally {
-      setStarOffer(null);
-    }
-  }
-
   const tap = (target: CourtCardTap, fn: () => void) => () => {
     onTap?.(target);
     fn();
@@ -437,8 +290,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
 
   // Outcome lines and the one-time offers render under either look.
   const footer = (
-    <>
-      {message ? <Text style={[t.sub, S.gapSm]}>{message}</Text> : null}
+    <CourtCheckInNotes flow={flow} onStarOfferTap={(target) => onTap?.(target)}>
       {offerUntracked && !playing && !busy ? (
         <Button
           title="Start without a court"
@@ -462,37 +314,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           style={S.hug}
         />
       ) : null}
-      {starOffer ? (
-        <View style={S.offer}>
-          <Text style={t.body}>Star this court and get checked in when you arrive?</Text>
-          <Text style={[t.sub, S.gapSm]}>
-            Stay a minute and we check you in. Leave within 5 minutes and it doesn't count. Needs location set to "
-            {ALWAYS_LABEL}".
-          </Text>
-          <View style={S.row}>
-            <Button
-              title="Star it"
-              size="sm"
-              loading={starOffer.busy}
-              disabled={starOffer.busy}
-              onPress={() => {
-                onTap?.('alerts_on');
-                void starAndAsk(starOffer);
-              }}
-            />
-            <Button
-              title="Not now"
-              size="sm"
-              variant="outline"
-              disabled={starOffer.busy}
-              onPress={tap('alerts_not_now', () => setStarOffer(null))}
-            />
-          </View>
-        </View>
-      ) : null}
-      {/* Always mounted, so a screen reader hears the star offer's result. */}
-      <View aria-live="polite">{alertsResult ? <Text style={[t.sub, S.gapSm]}>{alertsResult}</Text> : null}</View>
-    </>
+    </CourtCheckInNotes>
   );
 
   if (current) {
@@ -548,6 +370,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             })}
           />
         </HereLine>
+        {/* Routines: how long and Closed group / Open play, "Switch to open play now". */}
+        <CheckinPlanLine checkinId={current.queued ? null : current.id} venueName={current.venueName} style={S.gapSm} />
         {current.private ? (
           // An older build checked in without a fix: stored, but shown to
           // nobody and counted nowhere (rule 1). Say so, and how to fix it.
@@ -635,12 +459,27 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           </Text>
         </TouchableOpacity>
       </View>
+      {COURT_DISCOVERY_ENABLED ? (
+        // Its own line: the row above has no room left at 375 px.
+        <TouchableOpacity
+          style={[S.link, S.browse]}
+          activeOpacity={0.6}
+          onPress={tap('browse_courts', () => navigation.navigate('Courts'))}
+          accessibilityRole="button"
+          accessibilityLabel="Browse courts"
+          accessibilityHint="Shows the courts near you"
+        >
+          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            Browse courts ›
+          </Text>
+        </TouchableOpacity>
+      ) : null}
       {footer}
     </Panel>
   );
 }
 
-function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+function makeStyles(_c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     // Panel's chrome (radius 14) with this card's own inset. `padded={false}`
     // sets no padding of its own (foundation 1.42), so this applies on web too.
@@ -651,11 +490,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     courtRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
     line: { minHeight: 44, justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-    row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm },
     flex: { flex: 1, minWidth: 0 },
     link: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
+    browse: { alignSelf: 'flex-end' },
     hug: { alignSelf: 'flex-start' },
     gapSm: { marginTop: SPACE.xs, marginBottom: SPACE.xs },
-    offer: { marginTop: SPACE.sm, paddingVertical: SPACE.sm, borderTopWidth: 1, borderTopColor: c.border },
   });
 }

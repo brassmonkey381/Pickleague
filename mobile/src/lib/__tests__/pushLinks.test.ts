@@ -4,7 +4,8 @@ import { StackRouter } from '@react-navigation/routers';
 import { defineNotificationCatalog } from '@just-messin-around/expo-foundation/push/catalog';
 import { CATALOG } from '../notificationCatalog.data';
 import { linkForAction, linkOf, pushRoutes } from '../pushLinks';
-import { linking } from '../../navigation/linking';
+import { COURT_LINKS, linking } from '../../navigation/linking';
+import { courtPathSegment } from '../courtDiscovery';
 
 const routes = pushRoutes({ wagersEnabled: false });
 
@@ -228,5 +229,46 @@ describe('linking: Home under every cold deep link', () => {
     const state = getStateFromPath('leagues/l1', linking.config)!;
     const action = getActionFromState(state, linking.config);
     expect(action).toMatchObject({ type: 'NAVIGATE', payload: { name: 'LeagueDetail', params: { leagueId: 'l1' } } });
+  });
+});
+
+describe('court discovery links (venue ids hold ":" and "/")', () => {
+  // The flag is off on master, so the table is built here with the court
+  // paths in it (COURT_LINKS is what linking.ts adds while it is on).
+  const config = {
+    ...linking.config!,
+    screens: { ...linking.config!.screens, ...COURT_LINKS },
+  } as NonNullable<typeof linking.config>;
+
+  it.each(['osm:way/123', 'g:ChIJN1t_tDeuEmsRUsoyG83frY4', 'user:2c1e/9 x'])('%s round-trips through the URL', (venueId) => {
+    const state = { routes: [{ name: 'Home' }, { name: 'CourtDetail', params: { venueId } }], index: 1 };
+    const path = getPathFromState(state as never, config);
+    expect(path).toBe(`/courts/${courtPathSegment(venueId)}`);
+    expect(path.split('/')).toHaveLength(3); // the id stays one segment
+    const back = getStateFromPath(path, config);
+    expect(back?.routes.map((r) => r.name)).toEqual(['Home', 'CourtDetail']);
+    expect(back?.routes.at(-1)?.params).toEqual({ venueId });
+  });
+
+  it('osm:way/123 reads as osm:way%2F123 in the address bar', () => {
+    const path = getPathFromState(
+      { routes: [{ name: 'CourtDetail', params: { venueId: 'osm:way/123' } }] } as never,
+      config,
+    );
+    expect(path).toBe('/courts/osm:way%2F123');
+  });
+
+  it('a link encoded with encodeURIComponent (":" as %3A) opens the same court', () => {
+    const s = getStateFromPath(`courts/${encodeURIComponent('osm:way/123')}`, config);
+    expect(s?.routes.at(-1)?.params).toEqual({ venueId: 'osm:way/123' });
+  });
+
+  it('/courts opens the list, with Home underneath', () => {
+    expect(getStateFromPath('courts', config)?.routes.map((r) => r.name)).toEqual(['Home', 'Courts']);
+  });
+
+  it('while the flag is off, /courts paths are not registered', () => {
+    expect(linking.config?.screens).not.toHaveProperty('CourtDetail');
+    expect(linking.config?.screens).not.toHaveProperty('Courts');
   });
 });
