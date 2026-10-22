@@ -14,7 +14,7 @@
 // The standings math lives in components/standings/standingsModel.ts (pure,
 // tested); this file loads, picks the tab, and lays it out.
 import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ScrollView, View, Text, StyleSheet,
   type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
@@ -57,6 +57,7 @@ import {
   RANK_BONUSES, type SnapshotPeriod,
 } from '../components/standings/standingsModel';
 import { localIsoDate } from '../lib/seasonSummary';
+import { resolveStandingsTarget } from '../lib/savedStandingsData';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SeasonStandings'>;
@@ -70,11 +71,72 @@ const RANK_LABELS = ['🥇 #1', '🥈 #2', '🥉 #3', '4th', '5th'];
 // is null when the row comes from the Final-standings tab (season_rank).
 type RowContext = { userId: string; fullName: string; rank: number; periodNumber: number | null };
 
+/**
+ * A link can carry only one id (/leagues/:leagueId/standings, or
+ * /seasons/:seasonId/standings without ?leagueId): resolve the other first,
+ * then render the standings. Saved and LeagueDetail pass both, so they skip
+ * straight to the body.
+ */
 export default function SeasonStandingsScreen({ navigation, route }: Props) {
-  const { seasonId, leagueId } = route.params;
+  const { colors } = useTheme();
+  const p = route.params ?? {};
+  const both = !!p.seasonId && !!p.leagueId;
+  const [ids, setIds] = useState<{ seasonId: string | null; leagueId: string | null } | null>(
+    both ? { seasonId: p.seasonId!, leagueId: p.leagueId! } : null,
+  );
+  const [error, setError] = useState<unknown>(null);
+
+  const resolve = useCallback(async () => {
+    setError(null);
+    try {
+      setIds(await resolveStandingsTarget({ seasonId: p.seasonId, leagueId: p.leagueId }));
+    } catch (e) {
+      setError(e);
+    }
+  }, [p.seasonId, p.leagueId]);
+
+  useEffect(() => {
+    if (both) setIds({ seasonId: p.seasonId!, leagueId: p.leagueId! });
+    else void resolve();
+  }, [both, p.seasonId, p.leagueId, resolve]);
+
+  if (error) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="📡"
+          title="Couldn't load these standings"
+          subtitle={friendlySbMessage(error)}
+          actionLabel="Retry"
+          onAction={() => { void resolve(); }}
+        />
+      </View>
+    );
+  }
+  if (!ids) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
+  if (!ids.seasonId || !ids.leagueId) {
+    const lid = ids.leagueId;
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <EmptyState
+          icon="🏆"
+          title={lid ? 'No season yet' : 'Season not found.'}
+          subtitle={lid ? "Standings start with the league's first season." : undefined}
+          actionLabel={lid ? 'Open the league' : undefined}
+          onAction={lid ? () => navigation.replace('LeagueDetail', { leagueId: lid, leagueName: p.leagueName ?? '' }) : undefined}
+        />
+      </View>
+    );
+  }
+  return <SeasonStandingsBody navigation={navigation} route={route} seasonId={ids.seasonId} leagueId={ids.leagueId} />;
+}
+
+function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & { seasonId: string; leagueId: string }) {
   // A cold web URL carries no league name; never render "undefined Season".
-  const leagueName = typeof route.params.leagueName === 'string' && route.params.leagueName !== 'undefined'
+  const leagueName = typeof route.params?.leagueName === 'string' && route.params.leagueName !== 'undefined'
     ? route.params.leagueName : '';
+  // Saved opens this "at my row": scroll there once, when the table has laid out.
+  const pendingFocus = useRef(!!route.params?.focusMe);
   const { colors } = useTheme();
   const t = textStyles(colors);
   const S = makeStyles(colors);
@@ -136,6 +198,14 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     const top = tableY + r.y;
     const off = top + r.h < scrollY.current || top > scrollY.current + viewportH.current - r.h;
     setMyRowOffscreen(prev => (prev === off ? prev : off));
+    if (pendingFocus.current) {
+      pendingFocus.current = false;
+      // Cleared so a web refresh (the param is in the URL) doesn't re-jump.
+      navigation.setParams({ focusMe: undefined });
+      // A beat for the blocks above the table (pot, banner) to settle; jumpToMe
+      // reads the geometry at call time.
+      if (off) setTimeout(jumpToMe, 250);
+    }
   }, []);
 
   function jumpToMe() {

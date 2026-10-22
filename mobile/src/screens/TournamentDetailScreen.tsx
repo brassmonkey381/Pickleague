@@ -64,7 +64,7 @@ type Props = {
 const PLAYOFF_ROUND_TYPES = ['quarterfinals', 'semifinals', 'finals', 'third_place_match'];
 
 /** Section keys for section.toggle analytics and scroll anchors. */
-type SectionKey = 'you' | 'schedule' | 'teams' | 'players' | 'pot' | 'wager' | 'playoff' | 'manage';
+type SectionKey = 'you' | 'schedule' | 'teams' | 'players' | 'pot' | 'wager' | 'playoff' | 'manage' | 'standings';
 /** Scroll targets: the sections, plus the StatusBanner under the You card. */
 type AnchorKey = SectionKey | 'banner';
 
@@ -116,8 +116,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   // focus reloads that follow never jump the user again.
   const scrollRef = useRef<ScrollView>(null);
   const anchors = useRef<Partial<Record<SectionKey, number>>>({});
-  const pendingScroll = useRef<'invite' | 'next_match' | null>(
-    focus === 'invite' || focus === 'next_match' ? focus : null,
+  const pendingScroll = useRef<'invite' | 'next_match' | 'standings' | null>(
+    focus === 'invite' || focus === 'next_match' || focus === 'standings' ? focus : null,
   );
   // A section the user asked to jump to ("Find a partner", "Setup"): opening
   // it changes its size, so its own onLayout (fresh y, on web too) scrolls.
@@ -272,6 +272,14 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const want = pendingScroll.current;
     if (!want || td.loading || !td.tournament) return;
     const tt = td.tournament;
+    if (want === 'standings') {
+      // Saved's tap: straight to the standings (your row pinned there). No
+      // standings section (nothing played yet) leaves the user at the top.
+      if (!standings) { consumePendingScroll(null); return; }
+      if (anchors.current.standings == null) return;   // its onLayout retries
+      consumePendingScroll('standings');
+      return;
+    }
     if (want === 'invite') {
       // The invite controls are on the You card, right under the identity.
       if (anchors.current.you == null) return;   // not laid out yet; its onLayout retries
@@ -920,7 +928,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
             {/* Standings for every format, your row pinned */}
             {standings && (
-              <View style={styles.block}>
+              <View ref={anchorRef('standings')} style={styles.block} onLayout={anchorLayout('standings')}>
                 <StandingsSection data={standings} title={standingsTitle} />
               </View>
             )}

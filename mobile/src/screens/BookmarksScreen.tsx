@@ -1,8 +1,24 @@
+// Saved: the fast path to the standings you care about (2026-10-22).
+//
+//   LEAGUES                                   your saved leagues, FIRST
+//   [ball] Tuesday Ladder                [League] [🔖] ›
+//          You #3 of 16 · Fall 2026 · P7  ← tap: that season's standings, at my row
+//   YOUR LEAGUES  Tap ☆ to keep them here     leagues I play in but haven't saved
+//   [ball] Thursday Doubles                   [☆ Save]
+//   TOURNAMENTS / EVENTS / DRILLS / PEOPLE    as before; a tournament opens on
+//                                             its standings ("Finished #2 of 8")
+//
+// One tap from Saved to a league's current standings (it used to be Saved ->
+// league -> Standings), and Saved is one tap from Home's top bar and from Me's
+// header. The standing lines are batched across every league on the screen
+// (lib/savedStandingsData) and cached, so the reload on every focus is cheap.
+// They are decorative: a failed standings read keeps the old subtitle and the
+// tap falls back to the league page. Suggestions never save without a tap.
 import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { SectionHeader } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -10,7 +26,7 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
-import { listBookmarks, removeBookmark, Bookmark, BookmarkTargetType } from '../lib/bookmarks';
+import { addBookmark, listBookmarks, removeBookmark, Bookmark, BookmarkTargetType } from '../lib/bookmarks';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -20,6 +36,14 @@ import { joinFacts, tournamentStatusChip, type EntityKind } from '../lib/entityG
 import { displayCourtName } from '../lib/courtNickname';
 import { dateLabel, dateSubLabel, durationLabel } from '../lib/drillTime';
 import { drillWhen } from '../lib/drillWhen';
+import {
+  leagueSuggestions, savedStandingA11y, savedStandingLine, tournamentFinishLine,
+  type SavedStanding, type TournamentFinish,
+} from '../lib/savedStandings';
+import {
+  listMyLeagues, loadSavedStandings, loadTournamentFinishes, type MyLeague,
+} from '../lib/savedStandingsData';
+import { track } from '../lib/analytics';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Bookmarks'> };
 
@@ -41,7 +65,8 @@ const TYPE_META: Record<BookmarkTargetType, { kind: EntityKind; label: string }>
   profile:       { kind: 'player',     label: 'People' },
 };
 
-const TYPE_ORDER: BookmarkTargetType[] = ['tournament', 'league', 'event', 'drill_session', 'profile'];
+// Leagues first: their standings are what Saved is opened for.
+const TYPE_ORDER: BookmarkTargetType[] = ['league', 'tournament', 'event', 'drill_session', 'profile'];
 
 export default function BookmarksScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
@@ -54,17 +79,37 @@ export default function BookmarksScreen({ navigation }: Props) {
   // loss to someone who saved a dozen things.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loaded, setLoaded]       = useState(false);
+  // Decorative extras: empty on a failed read, never an error screen.
+  const [standings, setStandings]     = useState<Record<string, SavedStanding>>({});
+  const [finishes, setFinishes]       = useState<Map<string, TournamentFinish>>(new Map());
+  const [suggestions, setSuggestions] = useState<MyLeague[]>([]);
 
-  const refresh = useRefresh(load);
+  const refresh = useRefresh(() => load(true));
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  async function load() {
+  async function load(force = false) {
     setLoading(true);
     try {
-      const rows = await listBookmarks();
-      const enriched = await enrich(rows);
+      const uid = await currentUserId(supabase);
+      const [rows, mine] = await Promise.all([
+        listBookmarks(),
+        listMyLeagues(uid).catch(() => [] as MyLeague[]),
+      ]);
+      const savedLeagueIds = rows.filter(r => r.target_type === 'league').map(r => r.target_id);
+      const suggested = leagueSuggestions(mine, new Set(savedLeagueIds));
+      const tournamentIds = rows.filter(r => r.target_type === 'tournament').map(r => r.target_id);
+      const [enriched, st, fin] = await Promise.all([
+        enrich(rows),
+        loadSavedStandings([...savedLeagueIds, ...suggested.map(l => l.id)], uid, { force })
+          .catch(() => ({} as Record<string, SavedStanding>)),
+        loadTournamentFinishes(tournamentIds, uid, { force })
+          .catch(() => new Map<string, TournamentFinish>()),
+      ]);
       setItems(enriched);
+      setStandings(st);
+      setFinishes(fin);
+      setSuggestions(suggested);
       setLoaded(true);
       setLoadError(null);
     } catch (e) {
@@ -88,14 +133,43 @@ export default function BookmarksScreen({ navigation }: Props) {
     }
   }
 
+  /** ☆ on a suggestion: it moves up into Leagues at once; a failed save puts it back. */
+  async function handleSaveSuggestion(l: MyLeague) {
+    track('saved_suggestion_save', { league_id: l.id });
+    const row: EnrichedBookmark = {
+      user_id: '', target_type: 'league', target_id: l.id, created_at: new Date().toISOString(),
+      title: l.name, subtitle: displayCourtName(l.home_court) || null,
+    };
+    setSuggestions(prev => prev.filter(x => x.id !== l.id));
+    setItems(prev => [row, ...prev]);
+    const ok = await addBookmark('league', l.id);
+    if (!ok) {
+      setItems(prev => prev.filter(x => !(x.target_type === 'league' && x.target_id === l.id)));
+      setSuggestions(prev => (prev.some(x => x.id === l.id) ? prev : [l, ...prev]));
+      toast.error(`Couldn't save ${l.name} — check your connection.`);
+    }
+  }
+
+  /** A league row's tap: its standings (at my row) when it has a season, else the league. */
+  function openLeague(leagueId: string, name: string, from: 'saved' | 'suggested') {
+    const st = standings[leagueId];
+    track('saved_league_open', { from, to: st?.seasonId ? 'standings' : 'league', kind: st?.kind ?? null });
+    if (st?.seasonId) {
+      navigation.navigate('SeasonStandings', { seasonId: st.seasonId, leagueId, leagueName: name, focusMe: true });
+    } else {
+      navigation.navigate('LeagueDetail', { leagueId, leagueName: name });
+    }
+  }
+
   function handleTap(b: EnrichedBookmark) {
     if (b.missing) return;
     switch (b.target_type) {
       case 'tournament':
-        navigation.navigate('TournamentDetail', { tournamentId: b.target_id, tournamentName: b.title });
+        // Opens on its standings (your row pinned there); the top when there are none yet.
+        navigation.navigate('TournamentDetail', { tournamentId: b.target_id, tournamentName: b.title, focus: 'standings' });
         break;
       case 'league':
-        navigation.navigate('LeagueDetail', { leagueId: b.target_id, leagueName: b.title });
+        openLeague(b.target_id, b.title, 'saved');
         break;
       case 'event':
         navigation.navigate('EventDetail', { eventId: b.target_id, title: b.title });
@@ -107,6 +181,17 @@ export default function BookmarksScreen({ navigation }: Props) {
         navigation.navigate('PlayerProfile', { userId: b.target_id, userName: b.title });
         break;
     }
+  }
+
+  /** The row's subtitle: my standing for a league / finish for a tournament, else what enrich() found. */
+  function subtitleFor(b: EnrichedBookmark): string | null | undefined {
+    if (b.missing) return b.subtitle;
+    if (b.target_type === 'league') {
+      const st = standings[b.target_id];
+      return (st && savedStandingLine(st)) || b.subtitle;
+    }
+    if (b.target_type === 'tournament') return tournamentFinishLine(finishes.get(b.target_id)) || b.subtitle;
+    return b.subtitle;
   }
 
   const grouped = useMemo(() => {
@@ -137,13 +222,13 @@ export default function BookmarksScreen({ navigation }: Props) {
           title="Couldn't load your bookmarks"
           subtitle={loadError}
           actionLabel="Try again"
-          onAction={load}
+          onAction={() => load(true)}
         />
       </View>
     );
   }
 
-  if (items.length === 0) {
+  if (items.length === 0 && suggestions.length === 0) {
     return (
       <View style={S.screen}>
         <EmptyState
@@ -155,47 +240,109 @@ export default function BookmarksScreen({ navigation }: Props) {
     );
   }
 
+  const suggestionsBlock = suggestions.length > 0 ? (
+    <View key="suggested" style={S.group}>
+      <SectionHeader title="Your leagues" count="Tap ☆ to keep them here" />
+      {suggestions.map(l => {
+        const st = standings[l.id];
+        const line = (st && savedStandingLine(st)) || displayCourtName(l.home_court) || null;
+        return (
+          <EntityRow
+            key={`suggested-${l.id}`}
+            kind="league"
+            title={l.name}
+            subtitle={line}
+            onPress={() => openLeague(l.id, l.name, 'suggested')}
+            action={
+              <Pressable
+                onPress={() => { void handleSaveSuggestion(l); }}
+                style={({ pressed }) => [S.saveBox, { borderColor: c.border }, pressed && S.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`Save ${l.name} to Saved`}
+                hitSlop={4}
+              >
+                <Text style={[S.saveText, { color: c.text }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>☆ Save</Text>
+              </Pressable>
+            }
+          />
+        );
+      })}
+    </View>
+  ) : null;
+
   return (
     <ScrollView style={S.screen} contentContainerStyle={S.content} refreshControl={<AppRefreshControl {...refresh} />}>
+      {/* With no saved league yet, the suggestions lead the page. */}
+      {grouped.league.length === 0 ? suggestionsBlock : null}
       {TYPE_ORDER.map(t => {
         const list = grouped[t];
         // Empty groups don't render (content rule 4).
         if (list.length === 0) return null;
         const meta = TYPE_META[t];
         return (
-          <View key={t} style={S.group}>
-            <SectionHeader title={meta.label} count={list.length} />
-            {list.map(b => (
-              <EntityRow
-                key={`${b.target_type}-${b.target_id}`}
-                kind={meta.kind}
-                title={b.title}
-                subtitle={b.subtitle}
-                chips={b.chip ? [b.chip] : undefined}
-                onPress={b.missing ? undefined : () => handleTap(b)}
-                // A deleted target reads as gone, not as a live row whose tap
-                // does nothing. Opacity doesn't block touches, so remove works.
-                style={b.missing ? S.missingRow : undefined}
-                // The trailing slot holds the remove button and, for a row that
-                // still opens something, the chevron. The button is its own
-                // 44x44 pressable nested in the row's pressable; react-native-web
-                // stops the click there, so removing never also opens the row.
-                action={
-                  <View style={S.trailing}>
-                    <Pressable
-                      onPress={() => handleRemove(b)}
-                      style={({ pressed }) => [S.removeBox, pressed && S.pressed]}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${b.title} from bookmarks`}
-                    >
-                      <Text style={S.removeGlyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🔖</Text>
-                    </Pressable>
-                    {b.missing ? null : <Text style={S.chevron}>›</Text>}
-                  </View>
-                }
-              />
-            ))}
-          </View>
+          <React.Fragment key={t}>
+            <View style={S.group}>
+              <SectionHeader title={meta.label} count={list.length} />
+              {list.map(b => {
+                const st = t === 'league' ? standings[b.target_id] : undefined;
+                const opensStandings = !!st?.seasonId && !b.missing;
+                const a11yLine = st ? savedStandingA11y(st) : null;
+                return (
+                  <EntityRow
+                    key={`${b.target_type}-${b.target_id}`}
+                    kind={meta.kind}
+                    title={b.title}
+                    subtitle={subtitleFor(b)}
+                    chips={b.chip ? [b.chip] : undefined}
+                    onPress={b.missing ? undefined : () => handleTap(b)}
+                    // A deleted target reads as gone, not as a live row whose tap
+                    // does nothing. Opacity doesn't block touches, so remove works.
+                    style={b.missing ? S.missingRow : undefined}
+                    // The trailing slot holds the remove button and, for a row that
+                    // still opens something, the chevron. The buttons are their own
+                    // 44x44 pressables nested in the row's pressable; react-native-web
+                    // stops the click there, so they never also open the row.
+                    action={
+                      <View style={S.trailing}>
+                        {opensStandings ? (
+                          // The row opens the standings; the league page is one tap here.
+                          <Pressable
+                            onPress={() => navigation.navigate('LeagueDetail', { leagueId: b.target_id, leagueName: b.title })}
+                            style={({ pressed }) => [S.removeBox, pressed && S.pressed]}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Open ${b.title} league page`}
+                          >
+                            <Text style={[S.leagueLink, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>League</Text>
+                          </Pressable>
+                        ) : null}
+                        <Pressable
+                          onPress={() => handleRemove(b)}
+                          style={({ pressed }) => [S.removeBox, pressed && S.pressed]}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${b.title} from bookmarks`}
+                        >
+                          <Text style={S.removeGlyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🔖</Text>
+                        </Pressable>
+                        {b.missing ? null : (
+                          <Pressable
+                            onPress={() => handleTap(b)}
+                            style={({ pressed }) => [S.chevronBox, pressed && S.pressed]}
+                            accessibilityRole="button"
+                            accessibilityLabel={opensStandings
+                              ? `${b.title} standings${a11yLine ? `, ${a11yLine}` : ''}`
+                              : `Open ${b.title}`}
+                          >
+                            <Text style={S.chevron}>›</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    }
+                  />
+                );
+              })}
+            </View>
+            {t === 'league' ? suggestionsBlock : null}
+          </React.Fragment>
         );
       })}
     </ScrollView>
@@ -210,6 +357,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     missingRow:  { opacity: 0.55 },
     trailing:    { flexDirection: 'row', alignItems: 'center' },
     removeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    chevronBox:  { minWidth: 24, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    saveBox:     {
+      minWidth: 44, minHeight: 36, paddingHorizontal: SPACE.sm, borderWidth: 1, borderRadius: 18,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    saveText:    { fontSize: FONT.size.sm, fontWeight: '700' },
+    leagueLink:  { fontSize: FONT.size.sm, fontWeight: '600' },
     pressed:     { opacity: 0.6 },
     removeGlyph: { fontSize: FONT.size.xl },
     chevron:     { fontSize: FONT.size.h2, fontWeight: '700', color: c.textMuted },
