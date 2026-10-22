@@ -8,6 +8,10 @@ import { useTheme } from '../lib/ThemeContext';
 import { gs } from '../lib/globalStyles';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
+import { normalizeReferralCode } from '@just-messin-around/expo-foundation/referrals';
+import { REFERRALS_ENABLED } from '../lib/features';
+import { REFERRAL_REWARD_PICKLES } from '../lib/referralRules';
+import { referralStash } from '../data/referrals';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'male',              label: 'Male' },
@@ -30,6 +34,9 @@ export default function RegisterScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [gender, setGender] = useState<Gender | null>(null);
+  // Optional, REFERRALS_ENABLED only: prefilled from an invite link opened on
+  // this device; sent in the sign-up metadata, where the server links it.
+  const [referralCode, setReferralCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -43,6 +50,15 @@ export default function RegisterScreen({ navigation }: Props) {
   const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
+
+  useEffect(() => {
+    if (!REFERRALS_ENABLED) return;
+    let active = true;
+    void referralStash.peek().then((code) => {
+      if (active && code) setReferralCode((cur) => cur || code);
+    });
+    return () => { active = false; };
+  }, []);
 
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
   const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
@@ -69,6 +85,13 @@ export default function RegisterScreen({ navigation }: Props) {
       return;
     }
 
+    const typedReferral = REFERRALS_ENABLED ? referralCode.trim() : '';
+    const referral = typedReferral ? normalizeReferralCode(typedReferral) : null;
+    if (typedReferral && !referral) {
+      setErrorMessage('That referral code doesn\'t look right. Check it, or leave it empty.');
+      return;
+    }
+
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
     const username = `${firstName.trim().toLowerCase()}${lastName.trim().toLowerCase()}`.replace(/[^a-z0-9]/g, '');
 
@@ -79,7 +102,7 @@ export default function RegisterScreen({ navigation }: Props) {
         supabase.auth.signUp({
           email,
           password,
-          options: { data: { username, full_name: fullName, gender } },
+          options: { data: { username, full_name: fullName, gender, ...(referral ? { referral_code: referral } : {}) } },
         }),
         SIGN_UP_TIMEOUT_MS,
       );
@@ -91,7 +114,10 @@ export default function RegisterScreen({ navigation }: Props) {
         // The signup moment. The emitter merges the landing campaign code into props centrally,
         // so a QR-scanned flyer that produced this account is attributable.
         track('account.created', { via: 'email' });
-        setSuccessMessage('Account created! Please check your email to confirm, then sign in.');
+        if (referral) void referralStash.put(referral);
+        setSuccessMessage(referral
+          ? `Account created! Confirm your email, then sign in: you and your friend each get ${REFERRAL_REWARD_PICKLES} pickles.`
+          : 'Account created! Please check your email to confirm, then sign in.');
         navTimer.current = setTimeout(() => navigation.navigate('Login'), 3000);
       }
     } catch (e) {
@@ -185,6 +211,22 @@ export default function RegisterScreen({ navigation }: Props) {
         />
         {passwordsMatch && <Text style={S.matchText}>Passwords match</Text>}
         {passwordsMismatch && <Text style={S.mismatchText}>Passwords do not match</Text>}
+
+        {REFERRALS_ENABLED && (
+          <>
+            <Text style={S.fieldLabel}>Referral code (optional)</Text>
+            <TextInput
+              style={S.input}
+              placeholder="From a friend's invite"
+              placeholderTextColor={c.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={referralCode}
+              onChangeText={setReferralCode}
+              maxLength={64}
+            />
+          </>
+        )}
 
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}

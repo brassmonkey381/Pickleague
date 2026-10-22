@@ -3,7 +3,7 @@
 // config; AppNavigator passes it to NavigationContainer.
 import type { LinkingOptions } from '@react-navigation/native';
 import type { RootStackParamList } from '../types';
-import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, FRIENDS_AT_COURTS_ENABLED, REFERRALS_ENABLED, ROUTINES_ENABLED, WAGERS_ENABLED } from '../lib/features';
 
 /**
  * Court discovery's paths (registered only while COURT_DISCOVERY_ENABLED).
@@ -97,6 +97,9 @@ export const linking: LinkingOptions<RootStackParamList> = {
       ...(COURT_DISCOVERY_ENABLED ? COURT_LINKS : {}),
       // And routines.
       ...(ROUTINES_ENABLED ? { Routines: 'routines' } : {}),
+      // And for the referral invite landing (?ref=CODE on any path is read by
+      // ReferralHost, not by this table).
+      ...(REFERRALS_ENABLED ? { InviteLanding: 'invite/:code' } : {}),
       Bookmarks: 'bookmarks',
     },
   },

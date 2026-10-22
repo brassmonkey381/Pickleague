@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { Panel, SectionHeader, CollapsibleSection, Chip } from '@just-messin-around/expo-foundation/ui';
+import InviteEarnSection from '../components/referrals/InviteEarnSection';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -1131,6 +1132,9 @@ export default function ProfileScreen({ navigation }: Props) {
 
       {/* ── 5. Reference (collapsed; content mounts on open) ──────── */}
       <View style={styles.reference}>
+        {/* Renders nothing while REFERRALS_ENABLED is off, and for guests. */}
+        <InviteEarnSection onToggle={onSectionToggle('invite')} />
+
         <CollapsibleSection
           compact
           title="Availability"

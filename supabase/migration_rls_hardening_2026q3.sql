@@ -158,7 +158,10 @@ begin
         'court_play_modes','delete_court_routine','get_court_routine_settings','list_my_court_routines',
         'list_profile_court_routines','move_court_routine_occurrence','save_court_routine','set_checkin_plan',
         'set_court_routine_active','set_routine_auto_checkin','skip_court_routine_occurrence',
-        'suggest_court_routines','unskip_court_routine_occurrence','venue_open_to_play'
+        'suggest_court_routines','unskip_court_routine_occurrence','venue_open_to_play',
+        -- Referrals (migration_referrals.sql). referral_preview is also granted
+        -- to anon there (the signed-out web invite landing).
+        'claim_referral','my_referral_code','my_referral_stats','referral_preview'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
