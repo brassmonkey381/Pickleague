@@ -70,9 +70,17 @@ export const COURT_STARS_ENABLED = true;
  * (nearby courts, nearest first, with a name filter) and each court's page
  * (facts, leagues, who's here, Directions, Share, Check in). Gates the
  * Courts / CourtDetail screens, their routes and links (pickleague.club/courts,
- * /courts/<encoded id>) and every entry point together: Home's Courts tile,
- * "Browse courts ›" on the court card, the home-court chip on a league, and
- * the Friends at the courts rows.
+ * /courts/<encoded id>) and every entry point together: Home's Discover tile
+ * (first in the quick row) and the 🔍 in Home's top bar (Doggle's Discover tab
+ * and shortcut), "Discover courts ›" on the court card, the home-court chip on
+ * a league, and the Friends at the courts rows.
+ *
+ * Phase 2 rides the same flag: the screen is titled Discover, with Doggle's
+ * List / Map toggle (the map over the list, pins open a card with the star),
+ * a map with the court's outline on its page, and Settings > Check-in
+ * automation pointing to Discover instead of its own court search. iOS and web
+ * draw maps by OTA; Android needs EXPO_PUBLIC_GOOGLE_MAPS_KEY in its native
+ * build (app.config.js), and its tiles are blank until then.
  *
  * OFF until supabase/migration_court_discovery_p1.sql is live and
  * supabase/tests/court_discovery_personas.sql passes against it; then flipped

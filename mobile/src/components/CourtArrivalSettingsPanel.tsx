@@ -14,6 +14,11 @@
 // resyncing (the circles don't change).
 //
 // "Always" location is asked for only by Allow here, never on open (D2).
+//
+// Finding courts to star is Discover's job (COURT_DISCOVERY_ENABLED), as in
+// Doggle, whose Check-in automation lists favorite parks with no search: here
+// the list stays (switch + ★ to unstar), and "Find courts on Discover" replaces
+// the court search. With the flag off the search stays as it was.
 import React, { useCallback, useEffect, useState } from 'react';
 import { AccessibilityInfo, AppState, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { peekQuery, setQueryData, useCachedQuery } from '@just-messin-around/expo-foundation/cache';
@@ -32,7 +37,11 @@ import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { explainRefusal } from '../lib/refusalNotices';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import CourtPicker, { type CourtResult } from './CourtPicker';
+import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import type { RootStackParamList } from '../types';
 import RoutineSettingsSection from './routines/RoutineSettingsSection';
 import {
   COURT_ARRIVAL_PERSIST_MS,
@@ -244,7 +253,18 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
     }
   }
 
-  const starButton = picking ? (
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const starButton = COURT_DISCOVERY_ENABLED ? (
+    <Button
+      title="Find courts on Discover"
+      size="sm"
+      variant="outline"
+      iconName="search"
+      onPress={() => navigation.navigate('Courts')}
+      disabled={busy}
+      style={[S.hug, S.starButton]}
+    />
+  ) : picking ? (
     <View style={S.picker}>
       <CourtPicker value={null} onSelect={(v) => void star(v)} active={picking} placeholder="Search for a court..." />
       <Button title="Cancel" size="sm" variant="outline" onPress={() => setPicking(false)} disabled={busy} style={S.hug} />
@@ -274,7 +294,11 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
   return (
     <View>
       <Text style={[t.meta, S.listHead, S.inset]}>
-        {courts.length === 0 ? 'Star a court to choose it here.' : 'Turn a court off and we ask first there instead.'}
+        {courts.length === 0
+          ? COURT_DISCOVERY_ENABLED
+            ? 'Star a court on Discover to choose it here.'
+            : 'Star a court to choose it here.'
+          : 'Turn a court off and we ask first there instead.'}
       </Text>
       {courts.map((court) => (
         <React.Fragment key={court.venue_id}>

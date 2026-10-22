@@ -40,7 +40,7 @@
 // The check-in flow itself (consent, the location ask, the bounds, the
 // refusal lines, the queued note, the star offer) is lib/useCourtCheckIn,
 // shared with a court's page; its lines render through CourtCheckInNotes.
-// With COURT_DISCOVERY_ENABLED the idle row also offers "Browse courts ›".
+// With COURT_DISCOVERY_ENABLED the idle row also offers "Discover courts ›".
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -466,11 +466,11 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
           activeOpacity={0.6}
           onPress={tap('browse_courts', () => navigation.navigate('Courts'))}
           accessibilityRole="button"
-          accessibilityLabel="Browse courts"
-          accessibilityHint="Shows the courts near you"
+          accessibilityLabel="Discover courts"
+          accessibilityHint="Shows the courts near you, as a list or a map"
         >
           <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            Browse courts ›
+            Discover courts ›
           </Text>
         </TouchableOpacity>
       ) : null}
