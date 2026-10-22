@@ -328,6 +328,18 @@ describe('courtOfPlace (which of my courts an item is at)', () => {
     expect(courtOfPlace({}, courts)).toBeNull();
     expect(courtOfPlace(null, courts)).toBeNull();
   });
+  it('needs the exact court name when coordinates cannot rule a name out', () => {
+    const near = [
+      { id: 'v-pa', name: 'Palo Alto Tennis Center', lat: null, lng: null },
+      { id: 'v-mitch', name: 'Mitchell Park', lat: 37.42, lng: -122.11 },
+    ];
+    expect(courtOfPlace({ name: 'Palo Alto, CA' }, near)).toBeNull();
+    expect(courtOfPlace({ name: 'Mitchell' }, near)).toBeNull();
+    expect(courtOfPlace({ name: 'Mitchell Park Pickleball Courts' }, near)?.id).toBe('v-mitch');
+    expect(courtOfPlace({ name: 'Palo Alto Tennis Center, 3005 Middlefield' }, near)?.id).toBe('v-pa');
+    // Coordinates near the court: the veto ran, so a looser name still fits.
+    expect(courtOfPlace({ name: 'Mitchell', lat: 37.43, lng: -122.11 }, near)?.id).toBe('v-mitch');
+  });
   it('labels an Elsewhere line by its place name before the comma', () => {
     expect(placeLabel({ place: { name: 'The HUB, 1 Main St' } })).toBe('The HUB');
     expect(placeLabel({ place: null })).toBeNull();
@@ -472,6 +484,14 @@ describe('caps', () => {
     expect(more).toBe(1);
     const many = Array.from({ length: 9 }, (_, i) => here(String(i)));
     expect(capCourtLines(many).more).toBe(3);
+  });
+
+  it('drops friends here before my own agenda and stops', () => {
+    const mine = { kind: 'agenda', key: 'a1', row: { id: 'e1' }, mirror: false } as unknown as FeedCourtLine;
+    const lines = [here('1'), here('2'), here('3'), here('4'), here('5'), here('6'), mine];
+    const { shown, more } = capCourtLines(lines);
+    expect(shown.map((l) => l.key)).toEqual(['h1', 'h2', 'h3', 'h4', 'h5', 'a1']);
+    expect(more).toBe(1);
   });
 
   it('previews rows until expanded', () => {

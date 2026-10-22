@@ -40,6 +40,8 @@ import { supabase } from '../../lib/supabase';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
 import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
+import { placeNamesMatch } from '@just-messin-around/expo-foundation/places/matchPlace';
+import { COURT_GENERIC_WORDS } from '../../lib/pickleagueFeed';
 import type {
   AgendaDrillInput,
   AgendaEventInput,
@@ -390,6 +392,22 @@ function placeOf(name: unknown, lat: unknown, lng: unknown, venueId?: string | n
   return { venueId: venueId ?? null, name: n, lat: la, lng: ln };
 }
 
+/** An event's place: its own, else its league's home court. An event that
+ *  names the home court but has no coordinates borrows the home court's
+ *  catalog id and coordinates, so it nests under that court. */
+function eventPlace(
+  e: { location_name?: unknown; location_lat?: unknown; location_lng?: unknown },
+  home: AgendaPlace | null,
+): AgendaPlace | null {
+  const own = placeOf(e.location_name, e.location_lat, e.location_lng);
+  if (!own) return home;
+  const hasCoords = own.lat != null && own.lng != null;
+  if (!hasCoords && home && placeNamesMatch(own.name, home.name, COURT_GENERIC_WORDS)) {
+    return { ...own, venueId: home.venueId ?? null, lat: home.lat ?? null, lng: home.lng ?? null };
+  }
+  return own;
+}
+
 /** A scheduled league match as Home reads it. */
 type ScheduledMatchRow = {
   id: string;
@@ -397,6 +415,8 @@ type ScheduledMatchRow = {
   scheduled_at: string | null;
   player1_id: string;
   player2_id: string;
+  partner1_id: string | null;
+  partner2_id: string | null;
   location_name: string | null;
   location_lat: number | null;
   location_lng: number | null;
@@ -410,10 +430,10 @@ async function loadScheduledMatches(uid: string): Promise<ScheduledMatchRow[]> {
   try {
     const rows = await sbCall(() => supabase
       .from('matches')
-      .select('id, league_id, scheduled_at, player1_id, player2_id, location_name, location_lat, location_lng,'
+      .select('id, league_id, scheduled_at, player1_id, player2_id, partner1_id, partner2_id, location_name, location_lat, location_lng,'
         + ' p1:profiles!matches_player1_id_fkey(full_name), p2:profiles!matches_player2_id_fkey(full_name)')
       .eq('status', 'scheduled')
-      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+      .or(`player1_id.eq.${uid},player2_id.eq.${uid},partner1_id.eq.${uid},partner2_id.eq.${uid}`)
       .gte('scheduled_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
       .lte('scheduled_at', new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString())
       .order('scheduled_at')
@@ -692,7 +712,7 @@ export async function loadHome(): Promise<HomeData> {
       // Voting: any slot. Scheduled: the confirmed one (that's the RSVP).
       iVoted: e.status === 'voting' ? votedEvents.has(e.id) : !!e.confirmed_slot_id && myVotedSlots.has(e.confirmed_slot_id),
       iDeclined: declined.has(e.id),
-      place: placeOf(e.location_name, e.location_lat, e.location_lng) ?? homePlace.get(e.league_id) ?? null,
+      place: eventPlace(e, homePlace.get(e.league_id) ?? null),
     });
     // Spotlight facts.
     if (!league) continue;
@@ -730,7 +750,9 @@ export async function loadHome(): Promise<HomeData> {
   const matches: AgendaMatchInput[] = [];
   for (const m of matchRows) {
     if (!m.scheduled_at) continue;
-    const opp = m.player1_id === uid ? m.p2 : m.p1;
+    // Team 1 is player1 + partner1; the other side's lead player names the match.
+    const onTeam1 = m.player1_id === uid || m.partner1_id === uid;
+    const opp = onTeam1 ? m.p2 : m.p1;
     matches.push({
       id: m.id,
       opponentName: (Array.isArray(opp) ? opp[0] : opp)?.full_name ?? 'your opponent',

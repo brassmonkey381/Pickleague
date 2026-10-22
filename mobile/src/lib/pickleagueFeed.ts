@@ -36,7 +36,7 @@
 // lib/__tests__/pickleagueFeed.test.ts.
 import { dayBandOf, DAY_BAND_TITLE, type DayBandKey } from '@just-messin-around/expo-foundation/scheduling/dayBands';
 import { formatClockTime, formatWeekdayMask } from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
-import { matchPlace, type KnownPlace } from '@just-messin-around/expo-foundation/places/matchPlace';
+import { matchPlace, placeNameWords, type KnownPlace } from '@just-messin-around/expo-foundation/places/matchPlace';
 import {
   buildAgenda,
   drillAgendaItems,
@@ -235,19 +235,20 @@ export function sortCourtLines(lines: readonly FeedCourtLine[]): FeedCourtLine[]
   });
 }
 
-/** Over the cap, the oldest finished visits give way first (what's next
- *  matters more); "See all" shows the rest. */
+/** Over the cap, the oldest finished visits give way first, then the latest
+ *  arrivals among friends here now: my own stops and agenda lines stay (what's
+ *  next for me matters more). "See all" shows the rest. */
 export function capCourtLines(lines: readonly FeedCourtLine[], cap = COURT_ROWS_CAP): { shown: FeedCourtLine[]; more: number } {
   if (lines.length <= cap) return { shown: [...lines], more: 0 };
   let drop = lines.length - cap;
-  const kept = lines.filter((l) => {
-    if (drop > 0 && l.kind === 'left') {
-      drop -= 1;
-      return false;
-    }
-    return true;
+  const hidden = new Set<number>();
+  lines.forEach((l, i) => {
+    if (drop > 0 && l.kind === 'left') { hidden.add(i); drop -= 1; }
   });
-  const shown = kept.slice(0, cap);
+  for (let i = lines.length - 1; i >= 0 && drop > 0; i -= 1) {
+    if (lines[i].kind === 'here') { hidden.add(i); drop -= 1; }
+  }
+  const shown = lines.filter((_, i) => !hidden.has(i)).slice(0, cap);
   return { shown, more: lines.length - shown.length };
 }
 
@@ -274,7 +275,19 @@ export function courtOfPlace<C extends KnownPlace>(place: AgendaPlace | null | u
     courts,
     { genericWords: COURT_GENERIC_WORDS },
   );
-  return m ? m.place : null;
+  if (!m) return null;
+  // A name-only match the distance veto could not check (no coordinates on
+  // one side) must name the court exactly: "Palo Alto" is not "Palo Alto
+  // Tennis Center", "Mitchell" is not "Mitchell Park".
+  if (m.by === 'name') {
+    const vetoChecked = place.lat != null && place.lng != null && m.place.lat != null && m.place.lng != null;
+    if (!vetoChecked) {
+      const a = new Set(placeNameWords(place.name, COURT_GENERIC_WORDS));
+      const b = new Set(placeNameWords(m.place.name, COURT_GENERIC_WORDS));
+      if (a.size !== b.size || [...a].some((w) => !b.has(w))) return null;
+    }
+  }
+  return m.place;
 }
 
 /** Where a row is, for an Elsewhere line: its place's name, else nothing. */

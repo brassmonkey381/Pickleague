@@ -224,17 +224,7 @@ export default function FeedCourtCard({
       <View style={styles.rows}>
         {shown.length === 0 ? (
           day === 'today' && !friendsFailed ? (
-            <Text style={[t.meta, { color: c.textSub }]}>
-              {'Nothing planned · '}
-              <Text
-                style={{ color: c.primary }}
-                onPress={() => actions.play(card)}
-                accessibilityRole="button"
-                accessibilityLabel={`Start playing at ${card.venueName}`}
-              >
-                ▶ Start playing
-              </Text>
-            </Text>
+            <Text style={[t.meta, { color: c.textSub }]}>Nothing planned</Text>
           ) : (
             <Text style={[t.meta, { color: c.textSub }]}>
               {day === 'today' ? "Couldn't load who's here. Pull down to try again." : 'Nothing planned yet.'}
