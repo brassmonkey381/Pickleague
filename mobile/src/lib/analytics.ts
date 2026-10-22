@@ -707,6 +707,9 @@ export type HomeSection =
   | 'court'
   // FRIENDS AT THE COURTS: header (-> Friends), row (a friend's court), court_row (YOUR COURTS).
   | 'friends_courts'
+  // The Pickleague Feed (HOME_FEED_ENABLED): needs_you, row, court, person,
+  // play_here, check_in, routine_line, all_leagues, my_tournaments, empty_*...
+  | 'feed'
   | 'open_near_you'
   | 'unlock';
 

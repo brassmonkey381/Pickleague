@@ -19,6 +19,11 @@
 //   OPEN NEAR YOU  open tournaments / joinable leagues (members)
 //   unlock ....... next badge on a progress bar (once Get started is gone)
 //
+// With HOME_FEED_ENABLED (P3, on): UP NEXT, YOUR LEAGUES, FRIENDS AT THE
+// COURTS / YOUR COURTS and the routine suggestion fold into one PICKLEAGUE
+// FEED card in UP NEXT's place (components/feed/PickleagueFeedSection), built
+// from this screen's payload plus the court reads those sections made.
+//
 // Sections are a KEYED array, so React moves an element between positions
 // without remounting it. That is how the check-in card goes from the court row
 // to NOW and back while staying mounted (the 'home/' push target relies on it).
@@ -44,7 +49,7 @@ import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
-import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, HOME_FEED_ENABLED } from '../lib/features';
 import { openDiscover } from '../lib/discoverNav';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
@@ -89,6 +94,7 @@ import OpenNearYouSection, { type OpenItem } from '../components/home/OpenNearYo
 import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
 import StreakBonusModal from '../components/home/StreakBonusModal';
+import PickleagueFeedSection from '../components/feed/PickleagueFeedSection';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -101,6 +107,8 @@ const OPEN_ROWS = 3;
 const HANDOFF_MS = 350;
 const NEW_ACCOUNT_MS = 7 * 24 * 60 * 60 * 1000;
 const METERS_PER_MILE = 1609.344;
+/** With the feed on, YOUR LEAGUES is gone: its standings hook reads nothing. */
+const NO_LEAGUES: HomeData['myLeagues'] = [];
 
 function milesLabel(m: number): string {
   const mi = m / METERS_PER_MILE;
@@ -135,11 +143,14 @@ export default function HomeScreen({ navigation }: Props) {
   // YOUR LEAGUES: the chosen league and its standings (loaded apart from the
   // payload above, for that league only). Pull-to-refresh reloads both; focus
   // revalidates the table under its TTL.
-  const spotlight = useLeagueSpotlight(myLeagues, profile?.id ?? null, now);
+  const spotlight = useLeagueSpotlight(HOME_FEED_ENABLED ? NO_LEAGUES : myLeagues, profile?.id ?? null, now);
   const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
   useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  // The feed's court side (friends at the courts, stars, routines, friends
+  // list) has its own reads: pull-to-refresh reloads them as well.
+  const feedRefresh = useRef<(() => Promise<void>) | null>(null);
   const pullReload = useCallback(async () => {
-    await Promise.all([reload(), refreshSpotlight()]);
+    await Promise.all([reload(), refreshSpotlight(), feedRefresh.current?.()]);
   }, [reload, refreshSpotlight]);
   const refresh = useRefresh(pullReload);
 
@@ -366,6 +377,8 @@ export default function HomeScreen({ navigation }: Props) {
     const liveKeys = new Set(liveEvents.map(r => r.key));
     return buildAgenda(agendaItems.filter(i => !liveKeys.has(i.key)), now);
   }, [agendaItems, liveEvents, now]);
+  // The feed leaves out the live events NOW shows, as UP NEXT did.
+  const liveKeys = useMemo(() => new Set(liveEvents.map(r => r.key)), [liveEvents]);
   const nowActive = courtMode !== 'idle' || !!session || liveEvents.length > 0;
 
   const isMember = myLeagues.length > 0;
@@ -489,6 +502,20 @@ export default function HomeScreen({ navigation }: Props) {
     }
   }
 
+  // JOIN A LEAGUE (no league yet), after UP NEXT / the feed.
+  const joinSection = isMember ? null : (
+    <JoinLeagueSection
+      key="join"
+      leagues={joinLeagues.map(r => r.l)}
+      leagueJoin={leagueJoin}
+      distanceById={joinDistances}
+      onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
+      onBrowse={() => { tap('join', 'browse'); openDiscover(navigation, { tab: 'leagues' }); }}
+      onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
+      onJoinPressed={(kind, i) => tap('join', kind, i)}
+    />
+  );
+
   // ── Sections (keyed: see the file header) ──
   const sections: React.ReactElement[] = [];
 
@@ -563,6 +590,25 @@ export default function HomeScreen({ navigation }: Props) {
     );
   } else if (firstLoad) {
     sections.push(<SkeletonList key="skeleton" rows={4} variant="row" />);
+  } else if (HOME_FEED_ENABLED) {
+    // One card for UP NEXT, YOUR LEAGUES, FRIENDS AT THE COURTS and YOUR COURTS.
+    sections.push(
+      <PickleagueFeedSection
+        key="feed"
+        home={data}
+        now={now}
+        hideKeys={liveKeys}
+        privilegedLeagues={privilegedLeagues}
+        navigate={go}
+        onConfirmDrill={confirmDrill}
+        onDismissDrill={(id) => { void dismissDrill(id); }}
+        onProposePlayDay={(leagueId) => navigation.navigate('CreateEvent', { leagueId })}
+        onPickerOpenChange={onPickerOpenChange}
+        onSeeAllRequests={() => navigation.navigate('Notifications', { initialChip: 'requests' })}
+        refreshRef={feedRefresh}
+      />,
+    );
+    if (joinSection) sections.push(joinSection);
   } else {
     if (agenda.total > 0 || isMember) {
       sections.push(
@@ -617,33 +663,23 @@ export default function HomeScreen({ navigation }: Props) {
       );
     }
 
-    if (!isMember) {
-      sections.push(
-        <JoinLeagueSection
-          key="join"
-          leagues={joinLeagues.map(r => r.l)}
-          leagueJoin={leagueJoin}
-          distanceById={joinDistances}
-          onEnterCode={() => { tap('join', 'enter_code'); setCodeOpen(true); }}
-          onBrowse={() => { tap('join', 'browse'); openDiscover(navigation, { tab: 'leagues' }); }}
-          onLeague={(l, i) => { tap('join', 'row', i); openLeague(l); }}
-          onJoinPressed={(kind, i) => tap('join', kind, i)}
-        />,
-      );
-    }
+    if (joinSection) sections.push(joinSection);
   }
 
   sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
 
   if (courtMode === 'idle') sections.push(court);
 
-  // Routines: "Make it a routine?" from my check-ins (renders nothing when flagged off or none).
-  sections.push(
-    <RoutineSuggestionCard key="routine-suggestion" onOpenRoutines={() => navigation.navigate('Routines')} />,
-  );
+  // With the feed on, both live inside it.
+  if (!HOME_FEED_ENABLED) {
+    // Routines: "Make it a routine?" from my check-ins (renders nothing when flagged off or none).
+    sections.push(
+      <RoutineSuggestionCard key="routine-suggestion" onOpenRoutines={() => navigation.navigate('Routines')} />,
+    );
 
-  // FRIENDS AT THE COURTS: its own read and cache; renders nothing when empty or flagged off.
-  sections.push(<FriendsAtCourtsSection key="friends-courts" />);
+    // FRIENDS AT THE COURTS: its own read and cache; renders nothing when empty or flagged off.
+    sections.push(<FriendsAtCourtsSection key="friends-courts" />);
+  }
 
   if (isMember && !loadFailed && !firstLoad && openItems.rows.length > 0) {
     sections.push(

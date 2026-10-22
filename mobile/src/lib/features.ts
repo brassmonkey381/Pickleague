@@ -151,3 +151,19 @@ export const REFERRALS_ENABLED = true;
  * included) and nothing names Discover.
  */
 export const DISCOVER_ENABLED = COURT_DISCOVERY_ENABLED;
+
+/**
+ * The Pickleague Feed on Home (state/feed-discover-play-plan.md §3 / §5, P3,
+ * with the user's "One feed, like Doggle"): one untabbed card with what needs
+ * you pinned on top, then Today / Tomorrow / Later day bands of my leagues'
+ * events, votes and drills, tournaments I signed up for, my starred and
+ * routine courts, and my friends at the courts
+ * (components/feed/PickleagueFeedSection; the rules are lib/pickleagueFeed).
+ * It replaces Home's Up next, Your leagues, Friends at the courts and Your
+ * courts.
+ *
+ * ON for everyone since 2026-10-22 (the user wants changes straight to
+ * production, no PREVIEW gate). No new SQL: it reads what Home and those
+ * sections already read. Off, Home is exactly as before.
+ */
+export const HOME_FEED_ENABLED = true;
