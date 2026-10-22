@@ -20,7 +20,7 @@
 -- Courts near 40.7 N, 100.0 W (far from every real venue; a fix 11 m north is
 -- lat + 0.0001): test:cr-home (+ duplicate row test:cr-home-osm), cr-two,
 -- cr-three, cr-unstarred, cr-crowd, cr-arr, cr-off, cr-man, cr-split,
--- cr-split3a, cr-split3b, cr-split3c.
+-- cr-split3a, cr-split3b, cr-split3c, cr-split4a, cr-split4b, cr-split3d.
 --
 -- Personas:
 --   RO owner (CRUD, windows, DST, midnight, skip / move / undo, privacy)
@@ -37,6 +37,9 @@
 --   RQ RQ2 RQ3 a check-in made by hand on a 3-hour routine, closed 2 h then
 --   open 1 h, reaches open play: the planned end it now takes, "Stay until",
 --   the routine's length (R15; migration_court_routines_planned_end.sql)
+--   RQ4 RQ5 RQ6 "Stay until" within extend_checkin's caps on a 4-hour
+--   routine (by hand 10 minutes early; an arrival), and the routine
+--   reminder's Check in asking the routine's length (R16)
 -- ============================================================
 
 begin;
@@ -61,13 +64,15 @@ insert into _p values
   ('C4',  'a8000000-0000-4000-8000-000000000015'), ('C5',  'a8000000-0000-4000-8000-000000000016'),
   ('C6',  'a8000000-0000-4000-8000-000000000017'), ('C7',  'a8000000-0000-4000-8000-000000000018'),
   ('RP',  'a8000000-0000-4000-8000-000000000019'), ('RQ',  'a8000000-0000-4000-8000-00000000001a'),
-  ('RQ2', 'a8000000-0000-4000-8000-00000000001b'), ('RQ3', 'a8000000-0000-4000-8000-00000000001c');
+  ('RQ2', 'a8000000-0000-4000-8000-00000000001b'), ('RQ3', 'a8000000-0000-4000-8000-00000000001c'),
+  ('RQ4', 'a8000000-0000-4000-8000-00000000001d'), ('RQ5', 'a8000000-0000-4000-8000-00000000001e'),
+  ('RQ6', 'a8000000-0000-4000-8000-00000000001f');
 grant select on _p to authenticated, anon;
 
 -- Ids picked in advance (check-ins, sessions).
 create temp table _ids (k text primary key, id uuid not null default gen_random_uuid());
 insert into _ids (k) values ('RA'), ('RA2'), ('RA3'), ('RM'), ('C1'), ('C2'), ('C3'), ('C5'), ('C6'), ('C7'), ('RP'),
-  ('RQ'), ('RQ2'), ('RQ3');
+  ('RQ'), ('RQ2'), ('RQ3'), ('RQ4'), ('RQ5'), ('RQ6');
 grant select on _ids to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -146,7 +151,10 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:cr-split',     array['pickleball'], 'CR Test Courts Split',     'court', 40.78, -100.0, 'google', 100),
   ('test:cr-split3a',   array['pickleball'], 'CR Test Courts Split 3A',  'court', 40.79, -100.0, 'google', 100),
   ('test:cr-split3b',   array['pickleball'], 'CR Test Courts Split 3B',  'court', 40.80, -100.0, 'google', 100),
-  ('test:cr-split3c',   array['pickleball'], 'CR Test Courts Split 3C',  'court', 40.81, -100.0, 'google', 100);
+  ('test:cr-split3c',   array['pickleball'], 'CR Test Courts Split 3C',  'court', 40.81, -100.0, 'google', 100),
+  ('test:cr-split4a',   array['pickleball'], 'CR Test Courts Split 4A',  'court', 40.82, -100.0, 'google', 100),
+  ('test:cr-split4b',   array['pickleball'], 'CR Test Courts Split 4B',  'court', 40.83, -100.0, 'google', 100),
+  ('test:cr-split3d',   array['pickleball'], 'CR Test Courts Split 3D',  'court', 40.84, -100.0, 'google', 100);
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m, canonical_id) values
   ('test:cr-home-osm', array['pickleball'], 'CR Test Courts Home', 'court', 40.70005, -100.0, 'osm', 100, 'test:cr-home');
 
@@ -156,12 +164,13 @@ select pg_temp.p(k), v from (values
   ('RL', 'test:cr-home'), ('RA', 'test:cr-arr'), ('RA2', 'test:cr-arr'), ('RA3', 'test:cr-arr'),
   ('RW', 'test:cr-arr'), ('RX', 'test:cr-off'), ('RN', 'test:cr-off'), ('RM', 'test:cr-man'), ('RP', 'test:cr-split'),
   ('RU', 'test:cr-home'), ('RD', 'test:cr-home'),
-  ('RQ', 'test:cr-split3a'), ('RQ2', 'test:cr-split3b'), ('RQ3', 'test:cr-split3c')) s(k, v);
+  ('RQ', 'test:cr-split3a'), ('RQ2', 'test:cr-split3b'), ('RQ3', 'test:cr-split3c'),
+  ('RQ4', 'test:cr-split4a'), ('RQ5', 'test:cr-split4b'), ('RQ6', 'test:cr-split3d')) s(k, v);
 
 -- Consent (arrivals need it); RA and RN have automatic check-in off.
 insert into public.presence_settings (user_id, consent_seen_at, auto_checkin)
 select pg_temp.p(k), now(), k not in ('RA', 'RN')
-  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3');
+  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3', 'RQ4', 'RQ5', 'RQ6');
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
 select pg_temp.p(a), pg_temp.p(b), 'accepted', now() from (values
@@ -1389,6 +1398,153 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('R15 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ R16 "Stay until" within extend_checkin's caps; the buttons' length ═══
+-- Review of the planned-end fix, round 2. extend_checkin without a fix runs a
+-- location-confirmed check-in at most 4 hours past its last fix (else its
+-- check-in) and 4 hours from now; asked for more it refuses with
+-- pl:checkin.needs_fix once that cap is its end already. The app's "Stay
+-- until" asked for the planned end itself, so on a 4-hour routine it failed
+-- every tap and never went away. It now offers least(planned end, now + 4 h,
+-- coalesce(fix_at, checked_in_at) + 4 h), and only when that is more than a
+-- minute past the end (lib/courtRoutineRules stayUntilOffer, mirrored here).
+-- RQ4: a 4-hour routine (closed 3 h, open 1 h) checked in by hand 10 minutes
+-- early. RQ5: an arrival on the same kind of routine (no fix). RQ6: the
+-- routine reminder's "Check in" (source geofence) asks the routine's length
+-- from its push (buttonCheckinMinutes) on a 3-hour split. now() is fixed:
+-- time passes by moving the check-in back.
+create function pg_temp.back(p_id uuid, p_by interval) returns void language sql as $$
+  update public.venue_checkins
+     set checked_in_at = checked_in_at - p_by, created_at = created_at - p_by,
+         fix_at = fix_at - p_by, arrival_fix_at = arrival_fix_at - p_by,
+         expires_at = expires_at - p_by, arrival_until = arrival_until - p_by,
+         planned_end_at = planned_end_at - p_by,
+         play_windows = public._pl_shift_windows(play_windows, - p_by)
+   where id = p_id
+$$;
+-- stayUntilOffer: the end the app offers, or null.
+create function pg_temp.stay_offer(c public.venue_checkins) returns timestamptz language sql stable as $$
+  select case when c.planned_end_at > now() and o > c.expires_at + interval '1 minute' then o end
+    from (select least(c.planned_end_at, now() + interval '4 hours',
+                       case when c.location_confirmed then coalesce(c.fix_at, c.checked_in_at) + interval '4 hours' end) as o) x
+$$;
+
+do $$
+declare
+  pl      public.court_plans;
+  c       public.venue_checkins;
+  pu      public.push_outbox;
+  j       jsonb;
+  e       jsonb;
+  v_min   int;
+  v_offer timestamptz;
+begin
+  -- RQ4: by hand 10 minutes before a 4-hour routine; the app asks the cap, 240.
+  perform pg_temp.due_routine('RQ4', 'test:cr-split4a', 240,
+    jsonb_build_array(pg_temp.w(0, 180, 'closed'), pg_temp.w(180, 240, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ4');
+  v_min := least(240, greatest(30, ceil(extract(epoch from (pl.planned_end_at - now())) / 60)::int));
+  perform pg_temp.as_user(pg_temp.p('RQ4'));
+  perform public.checkin_venue(p_id => pg_temp.i('RQ4'), p_venue => 'test:cr-split4a', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.8201, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RQ4'));
+  perform pg_temp.ok('R16 a 4-hour routine by hand 10 minutes early: 240 minutes asked, so it ends before its planned end',
+    v_min = 240 and c.plan_id = pl.id and c.planned_end_at = pl.planned_end_at
+    and c.expires_at = c.checked_in_at + interval '240 minutes' and c.planned_end_at > c.expires_at + interval '1 minute',
+    'minutes ' || v_min || ' ' || row_to_json(c)::text);
+  -- An hour in (closed group).
+  perform pg_temp.back(c.id, interval '60 minutes');
+  c := pg_temp.vci(c.id);
+  perform pg_temp.ok('R16 ... the app offers no "Stay until": without a fix nothing reaches past its end',
+    pg_temp.stay_offer(c) is null, 'offer ' || coalesce(pg_temp.stay_offer(c)::text, 'none'));
+  perform pg_temp.as_user(pg_temp.p('RQ4'));
+  e := pg_temp.err(format('select public.extend_checkin(p_id => %L, p_until => %L)', c.id, c.planned_end_at));
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 (why) "Stay until <planned end>", as the app asked before: refused, pl:checkin.needs_fix',
+    e ->> 'hint' = 'pl:checkin.needs_fix' and (pg_temp.vci(c.id)).expires_at = c.expires_at, coalesce(e::text, 'went through'));
+  -- 200 minutes in: the routine's open hour, before the check-in's end.
+  perform pg_temp.back(c.id, interval '140 minutes');
+  perform pg_temp.as_user(pg_temp.p('RQ4'));
+  j := public.court_play_modes('test:cr-split4a');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 ... and 200 minutes in it is still checked in, open to play, counted',
+    (j ->> 'open_now')::int = 1 and j -> 'players' -> 0 ->> 'checkin_id' = c.id::text
+    and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
+
+  -- RQ5: an arrival on a 4-hour routine (no fix): the 2-hour arrival length.
+  perform pg_temp.due_routine('RQ5', 'test:cr-split4b', 240,
+    jsonb_build_array(pg_temp.w(0, 180, 'closed'), pg_temp.w(180, 240, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ5');
+  perform pg_temp.arrive('RQ5', 'test:cr-split4b', pg_temp.i('RQ5'));
+  c := pg_temp.vci(pg_temp.i('RQ5'));
+  perform pg_temp.ok('R16 an arrival on a 4-hour routine: no fix, the 2-hour arrival length, the occurrence''s planned end',
+    c.via_arrival and c.fix_at is null and c.plan_id = pl.id and c.planned_end_at = pl.planned_end_at
+    and c.expires_at = c.checked_in_at + interval '2 hours', row_to_json(c)::text);
+  -- 100 minutes in: "Stay until" offers 4 hours past the arrival (before the planned end).
+  perform pg_temp.back(c.id, interval '100 minutes');
+  c := pg_temp.vci(c.id);
+  v_offer := pg_temp.stay_offer(c);
+  perform pg_temp.ok('R16 ... "Stay until" offers 4 hours past the arrival, short of the planned end',
+    v_offer = c.checked_in_at + interval '4 hours' and v_offer < c.planned_end_at, coalesce(v_offer::text, 'none'));
+  perform pg_temp.as_user(pg_temp.p('RQ5'));
+  e := pg_temp.err(format('select public.extend_checkin(p_id => %L, p_until => %L)', c.id, v_offer));
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(c.id);
+  perform pg_temp.ok('R16 ... one tap runs it there, no refusal',
+    e is null and c.expires_at = v_offer, coalesce(e::text, '') || ' ' || row_to_json(c)::text);
+  perform pg_temp.ok('R16 ... then there is nothing more to offer (the button goes)', pg_temp.stay_offer(c) is null,
+    coalesce(pg_temp.stay_offer(c)::text, 'none'));
+  perform pg_temp.as_user(pg_temp.p('RQ5'));
+  e := pg_temp.err(format('select public.extend_checkin(p_id => %L, p_until => %L)', c.id, c.planned_end_at));
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 (why) the planned end itself, as the app asked before: refused on every tap, pl:checkin.needs_fix',
+    e ->> 'hint' = 'pl:checkin.needs_fix', coalesce(e::text, 'went through'));
+  -- 210 minutes in: the open hour, before the extended end.
+  perform pg_temp.back(c.id, interval '110 minutes');
+  perform pg_temp.as_user(pg_temp.p('RQ5'));
+  j := public.court_play_modes('test:cr-split4b');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 ... and in the routine''s open hour it is still checked in, open to play, counted',
+    (j ->> 'open_now')::int = 1 and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
+
+  -- RQ6: the routine reminder, then its Check in (the phone checks in with source geofence).
+  perform pg_temp.due_routine('RQ6', 'test:cr-split3d', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ6');
+  perform public.process_court_routine_reminders();
+  pu := pg_temp.push_row('RQ6', 'routine_reminder');
+  perform pg_temp.ok('R16 the routine reminder carries the occurrence''s time and planned end (what its Check in asks from)',
+    pu.id is not null and (pu.push_data ->> 'planned_at')::timestamptz = pl.planned_at
+    and (pu.push_data ->> 'planned_end_at')::timestamptz = pl.planned_end_at
+    and pu.push_data ->> 'venue_id' = 'test:cr-split3d', coalesce(pu.push_data::text, 'no reminder'));
+  -- buttonCheckinMinutes: to the push's planned end, rounded up, 30 to 240.
+  v_min := least(240, greatest(30, ceil(extract(epoch from ((pu.push_data ->> 'planned_end_at')::timestamptz - now())) / 60)::int));
+  perform pg_temp.as_user(pg_temp.p('RQ6'));
+  perform public.checkin_venue(p_id => pg_temp.i('RQ6'), p_venue => 'test:cr-split3d', p_minutes => v_min, p_source => 'geofence',
+    p_at => null, p_lat => 40.8401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RQ6'));
+  perform pg_temp.ok('R16 its Check in asks the routine''s length: runs to the planned end, the split kept (it asked 2 hours)',
+    v_min between 180 and 200 and c.source = 'geofence' and c.via_arrival is not true and c.plan_id = pl.id
+    and c.planned_end_at = pl.planned_end_at and c.expires_at >= pl.planned_end_at
+    and c.expires_at < pl.planned_end_at + interval '1 minute' and c.play_windows = pl.windows,
+    'minutes ' || v_min || ' ' || row_to_json(c)::text);
+  perform pg_temp.back(c.id, interval '150 minutes');
+  perform pg_temp.as_user(pg_temp.p('RQ6'));
+  j := public.court_play_modes('test:cr-split3d');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 ... 150 minutes in (the last hour): still checked in, open to play, counted',
+    (j ->> 'open_now')::int = 1 and j -> 'players' -> 0 ->> 'checkin_id' = c.id::text
+    and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R16 block crashed', false, sqlerrm);
 end $$;
 
 

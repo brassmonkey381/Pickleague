@@ -9,8 +9,10 @@
 // 5). A routine check-in, by arrival or by hand, brings its routine's windows
 // and planned end with it. "Stay until" is the web's way to the rest of a
 // routine (no "Staying until" push there) and an older build's (it asked 2
-// hours). Renders nothing without ROUTINES_ENABLED, for a check-in still
-// queued, or before its plan is read.
+// hours); it offers only what extend_checkin gives without a fix
+// (stayUntilOffer). "Planned until" goes once that time has passed.
+// Renders nothing without ROUTINES_ENABLED, for a check-in still queued, or
+// before its plan is read.
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -26,13 +28,13 @@ import { explainRefusal } from '../../lib/refusalNotices';
 import { ROUTINES_ENABLED } from '../../lib/features';
 import {
   checkinLengthOptions,
+  checkinPlanLine,
   checkinPlanSheetStart,
-  checkinPlanWindowsToSave,
+  checkinPlanToSave,
   clockLabel,
   fitCheckinPlanWindows,
   PLAY_HINTS,
   PLAY_MODE_LABEL,
-  playModeNowLine,
   stayUntilLabel,
   stayUntilOffer,
   switchToOpenPlan,
@@ -64,8 +66,15 @@ function useCheckinPlan(checkinId: string): [CheckinPlan | null, () => void] {
       .catch(() => {});
   }, [checkinId]);
   React.useEffect(load, [load]);
+  // set_checkin_plan's answer has no fix_at / location_confirmed (a plan
+  // never changes them): keep the ones read.
   useSignal(checkinPlanChanged, (p) => {
-    if (p.checkinId === checkinId) setPlan(p);
+    if (p.checkinId !== checkinId) return;
+    setPlan((prev) =>
+      prev?.checkinId === p.checkinId
+        ? { ...p, fixAt: p.fixAt ?? prev.fixAt, locationConfirmed: p.locationConfirmed ?? prev.locationConfirmed }
+        : p,
+    );
   });
   useSignal(checkinChanged, (c) => {
     if (c?.id === checkinId) load();
@@ -89,11 +98,11 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
 
   if (!plan || !plan.checkedInAt) return null;
   const now = new Date();
-  const line = playModeNowLine(plan.windows, now);
-  const shown = line || (plan.plannedEndAt ? `Planned until ${clockLabel(plan.plannedEndAt)}` : '');
+  const shown = checkinPlanLine(plan, now);
   const open = modeAt(plan.windows, now)?.mode === 'open';
   // The check-in ends before its planned end (a routine check-in by hand
-  // keeps the length asked): one tap runs it to the planned end.
+  // keeps the length asked): one tap runs it to the planned end, or as far
+  // as extend_checkin goes without a fix.
   const stayUntil = stayUntilOffer(plan, now);
 
   const switchToOpen = async () => {
@@ -110,9 +119,9 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
     }
   };
 
-  // extend_checkin to the planned end, as the "Staying until" push's Stay
-  // until does (no fix: the server caps it 4 hours past the last one, and
-  // the note says so).
+  // extend_checkin to the offer, as the "Staying until" push's Stay until
+  // does (no fix). The offer is already within the server's caps, so a tap
+  // never ends in "open Pickleague at the court".
   const stay = async (until: string) => {
     setBusy('stay');
     try {
@@ -195,12 +204,14 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
     { value: 'open' as PlayMode, label: PLAY_MODE_LABEL.open, color: c.success },
   ];
 
+  // The windows shown; the planned end and the boundaries left where they
+  // were at their own minute (an open and save changes nothing).
   const save = async () => {
     setSaving(true);
     try {
-      const end = new Date(Date.parse(plan.checkedInAt) + lengthMin * 60_000);
-      await setCheckinPlan(plan.checkinId, end, checkinPlanWindowsToSave(windows, lengthMin, plan.checkedInAt));
-      toast.success(`Planned until ${clockLabel(end)}.`);
+      const next = checkinPlanToSave(start, windows, lengthMin, plan.checkedInAt);
+      const saved = await setCheckinPlan(plan.checkinId, next.plannedEnd, next.windows);
+      toast.success(`Planned until ${clockLabel(saved.plannedEndAt ?? next.plannedEnd)}.`);
       onClose();
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't save your plan. Try again.", { venueName, action: 'plan' }));

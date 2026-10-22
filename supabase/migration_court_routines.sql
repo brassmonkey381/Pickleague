@@ -123,6 +123,11 @@
 -- migration_moderation_report_block.sql: they put older bodies of the
 -- functions above back (build-presence-test.mjs does this). Re-runnable; no
 -- begin/commit.
+-- AFTER ANY RE-RUN OF THIS FILE, re-apply
+-- migration_court_routines_planned_end.sql: it replaces the plan-link trigger
+-- function of section 4, and this file puts the older body back (the one
+-- that leaves a check-in by hand without its planned end, so a split never
+-- reaches its open part). The test builders and the apply scripts do this.
 --   supabase db query --linked -f supabase/migration_court_routines.sql
 -- ============================================================
 
@@ -767,6 +772,9 @@ revoke all on function public.materialize_court_routines(uuid) from public, anon
 -- link and the occurrence's windows before insert, the occurrence completed
 -- after. process_court_arrivals sets plan_id itself (with the planned end);
 -- this then only completes the occurrence.
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces the link
+-- function below (it also takes the occurrence's planned end). Re-apply that
+-- file after any re-run of this one.
 create or replace function public._pl_checkin_link_plan()
 returns trigger
 language plpgsql

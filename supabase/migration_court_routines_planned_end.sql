@@ -33,11 +33,16 @@
 --     ("Staying until 12 PM?", extend_checkin to it).
 --   * set_checkin_plan stretches a check-in only to an end the player sends.
 -- So a check-in made by hand lasts what the app asked for. The app asks for
--- the routine's length when a stop is due at that court (lib/courtCheckin
--- checkInAt, routineCheckinMinutes), and the line under a check-in offers
--- "Stay until <planned end>" whenever planned_end_at is later than
--- expires_at (CheckinPlanLine: the web's way to the open part, and an older
--- build's check-in's).
+-- the routine's length when a stop is due at that court, by hand and from a
+-- notification's Check in (lib/courtCheckin manualCheckinMinutes: the routine
+-- reminder's planned_end_at, else the routines copy), and the line under a
+-- check-in offers "Stay until" while planned_end_at is later than expires_at
+-- (CheckinPlanLine: the web's way to the open part, and an older build's
+-- check-in's), up to what extend_checkin gives without a fix: least(planned
+-- end, now + 4 h, coalesce(fix_at, checked_in_at) + 4 h) (stayUntilOffer;
+-- asked for more, extend_checkin refuses with pl:checkin.needs_fix once that
+-- cap is the end already). Persona checks: R15, R16
+-- (tests/court_routines_personas.sql).
 --
 -- Replaced (same signature and attributes; execute stays revoked from
 -- public, anon, authenticated; the trigger itself is unchanged):
@@ -45,7 +50,8 @@
 --
 -- APPLY ORDER: after migration_court_routines.sql. RE-APPLY after any re-run
 -- of migration_court_routines.sql: it puts the old body back
--- (build-court-routines-test.mjs and build-presence-test.mjs do this).
+-- (build-court-routines-test.mjs and build-presence-test.mjs do this, and
+-- state/server-batch2-apply.ps1 applies this file after it when present).
 -- Re-runnable; no begin/commit.
 --   supabase db query --linked -f supabase/migration_court_routines_planned_end.sql
 -- ============================================================

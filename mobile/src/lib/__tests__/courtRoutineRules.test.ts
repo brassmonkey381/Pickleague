@@ -23,10 +23,13 @@ import {
 } from '../courtArrivalRules';
 import { applyWindowEdit, modeAt, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import {
+  buttonCheckinMinutes,
   checkinLengthOptions,
   checkinPlanEditorWindows,
+  checkinPlanLine,
   checkinPlanSheetStart,
   checkinPlanStartLength,
+  checkinPlanToSave,
   checkinPlanWindowsToSave,
   fitCheckinPlanWindows,
   parseCourtPlayModes,
@@ -36,6 +39,7 @@ import {
   playModeNowLine,
   routineArrivalDue,
   routineCheckinMinutes,
+  routineCheckinUntil,
   routineDueAt,
   routinePlannedEndAt,
   routineTimeLine,
@@ -573,6 +577,144 @@ describe('a check-in by hand on a 3-hour split reaches its open part', () => {
     expect(stayUntilOffer({ ...withEnd, expiresAt: at(180).toISOString() }, at(60))).toBeNull();
     expect(stayUntilOffer({ ...withEnd, expiresAt: new Date(at(180).getTime() - 30_000).toISOString() }, at(60))).toBeNull();
     expect(stayUntilOffer(withEnd, at(181))).toBeNull();
+  });
+});
+
+// ── Review of the planned-end fix (round 2): "Stay until" on a 4-hour routine,
+// the notification buttons' length, Home's "until", the plan sheet's open and
+// save, "Planned until" after its time. ─────────────────────────────────────
+describe('a routine check-in, round 2 of the review', () => {
+  const span = (list: readonly TimeWindow<PlayMode>[] | null) =>
+    (list ?? []).map((w) => `${w.startMin}-${w.endMin}:${w.mode}`).join(' ');
+  const abs = (s: number, e: number, mode: PlayMode | null) => ({
+    startsAt: at(s).toISOString(),
+    endsAt: at(e).toISOString(),
+    mode,
+    hint: null,
+    group: [] as string[],
+  });
+  const absSpan = (list: readonly { startsAt: string; endsAt: string; mode: PlayMode | null }[]) =>
+    list.map((w) => `${(Date.parse(w.startsAt) - TUE_9.getTime()) / 60_000}-${(Date.parse(w.endsAt) - TUE_9.getTime()) / 60_000}:${w.mode}`).join(' ');
+  const iso = (min: number) => at(min).toISOString();
+  // The routine 9:00-12:00, closed group 2 h, then open play 1 h.
+  const split = () =>
+    routine({
+      windows: [
+        { startMin: 0, endMin: 120, mode: 'closed', hint: null, group: [] },
+        { startMin: 120, endMin: 180, mode: 'open', hint: null, group: [] },
+      ],
+    });
+
+  it('"Stay until" never offers past extend_checkin\'s 4 hours: a 4-hour routine checked in by hand at 8:50 has nothing to offer', () => {
+    // Asked 240 (the cap): ends 12:50, planned 1 PM, last fix at the check-in.
+    const early = { checkedInAt: iso(-10), fixAt: iso(-10), locationConfirmed: true, expiresAt: iso(230), plannedEndAt: iso(240) };
+    expect(stayUntilOffer(early, at(60))).toBeNull();
+    expect(stayUntilOffer(early, at(200))).toBeNull();
+    // A fresh fix since (Stay 1 more hour with location) reaches 1 PM.
+    expect(stayUntilOffer({ ...early, fixAt: iso(30) }, at(60))).toBe(iso(240));
+    // Unknown confirmation (set_checkin_plan's answer) counts as confirmed: no offer either.
+    expect(stayUntilOffer({ ...early, locationConfirmed: null, fixAt: null }, at(60))).toBeNull();
+  });
+
+  it('"Stay until" on an arrival check-in (no fix) offers 4 hours past the arrival, then goes', () => {
+    // Arrived 8:52 on a 4-hour routine: the 2-hour arrival length, planned 1 PM.
+    const arrival = { checkedInAt: iso(-8), fixAt: null, locationConfirmed: true, expiresAt: iso(112), plannedEndAt: iso(240) };
+    const offer = stayUntilOffer(arrival, at(100));
+    expect(offer).toBe(iso(232));
+    expect(stayUntilLabel(offer!, TZ)).toBe('Stay until 12:52 PM');
+    // Extended to it (extend_checkin gives exactly that): nothing more to offer, so no button that always fails.
+    expect(stayUntilOffer({ ...arrival, expiresAt: offer! }, at(110))).toBeNull();
+    // A check-in without a fix (an older build's, private): only the 4 hours from now apply.
+    expect(stayUntilOffer({ ...arrival, locationConfirmed: false }, at(100))).toBe(iso(240));
+    expect(stayUntilOffer({ ...arrival, locationConfirmed: false, plannedEndAt: iso(400) }, at(100))).toBe(iso(340));
+  });
+
+  it('a notification\'s Check in asks for the routine\'s length: the tapped reminder\'s occurrence first, else my routines', () => {
+    const reminder = { plannedAt: iso(0), plannedEndAt: iso(180) };
+    // Pressed at 9:05: to 12 PM, with no read of my routines.
+    expect(buttonCheckinMinutes(null, 'v1', at(5), reminder)).toBe(175);
+    // Pressed at 8:50 on a 4-hour stop: checkin_venue's 4 hours.
+    expect(buttonCheckinMinutes(null, 'v1', at(-10), { plannedAt: iso(0), plannedEndAt: iso(240) })).toBe(240);
+    // A day moved to 10:00-1 PM: the push knows it even when this phone's copy says 9:00.
+    expect(buttonCheckinMinutes([split()], 'v1', at(55), { plannedAt: iso(60), plannedEndAt: iso(240) })).toBe(185);
+    // Pressed after its window (9:40): the server won't link it, so the reminder says nothing ...
+    expect(buttonCheckinMinutes(null, 'v1', at(40), reminder)).toBeNull();
+    // ... and "At X?" / "Check in nearby?" (no reminder) read my routines.
+    expect(buttonCheckinMinutes([split()], 'v1', at(-10), null)).toBe(190);
+    expect(buttonCheckinMinutes([split()], 'v2', at(-10), null)).toBeNull();
+    // The 2 hours they asked before ended a 3-hour split still closed; this length reaches the open hour.
+    const ends = at(-10).getTime() + 190 * 60_000;
+    expect(modeAt([abs(0, 120, 'closed'), abs(120, 180, 'open')], at(150))?.mode).toBe('open');
+    expect(at(150).getTime()).toBeLessThan(ends);
+  });
+
+  it('Home\'s card: "until" is the planned end on every render, and follows the stop\'s window', () => {
+    expect(routineCheckinUntil([split()], 'v1', at(-10))).toBe(iso(180));
+    expect(routineCheckinUntil([split()], 'v1', new Date(at(-9).getTime() + 37_000))).toBe(iso(180));
+    expect(routineCheckinUntil([split()], 'v1', at(29))).toBe(iso(180));
+    // The window closes at 9:30: the card goes back to "for 2 hours".
+    expect(routineCheckinUntil([split()], 'v1', at(31))).toBeNull();
+    // A 4-hour stop at 8:35: what the tap asks, 4 hours from now.
+    expect(routineCheckinUntil([routine({ lengthMin: 240 })], 'v1', at(-25))).toBe(iso(215));
+    expect(routineCheckinUntil([routine({ lengthMin: 240 })], 'v1', at(-24))).toBe(iso(216));
+  });
+
+  it('the plan sheet opens a 9:29 check-in planned to 12:00 at 2 h 30 min, and an open and save changes nothing', () => {
+    const late = { checkedInAt: iso(29), expiresAt: iso(149), plannedEndAt: iso(180), windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')] };
+    const start = checkinPlanSheetStart(late);
+    expect(start.lengthMin).toBe(150);
+    expect(span(start.windows)).toBe('0-90:closed 90-150:open');
+    const saved = checkinPlanToSave(start, start.windows, start.lengthMin, late.checkedInAt);
+    // Before: planned until 12:14, split at 10:59.
+    expect(saved.plannedEnd.toISOString()).toBe(iso(180));
+    expect(absSpan(saved.windows)).toBe('29-120:closed 120-180:open');
+  });
+
+  it('the plan sheet keeps a boundary the player left at its own minute, and a new length or split on the grid', () => {
+    const late = { checkedInAt: iso(29), expiresAt: iso(149), plannedEndAt: iso(180), windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')] };
+    const start = checkinPlanSheetStart(late);
+    // 3 hours picked: the end is the check-in + 3 h; the split stays at 11:00.
+    const three = fitCheckinPlanWindows(start.windows, 180);
+    const longer = checkinPlanToSave(start, three, 180, late.checkedInAt);
+    expect(longer.plannedEnd.toISOString()).toBe(iso(209));
+    expect(absSpan(longer.windows)).toBe('29-120:closed 120-209:open');
+    // The split moved 15 minutes later: on the grid from the check-in.
+    const moved = applyWindowEdit(start.windows, { type: 'move', index: 0, deltaMin: 15 }, 150, PLAY_WINDOW_RULES)!;
+    expect(span(moved)).toBe('0-105:closed 105-150:open');
+    expect(absSpan(checkinPlanToSave(start, moved, 150, late.checkedInAt).windows)).toBe('29-134:closed 134-180:open');
+    // A mode changed, the split left alone: still 11:00.
+    const unsaid = applyWindowEdit(start.windows, { type: 'update', index: 0, patch: { mode: null } }, 150, PLAY_WINDOW_RULES)!;
+    expect(absSpan(checkinPlanToSave(start, unsaid, 150, late.checkedInAt).windows)).toBe('29-120:null 120-180:open');
+  });
+
+  it('the opening length still never cuts a window: one starting in the last minutes keeps the step up', () => {
+    // "Switch to open play now" at 11:55 on a check-in to 12:00 (9:29 + 151 min).
+    const switched = { checkedInAt: iso(29), expiresAt: iso(180), plannedEndAt: iso(180), windows: [abs(29, 175, 'closed'), abs(175, 180, 'open')] };
+    const start = checkinPlanSheetStart(switched);
+    expect(start.lengthMin).toBe(165);
+    expect(start.windows.at(-1)?.mode).toBe('open');
+    // Saved as opened: the switch's own minute and the planned end.
+    const saved = checkinPlanToSave(start, start.windows, start.lengthMin, switched.checkedInAt);
+    expect(saved.plannedEnd.toISOString()).toBe(iso(180));
+    expect(absSpan(saved.windows)).toBe('29-175:closed 175-180:open');
+    // The review's first case still opens past the end (8:50, 2 h asked, windows to 12:00): 3 h 15 min.
+    const old = { checkedInAt: iso(-10), expiresAt: iso(110), plannedEndAt: null, windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')] };
+    const oldStart = checkinPlanSheetStart(old);
+    expect(oldStart.lengthMin).toBe(195);
+    const oldSaved = checkinPlanToSave(oldStart, oldStart.windows, oldStart.lengthMin, old.checkedInAt);
+    expect(oldSaved.plannedEnd.toISOString()).toBe(iso(180));
+    expect(absSpan(oldSaved.windows)).toBe('-10-120:closed 120-180:open');
+    expect(modeAt(oldSaved.windows, at(150))?.mode).toBe('open');
+  });
+
+  it('"Planned until" goes once its time has passed; the mode line comes first', () => {
+    const plan = { plannedEndAt: iso(60), windows: [] as ReturnType<typeof abs>[] };
+    expect(checkinPlanLine(plan, at(30), TZ)).toBe('Planned until 10 AM');
+    expect(checkinPlanLine(plan, at(61), TZ)).toBe('');
+    expect(checkinPlanLine({ plannedEndAt: null, windows: [] }, at(30), TZ)).toBe('');
+    expect(checkinPlanLine({ plannedEndAt: iso(180), windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')] }, at(30), TZ)).toBe(
+      playModeNowLine([abs(0, 120, 'closed'), abs(120, 180, 'open')], at(30), TZ),
+    );
   });
 });
 

@@ -138,7 +138,7 @@ import {
 } from '../data/venueCheckins';
 import { loadPresenceSettings } from '../data/presenceSettings';
 import { getCheckinPlan, getMyCourtRoutinesOffline, skipRoutineOccurrence } from '../data/courtRoutines';
-import { routineCheckinMinutes } from './courtRoutineRules';
+import { buttonCheckinMinutes, type CourtRoutine } from './courtRoutineRules';
 import { ROUTINES_ENABLED } from './features';
 // Registers the base replay of a queued Exit / Not here; this file registers
 // over it below (a module runs after the files it imports).
@@ -672,27 +672,44 @@ export const DEFAULT_CHECKIN_MINUTES = 120;
 const ROUTINES_READ_MS = 2_000;
 
 /**
- * How long a check-in made by hand at `venueId` asks for: to the planned end
- * of a routine stop due there now (routineCheckinMinutes, 30 minutes to 4
- * hours), else 2 hours. The server links such a check-in to the occurrence
- * and takes its closed / open windows and planned end, but keeps the length
- * asked (Doggle's ordinary check-in), so 2 hours ended a 3-hour routine split
- * closed 2 h / open 1 h while still closed. From the routines copy on this
- * device; a fetch only when there is none (2 s at most), and 2 hours when
- * they can't be read.
+ * My routines, for how long a check-in asks: the copy on this device, a
+ * fetch only when there is none (2 s at most). Null with ROUTINES_ENABLED
+ * off, or when they can't be read.
  */
-export async function manualCheckinMinutes(venueId: string, at: Date = new Date()): Promise<number> {
+export async function readRoutinesForCheckin(): Promise<CourtRoutine[] | null> {
+  if (!ROUTINES_ENABLED) return null;
+  return withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
+}
+
+/**
+ * How long a check-in at `venueId` asks for (by hand, or a notification's
+ * Check in): to the planned end of a routine stop due there now, 30 minutes
+ * to 4 hours, else 2 hours. A tapped routine reminder's own occurrence
+ * (`reminder`: its push's planned_at / planned_end_at) needs no read; else my
+ * routines (readRoutinesForCheckin), 2 hours when they can't be read. The
+ * server links such a check-in to the occurrence and takes its closed / open
+ * windows and planned end, but keeps the length asked (Doggle's ordinary
+ * check-in), so 2 hours ended a 3-hour routine split closed 2 h / open 1 h
+ * while still closed.
+ */
+export async function manualCheckinMinutes(
+  venueId: string,
+  at: Date = new Date(),
+  reminder?: { plannedAt?: string | null; plannedEndAt?: string | null } | null,
+): Promise<number> {
   if (!ROUTINES_ENABLED) return DEFAULT_CHECKIN_MINUTES;
-  const routines = await withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
-  return (routines ? routineCheckinMinutes(routines, venueId, at) : null) ?? DEFAULT_CHECKIN_MINUTES;
+  const pushed = buttonCheckinMinutes(null, venueId, at, reminder);
+  if (pushed != null) return pushed;
+  return buttonCheckinMinutes(await readRoutinesForCheckin(), venueId, at) ?? DEFAULT_CHECKIN_MINUTES;
 }
 
 /**
  * Check in now with the fix just taken. Queues when offline (the result has
  * `queued: true`). Rejects with the server's "You need to be at the court to
- * check in (about N m away)." when the fix is outside the fence. A check-in
- * by hand (source manual, no `minutes`) runs to the end of a routine stop
- * due there (manualCheckinMinutes).
+ * check in (about N m away)." when the fix is outside the fence. Without
+ * `minutes`, a check-in (by hand or a notification's button; not a
+ * session's) runs to the end of a routine stop due there
+ * (manualCheckinMinutes), else 2 hours.
  */
 export async function checkInAt(
   venue: { id: string; name: string },
@@ -703,7 +720,7 @@ export async function checkInAt(
   const at = new Date();
   const source = opts.source ?? 'manual';
   const minutes =
-    opts.minutes ?? (source === 'manual' ? await manualCheckinMinutes(venue.id, at) : DEFAULT_CHECKIN_MINUTES);
+    opts.minutes ?? (source === 'session' ? DEFAULT_CHECKIN_MINUTES : await manualCheckinMinutes(venue.id, at));
   const payload: CheckinPayload = {
     id: uuidv4(),
     venueId: venue.id,
@@ -1024,11 +1041,18 @@ async function courtCheckin(d: ActionPushData, onArrivalNotice: boolean): Promis
   // "At X?" has done its job (Android leaves a pressed notice up).
   if (onArrivalNotice) void arrivalNotice.dismiss(venueId);
   const court = d.venue_name ?? null;
-  // The fix is read while consent is looked up: the button's 22 s also have
-  // to hold the write.
-  const [consent, fix] = await Promise.all([
+  // The fix is read while consent and the length are looked up: the button's
+  // 22 s also have to hold the write. The length runs to the end of a routine
+  // stop due here, as a check-in by hand does (the routine reminder's push
+  // says which one); it asked 2 hours before, so a 3-hour split ended closed.
+  const [consent, fix, minutes] = await Promise.all([
     presenceConsentState().catch(() => 'unknown' as const),
     takeFixIfAllowed(CHECKIN_ACTION_FIX_MS),
+    manualCheckinMinutes(
+      venueId,
+      new Date(runStart),
+      d.kind === 'routine_reminder' ? { plannedAt: d.planned_at, plannedEndAt: d.planned_end_at } : null,
+    ).catch(() => DEFAULT_CHECKIN_MINUTES),
   ]);
   // The one-time "who sees you at the courts" sheet can't show on the lock
   // screen: until it was accepted, check in from the app. No connection is
@@ -1062,7 +1086,7 @@ async function courtCheckin(d: ActionPushData, onArrivalNotice: boolean): Promis
   }
   let c: CurrentCheckin;
   try {
-    c = await checkInAt({ id: venueId, name: court ?? 'the courts' }, fix, { source: 'geofence' });
+    c = await checkInAt({ id: venueId, name: court ?? 'the courts' }, fix, { source: 'geofence', minutes });
   } catch (e) {
     const code = refusalCode(e);
     if (onArrivalNotice && isLocationRefusalCode(code)) {

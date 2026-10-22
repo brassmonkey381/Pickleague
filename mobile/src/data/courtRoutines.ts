@@ -206,6 +206,14 @@ export type CheckinPlan = {
   modeNow: PlayMode | null;
   /** The end the arrival job gave an arrival check-in (`expires_at = arrival_until`: not extended yet). */
   arrivalUntil: string | null;
+  /**
+   * The last confirming fix (null: none, as on an arrival check-in) and
+   * whether the check-in is location-confirmed (null: not read, as in
+   * set_checkin_plan's answer): extend_checkin without a fix stops 4 hours
+   * past the fix, else past the check-in (stayUntilOffer).
+   */
+  fixAt: string | null;
+  locationConfirmed: boolean | null;
 };
 
 function parsePlan(raw: unknown): CheckinPlan {
@@ -222,6 +230,8 @@ function parsePlan(raw: unknown): CheckinPlan {
     planId: typeof r.plan_id === 'string' ? r.plan_id : null,
     modeNow: mode,
     arrivalUntil: typeof r.arrival_until === 'string' ? r.arrival_until : null,
+    fixAt: typeof r.fix_at === 'string' ? r.fix_at : null,
+    locationConfirmed: typeof r.location_confirmed === 'boolean' ? r.location_confirmed : null,
   };
 }
 
@@ -235,7 +245,7 @@ export async function getCheckinPlan(checkinId: string): Promise<CheckinPlan | n
     () =>
       supabase
         .from('venue_checkins')
-        .select('id, venue_id, checked_in_at, expires_at, planned_end_at, play_windows, plan_id, arrival_until')
+        .select('id, venue_id, checked_in_at, expires_at, planned_end_at, play_windows, plan_id, arrival_until, fix_at, location_confirmed')
         .eq('id', checkinId)
         .maybeSingle(),
     BOUND,
