@@ -46,6 +46,8 @@ export type EndedPlay = {
    * known here (End then asks the server).
    */
   recorded: RecordedForSession;
+  /** The court the island named (none: no court, or it didn't check me in). */
+  venueName?: string | null;
 };
 
 /** What ending a session shows. */

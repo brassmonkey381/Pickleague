@@ -34,6 +34,7 @@ import {
   clockLabel,
   fitCheckinPlanWindows,
   PLAY_HINTS,
+  PLAY_LENGTH_OPTIONS,
   PLAY_MODE_LABEL,
   stayUntilLabel,
   stayUntilOffer,
@@ -43,6 +44,19 @@ import {
 } from '../../lib/courtRoutineRules';
 import { checkinPlanChanged, getCheckinPlan, setCheckinPlan, type CheckinPlan } from '../../data/courtRoutines';
 import { checkinChanged, extendCheckinUntil } from '../../lib/courtCheckin';
+import { draftPlanLine } from '../../lib/playStartRules';
+
+/**
+ * Draft mode (the ▶ Play sheet, plan C2): a plan for a check-in that doesn't
+ * exist yet. The line and its "Plan my play" sheet edit this draft in place;
+ * Start sends it with set_checkin_plan once the session's check-in exists
+ * (lib/playStartPlan).
+ */
+export type DraftPlan = {
+  lengthMin: number;
+  windows: TimeWindow<PlayMode>[];
+  onChange: (lengthMin: number, windows: TimeWindow<PlayMode>[]) => void;
+};
 
 type Props = {
   checkinId: string | null;
@@ -50,11 +64,93 @@ type Props = {
   /** Hide "Plan" (a narrow surface: the island). */
   compact?: boolean;
   style?: StyleProp<ViewStyle>;
+  /** Edit a plan before the check-in exists (no checkinId needed). */
+  draft?: DraftPlan;
 };
 
 export default function CheckinPlanLine(props: Props) {
-  if (!ROUTINES_ENABLED || !props.checkinId) return null;
+  if (!ROUTINES_ENABLED) return null;
+  if (props.draft) return <DraftLine draft={props.draft} style={props.style} />;
+  if (!props.checkinId) return null;
   return <PlanLine {...props} checkinId={props.checkinId} />;
+}
+
+/** "Open play until 7:30 PM · Change", from now. */
+function DraftLine({ draft, style }: { draft: DraftPlan; style?: StyleProp<ViewStyle> }) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const [editing, setEditing] = React.useState(false);
+  // The minute the sheet's times count from (re-read each render: the sheet stays open a while).
+  const startMs = Date.now();
+  const line = draftPlanLine(draft.windows, draft.lengthMin, startMs, (iso) => clockLabel(iso));
+  return (
+    <View style={[S.wrap, style]}>
+      <Text style={[t.sub, S.text]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+        {line}
+        <Text style={{ color: c.primary }} onPress={() => setEditing(true)} accessibilityRole="link">
+          {' · Change'}
+        </Text>
+      </Text>
+      {/* Inline, not a second sheet: the ▶ Play sheet is a Modal already, and
+          iOS presents one Modal at a time. */}
+      {editing ? <DraftPlanEditor draft={draft} onClose={() => setEditing(false)} /> : null}
+    </View>
+  );
+}
+
+/** How long, and Closed group / Open play, for the session about to start. */
+function DraftPlanEditor({ draft, onClose }: { draft: DraftPlan; onClose: () => void }) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const [lengthMin, setLengthMin] = React.useState(draft.lengthMin);
+  const [windows, setWindows] = React.useState<TimeWindow<PlayMode>[]>(
+    draft.windows.length > 0 ? draft.windows : [{ startMin: 0, endMin: draft.lengthMin, mode: null, hint: null, group: [] }],
+  );
+  const [base, setBase] = React.useState<TimeWindow<PlayMode>[]>(windows);
+  const startClock = minutesToClock(wallClockIn(null, new Date()).minutes);
+  const modes = [
+    { value: 'closed' as PlayMode, label: PLAY_MODE_LABEL.closed, color: c.warning },
+    { value: 'open' as PlayMode, label: PLAY_MODE_LABEL.open, color: c.success },
+  ];
+  return (
+    <View>
+        <Text style={[t.label, S.label]}>HOW LONG (FROM NOW)</Text>
+        <DurationChips
+          value={lengthMin}
+          onChange={(m) => {
+            setLengthMin(m);
+            setWindows(fitCheckinPlanWindows(base, m));
+          }}
+          options={[...PLAY_LENGTH_OPTIONS]}
+          format={formatDurationMinutes}
+        />
+        <Text style={[t.label, S.label]}>CLOSED GROUP OR OPEN PLAY</Text>
+        <TimeWindowsEditor<PlayMode>
+          lengthMin={lengthMin}
+          windows={windows}
+          onChange={(w) => {
+            setWindows(w);
+            setBase(w);
+          }}
+          modes={modes}
+          hints={PLAY_HINTS}
+          startClock={startClock}
+          rules={{ stepMin: 15, minWindowMin: 15, maxWindows: 6, maxGroup: 7 }}
+          unsaidColor={c.border}
+        />
+        <Text style={[t.hint, S.hint]}>Others at the court see "open to play" only during open play.</Text>
+        <Button
+          title="Use this plan"
+          size="sm"
+          variant="outline"
+          onPress={() => {
+            draft.onChange(lengthMin, windowsSaySomething(windows) ? windows : []);
+            onClose();
+          }}
+          style={S.save}
+        />
+    </View>
+  );
 }
 
 /** My check-in's plan, reread when it changes here or the check-in does. */

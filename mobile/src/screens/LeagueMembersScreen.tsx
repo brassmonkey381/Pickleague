@@ -5,6 +5,7 @@
 //   MEMBERS 14 · avg 3.62      Suggest
 //   [Q search]  (Role)(PLUPR)(Name)   only once the league has > 10 members
 //   56px rows: avatar · name · PLUPR · role chip · ⋮ (admin tools)
+import { useScreenBottomInset } from '../lib/appChrome';
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Pressable, StyleSheet,
@@ -19,7 +20,7 @@ import {
 } from '@just-messin-around/expo-foundation/supabase';
 import {
   Badge, FilterChipRow, FilterSearchField, ListCard, Panel, SectionHeader, StatusBanner,
-  useBottomChromeInset, type FilterChipOption,
+  type FilterChipOption,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -82,7 +83,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const { colors } = useTheme();
   const t = textStyles(colors);
   const S = makeStyles(colors);
-  const bottomInset = useBottomChromeInset(SPACE.xl);
+  // The navigator already keeps the bottom bar and the island clear (lib/appChrome).
+  const bottomInset = useScreenBottomInset(SPACE.xl);
   const [members, setMembers]   = useState<LeagueMember[]>([]);
   const [requests, setRequests] = useState<LeagueJoinRequest[]>([]);
   const [myRole, setMyRole]     = useState<LeagueRole>(null);

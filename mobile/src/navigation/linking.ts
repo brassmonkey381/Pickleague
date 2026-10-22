@@ -9,6 +9,7 @@ import {
   COURT_DISCOVERY_ENABLED,
   DISCOVER_ENABLED,
   FRIENDS_AT_COURTS_ENABLED,
+  PLAY_NAV_ENABLED,
   REFERRALS_ENABLED,
   ROUTINES_ENABLED,
   WAGERS_ENABLED,
@@ -88,6 +89,9 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Home: '',
       ...(DISCOVER_ENABLED ? { Discover: DISCOVER_LINK } : {}),
       Play: 'play',
+      // /play/start opens the ▶ Play sheet (PLAY_NAV_ENABLED; the route takes
+      // itself out of the stack, plan C10).
+      ...(PLAY_NAV_ENABLED ? { PlayStart: 'play/start' } : {}),
       Leagues: 'leagues',
       LeagueDetail: 'leagues/:leagueId',
       LeagueMembers: 'leagues/:leagueId/members',

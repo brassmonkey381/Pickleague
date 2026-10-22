@@ -26,6 +26,7 @@
 // bookmark (header), join/request (LeagueJoinCard), and in Manage: edit league,
 // invite players, start a season, edit the baseline, lock periods / complete
 // season (SeasonStandings), join requests (LeagueMembers) and godmode delete.
+import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ScrollView, View, StyleSheet, Text,
@@ -36,7 +37,7 @@ import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/nativ
 import {
   sbCall, currentUserId, classifySbError, friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
-import { StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
+import { StickyActionBar } from '@just-messin-around/expo-foundation/ui';
 import { TextField } from '@just-messin-around/expo-foundation/forms';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -171,7 +172,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const youH = useRef<number | null>(null);
   const pastYou = useRef(false);
   const [stickyVisible, setStickyVisible] = useState(false);
-  const bottomInset = useBottomChromeInset(SPACE.lg);
+  // The navigator already keeps the bottom bar and the island clear (lib/appChrome).
+  const bottomInset = useScreenBottomInset(SPACE.lg);
+  const navReserve = useNavReserve();
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -788,6 +791,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           positioned and publishes its height to the bottom chrome slot, which
           lifts PlayIsland above it and pads the list (bottomInset). */}
       <StickyActionBar
+        // It sits above the room the navigator keeps clear: its edge counts from the window bottom.
+        bottomOffset={navReserve}
+        style={navReserve > 0 ? { paddingBottom: SPACE.sm } : undefined}
         visible={stickyVisible && !!stickyPrimary}
         active={isFocused}
         summary={leagueName}

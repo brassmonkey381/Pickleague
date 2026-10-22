@@ -26,6 +26,16 @@
 // (lib/presenceConsent) is asked BEFORE this sheet opens: it is a Modal too,
 // and iOS won't present a second Modal over this one. "Not now" there still
 // opens this sheet, with only the private timer (no court, no location read).
+//
+// With the bottom bar (PLAY_NAV_ENABLED, plan §7.2) it is the slim "▶ Play"
+// sheet: one court line ("Riverside Park · Change"; the list opens only on
+// Change or when no court was found), Open play · Closed group · Drill picked
+// from what I have scheduled around now (lib/playStartRules pickPlayChip, with
+// a "From your 6 PM routine" hint), How long, and the plan line in draft mode.
+// Start starts the session, then sends the plan once its check-in exists
+// (lib/playStartPlan), and never navigates. "▶ Play here" opens it with that
+// court picked (request.venue). A request for a match or with a source (the
+// "starting now" notice) shows that instead of the chips.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -69,6 +79,38 @@ import {
 import { listMyCourtFavorites } from '../../data/courtFavorites';
 import { loadPresenceSettings } from '../../data/presenceSettings';
 import type { PlayKind } from '../../data/playSessions';
+import { DurationChips } from '@just-messin-around/expo-foundation/ui';
+import { getForegroundLocationStatus } from '@just-messin-around/expo-foundation/platform';
+import { formatDurationMinutes, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import { PLAY_NAV_ENABLED } from '../../lib/features';
+import {
+  PLAY_CHIP_KIND,
+  PLAY_CHIP_LABEL,
+  pickPlayChip,
+  windowsForChip,
+  type ChipDraftWindow,
+  type ChipPick,
+  type ChipScheduleItem,
+  type PlayChip,
+} from '../../lib/playStartRules';
+import { loadChipRoutine, loadChipSchedule, readLastChip, saveLastChip } from '../../lib/playStartSchedule';
+import { planAfterStart } from '../../lib/playStartPlan';
+import { checkinAtRequested } from '../../lib/checkinHost';
+import { track } from '../../lib/analytics';
+import {
+  DEFAULT_PLAY_LENGTH_MIN,
+  clockLabel,
+  fitCheckinPlanWindows,
+  type PlayMode,
+} from '../../lib/courtRoutineRules';
+import CheckinPlanLine from '../routines/CheckinPlanLine';
+
+/** The slim sheet's "How long" chips (plan §7.2). */
+const SLIM_LENGTHS = [60, 90, 120, 180];
+
+function draftOf(list: ChipDraftWindow[]): TimeWindow<PlayMode>[] {
+  return list.map((w) => ({ startMin: w.startMin, endMin: w.endMin, mode: w.mode, hint: null, group: [] }));
+}
 
 type ChipKind = Extract<PlayKind, 'open_play' | 'drill' | 'match'>;
 const KINDS: { value: ChipKind; label: string }[] = [
@@ -78,6 +120,13 @@ const KINDS: { value: ChipKind; label: string }[] = [
 ];
 /** `selected` for "No court, just time it". */
 const NO_COURT = 'none';
+/** The slim sheet's read-only line for a session asked for by kind (C3). */
+const PLAY_KIND_LINE: Record<PlayKind, string> = {
+  open_play: 'Open play',
+  drill: 'Drill session',
+  match: 'Match',
+  event: 'Event',
+};
 
 /** One open of the sheet. privateOnly: the consent sheet got "Not now". */
 type Shown = { req: PlayStartRequest; privateOnly: boolean };
@@ -166,12 +215,45 @@ export function PlayStartSheet({
   const requestRef = useRef(request);
   requestRef.current = request;
 
+  // ── The slim sheet (PLAY_NAV_ENABLED) ──
+  const slim = PLAY_NAV_ENABLED;
+  const [chip, setChip] = useState<PlayChip>('open');
+  // A chip the player tapped stays: the auto-pick only moves an untouched one.
+  const chipTouched = useRef(false);
+  const [chipPick, setChipPick] = useState<ChipPick | null>(null);
+  const [lengthMin, setLengthMin] = useState(DEFAULT_PLAY_LENGTH_MIN);
+  const [draft, setDraft] = useState<TimeWindow<PlayMode>[]>(() => draftOf(windowsForChip('open', DEFAULT_PLAY_LENGTH_MIN, null)));
+  const [showCourts, setShowCourts] = useState(false);
+  const [locOff, setLocOff] = useState(false);
+  const [chipInputs, setChipInputs] = useState<{ schedule: ChipScheduleItem[]; last: PlayChip | null } | null>(null);
+  // A match, or a drill / match from the "starting now" notice: that, not the chips.
+  const fixedKind: PlayKind | null =
+    request && (request.kind === 'match' || !!request.sourceId) ? (request.kind ?? 'open_play') : null;
+
   useEffect(() => {
     if (!request) return;
     let alive = true;
     picked.current = false;
     fixRef.current = null;
     resolvedFor.current = null;
+    chipTouched.current = false;
+    setChipPick(null);
+    setChip(request.kind === 'drill' ? 'drill' : 'open');
+    setLengthMin(DEFAULT_PLAY_LENGTH_MIN);
+    setDraft(draftOf(windowsForChip(request.kind === 'drill' ? 'drill' : 'open', DEFAULT_PLAY_LENGTH_MIN, null)));
+    setShowCourts(false);
+    setLocOff(false);
+    setChipInputs(null);
+    if (slim && !privateOnly) {
+      void getForegroundLocationStatus()
+        .then((s) => alive && setLocOff(s === 'denied'))
+        .catch(() => {});
+      // A drill asked for by name stays a drill.
+      if (request.kind === 'drill') chipTouched.current = true;
+      void Promise.all([loadChipSchedule(Date.now()), readLastChip()]).then(
+        ([schedule, last]) => alive && setChipInputs({ schedule, last }),
+      );
+    }
     setKind(request.kind === 'drill' || request.kind === 'match' ? request.kind : 'open_play');
     setCourts([]);
     setSelected(null);
@@ -194,8 +276,21 @@ export function PlayStartSheet({
       if (!alive) return;
       const list = mergeCourtCandidates(groups);
       setCourts(list);
-      if (!picked.current) setSelected(list[0]?.id ?? NO_COURT);
+      if (picked.current) return;
+      // The slim sheet preselects only a court it detected (my check-in, or
+      // one within 150 m of a fix): a usual court I'm not at would read as
+      // "you're here". Nothing detected: "No court found nearby", the list open.
+      const first = list[0];
+      const detected = !!first && (first.reason === 'checked_in' || first.reason === 'picked' || first.reason === 'here');
+      setSelected(slim && !detected ? NO_COURT : (first?.id ?? NO_COURT));
     };
+    // "▶ Play here": that court, picked (it stays picked as the lists land).
+    if (request.venue) {
+      groups.picked = [request.venue];
+      picked.current = true;
+      setSelected(request.venue.id);
+      publish();
+    }
 
     void peekCurrentCheckin().then((cur) => {
       if (cur) groups.checked_in = [{ id: cur.venueId, name: cur.venueName }];
@@ -244,6 +339,87 @@ export function PlayStartSheet({
   }, [request, privateOnly]);
 
   const court = privateOnly ? null : (courts.find((x) => x.id === selected) ?? null);
+  const courtId = court?.id ?? null;
+
+  // The chip from what I have scheduled around now (and the routine due at
+  // this court), until the player taps one. Re-picked when the court changes.
+  useEffect(() => {
+    if (!slim || !request || !chipInputs || fixedKind) return;
+    let alive = true;
+    void loadChipRoutine(courtId, new Date()).then((routine) => {
+      if (!alive || chipTouched.current) return;
+      const p = pickPlayChip({
+        nowMs: Date.now(),
+        routine,
+        schedule: chipInputs.schedule,
+        lastUsed: chipInputs.last,
+        clock: (iso) => clockLabel(iso),
+      });
+      // Closed group needs a court (C2): with none, open play.
+      const next: PlayChip = p.chip === 'closed' && !courtId ? 'open' : p.chip;
+      const len = p.lengthMin ?? DEFAULT_PLAY_LENGTH_MIN;
+      setChipPick(p);
+      setChip(next);
+      setLengthMin(len);
+      setDraft(draftOf(windowsForChip(next, len, p)));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [slim, request, chipInputs, courtId, fixedKind]);
+
+  function chooseChip(next: PlayChip) {
+    chipTouched.current = true;
+    setChip(next);
+    setDraft(draftOf(windowsForChip(next, lengthMin, chipPick)));
+  }
+
+  function chooseLength(n: number) {
+    setLengthMin(n);
+    setDraft((w) => (w.length > 0 ? fitCheckinPlanWindows(w, n) : w));
+  }
+
+  /** "Allow location" / "Find my court": ask, take a fix, and pick the court I'm at. */
+  async function findMyCourt() {
+    const req = request;
+    setFinding(true);
+    try {
+      const ok = await askForLocation();
+      if (requestRef.current !== req) return;
+      setLocOff(!ok);
+      if (!ok) return;
+      const fix = await takeCheckinFix(6_000);
+      if (!fix || requestRef.current !== req) return;
+      fixRef.current = fix;
+      setOpenFix(true);
+      const found = await resolveCourtAt(fix.lat, fix.lng, 150).catch(() => null);
+      if (requestRef.current !== req) return;
+      resolvedFor.current = { fix, court: found };
+      setHere(found);
+      if (found) {
+        setCourts((list) => (list.some((x) => x.id === found.id) ? list : [{ id: found.id, name: found.name, reason: 'here' }, ...list]));
+        if (!picked.current || selected === NO_COURT) setSelected(found.id);
+        setShowCourts(false);
+      } else {
+        setShowCourts(true);
+      }
+    } finally {
+      if (requestRef.current === req) setFinding(false);
+    }
+  }
+
+  /** Start the session (and, at a court, send the plan once its check-in exists). */
+  function launch(m: { venueId: string | null; venueName: string | null; fix?: DeviceFix | null; viaCheckin?: boolean }) {
+    const sourceId = request?.sourceId ?? null;
+    const k: PlayKind = slim ? (fixedKind ?? PLAY_CHIP_KIND[chip].kind) : kind;
+    const id = startPlay({ kind: k, sourceId, ...m });
+    if (slim && !fixedKind) {
+      saveLastChip(chip);
+      if (m.venueId) planAfterStart(id, { venueId: m.venueId, lengthMin, windows: draft });
+      track('play.start_sheet', { chip, why: chipPick?.why ?? 'default', court: !!m.venueId, length_min: lengthMin });
+    }
+    onClose();
+  }
 
   function clearOffers() {
     setMessage(null);
@@ -256,6 +432,9 @@ export function PlayStartSheet({
     picked.current = true;
     setSelected(id);
     clearOffers();
+    setShowCourts(false);
+    // No court: nobody sees a closed group.
+    if (id === NO_COURT && chip === 'closed') chooseChip('open');
   }
 
   /**
@@ -264,12 +443,10 @@ export function PlayStartSheet({
    */
   async function start(opts: { withoutCourt?: boolean; anyway?: boolean; at?: CourtCandidate } = {}) {
     const req = request;
-    const sourceId = req?.sourceId ?? null;
     const at = privateOnly || opts.withoutCourt ? null : (opts.at ?? court);
     clearOffers();
     if (!at) {
-      startPlay({ kind, sourceId, venueId: null, venueName: null });
-      onClose();
+      launch({ venueId: null, venueName: null });
       return;
     }
     // Closed (request null) or replaced by a newer open while we waited.
@@ -287,8 +464,7 @@ export function PlayStartSheet({
         const cur = await peekCurrentCheckin();
         if (stale()) return;
         if (!startNeedsFix(at, cur && !cur.private ? cur.venueId : null)) {
-          startPlay({ kind, sourceId, venueId: at.id, venueName: at.name, fix: fresh, viaCheckin: true });
-          onClose();
+          launch({ venueId: at.id, venueName: at.name, fix: fresh, viaCheckin: true });
           return;
         }
       }
@@ -323,8 +499,7 @@ export function PlayStartSheet({
           return;
         }
       }
-      startPlay({ kind, sourceId, venueId: at.id, venueName: at.name, fix });
-      onClose();
+      launch({ venueId: at.id, venueName: at.name, fix });
     } finally {
       if (!stale()) setBusy(false); // never clear a newer sheet's busy state
     }
@@ -346,6 +521,179 @@ export function PlayStartSheet({
     x.reason === 'here' && here && here.id === x.id && !here.inside
       ? `About ${Math.round(here.distance_m)} m away`
       : courtNote(x.reason);
+
+  if (slim) {
+    const list = (
+      <>
+        {courts.map((x) => (
+          <CourtRow
+            key={x.id}
+            title={`📍 ${x.name}`}
+            note={noteFor(x)}
+            selected={selected === x.id}
+            onPress={() => pick(x.id)}
+          />
+        ))}
+        <CourtRow
+          title="No court, just time it"
+          note="A timer only you see"
+          selected={selected === NO_COURT}
+          onPress={() => pick(NO_COURT)}
+        />
+      </>
+    );
+    const chips = (court ? (['open', 'closed', 'drill'] as PlayChip[]) : (['open', 'drill'] as PlayChip[])).map((v) => ({
+      value: v,
+      label: PLAY_CHIP_LABEL[v],
+    }));
+    // "No court" the player chose, vs. none detected (the list opens then).
+    const choseNoCourt = selected === NO_COURT && picked.current;
+    const noCourtFound = !finding && !court && !choseNoCourt;
+    const courtsOpen = showCourts || privateOnly || noCourtFound;
+    return (
+      <BottomSheet visible={!!request} onClose={onClose} title="▶ Play" contentStyle={S.content}>
+        <ScrollView style={S.scroll} contentContainerStyle={S.scrollBody} keyboardShouldPersistTaps="handled">
+          <Text style={t.sub}>Times your play and checks you in, so friends can find you.</Text>
+
+          {/* The court line: the detected court, or why there's none. */}
+          {privateOnly ? null : (
+            <View style={S.courtLine}>
+              <Text style={[t.title, S.flex]} numberOfLines={2}>
+                {'📍 '}
+                {court ? (
+                  <>
+                    {court.name}
+                    <Text style={[t.meta, { color: c.textSub }]}>{`  ${noteFor(court)}`}</Text>
+                  </>
+                ) : choseNoCourt ? (
+                  'No court'
+                ) : finding ? (
+                  'Finding your court…'
+                ) : locOff ? (
+                  'Location is off'
+                ) : (
+                  'No court found nearby'
+                )}
+              </Text>
+              {finding && !court ? <ActivityIndicator size="small" color={c.primary} /> : null}
+              <TouchableOpacity
+                style={S.link}
+                onPress={() => setShowCourts((x) => !x)}
+                accessibilityRole="button"
+                accessibilityLabel={court ? `Change court, ${court.name}` : 'Pick a court'}
+              >
+                <Text style={[t.meta, { color: c.primary }]}>{court ? 'Change' : 'Pick a court'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!privateOnly && !finding && !openFix && !here ? (
+            // Location off, or never asked (Safari may never say "allowed"):
+            // asked only on this tap, as the court card did.
+            <TouchableOpacity style={S.linkLeft} onPress={() => void findMyCourt()} accessibilityRole="button">
+              <Text style={[t.meta, { color: c.primary }]}>{locOff ? 'Allow location' : 'Find my court'}</Text>
+            </TouchableOpacity>
+          ) : null}
+          {courtsOpen ? <View style={S.list}>{list}</View> : null}
+          {privateOnly ? (
+            <Text style={[t.sub, S.message]}>
+              Only you see this timer. To play at a court, first choose who sees you there: you'll be asked again the
+              next time you start.
+            </Text>
+          ) : null}
+
+          <Text style={[t.label, S.label]}>HOW ARE YOU PLAYING</Text>
+          {fixedKind ? (
+            <Text style={t.body}>{PLAY_KIND_LINE[fixedKind]}</Text>
+          ) : (
+            <>
+              <SegmentedToggle options={chips} value={chip} onChange={chooseChip} size="lg" fullWidth />
+              {chipPick?.hint && !chipTouched.current ? <Text style={[t.hint, S.hint]}>{chipPick.hint}</Text> : null}
+            </>
+          )}
+
+          {!fixedKind ? (
+            <>
+              <Text style={[t.label, S.label]}>HOW LONG</Text>
+              <DurationChips value={lengthMin} onChange={chooseLength} options={SLIM_LENGTHS} format={formatDurationMinutes} />
+              {court ? (
+                <CheckinPlanLine
+                  checkinId={null}
+                  style={S.plan}
+                  draft={{
+                    lengthMin,
+                    windows: draft,
+                    onChange: (len, w) => {
+                      setLengthMin(len);
+                      setDraft(w);
+                    },
+                  }}
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          {court && atCourt === true ? (
+            <Text style={[t.sub, S.visibility]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              {line}
+              <Text
+                style={{ color: c.primary }}
+                onPress={() => {
+                  onClose();
+                  navigateWhenReady('Settings');
+                }}
+                accessibilityRole="link"
+              >
+                {' · Change'}
+              </Text>
+            </Text>
+          ) : null}
+          {message ? <Text style={[t.sub, S.message]}>{message}</Text> : null}
+        </ScrollView>
+
+        <View style={S.actions}>
+          {offerHere ? (
+            <Button title={`Start at ${offerHere.name}`} variant="outline" disabled={busy} onPress={() => startHere(offerHere)} />
+          ) : null}
+          {offerNoCourt ? (
+            <Button title="Start without a court" variant="outline" disabled={busy} onPress={() => void start({ withoutCourt: true })} />
+          ) : null}
+          <Button
+            title={offerAnyway ? '▶  Start anyway' : '▶  Start playing'}
+            variant="success"
+            loading={busy}
+            disabled={busy || selected === null}
+            onPress={() => void start({ anyway: offerAnyway })}
+          />
+          <View style={S.footer}>
+            {court && !privateOnly ? (
+              <TouchableOpacity
+                style={S.link}
+                disabled={busy}
+                onPress={() => {
+                  const v = { id: court.id, name: court.name };
+                  onClose();
+                  checkinAtRequested.emit(v);
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={[t.meta, { color: c.primary }]}>Just check in</Text>
+              </TouchableOpacity>
+            ) : null}
+            {selected !== NO_COURT && !privateOnly ? (
+              <TouchableOpacity
+                style={S.link}
+                disabled={busy}
+                onPress={() => void start({ withoutCourt: true })}
+                accessibilityRole="button"
+              >
+                <Text style={[t.meta, { color: c.textSub }]}>No court, just time it</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </BottomSheet>
+    );
+  }
 
   return (
     <BottomSheet visible={!!request} onClose={onClose} title="Where are you playing?" contentStyle={S.content}>
@@ -481,5 +829,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     visibility: { marginTop: SPACE.md },
     message: { marginTop: SPACE.sm },
     actions: { gap: SPACE.sm, paddingTop: SPACE.sm, borderTopWidth: HAIRLINE, borderTopColor: c.border },
+    // The slim sheet.
+    courtLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44, marginTop: SPACE.xs },
+    flex: { flex: 1, minWidth: 0 },
+    link: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
+    linkLeft: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+    list: { gap: SPACE.sm },
+    hint: { marginTop: SPACE.xs },
+    plan: { marginTop: SPACE.sm },
+    footer: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', columnGap: SPACE.md },
   });
 }

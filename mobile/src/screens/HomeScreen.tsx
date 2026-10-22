@@ -33,7 +33,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused, useRoute, type RouteProp } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
 import { AppTopBar, ConfirmModal, EmptyState, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
@@ -44,7 +44,9 @@ import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
-import { COURT_DISCOVERY_ENABLED } from '../lib/features';
+import { COURT_DISCOVERY_ENABLED, PLAY_NAV_ENABLED } from '../lib/features';
+import { setAlertBadge, useAlertBadge } from '../lib/useAlertBadge';
+import { requestCheckinIsland } from '../lib/checkinHost';
 import { openDiscover } from '../lib/discoverNav';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
@@ -70,7 +72,7 @@ import {
   StreakResult,
 } from '../lib/loginStreak';
 import { useLeagueJoin, type LeagueJoinedEvent } from '../lib/useLeagueJoin';
-import { playSession } from '../lib/playSession';
+import { openPlayStart, playSession } from '../lib/playSession';
 import { useFtueChecklist } from '../components/FtueChecklistCard';
 import { useIsGuest } from '../components/GuestUpgradeBanner';
 import { useDuprImportOffer } from '../components/DuprImportBanner';
@@ -357,6 +359,23 @@ export default function HomeScreen({ navigation }: Props) {
   // The bell's number. Counted before NOW takes the live events out of UP
   // NEXT: an RSVP still open on a live event still needs you.
   const needYou = useMemo(() => needsYouCount(agendaItems, now), [agendaItems, now]);
+  // The bell's badge, kept in lib/useAlertBadge so it survives Home's
+  // remounts and anything else can read it (the bar has no Alerts slot).
+  const loaded = query.data !== undefined;
+  useEffect(() => {
+    if (loaded) setAlertBadge({ needYou, unread: data.unreadLive });
+  }, [loaded, needYou, data.unreadLive]);
+  const alertBadge = useAlertBadge();
+
+  // A 'home/' push (the check-in reminder, the arrival notice): with the
+  // bottom bar, the island shows my check-in or asks "At X?" (CheckinHost).
+  const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
+  const checkinParam = !!route.params?.checkin;
+  useEffect(() => {
+    if (!checkinParam) return;
+    requestCheckinIsland();
+    navigation.setParams({ checkin: undefined });
+  }, [checkinParam, navigation]);
   // A live league event shows in NOW, so UP NEXT leaves it out.
   const liveEvents = useMemo(
     () => buildAgenda(agendaItems, now, { cap: Infinity }).rows.filter(r => r.bucket === 'live' && r.kind === 'event'),
@@ -478,7 +497,12 @@ export default function HomeScreen({ navigation }: Props) {
       case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
       // Discover (plan §8): Play opens its Leagues tab (the old Play hub's
       // first tab), the Discover tile its Places tab (the old Courts screen).
-      case 'play': openDiscover(navigation, { tab: 'leagues' }); break;
+      // With the bottom bar (P1), Play = Doggle's WALK: the ▶ Play sheet
+      // (leagues and tournaments live in Discover).
+      case 'play':
+        if (PLAY_NAV_ENABLED) openPlayStart();
+        else openDiscover(navigation, { tab: 'leagues' });
+        break;
       case 'courts': openDiscover(navigation, { tab: 'places' }); break;
       case 'drill': navigation.navigate('Drill'); break;
       case 'shop': navigation.navigate('Shop'); break;
@@ -688,7 +712,8 @@ export default function HomeScreen({ navigation }: Props) {
         actions={[
           // Discover (the courts near you), always one tap away like Doggle's
           // Discover tab. The magnifier reads without a caption (Doggle's icon).
-          ...(COURT_DISCOVERY_ENABLED
+          // With the bottom bar, Discover is a slot there instead.
+          ...(COURT_DISCOVERY_ENABLED && !PLAY_NAV_ENABLED
             ? [{
                 key: 'discover',
                 icon: 'search' as const,
@@ -720,7 +745,7 @@ export default function HomeScreen({ navigation }: Props) {
             // need you". Plain unread is a dot ("Notifications, new").
             key: 'bell',
             icon: 'bell',
-            badge: needYou > 0 ? needYou : data.unreadLive > 0 ? 'dot' : undefined,
+            badge: alertBadge ?? undefined,
             a11yLabel: 'Notifications',
             badgeA11yLabel: (n) => `Notifications, ${n} need${n === 1 ? 's' : ''} you`,
             onPress: () => { tap('top_bar', 'bell'); navigation.navigate('Notifications'); },

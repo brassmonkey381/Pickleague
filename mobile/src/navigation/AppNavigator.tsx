@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, TouchableOpacity, View } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { supabase } from '../lib/supabase';
@@ -13,7 +14,7 @@ import SpotlightTour from '../components/SpotlightTour';
 import ToastProvider from '../lib/ToastProvider';
 import { resetStreakShown } from '../lib/loginStreak';
 import { ensureCourtNicknamesLoaded } from '../lib/courtNickname';
-import { navigationRef, flushPendingNavigation } from '../lib/navigationRef';
+import { navigationRef, flushPendingNavigation, navigateWhenReady } from '../lib/navigationRef';
 import { endSession, resetSessionUser, trackScreen } from '../lib/analytics';
 import ErrorBoundary from '../components/ErrorBoundary';
 import StartupRetryScreen from '../components/StartupRetryScreen';
@@ -93,10 +94,15 @@ import {
   COURT_DISCOVERY_ENABLED,
   DISCOVER_ENABLED,
   FRIENDS_AT_COURTS_ENABLED,
+  PLAY_NAV_ENABLED,
   REFERRALS_ENABLED,
   ROUTINES_ENABLED,
   WAGERS_ENABLED,
 } from '../lib/features';
+import AppNavBar, { navRouteChanged } from './AppNavBar';
+import CheckinHost from '../components/play/CheckinHost';
+import PlayStartScreen from '../screens/PlayStartScreen';
+import { useNavReserve } from '../lib/appChrome';
 import InviteLandingScreen from '../screens/InviteLandingScreen';
 import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
@@ -135,6 +141,21 @@ function WebMaxWidth({
   );
 }
 
+/** The Me header's gear (PLAY_NAV_ENABLED). */
+function SettingsGear() {
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity
+      onPress={() => navigateWhenReady('Settings')}
+      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      accessibilityRole="button"
+      accessibilityLabel="Settings"
+    >
+      <Icon name="gear" size={22} color={colors.text} />
+    </TouchableOpacity>
+  );
+}
+
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
   // Bounded startup session resolution: never gate the whole app on an
@@ -147,6 +168,9 @@ export default function AppNavigator() {
   // device or a UTC-reporting browser overwrote it.
   useTimeZoneSync(supabase, { prefix: 'pickleague', enabled: !!session, userId: session?.user.id });
   const [splashDone, setSplashDone] = useState(false);
+  // The bottom bar's and the island's room (0 with PLAY_NAV_ENABLED off, or signed out).
+  const reserve = useNavReserve();
+  const navReserve = session ? reserve : 0;
 
   // Minimum-version gate. Starts false and only ever flips true, so startup is
   // never held on this read — the app renders normally while the check is in
@@ -288,6 +312,9 @@ export default function AppNavigator() {
         <WebMaxWidth background={colors.bg}>
           {/* Web-only; renders null on native and when nothing is pending. */}
           <ContinueInAppBanner />
+          {/* With the bottom bar, the screens end above the room it and the
+              island need (lib/appChrome), so neither covers a last row. */}
+          <View style={{ flex: 1, paddingBottom: navReserve }}>
           <NavigationContainer
             ref={navigationRef}
             theme={navTheme}
@@ -298,14 +325,21 @@ export default function AppNavigator() {
               // First-party analytics: the landing screen (also records the session's
               // landing_route, campaign query included).
               trackScreen(navigationRef.getCurrentRoute()?.name);
+              navRouteChanged.emit();
             }}
-            onStateChange={() => trackScreen(navigationRef.getCurrentRoute()?.name)}
+            onStateChange={() => {
+              trackScreen(navigationRef.getCurrentRoute()?.name);
+              navRouteChanged.emit();
+            }}
           >
             <ErrorBoundary>
             <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+                {PLAY_NAV_ENABLED && (
+                  <Stack.Screen name="PlayStart" component={PlayStartScreen} options={{ headerShown: false, animation: 'none' }} />
+                )}
                 {/* Discover (Leagues · Tournaments · Places · Players). While it
                     is on, Play, Leagues, Courts, Friends and the league-less
                     Tournaments are aliases that replace themselves with it on
@@ -335,7 +369,12 @@ export default function AppNavigator() {
                 <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params.title })} />
                 <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
                 <Stack.Screen name="SeasonStandings" component={SeasonStandingsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Season' })} />
-                <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+                <Stack.Screen
+                  name="Profile"
+                  component={ProfileScreen}
+                  // Me: Settings one tap away (Home's top bar has the other gear).
+                  options={{ title: 'Profile', headerRight: PLAY_NAV_ENABLED ? () => <SettingsGear /> : undefined }}
+                />
                 <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
                 <Stack.Screen name="Claim" component={ClaimAccountScreen} options={{ title: 'Claim account' }} />
@@ -432,6 +471,9 @@ export default function AppNavigator() {
             </Stack.Navigator>
             </ErrorBoundary>
           </NavigationContainer>
+          </View>
+          {/* Home · Play · (Check in) · Discover · Me, inside the web column. */}
+          <AppNavBar signedIn={!!session} />
         </WebMaxWidth>
       )}
       {/* Spotlight onboarding tour overlay — renders above the navigator so it
@@ -452,6 +494,9 @@ export default function AppNavigator() {
       {REFERRALS_ENABLED && !updateRequired && phase === 'ready' && <ReferralHost />}
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
+      {/* The check-in owner: the bar's Check in, the 'home/' pushes, the
+          island's checked-in state (renders nothing with the bar off). */}
+      {!updateRequired && phase === 'ready' && <CheckinHost signedIn={!!session} />}
       {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}
       {!updateRequired && phase === 'ready' && <PlayStartSheetHost signedIn={!!session} />}
       {/* "Record a match or drill?" after End (hidden otherwise). */}

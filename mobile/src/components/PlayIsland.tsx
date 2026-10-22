@@ -6,7 +6,13 @@
 // (useResumeLiveSession, 8 s bound) and the "starting now" notice sync, and
 // expands when something asks to start a session while one already runs
 // (openPlayStart -> playIslandExpand).
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
+import { Platform } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { PLAY_NAV_ENABLED } from '../lib/features';
+import { setIslandShown, useNavBarHeight } from '../lib/appChrome';
+import { islandBottom } from '../lib/navBarRules';
+import CheckinPlanLine from './routines/CheckinPlanLine';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -91,6 +97,22 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   useEffect(() => {
     if (!active) setExpanded(false);
   }, [active]);
+  // With the bottom bar (PLAY_NAV_ENABLED): the island sits in the room the
+  // navigator keeps clear just above the bar, so it never covers a screen's
+  // content (lib/appChrome).
+  const insets = useContext(SafeAreaInsetsContext);
+  const barPx = useNavBarHeight();
+  useEffect(() => {
+    if (!PLAY_NAV_ENABLED) return;
+    setIslandShown('play', active);
+    return () => setIslandShown('play', false);
+  }, [active]);
+  const position = PLAY_NAV_ENABLED
+    ? { bottom: islandBottom({ barPx, safeBottom: insets?.bottom ?? 0, gap: Platform.OS === 'web' ? 10 : 6 }) }
+    : undefined;
+  // The plan line for the session's check-in: how long, Closed group / Open
+  // play, "Switch to open play now" and "Plan my play" (plan C2).
+  const planCheckin = PLAY_NAV_ENABLED && checkin && !checkin.queued ? checkin : null;
 
   const actions: IslandAction[] = [
     {
@@ -130,7 +152,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
         ]
       : []),
     // Routines: the rest of this window becomes open play (set_checkin_plan).
-    ...(ROUTINES_ENABLED && checkin && !checkin.queued
+    // (With the bar, the plan line below has this button, and Plan my play.)
+    ...(ROUTINES_ENABLED && !PLAY_NAV_ENABLED && checkin && !checkin.queued
       ? [
           {
             label: 'Switch to open play now',
@@ -181,12 +204,18 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       // StickyActionBar (LeagueDetail, later TournamentDetail) instead of
       // covering it. Nothing to pass here; the bar publishes its own height.
       anchor="bottom"
+      style={position}
       pill={{ primary: `${meta?.label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
       title="PLAYING NOW"
       stats={[
         { value: clock(elapsed), label: 'Elapsed' },
         ...(where ? [{ value: where, label: 'Court' }] : []),
       ]}
+      sections={
+        planCheckin
+          ? [<CheckinPlanLine key="plan" checkinId={planCheckin.id} venueName={planCheckin.venueName} />]
+          : undefined
+      }
       actions={actions}
       accessibilityLabel="Play session in progress"
     />

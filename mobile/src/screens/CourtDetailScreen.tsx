@@ -51,7 +51,8 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { googleMapsKey, hasGoogleMaps, placeMapMode } from '../lib/maps';
-import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
+import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAY_NAV_ENABLED, ROUTINES_ENABLED } from '../lib/features';
+import { openPlayStart } from '../lib/playSession';
 import {
   courtCrowdText,
   courtDistanceLabel,
@@ -198,23 +199,39 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           }
           directions={{ lat: court.lat, lng: court.lng }}
           onDirections={() => track('courts.directions', { primary })}
-          actions={
-            here
-              ? [{ key: 'here', label: '✓ Checked in', onPress: () => {}, disabled: true, variant: 'success' }]
+          actions={[
+            // With the bottom bar (plan §7.6): "▶ Play here" first, the ▶ Play
+            // sheet with this court picked; Check in, Directions and Share follow.
+            ...(PLAY_NAV_ENABLED
+              ? [
+                  {
+                    key: 'play',
+                    label: '▶  Play here',
+                    variant: 'success' as const,
+                    disabled: !!flow.busy,
+                    onPress: () => {
+                      track('courts.play_here', { primary, here });
+                      openPlayStart({ venue: { id: court.id, name: court.name } });
+                    },
+                  },
+                ]
+              : []),
+            ...(here
+              ? [{ key: 'here', label: '✓ Checked in', onPress: () => {}, disabled: true, variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('success' as const) }]
               : primary === 'check_in'
                 ? [
                     {
                       key: 'checkin',
                       label: 'Check in',
-                      iconName: 'pin',
-                      variant: 'primary',
+                      iconName: 'pin' as const,
+                      variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('primary' as const),
                       loading: flow.busy === 'checkin',
                       disabled: !!flow.busy,
                       onPress: checkIn,
                     },
                   ]
-                : []
-          }
+                : []),
+          ]}
           actionsSlot={
             <ShareLinkButton
               url={courtShareUrl(court.id)}

@@ -13,6 +13,7 @@
 // actually use it (see the gates below). Arriving with `focus` scrolls to that
 // control; a push's openNudge / openClose opens Manage and scrolls to it.
 // "Done" is a text link at the end that pops back to Home.
+import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
 import React, { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, Pressable, StyleSheet, Platform, TextInput,
@@ -22,7 +23,7 @@ import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/nativ
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   AvatarPile, Badge, Chip, ClampText, CollapsibleSection, Panel, SectionHeader, StatusBanner,
-  StickyActionBar, useBottomChromeInset,
+  StickyActionBar,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
@@ -89,7 +90,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   const t = textStyles(c);
   const S = makeStyles(c);
   const isFocused = useIsFocused();
-  const bottomInset = useBottomChromeInset(SPACE.xl);
+  // The navigator already keeps the bottom bar and the island clear (lib/appChrome).
+  const bottomInset = useScreenBottomInset(SPACE.xl);
+  const navReserve = useNavReserve();
   const now = useNow(30_000);
 
   const [event, setEvent] = useState<LeagueEvent | null>(null);
@@ -1258,6 +1261,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
       {/* Last child of the root, outside the ScrollView (foundation rule). */}
       <StickyActionBar
+        // It sits above the room the navigator keeps clear: its edge counts from the window bottom.
+        bottomOffset={navReserve}
+        style={navReserve > 0 ? { paddingBottom: SPACE.sm } : undefined}
         visible={stickyVisible}
         active={isFocused}
         summary={rsvpUnanswered ? 'Are you coming?' : 'Live now'}
