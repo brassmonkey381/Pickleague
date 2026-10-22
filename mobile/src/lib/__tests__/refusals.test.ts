@@ -67,6 +67,8 @@ const SERVER_CODES: RefusalCode[] = [
   'friend.unavailable',
   'friend.daily_cap',
   'friend.not_friends',
+  // migration_profiles_column_guard.sql
+  'profile.server_owned',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;
@@ -540,5 +542,13 @@ describe('check-ins saved with no signal (judged at the tap, up to 12 hours)', (
       "A league membership can't be moved to another league or player. Leave the league, then join the one you want.",
     );
     expect(refusalCode({ message: 'x', hint: 'pl:membership.locked' })).toBe('membership.locked');
+  });
+
+  it('a server-owned profile column (pickles, ratings): not saved, update the app', () => {
+    const e = { code: 'P0001', message: 'x', hint: 'pl:profile.server_owned', details: '{"columns": ["pickles"]}' };
+    expect(refusalCode(e)).toBe('profile.server_owned');
+    expect(refusalMessage(e)).toBe(
+      "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.",
+    );
   });
 });
