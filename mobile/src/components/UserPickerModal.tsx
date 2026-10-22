@@ -3,7 +3,9 @@ import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, ActivityIndicator, Platform, Pressable,
 } from 'react-native';
+import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
 import EmptyState from './EmptyState';
@@ -31,16 +33,29 @@ type Props = {
 
 const IS_WEB = Platform.OS === 'web';
 
+/** Why the player list didn't load, and what to do. A server refusal already
+ *  says both; anything else (offline, a server not updated yet) gets a retry hint. */
+function loadProblem(e: unknown): string {
+  if (isServerRefusal(e)) return friendlySbMessage(e);
+  return `${friendlySbMessage(e, "Couldn't load players.")} Check your connection, then tap Try again.`;
+}
+
 export default function UserPickerModal({ visible, title, excludeUserIds, realPeopleOnly = false, onPick, onClose }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const [users, setUsers]     = useState<PickedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery]     = useState('');
+  // Why the list didn't load (null: it did). Shown instead of "No matches."
+  // so a failed read never looks like an empty search.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt]     = useState(0);
 
   useEffect(() => {
     if (!visible) return;
+    let live = true;
     setLoading(true);
+    setLoadError(null);
     // discover_players (migration_hide_test_accounts.sql): never deleted
     // accounts ([deleted account] tombstones keep shared match history intact,
     // they are not people you can pick), test accounts left out while God mode
@@ -49,11 +64,23 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
     supabase
       .rpc('discover_players', { p_real_people_only: realPeopleOnly })
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
-      .then(({ data }) => {
-        setUsers((data ?? []) as PickedUser[]);
+      .then(({ data, error }) => {
+        if (!live) return;
+        if (error) {
+          setUsers([]);
+          setLoadError(loadProblem(error));
+        } else {
+          setUsers((data ?? []) as PickedUser[]);
+        }
+        setLoading(false);
+      }, (e: unknown) => {
+        if (!live) return;
+        setUsers([]);
+        setLoadError(loadProblem(e));
         setLoading(false);
       });
-  }, [visible, realPeopleOnly]);
+    return () => { live = false; };
+  }, [visible, realPeopleOnly, attempt]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
@@ -99,7 +126,15 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
         <FlatList
           data={filtered}
           keyExtractor={u => u.id}
-          ListEmptyComponent={<EmptyState icon="🔍" title="No matches." />}
+          ListEmptyComponent={loadError
+            ? <EmptyState
+                icon="⚠️"
+                title="Couldn't load players."
+                subtitle={loadError}
+                actionLabel="Try again"
+                onAction={() => setAttempt(n => n + 1)}
+              />
+            : <EmptyState icon="🔍" title="No matches." />}
           renderItem={({ item }) => {
             const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
             const emoji   = item.avatar_emoji ?? cartoon.emoji;

@@ -334,14 +334,23 @@ grant execute on function public.set_profile_test_account(uuid, boolean) to auth
 --   p_drilling_only              only players with drilling on (Find Drillers)
 --   p_real_people_only           leave out unclaimed DUPR placeholders and guest passes
 --   p_limit                      1-500, default 500
--- Ordered by name.
+--   p_near_rating                the order (and so which rows a small p_limit
+--                                keeps): closest overall PLUPR first, then by
+--                                name. Null (the people pickers): by name.
+-- A caller that ranks the rows itself (a league's suggested players, Find
+-- Drillers, a tournament's Invite Players) passes p_near_rating, so a capped
+-- pool is the players nearest its level, never the first names alphabetically.
+-- An earlier draft of this file had no p_near_rating; drop that overload so a
+-- re-run never leaves two discover_players for PostgREST to choose between.
+drop function if exists public.discover_players(numeric, numeric, uuid[], boolean, boolean, int);
 create or replace function public.discover_players(
   p_min_rating       numeric default null,
   p_max_rating       numeric default null,
   p_exclude          uuid[]  default null,
   p_drilling_only    boolean default false,
   p_real_people_only boolean default false,
-  p_limit            int     default 500
+  p_limit            int     default 500,
+  p_near_rating      numeric default null
 )
 returns setof public.profiles
 language plpgsql
@@ -363,11 +372,12 @@ begin
        and (not coalesce(p_drilling_only, false) or p.drilling_enabled)
        and (not coalesce(p_real_people_only, false) or (not p.is_unclaimed and not p.is_guest))
        and not ((select public._pl_hide_test_accounts_for(auth.uid())) and p.is_test_account)
-     order by p.full_name, p.id
+     -- Null p_near_rating: every row ties here and the name decides.
+     order by abs(p.rating - p_near_rating) nulls last, p.full_name, p.id
      limit greatest(1, least(coalesce(p_limit, 500), 500));
 end $$;
-revoke all on function public.discover_players(numeric, numeric, uuid[], boolean, boolean, int) from public, anon;
-grant execute on function public.discover_players(numeric, numeric, uuid[], boolean, boolean, int) to authenticated;
+revoke all on function public.discover_players(numeric, numeric, uuid[], boolean, boolean, int, numeric) from public, anon;
+grant execute on function public.discover_players(numeric, numeric, uuid[], boolean, boolean, int, numeric) to authenticated;
 
 
 -- ── 6. Backfill ────────────────────────────────────────────────────────────

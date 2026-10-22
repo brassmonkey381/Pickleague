@@ -5,6 +5,7 @@ import {
   confirmResultMessage,
   drillReviewRefusal,
   extendedNote,
+  isServerRefusal,
   isAlreadyReviewedMessage,
   lapsedCheckinNotice,
   queuedCheckinRanOutNote,
@@ -550,5 +551,19 @@ describe('check-ins saved with no signal (judged at the tap, up to 12 hours)', (
     expect(refusalMessage(e)).toBe(
       "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.",
     );
+  });
+});
+
+describe('isServerRefusal: the server already said why and what to do', () => {
+  it('is true for a pl: hint with a message, known code or not', () => {
+    expect(isServerRefusal({ message: 'Only a Pickleague admin can change this.', hint: 'pl:admin.only', code: 'P0001' })).toBe(true);
+    expect(isServerRefusal({ message: "That account isn't in Pickleague any more.", hint: 'pl:player.gone' })).toBe(true);
+  });
+  it('is false for anything else', () => {
+    expect(isServerRefusal(null)).toBe(false);
+    expect(isServerRefusal(new TypeError('Failed to fetch'))).toBe(false);
+    expect(isServerRefusal({ message: 'Could not find the function', code: 'PGRST202' })).toBe(false);
+    expect(isServerRefusal({ message: '', hint: 'pl:admin.only' })).toBe(false);
+    expect(isServerRefusal({ message: 'x', hint: 'Perhaps you meant pl:admin' })).toBe(false);
   });
 });

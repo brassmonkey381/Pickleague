@@ -108,6 +108,17 @@ begin
   return v;
 end $$;
 
+-- For a viewer with a long history (the God mode account on live), `who` can be
+-- cut by suggest_friends' 50-row cap: true when k got 50 rows that all
+-- outrank p_score, so a miss there says nothing about the filter.
+create function pg_temp.suggest_full_above(k text, p_score int) returns boolean language plpgsql as $$
+declare v boolean;
+begin
+  perform pg_temp.as_user(pg_temp.p(k));
+  select count(*) = 50 and min(s.score) > p_score from public.suggest_friends(50) s into v;
+  return v;
+end $$;
+
 -- Whether viewer k sees `who` by name at the test court (court_presence), and
 -- how many rows k gets there (named and anonymous), venue_players_here's rows
 -- and venue_crowd's here_now.
@@ -183,7 +194,10 @@ insert into public.friendships (requester_id, addressee_id, status, responded_at
 -- Drilled together (suggest_friends' "Drilled 1x").
 insert into public.drill_sessions (player1_id, player2_id, session_date, session_slot) values
   (pg_temp.p('HO'), pg_temp.p('HN'), current_date - 1, 18),
-  (pg_temp.p('HT'), pg_temp.p('HO'), current_date - 2, 18);
+  (pg_temp.p('HT'), pg_temp.p('HO'), current_date - 2, 18),
+  -- So the exempt viewers have the test account to be suggested (H4).
+  (pg_temp.p('HT'), pg_temp.p('HV'), current_date - 2, 19),
+  (pg_temp.p('HT'), pg_temp.p('AD'), current_date - 2, 20);
 
 -- @@MIGRATION@@
 
@@ -217,7 +231,7 @@ declare
 begin
   perform pg_temp.as_admin();
   foreach f in array array[
-    'public.discover_players(numeric,numeric,uuid[],boolean,boolean,integer)',
+    'public.discover_players(numeric,numeric,uuid[],boolean,boolean,integer,numeric)',
     'public.get_hide_test_accounts()', 'public.set_hide_test_accounts(boolean)',
     'public.get_profile_test_account(uuid)', 'public.set_profile_test_account(uuid,boolean)',
     'public.suggest_friends(integer)', 'public.court_presence(text)',
@@ -296,6 +310,18 @@ begin
   perform pg_temp.ok('H3 off: HO finds the test account in player search', pg_temp.discovers('HO', 'HT'));
   perform pg_temp.ok('H3 off: HO finds the ordinary player', pg_temp.discovers('HO', 'HN'));
   perform pg_temp.ok('H3 off: HO finds the QA account', pg_temp.discovers('HO', 'HQ'));
+  -- p_near_rating keeps the nearest when the limit cuts, not the first names.
+  perform pg_temp.as_admin();
+  update public.profiles set rating = 77.789 where id = pg_temp.p('HN');
+  perform pg_temp.as_user(pg_temp.p('HO'));
+  perform pg_temp.ok('H3 p_near_rating: the nearest player comes first',
+    (select d.id from public.discover_players(p_min_rating => 77.770, p_max_rating => 77.790,
+                                              p_limit => 1, p_near_rating => 77.789) d) = pg_temp.p('HN'));
+  perform pg_temp.ok('H3 no p_near_rating: by name (Hide Test HF before Hide Test HN)',
+    (select d.id from public.discover_players(p_min_rating => 77.770, p_max_rating => 77.790,
+                                              p_limit => 1) d) = pg_temp.p('HF'));
+  perform pg_temp.as_admin();
+  update public.profiles set rating = 77.780 where id = pg_temp.p('HN');
   perform pg_temp.ok('H3 off: suggest_friends suggests the test account', pg_temp.suggested('HO', 'HT'));
   perform pg_temp.ok('H3 off: court_presence shows the test account', pg_temp.at_court('HO', 'HT'));
   perform pg_temp.ok('H3 off: court_presence has all 4 rows', pg_temp.court_rows('HO') = 4, pg_temp.court_rows('HO')::text);
@@ -350,6 +376,8 @@ begin
   perform pg_temp.ok('H4 on: ... and sees them at the court', pg_temp.at_court('HV', 'HT'));
   perform pg_temp.ok('H4 on: ... all 4 rows', pg_temp.court_rows('HV') = 4, pg_temp.court_rows('HV')::text);
   perform pg_temp.ok('H4 on: ... and counts 4', pg_temp.crowd('HV') = 4, pg_temp.crowd('HV')::text);
+  perform pg_temp.ok('H4 on: ... venue_players_here: all 4 rows', pg_temp.here_rows('HV') = 4, pg_temp.here_rows('HV')::text);
+  perform pg_temp.ok('H4 on: ... and suggest_friends still suggests the test account', pg_temp.suggested('HV', 'HT'));
   perform pg_temp.owner_as(pg_temp.p('HV'));
   perform pg_temp.ok('H4 on: discovery_hidden is false for a test-account viewer', not public.discovery_hidden(pg_temp.p('HT')));
 
@@ -357,6 +385,11 @@ begin
   perform pg_temp.ok('H4 on: the admin still finds test accounts', pg_temp.discovers('AD', 'HT'));
   perform pg_temp.ok('H4 on: ... and sees them at the court', pg_temp.at_court('AD', 'HT'));
   perform pg_temp.ok('H4 on: ... and counts 4', pg_temp.crowd('AD') = 4, pg_temp.crowd('AD')::text);
+  perform pg_temp.ok('H4 on: ... court_presence: all 4 rows', pg_temp.court_rows('AD') = 4, pg_temp.court_rows('AD')::text);
+  perform pg_temp.ok('H4 on: ... venue_players_here: all 4 rows', pg_temp.here_rows('AD') = 4, pg_temp.here_rows('AD')::text);
+  -- Drilled 1x scores 100; on live the admin's 50 suggestions can all outrank it.
+  perform pg_temp.ok('H4 on: ... and suggest_friends still suggests the test account (unless 50 stronger suggestions fill the list)',
+    pg_temp.suggested('AD', 'HT') or pg_temp.suggest_full_above('AD', 100));
   perform pg_temp.as_admin();
 end $$;
 

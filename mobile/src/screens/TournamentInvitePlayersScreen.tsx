@@ -88,10 +88,10 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     // 3. Pull all profiles in a wide rating band around the tournament avg
     //    (+/- 1.5 PLUPR) so the recommendation list isn't huge.
     //    discover_players (migration_hide_test_accounts.sql) never offers a
-    //    deleted account, nor a test account while God mode hides them; by
-    //    name, at most 500.
+    //    deleted account, nor a test account while God mode hides them; the
+    //    500 nearest the average.
     const profs = await sbCall(() => supabase
-      .rpc('discover_players', { p_min_rating: avg - 1.5, p_max_rating: avg + 1.5, p_limit: 500 })
+      .rpc('discover_players', { p_min_rating: avg - 1.5, p_max_rating: avg + 1.5, p_limit: 500, p_near_rating: avg })
       .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color'));
 
     const list: Candidate[] = ((profs ?? []) as any[])

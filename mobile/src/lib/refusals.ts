@@ -163,6 +163,16 @@ export function refusalCode(e: unknown): RefusalCode | null {
   return null;
 }
 
+/**
+ * Whether the server refused this with its own readable copy (HINT 'pl:<any
+ * code>', SQLSTATE P0001). Those messages already say why and what to do, so a
+ * caller shows them as they are instead of adding its own "try again".
+ */
+export function isServerRefusal(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  return /^pl:[a-z_.]+$/.test(str((e as ErrorLike).hint)) && messageOf(e) !== '';
+}
+
 /** The DETAIL JSON object, when there is one. */
 export function refusalDetail(e: unknown): Record<string, unknown> {
   const raw = (e as ErrorLike | null)?.details ?? (e as ErrorLike | null)?.detail;

@@ -11,6 +11,7 @@ import { Panel, SettingSwitchRow } from '@just-messin-around/expo-foundation/ui'
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { isGodmodeUserId } from '../lib/godmode';
+import { isServerRefusal } from '../lib/refusals';
 import {
   getHideTestAccounts, setHideTestAccounts, getProfileTestAccount, setProfileTestAccount,
 } from '../data/testAccounts';
@@ -22,6 +23,13 @@ type AdminSwitchProps = {
   save: (on: boolean) => Promise<boolean>;
   inset?: boolean;
 };
+
+/** A server refusal (hint 'pl:...') already says why and what to do, so it is
+ *  shown as it is; anything else (offline, an unexpected error) gets `next`. */
+function explain(e: unknown, fallback: string, next: string): string {
+  if (isServerRefusal(e)) return friendlySbMessage(e);
+  return `${friendlySbMessage(e, fallback)} ${next}`;
+}
 
 /** One server-backed switch: loads its value, saves on tap, says why on failure. */
 function AdminSwitch({ label, hint, load, save, inset = true }: AdminSwitchProps) {
@@ -35,7 +43,7 @@ function AdminSwitch({ label, hint, load, save, inset = true }: AdminSwitchProps
     try {
       setValue(await load());
     } catch (e) {
-      setProblem(`${friendlySbMessage(e, "Couldn't load this setting.")} Tap the switch to try again.`);
+      setProblem(explain(e, "Couldn't load this setting.", 'Tap the switch to try again.'));
     } finally {
       setBusy(false);
     }
@@ -52,7 +60,7 @@ function AdminSwitch({ label, hint, load, save, inset = true }: AdminSwitchProps
     try {
       setValue(await save(next));
     } catch (e) {
-      setProblem(`${friendlySbMessage(e, "Couldn't save this setting.")} Nothing changed; try again.`);
+      setProblem(explain(e, "Couldn't save this setting.", 'Nothing changed; try again.'));
     } finally {
       setBusy(false);
     }

@@ -236,6 +236,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         p_min_rating: avgElo - 1.75,
         p_max_rating: avgElo + 1.75,
         p_limit: 50,
+        // The 50 nearest the league's level, not the first 50 names.
+        p_near_rating: avgElo,
       })
       .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')) as any[] | null;
 
