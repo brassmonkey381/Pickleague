@@ -273,13 +273,34 @@ describe('day bands and ordering', () => {
     ]);
   });
 
-  it('puts courts with friends first and caps the cards per day', () => {
+  it('puts courts with friends first and caps the friends-only cards, never a star', () => {
     const groups = Array.from({ length: 8 }, (_, i) => group(`v${i}`, Array.from({ length: i + 1 }, (_, j) => friend(`f${i}-${j}`))));
     const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
     const f = buildPickleagueFeed(base({ friendIds: ids, starred: [{ venueId: 'quiet', venueName: 'Aaa' }], friendsAtCourts: fac(groups) }));
     const today = f.days[0];
     expect(today.courts).toHaveLength(MAX_FEED_COURTS);
-    expect(today.courts.map((c) => c.venueId)).toEqual(['v7', 'v6', 'v5', 'v4', 'v3', 'v2']);
+    expect(today.courts.map((c) => c.venueId)).toEqual(['v7', 'v6', 'v5', 'v4', 'v3', 'quiet']);
+  });
+
+  it('keeps every quiet starred court and routine court when friends fill the cap', () => {
+    const groups = Array.from({ length: 6 }, (_, i) => group(`v${i}`, [friend(`f${i}`)]));
+    const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: ids,
+        starred: [
+          { venueId: 's1', venueName: 'Star 1' },
+          { venueId: 's2', venueName: 'Star 2' },
+          { venueId: 's3', venueName: 'Star 3' },
+        ],
+        routines: [routine()],
+        friendsAtCourts: fac(groups),
+      }),
+    );
+    const today = f.days.find((d) => d.key === 'today')!;
+    const ids2 = today.courts.map((c) => c.venueId);
+    for (const id of ['s1', 's2', 's3', 'v-routine']) expect(ids2).toContain(id);
+    expect(today.courts.filter((c) => c.venueId.startsWith('v') && c.venueId !== 'v-routine')).toHaveLength(MAX_FEED_COURTS - 4);
   });
 });
 

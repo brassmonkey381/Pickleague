@@ -1,7 +1,7 @@
 // One court in one day of the Pickleague Feed (Doggle's FeedParkCard, with
 // the player's avatar and PLUPR where Doggle shows the dog). The header is the
 // court (★ for a starred court, a pin otherwise; tap opens its page) with its
-// crowd line and "Check in ▾" today / "Plan ▾" tomorrow. Its lines run in time
+// crowd line and "Options ▾" today / "Plan ▾" tomorrow. Its lines run in time
 // order: friends who came and went today (faded), friends here now (with their
 // play mode), then my routine stops. Each line's time chip opens what I can do
 // with it. Over 6 lines the oldest finished visits give way first.
@@ -12,7 +12,7 @@ import { Avatar, type ChipTone } from '@just-messin-around/expo-foundation/ui';
 import { FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
-import { shortTime } from '../../lib/agenda';
+import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { formatPluprShort } from '../../lib/plupr';
 import { playerModeLine, playModeNowLine, type PlayModeRow } from '../../lib/courtRoutineRules';
@@ -22,7 +22,7 @@ const AVATAR = 36;
 
 export type FeedCourtCardActions = {
   openCourt: (card: Card) => void;
-  /** "Check in ▾" (today) / "Plan ▾" (tomorrow): the court's options sheet. */
+  /** "Options ▾" (today) / "Plan ▾" (tomorrow): the court's options sheet. */
   courtOptions: (card: Card, day: DayBandKey) => void;
   /** A line's time chip: its action sheet. */
   openLine: (line: FeedCourtLine, card: Card, day: DayBandKey) => void;
@@ -40,6 +40,7 @@ export default function FeedCourtCard({
   modes,
   openNow,
   plupr,
+  friendsFailed,
   actions,
 }: {
   card: Card;
@@ -51,12 +52,16 @@ export default function FeedCourtCard({
   openNow: number | null;
   /** Friends' doubles PLUPR by user id (the friends list). */
   plupr: ReadonlyMap<string, number | null>;
+  /** The friends-at-courts read failed with nothing cached: an empty card says so. */
+  friendsFailed?: boolean;
   actions: FeedCourtCardActions;
 }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const [all, setAll] = React.useState(false);
   const capped = capCourtLines(card.lines);
+  // "Later this week" spans several days: a stop there names its day ("Sat 6 PM").
+  const stopClock = (iso: string) => (day === 'later' ? `${dayLabel(new Date(iso), new Date(now))} ${clock(iso)}` : clock(iso));
   const shown = all ? card.lines : capped.shown;
   const more = all ? 0 : capped.more;
 
@@ -71,7 +76,7 @@ export default function FeedCourtCard({
     if (l.kind === 'left') return { label: 'Left', tone: 'neutral' };
     if (l.stop.status === 'cancelled') return { label: 'Skipped', tone: 'neutral' };
     const started = Date.parse(l.stop.at) <= now;
-    return { label: `At ${clock(l.stop.at)}`, tone: started ? 'neutral' : 'warning' };
+    return { label: `At ${stopClock(l.stop.at)}`, tone: started ? 'neutral' : 'warning' };
   }
 
   function trailing(l: FeedCourtLine, who: string) {
@@ -139,10 +144,10 @@ export default function FeedCourtCard({
         </View>
         <View style={styles.body}>
           <Text style={t.title} numberOfLines={1}>
-            You (routine)
+            You · your routine
           </Text>
           <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
-            {s.status === 'cancelled' ? `Skipped · ${clock(s.at)}–${clock(s.endAt)}` : plan || `${clock(s.at)}–${clock(s.endAt)}`}
+            {s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`}
           </Text>
         </View>
         {trailing(l, 'your routine stop')}
@@ -150,7 +155,9 @@ export default function FeedCourtCard({
     );
   }
 
-  const optionsLabel = day === 'today' ? 'Check in' : day === 'tomorrow' ? 'Plan' : null;
+  // "Options", not "Check in": the sheet opens the court page to check in (the
+  // feed can't check in by itself yet).
+  const optionsLabel = day === 'today' ? 'Options' : day === 'tomorrow' ? 'Plan' : null;
 
   return (
     <View style={[styles.card, { borderColor: c.border }]}>
@@ -189,7 +196,11 @@ export default function FeedCourtCard({
       <View style={styles.rows}>
         {shown.length === 0 ? (
           <Text style={[t.meta, { color: c.textSub }]}>
-            {day === 'today' ? 'No friends here or planned yet today.' : 'Nothing planned here yet.'}
+            {day === 'today'
+              ? friendsFailed
+                ? "Couldn't load who's here. Pull down to try again."
+                : 'No friends here or planned yet today.'
+              : 'Nothing planned here yet.'}
           </Text>
         ) : null}
         {shown.map((l) => {

@@ -146,8 +146,11 @@ export default function HomeScreen({ navigation }: Props) {
   const spotlight = useLeagueSpotlight(HOME_FEED_ENABLED ? NO_LEAGUES : myLeagues, profile?.id ?? null, now);
   const { revalidate: revalidateSpotlight, refresh: refreshSpotlight } = spotlight;
   useFocusEffect(useCallback(() => { void revalidateSpotlight(); }, [revalidateSpotlight]));
+  // The feed's court side (friends at the courts, stars, routines, friends
+  // list) has its own reads: pull-to-refresh reloads them as well.
+  const feedRefresh = useRef<(() => Promise<void>) | null>(null);
   const pullReload = useCallback(async () => {
-    await Promise.all([reload(), refreshSpotlight()]);
+    await Promise.all([reload(), refreshSpotlight(), feedRefresh.current?.()]);
   }, [reload, refreshSpotlight]);
   const refresh = useRefresh(pullReload);
 
@@ -599,6 +602,10 @@ export default function HomeScreen({ navigation }: Props) {
         navigate={go}
         onConfirmDrill={confirmDrill}
         onDismissDrill={(id) => { void dismissDrill(id); }}
+        onProposePlayDay={(leagueId) => navigation.navigate('CreateEvent', { leagueId })}
+        onPickerOpenChange={onPickerOpenChange}
+        onSeeAllRequests={() => navigation.navigate('Notifications', { initialChip: 'requests' })}
+        refreshRef={feedRefresh}
       />,
     );
     if (joinSection) sections.push(joinSection);

@@ -29,6 +29,7 @@ export default function FeedAgendaLine({
   row,
   now,
   highlight,
+  band,
   onOpen,
   onAction,
   onConfirm,
@@ -39,6 +40,8 @@ export default function FeedAgendaLine({
   now: number;
   /** A needs-you line (pinned on top). */
   highlight?: boolean;
+  /** The day band it sits in: inside Today / Tomorrow the day isn't repeated. */
+  band?: 'today' | 'tomorrow' | 'later';
   onOpen: () => void;
   onAction?: () => void;
   onConfirm?: () => void;
@@ -48,7 +51,10 @@ export default function FeedAgendaLine({
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const w = agendaWhen(row, now);
-  const when = [w.top, w.bottom].filter(Boolean).join(' ');
+  // Inside a dated band only the time shows (Doggle); elsewhere "Tmrw" is spelled out.
+  const dated = (band === 'today' && w.top === 'Today') || (band === 'tomorrow' && w.top === 'Tmrw');
+  const top = dated && w.bottom ? null : w.top === 'Tmrw' ? 'Tomorrow' : w.top;
+  const when = [top, w.bottom].filter(Boolean).join(' ');
   const live = row.bucket === 'live';
   const facts = joinFacts([row.leagueName, row.status]);
 

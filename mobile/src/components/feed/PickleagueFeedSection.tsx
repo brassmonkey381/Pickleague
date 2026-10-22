@@ -8,9 +8,9 @@
 //   NEEDS YOU · 3 ...... votes, RSVPs, scores to confirm, invites, requests
 //   [Today  Thu, Oct 22                    5 ^]
 //     league lines (events, drills, tournament matches)
-//     ★ Lakeside        6 here · 2 open to play        Check in ▾
+//     ★ Lakeside        6 here · 2 open to play         Options ▾
 //        (Ann)  Ann · PLUPR 3.82 · Open to play until 7 PM   [Here now ▾]
-//        (📅)   You (routine) · 6–8 PM                        [At 6 PM ▾]
+//        (📅)   You · your routine · 6–8 PM               [At 6 PM ▾]
 //   [Tomorrow  Fri, Oct 23                    1 v]
 //   [Later this week                          2 v]
 //   My leagues ›  My tournaments ›  Find courts ›
@@ -36,7 +36,7 @@ import { useToast } from '../../lib/useToast';
 import { trackHomeTap } from '../../lib/analytics';
 import { openDiscover } from '../../lib/discoverNav';
 import { openPlayStart } from '../../lib/playSession';
-import { shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
+import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
   COURT_DISCOVERY_ENABLED,
@@ -56,7 +56,7 @@ import {
 } from '../../lib/pickleagueFeed';
 import type { PlayModeRow } from '../../lib/courtRoutineRules';
 import type { HomeData } from '../home/homeData';
-import type { PickableLeague } from '../LeaguePickerModal';
+import LeaguePickerModal, { type PickableLeague } from '../LeaguePickerModal';
 import { FRIENDS_COURTS_KEY, getFriendsAtCourts, type FriendsAtCourts } from '../../data/courtPresence';
 import { useCourtFavorites } from '../../data/courtFavorites';
 import { useMyFriends } from '../../lib/useFriends';
@@ -99,6 +99,15 @@ export type PickleagueFeedProps = {
   /** Inline drill Confirm. Rejects on failure (the caller shows the error). */
   onConfirmDrill: (sessionId: string) => Promise<void>;
   onDismissDrill: (sessionId: string) => void;
+  /** "Propose a play day" (leagues I run): CreateEvent for that league. */
+  onProposePlayDay: (leagueId: string) => void;
+  /** The league picker opened / closed (Home holds its pop-up queue meanwhile). */
+  onPickerOpenChange?: (open: boolean) => void;
+  /** "All requests in Notifications ›" under Needs you. */
+  onSeeAllRequests: () => void;
+  /** Home's pull-to-refresh calls this: the court side's reads (friends at the
+   *  courts, my stars, my routines, my friends list) reload with it. */
+  refreshRef?: React.MutableRefObject<(() => Promise<void>) | null>;
 };
 
 const tap = (target: string, position?: number) => trackHomeTap({ section: 'feed', target, position });
@@ -146,6 +155,27 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     enabled: ROUTINES_ENABLED,
   });
   const routines = React.useMemo(() => (ROUTINES_ENABLED ? routinesQ.data ?? [] : []), [routinesQ.data]);
+  const friendsFailed = FRIENDS_AT_COURTS_ENABLED && friendsQ.error != null && friendsQ.data === undefined;
+
+  // Home's pull-to-refresh reloads the court side too.
+  const refreshers = [
+    FRIENDS_AT_COURTS_ENABLED ? friendsQ.refresh : null,
+    FRIENDS_AT_COURTS_ENABLED ? myFriendsQ.refresh : null,
+    COURT_STARS_ENABLED ? favoritesQ.refresh : null,
+    ROUTINES_ENABLED ? routinesQ.refresh : null,
+  ];
+  const refreshersRef = React.useRef(refreshers);
+  refreshersRef.current = refreshers;
+  const { refreshRef } = props;
+  React.useEffect(() => {
+    if (!refreshRef) return undefined;
+    refreshRef.current = async () => {
+      await Promise.allSettled(refreshersRef.current.map((fn) => (fn ? fn() : undefined)));
+    };
+    return () => {
+      refreshRef.current = null;
+    };
+  }, [refreshRef]);
 
   const friendIds = React.useMemo(
     () => (myFriendsQ.data ? new Set(myFriendsQ.data.map((f) => f.user_id)) : null),
@@ -249,7 +279,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       const first = line.person.name.split(/\s+/)[0] || line.person.name;
       return [
         ...(line.kind === 'here' && day === 'today'
-          ? [{ label: '▶ Play here', onPress: () => { tap('play_here'); openPlayStart(); } }]
+          ? [{ label: '▶ Start playing', onPress: () => { tap('play_here'); openPlayStart(); } }]
           : []),
         { label: `See ${first}'s profile`, iconName: 'person' as const, onPress: () => openPerson(line.person.userId, line.person.name) },
       ];
@@ -288,8 +318,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       : [];
     if (day !== 'today') return routine;
     return [
-      ...(COURT_DISCOVERY_ENABLED ? [{ label: 'Check in here', iconName: 'pin' as const, onPress: () => { tap('check_in'); openCourt(card.venueId); } }] : []),
-      { label: '▶ Play here', onPress: () => { tap('play_here'); openPlayStart(); } },
+      // Opens the court page, where the check-in is: the feed can't check in
+      // by itself yet, and the start sheet doesn't take a court yet (P1).
+      ...(COURT_DISCOVERY_ENABLED ? [{ label: 'Open court to check in', iconName: 'pin' as const, onPress: () => { tap('check_in'); openCourt(card.venueId); } }] : []),
+      { label: '▶ Start playing', onPress: () => { tap('play_here'); openPlayStart(); } },
       ...routine,
     ];
   }
@@ -316,13 +348,14 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
-  function agendaLine(row: AgendaRow, i: number, highlight: boolean) {
+  function agendaLine(row: AgendaRow, i: number, highlight: boolean, band?: DayBandKey) {
     return (
       <FeedAgendaLine
         key={row.key}
         row={row}
         now={now}
         highlight={highlight}
+        band={band}
         onOpen={() => { tap(highlight ? 'needs_you' : 'row', i); props.navigate(row.target); }}
         onAction={row.action ? () => { tap(row.action!.slug ?? 'action', i); props.navigate(row.action!.target); } : undefined}
         onConfirm={row.confirmDrillId ? () => void confirmDrill(row.confirmDrillId!) : undefined}
@@ -332,7 +365,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     );
   }
 
-  function moreLine(key: string, more: number, open: boolean) {
+  function moreLine(key: string, more: number, open: boolean, what: string) {
     if (more === 0 && !open) return null;
     return (
       <TouchableOpacity
@@ -340,6 +373,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         onPress={() => { tap(open ? 'show_fewer' : 'show_more'); setExpanded((e) => ({ ...e, [key]: !open })); }}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
+        accessibilityLabel={open ? `Show fewer in ${what}` : `Show ${more} more in ${what}`}
       >
         <Text style={[t.meta, { color: c.primary }]}>{open ? 'Show fewer' : `Show ${more} more`}</Text>
         <Icon name={open ? 'chevron-up' : 'chevron-down'} size={14} color={c.primary} />
@@ -358,8 +392,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       count: d.count,
       children: (
         <>
-          {rows.shown.map((r, i) => agendaLine(r, i, false))}
-          {moreLine(d.key, rows.more, !!expanded[d.key])}
+          {rows.shown.map((r, i) => agendaLine(r, i, false, d.key))}
+          {moreLine(d.key, rows.more, !!expanded[d.key], d.title)}
           {d.courts.map((card) => (
             <FeedCourtCard
               key={card.key}
@@ -369,6 +403,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
               modes={d.key === 'today' ? modesByVenue.get(card.venueId) ?? null : null}
               openNow={d.key === 'today' ? modesQ.data?.[card.venueId]?.openNow ?? null : null}
               plupr={plupr}
+              friendsFailed={friendsFailed}
               actions={courtCardActions}
             />
           ))}
@@ -377,31 +412,56 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     };
   });
 
+  const isMember = home.myLeagues.length > 0;
+  const hasFriends = (myFriendsQ.data?.length ?? 0) > 0;
+  // Only what would fill the feed and isn't set up yet. No "find a league"
+  // here: a member has leagues, and a non-member gets Join a league right below.
+  const canStar = COURT_DISCOVERY_ENABLED && COURT_STARS_ENABLED && starred.length === 0;
+  const canFindFriends = FRIENDS_AT_COURTS_ENABLED && myFriendsQ.data !== undefined && !hasFriends;
+  const emptyHint = [canStar ? 'star the courts you play at' : null, canFindFriends ? "add friends to see who's playing" : null].filter(Boolean);
   const emptyBlock = (
     <View style={styles.empty}>
       <Text style={[t.sub, styles.center]}>
-        Nothing on the calendar yet. Join a league, star the courts you play at, or add friends to see who's playing.
+        {emptyHint.length
+          ? `Nothing coming up this week. To fill this, ${emptyHint.join(', or ')}.`
+          : 'Nothing coming up this week.'}
       </Text>
-      <View style={styles.ctaRow}>
-        <FeedActionPill label="Discover leagues" iconName="search" filled onPress={() => { tap('empty_leagues'); openDiscover(navigation, { tab: 'leagues' }); }} />
-        {COURT_DISCOVERY_ENABLED ? (
-          <FeedActionPill label="Star a court" iconName="star" onPress={() => { tap('empty_courts'); openDiscover(navigation, { tab: 'places' }); }} />
-        ) : null}
-        {FRIENDS_AT_COURTS_ENABLED ? (
-          <FeedActionPill label="Find friends" iconName="group" onPress={() => { tap('empty_friends'); openDiscover(navigation, { tab: 'players', players: 'find' }); }} />
-        ) : null}
-      </View>
+      {canStar || canFindFriends ? (
+        <View style={styles.ctaRow}>
+          {canStar ? (
+            <FeedActionPill label="Star a court" iconName="star" filled onPress={() => { tap('empty_courts'); openDiscover(navigation, { tab: 'places' }); }} />
+          ) : null}
+          {canFindFriends ? (
+            <FeedActionPill label="Find friends" iconName="group" filled={!canStar} onPress={() => { tap('empty_friends'); openDiscover(navigation, { tab: 'players', players: 'find' }); }} />
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
+  // An empty starred card already says "nothing here": the block only shows
+  // when the feed has no band and nothing needs me.
+  const feedEmpty = feed.days.length === 0 && feed.needsYou.length === 0;
+
+  const [pickerOpen, setPickerOpenState] = React.useState(false);
+  const setPickerOpen = (open: boolean) => {
+    setPickerOpenState(open);
+    props.onPickerOpenChange?.(open);
+  };
+  const propose = () => {
+    tap('propose_play_day');
+    if (privilegedLeagues.length === 1) props.onProposePlayDay(privilegedLeagues[0].id);
+    else if (privilegedLeagues.length > 1) setPickerOpen(true);
+  };
 
   const routineLine = ROUTINES_ENABLED ? routineHeaderLine(routines) : null;
   const hasTournaments = home.myTournaments.length > 0;
-  const isMember = home.myLeagues.length > 0;
 
   return (
     <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
       <View style={styles.header}>
-        <Text style={styles.headerGlyph}>🥒</Text>
+        <Text style={styles.headerGlyph} accessibilityElementsHidden importantForAccessibility="no">
+          🥒
+        </Text>
         <Text style={[t.title, styles.flex]} accessibilityRole="header">
           Pickleague Feed
         </Text>
@@ -429,18 +489,30 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
               <Text style={[t.meta, styles.count, { color: c.text }]}>{feed.needsYou.length}</Text>
             </View>
             {needs.shown.map((r, i) => agendaLine(r, i, true))}
-            {moreLine('needs', needs.more, !!expanded.needs)}
+            {moreLine('needs', needs.more, !!expanded.needs, 'Needs you')}
+            <TouchableOpacity
+              style={styles.more}
+              onPress={() => { tap('see_all_notifications'); props.onSeeAllRequests(); }}
+              accessibilityRole="button"
+            >
+              <Text style={[t.meta, { color: c.primary }]}>All requests in Notifications ›</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
         {bands.length > 0 ? (
           <DayBands bands={bands} initialOpen={rememberedBands} onOpenChange={(o) => { rememberedBands = o; }} />
         ) : null}
-        {feed.total === 0 ? emptyBlock : null}
+        {feedEmpty ? emptyBlock : null}
 
         <RoutineSuggestionCard onOpenRoutines={() => openRoutines()} />
 
         <View style={styles.links}>
+          {privilegedLeagues.length > 0 ? (
+            <TouchableOpacity onPress={propose} accessibilityRole="button">
+              <Text style={[t.meta, { color: c.primary }]}>Propose a play day ›</Text>
+            </TouchableOpacity>
+          ) : null}
           {isMember ? (
             <TouchableOpacity onPress={() => { tap('all_leagues'); openDiscover(navigation, { tab: 'leagues', mine: true }); }} accessibilityRole="button">
               <Text style={[t.meta, { color: c.primary }]}>My leagues ›</Text>
@@ -453,7 +525,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           ) : null}
           {COURT_DISCOVERY_ENABLED ? (
             <TouchableOpacity onPress={() => { tap('find_courts'); openDiscover(navigation, { tab: 'places' }); }} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>{starred.length > 0 ? `My courts ${starred.length}/3 · Find courts ›` : 'Find courts ›'}</Text>
+              <Text style={[t.meta, { color: c.primary }]}>Find courts ›</Text>
             </TouchableOpacity>
           ) : null}
           {ROUTINES_ENABLED ? (
@@ -476,7 +548,13 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         subtitle={
           lineSheet
             ? lineSheet.line.kind === 'stop'
-              ? `${lineSheet.line.stop.status === 'cancelled' ? 'Skipped: ' : 'Planned check-in at '}${shortTime(new Date(lineSheet.line.stop.at))}`
+              ? `${lineSheet.line.stop.status === 'cancelled' ? 'Skipped: ' : 'Planned check-in '}${
+                  lineSheet.day === 'later'
+                    ? `${dayLabel(new Date(lineSheet.line.stop.at), new Date(now))} `
+                    : lineSheet.line.stop.status === 'cancelled'
+                      ? ''
+                      : 'at '
+                }${shortTime(new Date(lineSheet.line.stop.at))}`
               : lineSheet.line.kind === 'here'
                 ? `Here since ${shortTime(new Date(lineSheet.line.at))}`
                 : `Was here ${shortTime(new Date(lineSheet.line.at))}–${shortTime(new Date(lineSheet.line.endedAt))}`
@@ -489,7 +567,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       <ActionSheetModal
         visible={courtSheet != null}
         title={courtSheet?.card.venueName}
-        subtitle={courtSheet?.day === 'tomorrow' ? 'Tomorrow' : undefined}
+        subtitle={courtSheet?.day === 'tomorrow' ? 'Tomorrow' : courtSheet?.day === 'later' ? 'Later this week' : undefined}
         actions={courtSheet ? courtActions(courtSheet.card, courtSheet.day) : []}
         cancelLabel="Close"
         onClose={() => setCourtSheet(null)}
@@ -513,6 +591,13 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         onClose={() => setTimePick(null)}
         searchPlaceholder="e.g. 5:30"
         emptyText="No later times left that day."
+      />
+      <LeaguePickerModal
+        visible={pickerOpen}
+        leagues={privilegedLeagues}
+        selectedId={null}
+        onPick={(id) => { tap('propose_pick'); setPickerOpen(false); props.onProposePlayDay(id); }}
+        onClose={() => setPickerOpen(false)}
       />
     </View>
   );

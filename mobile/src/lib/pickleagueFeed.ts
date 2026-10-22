@@ -45,7 +45,8 @@ export const NEEDS_YOU_PREVIEW = 3;
 export const BAND_ROWS_PREVIEW = 4;
 /** Lines on one court card before "See all (N more)" (Doggle's cap). */
 export const COURT_ROWS_CAP = 6;
-/** Court cards in one day: also the court_play_modes batch (one call each). */
+/** Court cards in one day (stars and routine stops are never cut, so with 3
+ *  stars a day can hold a few more): also the court_play_modes batch. */
 export const MAX_FEED_COURTS = 6;
 /** A routine stop stays on the feed this long after its time (Doggle's plan grace). */
 export const STOP_GRACE_MS = 30 * 60_000;
@@ -308,7 +309,17 @@ function courtCards(day: DayBandKey, input: FeedInput, stopsByVenue: Map<string,
     for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i];
     return a.venueName.localeCompare(b.venueName);
   });
-  return cards.slice(0, MAX_FEED_COURTS);
+  // A star or a routine stop never gives way (the user: "show favorited
+  // courts"); only courts that are there for friends alone share what room
+  // is left under the cap.
+  const kept = (ct: FeedCourtCard) => ct.starred || ct.lines.some((l) => l.kind === 'stop');
+  let room = Math.max(0, MAX_FEED_COURTS - cards.filter(kept).length);
+  return cards.filter((ct) => {
+    if (kept(ct)) return true;
+    if (room <= 0) return false;
+    room -= 1;
+    return true;
+  });
 }
 
 /** The whole feed from what Home already loaded. */
