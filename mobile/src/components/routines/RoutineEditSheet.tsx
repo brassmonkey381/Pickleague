@@ -79,7 +79,7 @@ export default function RoutineEditSheet({
     ? starred
     : [{ venue_id: draft.venueId, venue_name: draft.venueName }, ...starred];
 
-  // A split the player hasn't given two modes yet stays split (foundation 1.57);
+  // A split the player hasn't given two modes yet stays split (foundation 1.58);
   // the screen joins same-mode neighbours when it saves (routineWindowsToSave).
   const setLength = (lengthMin: number) =>
     set({

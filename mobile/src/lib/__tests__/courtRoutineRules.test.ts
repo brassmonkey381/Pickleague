@@ -25,6 +25,8 @@ import { applyWindowEdit, modeAt, type TimeWindow } from '@just-messin-around/ex
 import {
   checkinLengthOptions,
   checkinPlanEditorWindows,
+  checkinPlanSheetStart,
+  checkinPlanStartLength,
   checkinPlanWindowsToSave,
   fitCheckinPlanWindows,
   parseCourtPlayModes,
@@ -33,11 +35,14 @@ import {
   playerModeLine,
   playModeNowLine,
   routineArrivalDue,
+  routineCheckinMinutes,
   routineDueAt,
   routinePlannedEndAt,
   routineTimeLine,
   routineWindowsLine,
   routineWindowsToSave,
+  stayUntilLabel,
+  stayUntilOffer,
   switchToOpenPlan,
   switchToOpenWindows,
   type CourtRoutine,
@@ -366,7 +371,7 @@ describe('the closed / open split, end to end', () => {
     (list ?? []).map((w) => `${(Date.parse(w.startsAt) - TUE_9.getTime()) / 60_000}-${(Date.parse(w.endsAt) - TUE_9.getTime()) / 60_000}:${w.mode}`).join(' ');
 
   it('Split in the editor makes two windows, and each can take its own mode (TimeWindowsEditor runs applyWindowEdit)', () => {
-    // A new routine: 3 h, nothing said. Before foundation 1.57 the editor merged the
+    // A new routine: 3 h, nothing said. Before foundation 1.58 the editor merged the
     // two same-mode halves straight back, so Split did nothing.
     let list = applyWindowEdit<PlayMode>([], { type: 'split', index: 0 }, 180, PLAY_WINDOW_RULES);
     expect(span(list)).toBe('0-90:null 90-180:null');
@@ -462,6 +467,112 @@ describe('the closed / open split, end to end', () => {
     const plan = { checkedInAt: at(25).toISOString(), plannedEndAt: at(180).toISOString(), expiresAt: at(145).toISOString(), windows: [abs(0, 15, 'open'), abs(15, 180, 'closed')] };
     const next = switchToOpenPlan(plan, at(40));
     expect(absSpan(next?.windows)).toBe('25-40:closed 40-180:open');
+  });
+});
+
+// ── A check-in made by hand on a 3-hour split (review of the R14 fix): on the
+// web every routine check-in is made by hand; it asked for 2 hours, the server
+// left no planned end, and the plan sheet opened at 2 hours without the open
+// part ("opens 0-120:closed, then 0-180:closed, saved 0-180:closed"). ──────────
+describe('a check-in by hand on a 3-hour split reaches its open part', () => {
+  const span = (list: readonly TimeWindow<PlayMode>[] | null) =>
+    (list ?? []).map((w) => `${w.startMin}-${w.endMin}:${w.mode}`).join(' ');
+  const abs = (s: number, e: number, mode: PlayMode | null) => ({
+    startsAt: at(s).toISOString(),
+    endsAt: at(e).toISOString(),
+    mode,
+    hint: null,
+    group: [] as string[],
+  });
+  const absSpan = (list: readonly { startsAt: string; endsAt: string; mode: PlayMode | null }[]) =>
+    list.map((w) => `${(Date.parse(w.startsAt) - TUE_9.getTime()) / 60_000}-${(Date.parse(w.endsAt) - TUE_9.getTime()) / 60_000}:${w.mode}`).join(' ');
+  // The routine 9:00-12:00, closed group 2 h, then open play 1 h.
+  const split = () =>
+    routine({
+      windows: [
+        { startMin: 0, endMin: 120, mode: 'closed', hint: null, group: [] },
+        { startMin: 120, endMin: 180, mode: 'open', hint: null, group: [] },
+      ],
+    });
+  // Checked in by hand at 8:50 with 2 hours asked, as the review's live probe:
+  // the occurrence's windows, no planned end (the server before
+  // migration_court_routines_planned_end.sql).
+  const oldCheckin = {
+    checkedInAt: at(-10).toISOString(),
+    expiresAt: at(110).toISOString(),
+    plannedEndAt: null as string | null,
+    windows: [abs(0, 120, 'closed'), abs(120, 180, 'open')],
+  };
+
+  it('a check-in by hand asks for the routine\'s length: to its planned end, 30 minutes to 4 hours', () => {
+    expect(routineCheckinMinutes([split()], 'v1', at(-10))).toBe(190);
+    expect(routineCheckinMinutes([split()], 'v1', at(20))).toBe(160);
+    // Seconds past the minute round up, so the check-in never ends before the plan.
+    expect(routineCheckinMinutes([split()], 'v1', new Date(at(20).getTime() + 30_000))).toBe(160);
+    // Not due (another court, or after the window): the caller's 2 hours.
+    expect(routineCheckinMinutes([split()], 'v2', at(0))).toBeNull();
+    expect(routineCheckinMinutes([split()], 'v1', at(45))).toBeNull();
+    // A 4-hour routine checked in 25 minutes early: checkin_venue's 4 hours.
+    expect(routineCheckinMinutes([routine({ lengthMin: 240 })], 'v1', at(-25))).toBe(240);
+    // 25 minutes into a 30-minute routine: the server's 30-minute floor.
+    expect(routineCheckinMinutes([routine({ lengthMin: 30 })], 'v1', at(25))).toBe(30);
+  });
+
+  it('asked that way, the check-in is still running, and open, in the routine\'s last hour', () => {
+    const minutes = routineCheckinMinutes([split()], 'v1', at(-10))!;
+    const ends = at(-10).getTime() + minutes * 60_000;
+    expect(ends).toBe(at(180).getTime());
+    expect(modeAt(oldCheckin.windows, at(150))?.mode).toBe('open');
+    expect(at(150).getTime()).toBeLessThan(ends);
+    // The old 2 hours ended at 10:50, still closed.
+    expect(modeAt(oldCheckin.windows, new Date(Date.parse(oldCheckin.expiresAt) - 60_000))?.mode).toBe('closed');
+  });
+
+  it('the plan sheet opens past the end with every window, when there is no planned end', () => {
+    // Latest of the planned end (none), the end (120 min) and the last window's end (190 min), on the grid.
+    expect(checkinPlanStartLength(oldCheckin)).toBe(195);
+    const start = checkinPlanSheetStart(oldCheckin);
+    expect(start.lengthMin).toBe(195);
+    expect(span(start.windows)).toBe('0-135:closed 135-195:open');
+    // Opened and saved as is: the open window survives.
+    const saved = checkinPlanWindowsToSave(start.windows, start.lengthMin, oldCheckin.checkedInAt);
+    expect(absSpan(saved)).toBe('-10-125:closed 125-185:open');
+    expect(modeAt(saved, at(150))?.mode).toBe('open');
+  });
+
+  it('choosing 3 h keeps the split; shorter and back never collapses it into one mode', () => {
+    const { windows: base } = checkinPlanSheetStart(oldCheckin);
+    const three = fitCheckinPlanWindows(base, 180);
+    expect(span(three)).toBe('0-135:closed 135-180:open');
+    expect(absSpan(checkinPlanWindowsToSave(three, 180, oldCheckin.checkedInAt))).toBe('-10-125:closed 125-170:open');
+    // 2 hours: the split point is past the end, so all closed ...
+    expect(span(fitCheckinPlanWindows(base, 120))).toBe('0-120:closed');
+    // ... and back to 3 or 4 hours from what the player left: split again.
+    expect(span(fitCheckinPlanWindows(base, 180))).toBe('0-135:closed 135-180:open');
+    expect(span(fitCheckinPlanWindows(base, 240))).toBe('0-135:closed 135-240:open');
+  });
+
+  it('with the planned end the server sets now, or an extended check-in, the sheet opens at the latest end', () => {
+    // migration_court_routines_planned_end.sql: planned end 12:00, the end still 10:50.
+    expect(checkinPlanStartLength({ ...oldCheckin, plannedEndAt: at(180).toISOString() })).toBe(195);
+    // Extended past the planned end: the end.
+    expect(checkinPlanStartLength({ ...oldCheckin, plannedEndAt: at(110).toISOString(), expiresAt: at(230).toISOString(), windows: [] })).toBe(240);
+    // A plain check-in by hand: 2 hours, all open play.
+    const plain = { checkedInAt: at(0).toISOString(), expiresAt: at(120).toISOString(), plannedEndAt: null, windows: [] };
+    expect(checkinPlanStartLength(plain)).toBe(120);
+    expect(span(checkinPlanSheetStart(plain).windows)).toBe('0-120:open');
+    // A planned end a few seconds off the grid adds no step.
+    expect(checkinPlanStartLength({ ...plain, plannedEndAt: new Date(at(120).getTime() + 20_000).toISOString() })).toBe(120);
+  });
+
+  it('"Stay until" is offered while the check-in ends more than a minute before its planned end', () => {
+    const withEnd = { ...oldCheckin, plannedEndAt: at(180).toISOString() };
+    expect(stayUntilOffer(withEnd, at(60))).toBe(at(180).toISOString());
+    expect(stayUntilLabel(at(180).toISOString(), TZ)).toBe('Stay until 12 PM');
+    expect(stayUntilOffer(oldCheckin, at(60))).toBeNull();
+    expect(stayUntilOffer({ ...withEnd, expiresAt: at(180).toISOString() }, at(60))).toBeNull();
+    expect(stayUntilOffer({ ...withEnd, expiresAt: new Date(at(180).getTime() - 30_000).toISOString() }, at(60))).toBeNull();
+    expect(stayUntilOffer(withEnd, at(181))).toBeNull();
   });
 });
 

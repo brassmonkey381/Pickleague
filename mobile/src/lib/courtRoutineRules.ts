@@ -313,6 +313,28 @@ export function routinePlannedEndAt(
 }
 
 /**
+ * How long a check-in made by hand at `venueId` at `at` asks checkin_venue
+ * for when a routine stop is due there: to the stop's planned end, in whole
+ * minutes rounded up, at least 30 (the server's floor on a routine
+ * check-in's planned end) and at most 240 (checkin_venue's cap). Null when
+ * none is due. The server links the check-in to the occurrence and takes its
+ * closed / open windows and planned end, but keeps the length asked (as
+ * Doggle does), so the default 2 hours would end a 3-hour split before its
+ * open part.
+ */
+export function routineCheckinMinutes(
+  routines: readonly CourtRoutine[],
+  venueId: string,
+  at: Date = new Date(),
+): number | null {
+  const end = routinePlannedEndAt(routines, venueId, at);
+  if (!end) return null;
+  const m = Math.ceil((Date.parse(end) - at.getTime()) / 60_000);
+  if (!Number.isFinite(m)) return null;
+  return Math.min(MAX_PLAY_LENGTH_MIN, Math.max(MIN_PLAY_LENGTH_MIN, m));
+}
+
+/**
  * The fact decideArrival reads: a routine stop is due at this court and
  * "Check me in at my routine courts" is on (null: unreadable, which is the
  * default, on).
@@ -353,7 +375,7 @@ export function routineWindowsLine(r: { localTime: string; windows: readonly Tim
 /**
  * A routine's windows as save_court_routine takes them: fitted to its
  * length, neighbours of the same mode joined (the editor keeps a fresh split
- * apart until a mode is picked: foundation 1.57), and [] when nothing is
+ * apart until a mode is picked: foundation 1.58), and [] when nothing is
  * said (the server stores that as one window, not said).
  */
 export function routineWindowsToSave(windows: readonly TimeWindow<PlayMode>[], lengthMin: number): TimeWindow<PlayMode>[] {
@@ -399,6 +421,25 @@ export function playerModeLine(row: Pick<PlayModeRow, 'modeNow' | 'modeUntil' | 
 /** "Stay until 12 PM" (the arrival_extend_until push's button means this). */
 export function stayUntilLabel(plannedEndAt: string, timeZone?: string | null): string {
   return `Stay until ${clockLabel(plannedEndAt, timeZone)}`;
+}
+
+/**
+ * The planned end the line under my check-in offers "Stay until" for: when
+ * the check-in ends more than a minute before it and it is still ahead. A
+ * routine check-in made by hand keeps the length asked (an older build asked
+ * 2 hours) while its planned end is the routine's, and the web gets no
+ * "Staying until" push, so without this its open part was out of reach.
+ * Null when there is nothing to offer.
+ */
+export function stayUntilOffer(
+  plan: { expiresAt: string; plannedEndAt: string | null },
+  now: Date = new Date(),
+): string | null {
+  if (!plan.plannedEndAt) return null;
+  const end = Date.parse(plan.plannedEndAt);
+  const exp = Date.parse(plan.expiresAt);
+  if (!Number.isFinite(end) || !Number.isFinite(exp)) return null;
+  return end > exp + 60_000 && end > now.getTime() ? plan.plannedEndAt : null;
 }
 
 // ── A check-in's plan (set_checkin_plan) ──────────────────────────────────────
@@ -457,9 +498,57 @@ export function checkinPlanEditorWindows(
   return normalizeWindows(windowsToOffsets(spanned, checkedInAt), lengthMin, PLAY_WINDOW_RULES, 'open', KEEP_WINDOWS_APART);
 }
 
-/** The plan sheet's windows after "How long?" changes: fitted, a fresh split kept apart. */
+/**
+ * The plan sheet's windows after "How long?" changes: fitted, a fresh split
+ * kept apart. Pass the windows the player last left (the sheet's opening
+ * ones, or their last edit), not the last fit: a split stays as long as its
+ * point is inside the length (longer stretches the last window, shorter drops
+ * a window starting less than 15 minutes before the end), so going shorter
+ * and back never collapses it into one mode.
+ */
 export function fitCheckinPlanWindows(windows: readonly TimeWindow<PlayMode>[], lengthMin: number): TimeWindow<PlayMode>[] {
   return fitWindowsToLength(windows, lengthMin, PLAY_WINDOW_RULES, KEEP_WINDOWS_APART);
+}
+
+/**
+ * The plan sheet's starting "How long?" for a check-in: from the check-in to
+ * the latest of its planned end, its end and its last window's end, on the
+ * 15-minute grid rounded up (whole minutes first, so a few seconds never add
+ * a step), 30 minutes to 4 hours. Taking only the planned end, else the end,
+ * cut a routine's windows that run past a check-in made by hand (2 hours
+ * asked, no planned end on an older server): the sheet opened at 2 hours
+ * without the open part, and saved all closed.
+ */
+export function checkinPlanStartLength(plan: {
+  checkedInAt: string;
+  expiresAt: string;
+  plannedEndAt: string | null;
+  windows: readonly AbsoluteTimeWindow<PlayMode>[];
+}): number {
+  const start = Date.parse(plan.checkedInAt);
+  if (!Number.isFinite(start)) return DEFAULT_PLAY_LENGTH_MIN;
+  const ends = [plan.plannedEndAt, plan.expiresAt, ...plan.windows.map((w) => w.endsAt)]
+    .map((v) => (v ? Date.parse(v) : NaN))
+    .filter((v) => Number.isFinite(v));
+  if (ends.length === 0) return DEFAULT_PLAY_LENGTH_MIN;
+  const minutes = Math.round((Math.max(...ends) - start) / 60_000);
+  const m = Math.ceil(minutes / 15) * 15;
+  return Math.min(MAX_PLAY_LENGTH_MIN, Math.max(MIN_PLAY_LENGTH_MIN, m));
+}
+
+/**
+ * What the plan sheet opens with: the starting length (checkinPlanStartLength)
+ * and the check-in's windows at that length, none cut before the player picks
+ * a length.
+ */
+export function checkinPlanSheetStart(plan: {
+  checkedInAt: string;
+  expiresAt: string;
+  plannedEndAt: string | null;
+  windows: readonly AbsoluteTimeWindow<PlayMode>[];
+}): { lengthMin: number; windows: TimeWindow<PlayMode>[] } {
+  const lengthMin = checkinPlanStartLength(plan);
+  return { lengthMin, windows: checkinPlanEditorWindows(plan.windows, plan.checkedInAt, lengthMin) };
 }
 
 /**

@@ -14,6 +14,9 @@
 //   <migration_court_routines.sql>                       (routine check-ins: replaces the
 //                                                         arrival processor, take-back,
 //                                                         gate, purge and prune)
+//   <migration_court_routines_planned_end.sql>           (a routine check-in takes its
+//                                                         planned end: replaces the
+//                                                         plan-link trigger function)
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -33,6 +36,8 @@
 //                                                         the 5-court set_court_favorite back)
 //   <migration_court_routines.sql again>                 (re-applied: the arrival files' second
 //                                                         run puts their bodies back)
+//   <migration_court_routines_planned_end.sql again>     (re-applied: the routines re-run puts
+//                                                         the old plan-link body back)
 //   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
 //                                                         script does: nothing goes offline)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
@@ -100,6 +105,10 @@ const STAR_CAP = 'migration_court_star_cap_three.sql';
 // (migration_court_arrival_queue.sql), so it goes after the arrival files and
 // the star cap in both passes, as on live.
 const ROUTINES = 'migration_court_routines.sql';
+// A routine check-in takes its occurrence's planned end. It replaces the
+// routines file's plan-link trigger function, so it goes right after each run
+// of that file.
+const ROUTINES_PLANNED_END = 'migration_court_routines_planned_end.sql';
 const RERUN = [
   'migration_presence_p1_checkins.sql',
   'migration_validity_rules.sql',
@@ -190,12 +199,14 @@ const parts = [
   ...ARRIVALS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   `-- ════ ${STAR_CAP} ════\n${read(path.join(supa, STAR_CAP))}`,
   `-- ════ ${ROUTINES} ════\n${read(path.join(supa, ROUTINES))}`,
+  `-- ════ ${ROUTINES_PLANNED_END} ════\n${read(path.join(supa, ROUTINES_PLANNED_END))}`,
   ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   ...ARRIVALS.map((f) => `-- ════ ${f} (re-applied after the re-runs) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${STAR_CAP} (re-applied after the re-runs) ════\n${read(path.join(supa, STAR_CAP))}`,
   `-- ════ ${ROUTINES} (re-applied after the re-runs) ════\n${read(path.join(supa, ROUTINES))}`,
+  `-- ════ ${ROUTINES_PLANNED_END} (re-applied after the routines file) ════\n${read(path.join(supa, ROUTINES_PLANNED_END))}`,
   `-- ════ ${HARDENING} (re-run after the court arrival files) ════\n${read(path.join(supa, HARDENING))}`,
   rest
     .replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`)

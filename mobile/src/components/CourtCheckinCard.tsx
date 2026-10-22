@@ -55,7 +55,9 @@ import {
   checkinChanged,
   checkinRejected,
   checkOut,
+  DEFAULT_CHECKIN_MINUTES,
   extendCheckinByHour,
+  manualCheckinMinutes,
   peekCurrentCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
@@ -200,6 +202,25 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     void peekCurrentCheckin().then(setCurrent);
     return checkinChanged.subscribe(setCurrent);
   }, []);
+
+  // How long Check in here asks for: to the end of a routine stop due here
+  // (manualCheckinMinutes), else 2 hours. Read once per court found; it also
+  // readies my routines for the tap.
+  const [nearbyMinutes, setNearbyMinutes] = useState<number | null>(null);
+  const nearbyId = nearby?.id ?? null;
+  useEffect(() => {
+    setNearbyMinutes(null);
+    if (!nearbyId) return;
+    let live = true;
+    manualCheckinMinutes(nearbyId)
+      .then((m) => {
+        if (live) setNearbyMinutes(m);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [nearbyId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -391,7 +412,11 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
           <Text style={[t.title, S.flex]} numberOfLines={2}>
-            📍 Check in at {nearby.name} for 2 hours?
+            📍 Check in at {nearby.name}{' '}
+            {nearbyMinutes != null && nearbyMinutes !== DEFAULT_CHECKIN_MINUTES
+              ? `until ${timeLabel(new Date(Date.now() + nearbyMinutes * 60_000).toISOString())}`
+              : 'for 2 hours'}
+            ?
           </Text>
           <CourtFavoriteStar venueId={nearby.id} venueName={nearby.name} />
         </View>

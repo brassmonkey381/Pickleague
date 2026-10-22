@@ -137,7 +137,8 @@ import {
   type VenueCheckin,
 } from '../data/venueCheckins';
 import { loadPresenceSettings } from '../data/presenceSettings';
-import { getCheckinPlan, skipRoutineOccurrence } from '../data/courtRoutines';
+import { getCheckinPlan, getMyCourtRoutinesOffline, skipRoutineOccurrence } from '../data/courtRoutines';
+import { routineCheckinMinutes } from './courtRoutineRules';
 import { ROUTINES_ENABLED } from './features';
 // Registers the base replay of a queued Exit / Not here; this file registers
 // over it below (a module runs after the files it imports).
@@ -665,10 +666,33 @@ async function madeOnArrival(id: string): Promise<boolean | undefined> {
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
+/** What a check-in asks checkin_venue for when nothing else says (its default too). */
+export const DEFAULT_CHECKIN_MINUTES = 120;
+/** How long a check-in by hand waits for my routines when this device has no copy. */
+const ROUTINES_READ_MS = 2_000;
+
+/**
+ * How long a check-in made by hand at `venueId` asks for: to the planned end
+ * of a routine stop due there now (routineCheckinMinutes, 30 minutes to 4
+ * hours), else 2 hours. The server links such a check-in to the occurrence
+ * and takes its closed / open windows and planned end, but keeps the length
+ * asked (Doggle's ordinary check-in), so 2 hours ended a 3-hour routine split
+ * closed 2 h / open 1 h while still closed. From the routines copy on this
+ * device; a fetch only when there is none (2 s at most), and 2 hours when
+ * they can't be read.
+ */
+export async function manualCheckinMinutes(venueId: string, at: Date = new Date()): Promise<number> {
+  if (!ROUTINES_ENABLED) return DEFAULT_CHECKIN_MINUTES;
+  const routines = await withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
+  return (routines ? routineCheckinMinutes(routines, venueId, at) : null) ?? DEFAULT_CHECKIN_MINUTES;
+}
+
 /**
  * Check in now with the fix just taken. Queues when offline (the result has
  * `queued: true`). Rejects with the server's "You need to be at the court to
- * check in (about N m away)." when the fix is outside the fence.
+ * check in (about N m away)." when the fix is outside the fence. A check-in
+ * by hand (source manual, no `minutes`) runs to the end of a routine stop
+ * due there (manualCheckinMinutes).
  */
 export async function checkInAt(
   venue: { id: string; name: string },
@@ -676,13 +700,16 @@ export async function checkInAt(
   opts: { source?: CheckinSource; minutes?: number } = {},
 ): Promise<CurrentCheckin> {
   const uid = await requireUser();
-  const minutes = opts.minutes ?? 120;
+  const at = new Date();
+  const source = opts.source ?? 'manual';
+  const minutes =
+    opts.minutes ?? (source === 'manual' ? await manualCheckinMinutes(venue.id, at) : DEFAULT_CHECKIN_MINUTES);
   const payload: CheckinPayload = {
     id: uuidv4(),
     venueId: venue.id,
     minutes,
-    source: opts.source ?? 'manual',
-    at: new Date().toISOString(),
+    source,
+    at: at.toISOString(),
     fix,
   };
   const { queued, result } = await runOrQueue(MUTATION_CHECKIN, payload, () => checkinVenue(payload));

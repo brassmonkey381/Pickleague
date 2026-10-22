@@ -1,13 +1,16 @@
 // My open check-in's plan, under it wherever it shows (Home's court card, the
 // play island, a court's page): "Closed group until 10:30 AM, then open play"
 // or "Planned until 12 PM", with Plan (how long, and Closed group / Open play
-// windows: set_checkin_plan) and "Switch to open play now".
+// windows: set_checkin_plan), "Switch to open play now", and "Stay until 12
+// PM" when the check-in ends before its planned end.
 //
 // A check-in made by hand keeps today's behaviour until Plan is tapped (2
 // hours, nothing said); the sheet preselects Open play (the plan's decision
-// 5). A routine arrival brings its routine's windows with it. Renders nothing
-// without ROUTINES_ENABLED, for a check-in still queued, or before its plan
-// is read.
+// 5). A routine check-in, by arrival or by hand, brings its routine's windows
+// and planned end with it. "Stay until" is the web's way to the rest of a
+// routine (no "Staying until" push there) and an older build's (it asked 2
+// hours). Renders nothing without ROUTINES_ENABLED, for a check-in still
+// queued, or before its plan is read.
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -23,21 +26,21 @@ import { explainRefusal } from '../../lib/refusalNotices';
 import { ROUTINES_ENABLED } from '../../lib/features';
 import {
   checkinLengthOptions,
-  checkinPlanEditorWindows,
+  checkinPlanSheetStart,
   checkinPlanWindowsToSave,
   clockLabel,
-  DEFAULT_PLAY_LENGTH_MIN,
   fitCheckinPlanWindows,
-  MAX_PLAY_LENGTH_MIN,
   PLAY_HINTS,
   PLAY_MODE_LABEL,
   playModeNowLine,
+  stayUntilLabel,
+  stayUntilOffer,
   switchToOpenPlan,
   windowsSaySomething,
   type PlayMode,
 } from '../../lib/courtRoutineRules';
 import { checkinPlanChanged, getCheckinPlan, setCheckinPlan, type CheckinPlan } from '../../data/courtRoutines';
-import { checkinChanged } from '../../lib/courtCheckin';
+import { checkinChanged, extendCheckinUntil } from '../../lib/courtCheckin';
 
 type Props = {
   checkinId: string | null;
@@ -74,8 +77,8 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const toast = useToast();
-  const [plan] = useCheckinPlan(checkinId);
-  const [busy, setBusy] = React.useState(false);
+  const [plan, reload] = useCheckinPlan(checkinId);
+  const [busy, setBusy] = React.useState<'switch' | 'stay' | null>(null);
   const [editing, setEditing] = React.useState(false);
   // A minute tick, so "until 10:30" moves on without a refetch.
   const [, setTick] = React.useState(0);
@@ -89,18 +92,38 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
   const line = playModeNowLine(plan.windows, now);
   const shown = line || (plan.plannedEndAt ? `Planned until ${clockLabel(plan.plannedEndAt)}` : '');
   const open = modeAt(plan.windows, now)?.mode === 'open';
+  // The check-in ends before its planned end (a routine check-in by hand
+  // keeps the length asked): one tap runs it to the planned end.
+  const stayUntil = stayUntilOffer(plan, now);
 
   const switchToOpen = async () => {
     const next = switchToOpenPlan(plan, new Date());
     if (!next) return;
-    setBusy(true);
+    setBusy('switch');
     try {
       await setCheckinPlan(checkinId, next.plannedEnd, next.windows);
       toast.success("You're open to play. Others here see it.");
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't switch to open play. Try again.", { venueName, action: 'plan' }));
     } finally {
-      setBusy(false);
+      setBusy(null);
+    }
+  };
+
+  // extend_checkin to the planned end, as the "Staying until" push's Stay
+  // until does (no fix: the server caps it 4 hours past the last one, and
+  // the note says so).
+  const stay = async (until: string) => {
+    setBusy('stay');
+    try {
+      const { note } = await extendCheckinUntil({ id: checkinId, venueName }, until);
+      if (note.full) toast.success(note.message);
+      else toast.info(note.message);
+      reload();
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't extend your check-in. Try again.", { venueName, action: 'extend' }));
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -112,25 +135,33 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
         </Text>
       ) : null}
       <View style={S.buttons}>
+        {stayUntil ? (
+          <Button
+            title={stayUntilLabel(stayUntil)}
+            size="sm"
+            variant="outline"
+            loading={busy === 'stay'}
+            disabled={busy != null}
+            onPress={() => void stay(stayUntil)}
+          />
+        ) : null}
         {!open ? (
-          <Button title="Switch to open play now" size="sm" variant="outline" loading={busy} onPress={() => void switchToOpen()} />
+          <Button
+            title="Switch to open play now"
+            size="sm"
+            variant="outline"
+            loading={busy === 'switch'}
+            disabled={busy != null}
+            onPress={() => void switchToOpen()}
+          />
         ) : null}
         {!compact ? (
-          <Button title={windowsSaySomething(plan.windows) || plan.plannedEndAt ? 'Change plan' : 'Plan my play'} size="sm" variant="outline" disabled={busy} onPress={() => setEditing(true)} />
+          <Button title={windowsSaySomething(plan.windows) || plan.plannedEndAt ? 'Change plan' : 'Plan my play'} size="sm" variant="outline" disabled={busy != null} onPress={() => setEditing(true)} />
         ) : null}
       </View>
       {editing ? <CheckinPlanSheet plan={plan} venueName={venueName ?? null} onClose={() => setEditing(false)} /> : null}
     </View>
   );
-}
-
-/** Minutes from the check-in's start to its planned end (else its end), on the 15-minute grid. */
-function initialLength(plan: CheckinPlan): number {
-  const start = Date.parse(plan.checkedInAt);
-  const end = Date.parse(plan.plannedEndAt ?? plan.expiresAt);
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return DEFAULT_PLAY_LENGTH_MIN;
-  const m = Math.round((end - start) / 60_000 / 15) * 15;
-  return Math.min(MAX_PLAY_LENGTH_MIN, Math.max(30, m));
 }
 
 /** How long, and Closed group / Open play, for the check-in I'm in. */
@@ -139,16 +170,23 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
   const t = textStyles(c);
   const toast = useToast();
   const options = checkinLengthOptions(plan.checkedInAt);
-  const [lengthMin, setLengthMin] = React.useState(() => initialLength(plan));
-  // From the check-in, on the 15-minute grid (a routine's windows start at its
-  // time, not at the arrival), else all Open play.
-  const [windows, setWindows] = React.useState<TimeWindow<PlayMode>[]>(() =>
-    checkinPlanEditorWindows(plan.windows, plan.checkedInAt, initialLength(plan)),
-  );
-  // "How long?" refits the windows, so what is saved is what the editor shows.
+  // Opens at the latest of the planned end, the end and the last window's end,
+  // with every window (a routine's start at its time, not at the check-in, on
+  // the 15-minute grid), else all Open play.
+  const [start] = React.useState(() => checkinPlanSheetStart(plan));
+  const [lengthMin, setLengthMin] = React.useState(start.lengthMin);
+  const [windows, setWindows] = React.useState<TimeWindow<PlayMode>[]>(start.windows);
+  // What the player last left (the opening windows, or their last edit): each
+  // "How long?" refits from it, so a shorter length and back never collapses
+  // a split into one mode, and what is saved is what the editor shows.
+  const [base, setBase] = React.useState<TimeWindow<PlayMode>[]>(start.windows);
   const changeLength = (m: number) => {
     setLengthMin(m);
-    setWindows((w) => fitCheckinPlanWindows(w, m));
+    setWindows(fitCheckinPlanWindows(base, m));
+  };
+  const editWindows = (w: TimeWindow<PlayMode>[]) => {
+    setWindows(w);
+    setBase(w);
   };
   const [saving, setSaving] = React.useState(false);
   const startClock = minutesToClock(wallClockIn(null, new Date(plan.checkedInAt)).minutes);
@@ -180,7 +218,7 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
         <TimeWindowsEditor<PlayMode>
           lengthMin={lengthMin}
           windows={windows}
-          onChange={setWindows}
+          onChange={editWindows}
           modes={modes}
           hints={PLAY_HINTS}
           startClock={startClock}

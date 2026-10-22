@@ -19,7 +19,8 @@
 --
 -- Courts near 40.7 N, 100.0 W (far from every real venue; a fix 11 m north is
 -- lat + 0.0001): test:cr-home (+ duplicate row test:cr-home-osm), cr-two,
--- cr-three, cr-unstarred, cr-crowd, cr-arr, cr-off, cr-man, cr-split.
+-- cr-three, cr-unstarred, cr-crowd, cr-arr, cr-off, cr-man, cr-split,
+-- cr-split3a, cr-split3b, cr-split3c.
 --
 -- Personas:
 --   RO owner (CRUD, windows, DST, midnight, skip / move / undo, privacy)
@@ -33,6 +34,9 @@
 --   RV crowd viewer · C1-C7 at the crowd court
 --   RP the closed / open split end to end, with the payloads the app sent
 --   before and after the 2026-10-22 fix (R14)
+--   RQ RQ2 RQ3 a check-in made by hand on a 3-hour routine, closed 2 h then
+--   open 1 h, reaches open play: the planned end it now takes, "Stay until",
+--   the routine's length (R15; migration_court_routines_planned_end.sql)
 -- ============================================================
 
 begin;
@@ -56,12 +60,14 @@ insert into _p values
   ('C2',  'a8000000-0000-4000-8000-000000000013'), ('C3',  'a8000000-0000-4000-8000-000000000014'),
   ('C4',  'a8000000-0000-4000-8000-000000000015'), ('C5',  'a8000000-0000-4000-8000-000000000016'),
   ('C6',  'a8000000-0000-4000-8000-000000000017'), ('C7',  'a8000000-0000-4000-8000-000000000018'),
-  ('RP',  'a8000000-0000-4000-8000-000000000019');
+  ('RP',  'a8000000-0000-4000-8000-000000000019'), ('RQ',  'a8000000-0000-4000-8000-00000000001a'),
+  ('RQ2', 'a8000000-0000-4000-8000-00000000001b'), ('RQ3', 'a8000000-0000-4000-8000-00000000001c');
 grant select on _p to authenticated, anon;
 
 -- Ids picked in advance (check-ins, sessions).
 create temp table _ids (k text primary key, id uuid not null default gen_random_uuid());
-insert into _ids (k) values ('RA'), ('RA2'), ('RA3'), ('RM'), ('C1'), ('C2'), ('C3'), ('C5'), ('C6'), ('C7'), ('RP');
+insert into _ids (k) values ('RA'), ('RA2'), ('RA3'), ('RM'), ('C1'), ('C2'), ('C3'), ('C5'), ('C6'), ('C7'), ('RP'),
+  ('RQ'), ('RQ2'), ('RQ3');
 grant select on _ids to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -137,7 +143,10 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:cr-arr',       array['pickleball'], 'CR Test Courts Arrival',   'court', 40.75, -100.0, 'google', 100),
   ('test:cr-off',       array['pickleball'], 'CR Test Courts Off',       'court', 40.76, -100.0, 'google', 100),
   ('test:cr-man',       array['pickleball'], 'CR Test Courts Manual',    'court', 40.77, -100.0, 'google', 100),
-  ('test:cr-split',     array['pickleball'], 'CR Test Courts Split',     'court', 40.78, -100.0, 'google', 100);
+  ('test:cr-split',     array['pickleball'], 'CR Test Courts Split',     'court', 40.78, -100.0, 'google', 100),
+  ('test:cr-split3a',   array['pickleball'], 'CR Test Courts Split 3A',  'court', 40.79, -100.0, 'google', 100),
+  ('test:cr-split3b',   array['pickleball'], 'CR Test Courts Split 3B',  'court', 40.80, -100.0, 'google', 100),
+  ('test:cr-split3c',   array['pickleball'], 'CR Test Courts Split 3C',  'court', 40.81, -100.0, 'google', 100);
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m, canonical_id) values
   ('test:cr-home-osm', array['pickleball'], 'CR Test Courts Home', 'court', 40.70005, -100.0, 'osm', 100, 'test:cr-home');
 
@@ -146,12 +155,13 @@ select pg_temp.p(k), v from (values
   ('RO', 'test:cr-home'), ('RO', 'test:cr-two'), ('RO', 'test:cr-three'),
   ('RL', 'test:cr-home'), ('RA', 'test:cr-arr'), ('RA2', 'test:cr-arr'), ('RA3', 'test:cr-arr'),
   ('RW', 'test:cr-arr'), ('RX', 'test:cr-off'), ('RN', 'test:cr-off'), ('RM', 'test:cr-man'), ('RP', 'test:cr-split'),
-  ('RU', 'test:cr-home'), ('RD', 'test:cr-home')) s(k, v);
+  ('RU', 'test:cr-home'), ('RD', 'test:cr-home'),
+  ('RQ', 'test:cr-split3a'), ('RQ2', 'test:cr-split3b'), ('RQ3', 'test:cr-split3c')) s(k, v);
 
 -- Consent (arrivals need it); RA and RN have automatic check-in off.
 insert into public.presence_settings (user_id, consent_seen_at, auto_checkin)
 select pg_temp.p(k), now(), k not in ('RA', 'RN')
-  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP');
+  from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3');
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
 select pg_temp.p(a), pg_temp.p(b), 'accepted', now() from (values
@@ -319,6 +329,9 @@ begin
        and schedule = '*/15 * * * *' and command like '%public.materialize_court_routines()%') = 1
     and (select count(*) from cron.job where jobname = 'pickleague-court-routine-reminders'
        and schedule = '*/5 * * * *' and command like '%public.process_court_routine_reminders()%') = 1);
+  perform pg_temp.ok('R1 the plan link takes the occurrence''s planned end (migration_court_routines_planned_end.sql, applied after the routines file)',
+    (select prosrc like '%new.planned_end_at := greatest(v_occ.planned_end_at, new.checked_in_at + interval ''30 minutes'')%'
+       from pg_proc where oid = 'public._pl_checkin_link_plan()'::regprocedure));
   perform pg_temp.ok('R1 both venue_checkins triggers exist once',
     (select count(*) from pg_trigger where tgrelid = 'public.venue_checkins'::regclass
       and tgname in ('trg_venue_checkins_plan_link', 'trg_venue_checkins_plan_kept') and not tgisinternal) = 2);
@@ -766,6 +779,8 @@ begin
   perform pg_temp.ok('R7 a manual check-in in the window keeps the occurrence and takes its windows',
     c.location_confirmed and c.plan_id = pl.id and c.play_windows = pl.windows
     and (pg_temp.plan(pl.id)).status = 'completed' and (pg_temp.plan(pl.id)).checkin_id = c.id, row_to_json(c)::text);
+  perform pg_temp.ok('R7 and its planned end; its own end stays what was asked (Doggle: an ordinary length)',
+    c.planned_end_at = pl.planned_end_at and c.expires_at = c.checked_in_at + interval '120 minutes', row_to_json(c)::text);
 
   -- A planned end and windows.
   perform pg_temp.as_user(pg_temp.p('RM'));
@@ -1168,13 +1183,16 @@ begin
   -- "Switch to open play now", old payload: the windows unchanged (splitting before the first window did nothing).
   j := public.set_checkin_plan(c.id, null, pl.windows);
   perform pg_temp.ok('R14 old switch payload before the first window: still closed (the bug)', j ->> 'mode_now' = 'closed', j::text);
-  -- New payload: cut to the check-in, closed until now, open from now to its end
-  -- (a manual check-in has no planned end of its own: the app runs to expires_at).
+  -- New payload: cut to the check-in, closed until now, open from now to its
+  -- planned end (the occurrence's: the link sets it since
+  -- migration_court_routines_planned_end.sql, and the windows run to it).
   j := public.set_checkin_plan(c.id, null, jsonb_build_array(
          pg_temp.aw(ci, now(), 'closed', 'friends'),
-         pg_temp.aw(now(), c.expires_at, 'open')));
-  perform pg_temp.ok('R14 new switch payload before the first window: open now',
-    j ->> 'mode_now' = 'open' and (j -> 'play_windows' -> 1 ->> 'ends_at')::timestamptz = c.expires_at, j::text);
+         pg_temp.aw(now(), c.planned_end_at, 'open')));
+  perform pg_temp.ok('R14 new switch payload before the first window: open now, to the occurrence''s planned end',
+    j ->> 'mode_now' = 'open' and c.planned_end_at = pl.planned_end_at
+    and (j -> 'play_windows' -> 1 ->> 'ends_at')::timestamptz = pl.planned_end_at
+    and (j ->> 'expires_at')::timestamptz = c.expires_at, j::text);
   j := public.court_play_modes('test:cr-split');
   perform pg_temp.ok('R14 and the court counts it open to play', (j ->> 'open_now')::int >= 1 and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
 
@@ -1246,6 +1264,131 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('R14 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ R15 a check-in by hand reaches the open part of a 3-hour split ═══════
+-- The review of the R14 fix: on the web (no geofence arrivals) every routine
+-- check-in is made by hand, the app asked for 2 hours, and the link left
+-- planned_end_at null, so a routine closed 2 h then open 1 h ended while
+-- still closed, with nothing offering the rest. Now the link also takes the
+-- occurrence's planned end (migration_court_routines_planned_end.sql; the
+-- check-in's own end stays what was asked, as in Doggle). RQ sends the old
+-- payload (2 hours) and taps "Stay until <planned end>" on the line under the
+-- check-in; RQ2 sends what lib/courtCheckin sends now (the routine's length,
+-- routineCheckinMinutes); RQ3 checks in 25 minutes into a 30-minute routine.
+-- now() is fixed: time passes by moving the check-in back.
+do $$
+declare
+  pl    public.court_plans;
+  c     public.venue_checkins;
+  j     jsonb;
+  v_min int;
+begin
+  -- RQ: the routine as the fixed editor saves it, 10 minutes from now.
+  perform pg_temp.due_routine('RQ', 'test:cr-split3a', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed', 'friends'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ');
+  perform pg_temp.ok('R15 (setup) the occurrence: closed 2 h, then open 1 h',
+    pl.windows -> 0 ->> 'mode' = 'closed' and pl.windows -> 1 ->> 'mode' = 'open'
+    and (pl.windows -> 1 ->> 'starts_at')::timestamptz = pl.planned_at + interval '120 minutes'
+    and pl.planned_end_at = pl.planned_at + interval '180 minutes', coalesce(pl.windows::text, 'no occurrence'));
+
+  -- Old payload (the web app before this fix): 2 hours.
+  perform pg_temp.as_user(pg_temp.p('RQ'));
+  perform public.checkin_venue(p_id => pg_temp.i('RQ'), p_venue => 'test:cr-split3a', p_minutes => 120, p_source => 'manual',
+    p_at => null, p_lat => 40.7901, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RQ'));
+  perform pg_temp.ok('R15 a check-in by hand keeps the occurrence, its windows and now its planned end',
+    c.plan_id = pl.id and c.play_windows = pl.windows and c.planned_end_at = pl.planned_end_at
+    and (pg_temp.plan(pl.id)).status = 'completed', row_to_json(c)::text);
+  perform pg_temp.ok('R15 its own end stays the 2 hours asked, still closed then: the planned end is later (the app offers Stay until)',
+    c.expires_at = c.checked_in_at + interval '120 minutes'
+    and public._pl_checkin_mode_at(c.play_windows, c.expires_at - interval '1 minute') = 'closed'
+    and c.planned_end_at > c.expires_at + interval '1 minute', row_to_json(c)::text);
+
+  -- 100 minutes in (closed group), "Stay until <planned end>": extend_checkin to it, no fix.
+  update public.venue_checkins
+     set checked_in_at = checked_in_at - interval '100 minutes', created_at = created_at - interval '100 minutes',
+         fix_at = fix_at - interval '100 minutes', arrival_fix_at = arrival_fix_at - interval '100 minutes',
+         expires_at = expires_at - interval '100 minutes', planned_end_at = planned_end_at - interval '100 minutes',
+         play_windows = public._pl_shift_windows(play_windows, - interval '100 minutes')
+   where id = c.id;
+  c := pg_temp.vci(c.id);
+  perform pg_temp.as_user(pg_temp.p('RQ'));
+  perform public.extend_checkin(p_id => c.id, p_until => c.planned_end_at);
+  j := public.set_checkin_plan(c.id, null, null);
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(c.id);
+  perform pg_temp.ok('R15 Stay until: the check-in runs to the planned end, the split kept, closed for now',
+    c.expires_at = c.planned_end_at and j ->> 'mode_now' = 'closed' and jsonb_array_length(c.play_windows) = 2
+    and (c.play_windows -> 1 ->> 'ends_at')::timestamptz = c.planned_end_at, j::text);
+
+  -- 150 minutes in: the routine's last hour.
+  update public.venue_checkins
+     set checked_in_at = checked_in_at - interval '50 minutes', created_at = created_at - interval '50 minutes',
+         fix_at = fix_at - interval '50 minutes', arrival_fix_at = arrival_fix_at - interval '50 minutes',
+         expires_at = expires_at - interval '50 minutes', planned_end_at = planned_end_at - interval '50 minutes',
+         play_windows = public._pl_shift_windows(play_windows, - interval '50 minutes')
+   where id = c.id;
+  perform pg_temp.as_user(pg_temp.p('RQ'));
+  j := public.court_play_modes('test:cr-split3a');
+  perform pg_temp.ok('R15 old payload + Stay until, 150 minutes in: still checked in, open to play, counted',
+    (j ->> 'open_now')::int = 1 and j -> 'players' -> 0 ->> 'checkin_id' = c.id::text
+    and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
+
+  -- RQ2: the same routine; the new app asks for the routine's length.
+  perform pg_temp.due_routine('RQ2', 'test:cr-split3b', 180,
+    jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open')));
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ2');
+  -- routineCheckinMinutes: to the planned end, rounded up, 30 to 240.
+  v_min := least(240, greatest(30, ceil(extract(epoch from (pl.planned_end_at - now())) / 60)::int));
+  perform pg_temp.as_user(pg_temp.p('RQ2'));
+  perform public.checkin_venue(p_id => pg_temp.i('RQ2'), p_venue => 'test:cr-split3b', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.8001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RQ2'));
+  perform pg_temp.ok('R15 new payload (the routine''s length): runs to the planned end, the split kept',
+    v_min between 180 and 200 and c.plan_id = pl.id and c.planned_end_at = pl.planned_end_at
+    and c.expires_at >= pl.planned_end_at and c.expires_at < pl.planned_end_at + interval '1 minute'
+    and c.play_windows = pl.windows, 'minutes ' || v_min || ' ' || row_to_json(c)::text);
+  update public.venue_checkins
+     set checked_in_at = checked_in_at - interval '150 minutes', created_at = created_at - interval '150 minutes',
+         fix_at = fix_at - interval '150 minutes', arrival_fix_at = arrival_fix_at - interval '150 minutes',
+         expires_at = expires_at - interval '150 minutes', planned_end_at = planned_end_at - interval '150 minutes',
+         play_windows = public._pl_shift_windows(play_windows, - interval '150 minutes')
+   where id = c.id;
+  perform pg_temp.as_user(pg_temp.p('RQ2'));
+  j := public.court_play_modes('test:cr-split3b');
+  perform pg_temp.ok('R15 new payload, 150 minutes in (the last hour): still checked in, open to play, counted',
+    (j ->> 'open_now')::int = 1 and j -> 'players' -> 0 ->> 'checkin_id' = c.id::text
+    and j -> 'players' -> 0 ->> 'mode_now' = 'open', j::text);
+  j := public.set_checkin_plan(c.id, null, null);
+  perform pg_temp.ok('R15 and its plan reads open now, the windows to the planned end', j ->> 'mode_now' = 'open'
+    and (j ->> 'planned_end_at')::timestamptz = pl.planned_end_at - interval '150 minutes'
+    and (j -> 'play_windows' -> 1 ->> 'ends_at')::timestamptz = pl.planned_end_at - interval '150 minutes', j::text);
+
+  -- RQ3: 25 minutes into a 30-minute routine: the planned end is at least 30 minutes after the check-in.
+  perform pg_temp.due_routine('RQ3', 'test:cr-split3c', 30, null);
+  perform pg_temp.as_admin();
+  pl := pg_temp.next_plan('RQ3');
+  update public.court_plans
+     set planned_at = now() - interval '25 minutes', planned_end_at = now() + interval '5 minutes'
+   where id = pl.id;
+  perform pg_temp.as_user(pg_temp.p('RQ3'));
+  perform public.checkin_venue(p_id => pg_temp.i('RQ3'), p_venue => 'test:cr-split3c', p_minutes => 120, p_source => 'manual',
+    p_at => null, p_lat => 40.8101, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RQ3'));
+  perform pg_temp.ok('R15 a late check-in on a short routine: planned end 30 minutes after the check-in (process_court_arrivals'' rule)',
+    c.plan_id = pl.id and c.planned_end_at = c.checked_in_at + interval '30 minutes'
+    and c.expires_at = c.checked_in_at + interval '120 minutes', row_to_json(c)::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R15 block crashed', false, sqlerrm);
 end $$;
 
 
