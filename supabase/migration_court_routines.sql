@@ -1916,8 +1916,7 @@ begin
           perform public._pl_court_push(
             r.user_id,
             'Staying until ' || public._pl_clock(r.planned_end_at, v_tz) || '?',
-            'Your check-in at ' || coalesce(v_name, 'the courts') || ' ends in 5 minutes. Tap Stay until '
-              || public._pl_clock(r.planned_end_at, v_tz) || ' if you''re still playing.',
+            'Your check-in at ' || coalesce(v_name, 'the courts') || ' ends in 5 minutes. Tap Stay until then if you''re still playing.',
             v_name, r.expires_at,
             jsonb_build_object('kind', 'arrival_extend_until', 'venue_id', r.venue_id, 'venue_name', v_name,
                                'checkin_id', r.id, 'expires_at', r.expires_at, 'via_arrival', true,
