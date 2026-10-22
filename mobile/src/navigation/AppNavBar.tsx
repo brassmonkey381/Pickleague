@@ -12,13 +12,12 @@
 //
 // Hidden signed out, on Claim / UpgradeAccount / MatchEntry (lib/navBarRules)
 // and while the keyboard is up. It folds away when a session starts (the
-// island takes the bottom, Doggle's walk) and comes back when it ends; the
-// chevron folds and unfolds it by hand. Its height goes to lib/appChrome, so
+// island takes the bottom, Doggle's walk) and comes back when it ends; on
+// Home it starts folded to its chevron; the chevron folds and unfolds it by hand. Its height goes to lib/appChrome, so
 // AppNavigator keeps that much clear under every screen and the island sits
 // just above it.
 import React, { useEffect, useRef, useState } from 'react';
 import { Text } from 'react-native';
-import { CommonActions } from '@react-navigation/native';
 import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
 import { createSignal, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -40,11 +39,8 @@ type Tab = 'Home' | 'Discover' | 'Profile';
 
 /**
  * Go to a tab's screen without remounting it. Home pops back to the Home at
- * the bottom of the stack (push.ts does the same). Discover and Me move their
- * existing route (same key, so it keeps its tab and scroll) to the top, or add
- * one; Back from it then goes where the player was, as in Doggle's bar. When
- * that screen is right under the current one (Me from Settings), it just
- * steps back to it.
+ * the bottom of the stack (push.ts does the same). Discover and Me pop back
+ * to their existing screen when there is one, else open a new one.
  */
 function go(tab: Tab, myId: string | null): void {
   if (!navigationRef.isReady()) return;
@@ -66,16 +62,12 @@ function go(tab: Tab, myId: string | null): void {
   if (top && isTab(top)) return;
   let at = -1;
   for (let i = routes.length - 1; i >= 0; i--) if (isTab(routes[i])) { at = i; break; }
-  if (at === routes.length - 2) {
-    navigationRef.goBack();
-    return;
-  }
-  const existing = at >= 0 ? routes[at] : null;
-  navigationRef.dispatch((state) => {
-    const kept = state.routes.filter((r) => r.key !== existing?.key);
-    const moved = existing ?? { name: tab, params: tab === 'Profile' ? {} : undefined };
-    return CommonActions.reset({ ...state, index: kept.length, routes: [...kept, moved] } as never);
-  });
+  // The same plain navigate Home uses: back to the existing screen (it keeps
+  // its tab and scroll), else a new one. A hand-built reset here did nothing
+  // on device or web (the user, 2026-10-22: Me and Discover "arent working").
+  const nav = navigationRef.navigate as (name: Tab, params?: object, options?: { pop?: boolean }) => void;
+  if (at >= 0) nav(tab, routes[at].params as object | undefined, { pop: true });
+  else nav(tab, tab === 'Profile' ? {} : undefined);
 }
 
 export default function AppNavBar({ signedIn }: { signedIn: boolean }) {
@@ -118,6 +110,18 @@ function Bar({ signedIn }: { signedIn: boolean }) {
     if (playing !== wasPlaying.current) setCollapsed(playing);
     wasPlaying.current = playing;
   }, [playing]);
+
+  // Folded to its chevron on Home (the user, 2026-10-22: "closed by default on
+  // the home page"), open elsewhere. Only on a change of screen, so a tap on
+  // the chevron holds until the player moves on.
+  const routeName = route?.name ?? null;
+  const lastRoute = useRef<string | null>(null);
+  useEffect(() => {
+    if (!routeName || routeName === lastRoute.current) return;
+    lastRoute.current = routeName;
+    if (playing) return;
+    setCollapsed(routeName === 'Home');
+  }, [routeName, playing]);
 
   const visible = navBarVisible({ enabled: true, signedIn, route: route?.name });
   useEffect(() => {

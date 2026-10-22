@@ -597,6 +597,9 @@ export default function HomeScreen({ navigation }: Props) {
     );
   }
 
+  // Quick tiles, two rows of 3, above the feed.
+  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
+
   if (loadFailed) {
     // Only true once a fetch has failed with nothing cached: say so plainly
     // and offer a retry, instead of claiming you have nothing going on.
@@ -690,9 +693,13 @@ export default function HomeScreen({ navigation }: Props) {
     if (joinSection) sections.push(joinSection);
   }
 
-  sections.push(<QuickRow key="quick" showRecord={isMember} onPress={onQuick} />);
-
-  if (courtMode === 'idle') sections.push(court);
+  // The idle "At the courts?" row: gone with the bottom bar (its centre Check
+  // in does that job; the user, 2026-10-22: "'At the courts' section can be
+  // removed"). The card stays mounted, hidden, so its prompt / checked-in
+  // modes still surface above.
+  if (courtMode === 'idle') {
+    sections.push(PLAY_NAV_ENABLED ? <View key="court" style={styles.hidden}>{court}</View> : court);
+  }
 
   // With the feed on, both live inside it.
   if (!HOME_FEED_ENABLED) {
@@ -860,6 +867,7 @@ const styles = StyleSheet.create({
   // NOW's label sits right on its panel.
   tightHeader: { marginBottom: -SPACE.sm },
   failed: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg },
+  hidden: { display: 'none' },
   welcomeBody: { gap: SPACE.sm },
   center: { textAlign: 'center' },
 });
