@@ -224,3 +224,14 @@ touches playoff bracket generation or advancement.
     idempotent re-pay, a confirmation that survives a broken payout, the 1/5/10
     milestones, stats, preview, RLS, the column guard, the daily nudge and the
     click purge.
+
+- `profiles_guard_personas.sql` (+ `build-profiles-guard-test.mjs`)
+  - Profiles column guard (`migration_profiles_column_guard.sql`): applies
+    `migration_referrals.sql` and then the guard twice inside one rolled-back
+    transaction, then checks: every column the app writes still saves; every
+    other live column (read from the catalog) is refused with
+    `pl:profile.server_owned`; another player's row, anon, client inserts and
+    deletes are refused; player_location_ratings is read-only for players; and
+    the server paths still write (welcome grant, Shop purchase, daily streak,
+    match confirm with ratings / counters / first-match bonus, referral payout,
+    service_role).

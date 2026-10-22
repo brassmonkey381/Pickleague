@@ -73,6 +73,8 @@ export const REFUSAL_CODES = [
   'plan.gone',
   'plan.bad_time',
   'plan.bad_end',
+  // migration_profiles_column_guard.sql: a profile column only the server writes.
+  'profile.server_owned',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // The app's own.
@@ -335,6 +337,9 @@ export function refusalCopy(
       return 'Pick a later time on the same day.';
     case 'plan.bad_end':
       return 'Pick an end time later than now.';
+    case 'profile.server_owned':
+      // Only an outdated or broken build sends one: the app never writes these columns.
+      return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
     case 'consent.declined':
       return "Not checked in: first choose who sees you at the courts. Tap Check in when you're ready.";
     case 'consent.unknown_offline':
