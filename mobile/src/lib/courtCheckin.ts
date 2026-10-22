@@ -137,7 +137,13 @@ import {
   type VenueCheckin,
 } from '../data/venueCheckins';
 import { loadPresenceSettings } from '../data/presenceSettings';
-import { getCheckinPlan, skipRoutineOccurrence } from '../data/courtRoutines';
+import { getCheckinPlan, getMyCourtRoutinesOffline, loadMyCourtRoutines, skipRoutineOccurrence } from '../data/courtRoutines';
+import {
+  buttonCheckinMinutes,
+  DEFAULT_CHECKIN_MINUTES,
+  routineDueWithoutOccurrence,
+  type CourtRoutine,
+} from './courtRoutineRules';
 import { ROUTINES_ENABLED } from './features';
 // Registers the base replay of a queued Exit / Not here; this file registers
 // over it below (a module runs after the files it imports).
@@ -665,10 +671,63 @@ async function madeOnArrival(id: string): Promise<boolean | undefined> {
 }
 
 // ── Writes ──────────────────────────────────────────────────────────────────
+/** What a check-in asks checkin_venue for when nothing else says, and the least it asks (D1). */
+export { DEFAULT_CHECKIN_MINUTES };
+/** How long a check-in waits for my routines when this device has no copy, or reads it fresh. */
+const ROUTINES_READ_MS = 2_000;
+
+/**
+ * My routines, for how long a check-in at `venueId` asks: the copy on this
+ * device, a fetch only when there is none (2 s at most). When a stop is due
+ * there by its weekly time but the copy has no occurrence for it
+ * (routineDueWithoutOccurrence), the copy is read fresh first
+ * (loadMyCourtRoutines: kept 5 minutes, else a read, 2 s at most; the copy as
+ * it was when that fails): the server may have made it since (today's during
+ * its window, on a save or an edit, or on another phone), and only a stop
+ * with an occurrence runs a check-in to its end (routineOccurrenceEndAt).
+ * Null with ROUTINES_ENABLED off, or when they can't be read.
+ */
+export async function readRoutinesForCheckin(
+  venueId?: string | null,
+  at: Date = new Date(),
+): Promise<CourtRoutine[] | null> {
+  if (!ROUTINES_ENABLED) return null;
+  const copy = await withTimeout(getMyCourtRoutinesOffline(), ROUTINES_READ_MS).catch(() => null);
+  if (!venueId || !copy || !routineDueWithoutOccurrence(copy, venueId, at)) return copy;
+  return withTimeout(loadMyCourtRoutines(), ROUTINES_READ_MS).catch(() => copy);
+}
+
+/**
+ * How long a check-in at `venueId` asks for (by hand, or a notification's
+ * Check in): to the planned end of a routine stop due there now with the
+ * occurrence the server will link, 2 to 4 hours (D1: never under 2 hours),
+ * else 2 hours. A tapped routine reminder's own occurrence (`reminder`: its
+ * push's planned_at / planned_end_at) needs no read; else my routines
+ * (readRoutinesForCheckin), 2 hours when they can't be read. The server links
+ * such a check-in to the occurrence and takes its closed / open windows and
+ * planned end, but keeps the length asked (Doggle's ordinary check-in), so 2
+ * hours ended a 3-hour routine split closed 2 h / open 1 h while still
+ * closed. A stop with no occurrence links nothing, so it asks 2 hours (probe
+ * X4, a routine saved after its time on the old server, asked 170 minutes).
+ */
+export async function manualCheckinMinutes(
+  venueId: string,
+  at: Date = new Date(),
+  reminder?: { plannedAt?: string | null; plannedEndAt?: string | null } | null,
+): Promise<number> {
+  if (!ROUTINES_ENABLED) return DEFAULT_CHECKIN_MINUTES;
+  const pushed = buttonCheckinMinutes(null, venueId, at, reminder);
+  if (pushed != null) return pushed;
+  return buttonCheckinMinutes(await readRoutinesForCheckin(venueId, at), venueId, at) ?? DEFAULT_CHECKIN_MINUTES;
+}
+
 /**
  * Check in now with the fix just taken. Queues when offline (the result has
  * `queued: true`). Rejects with the server's "You need to be at the court to
- * check in (about N m away)." when the fix is outside the fence.
+ * check in (about N m away)." when the fix is outside the fence. Without
+ * `minutes`, a check-in (by hand or a notification's button; not a
+ * session's) runs to the end of a routine stop due there
+ * (manualCheckinMinutes), else 2 hours.
  */
 export async function checkInAt(
   venue: { id: string; name: string },
@@ -676,13 +735,16 @@ export async function checkInAt(
   opts: { source?: CheckinSource; minutes?: number } = {},
 ): Promise<CurrentCheckin> {
   const uid = await requireUser();
-  const minutes = opts.minutes ?? 120;
+  const at = new Date();
+  const source = opts.source ?? 'manual';
+  const minutes =
+    opts.minutes ?? (source === 'session' ? DEFAULT_CHECKIN_MINUTES : await manualCheckinMinutes(venue.id, at));
   const payload: CheckinPayload = {
     id: uuidv4(),
     venueId: venue.id,
     minutes,
-    source: opts.source ?? 'manual',
-    at: new Date().toISOString(),
+    source,
+    at: at.toISOString(),
     fix,
   };
   const { queued, result } = await runOrQueue(MUTATION_CHECKIN, payload, () => checkinVenue(payload));
@@ -997,11 +1059,18 @@ async function courtCheckin(d: ActionPushData, onArrivalNotice: boolean): Promis
   // "At X?" has done its job (Android leaves a pressed notice up).
   if (onArrivalNotice) void arrivalNotice.dismiss(venueId);
   const court = d.venue_name ?? null;
-  // The fix is read while consent is looked up: the button's 22 s also have
-  // to hold the write.
-  const [consent, fix] = await Promise.all([
+  // The fix is read while consent and the length are looked up: the button's
+  // 22 s also have to hold the write. The length runs to the end of a routine
+  // stop due here, as a check-in by hand does (the routine reminder's push
+  // says which one); it asked 2 hours before, so a 3-hour split ended closed.
+  const [consent, fix, minutes] = await Promise.all([
     presenceConsentState().catch(() => 'unknown' as const),
     takeFixIfAllowed(CHECKIN_ACTION_FIX_MS),
+    manualCheckinMinutes(
+      venueId,
+      new Date(runStart),
+      d.kind === 'routine_reminder' ? { plannedAt: d.planned_at, plannedEndAt: d.planned_end_at } : null,
+    ).catch(() => DEFAULT_CHECKIN_MINUTES),
   ]);
   // The one-time "who sees you at the courts" sheet can't show on the lock
   // screen: until it was accepted, check in from the app. No connection is
@@ -1035,7 +1104,7 @@ async function courtCheckin(d: ActionPushData, onArrivalNotice: boolean): Promis
   }
   let c: CurrentCheckin;
   try {
-    c = await checkInAt({ id: venueId, name: court ?? 'the courts' }, fix, { source: 'geofence' });
+    c = await checkInAt({ id: venueId, name: court ?? 'the courts' }, fix, { source: 'geofence', minutes });
   } catch (e) {
     const code = refusalCode(e);
     if (onArrivalNotice && isLocationRefusalCode(code)) {

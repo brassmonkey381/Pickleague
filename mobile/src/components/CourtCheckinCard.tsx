@@ -57,6 +57,7 @@ import {
   checkOut,
   extendCheckinByHour,
   peekCurrentCheckin,
+  readRoutinesForCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
   takeEndedCheckinNote,
@@ -65,6 +66,7 @@ import {
   type CurrentCheckin,
 } from '../lib/courtCheckin';
 import { CHECKOUT_FIX_WAIT_MS, FIX_REUSE_MS, isFixFresh } from '../lib/courtCheckinRules';
+import { routineCheckinUntil, type CourtRoutine } from '../lib/courtRoutineRules';
 import { CHECKIN_BOUND_MS, CHECKIN_BOUND_MS_DEFAULT, useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { resolveCourtAt, type ResolvedCourt } from '../data/venueCheckins';
 import { PlayersHerePile, PlayersHereRoster, usePlayersHere } from './PlayersHereList';
@@ -200,6 +202,37 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     void peekCurrentCheckin().then(setCurrent);
     return checkinChanged.subscribe(setCurrent);
   }, []);
+
+  // How long Check in here asks for: to the end of a routine stop due here
+  // with its occurrence (manualCheckinMinutes), else 2 hours. My routines are
+  // read when a court is found and on a minute tick (this phone's copy, read
+  // fresh only while a stop is due here without an occurrence in it, as the
+  // tap does), which also readies them for the tap; the end itself is worked
+  // out on each render, so "until" never drifts and follows a stop's window
+  // opening or closing while the card is up.
+  const [nearbyRoutines, setNearbyRoutines] = useState<CourtRoutine[] | null>(null);
+  const [, setMinuteTick] = useState(0);
+  const nearbyId = nearby?.id ?? null;
+  useEffect(() => {
+    setNearbyRoutines(null);
+    if (!nearbyId) return;
+    let live = true;
+    const read = () =>
+      readRoutinesForCheckin(nearbyId)
+        .then((r) => {
+          if (live) setNearbyRoutines(r);
+        })
+        .catch(() => {});
+    void read();
+    const tick = setInterval(() => {
+      setMinuteTick((n) => n + 1);
+      void read();
+    }, 60_000);
+    return () => {
+      live = false;
+      clearInterval(tick);
+    };
+  }, [nearbyId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -387,11 +420,14 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   }
 
   if (nearby) {
+    // What the tap asks for now (checkInAt reads the same routines then).
+    const nearbyUntil = nearbyRoutines ? routineCheckinUntil(nearbyRoutines, nearby.id, new Date()) : null;
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
           <Text style={[t.title, S.flex]} numberOfLines={2}>
-            📍 Check in at {nearby.name} for 2 hours?
+            📍 Check in at {nearby.name}{' '}
+            {nearbyUntil ? `until ${timeLabel(nearbyUntil)}` : 'for 2 hours'}?
           </Text>
           <CourtFavoriteStar venueId={nearby.id} venueName={nearby.name} />
         </View>

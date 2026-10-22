@@ -13,7 +13,12 @@ import { BottomSheet, Chip, ClockTimeField, DurationChips, TimeWindowsEditor, We
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
-import { fitWindowsToLength, formatDurationMinutes, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import {
+  KEEP_WINDOWS_APART,
+  fitWindowsToLength,
+  formatDurationMinutes,
+  type TimeWindow,
+} from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { useTheme } from '../../lib/ThemeContext';
 import { PLAY_HINTS, PLAY_LENGTH_OPTIONS, PLAY_MODE_LABEL, PLAY_WINDOW_RULES, type PlayMode } from '../../lib/courtRoutineRules';
 import type { CourtRoutineInput } from '../../data/courtRoutines';
@@ -74,8 +79,13 @@ export default function RoutineEditSheet({
     ? starred
     : [{ venue_id: draft.venueId, venue_name: draft.venueName }, ...starred];
 
+  // A split the player hasn't given two modes yet stays split (foundation 1.58);
+  // the screen joins same-mode neighbours when it saves (routineWindowsToSave).
   const setLength = (lengthMin: number) =>
-    set({ lengthMin, windows: draft.windows.length ? fitWindowsToLength(draft.windows, lengthMin, PLAY_WINDOW_RULES) : [] });
+    set({
+      lengthMin,
+      windows: draft.windows.length ? fitWindowsToLength(draft.windows, lengthMin, PLAY_WINDOW_RULES, KEEP_WINDOWS_APART) : [],
+    });
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title={initial?.id ? 'Edit routine' : 'New routine'} height="90%">

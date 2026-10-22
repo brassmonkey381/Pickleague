@@ -123,6 +123,15 @@
 -- migration_moderation_report_block.sql: they put older bodies of the
 -- functions above back (build-presence-test.mjs does this). Re-runnable; no
 -- begin/commit.
+-- AFTER ANY RE-RUN OF THIS FILE, re-apply
+-- migration_court_routines_planned_end.sql: it replaces the plan-link trigger
+-- function of section 4, _pl_materialize_court_routines (section 3),
+-- save_court_routine, set_court_routine_active and delete_court_routine
+-- (section 6), and this file puts the older bodies back (a check-in by hand
+-- without its planned end, so a split never reaches its open part; a routine
+-- saved or edited during its window doing nothing today; one deleted or
+-- paused during its window leaving today's occurrence behind, still kept by
+-- a check-in by hand). The test builders and the apply scripts do this.
 --   supabase db query --linked -f supabase/migration_court_routines.sql
 -- ============================================================
 
@@ -688,6 +697,9 @@ revoke all on function public._pl_routine_plan_at(uuid, text, timestamptz) from 
 -- not already past, not within 30 minutes of another planned or kept plan of
 -- mine at that court; a day already made (a skipped one too) is never made
 -- again. Windows made absolute from the start. Returns how many were made.
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (it also makes an occurrence whose window is still open). Re-apply that
+-- file after any re-run of this one.
 create or replace function public._pl_materialize_court_routines(p_routine uuid, p_now timestamptz)
 returns integer
 language plpgsql
@@ -767,6 +779,9 @@ revoke all on function public.materialize_court_routines(uuid) from public, anon
 -- link and the occurrence's windows before insert, the occurrence completed
 -- after. process_court_arrivals sets plan_id itself (with the planned end);
 -- this then only completes the occurrence.
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces the link
+-- function below (it also takes the occurrence's planned end). Re-apply that
+-- file after any re-run of this one.
 create or replace function public._pl_checkin_link_plan()
 returns trigger
 language plpgsql
@@ -951,6 +966,9 @@ grant execute on function public.set_routine_auto_checkin(boolean) to authentica
 -- = the whole length, not said), zone from the device else my Pickleague
 -- zone. Max 12. Upcoming planned occurrences are re-made from the new
 -- settings; skipped days stay skipped. Returns list_my_court_routines().
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (it also re-makes today's planned occurrence during its window). Re-apply
+-- that file after any re-run of this one.
 create or replace function public.save_court_routine(
   p_routine_id uuid,
   p_venue      text,
@@ -1028,6 +1046,9 @@ end $$;
 revoke all on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) from public, anon;
 grant execute on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) to authenticated;
 
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (a pause also takes today's planned occurrence during its window).
+-- Re-apply that file after any re-run of this one.
 create or replace function public.set_court_routine_active(p_routine_id uuid, p_active boolean)
 returns jsonb
 language plpgsql
@@ -1055,6 +1076,9 @@ revoke all on function public.set_court_routine_active(uuid, boolean) from publi
 grant execute on function public.set_court_routine_active(uuid, boolean) to authenticated;
 
 -- Upcoming occurrences go with it; past ones stay as plain plans.
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (every occurrence nobody kept goes, today's during its window too).
+-- Re-apply that file after any re-run of this one.
 create or replace function public.delete_court_routine(p_routine_id uuid)
 returns jsonb
 language plpgsql

@@ -24,7 +24,7 @@ import {
 } from '../lib/playSession';
 import { explainRefusal } from '../lib/refusalNotices';
 import { ROUTINES_ENABLED } from '../lib/features';
-import { switchToOpenWindows } from '../lib/courtRoutineRules';
+import { switchToOpenPlan } from '../lib/courtRoutineRules';
 import { getCheckinPlan, setCheckinPlan } from '../data/courtRoutines';
 import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
 import { lostPlayNote, lostPlayOffersRecord } from '../lib/sessionValidity';
@@ -139,14 +139,12 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
             onPress: async () => {
               try {
                 const plan = await getCheckinPlan(checkin.id);
-                const next = plan
-                  ? switchToOpenWindows(plan.windows, plan.checkedInAt, plan.plannedEndAt ?? plan.expiresAt, new Date())
-                  : null;
+                const next = plan ? switchToOpenPlan(plan, new Date()) : null;
                 if (!plan || !next) {
                   toast.info("You're already open to play.");
                   return;
                 }
-                await setCheckinPlan(checkin.id, null, next);
+                await setCheckinPlan(checkin.id, next.plannedEnd, next.windows);
                 toast.success("You're open to play. Others here see it.");
               } catch (e) {
                 toast.error(

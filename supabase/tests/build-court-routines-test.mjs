@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // Build the routine check-ins persona test: court_routines_personas.sql with
-// migration_court_routines.sql (twice: it must be re-runnable) and then
-// migration_rls_hardening_2026q3.sql (a re-run must keep the new client RPCs
-// online) in place of its -- @@MIGRATION@@ line. The test file holds the
+// migration_court_routines.sql (twice: it must be re-runnable), then
+// migration_court_routines_planned_end.sql (twice: it replaces the plan-link
+// trigger function, the materializer, save_court_routine,
+// set_court_routine_active and delete_court_routine, so it goes after every
+// run of the routines file, and it must be re-runnable too) and then
+// migration_rls_hardening_2026q3.sql (a
+// re-run must keep the new client RPCs online) in place of its
+// -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.
 //
 //   node supabase/tests/build-court-routines-test.mjs [out.sql]
@@ -20,6 +25,7 @@ const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'court_routines_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const MIGRATION = 'migration_court_routines.sql';
+const PLANNED_END = 'migration_court_routines_planned_end.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
@@ -77,6 +83,8 @@ if (!body.includes(MARKER)) {
 const spliced = [
   `-- ════ ${MIGRATION} ════\n${read(MIGRATION)}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${read(MIGRATION)}`,
+  `-- ════ ${PLANNED_END} ════\n${read(PLANNED_END)}`,
+  `-- ════ ${PLANNED_END} (re-run) ════\n${read(PLANNED_END)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,
 ].join('\n');
 
