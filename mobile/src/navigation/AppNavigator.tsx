@@ -80,7 +80,9 @@ import TournamentInvitePlayersScreen from '../screens/TournamentInvitePlayersScr
 import MyWagersScreen from '../screens/MyWagersScreen';
 import PlayerWagersScreen from '../screens/PlayerWagersScreen';
 import FriendsScreen from '../screens/FriendsScreen';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { FRIENDS_AT_COURTS_ENABLED, REFERRALS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import InviteLandingScreen from '../screens/InviteLandingScreen';
+import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
 import GuestJoinScreen from '../screens/GuestJoinScreen';
 import BookmarksScreen from '../screens/BookmarksScreen';
@@ -341,6 +343,10 @@ export default function AppNavigator() {
                 {/* Reachable while signed in so a member tapping a guest link
                     resolves; the screen short-circuits to the event. */}
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ headerShown: false }} />
+                {/* Referral invite landing: registered only while REFERRALS_ENABLED. */}
+                {REFERRALS_ENABLED && (
+                  <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ title: 'Invite' }} />
+                )}
                 <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Bookmarks' }} />
                 <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: '🎟️ QR Wallet' }} />
                 <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
@@ -354,6 +360,9 @@ export default function AppNavigator() {
                 <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
                 <Stack.Screen name="GuestJoin" component={GuestJoinScreen} options={{ title: 'Join the vote' }} />
+                {REFERRALS_ENABLED && (
+                  <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ headerShown: false }} />
+                )}
               </>
             )}
             </Stack.Navigator>
@@ -375,6 +384,8 @@ export default function AppNavigator() {
       {/* Court arrival: watched courts, stale "At X?" notices and the
           once-a-minute check-in prompt monitor (renders nothing). */}
       {!updateRequired && phase === 'ready' && <CourtArrivalHost userId={session?.user.id ?? null} />}
+      {/* Referrals: stash a link's code, claim it after sign-in (renders nothing). */}
+      {REFERRALS_ENABLED && !updateRequired && phase === 'ready' && <ReferralHost />}
       {/* Floating play-session island (renders null when no session runs). */}
       {!updateRequired && phase === 'ready' && <PlayIsland signedIn={!!session} />}
       {/* "Where are you playing?" (opened by openPlayStart; hidden otherwise). */}

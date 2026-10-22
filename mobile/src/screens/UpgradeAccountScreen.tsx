@@ -5,6 +5,8 @@ import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supab
 import { supabase } from '../lib/supabase';
 import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { REFERRALS_ENABLED } from '../lib/features';
+import { referralStash } from '../data/referrals';
 
 const GENDER_OPTIONS: { value: Gender; label: string }[] = [
   { value: 'male',              label: 'Male' },
@@ -95,10 +97,14 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
       // { user: null } made this look like "no email set yet" on every retry.
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.user.email) {
+        // A referral code this guest arrived with (claim_referral refuses
+        // guests, so ReferralHost kept it) rides in on the metadata: the
+        // server links and pays it once the new email is confirmed.
+        const referral = REFERRALS_ENABLED ? await referralStash.peek() : null;
         const { error: authErr } = await supabase.auth.updateUser({
           email,
           password,
-          data: { full_name: fullName, gender },
+          data: { full_name: fullName, gender, ...(referral ? { referral_code: referral } : {}) },
         });
         if (authErr) {
           setErrorMessage(authErr.message);

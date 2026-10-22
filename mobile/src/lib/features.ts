@@ -64,3 +64,21 @@ export const FRIENDS_AT_COURTS_ENABLED = true;
  * shows.
  */
 export const COURT_STARS_ENABLED = true;
+
+/**
+ * Referrals, Doggle parity (state/referrals-plan.md): invite links
+ * (www.pickleague.club/invite/CODE and ?ref=CODE), the InviteLanding screen,
+ * the ReferralHost that stashes a code and claims it after sign-in (with
+ * deferred click-to-install matching), the optional "Referral code" field on
+ * Create Account, the code riding along on a guest's upgrade, and the
+ * Invite & Earn section on Profile. 2500 pickles to each side once the new
+ * account confirms its email; badges and bonuses at 1 / 5 / 10 friends.
+ *
+ * OFF until the user has tested it. Its backend is
+ * supabase/migration_referrals.sql (plus the record-invite-click and
+ * claim-deferred-invite edge functions and the INVITE_CLICK_SALT secret);
+ * the persona suite is supabase/tests/referral_personas.sql. While off, no
+ * screen registers, no link path resolves, no storage is read and no RPC is
+ * called: the app behaves exactly as before.
+ */
+export const REFERRALS_ENABLED = false;

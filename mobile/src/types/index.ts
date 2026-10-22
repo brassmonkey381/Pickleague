@@ -506,6 +506,8 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   GuestJoin: { token: string };
+  // www.pickleague.club/invite/CODE (REFERRALS_ENABLED only; both stacks).
+  InviteLanding: { code: string };
   Home: undefined;
   // mine: a Home "All yours (N)" visit turns the Mine-only chip on for that
   // visit. Route params are never persisted (usePersistedState skips them).

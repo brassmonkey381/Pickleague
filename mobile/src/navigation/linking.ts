@@ -3,7 +3,7 @@
 // config; AppNavigator passes it to NavigationContainer.
 import type { LinkingOptions } from '@react-navigation/native';
 import type { RootStackParamList } from '../types';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { FRIENDS_AT_COURTS_ENABLED, REFERRALS_ENABLED, WAGERS_ENABLED } from '../lib/features';
 
 export const linking: LinkingOptions<RootStackParamList> = {
   // Both origins are live and both are shared: ShareLinkButton builds
@@ -80,6 +80,9 @@ export const linking: LinkingOptions<RootStackParamList> = {
       ...(WAGERS_ENABLED ? { MyWagers: 'wagers' } : {}),
       // Same for Friends (?tab=find picks the tab).
       ...(FRIENDS_AT_COURTS_ENABLED ? { Friends: 'friends' } : {}),
+      // And for the referral invite landing (?ref=CODE on any path is read by
+      // ReferralHost, not by this table).
+      ...(REFERRALS_ENABLED ? { InviteLanding: 'invite/:code' } : {}),
       Bookmarks: 'bookmarks',
     },
   },
