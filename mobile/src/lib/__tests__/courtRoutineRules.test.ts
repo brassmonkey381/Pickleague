@@ -21,10 +21,15 @@ import {
   type StarredCourtGeofence,
   type WalletRegionSource,
 } from '../courtArrivalRules';
+import { applyWindowEdit, modeAt, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import {
   checkinLengthOptions,
+  checkinPlanEditorWindows,
+  checkinPlanWindowsToSave,
+  fitCheckinPlanWindows,
   parseCourtPlayModes,
   parseCourtRoutine,
+  PLAY_WINDOW_RULES,
   playerModeLine,
   playModeNowLine,
   routineArrivalDue,
@@ -32,8 +37,11 @@ import {
   routinePlannedEndAt,
   routineTimeLine,
   routineWindowsLine,
+  routineWindowsToSave,
+  switchToOpenPlan,
   switchToOpenWindows,
   type CourtRoutine,
+  type PlayMode,
 } from '../courtRoutineRules';
 import { crowdLineText } from '../courtCrowd';
 import { refusalCode, refusalMessage, windowsProblemCopy } from '../refusals';
@@ -339,6 +347,121 @@ describe('check-in plan helpers', () => {
     expect(switchToOpenWindows([], at(0).toISOString(), at(120).toISOString(), at(0))?.map((w) => [w.startsAt, w.mode])).toEqual([
       [at(0).toISOString(), 'open'],
     ]);
+  });
+});
+
+// ── The split: Closed group / Open play over one visit (user report 2026-10-22:
+// "the split of closed / open time during a window does not seem to work") ──
+describe('the closed / open split, end to end', () => {
+  const span = (list: readonly TimeWindow<PlayMode>[] | null) =>
+    (list ?? []).map((w) => `${w.startMin}-${w.endMin}:${w.mode}`).join(' ');
+  const abs = (s: number, e: number, mode: PlayMode | null) => ({
+    startsAt: at(s).toISOString(),
+    endsAt: at(e).toISOString(),
+    mode,
+    hint: null,
+    group: [] as string[],
+  });
+  const absSpan = (list: readonly { startsAt: string; endsAt: string; mode: PlayMode | null }[] | null | undefined) =>
+    (list ?? []).map((w) => `${(Date.parse(w.startsAt) - TUE_9.getTime()) / 60_000}-${(Date.parse(w.endsAt) - TUE_9.getTime()) / 60_000}:${w.mode}`).join(' ');
+
+  it('Split in the editor makes two windows, and each can take its own mode (TimeWindowsEditor runs applyWindowEdit)', () => {
+    // A new routine: 3 h, nothing said. Before foundation 1.57 the editor merged the
+    // two same-mode halves straight back, so Split did nothing.
+    let list = applyWindowEdit<PlayMode>([], { type: 'split', index: 0 }, 180, PLAY_WINDOW_RULES);
+    expect(span(list)).toBe('0-90:null 90-180:null');
+    list = applyWindowEdit(list, { type: 'update', index: 0, patch: { mode: 'closed' } }, 180, PLAY_WINDOW_RULES);
+    list = applyWindowEdit(list, { type: 'update', index: 1, patch: { mode: 'open' } }, 180, PLAY_WINDOW_RULES);
+    expect(span(list)).toBe('0-90:closed 90-180:open');
+    // The check-in sheet starts all Open play: Split, then the first half closed.
+    let plan = applyWindowEdit<PlayMode>([{ startMin: 0, endMin: 120, mode: 'open' }], { type: 'split', index: 0 }, 120, PLAY_WINDOW_RULES);
+    expect(span(plan)).toBe('0-60:open 60-120:open');
+    plan = applyWindowEdit(plan, { type: 'update', index: 0, patch: { mode: 'closed' } }, 120, PLAY_WINDOW_RULES);
+    expect(span(plan)).toBe('0-60:closed 60-120:open');
+  });
+
+  it('a routine saves its split merged and valid; nothing said saves as none', () => {
+    const split = [
+      { startMin: 0, endMin: 45, mode: 'closed' as const, hint: null, group: [] },
+      { startMin: 45, endMin: 90, mode: 'closed' as const, hint: null, group: [] },
+      { startMin: 90, endMin: 180, mode: 'open' as const, hint: null, group: [] },
+    ];
+    expect(span(routineWindowsToSave(split, 180))).toBe('0-90:closed 90-180:open');
+    expect(span(routineWindowsToSave([], 180))).toBe('');
+    expect(span(routineWindowsToSave([{ startMin: 0, endMin: 90, mode: null }, { startMin: 90, endMin: 180, mode: null }], 180))).toBe('');
+    // Windows from a longer length are fitted to this one.
+    expect(span(routineWindowsToSave([{ startMin: 0, endMin: 60, mode: 'closed' }, { startMin: 60, endMin: 240, mode: 'open' }], 120))).toBe(
+      '0-60:closed 60-120:open',
+    );
+  });
+
+  it('a check-in plan saves what the sheet shows: fitted to the chosen length, absolute from the check-in', () => {
+    // Closed 1 h, open 1 h, then the length goes from 2 h down to 1.5 h.
+    const shown = fitCheckinPlanWindows(
+      [
+        { startMin: 0, endMin: 60, mode: 'closed', hint: null, group: [] },
+        { startMin: 60, endMin: 120, mode: 'open', hint: null, group: [] },
+      ],
+      90,
+    );
+    expect(span(shown)).toBe('0-60:closed 60-90:open');
+    expect(absSpan(checkinPlanWindowsToSave(shown, 90, at(0).toISOString()))).toBe('0-60:closed 60-90:open');
+    // Shorter than the second window's start: it goes (the server refused it as too_short).
+    expect(absSpan(checkinPlanWindowsToSave([{ startMin: 0, endMin: 60, mode: 'closed' }, { startMin: 60, endMin: 120, mode: 'open' }], 60, at(0).toISOString()))).toBe(
+      '0-60:closed',
+    );
+    // A split left the same on both sides saves as one; all Not set saves as none ([] clears).
+    expect(absSpan(checkinPlanWindowsToSave([{ startMin: 0, endMin: 60, mode: 'open' }, { startMin: 60, endMin: 120, mode: 'open' }], 120, at(0).toISOString()))).toBe(
+      '0-120:open',
+    );
+    expect(checkinPlanWindowsToSave([{ startMin: 0, endMin: 120, mode: null }], 120, at(0).toISOString())).toEqual([]);
+  });
+
+  it('the plan sheet opens a routine arrival\'s windows from the check-in, on the 15-minute grid', () => {
+    // Routine 9:00-12:00, closed until 10:30. Arrived 9:20; planned end 12:00 (160 min after).
+    const windows = [abs(0, 90, 'closed'), abs(90, 180, 'open')];
+    const opened = checkinPlanEditorWindows(windows, at(20).toISOString(), 165);
+    expect(span(opened)).toBe('0-75:closed 75-165:open');
+    // Arrived early (8:45): the closed group starts at the check-in.
+    expect(span(checkinPlanEditorWindows(windows, at(-15).toISOString(), 195))).toBe('0-105:closed 105-195:open');
+    // A first window that ended before the check-in is gone.
+    expect(span(checkinPlanEditorWindows([abs(0, 15, 'closed'), abs(15, 180, 'open')], at(25).toISOString(), 150))).toBe('0-150:open');
+    // Nothing planned: all open play (decision 5).
+    expect(span(checkinPlanEditorWindows([], at(0).toISOString(), 120))).toBe('0-120:open');
+  });
+
+  it('the line under my check-in reads like the server: nothing said, then open play', () => {
+    const windows = [abs(0, 60, null), abs(60, 180, 'open')];
+    expect(playModeNowLine(windows, at(10), TZ)).toBe('Open play from 10 AM');
+    expect(playModeNowLine([abs(0, 60, 'closed'), abs(60, 180, null)], at(10), TZ)).toBe('Closed group until 10 AM');
+    // Others see the same on the roster (court_play_modes: mode_now null, next_open_at).
+    expect(playerModeLine({ modeNow: null, modeUntil: at(60).toISOString(), nextOpenAt: at(60).toISOString(), closedGroup: [] }, TZ)).toBe(
+      'Open to play from 10 AM',
+    );
+  });
+
+  it('"Switch to open play now" before the first window (an early arrival) opens play now', () => {
+    // Routine windows from 9:00; checked in 8:45; at 8:50 the player switches.
+    const plan = { checkedInAt: at(-15).toISOString(), plannedEndAt: at(180).toISOString(), expiresAt: at(105).toISOString(), windows: [abs(0, 60, 'closed'), abs(60, 180, 'open')] };
+    const next = switchToOpenPlan(plan, at(-10));
+    expect(next?.plannedEnd).toBeNull();
+    expect(absSpan(next?.windows)).toBe('-15--10:closed -10-180:open');
+    expect(modeAt(next!.windows, at(-10))?.mode).toBe('open');
+  });
+
+  it('"Switch to open play now" after the planned end (the check-in was extended) moves the plan to the check-in\'s end', () => {
+    const plan = { checkedInAt: at(0).toISOString(), plannedEndAt: at(120).toISOString(), expiresAt: at(180).toISOString(), windows: [abs(0, 60, 'open'), abs(60, 120, 'closed')] };
+    const next = switchToOpenPlan(plan, at(150));
+    expect(next?.plannedEnd?.toISOString()).toBe(at(180).toISOString());
+    expect(absSpan(next?.windows)).toBe('0-60:open 60-150:closed 150-180:open');
+    // Open already (the last mode carries on): nothing to do.
+    expect(switchToOpenPlan({ ...plan, windows: [abs(0, 60, 'closed'), abs(60, 120, 'open')] }, at(150))).toBeNull();
+  });
+
+  it('"Switch to open play now" drops a window that ended before the check-in (the server refused it as too_short)', () => {
+    const plan = { checkedInAt: at(25).toISOString(), plannedEndAt: at(180).toISOString(), expiresAt: at(145).toISOString(), windows: [abs(0, 15, 'open'), abs(15, 180, 'closed')] };
+    const next = switchToOpenPlan(plan, at(40));
+    expect(absSpan(next?.windows)).toBe('25-40:closed 40-180:open');
   });
 });
 

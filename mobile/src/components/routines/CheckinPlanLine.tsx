@@ -16,27 +16,23 @@ import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SMALL_TEXT_MAX_SCALE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { minutesToClock, wallClockIn } from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
-import {
-  formatDurationMinutes,
-  modeAt,
-  singleWindow,
-  windowsToOffsets,
-  type TimeWindow,
-} from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import { formatDurationMinutes, modeAt, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { ROUTINES_ENABLED } from '../../lib/features';
 import {
   checkinLengthOptions,
-  checkinPlanWindows,
+  checkinPlanEditorWindows,
+  checkinPlanWindowsToSave,
   clockLabel,
   DEFAULT_PLAY_LENGTH_MIN,
+  fitCheckinPlanWindows,
   MAX_PLAY_LENGTH_MIN,
   PLAY_HINTS,
   PLAY_MODE_LABEL,
   playModeNowLine,
-  switchToOpenWindows,
+  switchToOpenPlan,
   windowsSaySomething,
   type PlayMode,
 } from '../../lib/courtRoutineRules';
@@ -95,11 +91,11 @@ function PlanLine({ checkinId, venueName, compact, style }: Props & { checkinId:
   const open = modeAt(plan.windows, now)?.mode === 'open';
 
   const switchToOpen = async () => {
-    const next = switchToOpenWindows(plan.windows, plan.checkedInAt, plan.plannedEndAt ?? plan.expiresAt, new Date());
+    const next = switchToOpenPlan(plan, new Date());
     if (!next) return;
     setBusy(true);
     try {
-      await setCheckinPlan(checkinId, null, next);
+      await setCheckinPlan(checkinId, next.plannedEnd, next.windows);
       toast.success("You're open to play. Others here see it.");
     } catch (e) {
       toast.error(explainRefusal(e, "Couldn't switch to open play. Try again.", { venueName, action: 'plan' }));
@@ -144,9 +140,16 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
   const toast = useToast();
   const options = checkinLengthOptions(plan.checkedInAt);
   const [lengthMin, setLengthMin] = React.useState(() => initialLength(plan));
+  // From the check-in, on the 15-minute grid (a routine's windows start at its
+  // time, not at the arrival), else all Open play.
   const [windows, setWindows] = React.useState<TimeWindow<PlayMode>[]>(() =>
-    plan.windows.length ? windowsToOffsets(plan.windows, plan.checkedInAt) : singleWindow(initialLength(plan), 'open'),
+    checkinPlanEditorWindows(plan.windows, plan.checkedInAt, initialLength(plan)),
   );
+  // "How long?" refits the windows, so what is saved is what the editor shows.
+  const changeLength = (m: number) => {
+    setLengthMin(m);
+    setWindows((w) => fitCheckinPlanWindows(w, m));
+  };
   const [saving, setSaving] = React.useState(false);
   const startClock = minutesToClock(wallClockIn(null, new Date(plan.checkedInAt)).minutes);
   const modes = [
@@ -158,8 +161,7 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
     setSaving(true);
     try {
       const end = new Date(Date.parse(plan.checkedInAt) + lengthMin * 60_000);
-      const send = windows.length === 1 && windows[0].mode == null ? [] : checkinPlanWindows(windows, plan.checkedInAt);
-      await setCheckinPlan(plan.checkinId, end, send);
+      await setCheckinPlan(plan.checkinId, end, checkinPlanWindowsToSave(windows, lengthMin, plan.checkedInAt));
       toast.success(`Planned until ${clockLabel(end)}.`);
       onClose();
     } catch (e) {
@@ -173,7 +175,7 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
     <BottomSheet visible onClose={onClose} title="Plan my play" height="85%">
       <ScrollView style={S.scroll} contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
         <Text style={[t.label, S.label]}>HOW LONG (FROM WHEN YOU CHECKED IN)</Text>
-        <DurationChips value={lengthMin} onChange={setLengthMin} options={options} format={formatDurationMinutes} />
+        <DurationChips value={lengthMin} onChange={changeLength} options={options} format={formatDurationMinutes} />
         <Text style={[t.label, S.label]}>CLOSED GROUP OR OPEN PLAY</Text>
         <TimeWindowsEditor<PlayMode>
           lengthMin={lengthMin}

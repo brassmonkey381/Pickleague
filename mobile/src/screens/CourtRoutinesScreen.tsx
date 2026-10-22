@@ -38,6 +38,7 @@ import {
   DEFAULT_ROUTINE_TIME,
   routineTimeLine,
   routineWindowsLine,
+  routineWindowsToSave,
   type CourtRoutine,
   type RoutineOccurrence,
   type RoutineSuggestion,
@@ -174,9 +175,8 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
   async function onSave(draft: RoutineDraft) {
     setSaving(true);
     try {
-      // One window with nothing said is the same as none.
-      const windows = draft.windows.length === 1 && draft.windows[0].mode == null ? [] : draft.windows;
-      await saveCourtRoutine({ ...draft, windows });
+      // Fitted to the length, same modes joined; nothing said is the same as none.
+      await saveCourtRoutine({ ...draft, windows: routineWindowsToSave(draft.windows, draft.lengthMin) });
       setEditing(null);
       toast.success(draft.id ? 'Routine updated' : 'Added to your routine. Friends see it as a planned check-in.');
     } catch (e) {
