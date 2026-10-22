@@ -151,3 +151,32 @@ export function linkForAction(action: string | undefined, data: Record<string, u
   }
   return link ?? (linkOf(data) || `notifications/${NO_ID}`);
 }
+
+/**
+ * The `go` a push or a notification tap routes through (lib/push.ts wires the
+ * real navigation in; pure so the tests can drive it).
+ *
+ * Home is always the bottom of the stack (first screen + linking
+ * initialRouteName). A plain navigate('Home') pushes a second Home under
+ * routers 7.x, so `popToHome` goes back to the existing one, carrying the
+ * params. `{ checkin: true }` (a 'home/' push with the bar on) also asks
+ * CheckinHost for the island directly: the request is held until the host
+ * mounts, so it survives a cold start, where the navigator mounts on Home
+ * without these params.
+ */
+export function pushGo(deps: {
+  isReady: () => boolean;
+  popToHome: (params?: Record<string, unknown>) => void;
+  navigate: (name: string, params?: Record<string, unknown>) => void;
+  requestCheckinIsland: () => void;
+}): (name: string, params?: Record<string, unknown>) => void {
+  return (name, params) => {
+    if (name === 'Home') {
+      if (params?.checkin) deps.requestCheckinIsland();
+      // Not ready = cold start: the navigator mounts on Home anyway.
+      if (deps.isReady()) deps.popToHome(params?.checkin ? undefined : params);
+      return;
+    }
+    deps.navigate(name, params);
+  };
+}

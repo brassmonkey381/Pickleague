@@ -39,24 +39,42 @@ export const navRouteChanged = createSignal<void>();
 type Tab = 'Home' | 'Discover' | 'Profile';
 
 /**
- * Go to a tab's screen. Home resets the stack to Home; the others move their
- * screen to the top (an earlier copy in the stack is dropped, so Back from
- * it goes where the player was, as in Doggle's bar).
+ * Go to a tab's screen without remounting it. Home pops back to the Home at
+ * the bottom of the stack (push.ts does the same). Discover and Me move their
+ * existing route (same key, so it keeps its tab and scroll) to the top, or add
+ * one; Back from it then goes where the player was, as in Doggle's bar. When
+ * that screen is right under the current one (Me from Settings), it just
+ * steps back to it.
  */
-function go(tab: Tab): void {
+function go(tab: Tab, myId: string | null): void {
   if (!navigationRef.isReady()) return;
-  const current = navigationRef.getCurrentRoute();
+  const root = navigationRef.getRootState();
+  if (!root) return;
+  const routes = root.routes;
+  const top = routes[routes.length - 1];
   if (tab === 'Home') {
-    const root = navigationRef.getRootState();
-    if (current?.name === 'Home' && root?.routes.length === 1) return;
-    navigationRef.dispatch((state) => CommonActions.reset({ ...state, index: 0, routes: [{ name: 'Home' }] } as never));
+    if (top?.name === 'Home' && routes.length === 1) return;
+    navigationRef.navigate('Home', undefined, { pop: true });
     return;
   }
-  if (current?.name === tab && (tab !== 'Profile' || !(current.params as { userId?: string } | undefined)?.userId)) return;
-  const params = tab === 'Profile' ? {} : undefined;
+  const isTab = (r: { name: string; params?: object }): boolean => {
+    if (r.name !== tab) return false;
+    if (tab !== 'Profile') return true;
+    const userId = (r.params as { userId?: string } | undefined)?.userId;
+    return !userId || userId === myId;
+  };
+  if (top && isTab(top)) return;
+  let at = -1;
+  for (let i = routes.length - 1; i >= 0; i--) if (isTab(routes[i])) { at = i; break; }
+  if (at === routes.length - 2) {
+    navigationRef.goBack();
+    return;
+  }
+  const existing = at >= 0 ? routes[at] : null;
   navigationRef.dispatch((state) => {
-    const kept = state.routes.filter((r) => r.name !== tab);
-    return CommonActions.reset({ ...state, index: kept.length, routes: [...kept, { name: tab, params }] } as never);
+    const kept = state.routes.filter((r) => r.key !== existing?.key);
+    const moved = existing ?? { name: tab, params: tab === 'Profile' ? {} : undefined };
+    return CommonActions.reset({ ...state, index: kept.length, routes: [...kept, moved] } as never);
   });
 }
 
@@ -113,7 +131,7 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   };
 
   const items: FloatingNavItem[] = [
-    { key: 'home', label: 'Home', icon: 'home', active: lit === 'home', onPress: tap('home', () => go('Home')) },
+    { key: 'home', label: 'Home', icon: 'home', active: lit === 'home', onPress: tap('home', () => go('Home', myId)) },
     {
       key: 'play',
       label: playing ? 'Playing' : 'Play',
@@ -124,13 +142,13 @@ function Bar({ signedIn }: { signedIn: boolean }) {
       onPress: tap('play', () => openPlayStart()),
     },
     ...(DISCOVER_ENABLED
-      ? [{ key: 'discover', label: 'Discover', icon: 'search' as const, active: lit === 'discover', onPress: tap('discover', () => go('Discover')) }]
+      ? [{ key: 'discover', label: 'Discover', icon: 'search' as const, active: lit === 'discover', onPress: tap('discover', () => go('Discover', myId)) }]
       : []),
-    { key: 'me', label: 'Me', icon: 'account', active: lit === 'me', onPress: tap('me', () => go('Profile')) },
+    { key: 'me', label: 'Me', icon: 'account', active: lit === 'me', onPress: tap('me', () => go('Profile', myId)) },
   ];
   const centre: FloatingNavItem = {
     key: 'checkin',
-    label: busy === 'find' || busy === 'checkin' ? 'Finding…' : checkin ? 'Checked in' : 'Check in',
+    label: busy === 'checkin' ? 'Checking in…' : busy === 'find' ? 'Finding…' : busy === 'out' ? 'Checking out…' : checkin ? 'Checked in' : 'Check in',
     icon: 'pin',
     active: !!checkin,
     accessibilityLabel: checkin ? `Checked in at ${checkin.venueName}` : 'Check in',

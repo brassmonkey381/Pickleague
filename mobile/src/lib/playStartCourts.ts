@@ -13,7 +13,7 @@ const ORDER: CourtReason[] = ['checked_in', 'picked', 'here', 'home', 'favorite'
 
 const NOTE: Record<CourtReason, string> = {
   checked_in: 'Checked in',
-  picked: 'Picked',
+  picked: 'This court',
   here: "You're here",
   home: 'League home court',
   favorite: 'Favorite',

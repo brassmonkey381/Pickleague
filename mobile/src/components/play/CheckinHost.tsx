@@ -34,7 +34,8 @@ import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
-import { navigateWhenReady } from '../../lib/navigationRef';
+import { navigateWhenReady, navigationRef } from '../../lib/navigationRef';
+import { navRouteChanged } from '../../navigation/AppNavBar';
 import {
   checkinChanged,
   checkinRejected,
@@ -163,6 +164,17 @@ function Host() {
    */
   const findHere = useCallback(
     async (interactive: boolean): Promise<ResolvedCourt | null> => {
+      // A push's look-up stays silent: no "Finding…" island, no error note.
+      if (!interactive) {
+        try {
+          const fix = await takeFixIfAllowed(6_000);
+          if (!fix) return null;
+          lastFix.current = fix;
+          return await resolveCourtAt(fix.lat, fix.lng, 150);
+        } catch {
+          return null;
+        }
+      }
       let found: ResolvedCourt | null = null;
       await run(
         'find',
@@ -283,7 +295,15 @@ function Host() {
 
   const noted = !!message || !!starOffer || !!alertsResult || offerUntracked || !!addAt;
   const finding = busy === 'find' || busy === 'checkin';
-  const visible = !playing && (!!current || !!nearby || finding || noted);
+  // Home's court card already shows my check-in: there the island shows only
+  // when asked (the centre button, a push) or with something to say, and
+  // keeps no room clear under Home for it.
+  const [onHome, setOnHome] = useState(false);
+  const readRoute = () => setOnHome(navigationRef.isReady() && navigationRef.getCurrentRoute()?.name === 'Home');
+  useEffect(readRoute, []);
+  useSignal(navRouteChanged, readRoute);
+  const quietOnHome = onHome && !expanded && !nearby && !finding && !noted;
+  const visible = !playing && (!!current || !!nearby || finding || noted) && !quietOnHome;
   useEffect(() => {
     setIslandShown('checkin', visible);
     return () => setIslandShown('checkin', false);

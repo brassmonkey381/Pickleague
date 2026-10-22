@@ -30,7 +30,8 @@ import {
   openWhenActiveLink,
   registerNotificationCategories,
 } from './notificationActions';
-import { linkForAction, linkOf, pushRoutes } from './pushLinks';
+import { linkForAction, linkOf, pushGo, pushRoutes } from './pushLinks';
+import { requestCheckinIsland } from './checkinHost';
 import { DISCOVER_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAY_NAV_ENABLED, WAGERS_ENABLED } from './features';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { refreshMyOpenCheckin } from '../data/venueCheckins';
@@ -171,17 +172,14 @@ type PushData = Record<string, unknown> & {
   invite_code?: string;
 };
 
-const go = (name: string, params?: Record<string, unknown>) => {
-  // Home is always the bottom of the stack (first screen + linking
-  // initialRouteName). A plain navigate('Home') from another screen pushes a
-  // second Home under routers 7.x, so pop back to the existing one instead.
-  if (name === 'Home') {
-    if (navigationRef.isReady()) navigationRef.navigate('Home', undefined, { pop: true });
-    // Not ready = cold start: the navigator mounts on Home anyway.
-    return;
-  }
-  navigateWhenReady(name as keyof RootStackParamList, params as never);
-};
+// Home pops back to the existing Home; a 'home/' push also asks CheckinHost
+// for the island (lib/pushLinks.pushGo, tested in playNav.test.ts).
+const go = pushGo({
+  isReady: () => navigationRef.isReady(),
+  popToHome: (params) => navigationRef.navigate('Home', params as never, { pop: true }),
+  navigate: (name, params) => navigateWhenReady(name as keyof RootStackParamList, params as never),
+  requestCheckinIsland,
+});
 
 // The route table lives in lib/pushLinks.ts (pure, tested). Mirrors
 // NotificationsScreen.handleTap, which routes through routeNotification too.

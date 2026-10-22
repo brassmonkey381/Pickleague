@@ -13,7 +13,7 @@ import {
   screenBottomInset,
 } from '../navBarRules';
 import { alertBadgeFor } from '../useAlertBadge';
-import { pushRoutes } from '../pushLinks';
+import { pushGo, pushRoutes } from '../pushLinks';
 import { COURT_LINKS, DISCOVER_LINK, discoverAwareStateFromPath, linking } from '../../navigation/linking';
 import { PLAY_NAV_ENABLED } from '../features';
 
@@ -146,5 +146,40 @@ describe("'home/' pushes with the bar on (C1)", () => {
   it('open plain Home with the bar off, as before', () => {
     const off = pushRoutes({ wagersEnabled: false, discoverEnabled: true });
     expect(off['home/']('-', '')).toEqual(['Home']);
+  });
+});
+
+describe('pushGo (the go a push routes through)', () => {
+  const make = (ready: boolean) => {
+    const calls: string[] = [];
+    const go = pushGo({
+      isReady: () => ready,
+      popToHome: (p) => calls.push(`home:${JSON.stringify(p ?? null)}`),
+      navigate: (n, p) => calls.push(`nav:${n}:${JSON.stringify(p ?? null)}`),
+      requestCheckinIsland: () => calls.push('island'),
+    });
+    return { go, calls };
+  };
+  const routes = pushRoutes({ wagersEnabled: false, discoverEnabled: true, checkinIsland: true });
+
+  it("a 'home/' push asks for the island and pops back to Home (live app)", () => {
+    const { go, calls } = make(true);
+    const [name, params] = routes['home/']('-', '')!;
+    go(name, params);
+    expect(calls).toEqual(['island', 'home:null']);
+  });
+
+  it("a 'home/' push on a cold start still asks for the island", () => {
+    const { go, calls } = make(false);
+    const [name, params] = routes['home/']('-', '')!;
+    go(name, params);
+    expect(calls).toEqual(['island']);
+  });
+
+  it('plain Home asks for nothing; other screens navigate with their params', () => {
+    const { go, calls } = make(true);
+    go('Home');
+    go('Settings', { a: 1 });
+    expect(calls).toEqual(['home:null', 'nav:Settings:{"a":1}']);
   });
 });

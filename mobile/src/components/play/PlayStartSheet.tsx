@@ -107,6 +107,11 @@ import CheckinPlanLine from '../routines/CheckinPlanLine';
 
 /** The slim sheet's "How long" chips (plan §7.2). */
 const SLIM_LENGTHS = [60, 90, 120, 180];
+/** The chips, plus the current length when it is none of them (a routine's
+ *  105, the plan editor's 240), so the chosen length always shows selected. */
+function slimLengths(current: number): number[] {
+  return SLIM_LENGTHS.includes(current) ? SLIM_LENGTHS : [...SLIM_LENGTHS, current].sort((a, b) => a - b);
+}
 
 function draftOf(list: ChipDraftWindow[]): TimeWindow<PlayMode>[] {
   return list.map((w) => ({ startMin: w.startMin, endMin: w.endMin, mode: w.mode, hint: null, group: [] }));
@@ -220,6 +225,9 @@ export function PlayStartSheet({
   const [chip, setChip] = useState<PlayChip>('open');
   // A chip the player tapped stays: the auto-pick only moves an untouched one.
   const chipTouched = useRef(false);
+  // The player set How long or the plan: a later re-pick (the court landing
+  // after a slow fix) may still move the chip but keeps their length and plan.
+  const planTouched = useRef(false);
   const [chipPick, setChipPick] = useState<ChipPick | null>(null);
   const [lengthMin, setLengthMin] = useState(DEFAULT_PLAY_LENGTH_MIN);
   const [draft, setDraft] = useState<TimeWindow<PlayMode>[]>(() => draftOf(windowsForChip('open', DEFAULT_PLAY_LENGTH_MIN, null)));
@@ -237,6 +245,7 @@ export function PlayStartSheet({
     fixRef.current = null;
     resolvedFor.current = null;
     chipTouched.current = false;
+    planTouched.current = false;
     setChipPick(null);
     setChip(request.kind === 'drill' ? 'drill' : 'open');
     setLengthMin(DEFAULT_PLAY_LENGTH_MIN);
@@ -357,9 +366,11 @@ export function PlayStartSheet({
       });
       // Closed group needs a court (C2): with none, open play.
       const next: PlayChip = p.chip === 'closed' && !courtId ? 'open' : p.chip;
-      const len = p.lengthMin ?? DEFAULT_PLAY_LENGTH_MIN;
-      setChipPick(p);
+      // The hint explains the pick; when the chip had to change, it doesn't.
+      setChipPick(next === p.chip ? p : { ...p, hint: null });
       setChip(next);
+      if (planTouched.current) return;
+      const len = p.lengthMin ?? DEFAULT_PLAY_LENGTH_MIN;
       setLengthMin(len);
       setDraft(draftOf(windowsForChip(next, len, p)));
     });
@@ -375,6 +386,7 @@ export function PlayStartSheet({
   }
 
   function chooseLength(n: number) {
+    planTouched.current = true;
     setLengthMin(n);
     setDraft((w) => (w.length > 0 ? fitCheckinPlanWindows(w, n) : w));
   }
@@ -611,10 +623,11 @@ export function PlayStartSheet({
             </>
           )}
 
-          {!fixedKind ? (
+          {/* How long and the plan set the check-in: none without a court. */}
+          {!fixedKind && court ? (
             <>
               <Text style={[t.label, S.label]}>HOW LONG</Text>
-              <DurationChips value={lengthMin} onChange={chooseLength} options={SLIM_LENGTHS} format={formatDurationMinutes} />
+              <DurationChips value={lengthMin} onChange={chooseLength} options={slimLengths(lengthMin)} format={formatDurationMinutes} />
               {court ? (
                 <CheckinPlanLine
                   checkinId={null}
@@ -623,6 +636,7 @@ export function PlayStartSheet({
                     lengthMin,
                     windows: draft,
                     onChange: (len, w) => {
+                      planTouched.current = true;
                       setLengthMin(len);
                       setDraft(w);
                     },
@@ -633,19 +647,24 @@ export function PlayStartSheet({
           ) : null}
 
           {court && atCourt === true ? (
-            <Text style={[t.sub, S.visibility]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              {line}
-              <Text
-                style={{ color: c.primary }}
+            <View style={[S.visibility, S.visibilityRow]}>
+              <Text style={[t.sub, S.flex]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                {line}
+              </Text>
+              <TouchableOpacity
+                style={S.link}
                 onPress={() => {
                   onClose();
                   navigateWhenReady('Settings');
                 }}
-                accessibilityRole="link"
+                accessibilityRole="button"
+                accessibilityLabel="Change who sees you"
               >
-                {' · Change'}
-              </Text>
-            </Text>
+                <Text style={[t.sub, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                  Change
+                </Text>
+              </TouchableOpacity>
+            </View>
           ) : null}
           {message ? <Text style={[t.sub, S.message]}>{message}</Text> : null}
         </ScrollView>
@@ -658,7 +677,9 @@ export function PlayStartSheet({
             <Button title="Start without a court" variant="outline" disabled={busy} onPress={() => void start({ withoutCourt: true })} />
           ) : null}
           <Button
-            title={offerAnyway ? '▶  Start anyway' : '▶  Start playing'}
+            // No court detected and none picked: Start only times the play
+            // (no check-in), so the button says so.
+            title={offerAnyway ? '▶  Start anyway' : !court && !privateOnly ? '▶  Start without a court' : '▶  Start playing'}
             variant="success"
             loading={busy}
             disabled={busy || selected === null}
@@ -827,6 +848,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     finding: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
     label: { marginTop: SPACE.md },
     visibility: { marginTop: SPACE.md },
+    visibilityRow: { flexDirection: 'row', alignItems: 'center', columnGap: SPACE.xs },
     message: { marginTop: SPACE.sm },
     actions: { gap: SPACE.sm, paddingTop: SPACE.sm, borderTopWidth: HAIRLINE, borderTopColor: c.border },
     // The slim sheet.

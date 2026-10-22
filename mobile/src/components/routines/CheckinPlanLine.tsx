@@ -14,7 +14,7 @@
 // Renders nothing without ROUTINES_ENABLED, for a check-in still queued, or
 // before its plan is read.
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { BottomSheet, DurationChips, TimeWindowsEditor } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -85,12 +85,21 @@ function DraftLine({ draft, style }: { draft: DraftPlan; style?: StyleProp<ViewS
   const line = draftPlanLine(draft.windows, draft.lengthMin, startMs, (iso) => clockLabel(iso));
   return (
     <View style={[S.wrap, style]}>
-      <Text style={[t.sub, S.text]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-        {line}
-        <Text style={{ color: c.primary }} onPress={() => setEditing(true)} accessibilityRole="link">
-          {' · Change'}
+      <View style={S.row}>
+        <Text style={[t.sub, S.text]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+          {line}
         </Text>
-      </Text>
+        <TouchableOpacity
+          style={S.change}
+          onPress={() => setEditing(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Change plan"
+        >
+          <Text style={[t.sub, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            Change
+          </Text>
+        </TouchableOpacity>
+      </View>
       {/* Inline, not a second sheet: the ▶ Play sheet is a Modal already, and
           iOS presents one Modal at a time. */}
       {editing ? <DraftPlanEditor draft={draft} onClose={() => setEditing(false)} /> : null}
@@ -344,6 +353,8 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
 const S = StyleSheet.create({
   wrap: { gap: SPACE.xxs },
   text: { flexShrink: 1 },
+  row: { flexDirection: 'row', alignItems: 'center', columnGap: SPACE.xs },
+  change: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
   scroll: { flex: 1 },
   body: { paddingBottom: SPACE.xl },

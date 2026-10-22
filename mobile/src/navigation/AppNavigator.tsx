@@ -25,6 +25,7 @@ import LaunchUpdateHost from '../components/LaunchUpdateHost';
 import { APP_STORE_URL } from '../lib/appStore';
 import { setupNotificationTapHandling } from '../lib/push';
 import { clearCheckinForSignOut } from '../lib/courtCheckin';
+import { clearAlertBadge } from '../lib/useAlertBadge';
 import { clearPlayForSignOut } from '../lib/playSession';
 import { endPresenceForSignOut } from '../lib/signOutPresence';
 import { stopCourtGeofencesForSignOut } from '../lib/courtGeofence';
@@ -225,6 +226,7 @@ export default function AppNavigator() {
         resetStreakShown();
         void clearCheckinForSignOut();
         void clearPlayForSignOut();
+        clearAlertBadge();
         // Stop watching courts, forget their state, arrivals and reminders,
         // and take down the notices naming them (the next account starts clean).
         void stopCourtGeofencesForSignOut();
@@ -373,7 +375,12 @@ export default function AppNavigator() {
                   name="Profile"
                   component={ProfileScreen}
                   // Me: Settings one tap away (Home's top bar has the other gear).
-                  options={{ title: 'Profile', headerRight: PLAY_NAV_ENABLED ? () => <SettingsGear /> : undefined }}
+                  // Only on my own profile, not on another player's.
+                  options={({ route }) => {
+                    const uid = route.params?.userId;
+                    const mine = !uid || uid === session?.user.id;
+                    return { title: 'Profile', headerRight: PLAY_NAV_ENABLED && mine ? () => <SettingsGear /> : undefined };
+                  }}
                 />
                 <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />

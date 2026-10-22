@@ -23,6 +23,13 @@ export function setAlertBadge(next: AlertCounts): void {
   for (const fn of [...listeners]) fn();
 }
 
+/** Sign-out: the outgoing account's counts go with it. */
+export function clearAlertBadge(): void {
+  if (counts === null) return;
+  counts = null;
+  for (const fn of [...listeners]) fn();
+}
+
 function subscribe(fn: () => void): () => void {
   listeners.add(fn);
   return () => {
