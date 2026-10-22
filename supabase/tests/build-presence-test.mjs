@@ -18,8 +18,10 @@
 //                                                         planned end, a routine acts
 //                                                         during its window: replaces
 //                                                         the plan-link trigger function,
-//                                                         the materializer and
-//                                                         save_court_routine)
+//                                                         the materializer,
+//                                                         save_court_routine,
+//                                                         set_court_routine_active and
+//                                                         delete_court_routine)
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -40,7 +42,7 @@
 //   <migration_court_routines.sql again>                 (re-applied: the arrival files' second
 //                                                         run puts their bodies back)
 //   <migration_court_routines_planned_end.sql again>     (re-applied: the routines re-run puts
-//                                                         the old bodies of the three back)
+//                                                         the old bodies of the five back)
 //   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
 //                                                         script does: nothing goes offline)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
@@ -108,10 +110,11 @@ const STAR_CAP = 'migration_court_star_cap_three.sql';
 // (migration_court_arrival_queue.sql), so it goes after the arrival files and
 // the star cap in both passes, as on live.
 const ROUTINES = 'migration_court_routines.sql';
-// A routine check-in takes its occurrence's planned end, and a routine saved
-// or edited during its window acts today. It replaces the routines file's
-// plan-link trigger function, materializer and save_court_routine, so it goes
-// right after each run of that file.
+// A routine check-in takes its occurrence's planned end, and a routine saved,
+// edited, paused or deleted during its window acts today. It replaces the
+// routines file's plan-link trigger function, materializer,
+// save_court_routine, set_court_routine_active and delete_court_routine, so
+// it goes right after each run of that file.
 const ROUTINES_PLANNED_END = 'migration_court_routines_planned_end.sql';
 const RERUN = [
   'migration_presence_p1_checkins.sql',

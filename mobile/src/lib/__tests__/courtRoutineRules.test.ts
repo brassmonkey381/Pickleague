@@ -879,6 +879,54 @@ describe('a routine check-in, round 3 of the review', () => {
   });
 });
 
+describe('a routine deleted or paused during its window, round 4 of the review', () => {
+  const iso = (min: number) => at(min).toISOString();
+  // As list_my_court_routines sends it (snake_case), today's occurrence 9:00.
+  const raw = (over: Record<string, unknown>, occurrences: Record<string, unknown>[] = []) =>
+    parseCourtRoutine({ ...rawBase(), ...over, occurrences, next: occurrences[0] ?? null });
+  const occ = (windows: Record<string, unknown>[], lengthMin = 180) => ({
+    plan_id: 'p-today', planned_at: iso(0), planned_end_at: iso(lengthMin), status: 'planned', windows,
+  });
+  const closedThenOpen = [
+    { starts_at: iso(0), ends_at: iso(120), mode: 'closed', hint: null, group: [] },
+    { starts_at: iso(120), ends_at: iso(180), mode: 'open', hint: null, group: [] },
+  ];
+
+  it('paused at 9:07: the answer has no occurrence, so a check-in asks 2 hours and reads nothing fresh (probe Z5)', () => {
+    // The server now takes today's planned occurrence with the pause.
+    const paused = [raw({ active: false })];
+    expect(routineDueAt(paused, 'v1', at(7))).toBeNull();
+    expect(routineDueWithoutOccurrence(paused, 'v1', at(7))).toBe(false);
+    expect(routineOccurrenceEndAt(paused, 'v1', at(7))).toBeNull();
+    expect(routineCheckinMinutes(paused, 'v1', at(7))).toBeNull();
+    expect(routineCheckinUntil(paused, 'v1', at(7))).toBeNull();
+    expect(buttonCheckinMinutes(paused, 'v1', at(7), null)).toBeNull();
+    // The server before round 4 left it in the answer and linked a check-in to
+    // it; the app followed the server there too (the occurrence, not the switch).
+    const before = [raw({ active: false }, [occ(closedThenOpen)])];
+    expect(routineCheckinMinutes(before, 'v1', at(7))).toBe(173);
+  });
+
+  it('Z7: deleted at 9:07 and saved again for 9:00 open then closed: the check-in takes the new split, 2 hours', () => {
+    // The delete's answer: the routine is gone, nothing is due.
+    expect(routineCheckinMinutes([], 'v1', at(7))).toBeNull();
+    // The new routine's answer has today's occurrence (the old one no longer blocks it).
+    const openThenClosed = [
+      { starts_at: iso(0), ends_at: iso(60), mode: 'open', hint: 'all_levels', group: [] },
+      { starts_at: iso(60), ends_at: iso(120), mode: 'closed', hint: null, group: [] },
+    ];
+    const fresh = [raw({ id: 'r2', length_min: 120 }, [occ(openThenClosed, 120)])];
+    expect(routineDueWithoutOccurrence(fresh, 'v1', at(7))).toBe(false);
+    expect(routineOccurrenceEndAt(fresh, 'v1', at(7))).toBe(iso(120));
+    // 113 minutes to its end: 2 hours asked (D1), and Home says "for 2 hours".
+    expect(routineCheckinMinutes(fresh, 'v1', at(7))).toBe(DEFAULT_CHECKIN_MINUTES);
+    expect(routineCheckinUntil(fresh, 'v1', at(7))).toBeNull();
+    // The plan the server copies onto the check-in: open play now, closed from 10:00.
+    const windows = fresh[0].next!.windows!;
+    expect(windows.map((w) => w.mode)).toEqual(['open', 'closed']);
+  });
+});
+
 describe('routine pushes', () => {
   it('"Staying until" stays quiet while the app is open, like the other arrival pushes', () => {
     expect(showWhileAppActive({ kind: 'arrival_extend_until' })).toBe(false);

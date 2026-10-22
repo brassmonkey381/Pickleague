@@ -21,7 +21,8 @@
 -- lat + 0.0001): test:cr-home (+ duplicate row test:cr-home-osm), cr-two,
 -- cr-three, cr-unstarred, cr-crowd, cr-arr, cr-off, cr-man, cr-split,
 -- cr-split3a, cr-split3b, cr-split3c, cr-split4a, cr-split4b, cr-split3d,
--- cr-late, cr-late2, cr-late3, cr-late4, cr-early.
+-- cr-late, cr-late2, cr-late3, cr-late4, cr-early, cr-gone, cr-gone2, cr-gone3,
+-- cr-gone4, cr-gone5.
 --
 -- Personas:
 --   RO owner (CRUD, windows, DST, midnight, skip / move / undo, privacy)
@@ -47,6 +48,9 @@
 --   (R17; review round 3, gap 1)
 --   RE checked in before a routine stop's window opens: the open check-in
 --   does not take the occurrence (Doggle parity over D2, R18)
+--   RZ RZ2 RZ3 RZ4 RZ5 a routine deleted or paused during its stop's window:
+--   today's occurrence goes with it, so a check-in by hand keeps nothing of
+--   it and a new routine at that time acts today (R19; review round 4, gap 1)
 -- ============================================================
 
 begin;
@@ -75,13 +79,16 @@ insert into _p values
   ('RQ4', 'a8000000-0000-4000-8000-00000000001d'), ('RQ5', 'a8000000-0000-4000-8000-00000000001e'),
   ('RQ6', 'a8000000-0000-4000-8000-00000000001f'), ('RT',  'a8000000-0000-4000-8000-000000000020'),
   ('RT2', 'a8000000-0000-4000-8000-000000000021'), ('RT3', 'a8000000-0000-4000-8000-000000000022'),
-  ('RT4', 'a8000000-0000-4000-8000-000000000023'), ('RE',  'a8000000-0000-4000-8000-000000000024');
+  ('RT4', 'a8000000-0000-4000-8000-000000000023'), ('RE',  'a8000000-0000-4000-8000-000000000024'),
+  ('RZ',  'a8000000-0000-4000-8000-000000000025'), ('RZ2', 'a8000000-0000-4000-8000-000000000026'),
+  ('RZ3', 'a8000000-0000-4000-8000-000000000027'), ('RZ4', 'a8000000-0000-4000-8000-000000000028'),
+  ('RZ5', 'a8000000-0000-4000-8000-000000000029');
 grant select on _p to authenticated, anon;
 
 -- Ids picked in advance (check-ins, sessions).
 create temp table _ids (k text primary key, id uuid not null default gen_random_uuid());
 insert into _ids (k) values ('RA'), ('RA2'), ('RA3'), ('RM'), ('C1'), ('C2'), ('C3'), ('C5'), ('C6'), ('C7'), ('RP'),
-  ('RQ'), ('RQ2'), ('RQ3'), ('RQ4'), ('RQ5'), ('RQ6'), ('RT'), ('RT2'), ('RE');
+  ('RQ'), ('RQ2'), ('RQ3'), ('RQ4'), ('RQ5'), ('RQ6'), ('RT'), ('RT2'), ('RE'), ('RZ'), ('RZ2'), ('RZ3'), ('RZ5');
 grant select on _ids to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -168,7 +175,12 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:cr-late2',     array['pickleball'], 'CR Test Courts Late 2',    'court', 40.86, -100.0, 'google', 100),
   ('test:cr-late3',     array['pickleball'], 'CR Test Courts Late 3',    'court', 40.87, -100.0, 'google', 100),
   ('test:cr-late4',     array['pickleball'], 'CR Test Courts Late 4',    'court', 40.88, -100.0, 'google', 100),
-  ('test:cr-early',     array['pickleball'], 'CR Test Courts Early',     'court', 40.89, -100.0, 'google', 100);
+  ('test:cr-early',     array['pickleball'], 'CR Test Courts Early',     'court', 40.89, -100.0, 'google', 100),
+  ('test:cr-gone',      array['pickleball'], 'CR Test Courts Gone',      'court', 40.90, -100.0, 'google', 100),
+  ('test:cr-gone2',     array['pickleball'], 'CR Test Courts Gone 2',    'court', 40.91, -100.0, 'google', 100),
+  ('test:cr-gone3',     array['pickleball'], 'CR Test Courts Gone 3',    'court', 40.92, -100.0, 'google', 100),
+  ('test:cr-gone4',     array['pickleball'], 'CR Test Courts Gone 4',    'court', 40.93, -100.0, 'google', 100),
+  ('test:cr-gone5',     array['pickleball'], 'CR Test Courts Gone 5',    'court', 40.94, -100.0, 'google', 100);
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m, canonical_id) values
   ('test:cr-home-osm', array['pickleball'], 'CR Test Courts Home', 'court', 40.70005, -100.0, 'osm', 100, 'test:cr-home');
 
@@ -181,13 +193,14 @@ select pg_temp.p(k), v from (values
   ('RQ', 'test:cr-split3a'), ('RQ2', 'test:cr-split3b'), ('RQ3', 'test:cr-split3c'),
   ('RQ4', 'test:cr-split4a'), ('RQ5', 'test:cr-split4b'), ('RQ6', 'test:cr-split3d'),
   ('RT', 'test:cr-late'), ('RT2', 'test:cr-late2'), ('RT3', 'test:cr-late3'), ('RT4', 'test:cr-late4'),
-  ('RE', 'test:cr-early')) s(k, v);
+  ('RE', 'test:cr-early'), ('RZ', 'test:cr-gone'), ('RZ2', 'test:cr-gone2'), ('RZ3', 'test:cr-gone3'),
+  ('RZ4', 'test:cr-gone4'), ('RZ5', 'test:cr-gone5')) s(k, v);
 
--- Consent (arrivals need it); RA and RN have automatic check-in off.
+-- Consent (arrivals need it); RA, RN, RZ and RZ2 have automatic check-in off.
 insert into public.presence_settings (user_id, consent_seen_at, auto_checkin)
-select pg_temp.p(k), now(), k not in ('RA', 'RN')
+select pg_temp.p(k), now(), k not in ('RA', 'RN', 'RZ', 'RZ2')
   from _p where k in ('RA', 'RA2', 'RA3', 'RX', 'RN', 'RW', 'RM', 'RP', 'RQ', 'RQ2', 'RQ3', 'RQ4', 'RQ5', 'RQ6',
-                      'RT', 'RT2', 'RT3', 'RT4', 'RE');
+                      'RT', 'RT2', 'RT3', 'RT4', 'RE', 'RZ', 'RZ2', 'RZ3', 'RZ4', 'RZ5');
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
 select pg_temp.p(a), pg_temp.p(b), 'accepted', now() from (values
@@ -321,7 +334,8 @@ begin
     from (values ('_pl_court_arrival_off'), ('_pl_take_back_arrival'), ('cancel_court_arrival'),
                  ('process_court_arrivals'), ('_purge_account'), ('prune_presence_history'),
                  -- replaced again by migration_court_routines_planned_end.sql
-                 ('_pl_checkin_link_plan'), ('_pl_materialize_court_routines'), ('save_court_routine')) w(fn)
+                 ('_pl_checkin_link_plan'), ('_pl_materialize_court_routines'), ('save_court_routine'),
+                 ('set_court_routine_active'), ('delete_court_routine')) w(fn)
     cross join lateral (select count(*) as n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
                          where ns.nspname = 'public' and p.proname = w.fn) got
    where got.n <> 1;
@@ -366,6 +380,11 @@ begin
        from pg_proc where oid = 'public._pl_materialize_court_routines(uuid,timestamptz)'::regprocedure)
     and (select prosrc like '%status = ''planned'' and planned_at > now() - interval ''30 minutes'';%'
            from pg_proc where oid = 'public.save_court_routine(uuid,text,time without time zone,integer,text,integer,jsonb)'::regprocedure));
+  perform pg_temp.ok('R1 a delete takes every unkept occurrence, a pause the planned ones still in play, today''s in its window too (same file)',
+    (select prosrc like '%where routine_id = p_routine_id and status in (''planned'', ''cancelled'');%'
+       from pg_proc where oid = 'public.delete_court_routine(uuid)'::regprocedure)
+    and (select prosrc like '%where routine_id = p_routine_id and status = ''planned'' and planned_at > now() - interval ''30 minutes'';%'
+           from pg_proc where oid = 'public.set_court_routine_active(uuid,boolean)'::regprocedure));
   perform pg_temp.ok('R1 both venue_checkins triggers exist once',
     (select count(*) from pg_trigger where tgrelid = 'public.venue_checkins'::regclass
       and tgname in ('trg_venue_checkins_plan_link', 'trg_venue_checkins_plan_kept') and not tgisinternal) = 2);
@@ -1786,6 +1805,178 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('R18 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ R19 a routine deleted or paused during its stop's window ═══════════
+-- Review round 4, gap 1 (live, rolled back: probes Z4, Z5, Z7). Round 3 makes
+-- today's occurrence while its window is open (its time up to 30 minutes
+-- ago), but delete_court_routine and set_court_routine_active (false) took
+-- away only the occurrences still ahead (planned_at > now()). Deleted in the
+-- window, today's stayed planned with routine_id null (and the tidy-up, keyed
+-- on routine_id, never took it), so a check-in by hand kept it and took the
+-- deleted routine's windows and planned end, the arrival gate's routine-window
+-- override let a phone arrival check in with automatic check-in off, and a
+-- new routine at the same time made nothing today (the leftover blocked its
+-- 30-minute check): Z7, a 12:00 routine closed then open deleted and a 12:00
+-- one open then closed saved, and a check-in by hand got the OLD split (closed
+-- first) while Home said "for 2 hours". Paused in the window, a check-in still
+-- took the split and the list still showed the stop as next. Now a delete
+-- takes every occurrence of the routine nobody kept, and a pause the planned
+-- ones still in play (ahead, or within 30 minutes after their time); a kept
+-- one stays, and a pause leaves a skipped day skipped
+-- (migration_court_routines_planned_end.sql).
+--   RZ  deleted in the window (automatic check-in off), then a check-in by hand
+--   RZ2 paused in the window (automatic check-in off), resumed, paused again,
+--       then a check-in by hand
+--   RZ3 Z7: deleted, then a new routine at the same time with the split reversed
+--   RZ4 skipped today, paused and resumed (still skipped), then deleted
+--   RZ5 checked in by hand (kept), then deleted
+do $$
+declare
+  r       public.court_routines;
+  r2      public.court_routines;
+  pl      public.court_plans;
+  pl2     public.court_plans;
+  c       public.venue_checkins;
+  j       jsonb;
+  v_at    timestamptz := date_trunc('minute', now() - interval '10 minutes');
+  v_min   int;
+  v_split jsonb := jsonb_build_array(pg_temp.w(0, 120, 'closed'), pg_temp.w(120, 180, 'open'));
+begin
+  -- RZ: 3 hours, closed 2 h then open 1 h, saved 10 minutes after its time, then deleted.
+  perform pg_temp.late_routine('RZ', 'test:cr-gone', interval '10 minutes', 180, v_split);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RZ', 'test:cr-gone');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.ok('R19 set-up: today''s occurrence is made in its window and opens the arrival gate (automatic check-in off)',
+    pl.id is not null and pl.status = 'planned'
+    and public._pl_court_arrival_off(pg_temp.p('RZ'), 'test:cr-gone') is null,
+    coalesce(row_to_json(pl)::text, 'none'));
+  perform pg_temp.as_user(pg_temp.p('RZ'));
+  j := public.delete_court_routine(r.id);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R19 deleted in its window: today''s occurrence goes with it, nothing of it is left (probe Z4: it stayed, planned, routine_id null)',
+    pl.id is not null and (pg_temp.plan(pl.id)).id is null
+    and not exists (select 1 from public.court_plans x where x.user_id = pg_temp.p('RZ'))
+    and pg_temp.routines('RZ') = 0 and j = '[]'::jsonb,
+    coalesce((select json_agg(x)::text from public.court_plans x where x.user_id = pg_temp.p('RZ')), 'none left'));
+  perform pg_temp.ok('R19 ... the arrival gate is shut again (no routine-window override with automatic check-in off)',
+    public._pl_court_arrival_off(pg_temp.p('RZ'), 'test:cr-gone') = 'off',
+    public._pl_court_arrival_off(pg_temp.p('RZ'), 'test:cr-gone'));
+  perform pg_temp.as_user(pg_temp.p('RZ'));
+  perform public.checkin_venue(p_id => pg_temp.i('RZ'), p_venue => 'test:cr-gone', p_minutes => 120, p_source => 'manual',
+    p_at => null, p_lat => 40.9001, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RZ'));
+  perform pg_temp.ok('R19 ... a check-in by hand then keeps nothing of the deleted routine: no plan, no windows, no planned end',
+    c.id is not null and c.location_confirmed and c.plan_id is null and c.play_windows is null and c.planned_end_at is null
+    and c.expires_at = c.checked_in_at + interval '120 minutes', coalesce(row_to_json(c)::text, 'no check-in'));
+
+  -- RZ2: the same routine, paused in its window.
+  perform pg_temp.late_routine('RZ2', 'test:cr-gone2', interval '10 minutes', 180, v_split);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RZ2', 'test:cr-gone2');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.as_user(pg_temp.p('RZ2'));
+  j := public.set_court_routine_active(r.id, false);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R19 paused in its window: today''s occurrence goes, the list shows no next stop (probe Z5: it stayed, as next)',
+    pl.id is not null and (pg_temp.plan(pl.id)).id is null
+    and not exists (select 1 from public.court_plans x where x.routine_id = r.id)
+    and exists (select 1 from jsonb_array_elements(j) x
+                 where x ->> 'id' = r.id::text and x ->> 'active' = 'false' and x ->> 'next' is null
+                   and jsonb_array_length(x -> 'occurrences') = 0)
+    and public._pl_court_arrival_off(pg_temp.p('RZ2'), 'test:cr-gone2') = 'off', j::text);
+  perform pg_temp.as_user(pg_temp.p('RZ2'));
+  perform public.set_court_routine_active(r.id, true);
+  perform pg_temp.as_admin();
+  pl2 := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.ok('R19 ... resumed in the window: today''s is made again with its split (as a save in the window)',
+    pl2.id is not null and pl2.id <> pl.id and pl2.status = 'planned' and pg_temp.occs_at(r.id, v_at) = 1
+    and pl2.windows -> 0 ->> 'mode' = 'closed' and pl2.planned_end_at = v_at + interval '180 minutes',
+    coalesce(row_to_json(pl2)::text, 'none'));
+  perform pg_temp.as_user(pg_temp.p('RZ2'));
+  perform public.set_court_routine_active(r.id, false);
+  perform public.checkin_venue(p_id => pg_temp.i('RZ2'), p_venue => 'test:cr-gone2', p_minutes => 120, p_source => 'manual',
+    p_at => null, p_lat => 40.9101, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RZ2'));
+  perform pg_temp.ok('R19 ... paused again, a check-in by hand keeps nothing (probe Z5: it took the paused routine''s split)',
+    c.id is not null and c.location_confirmed and c.plan_id is null and c.play_windows is null and c.planned_end_at is null
+    and not exists (select 1 from public.court_plans x where x.routine_id = r.id),
+    coalesce(row_to_json(c)::text, 'no check-in'));
+
+  -- RZ3 (probe Z7): closed then open, deleted, then open then closed at the same time.
+  perform pg_temp.late_routine('RZ3', 'test:cr-gone3', interval '10 minutes', 180, v_split);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RZ3', 'test:cr-gone3');
+  perform pg_temp.as_user(pg_temp.p('RZ3'));
+  perform public.delete_court_routine(r.id);
+  perform pg_temp.late_routine('RZ3', 'test:cr-gone3', interval '10 minutes', 120,
+    jsonb_build_array(pg_temp.w(0, 60, 'open', 'all_levels'), pg_temp.w(60, 120, 'closed')));
+  perform pg_temp.as_admin();
+  r2 := pg_temp.routine('RZ3', 'test:cr-gone3');
+  pl2 := pg_temp.occ_at(r2.id, v_at);
+  perform pg_temp.ok('R19 Z7: deleted, then a new routine at the same time: today''s occurrence is the new one, alone (it got none: the old one blocked it)',
+    r.id is not null and r2.id is not null and r2.id <> r.id and pl2.id is not null and pl2.status = 'planned'
+    and pl2.windows -> 0 ->> 'mode' = 'open' and pl2.planned_end_at = v_at + interval '120 minutes'
+    and (select count(*) from public.court_plans x
+          where x.user_id = pg_temp.p('RZ3') and x.status = 'planned' and x.planned_at = v_at) = 1,
+    coalesce((select json_agg(x)::text from public.court_plans x where x.user_id = pg_temp.p('RZ3')), 'none'));
+  v_min := pg_temp.app_minutes(pl2.planned_end_at);
+  perform pg_temp.as_user(pg_temp.p('RZ3'));
+  perform public.checkin_venue(p_id => pg_temp.i('RZ3'), p_venue => 'test:cr-gone3', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.9201, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RZ3'));
+  perform pg_temp.ok('R19 ... a check-in by hand takes the NEW split: open play now, closed after the first hour (Z7: the old one, closed first)',
+    v_min = 120 and c.plan_id = pl2.id and c.play_windows = pl2.windows and c.planned_end_at = pl2.planned_end_at
+    and public._pl_checkin_mode_at(c.play_windows, now()) = 'open'
+    and public._pl_checkin_mode_at(c.play_windows, v_at + interval '90 minutes') = 'closed',
+    'minutes ' || v_min || ' ' || coalesce(row_to_json(c)::text, 'no check-in'));
+
+  -- RZ4: skipped today in its window, paused, resumed, then deleted.
+  perform pg_temp.late_routine('RZ4', 'test:cr-gone4', interval '10 minutes', 90, null);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RZ4', 'test:cr-gone4');
+  pl := pg_temp.occ_at(r.id, v_at);
+  perform pg_temp.as_user(pg_temp.p('RZ4'));
+  perform public.skip_court_routine_occurrence(pl.id);
+  perform public.set_court_routine_active(r.id, false);
+  perform public.set_court_routine_active(r.id, true);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R19 a day skipped in its window stays skipped through a pause and a resume (not made again), tomorrow''s is back',
+    pl.id is not null and (pg_temp.plan(pl.id)).status = 'cancelled' and pg_temp.occs_at(r.id, v_at) = 1
+    and exists (select 1 from public.court_plans x where x.routine_id = r.id and x.status = 'planned' and x.planned_at > now()));
+  perform pg_temp.as_user(pg_temp.p('RZ4'));
+  perform public.delete_court_routine(r.id);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R19 ... then deleted in the window: the skipped day and tomorrow''s go with it, nothing of it is left',
+    (pg_temp.plan(pl.id)).id is null and not exists (select 1 from public.court_plans x where x.user_id = pg_temp.p('RZ4')),
+    coalesce((select json_agg(x)::text from public.court_plans x where x.user_id = pg_temp.p('RZ4')), 'none left'));
+
+  -- RZ5: checked in by hand (the occurrence kept), then deleted.
+  perform pg_temp.late_routine('RZ5', 'test:cr-gone5', interval '10 minutes', 180, v_split);
+  perform pg_temp.as_admin();
+  r := pg_temp.routine('RZ5', 'test:cr-gone5');
+  pl := pg_temp.occ_at(r.id, v_at);
+  v_min := pg_temp.app_minutes(pl.planned_end_at);
+  perform pg_temp.as_user(pg_temp.p('RZ5'));
+  perform public.checkin_venue(p_id => pg_temp.i('RZ5'), p_venue => 'test:cr-gone5', p_minutes => v_min, p_source => 'manual',
+    p_at => null, p_lat => 40.9401, p_lng => -100.0, p_accuracy_m => 10, p_fix_at => now());
+  perform public.delete_court_routine(r.id);
+  perform pg_temp.as_admin();
+  c := pg_temp.vci(pg_temp.i('RZ5'));
+  perform pg_temp.ok('R19 checked in, then deleted in the window: the kept occurrence stays (routine cleared), the check-in keeps its split and planned end',
+    pl.id is not null and (pg_temp.plan(pl.id)).status = 'completed' and (pg_temp.plan(pl.id)).routine_id is null
+    and (pg_temp.plan(pl.id)).checkin_id = c.id and c.plan_id = pl.id and c.play_windows = pl.windows
+    and c.planned_end_at = pl.planned_end_at and c.checked_out_at is null
+    and (select count(*) from public.court_plans x where x.user_id = pg_temp.p('RZ5')) = 1,
+    coalesce(row_to_json(c)::text, 'no check-in'));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('R19 block crashed', false, sqlerrm);
 end $$;
 
 

@@ -125,11 +125,13 @@
 -- begin/commit.
 -- AFTER ANY RE-RUN OF THIS FILE, re-apply
 -- migration_court_routines_planned_end.sql: it replaces the plan-link trigger
--- function of section 4, _pl_materialize_court_routines (section 3) and
--- save_court_routine (section 6), and this file puts the older bodies back
--- (a check-in by hand without its planned end, so a split never reaches its
--- open part; a routine saved or edited during its window doing nothing
--- today). The test builders and the apply scripts do this.
+-- function of section 4, _pl_materialize_court_routines (section 3),
+-- save_court_routine, set_court_routine_active and delete_court_routine
+-- (section 6), and this file puts the older bodies back (a check-in by hand
+-- without its planned end, so a split never reaches its open part; a routine
+-- saved or edited during its window doing nothing today; one deleted or
+-- paused during its window leaving today's occurrence behind, still kept by
+-- a check-in by hand). The test builders and the apply scripts do this.
 --   supabase db query --linked -f supabase/migration_court_routines.sql
 -- ============================================================
 
@@ -1044,6 +1046,9 @@ end $$;
 revoke all on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) from public, anon;
 grant execute on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) to authenticated;
 
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (a pause also takes today's planned occurrence during its window).
+-- Re-apply that file after any re-run of this one.
 create or replace function public.set_court_routine_active(p_routine_id uuid, p_active boolean)
 returns jsonb
 language plpgsql
@@ -1071,6 +1076,9 @@ revoke all on function public.set_court_routine_active(uuid, boolean) from publi
 grant execute on function public.set_court_routine_active(uuid, boolean) to authenticated;
 
 -- Upcoming occurrences go with it; past ones stay as plain plans.
+-- SUPERSEDED: migration_court_routines_planned_end.sql replaces this function
+-- (every occurrence nobody kept goes, today's during its window too).
+-- Re-apply that file after any re-run of this one.
 create or replace function public.delete_court_routine(p_routine_id uuid)
 returns jsonb
 language plpgsql

@@ -2,11 +2,13 @@
 -- Routine check-ins: the closed / open split reaches its open part.
 -- Follow-up to migration_court_routines.sql, from the user's report of
 -- 2026-10-22 ("the split of closed / open time during a window does not seem
--- to work") and the reviews of the fix (rounds 1 to 3). Two parts:
+-- to work") and the reviews of the fix (rounds 1 to 4). Three parts:
 --   A. a check-in that keeps a routine occurrence also takes its planned end
 --      (_pl_checkin_link_plan);
 --   B. a routine saved or edited during its stop's window acts today
---      (_pl_materialize_court_routines, save_court_routine).
+--      (_pl_materialize_court_routines, save_court_routine);
+--   C. a routine deleted or paused during its stop's window takes today's
+--      occurrence with it (delete_court_routine, set_court_routine_active).
 --
 -- ── A. The planned end ──────────────────────────────────────────────────────
 -- Before: trg_venue_checkins_plan_link (before insert on venue_checkins)
@@ -97,12 +99,45 @@
 -- process_court_routine_reminders skips a player checked in there;
 -- materialize_court_routines' tidy-up). Persona check R18.
 --
+-- ── C. A routine deleted or paused during its window ────────────────────────
+-- Before (review round 4, gap 1; live, rolled back: probes Z4, Z5, Z7):
+-- delete_court_routine and set_court_routine_active (false) took away only
+-- the occurrences still ahead (planned_at > now()), which B makes the wrong
+-- set: today's occurrence lives up to 30 minutes after its time. Deleted in
+-- the window, today's stayed planned with routine_id null (on delete set
+-- null), and nothing ever took it away (the tidy-up in
+-- materialize_court_routines keys on routine_id). So a check-in by hand kept
+-- it and took the deleted routine's windows and planned end; the
+-- routine-window override in _pl_court_arrival_off still let a phone arrival
+-- check in with automatic check-in off; and a new routine at that time made
+-- nothing today (the leftover failed its 30-minute check). A tester deleting
+-- a 12:00 routine closed then open and saving a 12:00 one open then closed
+-- got the OLD split on a check-in by hand (the original report's symptom).
+-- Paused in the window, a check-in still took the split, and the list showed
+-- the stop as next.
+--
+-- Now:
+--   * delete_court_routine takes every occurrence of the routine nobody kept
+--     (planned or skipped, any time): with its routine gone none can be made
+--     again or tidied up, and only routines write court_plans (Doggle keeps
+--     past ones "as ordinary plans"; Pickleague has none). A kept
+--     (completed) one stays, routine_id cleared, with its check-in.
+--   * set_court_routine_active (false) takes the planned occurrences still
+--     in play: ahead, or within 30 minutes after their time (the rule of
+--     save_court_routine above). A skipped day stays skipped, so a resume
+--     never makes it again; a resume during the window makes today's again
+--     (the materializer, B), as a save would.
+-- Doggle differs (0415: planned_at > now() in both) only because its
+-- materializer never makes an occurrence already past. Persona check R19.
+--
 -- Replaced (same signatures and attributes; execute stays revoked from
 -- public, anon, authenticated for the two internal ones, granted to
--- authenticated for save_court_routine; the trigger itself is unchanged):
+-- authenticated for the three client RPCs; the trigger itself is unchanged):
 --   _pl_checkin_link_plan           (migration_court_routines.sql) + planned_end_at
 --   _pl_materialize_court_routines  (migration_court_routines.sql) in-window today
 --   save_court_routine              (migration_court_routines.sql) re-makes in-window
+--   set_court_routine_active        (migration_court_routines.sql) pause takes in-window
+--   delete_court_routine            (migration_court_routines.sql) takes every unkept one
 --
 -- APPLY ORDER: after migration_court_routines.sql. RE-APPLY after any re-run
 -- of migration_court_routines.sql: it puts the old bodies back
@@ -288,3 +323,60 @@ begin
 end $$;
 revoke all on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) from public, anon;
 grant execute on function public.save_court_routine(uuid, text, time, integer, text, integer, jsonb) to authenticated;
+
+
+-- ── C. A routine deleted or paused during its window ───────────────────────
+-- Pause or resume one of mine. Paused: the planned occurrences still in play
+-- (ahead, or within 30 minutes after their time: today's during its window)
+-- go; a skipped day stays skipped. Resumed: the materializer makes what is
+-- due (today's too while its window is open).
+create or replace function public.set_court_routine_active(p_routine_id uuid, p_active boolean)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_me uuid := auth.uid();
+begin
+  if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
+  update public.court_routines set active = coalesce(p_active, true), updated_at = now()
+   where id = p_routine_id and user_id = v_me;
+  if not found then
+    raise exception using message = 'That routine isn''t in your list any more. Pull to refresh.', hint = 'pl:routine.not_found';
+  end if;
+  if coalesce(p_active, true) then
+    perform public._pl_materialize_court_routines(p_routine_id, now());
+  else
+    -- Still in play: ahead, or in its window (paused at 9:40 for 9:34).
+    delete from public.court_plans
+     where routine_id = p_routine_id and status = 'planned' and planned_at > now() - interval '30 minutes';
+  end if;
+  return public.list_my_court_routines();
+end $$;
+revoke all on function public.set_court_routine_active(uuid, boolean) from public, anon;
+grant execute on function public.set_court_routine_active(uuid, boolean) to authenticated;
+
+-- Every occurrence nobody kept goes with it (planned or skipped, today's
+-- during its window too): with the routine gone, none can be made again or
+-- tidied up (routine_id goes null). A kept one stays with its check-in.
+create or replace function public.delete_court_routine(p_routine_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_me uuid := auth.uid();
+begin
+  if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
+  if not exists (select 1 from public.court_routines where id = p_routine_id and user_id = v_me) then
+    raise exception using message = 'That routine isn''t in your list any more. Pull to refresh.', hint = 'pl:routine.not_found';
+  end if;
+  delete from public.court_plans
+   where routine_id = p_routine_id and status in ('planned', 'cancelled');
+  delete from public.court_routines where id = p_routine_id and user_id = v_me;
+  return public.list_my_court_routines();
+end $$;
+revoke all on function public.delete_court_routine(uuid) from public, anon;
+grant execute on function public.delete_court_routine(uuid) to authenticated;
