@@ -50,6 +50,8 @@ import {
   type ServerAnswer,
 } from '../../lib/sessionValidity';
 import { getMySessionValidity } from '../../data/playSessions';
+import { PLAY_NAV_ENABLED } from '../../lib/features';
+import { playCompleteLine } from '../../lib/playStartRules';
 
 type Shown = { ended: EndedPlay; ask: Extract<EndDecision, { show: 'record' }> };
 
@@ -124,6 +126,7 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
     <BottomSheet visible={!!shown} onClose={notNow} title="Record a match or drill?">
       {view ? (
         <View style={S.body}>
+          {PLAY_NAV_ENABLED ? <Text style={t.title}>{playCompleteLine(view.ended)}</Text> : null}
           <Text style={t.sub}>{endSheetBody(view.ask)}</Text>
           <View style={S.actions}>
             <Button title="Record match" variant="success" onPress={recordMatch} />

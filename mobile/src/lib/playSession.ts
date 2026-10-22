@@ -87,6 +87,7 @@ import {
   type PlaySessionRow,
 } from '../data/playSessions';
 import { getMyCheckin, getVenueName, type VenueCheckin } from '../data/venueCheckins';
+import { PLAY_NAV_ENABLED } from './features';
 
 export type PlayMeta = {
   kind: PlayKind;
@@ -368,6 +369,12 @@ registerMutationHandler(MUTATION_END, {
  * Start a session. Shows immediately; the server write queues when offline.
  * With a court, pass the fix taken at Start: it is what checks me in there.
  */
+/**
+ * A Start reached the server live (not a queued replay): the session row
+ * exists, and with a court that confirmed, so does its check-in.
+ */
+export const playStartLanded = createSignal<{ id: string; venueId: string | null; at: string }>();
+
 export function startPlay(
   meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null; viaCheckin?: boolean },
 ): string {
@@ -395,6 +402,8 @@ export function startPlay(
       // that didn't check me in stops being named (the queued replay checks
       // the same way when it lands).
       if (meta.venueId) void noteUntrackedStart(payload, result);
+      // The ▶ Play sheet's plan waits for this (lib/playStartPlan).
+      playStartLanded.emit({ id, venueId: meta.venueId, at });
     })
     .catch(async (e: unknown) => {
       // Signed out right now: wait in the queue like an offline Start.
@@ -472,6 +481,7 @@ export function endPlay(): EndedPlay | null {
     startedAtMs: s.startedAtMs,
     endedAtMs: Date.parse(payload.at),
     recorded,
+    venueName: s.meta.venueName,
   };
   lastEnded = ended;
   playEnded.emit(ended);
@@ -674,7 +684,12 @@ export async function getActivePlay() {
 
 // ── "Where are you playing?" and the island ─────────────────────────────────
 /** What the start sheet opens with (all optional: it fills in the rest). */
-export type PlayStartRequest = { kind?: PlayKind; sourceId?: string | null };
+export type PlayStartRequest = {
+  kind?: PlayKind;
+  sourceId?: string | null;
+  /** "▶ Play here": this court, picked (the plan's C3). */
+  venue?: { id: string; name: string };
+};
 
 /** Emits when the start sheet should open (its host takes the request). */
 export const playStartRequested = createSignal<void>();
@@ -751,7 +766,9 @@ export async function clearPlayForSignOut(): Promise<void> {
 // "Start session" on the starting-now notice (opens the app): the start sheet,
 // with the drill or match as the session's source.
 registerActionHandler('play_start', {
-  success: { title: 'Where are you playing?', body: 'Pick your court in Pickleague, then tap Start.' },
+  success: PLAY_NAV_ENABLED
+    ? { title: '▶ Play', body: 'Open Pickleague and tap Start.' }
+    : { title: 'Where are you playing?', body: 'Pick your court in Pickleague, then tap Start.' },
   run: async (d) => {
     await requireUser();
     const raw = d as Record<string, unknown>;

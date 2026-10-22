@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
 import {
   LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
@@ -6,7 +7,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useIsFocused } from '@react-navigation/native';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { CollapsibleSection, Panel, StickyActionBar, useBottomChromeInset } from '@just-messin-around/expo-foundation/ui';
+import { CollapsibleSection, Panel, StickyActionBar } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
@@ -89,7 +90,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const t = textStyles(c);
   const td = useTournamentDetail({ navigation, tournamentId });
   const isFocused = useIsFocused();
-  const bottomInset = useBottomChromeInset(SPACE.xl);
+  // The navigator already keeps the bottom bar and the island clear (lib/appChrome).
+  const bottomInset = useScreenBottomInset(SPACE.xl);
+  const navReserve = useNavReserve();
 
   // ── Section open state (all hooks above the loading return) ──
   const [manageOpen, setManageOpen] = useState(false);
@@ -1001,6 +1004,9 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
           positioned and publishes its height to the bottom chrome slot, which
           lifts PlayIsland above it and pads the list (bottomInset). */}
       <StickyActionBar
+        // It sits above the room the navigator keeps clear: its edge counts from the window bottom.
+        bottomOffset={navReserve}
+        style={navReserve > 0 ? { paddingBottom: SPACE.sm } : undefined}
         visible={stickyVisible && !!stickyPrimary}
         active={isFocused}
         summary={tournament.name}

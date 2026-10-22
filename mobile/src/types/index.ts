@@ -512,7 +512,11 @@ export type RootStackParamList = {
   GuestJoin: { token: string };
   // www.pickleague.club/invite/CODE (REFERRALS_ENABLED only; both stacks).
   InviteLanding: { code: string };
-  Home: undefined;
+  // checkin: a 'home/' push (the check-in reminder, the arrival notice) opened
+  // it; with the bottom bar, the island shows my check-in or asks "At X?".
+  Home: { checkin?: boolean } | undefined;
+  // /play/start (PLAY_NAV_ENABLED): opens the ▶ Play sheet, then leaves the stack.
+  PlayStart: undefined;
   // Discover (DISCOVER_ENABLED): Leagues · Tournaments · Places · Players, one
   // screen (lib/discoverTabs.ts). tab picks the tab (else the one used last,
   // else Leagues); mine / prefillInviteCode go to Leagues or Tournaments,

@@ -133,6 +133,26 @@ export const ROUTINES_ENABLED = true;
 export const REFERRALS_ENABLED = true;
 
 /**
+ * The bottom bar and Play = Doggle's WALK (state/feed-discover-play-plan.md,
+ * P1, with the user's decisions of 2026-10-22): Home · Play · (Check in,
+ * raised centre) · Discover · Me (navigation/AppNavBar on the foundation's
+ * FloatingNavBar), hidden signed out, on Claim / UpgradeAccount / MatchEntry
+ * and while the keyboard is up. Play opens the slim "▶ Play" sheet (the
+ * detected court, Open play · Closed group · Drill picked from what I have
+ * scheduled around now, how long, and the plan); Check in checks me in at
+ * the court I'm at in one tap (components/play/CheckinHost, which owns the
+ * check-in listeners and drives the island's checked-in state). The bell and
+ * the gear stay in Home's top bar; Me gets a gear too. CourtDetail's primary
+ * button is "▶ Play here", the end sheet says how long and where, and
+ * /play/start opens the sheet.
+ *
+ * ON since 2026-10-22: the user asked for changes straight in production, no
+ * PREVIEW gating. Off: no bar, no CheckinHost, the old "Where are you
+ * playing?" sheet and Home exactly as before.
+ */
+export const PLAY_NAV_ENABLED = true;
+
+/**
  * Discover, one screen with four tabs in the user's order: Leagues ·
  * Tournaments · Places · Players (state/feed-discover-play-plan.md §4, P2). The
  * Play hub (Leagues + Tournaments), the Courts screen and the Friends screen
@@ -150,7 +170,7 @@ export const REFERRALS_ENABLED = true;
  * FRIENDS_AT_COURTS_ENABLED. Off, every old screen is itself again (Courts
  * included) and nothing names Discover.
  */
-export const DISCOVER_ENABLED = COURT_DISCOVERY_ENABLED;
+export const DISCOVER_ENABLED = COURT_DISCOVERY_ENABLED || PLAY_NAV_ENABLED;
 
 /**
  * The Pickleague Feed on Home (state/feed-discover-play-plan.md §3 / §5, P3,

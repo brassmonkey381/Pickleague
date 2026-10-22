@@ -78,6 +78,7 @@ import CheckinPlanLine from './routines/CheckinPlanLine';
 import { openPlayStart, playSession, startPlay } from '../lib/playSession';
 import { COURT_DISCOVERY_ENABLED } from '../lib/features';
 import { openDiscover } from '../lib/discoverNav';
+import { checkinHostOwnsNotes } from '../lib/checkinHost';
 import type { RootStackParamList } from '../types';
 
 // Check out waits at most 3 s for its stay-proof fix, then the write as before.
@@ -239,20 +240,25 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     useCallback(() => {
       // Offline: keep the cached check-in. A check-in that ended without my
       // Check out here (ran out, or closed elsewhere) says so once.
+      // With the bottom bar, the root CheckinHost owns the once-only notes
+      // (plan C1): taking them here too would say one twice, or race it away.
+      const ownsNotes = !checkinHostOwnsNotes();
       refreshCurrentCheckin()
         .then(async (c) => {
           setCurrent(c);
+          if (!ownsNotes) return;
           // Only the signed-in player's own (never the previous account's).
           const ended = await takeEndedCheckinNote();
           if (ended && !c) setMessage(ended);
         })
         .catch(() => {});
       // A queued check-in the server refused while I was away.
-      void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
+      if (ownsNotes) void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
     }, []),
   );
   // ...or while the card is on screen (marked shown so focus doesn't repeat it).
   useSignal(checkinRejected, () => {
+    if (checkinHostOwnsNotes()) return;
     void takeRejectedCheckinNotice().then((notice) => notice && setMessage(notice));
   });
 
@@ -376,7 +382,9 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
               size="sm"
               variant="success"
               disabled={!!busy}
-              onPress={tap('start_playing', () => openPlayStart())}
+              onPress={tap('start_playing', () =>
+                openPlayStart({ venue: { id: current.venueId, name: current.venueName } }),
+              )}
             />
           )}
         </View>

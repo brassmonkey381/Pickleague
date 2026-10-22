@@ -4,14 +4,16 @@
 /** Who sees my check-ins, as far as the line needs it (get_my_presence_settings). */
 export type CheckinVisibility = { level: string | null; pausedUntil: string | null };
 
-export type CourtReason = 'checked_in' | 'here' | 'home' | 'favorite' | 'recent';
+/** 'picked': "▶ Play here" named this court (a court page, a feed row). */
+export type CourtReason = 'checked_in' | 'picked' | 'here' | 'home' | 'favorite' | 'recent';
 export type CourtCandidate = { id: string; name: string; reason: CourtReason };
 
-/** Preselection order: my check-in, the court I'm standing in, then my usual courts. */
-const ORDER: CourtReason[] = ['checked_in', 'here', 'home', 'favorite', 'recent'];
+/** Preselection order: my check-in, the court I asked for, the court I'm standing in, then my usual courts. */
+const ORDER: CourtReason[] = ['checked_in', 'picked', 'here', 'home', 'favorite', 'recent'];
 
 const NOTE: Record<CourtReason, string> = {
   checked_in: 'Checked in',
+  picked: 'This court',
   here: "You're here",
   home: 'League home court',
   favorite: 'Favorite',

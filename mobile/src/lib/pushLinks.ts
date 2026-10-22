@@ -22,8 +22,15 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.leng
 /** The route table. `wagersEnabled` / `friendsEnabled`: the wager screens and
  *  the Friends screen exist only when their flag is on. `discoverEnabled`:
  *  Discover holds the leagues list and the friends (its Leagues and Players
- *  tabs), so an invite code and the friend pushes open it there directly. */
-export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: boolean; discoverEnabled?: boolean }): Routes {
+ *  tabs), so an invite code and the friend pushes open it there directly.
+ *  `checkinIsland` (PLAY_NAV_ENABLED): 'home/' still opens Home, and asks the
+ *  root CheckinHost to show my check-in on the island (or "At X?"). */
+export function pushRoutes(opts: {
+  wagersEnabled: boolean;
+  friendsEnabled?: boolean;
+  discoverEnabled?: boolean;
+  checkinIsland?: boolean;
+}): Routes {
   const discover = !!opts.discoverEnabled;
   const routes: Routes = {
     'tournament/': (id) => (has(id) ? ['TournamentDetail', { tournamentId: id, tournamentName: 'Tournament' }] : null),
@@ -56,8 +63,9 @@ export function pushRoutes(opts: { wagersEnabled: boolean; friendsEnabled?: bool
     // Another player's profile ("Sam accepted your friend request").
     'player/': (id) => (has(id) ? ['PlayerProfile', { userId: id, userName: 'Player' }] : null),
     'plupr_history/': (id) => ['CalendarAnalytics', { userId: has(id), title: 'My PLUPR History' }],
-    // Court check-in reminder and arrival notice: Home's court card.
-    'home/': () => ['Home'],
+    // Court check-in reminder and arrival notice: Home's court card, and with
+    // the bottom bar the island too (Home passes `checkin` to CheckinHost).
+    'home/': () => (opts.checkinIsland ? ['Home', { checkin: true }] : ['Home']),
     'notifications/': () => ['Notifications'],
     // Court arrival with a saved QR code: that code, full screen.
     'wallet/': (id) => (has(id) ? ['QrPass', { passId: id }] : ['QrWallet']),
@@ -142,4 +150,33 @@ export function linkForAction(action: string | undefined, data: Record<string, u
       return null;
   }
   return link ?? (linkOf(data) || `notifications/${NO_ID}`);
+}
+
+/**
+ * The `go` a push or a notification tap routes through (lib/push.ts wires the
+ * real navigation in; pure so the tests can drive it).
+ *
+ * Home is always the bottom of the stack (first screen + linking
+ * initialRouteName). A plain navigate('Home') pushes a second Home under
+ * routers 7.x, so `popToHome` goes back to the existing one, carrying the
+ * params. `{ checkin: true }` (a 'home/' push with the bar on) also asks
+ * CheckinHost for the island directly: the request is held until the host
+ * mounts, so it survives a cold start, where the navigator mounts on Home
+ * without these params.
+ */
+export function pushGo(deps: {
+  isReady: () => boolean;
+  popToHome: (params?: Record<string, unknown>) => void;
+  navigate: (name: string, params?: Record<string, unknown>) => void;
+  requestCheckinIsland: () => void;
+}): (name: string, params?: Record<string, unknown>) => void {
+  return (name, params) => {
+    if (name === 'Home') {
+      if (params?.checkin) deps.requestCheckinIsland();
+      // Not ready = cold start: the navigator mounts on Home anyway.
+      if (deps.isReady()) deps.popToHome(params?.checkin ? undefined : params);
+      return;
+    }
+    deps.navigate(name, params);
+  };
 }

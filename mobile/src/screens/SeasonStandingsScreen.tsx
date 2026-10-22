@@ -13,6 +13,7 @@
 //
 // The standings math lives in components/standings/standingsModel.ts (pure,
 // tested); this file loads, picks the tab, and lays it out.
+import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import {
   ScrollView, View, Text, StyleSheet,
@@ -25,7 +26,7 @@ import {
   sbCall, classifySbError, friendlySbMessage, currentUserId,
 } from '@just-messin-around/expo-foundation/supabase';
 import {
-  CollapsibleSection, FilterChipRow, StickyActionBar, useBottomChromeInset, StatusBanner,
+  CollapsibleSection, FilterChipRow, StickyActionBar, StatusBanner,
   type FilterChipOption,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -78,7 +79,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   const t = textStyles(colors);
   const S = makeStyles(colors);
   const isFocused = useIsFocused();
-  const bottomInset = useBottomChromeInset(SPACE.xl);
+  // The navigator already keeps the bottom bar and the island clear (lib/appChrome).
+  const bottomInset = useScreenBottomInset(SPACE.xl);
+  const navReserve = useNavReserve();
 
   const [season, setSeason]           = useState<LeagueSeason | null>(null);
   const [potMembers, setPotMembers]   = useState<{ id: string; full_name: string }[]>([]);
@@ -795,6 +798,9 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
 
       {/* Last child of the root, outside the ScrollView (foundation rule). */}
       <StickyActionBar
+        // It sits above the room the navigator keeps clear: its edge counts from the window bottom.
+        bottomOffset={navReserve}
+        style={navReserve > 0 ? { paddingBottom: SPACE.sm } : undefined}
         visible={!!mine && myRowOffscreen}
         active={isFocused}
         summary={mine ? `You're #${mine.rank} · ${mine.plupr} PLUPR` : undefined}

@@ -2,9 +2,10 @@
 //   Discover · Record (league members only) · Play · Drill · Shop · History
 // Discover (its Places tab: the courts near you, list or map) shows while
 // COURT_DISCOVERY_ENABLED is on, first, as Doggle's Home shortcuts put
-// Discover first. Play opens Discover's Leagues tab (the Play hub folded into
-// Discover, state/feed-discover-play-plan.md §8; P1 turns ▶ Play into
-// starting a session). HomeScreen.onQuick routes both. Six tiles at 375 px: the
+// Discover first. Play opens the ▶ Play sheet with the bottom bar on
+// (PLAY_NAV_ENABLED, state/feed-discover-play-plan.md P1: Play starts a
+// session, like Doggle's WALK), else Discover's Leagues tab (the old Play
+// hub). HomeScreen.onQuick routes both. Six tiles at 375 px: the
 // row is 343 wide inside Home's 16 px gutters, so with the gap cut to 4 px
 // each tile is about 53 px, wide enough for "History" (the longest label, about
 // 45 px at the meta size).
