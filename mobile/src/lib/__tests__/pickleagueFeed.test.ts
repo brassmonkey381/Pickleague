@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   buildPickleagueFeed,
   capCourtLines,
+  courtOfPlace,
+  placeLabel,
   previewRows,
   routineHeaderLine,
   signedUpTournaments,
@@ -11,7 +13,7 @@ import {
   type FeedInput,
   type FeedPerson,
 } from '../pickleagueFeed';
-import type { AgendaItem, AgendaTournamentInput } from '../agenda';
+import type { AgendaEventInput, AgendaItem, AgendaTournamentInput } from '../agenda';
 import type { CourtRoutine } from '../courtRoutineRules';
 import type { FriendAtCourt, FriendsAtCourts } from '../friendsAtCourts';
 
@@ -128,7 +130,7 @@ describe('which items qualify', () => {
     ];
     expect(signedUpTournaments(regs).map((t) => t.id)).toEqual(['in', 'req', 'wait', 'inv']);
     const f = buildPickleagueFeed(base({ tournaments: regs }));
-    const keys = [...f.needsYou, ...f.days.flatMap((d) => d.rows)].map((r) => r.key).sort();
+    const keys = [...f.needsYou, ...f.days.flatMap((d) => d.elsewhere)].map((r) => r.key).sort();
     expect(keys).toEqual(['tournament-in', 'tournament-inv', 'tournament-req', 'tournament-wait']);
     // The invite waits on me: pinned on top.
     expect(f.needsYou.map((r) => r.key)).toEqual(['tournament-inv']);
@@ -196,7 +198,7 @@ describe('which items qualify', () => {
     const events = [
       { id: 'e1', title: 'Ladder', leagueName: 'Dinks', status: 'scheduled', voteEndsAt: null, slot: { startsAt: at(22, 14), endsAt: at(22, 16) }, iVoted: true, iDeclined: false },
     ];
-    expect(buildPickleagueFeed(base({ events })).days[0].rows.map((r) => r.key)).toEqual(['event-e1']);
+    expect(buildPickleagueFeed(base({ events })).days[0].elsewhere.map((r) => r.key)).toEqual(['event-e1']);
     expect(buildPickleagueFeed(base({ events, hideKeys: new Set(['event-e1']) })).days).toEqual([]);
   });
 });
@@ -212,7 +214,7 @@ describe('day bands and ordering', () => {
     ];
     const f = buildPickleagueFeed(base({ events, requests: [request('req-1')] }));
     expect(f.needsYou.map((r) => r.key)).toEqual(['vote-vote', 'req-1']);
-    expect(f.days.map((d) => [d.key, d.rows.map((r) => r.key)])).toEqual([
+    expect(f.days.map((d) => [d.key, d.elsewhere.map((r) => r.key)])).toEqual([
       ['today', ['event-today']],
       ['tomorrow', ['event-tmrw']],
       ['later', ['event-later']],
@@ -301,6 +303,155 @@ describe('day bands and ordering', () => {
     const ids2 = today.courts.map((c) => c.venueId);
     for (const id of ['s1', 's2', 's3', 'v-routine']) expect(ids2).toContain(id);
     expect(today.courts.filter((c) => c.venueId.startsWith('v') && c.venueId !== 'v-routine')).toHaveLength(MAX_FEED_COURTS - 4);
+  });
+});
+
+describe('courtOfPlace (which of my courts an item is at)', () => {
+  const courts = [
+    { id: 'v-lake', name: 'Lakeside Park Pickleball Courts', lat: 37.8, lng: -122.26 },
+    { id: 'v-hub', name: 'The HUB Alameda', lat: 37.77, lng: -122.25 },
+    { id: 'v-rec', name: 'Lakeside Rec Center', lat: null, lng: null },
+  ];
+  it('matches a catalog id first', () => {
+    expect(courtOfPlace({ venueId: 'v-hub', name: 'Somewhere else' }, courts)?.id).toBe('v-hub');
+  });
+  it('matches coordinates within a block', () => {
+    expect(courtOfPlace({ name: 'Picked on the map', lat: 37.8004, lng: -122.2603 }, courts)?.id).toBe('v-lake');
+  });
+  it('matches a typed name, ignoring the address and words like "courts"', () => {
+    expect(courtOfPlace({ name: 'Lakeside Park, 666 Bellevue Ave, Oakland' }, courts)?.id).toBe('v-lake');
+    expect(courtOfPlace({ name: 'the hub alameda pickleball' }, courts)?.id).toBe('v-hub');
+  });
+  it('refuses a name that fits two courts, one far away, or nothing to go on', () => {
+    expect(courtOfPlace({ name: 'Lakeside' }, courts)).toBeNull();
+    expect(courtOfPlace({ name: 'Lakeside Park', lat: 40.7, lng: -74 }, courts)).toBeNull();
+    expect(courtOfPlace({}, courts)).toBeNull();
+    expect(courtOfPlace(null, courts)).toBeNull();
+  });
+  it('labels an Elsewhere line by its place name before the comma', () => {
+    expect(placeLabel({ place: { name: 'The HUB, 1 Main St' } })).toBe('The HUB');
+    expect(placeLabel({ place: null })).toBeNull();
+  });
+});
+
+describe('court cards are the top layer', () => {
+  const lake = { venueId: 'v-lake', venueName: 'Lakeside Park', lat: 37.8, lng: -122.26 };
+  const star = { venueId: 'v-star', venueName: 'Star Park', lat: null, lng: null };
+  const ev = (id: string, startsAt: string, place: AgendaEventInput['place'], p: Partial<AgendaEventInput> = {}): AgendaEventInput => ({
+    id,
+    title: `E ${id}`,
+    leagueName: 'Dinks',
+    status: 'scheduled',
+    voteEndsAt: null,
+    slot: { startsAt, endsAt: startsAt },
+    iVoted: true,
+    iDeclined: false,
+    place,
+    ...p,
+  });
+  const agendaKeys = (c: { lines: FeedCourtLine[] }) => c.lines.flatMap((l) => (l.kind === 'agenda' ? [l.row.key] : []));
+
+  it('nests each item under its court in its day, and the rest under Elsewhere', () => {
+    const f = buildPickleagueFeed(
+      base({
+        starred: [lake, star],
+        routines: [routine({ venueId: 'v-routine', venueName: 'Routine Ct', lat: 37.5, lng: -122.1 })],
+        events: [
+          ev('tonight', at(22, 19), { name: 'Lakeside Park, Oakland' }),
+          ev('nowhere', at(22, 20), null),
+          ev('sat', at(24, 10), { lat: 37.8003, lng: -122.2601, name: 'Map pin' }),
+        ],
+        matches: [{ id: 'm1', opponentName: 'Sam Lee', leagueName: 'Dinks', scheduledAt: at(23, 17), place: { venueId: 'v-routine' } }],
+        tournaments: [tournament('far', 'approved', { startTime: at(25, 9), place: { name: 'The HUB' } })],
+      }),
+    );
+    const day = (k: string) => f.days.find((d) => d.key === k)!;
+    const card = (k: string, v: string) => day(k).courts.find((c) => c.venueId === v)!;
+
+    expect(agendaKeys(card('today', 'v-lake'))).toEqual(['event-tonight']);
+    expect(day('today').elsewhere.map((r) => r.key)).toEqual(['event-nowhere']);
+    expect(agendaKeys(card('tomorrow', 'v-routine'))).toEqual(['match-m1']);
+    expect(card('tomorrow', 'v-routine').lines.map((l) => l.key)).toEqual(['agenda|match-m1', 'stop|p-tomorrow']);
+    expect(agendaKeys(card('later', 'v-lake'))).toEqual(['event-sat']);
+    expect(day('later').elsewhere.map((r) => r.key)).toEqual(['tournament-far']);
+    // Counted once each: 3 events + 1 match + 1 tournament + 2 routine stops.
+    expect(f.total).toBe(7);
+  });
+
+  it('gives every star a Today and a Tomorrow card, and a Later card only with something there', () => {
+    const f = buildPickleagueFeed(base({ starred: [lake, star], events: [ev('sat', at(24, 10), { venueId: 'v-star' })] }));
+    expect(f.days.map((d) => [d.key, d.courts.map((c) => c.venueId).sort()])).toEqual([
+      ['today', ['v-lake', 'v-star']],
+      ['tomorrow', ['v-lake', 'v-star']],
+      ['later', ['v-star']],
+    ]);
+    const today = f.days[0];
+    expect(today.courts.every((c) => c.lines.length === 0 && c.count === 0)).toBe(true);
+  });
+
+  it("never makes a card for a court that isn't mine: its item goes to Elsewhere", () => {
+    const f = buildPickleagueFeed(base({ starred: [star], events: [ev('x', at(23, 18), { venueId: 'v-other', name: 'Other Park' })] }));
+    const tmrw = f.days.find((d) => d.key === 'tomorrow')!;
+    expect(tmrw.courts.map((c) => c.venueId)).toEqual(['v-star']);
+    expect(tmrw.elsewhere.map((r) => r.key)).toEqual(['event-x']);
+  });
+
+  it("matches today's items to a court my friends are at", () => {
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: new Set(['f1']),
+        friendsAtCourts: fac([{ ...group('v9', [friend('f1')]), venue_name: 'Bayview Courts' }]),
+        drills: [{ id: 'd1', partnerName: 'Ann B', startsAt: at(22, 17), lengthMinutes: 60, place: { name: 'Bayview' }, court: 'Bayview', myRsvp: 'on_my_way' }],
+      }),
+    );
+    expect(f.days[0].courts.map((c) => [c.venueId, c.lines.map((l) => l.kind)])).toEqual([['v9', ['here', 'agenda']]]);
+    expect(f.days[0].elsewhere).toEqual([]);
+  });
+
+  it('keeps what needs me pinned, and mirrors it on its court without counting it twice', () => {
+    const f = buildPickleagueFeed(
+      base({
+        starred: [lake],
+        events: [
+          ev('rsvp', at(22, 19), { name: 'Lakeside Park' }, { iVoted: false }),
+          ev('vote', at(22, 19), { venueId: 'v-lake' }, { status: 'voting', voteEndsAt: at(24, 9), slot: null, iVoted: false }),
+          ev('vote-nowhere', at(22, 19), null, { status: 'voting', voteEndsAt: at(24, 9), slot: null, iVoted: false }),
+        ],
+      }),
+    );
+    expect(f.needsYou.map((r) => r.key).sort()).toEqual(['event-rsvp', 'vote-vote', 'vote-vote-nowhere']);
+    const lakeToday = f.days[0].courts[0];
+    expect(lakeToday.lines.map((l) => (l.kind === 'agenda' ? [l.row.key, l.mirror] : l.kind))).toEqual([
+      ['event-rsvp', true],
+      ['vote-vote', true],
+    ]);
+    expect(lakeToday.count).toBe(0);
+    expect(f.days[0].elsewhere).toEqual([]);
+    expect(f.total).toBe(3);
+  });
+
+  it('never cuts a court with something of mine, only friends-only courts', () => {
+    const groups = Array.from({ length: 8 }, (_, i) => group(`v${i}`, [friend(`f${i}`)]));
+    const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: ids,
+        starred: [lake],
+        routines: [routine({ venueId: 'v-r2', venueName: 'Second', occurrences: [] })],
+        events: [ev('e', at(22, 19), { venueId: 'v-r2' })],
+        friendsAtCourts: fac(groups),
+      }),
+    );
+    const today = f.days[0];
+    expect(today.courts.map((c) => c.venueId)).toEqual(expect.arrayContaining(['v-lake', 'v-r2']));
+    expect(today.courts).toHaveLength(MAX_FEED_COURTS);
+  });
+
+  it('drops a booked match 2 hours after its time', () => {
+    const m = { id: 'old', opponentName: 'Sam', leagueName: null, scheduledAt: at(22, 12, 30) };
+    expect(buildPickleagueFeed(base({ matches: [m] })).days).toEqual([]);
+    const live = { ...m, id: 'now', scheduledAt: at(22, 14) };
+    expect(buildPickleagueFeed(base({ matches: [live] })).days[0].elsewhere[0].title).toBe('Match vs Sam');
   });
 });
 

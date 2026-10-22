@@ -40,7 +40,15 @@ import { supabase } from '../../lib/supabase';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
 import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
-import type { AgendaDrillInput, AgendaEventInput, AgendaTournamentInput, DrillRsvp, SeasonInput } from '../../lib/agenda';
+import type {
+  AgendaDrillInput,
+  AgendaEventInput,
+  AgendaMatchInput,
+  AgendaPlace,
+  AgendaTournamentInput,
+  DrillRsvp,
+  SeasonInput,
+} from '../../lib/agenda';
 import {
   EMPTY_INBOX,
   findMissingTargets,
@@ -132,6 +140,9 @@ export type HomeData = {
    *  with their court and both RSVPs: Up next's drill stages. Absent in a
    *  payload cached before it existed: read `drillsToday` instead. */
   drills?: AgendaDrillInput[];
+  /** My booked league matches this week (the Pickleague Feed's court cards).
+   *  Absent in a payload cached before it existed: none. */
+  matches?: AgendaMatchInput[];
   openLeagues: HomeOpenLeague[];
   openTournaments: HomeOpenTournament[];
   /** A candidate fetch hit its row limit, so the open totals are a floor
@@ -175,7 +186,12 @@ type EventRow = {
   status: string;
   vote_ends_at: string | null;
   confirmed_slot_id: string | null;
+  location_name?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
 };
+/** league_events columns Home reads (with the event's own place). */
+const EVENT_COLS = 'id, title, league_id, status, vote_ends_at, confirmed_slot_id, location_name, location_lat, location_lng';
 type SlotRow = { id: string; event_id: string; starts_at: string; ends_at: string | null };
 /** A league_seasons row (select *): the agenda's fields read from it. */
 type SeasonRow = SummarySeason & { id: string; league_id: string };
@@ -190,7 +206,7 @@ async function loadScheduledEvents(leagueIds: string[], cutoffIso: string): Prom
   try {
     const rows = await sbCall(() => supabase
       .from('league_events')
-      .select('id, title, league_id, status, vote_ends_at, confirmed_slot_id, event_slots!league_events_confirmed_slot_id_fkey!inner(id, event_id, starts_at, ends_at)')
+      .select(`${EVENT_COLS}, event_slots!league_events_confirmed_slot_id_fkey!inner(id, event_id, starts_at, ends_at)`)
       .in('league_id', leagueIds)
       .eq('status', 'scheduled')
       .gte('event_slots.starts_at', cutoffIso));
@@ -206,6 +222,9 @@ async function loadScheduledEvents(leagueIds: string[], cutoffIso: string): Prom
         status: r.status,
         vote_ends_at: r.vote_ends_at,
         confirmed_slot_id: r.confirmed_slot_id,
+        location_name: r.location_name ?? null,
+        location_lat: r.location_lat ?? null,
+        location_lng: r.location_lng ?? null,
       });
       slots.push(slot);
     }
@@ -213,7 +232,7 @@ async function loadScheduledEvents(leagueIds: string[], cutoffIso: string): Prom
   } catch {
     const rows = ((await sbCall(() => supabase
       .from('league_events')
-      .select('id, title, league_id, status, vote_ends_at, confirmed_slot_id')
+      .select(EVENT_COLS)
       .in('league_id', leagueIds)
       .eq('status', 'scheduled'))) ?? []) as EventRow[];
     const slotIds = rows.map(e => e.confirmed_slot_id).filter((id): id is string => !!id);
@@ -306,8 +325,15 @@ type DrillSessionRow = {
   p1?: { full_name: string | null } | { full_name: string | null }[] | null;
   p2?: { full_name: string | null } | { full_name: string | null }[] | null;
   drill_session_rsvps?: { user_id: string; status: string }[] | null;
-  req?: { id: string; status: string | null; location_name: string | null }
-    | { id: string; status: string | null; location_name: string | null }[] | null;
+  req?: DrillReqRow | DrillReqRow[] | null;
+};
+type DrillLocRow = { venue_id: string | null; lat: number | null; lng: number | null };
+type DrillReqRow = {
+  id: string;
+  status: string | null;
+  location_name: string | null;
+  /** The picked court_locations row (absent when the embed was refused). */
+  loc?: DrillLocRow | DrillLocRow[] | null;
 };
 
 const DRILL_SESSION_LIMIT = 30;
@@ -333,10 +359,68 @@ async function loadDrillSessions(uid: string): Promise<DrillSessionRow[]> {
     .order('session_date')
     .order('session_slot')
     .limit(DRILL_SESSION_LIMIT));
+  // Richest first: the request's court with its catalog venue (the feed's
+  // court cards), then without it, then the bare sessions.
+  const selects = [
+    `${base}, drill_session_rsvps(user_id, status), req:drill_requests(id, status, location_name, loc:court_locations(venue_id, lat, lng))`,
+    `${base}, drill_session_rsvps(user_id, status), req:drill_requests(id, status, location_name)`,
+    base,
+  ];
+  for (let i = 0; ; i++) {
+    try {
+      return ((await run(selects[i])) ?? []) as unknown as DrillSessionRow[];
+    } catch (e) {
+      if (i === selects.length - 1) throw e;
+    }
+  }
+}
+
+/** A coordinate (numeric columns can arrive as strings), else null. */
+function numOr(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/** A place from a row's location columns, or null when it has none. */
+function placeOf(name: unknown, lat: unknown, lng: unknown, venueId?: string | null): AgendaPlace | null {
+  const n = typeof name === 'string' && name.trim() ? name.trim() : null;
+  const la = numOr(lat);
+  const ln = numOr(lng);
+  if (!n && (la == null || ln == null) && !venueId) return null;
+  return { venueId: venueId ?? null, name: n, lat: la, lng: ln };
+}
+
+/** A scheduled league match as Home reads it. */
+type ScheduledMatchRow = {
+  id: string;
+  league_id: string | null;
+  scheduled_at: string | null;
+  player1_id: string;
+  player2_id: string;
+  location_name: string | null;
+  location_lat: number | null;
+  location_lng: number | null;
+  p1?: { full_name: string | null } | { full_name: string | null }[] | null;
+  p2?: { full_name: string | null } | { full_name: string | null }[] | null;
+};
+
+/** My league matches booked from 2 hours ago through the next 8 days. Soft:
+ *  a refused read is no matches (Home never waits on it to fail). */
+async function loadScheduledMatches(uid: string): Promise<ScheduledMatchRow[]> {
   try {
-    return ((await run(`${base}, drill_session_rsvps(user_id, status), req:drill_requests(id, status, location_name)`)) ?? []) as unknown as DrillSessionRow[];
+    const rows = await sbCall(() => supabase
+      .from('matches')
+      .select('id, league_id, scheduled_at, player1_id, player2_id, location_name, location_lat, location_lng,'
+        + ' p1:profiles!matches_player1_id_fkey(full_name), p2:profiles!matches_player2_id_fkey(full_name)')
+      .eq('status', 'scheduled')
+      .or(`player1_id.eq.${uid},player2_id.eq.${uid}`)
+      .gte('scheduled_at', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
+      .lte('scheduled_at', new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString())
+      .order('scheduled_at')
+      .limit(20));
+    return (rows ?? []) as unknown as ScheduledMatchRow[];
   } catch {
-    return ((await run(base)) ?? []) as unknown as DrillSessionRow[];
+    return [];
   }
 }
 
@@ -349,7 +433,7 @@ export async function loadHome(): Promise<HomeData> {
   if (!uid) return EMPTY_HOME;
 
   const today = isoDate(new Date());
-  const [profile, unreadRes, unreadRows, memberRows, drillRows, regRows, openTourRows, streakRow, leagueRows] = await Promise.all([
+  const [profile, unreadRes, unreadRows, memberRows, drillRows, regRows, openTourRows, streakRow, leagueRows, matchRows] = await Promise.all([
     sbCall(() => supabase.from('profiles').select('*').eq('id', uid).single()),
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
     // The newest unread, for the deleted-target check (second wave). Soft.
@@ -365,13 +449,13 @@ export async function loadHome(): Promise<HomeData> {
     // the spotlight (name, role, chips) and the league filter for events.
     sbCall(() => supabase
       .from('league_members')
-      .select('league_id, role, league:leagues(id, name, home_court, is_active, is_open)')
+      .select('league_id, role, league:leagues(id, name, home_court, home_venue_id, home_court_lat, home_court_lng, is_active, is_open)')
       .eq('user_id', uid)),
     loadDrillSessions(uid),
     // Tournaments I'm registered for, invited to or waitlisted on (still live).
     sbCall(() => supabase
       .from('tournament_registrations')
-      .select('status, invited_by, tournament:tournaments(id, name, start_time, registration_closes_at, status, league_id, format, match_type, location_name)')
+      .select('status, invited_by, tournament:tournaments(id, name, start_time, registration_closes_at, status, league_id, format, match_type, location_name, location_lat, location_lng)')
       .eq('user_id', uid)
       .in('status', ['approved', 'pending', 'waitlisted'])),
     sbCall(() => supabase
@@ -389,22 +473,30 @@ export async function loadHome(): Promise<HomeData> {
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(LEAGUE_FETCH_LIMIT)),
+    loadScheduledMatches(uid),
   ]);
 
   // ── My leagues ──
-  type MemberRow = {
-    league_id: string;
-    role: string | null;
-    league: { id: string; name: string; home_court: string | null; is_active: boolean | null; is_open: boolean | null }
-      | { id: string; name: string; home_court: string | null; is_active: boolean | null; is_open: boolean | null }[]
-      | null;
+  type MemberLeague = {
+    id: string;
+    name: string;
+    home_court: string | null;
+    home_venue_id?: string | null;
+    home_court_lat?: number | null;
+    home_court_lng?: number | null;
+    is_active: boolean | null;
+    is_open: boolean | null;
   };
+  type MemberRow = { league_id: string; role: string | null; league: MemberLeague | MemberLeague[] | null };
   const members = (memberRows ?? []) as MemberRow[];
   const allMyLeagueIds = new Set(members.map(m => m.league_id));
   const myLeagues: HomeLeague[] = [];
+  // Each league's home court: where an event without a place of its own is.
+  const homePlace = new Map<string, AgendaPlace | null>();
   for (const m of members) {
     const l = Array.isArray(m.league) ? m.league[0] : m.league;
     if (!l || l.is_active === false) continue;
+    homePlace.set(l.id, placeOf(l.home_court, l.home_court_lat, l.home_court_lng, l.home_venue_id ?? null));
     const role: HomeRole = m.role === 'admin' ? 'admin' : m.role === 'co-admin' ? 'co-admin' : 'member';
     myLeagues.push({
       id: l.id, name: l.name, home_court: l.home_court ?? null, is_open: l.is_open ?? null, role,
@@ -439,6 +531,10 @@ export async function loadHome(): Promise<HomeData> {
     if (rsvps !== undefined || r.req !== undefined) {
       row.requestId = req?.id ?? null;
       row.court = req ? (req.location_name?.trim() || null) : undefined;
+      const loc = req ? (Array.isArray(req.loc) ? req.loc[0] ?? null : req.loc ?? null) : null;
+      if (row.court || loc) {
+        row.place = { venueId: loc?.venue_id ?? null, name: row.court ?? null, lat: numOr(loc?.lat), lng: numOr(loc?.lng) };
+      }
       row.myRsvp = asRsvp((rsvps ?? []).find(x => x.user_id === uid)?.status);
       row.partnerRsvp = asRsvp((rsvps ?? []).find(x => x.user_id === partnerId)?.status);
     }
@@ -485,7 +581,7 @@ export async function loadHome(): Promise<HomeData> {
     myLeagueIds.length
       ? sbCall(() => supabase
           .from('league_events')
-          .select('id, title, league_id, status, vote_ends_at, confirmed_slot_id')
+          .select(EVENT_COLS)
           .in('league_id', myLeagueIds)
           .eq('status', 'voting')
           .gt('vote_ends_at', nowIso))
@@ -596,6 +692,7 @@ export async function loadHome(): Promise<HomeData> {
       // Voting: any slot. Scheduled: the confirmed one (that's the RSVP).
       iVoted: e.status === 'voting' ? votedEvents.has(e.id) : !!e.confirmed_slot_id && myVotedSlots.has(e.confirmed_slot_id),
       iDeclined: declined.has(e.id),
+      place: placeOf(e.location_name, e.location_lat, e.location_lng) ?? homePlace.get(e.league_id) ?? null,
     });
     // Spotlight facts.
     if (!league) continue;
@@ -625,8 +722,23 @@ export async function loadHome(): Promise<HomeData> {
       registrationClosesAt: t.registration_closes_at ?? null,
       location_name: t.location_name ?? null,
       formatLabel: formatLabelOf(t.format, t.match_type),
+      place: placeOf(t.location_name, t.location_lat, t.location_lng),
     }))
     .sort((a, b) => (a.startTime ?? '9999').localeCompare(b.startTime ?? '9999'));
+
+  // My booked league matches: their own place, else the league's home court.
+  const matches: AgendaMatchInput[] = [];
+  for (const m of matchRows) {
+    if (!m.scheduled_at) continue;
+    const opp = m.player1_id === uid ? m.p2 : m.p1;
+    matches.push({
+      id: m.id,
+      opponentName: (Array.isArray(opp) ? opp[0] : opp)?.full_name ?? 'your opponent',
+      leagueName: m.league_id ? knownNames.get(m.league_id) ?? null : null,
+      scheduledAt: m.scheduled_at,
+      place: placeOf(m.location_name, m.location_lat, m.location_lng) ?? (m.league_id ? homePlace.get(m.league_id) ?? null : null),
+    });
+  }
 
   const counts = new Map<string, number>();
   for (const r of (candidateMemberRows ?? []) as { league_id: string }[]) {
@@ -677,6 +789,7 @@ export async function loadHome(): Promise<HomeData> {
     events: agendaEvents,
     drillsToday,
     drills,
+    matches,
     openLeagues,
     openTournaments,
     openCapped: ((openTourRows ?? []) as unknown[]).length >= OPEN_TOURNAMENT_LIMIT

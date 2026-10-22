@@ -1,16 +1,20 @@
 // The Pickleague Feed: Home's one card for what's going on (the user,
 // 2026-10-22: "collapsing the sections UP NEXT, YOUR LEAGUES, FRIENDS AT THE
 // COURT, YOUR COURTS into a single Pickleague Feed, much like Doggle's home
-// feed"). Doggle's DoggleFeedSection, ported:
+// feed", then "court cards should kind of be like the top layer of the feed.
+// They are the equivalent of places in Doggle"). Doggle's DoggleFeedSection:
 //
 //   Pickleague Feed
 //   📅 My routine: Tue, Thu 6 PM at Lakeside ›
 //   NEEDS YOU · 3 ...... votes, RSVPs, scores to confirm, invites, requests
 //   [Today  Thu, Oct 22                    5 ^]
-//     league lines (events, drills, tournament matches)
-//     ★ Lakeside        6 here · 2 open to play         Options ▾
+//     ★ Lakeside        6 here · 2 open    [Check in] [▶ Play]
 //        (Ann)  Ann · PLUPR 3.82 · Open to play until 7 PM   [Here now ▾]
+//        (📅)   Ladder night · Dinks · you're in            6 PM
 //        (📅)   You · your routine · 6–8 PM               [At 6 PM ▾]
+//     ★ Star Park       Nothing planned · ▶ Start playing
+//     ELSEWHERE
+//        (🏆)   Fall Classic · The HUB · registered         Sat 9 AM
 //   [Tomorrow  Fri, Oct 23                    1 v]
 //   [Later this week                          2 v]
 //   My leagues ›  My tournaments ›  Find courts ›
@@ -36,6 +40,7 @@ import { useToast } from '../../lib/useToast';
 import { trackHomeTap } from '../../lib/analytics';
 import { openDiscover } from '../../lib/discoverNav';
 import { openPlayStart } from '../../lib/playSession';
+import { checkinAtRequested, checkinHostOwnsNotes } from '../../lib/checkinHost';
 import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
@@ -48,11 +53,12 @@ import {
   BAND_ROWS_PREVIEW,
   NEEDS_YOU_PREVIEW,
   buildPickleagueFeed,
+  placeLabel,
   previewRows,
   routineHeaderLine,
   type DayBandKey,
   type FeedCourtCard as CourtCard,
-  type FeedCourtLine,
+  type FeedSheetLine,
 } from '../../lib/pickleagueFeed';
 import type { PlayModeRow } from '../../lib/courtRoutineRules';
 import type { HomeData } from '../home/homeData';
@@ -187,10 +193,14 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   );
   const starred = React.useMemo(() => {
     // My stars, and the stars friends_at_courts knows (whichever loaded).
-    const m = new Map<string, string>();
-    for (const f of favoritesQ.data ?? []) m.set(f.venue_id, f.venue_name);
-    for (const ct of friendsQ.data?.courts ?? []) if (ct.reason === 'favorite' && !m.get(ct.venue_id)) m.set(ct.venue_id, ct.venue_name);
-    return [...m].map(([venueId, venueName]) => ({ venueId, venueName }));
+    const m = new Map<string, { venueId: string; venueName: string; lat: number | null; lng: number | null }>();
+    for (const f of favoritesQ.data ?? []) m.set(f.venue_id, { venueId: f.venue_id, venueName: f.venue_name, lat: f.lat, lng: f.lng });
+    for (const ct of friendsQ.data?.courts ?? []) {
+      if (ct.reason === 'favorite' && !m.get(ct.venue_id)?.venueName) {
+        m.set(ct.venue_id, { venueId: ct.venue_id, venueName: ct.venue_name, lat: null, lng: null });
+      }
+    }
+    return [...m.values()];
   }, [favoritesQ.data, friendsQ.data]);
 
   const requests = React.useMemo(
@@ -205,6 +215,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         events: home.events,
         tournaments: home.myTournaments,
         drills: home.drills ?? home.drillsToday,
+        matches: home.matches ?? [],
         requests,
         hideKeys,
         starred: COURT_STARS_ENABLED ? starred : [],
@@ -212,7 +223,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         friendsAtCourts: FRIENDS_AT_COURTS_ENABLED ? friendsQ.data ?? null : null,
         friendIds,
       }),
-    [now, home.events, home.myTournaments, home.drills, home.drillsToday, requests, hideKeys, starred, routines, friendsQ.data, friendIds],
+    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds],
   );
 
   // Who is open to play / in a closed group: court_play_modes for today's
@@ -246,7 +257,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
   // ── Actions ──
   const [busyKey, setBusyKey] = React.useState<string | null>(null);
-  const [lineSheet, setLineSheet] = React.useState<{ line: FeedCourtLine; card: CourtCard; day: DayBandKey } | null>(null);
+  const [lineSheet, setLineSheet] = React.useState<{ line: FeedSheetLine; card: CourtCard; day: DayBandKey } | null>(null);
   const [courtSheet, setCourtSheet] = React.useState<{ card: CourtCard; day: DayBandKey } | null>(null);
   const [timePick, setTimePick] = React.useState<{ planId: string; at: string; venueName: string; key: string } | null>(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
@@ -260,6 +271,17 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     if (ROUTINES_ENABLED) go('Routines', newVenue ? { newVenue } : undefined);
   };
   const openPerson = (userId: string, name: string) => go('PlayerProfile', { userId, userName: name });
+  // ▶ Play / Check in at this court (P1's start sheet and CheckinHost). With
+  // no host mounted (the bottom bar off), the court page has the check-in.
+  const playHere = (card: { venueId: string; venueName: string }, target = 'play_here') => {
+    tap(target);
+    openPlayStart({ venue: { id: card.venueId, name: card.venueName } });
+  };
+  const checkInHere = (card: { venueId: string; venueName: string }) => {
+    tap('check_in');
+    if (checkinHostOwnsNotes()) checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
+    else openCourt(card.venueId);
+  };
 
   async function runRoutine(key: string, fn: () => Promise<unknown>, done: string, fail: string) {
     if (busyKey) return;
@@ -274,12 +296,12 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
-  function lineActions(line: FeedCourtLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
+  function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
     if (line.kind === 'here' || line.kind === 'left') {
       const first = line.person.name.split(/\s+/)[0] || line.person.name;
       return [
         ...(line.kind === 'here' && day === 'today'
-          ? [{ label: '▶ Start playing', onPress: () => { tap('play_here'); openPlayStart(); } }]
+          ? [{ label: '▶ Play here', onPress: () => playHere(card) }]
           : []),
         { label: `See ${first}'s profile`, iconName: 'person' as const, onPress: () => openPerson(line.person.userId, line.person.name) },
       ];
@@ -297,7 +319,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
     const soon = day === 'today' && Date.parse(s.at) - now <= 30 * 60_000;
     return [
-      ...(soon ? [{ label: '▶ Start playing', onPress: () => { tap('start_playing'); openPlayStart(); } }] : []),
+      ...(soon ? [{ label: '▶ Start playing', onPress: () => playHere(card, 'start_playing') }] : []),
       {
         label: day === 'today' ? "Change today's time" : 'Change the time that day',
         iconName: 'calendar',
@@ -318,17 +340,22 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       : [];
     if (day !== 'today') return routine;
     return [
-      // Opens the court page, where the check-in is: the feed can't check in
-      // by itself yet, and the start sheet doesn't take a court yet (P1).
-      ...(COURT_DISCOVERY_ENABLED ? [{ label: 'Open court to check in', iconName: 'pin' as const, onPress: () => { tap('check_in'); openCourt(card.venueId); } }] : []),
-      { label: '▶ Start playing', onPress: () => { tap('play_here'); openPlayStart(); } },
+      { label: 'Check in here', iconName: 'pin' as const, onPress: () => checkInHere(card) },
+      { label: '▶ Play here', onPress: () => playHere(card) },
       ...routine,
     ];
+  }
+
+  function agendaRow(line: { row: AgendaRow; mirror: boolean }, i: number, band: DayBandKey) {
+    return agendaLine(line.row, i, false, band);
   }
 
   const courtCardActions: FeedCourtCardActions = {
     openCourt: (card) => { tap('court'); openCourt(card.venueId); },
     courtOptions: (card, day) => { if (!busyKey) setCourtSheet({ card, day }); },
+    checkIn: (card) => checkInHere(card),
+    play: (card) => playHere(card),
+    renderAgenda: (line, _card, day) => agendaRow(line, 0, day),
     openLine: (line, card, day) => { if (!busyKey) setLineSheet({ line, card, day }); },
     openPerson: (id, name) => { tap('person'); openPerson(id, name); },
     lineState: (key) => ({ busy: busyKey === key, disabled: busyKey != null && busyKey !== key }),
@@ -348,7 +375,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
-  function agendaLine(row: AgendaRow, i: number, highlight: boolean, band?: DayBandKey) {
+  function agendaLine(row: AgendaRow, i: number, highlight: boolean, band?: DayBandKey, place?: string | null) {
     return (
       <FeedAgendaLine
         key={row.key}
@@ -356,6 +383,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         now={now}
         highlight={highlight}
         band={band}
+        place={place}
         onOpen={() => { tap(highlight ? 'needs_you' : 'row', i); props.navigate(row.target); }}
         onAction={row.action ? () => { tap(row.action!.slug ?? 'action', i); props.navigate(row.action!.target); } : undefined}
         onConfirm={row.confirmDrillId ? () => void confirmDrill(row.confirmDrillId!) : undefined}
@@ -384,7 +412,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // ── Body ──
   const needs = previewRows(feed.needsYou, NEEDS_YOU_PREVIEW, !!expanded.needs);
   const bands: DayBand[] = feed.days.map((d) => {
-    const rows = previewRows(d.rows, BAND_ROWS_PREVIEW, !!expanded[d.key]);
+    const rows = previewRows(d.elsewhere, BAND_ROWS_PREVIEW, !!expanded[d.key]);
     return {
       key: d.key,
       title: d.title,
@@ -392,8 +420,6 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       count: d.count,
       children: (
         <>
-          {rows.shown.map((r, i) => agendaLine(r, i, false, d.key))}
-          {moreLine(d.key, rows.more, !!expanded[d.key], d.title)}
           {d.courts.map((card) => (
             <FeedCourtCard
               key={card.key}
@@ -407,6 +433,15 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
               actions={courtCardActions}
             />
           ))}
+          {d.elsewhere.length > 0 ? (
+            <View style={styles.elsewhere}>
+              <Text style={[t.label, { color: c.textSub }]} accessibilityRole="header">
+                {d.courts.length > 0 ? 'Elsewhere' : 'Coming up'}
+              </Text>
+              {rows.shown.map((r, i) => agendaLine(r, i, false, d.key, placeLabel(r) ?? 'No court set'))}
+              {moreLine(d.key, rows.more, !!expanded[d.key], `${d.title}, elsewhere`)}
+            </View>
+          ) : null}
         </>
       ),
     };
@@ -618,4 +653,5 @@ const styles = StyleSheet.create({
   center: { textAlign: 'center' },
   ctaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
   links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 8 },
+  elsewhere: { gap: 4, paddingTop: 2 },
 });

@@ -17,6 +17,7 @@ const KIND_ICON: Record<AgendaKind, IconName> = {
   event: 'calendar',
   tournament: 'trophy',
   drill: 'ball',
+  match: 'medal',
   match_confirm: 'check-mark',
   drill_request: 'mail',
   drill_waiting: 'mail',
@@ -35,6 +36,7 @@ export default function FeedAgendaLine({
   onConfirm,
   confirmed,
   onDismiss,
+  place,
 }: {
   row: AgendaRow;
   now: number;
@@ -47,6 +49,8 @@ export default function FeedAgendaLine({
   onConfirm?: () => void;
   confirmed?: boolean;
   onDismiss?: () => void;
+  /** Where it is, after the league name (an Elsewhere line: "The HUB" or "No court set"). */
+  place?: string | null;
 }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -56,7 +60,7 @@ export default function FeedAgendaLine({
   const top = dated && w.bottom ? null : w.top === 'Tmrw' ? 'Tomorrow' : w.top;
   const when = [top, w.bottom].filter(Boolean).join(' ');
   const live = row.bucket === 'live';
-  const facts = joinFacts([row.leagueName, row.status]);
+  const facts = joinFacts([row.leagueName, place, row.status]);
 
   let actions: React.ReactNode = null;
   if (row.confirmDrillId && confirmed) {
