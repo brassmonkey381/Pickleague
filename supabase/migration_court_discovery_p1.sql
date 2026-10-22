@@ -157,7 +157,10 @@ begin
     select jsonb_agg(public._pl_court_catalog_json(h.id, v_me) || jsonb_build_object('distance_m', h.d)
                      order by h.d, h.id)
       from (
-        select c.id, public.haversine_meters(p_lat, p_lng, c.lat, c.lng) as d
+        -- Rounded to the millimetre: the cursor comes back through jsonb, and
+        -- float8 -> numeric keeps only 15 digits, so an unrounded distance could
+        -- come back a hair smaller and repeat the last row on the next page.
+        select c.id, round(public.haversine_meters(p_lat, p_lng, c.lat, c.lng)::numeric, 3)::double precision as d
           from public.venues c
          where c.canonical_id is null
            and c.confirmation_status <> 'rejected'
@@ -174,8 +177,8 @@ begin
                               and a.confirmation_status <> 'rejected'
                               and a.sport && p_sports))
            and (p_after_m is null
-                or public.haversine_meters(p_lat, p_lng, c.lat, c.lng) > p_after_m
-                or (public.haversine_meters(p_lat, p_lng, c.lat, c.lng) = p_after_m
+                or round(public.haversine_meters(p_lat, p_lng, c.lat, c.lng)::numeric, 3) > round(p_after_m::numeric, 3)
+                or (round(public.haversine_meters(p_lat, p_lng, c.lat, c.lng)::numeric, 3) = round(p_after_m::numeric, 3)
                     and c.id > coalesce(p_after_id, '')))
          order by d, c.id
          limit v_limit

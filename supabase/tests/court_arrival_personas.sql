@@ -363,8 +363,11 @@ begin
   select string_agg(w.sig || ' (' || w.needle || ')', ', ') into v_bad
     from want w
    where not coalesce((select p.prosrc like '%' || w.needle || '%'
-                         and p.prosrc not like '%checked_in_at + interval ''30 minutes''%'
-                         and p.prosrc not like '%arrived_at + interval ''30 minutes''%'
+                         -- The old 30-minute length, as the queue file wrote it.
+                         -- (Routines' greatest(planned end, arrived_at + 30
+                         -- minutes) floor is not a length and may stay.)
+                         and p.prosrc not like '%= c.checked_in_at + interval ''30 minutes''%'
+                         and p.prosrc not like '%:= r.arrived_at + interval ''30 minutes''%'
                          from pg_proc p where p.oid = to_regprocedure(w.sig)), false);
   perform pg_temp.ok('A1 arrival check-ins last 2 hours: the two-hours bodies are live after the queue file''s re-run',
     v_bad is null and public._pl_arrival_length() = interval '2 hours', v_bad);
