@@ -8,7 +8,8 @@
 // sits under it. Its lines run in time order: friends who came and went
 // today (faded), me and friends here now (with their play mode), then what
 // is coming there (league events, booked matches, tournaments, drills, votes,
-// my routine stops). Each person / stop line's time chip opens what I can do
+// my routine stops, my one-off planned check-ins). Each person / stop / plan
+// line's time chip opens what I can do
 // with it; a league line opens its screen. Over 6 lines the oldest finished
 // visits give way first.
 import React from 'react';
@@ -94,6 +95,9 @@ export default function FeedCourtCard({
   function chip(l: FeedSheetLine): { label: string; tone: ChipTone } {
     if (l.kind === 'mine' || l.kind === 'here') return { label: l.kind === 'here' && l.viaSession ? 'Playing now' : 'Here now', tone: 'success' };
     if (l.kind === 'left') return { label: 'Left', tone: 'neutral' };
+    if (l.kind === 'plan') {
+      return { label: `At ${stopClock(l.plan.at)}`, tone: Date.parse(l.plan.at) <= now ? 'neutral' : 'warning' };
+    }
     if (l.stop.status === 'cancelled') return { label: 'Skipped', tone: 'neutral' };
     const started = Date.parse(l.stop.at) <= now;
     return { label: `At ${stopClock(l.stop.at)}`, tone: started ? 'neutral' : 'warning' };
@@ -199,6 +203,27 @@ export default function FeedCourtCard({
     );
   }
 
+  /** My one-off planned check-in here (Doggle's "At 5:30 PM ▾" on a planned visit). */
+  function planLine(l: Extract<FeedCourtLine, { kind: 'plan' }>) {
+    const p = l.plan;
+    return (
+      <View style={styles.line}>
+        <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
+          <Icon name="calendar-event" size={18} color={c.primary} />
+        </View>
+        <View style={styles.body}>
+          <Text style={t.title} numberOfLines={1}>
+            You · planned check-in
+          </Text>
+          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
+            {`${stopClock(p.at)}–${clock(p.endAt)}`}
+          </Text>
+        </View>
+        {trailing(l, 'your planned check-in')}
+      </View>
+    );
+  }
+
   const header = courtHeaderActions({
     day,
     hereMine: card.hereMine,
@@ -269,7 +294,7 @@ export default function FeedCourtCard({
                       options
                       {...actions.headerState(card, 'plan')}
                       onPress={() => actions.plan(card)}
-                      accessibilityLabel={`Plan at ${card.venueName} tomorrow: options`}
+                      accessibilityLabel={`Plan a check-in at ${card.venueName} tomorrow: pick a time`}
                     />
                   );
               }
@@ -301,15 +326,15 @@ export default function FeedCourtCard({
               </View>
             );
           }
-          const own = l.kind === 'stop' || l.kind === 'mine';
-          // Over (Doggle's isPast): a visit that ended, a skipped stop, a stop whose time has passed.
+          const own = l.kind === 'stop' || l.kind === 'mine' || l.kind === 'plan';
+          // Over (Doggle's isPast): a visit that ended, a skipped stop, a stop or plan whose time has passed.
           const past = lineIsPast(sheetLineFacts(l), now);
           return (
             <View
               key={l.key}
               style={[styles.row, own && [styles.ownRow, { backgroundColor: c.successLight }], past && styles.past]}
             >
-              {l.kind === 'stop' ? stopLine(l) : l.kind === 'mine' ? mineLine(l) : personLine(l)}
+              {l.kind === 'stop' ? stopLine(l) : l.kind === 'plan' ? planLine(l) : l.kind === 'mine' ? mineLine(l) : personLine(l)}
             </View>
           );
         })}

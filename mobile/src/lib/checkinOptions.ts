@@ -10,14 +10,17 @@
 //   Today, not checked in here .. [On my way ▾] (a friend here, none sent
 //                                  in 30 min) or "On the way ✓", then [Check in ▾]
 //   Today, checked in here ...... nothing: my own "Here now ▾" line has it
-//   Tomorrow .................... [Plan ▾] (Make this a routine)
+//   Tomorrow .................... [Plan ▾]: the time picker, 6 AM to 11:45 PM
+//                                  (with plans off: a sheet, Make this a routine)
 //   Later this week ............. nothing
 //
-//   Check in ▾  ->  Check in now · On my way · Make this a routine
+//   Check in ▾  ->  Check in now · Check in and tell friends · On my way ·
+//                   Plan a check-in for later · Make this a routine
 //
-// Doggle's "Check in and tell friends" and "Plan a check-in for later" need
-// server work Pickleague doesn't have yet (send_on_my_way has no p_here, and
-// court_plans holds routine stops only), so they are not offered here.
+// "Check in and tell friends" and "Plan a check-in for later" need
+// supabase/migration_court_oneoff_plans.sql (send_on_my_way's p_here, one-off
+// rows in court_plans): CHECKIN_PLANS_ENABLED. A one-off plan's own line
+// offers Check in now · On my way · Change time · Cancel this visit.
 //
 // PURE: no React, no Supabase. The vitest suite is
 // lib/__tests__/checkinOptions.test.ts.
@@ -64,23 +67,31 @@ export function courtHeaderActions(s: CourtHeaderState): CourtHeaderAction[] {
 }
 
 // ── The Check in ▾ sheet ────────────────────────────────────────────────────
-export type CheckinOptionId = 'checkInNow' | 'onMyWay' | 'makeRoutine';
+export type CheckinOptionId = 'checkInNow' | 'tellFriends' | 'onMyWay' | 'planLater' | 'makeRoutine';
 
 export type CheckinOptionsState = {
   canOnMyWay: boolean;
   /** Routines are on and the court is starred (make_court_routine refuses an unstarred court). */
   canRoutine: boolean;
+  /** "Check in and tell friends": plans are on (send_on_my_way's p_here) and I have friends. */
+  canTellFriends?: boolean;
+  /** "Plan a check-in for later": plans are on and there is a time to pick
+   *  (the feed: a slot left today; the court page: always, any day). */
+  canPlanLater?: boolean;
 };
 
 /** The Check in sheet's items, in Doggle's order. Check in now is always there. */
 export function checkinOptionIds(s: CheckinOptionsState): CheckinOptionId[] {
   const out: CheckinOptionId[] = ['checkInNow'];
+  if (s.canTellFriends) out.push('tellFriends');
   if (s.canOnMyWay) out.push('onMyWay');
+  if (s.canPlanLater) out.push('planLater');
   if (s.canRoutine) out.push('makeRoutine');
   return out;
 }
 
-/** Tomorrow's Plan sheet (no one-off plans yet: a routine only). */
+/** Tomorrow's Plan sheet, for when one-off plans are off (Plan ▾ opens the
+ *  time picker straight away when they are on). */
 export function planOptionIds(s: Pick<CheckinOptionsState, 'canRoutine'>): CheckinOptionId[] {
   return s.canRoutine ? ['makeRoutine'] : [];
 }
@@ -109,6 +120,8 @@ export type LineActionId =
   | 'editRoutine'
   | 'skipStop'
   | 'undoSkip'
+  // My one-off plan (also checkInNow, onMyWay, changeTime)
+  | 'cancelPlan'
   // A friend's
   | 'checkInHere'
   | 'profile';
@@ -126,20 +139,23 @@ export type LineActionContext = {
 export type SheetLineFacts =
   | { kind: 'mine'; queued: boolean }
   | { kind: 'stop'; status: 'planned' | 'cancelled'; at: string }
+  | { kind: 'plan'; at: string }
   | { kind: 'here' | 'left' };
 
 /** What the rules need from a feed line. */
 export function sheetLineFacts(line: FeedSheetLine): SheetLineFacts {
   if (line.kind === 'mine') return { kind: 'mine', queued: line.checkin.queued };
   if (line.kind === 'stop') return { kind: 'stop', status: line.stop.status, at: line.stop.at };
+  if (line.kind === 'plan') return { kind: 'plan', at: line.plan.at };
   return { kind: line.kind };
 }
 
 /** Already over, so the line is faded (Doggle's isPast): a visit that ended,
- *  a skipped stop, or a stop whose time has passed. */
+ *  a skipped stop, or a stop or plan whose time has passed. */
 export function lineIsPast(l: SheetLineFacts, nowMs: number): boolean {
   if (l.kind === 'left') return true;
   if (l.kind === 'stop') return l.status === 'cancelled' || !(Date.parse(l.at) > nowMs);
+  if (l.kind === 'plan') return !(Date.parse(l.at) > nowMs);
   return false;
 }
 
@@ -167,6 +183,15 @@ export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineAc
     add('changeTime', ahead);
     add('editRoutine', true);
     add('skipStop', ahead);
+    return out;
+  }
+  if (l.kind === 'plan') {
+    // Doggle's rowActions for a one-off plan, less Start a walk, Invite and
+    // Change place or dogs (no Pickleague equivalent).
+    add('checkInNow', today && !ctx.hereMine);
+    add('onMyWay', today && !ctx.hereMine && ctx.canOnMyWay && Date.parse(l.at) > ctx.nowMs - ON_MY_WAY_PLAN_OVER_MS);
+    add('changeTime', Date.parse(l.at) > ctx.nowMs);
+    add('cancelPlan', true);
     return out;
   }
   if (l.kind === 'here') {

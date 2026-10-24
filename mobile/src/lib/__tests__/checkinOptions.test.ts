@@ -71,7 +71,25 @@ describe('the Check in sheet', () => {
     expect(checkinOptionIds({ canOnMyWay: false, canRoutine: true })).toEqual(['checkInNow', 'makeRoutine']);
   });
 
-  it("plans tomorrow as a routine only (there's no one-off plan yet)", () => {
+  it("with one-off plans on: Doggle's five, in Doggle's order", () => {
+    expect(
+      checkinOptionIds({ canOnMyWay: true, canRoutine: true, canTellFriends: true, canPlanLater: true }),
+    ).toEqual(['checkInNow', 'tellFriends', 'onMyWay', 'planLater', 'makeRoutine']);
+  });
+
+  it('Check in and tell friends needs friends (and plans on); Plan for later needs a time to pick', () => {
+    expect(checkinOptionIds({ canOnMyWay: false, canRoutine: false, canTellFriends: false, canPlanLater: true })).toEqual([
+      'checkInNow',
+      'planLater',
+    ]);
+    expect(checkinOptionIds({ canOnMyWay: true, canRoutine: false, canTellFriends: true, canPlanLater: false })).toEqual([
+      'checkInNow',
+      'tellFriends',
+      'onMyWay',
+    ]);
+  });
+
+  it('the Plan sheet for when one-off plans are off: a routine only', () => {
     expect(planOptionIds({ canRoutine: true })).toEqual(['makeRoutine']);
     expect(planOptionIds({ canRoutine: false })).toEqual([]);
   });
@@ -148,6 +166,21 @@ describe("a line's time chip", () => {
     expect(lineActionIds({ kind: 'stop', status: 'cancelled', at: at(18) }, ctx())).toEqual(['undoSkip', 'editRoutine']);
   });
 
+  it("my one-off plan today: Check in now, On my way, Change time, Cancel this visit (Doggle's order)", () => {
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'changeTime', 'cancelPlan']);
+  });
+
+  it('my one-off plan once checked in here, or tomorrow: Change time and Cancel', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ hereMine: true }))).toEqual(['changeTime', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ day: 'tomorrow' }))).toEqual(['changeTime', 'cancelPlan']);
+  });
+
+  it('my one-off plan past its time: no Change time; On my way until 30 minutes past; Cancel always', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(14, 40) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(14, 20) }, ctx())).toEqual(['checkInNow', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ canOnMyWay: false }))).toEqual(['checkInNow', 'changeTime', 'cancelPlan']);
+  });
+
   it('a friend here: On my way, Check in here, their profile', () => {
     expect(lineActionIds({ kind: 'here' }, ctx())).toEqual(['onMyWay', 'checkInHere', 'profile']);
   });
@@ -172,6 +205,11 @@ describe('which lines are faded (Doggle isPast)', () => {
     expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(14, 40) }, NOW)).toBe(true);
     expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(15) }, NOW)).toBe(true);
     expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(18) }, NOW)).toBe(false);
+  });
+
+  it('a one-off plan whose time has passed, not one still ahead', () => {
+    expect(lineIsPast({ kind: 'plan', at: at(14, 40) }, NOW)).toBe(true);
+    expect(lineIsPast({ kind: 'plan', at: at(18) }, NOW)).toBe(false);
   });
 
   it('never my own check-in or a friend here now', () => {

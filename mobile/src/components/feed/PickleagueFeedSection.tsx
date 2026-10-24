@@ -58,11 +58,22 @@ import { lineActionIds, sheetLineFacts, type LineActionId } from '../../lib/chec
 import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
+  CHECKIN_PLANS_ENABLED,
   COURT_DISCOVERY_ENABLED,
   COURT_STARS_ENABLED,
   FRIENDS_AT_COURTS_ENABLED,
   ROUTINES_ENABLED,
 } from '../../lib/features';
+import { explainRefusal } from '../../lib/refusalNotices';
+import { cancelledMessage, movedMessage, moveSlots, planWhen } from '../../lib/courtPlans';
+import {
+  MY_COURT_PLANS_KEY,
+  MY_COURT_PLANS_PERSIST_MS,
+  MY_COURT_PLANS_TTL_MS,
+  cancelCourtPlan,
+  fetchMyCourtPlans,
+  moveCourtPlan,
+} from '../../data/courtPlans';
 import {
   BAND_ROWS_PREVIEW,
   NEEDS_YOU_PREVIEW,
@@ -105,8 +116,11 @@ const SLOT_MS = 15 * 60_000;
 /** home.tap targets for the Check in sheet's items and my own line's. */
 const CHECKIN_TAP: Record<string, string> = {
   checkInNow: 'checkin_now',
+  tellFriends: 'checkin_tell_friends',
   onMyWay: 'checkin_on_my_way',
+  planLater: 'checkin_plan_later',
   makeRoutine: 'checkin_routine',
+  plan_pick: 'plan_pick',
   extend: 'extend',
   check_out: 'check_out',
 };
@@ -185,14 +199,25 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     enabled: ROUTINES_ENABLED,
   });
   const routines = React.useMemo(() => (ROUTINES_ENABLED ? routinesQ.data ?? [] : []), [routinesQ.data]);
-  // A check-in within 30 minutes of a routine stop keeps that stop on the
-  // server (_pl_routine_plan_at): reload my routines when a new check-in
-  // lands, so a kept stop leaves the card instead of sitting next to my own
-  // "Here now" line (Doggle reloads its feed after every check-in).
+  // My one-off planned check-ins (data/courtPlans; a plan, move or cancel
+  // writes the new list into this cache).
+  const plansQ = useCachedQuery(MY_COURT_PLANS_KEY, fetchMyCourtPlans, {
+    ttlMs: MY_COURT_PLANS_TTL_MS,
+    persistMs: MY_COURT_PLANS_PERSIST_MS,
+    enabled: CHECKIN_PLANS_ENABLED,
+  });
+  const plans = React.useMemo(() => (CHECKIN_PLANS_ENABLED ? plansQ.data ?? [] : []), [plansQ.data]);
+  // A check-in within 30 minutes of a routine stop or a planned check-in
+  // keeps it on the server (_pl_routine_plan_at): reload both when a new
+  // check-in lands, so a kept one leaves the card instead of sitting next to
+  // my own "Here now" line (Doggle reloads its feed after every check-in).
   const seenCheckin = React.useRef<string | null>(null);
   useSignal(checkinChanged, (cur) => {
     const id = cur && !cur.queued ? cur.id : null;
-    if (ROUTINES_ENABLED && id && id !== seenCheckin.current) void routinesQ.refresh();
+    if (id && id !== seenCheckin.current) {
+      if (ROUTINES_ENABLED) void routinesQ.refresh();
+      if (CHECKIN_PLANS_ENABLED) void plansQ.refresh();
+    }
     seenCheckin.current = id;
   });
   const friendsFailed = FRIENDS_AT_COURTS_ENABLED && friendsQ.error != null && friendsQ.data === undefined;
@@ -203,6 +228,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     FRIENDS_AT_COURTS_ENABLED ? myFriendsQ.refresh : null,
     COURT_STARS_ENABLED ? favoritesQ.refresh : null,
     ROUTINES_ENABLED ? routinesQ.refresh : null,
+    CHECKIN_PLANS_ENABLED ? plansQ.refresh : null,
   ];
   const refreshersRef = React.useRef(refreshers);
   refreshersRef.current = refreshers;
@@ -246,6 +272,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // (its line, Stay 1 more hour, Check out).
   const checkin = useCheckinOptions({
     from: 'feed',
+    planPicker: 'today',
     checkIn: (court) => checkInHere(court, null),
     openRoutines: (court) => openRoutines({ venueId: court.venueId, venueName: court.venueName }),
     onTap: (id) => tap(CHECKIN_TAP[id] ?? id),
@@ -266,8 +293,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         friendsAtCourts: FRIENDS_AT_COURTS_ENABLED ? friendsQ.data ?? null : null,
         friendIds,
         mine: checkin.mine,
+        plans,
       }),
-    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine],
+    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine, plans],
   );
 
   // Who is open to play / in a closed group: court_play_modes for today's
@@ -302,7 +330,11 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // ── Actions ──
   const [busyKey, setBusyKey] = React.useState<string | null>(null);
   const [lineSheet, setLineSheet] = React.useState<{ line: FeedSheetLine; card: CourtCard; day: DayBandKey } | null>(null);
-  const [timePick, setTimePick] = React.useState<{ planId: string; at: string; venueName: string; key: string } | null>(null);
+  // Change time: a routine stop's (move_court_routine_occurrence, the same
+  // day) or a one-off plan's (move_court_plan).
+  const [timePick, setTimePick] = React.useState<
+    { kind: 'stop' | 'plan'; planId: string; at: string; venueName: string; key: string } | null
+  >(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [confirmed, setConfirmed] = React.useState<ReadonlySet<string>>(() => new Set());
   // CheckinHost's work (a Check in now from here, the bar's centre button,
@@ -370,6 +402,21 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
+  /** A one-off plan's Change time / Cancel this visit: its refusals have
+   *  their own words (lib/refusals visit.*). */
+  async function runPlan(key: string, venueName: string, fn: () => Promise<unknown>, done: string, fail: string) {
+    if (busyKey) return;
+    setBusyKey(key);
+    try {
+      await fn();
+      toast.success(done);
+    } catch (e) {
+      toast.error(explainRefusal(e, fail, { venueName, action: 'plan_checkin' }));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   /** A line's sheet, in Doggle's order (lib/checkinOptions lineActionIds). */
   function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
     const ids = lineActionIds(sheetLineFacts(line), {
@@ -381,6 +428,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     });
     const today = day === 'today';
     const stop = line.kind === 'stop' ? line.stop : null;
+    const oneOff = line.kind === 'plan' ? line.plan : null;
     const person = line.kind === 'here' || line.kind === 'left' ? line.person : null;
     const then = (fn: () => void) => () => {
       afterLineSheet.current = fn;
@@ -394,7 +442,11 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           // modal): only once this one has gone, or iOS drops it.
           return { label: 'Check out', iconName: 'logout', onPress: then(() => void checkin.checkOut()) };
         case 'checkInNow':
-          return { label: 'Check in now', iconName: 'pin', onPress: then(() => checkInHere(card, 'stop_check_in')) };
+          return {
+            label: 'Check in now',
+            iconName: 'pin',
+            onPress: then(() => checkInHere(card, oneOff ? 'plan_check_in' : 'stop_check_in')),
+          };
         case 'checkInHere':
           return { label: 'Check in here', iconName: 'pin', onPress: then(() => checkInHere(card, 'friend_check_in')) };
         case 'onMyWay':
@@ -408,11 +460,35 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
               }
             : null;
         case 'changeTime':
+          if (oneOff) {
+            return {
+              label: 'Change time',
+              iconName: 'clock',
+              onPress: then(() =>
+                setTimePick({ kind: 'plan', planId: oneOff.planId, at: oneOff.at, venueName: card.venueName, key: line.key }),
+              ),
+            };
+          }
           return stop
             ? {
                 label: today ? "Change today's time" : 'Change the time that day',
                 iconName: 'calendar-event',
-                onPress: then(() => setTimePick({ planId: stop.planId, at: stop.at, venueName: card.venueName, key: line.key })),
+                onPress: then(() => setTimePick({ kind: 'stop', planId: stop.planId, at: stop.at, venueName: card.venueName, key: line.key })),
+              }
+            : null;
+        case 'cancelPlan':
+          return oneOff
+            ? {
+                label: 'Cancel this visit',
+                style: 'destructive',
+                onPress: () =>
+                  void runPlan(
+                    line.key,
+                    card.venueName,
+                    () => cancelCourtPlan(oneOff.planId),
+                    cancelledMessage(card.venueName),
+                    "Couldn't cancel that check-in. Try again.",
+                  ),
               }
             : null;
         case 'editRoutine':
@@ -461,6 +537,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         title: `You · ${card.venueName}`,
         subtitle: s.status === 'cancelled' ? `Skipped: ${when} (routine)` : `Planned check-in ${day === 'later' ? '' : 'at '}${when} (routine)`,
       };
+    }
+    if (line.kind === 'plan') {
+      const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
+      return { title: `You · ${card.venueName}`, subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}` };
     }
     return {
       title: `${line.person.name} · ${card.venueName}`,
@@ -704,12 +784,22 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       <SingleSelectModal
         visible={timePick != null}
         title={timePick ? `New time at ${timePick.venueName}` : 'New time'}
-        items={timePick ? timeSlots(timePick.at, now) : []}
+        items={timePick ? (timePick.kind === 'plan' ? moveSlots(timePick.at, now) : timeSlots(timePick.at, now)) : []}
         selectedId={timePick ? new Date(timePick.at).toISOString() : null}
         onPick={(id) => {
           const tp = timePick;
           setTimePick(null);
           if (!tp || !id || Date.parse(id) === Date.parse(tp.at)) return;
+          if (tp.kind === 'plan') {
+            void runPlan(
+              tp.key,
+              tp.venueName,
+              () => moveCourtPlan(tp.planId, new Date(id)),
+              movedMessage(tp.venueName, id, Date.now()),
+              "Couldn't change the time. Try again.",
+            );
+            return;
+          }
           void runRoutine(
             tp.key,
             () => moveRoutineOccurrence(tp.planId, new Date(id)),

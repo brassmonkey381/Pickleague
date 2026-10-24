@@ -22,6 +22,9 @@
 //                                                         save_court_routine,
 //                                                         set_court_routine_active and
 //                                                         delete_court_routine)
+//   <migration_checkin_starts_session.sql,               (every check-in starts the session;
+//    migration_court_oneoff_plans.sql>                    one-off plans and p_here: each
+//                                                         replaces routines-file bodies)
 //   <migration_presence_p1_checkins.sql, migration_validity_rules.sql,
 //    migration_refusal_messages.sql, migration_checkin_tap_time.sql>
 //                                                        (re-runs: Phase 1 must not put its
@@ -43,6 +46,8 @@
 //                                                         run puts their bodies back)
 //   <migration_court_routines_planned_end.sql again>     (re-applied: the routines re-run puts
 //                                                         the old bodies of the five back)
+//   <migration_checkin_starts_session.sql,               (re-applied after the routines
+//    migration_court_oneoff_plans.sql again>              files, as on live)
 //   <migration_rls_hardening_2026q3.sql>                 (re-run after them, as the apply
 //                                                         script does: nothing goes offline)
 //   <presence_p1_personas.sql after the marker>          (personas + assertions, with
@@ -120,6 +125,10 @@ const ROUTINES_PLANNED_END = 'migration_court_routines_planned_end.sql';
 // and cancel_court_arrival (last defined by the routines file), so it goes
 // right after each run of the routines files.
 const CHECKIN_SESSION = 'migration_checkin_starts_session.sql';
+// One-off plans. It replaces _pl_court_arrival_off and
+// process_court_routine_reminders (last defined by the routines file), so it
+// goes right after each run of the routines files too.
+const ONEOFF_PLANS = 'migration_court_oneoff_plans.sql';
 const RERUN = [
   'migration_presence_p1_checkins.sql',
   'migration_validity_rules.sql',
@@ -212,6 +221,7 @@ const parts = [
   `-- ════ ${ROUTINES} ════\n${read(path.join(supa, ROUTINES))}`,
   `-- ════ ${ROUTINES_PLANNED_END} ════\n${read(path.join(supa, ROUTINES_PLANNED_END))}`,
   `-- ════ ${CHECKIN_SESSION} ════\n${read(path.join(supa, CHECKIN_SESSION))}`,
+  `-- ════ ${ONEOFF_PLANS} ════\n${read(path.join(supa, ONEOFF_PLANS))}`,
   ...RERUN.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
   `-- ════ ${HARDENING} (re-run) ════\n${read(path.join(supa, HARDENING))}`,
   ...SUPERSEDED.map((f) => `-- ════ ${f} (re-run) ════\n${read(path.join(supa, f))}`),
@@ -220,6 +230,7 @@ const parts = [
   `-- ════ ${ROUTINES} (re-applied after the re-runs) ════\n${read(path.join(supa, ROUTINES))}`,
   `-- ════ ${ROUTINES_PLANNED_END} (re-applied after the routines file) ════\n${read(path.join(supa, ROUTINES_PLANNED_END))}`,
   `-- ════ ${CHECKIN_SESSION} (re-applied after the routines files) ════\n${read(path.join(supa, CHECKIN_SESSION))}`,
+  `-- ════ ${ONEOFF_PLANS} (re-applied after the routines files) ════\n${read(path.join(supa, ONEOFF_PLANS))}`,
   `-- ════ ${HARDENING} (re-run after the court arrival files) ════\n${read(path.join(supa, HARDENING))}`,
   rest
     .replace(VALIDITY_MARKER, () => `-- ════ ${path.basename(VALIDITY)} ════\n${read(VALIDITY)}`)

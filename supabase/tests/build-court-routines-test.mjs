@@ -4,7 +4,9 @@
 // migration_court_routines_planned_end.sql (twice: it replaces the plan-link
 // trigger function, the materializer, save_court_routine,
 // set_court_routine_active and delete_court_routine, so it goes after every
-// run of the routines file, and it must be re-runnable too) and then
+// run of the routines file, and it must be re-runnable too), then
+// migration_checkin_starts_session.sql and migration_court_oneoff_plans.sql
+// (each replaces functions the routines file defines) and then
 // migration_rls_hardening_2026q3.sql (a
 // re-run must keep the new client RPCs online) in place of its
 // -- @@MIGRATION@@ line. The test file holds the
@@ -29,6 +31,10 @@ const PLANNED_END = 'migration_court_routines_planned_end.sql';
 // Every check-in starts the play session: replaces process_court_arrivals and
 // cancel_court_arrival again, so it goes after every run of the two files above.
 const CHECKIN_SESSION = 'migration_checkin_starts_session.sql';
+// One-off plans: replaces _pl_court_arrival_off and
+// process_court_routine_reminders (last defined by the routines file), so it
+// goes after every run of it too.
+const ONEOFF_PLANS = 'migration_court_oneoff_plans.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
@@ -89,6 +95,7 @@ const spliced = [
   `-- ════ ${PLANNED_END} ════\n${read(PLANNED_END)}`,
   `-- ════ ${PLANNED_END} (re-run) ════\n${read(PLANNED_END)}`,
   `-- ════ ${CHECKIN_SESSION} ════\n${read(CHECKIN_SESSION)}`,
+  `-- ════ ${ONEOFF_PLANS} ════\n${read(ONEOFF_PLANS)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,
 ].join('\n');
 

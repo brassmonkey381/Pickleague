@@ -16,6 +16,7 @@ import {
 } from '../pickleagueFeed';
 import type { AgendaEventInput, AgendaItem, AgendaTournamentInput } from '../agenda';
 import type { CourtRoutine } from '../courtRoutineRules';
+import type { CourtPlan } from '../courtPlans';
 import type { FriendAtCourt, FriendsAtCourts } from '../friendsAtCourts';
 
 // Thu Oct 22 2026, 3 PM local.
@@ -588,5 +589,78 @@ describe('my own check-in (Doggle\'s own "Here now" line)', () => {
     const { shown } = capCourtLines(lines);
     expect(shown[0].key).toBe('mine|ci1');
     expect(shown).toHaveLength(COURT_ROWS_CAP);
+  });
+});
+
+describe('my one-off planned check-ins (Doggle\'s "Plan a check-in for later")', () => {
+  const plan = (p: Partial<CourtPlan> = {}): CourtPlan => ({
+    planId: 'op1',
+    venueId: 'v-away',
+    venueName: 'Away Park',
+    lat: null,
+    lng: null,
+    plannedAt: at(22, 18),
+    plannedEndAt: at(22, 20),
+    status: 'planned',
+    starred: false,
+    ...p,
+  });
+
+  it('files each plan under its court in its day, at any court (no star needed)', () => {
+    const f = buildPickleagueFeed(
+      base({
+        plans: [plan(), plan({ planId: 'op2', plannedAt: at(23, 9), plannedEndAt: at(23, 11) }), plan({ planId: 'op3', plannedAt: at(25, 9), plannedEndAt: at(25, 11) })],
+      }),
+    );
+    expect(f.days.map((d) => [d.key, d.courts.map((c) => [c.venueId, c.venueName, c.lines.map((l) => l.key)])])).toEqual([
+      ['today', [['v-away', 'Away Park', ['plan|op1']]]],
+      ['tomorrow', [['v-away', 'Away Park', ['plan|op2']]]],
+      ['later', [['v-away', 'Away Park', ['plan|op3']]]],
+    ]);
+    expect(f.total).toBe(3);
+  });
+
+  it("sits with a starred court's other lines in time order, after who's here", () => {
+    const f = buildPickleagueFeed(
+      base({
+        friendIds: new Set(['a']),
+        starred: [{ venueId: 'v-routine', venueName: 'Lakeside' }],
+        routines: [routine()],
+        friendsAtCourts: fac([group('v-routine', [friend('a')])]),
+        plans: [plan({ venueId: 'v-routine', venueName: 'Lakeside', plannedAt: at(22, 16), plannedEndAt: at(22, 18) })],
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.key)).toEqual(['here|v-routine|a', 'plan|op1', 'stop|p-today']);
+  });
+
+  it('drops a kept plan and one more than 30 minutes past its time; keeps one 10 minutes past', () => {
+    const f = buildPickleagueFeed(
+      base({
+        plans: [
+          plan({ planId: 'kept', status: 'completed', plannedAt: at(22, 15, 10) }),
+          plan({ planId: 'old', plannedAt: at(22, 14, 20), plannedEndAt: at(22, 16, 20) }),
+          plan({ planId: 'late', plannedAt: at(22, 14, 50), plannedEndAt: at(22, 16, 50) }),
+        ],
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.key)).toEqual(['plan|late']);
+  });
+
+  it("files today's items at a plan's court under its card", () => {
+    const f = buildPickleagueFeed(
+      base({
+        plans: [plan()],
+        drills: [{ id: 'd1', partnerName: 'Ann B', startsAt: at(22, 17), lengthMinutes: 60, place: { venueId: 'v-away' }, court: 'Away Park', myRsvp: 'on_my_way' }],
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.kind)).toEqual(['agenda', 'plan']);
+    expect(f.days[0].elsewhere).toEqual([]);
+  });
+
+  it("never cuts a plan's court when friends fill the cap", () => {
+    const groups = Array.from({ length: 8 }, (_, i) => group(`v${i}`, [friend(`f${i}`)]));
+    const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
+    const f = buildPickleagueFeed(base({ friendIds: ids, friendsAtCourts: fac(groups), plans: [plan()] }));
+    expect(f.days[0].courts.some((c) => c.venueId === 'v-away')).toBe(true);
   });
 });

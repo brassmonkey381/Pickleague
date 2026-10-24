@@ -20,6 +20,12 @@
 // (lib/onMyWay defaultRecipients). The server keeps it from being spam
 // (one send per court, and one push per friend, per 30 minutes) and every
 // "not sent" answer is a toast that says why and what to do.
+//
+// `here` ("Check in and tell friends", opened once the check-in landed):
+// "Tell friends you're at Lakeside", no ETA, the button "Tell 3 friends
+// you're here"; the push reads "<Name> is at <Court>" (send_on_my_way
+// p_here, migration_court_oneoff_plans.sql: only while checked in there, its
+// own 30-minute windows, never to a friend I hid my check-ins from).
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -55,6 +61,8 @@ export type OnMyWayTarget = {
   atCourt?: ReadonlyMap<string, string>;
   /** Where it was opened, for analytics. */
   from: 'feed' | 'feed_sheet' | 'court';
+  /** "Check in and tell friends": I'm at the court now (no ETA). */
+  here?: boolean;
 };
 
 type Friend = OnMyWayFriend & { avatarUrl: string | null; avatarEmoji: string | null; avatarBgColor: string | null };
@@ -116,8 +124,9 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
   const count = friends.reduce((n, f) => n + (picked.has(f.userId) ? 1 : 0), 0);
   const blocked = sendBlockedReason(count);
   const minutes = eta ?? DEFAULT_ETA_MINUTES;
+  const here = view?.here === true;
   // The remembered ETA is still being read (the first sheet this session).
-  const etaPending = eta == null;
+  const etaPending = eta == null && !here;
 
   const toggle = (id: string) =>
     setPicked((prev) => {
@@ -133,9 +142,16 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
     const ids = friends.filter((f) => picked.has(f.userId)).map((f) => f.userId);
     setBusy(true);
     try {
-      const res = await sendOnMyWay(sentFor.venueId, minutes, ids);
-      void saveLastEta(minutes);
-      track('on_my_way.send', { from: sentFor.from, eta: minutes, picked: ids.length, sent: res.sent, reason: res.reason ?? 'sent' });
+      const res = await sendOnMyWay(sentFor.venueId, minutes, ids, { here: sentFor.here === true });
+      if (!sentFor.here) void saveLastEta(minutes);
+      track('on_my_way.send', {
+        from: sentFor.from,
+        here: sentFor.here === true,
+        eta: sentFor.here ? null : minutes,
+        picked: ids.length,
+        sent: res.sent,
+        reason: res.reason ?? 'sent',
+      });
       const msg = onMyWayMessage(res, { venueName: sentFor.venueName, nowMs: Date.now(), picked: true });
       if (res.sent) {
         hapticSuccess();
@@ -143,8 +159,9 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
       } else {
         toast.info(msg);
       }
-      // "Pick other friends": keep the sheet up so they can.
-      if (res.sent || res.reason === 'recent') {
+      // "Pick other friends": keep the sheet up so they can. Not checked in
+      // there: nothing this sheet can change.
+      if (res.sent || res.reason === 'recent' || res.reason === 'not_here') {
         if (current.current === sentFor) onClose();
       }
     } catch (e) {
@@ -163,19 +180,23 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
       onClose={() => {
         if (!busy) onClose();
       }}
-      title={view ? `On my way to ${view.venueName}` : 'On my way'}
-      titleIconName="arrow-right"
+      title={view ? (here ? `Tell friends you're at ${view.venueName}` : `On my way to ${view.venueName}`) : 'On my way'}
+      titleIconName={here ? 'megaphone' : 'arrow-right'}
     >
       <View style={S.body}>
-        <Text style={[t.label, { color: c.textSub }]}>About how long?</Text>
-        <DurationChips
-          value={minutes}
-          onChange={setEta}
-          options={ETA_OPTIONS}
-          format={etaLabel}
-          accessibilityLabelFor={(m) => `About ${etaLabel(m)} away`}
-          disabled={busy}
-        />
+        {here ? null : (
+          <>
+            <Text style={[t.label, { color: c.textSub }]}>About how long?</Text>
+            <DurationChips
+              value={minutes}
+              onChange={setEta}
+              options={ETA_OPTIONS}
+              format={etaLabel}
+              accessibilityLabelFor={(m) => `About ${etaLabel(m)} away`}
+              disabled={busy}
+            />
+          </>
+        )}
 
         <View style={S.tellRow}>
           <Text style={[t.label, S.flex, { color: c.textSub }]}>Tell</Text>
@@ -235,8 +256,8 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
 
         {friends.length > 0 && blocked ? <Text style={[t.sub, { color: c.textSub }]}>{blocked}</Text> : null}
         <Button
-          title={sendLabel(count, minutes)}
-          iconName="arrow-right"
+          title={sendLabel(count, minutes, here)}
+          iconName={here ? 'megaphone' : 'arrow-right'}
           variant="success"
           onPress={() => void send()}
           loading={busy}

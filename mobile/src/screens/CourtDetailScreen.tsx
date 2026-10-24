@@ -17,8 +17,10 @@
 //
 // "Check in ▾" is the feed court card's one control (the user, 2026-10-24:
 // "A simple 'Check In' button covers all the bases"; components/feed/
-// useCheckinOptions): Check in now, On my way (friends to tell; every
-// friend starts ticked), Make this a routine (a starred court). It shows
+// useCheckinOptions): Check in now, Check in and tell friends, On my way
+// (friends to tell; every friend starts ticked), Plan a check-in for later
+// (a day and a time: AppDateTimePicker, as Doggle's place page plans with a
+// DateTimeField), Make this a routine (a starred court). It shows
 // even far from the court, as Doggle's does: a check-in from too far says
 // why, and the note under the buttons says to check in once there (no fix
 // within the fence + 150 m or the outline: lib/courtDiscovery
@@ -174,10 +176,13 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
     void flow.checkIn({ id: court.id, name: court.name });
   }, [flow, court.id, court.name, primary]);
 
-  // The one "Check in ▾" (the feed court card's): Check in now, On my way,
-  // Make this a routine; Check out once checked in here.
+  // The one "Check in ▾" (the feed court card's): Check in now, Check in and
+  // tell friends, On my way, Plan a check-in for later, Make this a routine;
+  // Check out once checked in here.
   const options = useCheckinOptions({
     from: 'court',
+    // This page isn't one day's: "Plan a check-in for later" picks a day and a time.
+    planPicker: 'datetime',
     checkIn,
     openRoutines: (ct) => navigation.navigate('Routines', { newVenue: { venueId: ct.venueId, venueName: ct.venueName } }),
     onTap: (option) => track('courts.checkin_option', { option, primary }),

@@ -92,7 +92,7 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   ...(FRIENDS_AT_COURTS_ENABLED
     ? [
         { key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' },
-        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court" },
+        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court, or that they just got there" },
       ]
     : []),
 ];

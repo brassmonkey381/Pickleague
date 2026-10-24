@@ -19,21 +19,24 @@ const ETA_KEY = 'pickleague:onMyWay:etaMinutes:v1';
 const BOUND = { timeoutMs: 9_000 };
 
 /**
- * Tell friends I'm on the way to a court. `recipients`: the friends ticked in
- * the sheet (null = the server's default, all my friends). Refusals (signed
+ * Tell friends I'm on the way to a court (or, with `here`, that I'm at it:
+ * "Check in and tell friends", p_here, migration_court_oneoff_plans.sql; the
+ * server answers not_here unless I'm checked in there). `recipients`: the
+ * friends ticked in the sheet (null = the server's default, all my friends;
+ * with `here`, never one I hid my check-ins from). Refusals (signed
  * out, a bad ETA, too many friends, a court that's gone) throw with their
  * 'pl:' code; "not sent" answers come back as a result with a reason.
  */
-export async function sendOnMyWay(venueId: string, etaMinutes: number, recipients: string[] | null): Promise<OnMyWayResult> {
-  const raw = await sbCall(
-    () =>
-      supabase.rpc('send_on_my_way', {
-        p_venue: venueId,
-        p_eta_minutes: etaMinutes,
-        p_recipients: recipients,
-      }),
-    BOUND,
-  );
+export async function sendOnMyWay(
+  venueId: string,
+  etaMinutes: number,
+  recipients: string[] | null,
+  opts: { here?: boolean } = {},
+): Promise<OnMyWayResult> {
+  // p_here only when asked: a server without it still takes every on-my-way.
+  const args: Record<string, unknown> = { p_venue: venueId, p_eta_minutes: etaMinutes, p_recipients: recipients };
+  if (opts.here) args.p_here = true;
+  const raw = await sbCall(() => supabase.rpc('send_on_my_way', args), BOUND);
   const res = normalizeOnMyWayResult(raw, etaMinutes);
   // The court's window started (sent) or is still running ('recent'): the
   // feed shows "Told friends" there, until the window ends. Under the

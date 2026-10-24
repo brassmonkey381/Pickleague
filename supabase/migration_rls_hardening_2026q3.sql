@@ -169,8 +169,11 @@ begin
         -- (migration_discover_players_near.sql, which grants it too).
         'discover_players_near',
         -- "On my way" to a court, with an ETA (migration_on_my_way.sql, which
-        -- grants it too).
-        'send_on_my_way'
+        -- grants it too; migration_court_oneoff_plans.sql adds p_here).
+        'send_on_my_way',
+        -- One-off planned check-ins (migration_court_oneoff_plans.sql, which
+        -- grants them too).
+        'cancel_court_plan','list_my_court_plans','move_court_plan','plan_court_checkin'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
