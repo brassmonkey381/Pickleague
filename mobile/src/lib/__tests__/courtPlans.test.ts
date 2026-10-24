@@ -118,7 +118,8 @@ describe('words', () => {
     expect(planPickerTitle('Lakeside', 'today')).toBe('Check in at Lakeside at');
     expect(planPickerTitle('Lakeside', 'tomorrow')).toBe('Check in at Lakeside tomorrow at');
     expect(plannedMessage('Lakeside', iso(22, 17, 30), NOW)).toBe('Planned a check-in at Lakeside for 5:30 PM.');
-    expect(plannedMessage('Lakeside', iso(23, 9), NOW)).toBe('Planned a check-in at Lakeside for Tmrw 9 AM.');
+    expect(plannedMessage('Lakeside', iso(23, 9), NOW)).toBe('Planned a check-in at Lakeside for tomorrow 9 AM.');
+    expect(plannedMessage('Lakeside', iso(22 + 30, 9), NOW)).toBe('Planned a check-in at Lakeside for Nov 21 9 AM.');
     expect(movedMessage('Lakeside', iso(24, 18), NOW)).toBe('Moved your check-in at Lakeside to Sat 6 PM.');
     expect(cancelledMessage('Lakeside')).toBe('Cancelled your check-in at Lakeside.');
     expect(planWhen(iso(22, 18), NOW)).toBe('6 PM');

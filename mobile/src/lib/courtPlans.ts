@@ -143,11 +143,12 @@ export function planTimeProblem(at: Date, nowMs: number): string | null {
   return null;
 }
 
-/** "5:30 PM" today, "Tmrw 5:30 PM", "Sat 5:30 PM", "Nov 2 5:30 PM". */
+/** "5:30 PM" today, "tomorrow 5:30 PM", "Sat 5:30 PM", "Nov 2 5:30 PM". */
 export function planWhen(atIso: string, nowMs: number): string {
   const d = new Date(Date.parse(atIso));
   const day = dayLabel(d, new Date(nowMs));
-  return day === 'Today' ? shortTime(d) : `${day} ${shortTime(d)}`;
+  if (day === 'Today') return shortTime(d);
+  return `${day === 'Tmrw' ? 'tomorrow' : day} ${shortTime(d)}`;
 }
 
 /** The toast after a plan (Doggle's words, no emoji): "Planned a check-in at Lakeside for 5:30 PM." */
