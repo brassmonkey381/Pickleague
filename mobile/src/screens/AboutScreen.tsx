@@ -13,7 +13,7 @@ type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'About'
 
 const VALUES: { icon: IconName; title: string; desc: string }[] = [
   { icon: 'smile',     title: 'Fun first',        desc: 'Great sport, great people, no drama.' },
-  { icon: 'calendar',  title: 'Frequent play',    desc: 'Tools that make it easy to schedule and actually show up.' },
+  { icon: 'calendar-event',  title: 'Frequent play',    desc: 'Tools that make it easy to schedule and actually show up.' },
   { icon: 'scale',     title: 'Fair matchups',    desc: 'PLUPR ratings that put you against the right opponents.' },
   { icon: 'handshake', title: 'Community',        desc: 'Built for the groups and friendships that make pickleball great.' },
   { icon: 'chart',     title: 'Real improvement', desc: 'Track your game over time and see yourself get better.' },

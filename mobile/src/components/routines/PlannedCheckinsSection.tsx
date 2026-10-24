@@ -55,7 +55,7 @@ function Section({ profileId }: { profileId: string }) {
           const body = (
             <>
               <View style={S.head}>
-                <Icon name="calendar" size={16} color={c.textSub} />
+                <Icon name="calendar-event" size={16} color={c.textSub} />
                 <Text style={[t.title, S.shrink]} numberOfLines={1}>
                   {head}
                 </Text>

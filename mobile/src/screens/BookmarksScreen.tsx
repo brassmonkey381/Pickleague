@@ -341,7 +341,7 @@ export default function BookmarksScreen({ navigation }: Props) {
                               ? `${b.title} standings${a11yLine ? `, ${a11yLine}` : ''}`
                               : `Open ${b.title}`}
                           >
-                            <Icon name="chevron-right" size={20} color={c.textMuted} />
+                            <Icon name="chevron-right" size={16} color={c.textMuted} />
                           </Pressable>
                         )}
                       </View>

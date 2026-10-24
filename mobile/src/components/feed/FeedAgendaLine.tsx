@@ -15,7 +15,7 @@ import { agendaWhen, type AgendaKind, type AgendaRow } from '../../lib/agenda';
 
 const KIND_ICON: Record<AgendaKind, IconName> = {
   vote: 'check',
-  event: 'calendar',
+  event: 'calendar-event',
   tournament: 'trophy',
   drill: 'paddle',
   match: 'medal',
@@ -83,7 +83,7 @@ export default function FeedAgendaLine({
 
   return (
     <FeedRowShell
-      iconName={KIND_ICON[row.kind] ?? 'calendar'}
+      iconName={KIND_ICON[row.kind] ?? 'calendar-event'}
       iconColor={live ? c.danger : c.primary}
       when={when}
       whenColor={live ? c.danger : row.bucket === 'needsYou' ? c.primary : c.textSub}

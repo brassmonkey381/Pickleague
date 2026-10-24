@@ -53,11 +53,13 @@ export default function BookmarkButton({ targetType, targetId, size = 22, style 
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       style={style}
       accessibilityRole="button"
-      accessibilityLabel={on ? 'Remove bookmark' : 'Add bookmark'}
+      accessibilityLabel={on === true ? 'Remove bookmark' : on === false ? 'Add bookmark' : 'Bookmark, checking'}
     >
-      {/* Saved: the filled ribbon in the brand colour. Not saved (or not known
-          yet): the outline in the muted grey, never a faded copy of the filled one. */}
-      <Icon name={on ? 'bookmark' : 'bookmark-outline'} size={size} color={on ? c.primary : c.textMuted} />
+      {/* Saved: the filled ribbon in the brand colour. Not saved: the outline
+          in the muted grey. Not known yet (loading, or the read failed): the
+          filled ribbon in grey, so it never claims "not saved" for an item
+          that may be saved (the rule above). */}
+      <Icon name={on === false ? 'bookmark-outline' : 'bookmark'} size={size} color={on ? c.primary : c.textMuted} />
     </TouchableOpacity>
   );
 }

@@ -103,7 +103,7 @@ export default function HomeGreeting({ profile, streak, onProfile, onShop, onStr
           balance != null ? `${balance.toLocaleString()} pickles. Open the Pickle Shop` : 'Open the Pickle Shop'
         }
       >
-        <PickleBalance balance={balance} preset="title" />
+        <PickleBalance balance={balance} preset="title" decorative />
       </TouchableOpacity>
     </View>
   );

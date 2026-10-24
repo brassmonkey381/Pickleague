@@ -56,9 +56,12 @@ type BalanceProps = {
   color?: string;
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
+  /** Inside a button that already says the balance in its own label: no label
+   *  of its own, so TalkBack doesn't stop on the balance a second time. */
+  decorative?: boolean;
 };
 
-export function PickleBalance({ balance, preset = 'title', color, style, textStyle }: BalanceProps) {
+export function PickleBalance({ balance, preset = 'title', color, style, textStyle, decorative = false }: BalanceProps) {
   const { colors: c } = useTheme();
   const known = typeof balance === 'number' && Number.isFinite(balance);
   return (
@@ -70,7 +73,7 @@ export function PickleBalance({ balance, preset = 'title', color, style, textSty
       iconColor={c.primary}
       style={style}
       textStyle={textStyle}
-      accessibilityLabel={known ? picklesLabel(balance) : 'Pickle balance loading'}
+      accessibilityLabel={decorative ? undefined : known ? picklesLabel(balance) : 'Pickle balance loading'}
     />
   );
 }

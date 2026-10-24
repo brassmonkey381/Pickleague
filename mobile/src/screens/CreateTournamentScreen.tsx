@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Switch,
+  StyleSheet,
 } from 'react-native';
+import { ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -583,12 +584,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                       : 'No 3rd place match — losing semifinalists tie for 3rd.'}
                   </Text>
                 </View>
-                <Switch
-                  value={playoffThirdPlace}
-                  onValueChange={setPlayoffThirdPlace}
-                  trackColor={{ true: colors.primary }}
-                  thumbColor={colors.textInverse}
-                />
+                <ThemedSwitch value={playoffThirdPlace} onValueChange={setPlayoffThirdPlace} />
               </View>
             )}
           </>
@@ -638,7 +634,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             <Text style={S.label}>Invite only</Text>
             <Text style={S.hint}>{inviteOnly ? 'Only players you invite can register.' : 'Players can request to join; you approve them.'}</Text>
           </View>
-          <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: colors.primary }} thumbColor={colors.textInverse} />
+          <ThemedSwitch value={inviteOnly} onValueChange={setInviteOnly} />
         </View>
 
         <Text style={S.label}>Registration Deadline (optional)</Text>

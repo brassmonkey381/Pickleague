@@ -90,7 +90,7 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
   return (
     <View style={[S.card, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
       <View style={S.titleRow}>
-        <Icon name="calendar" size={16} color={c.primaryDark} style={S.titleGlyph} />
+        <Icon name="calendar-event" size={16} color={c.primaryDark} style={S.titleGlyph} />
         <Text style={[t.title, S.shrink, { color: c.primaryDark }]}>
           {formatWeekdayMask(s.days)} around {formatClockTime(s.localTime)} at {s.venueName}?
         </Text>

@@ -8,13 +8,13 @@
 // A routine at a court no longer starred stays, dormant (no occurrences, no
 // arrival check-in), and says so: star the court again to turn it back on.
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { LoadingState, Panel, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
+import { LoadingState, Panel, SingleSelectModal, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
@@ -448,11 +448,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                     asks first. Needs Location set to Always (on your phone).
                   </Text>
                 </View>
-                <Switch
+                <ThemedSwitch
                   value={autoOn}
                   onValueChange={(on) => void setAutoCheckin(on)}
                   disabled={prefBusy}
-                  trackColor={{ false: c.border, true: c.primary }}
                   accessibilityLabel="Check me in at my routine courts"
                 />
               </View>

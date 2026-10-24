@@ -166,7 +166,7 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
           accessibilityRole="button"
         >
           <View style={styles.iconRow}>
-            <Icon name="calendar" size={16} color={c.textSub} />
+            <Icon name="calendar-event" size={16} color={c.textSub} />
             <Text style={[t.body, styles.flex, { color: c.text }]}>
               {start.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
             </Text>

@@ -38,7 +38,11 @@ declare module '@just-messin-around/expo-foundation/icons' {
 
 const svg = (size: number) => ({ width: size, height: size, viewBox: '0 0 24 24' });
 
-// A dill pickle: a gently curved bean, warts cut out, tilted 45 degrees.
+// A dill pickle: a gently curved bean, warts cut out, tilted 40 degrees.
+// Drawn 1.15x thicker than the art (an inner scaleY, before the tilt): at
+// 14-16px beside a number the thinner bean read about two thirds the weight of
+// `fire`. Two Gs, one transform each: on one G, react-native-svg scales in the
+// tilted axes on native but in screen axes on web.
 const PICKLE_D =
   'M2 12.7C2 9.1 5.6 7.6 8.9 8.4C11.1 8.9 13.1 8.9 15.4 7.8C18.9 6.2 22.3 8 22 11.6C21.8 15.8 17.6 17.9 12.2 17.7C6.3 17.5 2 16.6 2 12.7z' +
   circlePath(6, 12.8, 1) +
@@ -48,7 +52,9 @@ const PICKLE_D =
 export const PickleGlyph = ({ size, color }: GlyphProps) => (
   <Svg {...svg(size)}>
     <G rotation={-40} origin="12, 12.8">
-      <Path d={PICKLE_D} fill={color} fillRule="evenodd" />
+      <G scaleY={1.15} origin="12, 12.8">
+        <Path d={PICKLE_D} fill={color} fillRule="evenodd" />
+      </G>
     </G>
   </Svg>
 );
@@ -68,21 +74,24 @@ export const PickleballGlyph = ({ size, color }: GlyphProps) => (
   </Svg>
 );
 
-// A pickleball paddle (rounded-rectangle face, not a round ping-pong face),
-// tilted, with a ball at the top right.
-const PADDLE_D = roundRectPath(7, 2.5, 10, 12, 4.5) + roundRectPath(10.6, 14, 2.8, 6, 1) + roundRectPath(10.1, 19.5, 3.8, 1.8, 0.9);
+// A pickleball paddle, tilted, with a ball at the top right. The face is a
+// rectangle with small corners (r 2.5, 10x13): with r 4.5 on 10x12 it was
+// nearly oval and read as a ping-pong paddle or a spoon. A 1-unit gap above
+// the handle keeps the neck readable at 16px.
+const PADDLE_D = roundRectPath(7, 2, 10, 13, 2.5) + roundRectPath(10.6, 16, 2.8, 4.4, 1) + roundRectPath(10.1, 20, 3.8, 1.8, 0.9);
 export const PaddleGlyph = ({ size, color }: GlyphProps) => (
   <Svg {...svg(size)}>
     <G rotation={-35} origin="12, 12">
       <Path d={PADDLE_D} fill={color} />
     </G>
-    <Path d={circlePath(19, 5.2, 2.2)} fill={color} />
+    <Path d={circlePath(19.5, 4.5, 2)} fill={color} />
   </Svg>
 );
 
 // Shot templates: a ground line, a net post at x 12, a dashed arc ending in a ball.
 const COURT_D = 'M2.5 20.5h19M12 20.5v-6';
-const DASH = '2 2.4';
+// Long dashes, short gaps: at 16px and under a 2 / 2.4 pattern faded to stipple.
+const DASH = '3 1.8';
 export const ShotLobGlyph = ({ size, color }: GlyphProps) => (
   <Svg {...svg(size)}>
     <Path d={COURT_D} {...lineGlyphProps(color)} />

@@ -259,7 +259,7 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         {ROUTINES_ENABLED && starredIds.has(court.id) ? (
           <TextLink
             label="Make it a routine"
-            iconName="calendar"
+            iconName="calendar-event"
             size="sub"
             onPress={() => navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } })}
             accessibilityHint="Plan a weekly check-in at this court"

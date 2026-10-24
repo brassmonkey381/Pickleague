@@ -26,16 +26,18 @@ export type EntityKind =
   | 'shop'
   | 'pickles';
 
-/** The drawn glyph per kind. Event and season share the calendar. */
+/** The drawn glyph per kind. Event and season share the calendar (the filled
+ *  `calendar-event`, so it sits with the other filled glyphs; the outline
+ *  `calendar` read as the odd one out beside trophy and group). */
 export const ENTITY_ICON: Readonly<Record<EntityKind, IconName>> = {
   league: 'pickleball',
   tournament: 'trophy',
-  event: 'calendar',
+  event: 'calendar-event',
   vote: 'ballot',
   drill: 'paddle',
   court: 'pin',
   match: 'medal',
-  season: 'calendar',
+  season: 'calendar-event',
   player: 'person',
   shop: 'cart',
   pickles: 'pickle',
@@ -62,8 +64,33 @@ export function entityTileColors(kind: EntityKind, c: Theme): { bg: string; bord
     case 'drill':
     case 'match':
       return { bg: c.successLight, border: c.success };
+    case 'pickles':
+      return { bg: c.primaryLight, border: c.primary };
     default:
       return { bg: c.surfaceAlt, border: c.border };
+  }
+}
+
+/** A glyph's own tile colours, for a glyph that stands for itself rather than
+ *  an entity (a notification title's 🔥 or 🏆): fire is warning orange, the
+ *  trophy, medal and crown gold, the pickle the brand green, a tick success.
+ *  Null for a glyph with no colour of its own (the row then uses its kind's). */
+export function glyphTileColors(icon: IconName, c: Theme): { bg: string; border: string } | null {
+  switch (icon) {
+    case 'fire':
+    case 'warning':
+      return { bg: c.warningLight, border: c.warning };
+    case 'trophy':
+    case 'medal':
+    case 'crown':
+      return { bg: c.rarityLegendaryLight, border: c.rarityLegendary };
+    case 'pickle':
+      return { bg: c.primaryLight, border: c.primary };
+    case 'check':
+    case 'check-mark':
+      return { bg: c.successLight, border: c.success };
+    default:
+      return null;
   }
 }
 

@@ -8,6 +8,7 @@ import React from 'react';
 import { LoginBonusModal, type LoginBonusReward } from '@just-messin-around/expo-foundation/gamification';
 import { streakRoadmapFor, DAILY_STREAK_PICKLES, type StreakResult } from '../../lib/loginStreak';
 import { useTheme } from '../../lib/ThemeContext';
+import { picklesLabel } from '../PickleAmount';
 
 type Props = {
   visible: boolean;
@@ -46,6 +47,8 @@ export default function StreakBonusModal({ visible, result, onClose }: Props) {
       ]}
       formatAmount={pickles}
       amountIconName="pickle"
+      // The glyph is hidden from screen readers, so they hear "plus 50 pickles", not "+50".
+      amountA11yLabel={(n) => `plus ${picklesLabel(n)}`}
       streakIconName="fire"
       streakIconColor={c.warning}
       ctaLabel={result.claimed_today ? 'Sweet!' : 'Got it'}

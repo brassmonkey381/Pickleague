@@ -243,7 +243,7 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`Date, ${formattedDate}`}
           >
-            <Icon name="calendar" size={16} color={c.textSub} />
+            <Icon name="calendar-event" size={16} color={c.textSub} />
             <Text style={S.dateBtnText} numberOfLines={1}>{formattedDate}</Text>
           </TouchableOpacity>
           <TouchableOpacity

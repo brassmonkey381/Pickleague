@@ -76,7 +76,7 @@ export default function EditTournamentModal({
               : 'Tap to set'}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, backgroundColor: c.primaryLight }}>
-            <Icon name="calendar" size={14} color={c.primary} />
+            <Icon name="calendar-event" size={14} color={c.primary} />
             <Text style={S.editInlineActionText}>
               {editStartTime ? 'Change' : 'Pick'}
             </Text>

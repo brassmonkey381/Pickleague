@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, TouchableOpacity, Switch,
+  View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, TextInput,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,7 +21,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
-import { Chip, ErrorState, Panel, SegmentedToggle, ShortcutGrid } from '@just-messin-around/expo-foundation/ui';
+import { Chip, ErrorState, Panel, SegmentedToggle, ShortcutGrid, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -299,11 +299,9 @@ export default function DrillScreen({ navigation }: Props) {
               : 'You\'re hidden. Turn this on to send and receive drill requests.'}
           </Text>
         </View>
-        <Switch
+        <ThemedSwitch
           value={enabled}
           onValueChange={toggleEnabled}
-          trackColor={{ false: colors.border, true: colors.primary }}
-          thumbColor={colors.textInverse}
           accessibilityLabel="Open to drilling"
         />
       </Panel>

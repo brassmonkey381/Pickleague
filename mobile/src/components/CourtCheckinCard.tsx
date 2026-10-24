@@ -502,6 +502,9 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
         <TextLink
           label="Find my court"
           style={S.textLink}
+          // Shown as disabled while a lookup runs; the busy check below still
+          // stops a double tap that lands before the re-render.
+          disabled={busy != null}
           onPress={() => {
             if (busy) return;
             tap('find_court', () => {

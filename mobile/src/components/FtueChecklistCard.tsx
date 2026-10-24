@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { ListCard } from '@just-messin-around/expo-foundation/ui';
+import { ListCard, TITLE_ICON_COLUMN } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -293,8 +293,11 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
   return (
     <View style={embedded ? s.embedded : s.card}>
       {embedded ? null : (
-        <View style={s.titleRow}>
-          <Icon name="rocket" size={22} color={colors.primary} />
+        <View style={[s.titleRow, s.headerRow]}>
+          {/* The SectionHeader title column (32 wide, gap 12), over the step glyphs. */}
+          <View style={s.checkBox}>
+            <Icon name="rocket" size={22} color={colors.primary} />
+          </View>
           <Text style={t.title} accessibilityRole="header">Get started</Text>
         </View>
       )}
@@ -330,11 +333,13 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     },
     embedded: { marginTop: SPACE.xs },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs },
+    headerRow: { gap: TITLE_ICON_COLUMN.gap },
     allDone: { paddingTop: SPACE.sm, gap: SPACE.xs },
     go: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
-    // A 32-wide column (EntityRow's tile width) so every Get started title
-    // lines up, whatever the glyph.
-    checkBox: { width: 32, alignItems: 'center' },
+    // A 32-wide column (EntityRow's tile width, and the title-size
+    // SectionHeader's glyph column) so every Get started title lines up under
+    // the header's, whatever the glyph.
+    checkBox: { width: TITLE_ICON_COLUMN.width, alignItems: 'center' },
     // A 44 Claim box plus ListCard's 10/10 padding would make a 64 row; 4px
     // keeps it 52 (the box stays inside the row, which Android needs to
     // deliver the touch).

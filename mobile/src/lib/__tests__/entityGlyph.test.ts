@@ -3,6 +3,7 @@ import {
   ENTITY_ICON,
   entityIcon,
   entityTileColors,
+  glyphTileColors,
   joinFacts,
   leagueRoleChip,
   myRegistrationChip,
@@ -36,6 +37,19 @@ describe('entity glyphs', () => {
   it('tile colours come from the theme', () => {
     expect(entityTileColors('league', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
     expect(entityTileColors('court', LIGHT)).toEqual({ bg: LIGHT.surfaceAlt, border: LIGHT.border });
+    expect(entityTileColors('pickles', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
+  });
+
+  it('event and season use the filled calendar', () => {
+    expect(entityIcon('event')).toBe('calendar-event');
+    expect(entityIcon('season')).toBe('calendar-event');
+  });
+
+  it('a glyph with a colour of its own: fire warning, trophy gold, pickle brand; others none', () => {
+    expect(glyphTileColors('fire', LIGHT)).toEqual({ bg: LIGHT.warningLight, border: LIGHT.warning });
+    expect(glyphTileColors('trophy', LIGHT)).toEqual({ bg: LIGHT.rarityLegendaryLight, border: LIGHT.rarityLegendary });
+    expect(glyphTileColors('pickle', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
+    expect(glyphTileColors('megaphone', LIGHT)).toBeNull();
   });
 });
 

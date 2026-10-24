@@ -74,7 +74,7 @@ export default function LeagueQuickRow({
       onPress: onStandings ?? noop,
       a11y: onStandings ? 'Season standings' : 'Standings, no season yet',
     },
-    { key: 'events', iconName: 'calendar', label: 'Events', onPress: onEvents, a11y: 'Events' },
+    { key: 'events', iconName: 'calendar-event', label: 'Events', onPress: onEvents, a11y: 'Events' },
     { key: 'members', iconName: 'group', label: 'Members', onPress: onMembers, a11y: 'Members' },
   ];
 

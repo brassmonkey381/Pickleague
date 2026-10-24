@@ -302,8 +302,8 @@ export default function EventsScreen({ navigation, route }: Props) {
             ? <SkeletonList rows={4} variant="row" />
             : rows.length === 0
             ? privileged
-              ? <EmptyState iconName="calendar" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
-              : <EmptyState iconName="calendar" title="No events yet." subtitle="Your league admin schedules play days." />
+              ? <EmptyState iconName="calendar-event" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
+              : <EmptyState iconName="calendar-event" title="No events yet." subtitle="Your league admin schedules play days." />
             : <EmptyState compact iconName="search" title="Nothing here" actionLabel="Clear filters" onAction={() => setFilter('all')} />
         }
       />

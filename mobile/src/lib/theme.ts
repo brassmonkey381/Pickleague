@@ -67,7 +67,12 @@ export const DARK: Theme = {
   rarityRareLight:     '#2a1f47',
   rarityLegendary:     '#eab308',
   rarityLegendaryLight:'#332908',
-  textInverse:  '#ffffff',
+  // Text and glyphs ON a filled primary / danger / success / warning control.
+  // Dark ink, not white: dark primary #66bb6a is light, and white on it was
+  // 2.4:1. #0d1a0d (the dark bg) gives 7.6:1 on primary, 5.2:1 on danger,
+  // 7.8:1 on success. Marks on black photo scrims and switch thumbs stay white
+  // (the foundation's ON_SCRIM / SWITCH_THUMB), never this token.
+  textInverse:  '#0d1a0d',
   backdrop:     'rgba(0,0,0,0.6)',
   headerBg:     '#0d1a0d',
   headerText:   '#66bb6a',

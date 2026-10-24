@@ -55,6 +55,7 @@ export default function InviteEarnSection({ onToggle }: { onToggle?: (open: bool
   return (
     <CollapsibleSection
       compact
+      iconName="gift"
       title="Invite & Earn"
       summary={`Invite a friend · you both get ${picklesLabel(REFERRAL_REWARD_PICKLES)}`}
       onToggle={onToggle}

@@ -81,7 +81,7 @@ export function FriendsLink({ variant = 'row', label = 'Friends', style, onPress
               maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
             />
           ) : null}
-          <Icon name="chevron-right" size={20} color={c.textMuted} />
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </View>
       }
       onPress={open}

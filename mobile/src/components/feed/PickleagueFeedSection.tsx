@@ -31,7 +31,7 @@ import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/na
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { usePollWhileActive, useTicker } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
+import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, TITLE_ICON_COLUMN, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { DayBands, FeedActionPill, dayBandDate, type DayBand } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -312,7 +312,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       return [
         {
           label: 'Undo skip',
-          iconName: 'calendar',
+          iconName: 'calendar-event',
           onPress: () => void runRoutine(line.key, () => unskipRoutineOccurrence(s.planId), `Back on: ${card.venueName} at ${shortTime(new Date(s.at))}.`, "Couldn't undo that skip"),
         },
         { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() },
@@ -323,7 +323,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       ...(soon ? [{ label: 'Start playing', iconName: 'play' as const, onPress: () => playHere(card, 'start_playing') }] : []),
       {
         label: day === 'today' ? "Change today's time" : 'Change the time that day',
-        iconName: 'calendar',
+        iconName: 'calendar-event',
         onPress: () => afterSheet(() => setTimePick({ planId: s.planId, at: s.at, venueName: card.venueName, key: line.key })),
       },
       {
@@ -337,7 +337,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
   function courtActions(card: CourtCard, day: DayBandKey): ActionSheetAction[] {
     const routine = ROUTINES_ENABLED
-      ? [{ label: 'Make this a routine', iconName: 'calendar' as const, onPress: () => openRoutines({ venueId: card.venueId, venueName: card.venueName }) }]
+      ? [{ label: 'Make this a routine', iconName: 'calendar-event' as const, onPress: () => openRoutines({ venueId: card.venueId, venueName: card.venueName }) }]
       : [];
     if (day !== 'today') return routine;
     return [
@@ -504,9 +504,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           accessibilityRole="button"
           accessibilityLabel={`${routineLine}. Open My routine`}
         >
-          {/* In a 22 box, centred under the header's 22px pickle, so the text lines up with the title. */}
+          {/* In the header's 32 glyph column, centred under its pickle, so the text lines up with the title. */}
           <View style={styles.lineGlyph}>
-            <Icon name="calendar" size={14} color={c.textSub} />
+            <Icon name="calendar-event" size={14} color={c.textSub} />
           </View>
           <Text style={[t.meta, styles.flex, { color: c.textSub }]} numberOfLines={1}>
             {routineLine}
@@ -624,8 +624,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   // The routine line sits under the header, its calendar glyph under the pickle.
-  routineLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 32 },
-  lineGlyph: { width: 22, alignItems: 'center' },
+  routineLine: { flexDirection: 'row', alignItems: 'center', gap: TITLE_ICON_COLUMN.gap, minHeight: 32 },
+  lineGlyph: { width: TITLE_ICON_COLUMN.width, alignItems: 'center' },
   body: { marginTop: SPACE.sm, gap: SPACE.md },
   day: { gap: SPACE.sm },
   needsBand: {
@@ -641,7 +641,10 @@ const styles = StyleSheet.create({
   centerLink: { alignSelf: 'center' },
   empty: { gap: SPACE.md, paddingVertical: SPACE.xs },
   ctaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: SPACE.sm },
-  // TextLinks carry their own 44 boxes, so the rows need no extra gap.
-  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg },
+  // TextLinks carry their own 44 boxes, so the rows need no extra gap. The
+  // negative margin keeps the 44 tap boxes but takes back the 14px of empty box
+  // above and below the text: the gap to the block above reads as the body's
+  // 12, not 29, and the card no longer ends in 26px of padding.
+  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg, marginVertical: -SPACE.md },
   elsewhere: { gap: SPACE.xs, paddingTop: SPACE.xxs },
 });

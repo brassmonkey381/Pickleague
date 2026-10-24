@@ -711,7 +711,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             from the wrapper above) */}
         <View style={S.tableBlock} onLayout={recomputeJump}>
         {futureNote ? (
-          <EmptyState compact iconName="calendar" title={futureNote} />
+          <EmptyState compact iconName="calendar-event" title={futureNote} />
         ) : tableRows.length === 0 ? (
           <EmptyState compact iconName="trophy" title="No standings yet" subtitle="No matches recorded yet this season." />
         ) : (

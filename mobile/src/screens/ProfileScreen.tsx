@@ -983,7 +983,7 @@ export default function ProfileScreen({ navigation }: Props) {
           accessibilityRole="button"
           accessibilityLabel={`${(profile?.pickles ?? 0).toLocaleString()} pickles. Open the Pickle Shop`}
         >
-          <PickleBalance balance={profile ? profile.pickles ?? 0 : null} preset="title" />
+          <PickleBalance balance={profile ? profile.pickles ?? 0 : null} preset="title" decorative />
         </TouchableOpacity>
         {tagsShown.map(label => (
           <Chip key={label} label={label} tone="brand" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
@@ -1075,7 +1075,7 @@ export default function ProfileScreen({ navigation }: Props) {
           density="compact"
           minHeight={STRIP_HEIGHT}
           style={styles.block}
-          leading={<Icon name="calendar" size={18} color={colors.primary} />}
+          leading={<Icon name="calendar-event" size={18} color={colors.primary} />}
           title={<Text style={styles.stripLabel} numberOfLines={1}>My routine</Text>}
           chevron
           onPress={() => navigation.navigate('Routines')}
@@ -1134,6 +1134,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
         <CollapsibleSection
           compact
+          iconName="clock"
           title="Availability"
           summary={availSummary}
           // The grid unmounts on collapse; it releases the page scroll lock
@@ -1170,6 +1171,7 @@ export default function ProfileScreen({ navigation }: Props) {
 
         <CollapsibleSection
           compact
+          iconName="paddle"
           title="Paddle"
           summary={paddleSummary}
           onToggle={onSectionToggle('paddle')}
@@ -1199,6 +1201,7 @@ export default function ProfileScreen({ navigation }: Props) {
         {totalBadgeCount > 0 && (
           <CollapsibleSection
             compact
+            iconName="medal"
             title="Badges"
             count={totalBadgeCount}
             summary={`${visibleBadgeCount} shown${profile?.badges_public === false ? ' · private profile' : ''}`}
@@ -1235,6 +1238,7 @@ export default function ProfileScreen({ navigation }: Props) {
         {shopPurchases.length > 0 && (
           <CollapsibleSection
             compact
+            iconName="bag"
             title="Inventory"
             count={shopPurchases.length}
             summary="Tap to equip"
@@ -1381,6 +1385,7 @@ export default function ProfileScreen({ navigation }: Props) {
         {chemRows.length > 0 && (
           <CollapsibleSection
             compact
+            iconName="handshake"
             title="Doubles chemistry"
             count={chemRows.length}
             summary={bestChem ? `Best: ${partnerNames[bestChem.partnerId]?.full_name} ${fmtDelta(bestChem.overallDelta)}` : undefined}

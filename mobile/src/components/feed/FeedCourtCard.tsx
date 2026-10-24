@@ -14,7 +14,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Avatar, type ChipTone } from '@just-messin-around/expo-foundation/ui';
 import { FeedActionPill, FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../../lib/ThemeContext';
 import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
@@ -152,7 +152,7 @@ export default function FeedCourtCard({
     return (
       <View style={styles.line}>
         <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
-          <Icon name="calendar" size={18} color={c.primary} />
+          <Icon name="calendar-event" size={18} color={c.primary} />
         </View>
         <View style={styles.body}>
           <Text style={t.title} numberOfLines={1}>
@@ -179,7 +179,7 @@ export default function FeedCourtCard({
           accessibilityRole="button"
           accessibilityLabel={`${card.venueName}. Open the court`}
         >
-          <Icon name={card.starred ? 'star' : 'pin'} size={15} color={c.primary} />
+          <Icon name={card.starred ? 'star' : 'pin'} size={16} color={c.primary} />
           <Text style={[t.title, styles.shrink]} numberOfLines={1}>
             {card.venueName}
           </Text>
@@ -272,7 +272,7 @@ export default function FeedCourtCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
+  card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   headerAction: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },

@@ -60,6 +60,7 @@ import LeaguesScreen from './LeaguesScreen';
 import TournamentsScreen from './TournamentsScreen';
 import CourtsScreen from './CourtsScreen';
 import PlayersPanel, { usePlayersBadge } from '../components/discover/PlayersPanel';
+import { entityIcon } from '../lib/entityGlyph';
 import SearchAreaBar from '../components/SearchAreaBar';
 import { searchAreaStore } from '../lib/useSearchArea';
 import { nearestCityLabel } from '../data/courtDiscovery';
@@ -68,10 +69,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Discover'>;
 
 const TABS = availableDiscoverTabs({ places: COURT_DISCOVERY_ENABLED, players: FRIENDS_AT_COURTS_ENABLED });
 
+// The entity glyphs, so a tab draws what its rows draw (a league is the
+// pickleball; `ball` is the foundation's tennis ball).
 const TAB_ICONS: Record<DiscoverTab, IconName> = {
-  leagues: 'ball',
-  tournaments: 'trophy',
-  places: 'pin',
+  leagues: entityIcon('league'),
+  tournaments: entityIcon('tournament'),
+  places: entityIcon('court'),
   players: 'group',
 };
 

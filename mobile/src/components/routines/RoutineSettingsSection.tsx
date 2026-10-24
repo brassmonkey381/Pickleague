@@ -41,7 +41,7 @@ function Section() {
 
   return (
     <>
-      <SectionHeader icon="calendar" title="At your routine courts" />
+      <SectionHeader icon="calendar-event" title="At your routine courts" />
       <Panel padded={false} style={S.group}>
         <SettingSwitchRow
           label="Check me in at my routine courts"

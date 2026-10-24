@@ -397,6 +397,9 @@ export default function AvatarPickerModal({
                     style={[S.cell, selected && S.cellSelected]}
                     onPress={() => handlePremiumPress(p)}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={p.name}
+                    accessibilityState={{ selected }}
                   >
                     <View style={[S.cellCircle, { backgroundColor: p.bgColor }]}>
                       <Text style={S.cellEmoji}>{p.emoji}</Text>
@@ -425,6 +428,10 @@ export default function AvatarPickerModal({
                 ]}
                 onPress={() => handleAvatarPress(av)}
                 activeOpacity={0.7}
+                // The lock glyph is hidden from screen readers, so the label says it.
+                accessibilityRole="button"
+                accessibilityLabel={unlocked ? av.name : `${av.name}, locked`}
+                accessibilityState={{ selected }}
               >
                 <View style={[S.cellCircle, { backgroundColor: unlocked ? av.bgColor : colors.border }]}>
                   <Text style={[S.cellEmoji, !unlocked && S.cellEmojiLocked]}>

@@ -23,7 +23,7 @@
 // distance) and Nearest measures from the area's centre.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable,
+  View, Text, FlatList, StyleSheet, TextInput, Modal, ScrollView, Pressable,
   type LayoutChangeEvent, type ListRenderItemInfo,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -39,6 +39,7 @@ import {
   type ActionSheetAction,
   type ActiveFilterEntry,
   type FilterSheetGroup,
+  ThemedSwitch,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
@@ -955,12 +956,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
                 {isOpen ? 'Anyone can join this league.' : 'Players must be invited.'}
               </Text>
             </View>
-            <Switch
-              value={isOpen}
-              onValueChange={setIsOpen}
-              trackColor={{ true: c.primary }}
-              thumbColor={c.surface}
-            />
+            <ThemedSwitch value={isOpen} onValueChange={setIsOpen} />
           </View>
 
           {/* Home court */}

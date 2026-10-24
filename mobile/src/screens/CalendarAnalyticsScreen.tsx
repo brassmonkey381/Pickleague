@@ -217,7 +217,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
       />
 
       {Object.keys(dateMap).length === 0 && (
-        <EmptyState iconName="calendar" title="No matches yet" subtitle="No match data found for this view." />
+        <EmptyState iconName="calendar-event" title="No matches yet" subtitle="No match data found for this view." />
       )}
 
       {selectedDayRecord ? (

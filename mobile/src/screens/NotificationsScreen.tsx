@@ -69,7 +69,9 @@ import { linkOf } from '../lib/pushLinks';
 import { routeLink } from '../lib/push';
 import { openDiscover } from '../lib/discoverNav';
 import { redeemLeagueInvite } from '../data/leagueInvites';
-import { entityIcon, entityTileColors, type EntityKind } from '../lib/entityGlyph';
+import { entityIcon, entityTileColors, glyphTileColors, type EntityKind } from '../lib/entityGlyph';
+import { noticeBodyForDisplay } from '../lib/noticeText';
+import type { Theme } from '../lib/theme';
 import {
   NOTIFICATION_CHIPS,
   chipServerFilter,
@@ -271,11 +273,21 @@ function tileFor(entityType: string | null): { icon: IconName; kind: EntityKind 
 
 /** A title's leading emoji (server copy, also the push title) becomes the
  *  tile's glyph when one is drawn for it, and leaves the words either way, so
- *  the row never shows the icon twice. The push text itself is unchanged. */
-function rowGlyph(n: { title: string; entity_type: string | null }): { icon: IconName; kind: EntityKind; title: string } {
+ *  the row never shows the icon twice. The push text itself is unchanged.
+ *  A glyph from the title keeps its own colour where it has one (🔥 warning,
+ *  🏆 gold, 🥒 brand); otherwise the tile takes the kind's colours. */
+function rowGlyph(
+  n: { title: string; entity_type: string | null },
+  c: Theme,
+): { icon: IconName; kind: EntityKind; title: string; tile: { bg: string; fg: string } } {
   const { emoji, rest } = splitLeadingEmoji(n.title);
-  const tile = tileFor(n.entity_type);
-  return { icon: glyphForEmoji(emoji) ?? tile.icon, kind: tile.kind, title: rest || n.title };
+  const kind = tileFor(n.entity_type);
+  const fromTitle = glyphForEmoji(emoji);
+  const icon = fromTitle ?? kind.icon;
+  const colors = (fromTitle ? glyphTileColors(fromTitle, c) : null) ?? entityTileColors(kind.kind, c);
+  // A neutral tile (surfaceAlt / border) draws its glyph in textSub: border grey is too faint.
+  const fg = colors.border === c.border ? c.textSub : colors.border;
+  return { icon, kind: kind.kind, title: rest || n.title, tile: { bg: colors.bg, fg } };
 }
 
 export default function NotificationsScreen({ navigation, route }: Props) {
@@ -600,9 +612,11 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     const n = item.row;
     const gone = missing.has(n.id);
     const open = expanded.has(n.id);
-    const g = rowGlyph(n);
-    const tile = entityTileColors(g.kind, c);
-    const long = isLongBody(n.body);
+    const g = rowGlyph(n, c);
+    // Display copy: leading emoji dropped, pickles spelled out (the stored
+    // text and the push keep theirs).
+    const body = noticeBodyForDisplay(n.body);
+    const long = isLongBody(body);
     const time = notificationTime(n.created_at, now);
     // The delete button is a SIBLING of the card, not its `trailing`: ListCard is one
     // touchable (accessible by default), so iOS VoiceOver can't focus a button
@@ -616,7 +630,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     // The card also offers "Delete" as a rotor / TalkBack action (native only:
     // RNW drops accessibility actions, so the visible delete stays).
     const webLong = long && Platform.OS === 'web';
-    const a11yLabel = `${n.is_read ? '' : 'Unread: '}${g.title}, ${time}. ${n.body}${gone ? '. No longer available' : ''}`;
+    const a11yLabel = `${n.is_read ? '' : 'Unread: '}${g.title}, ${time}. ${body}${gone ? '. No longer available' : ''}`;
     return (
       <View style={styles.rowWrap}>
         <ListCard
@@ -629,8 +643,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           accessibilityActions={DELETE_ACTIONS}
           onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'delete') void deleteNotification(n); }}
           leading={
-            <View style={[styles.tile, { backgroundColor: tile.bg }, gone && styles.gone]}>
-              <Icon name={g.icon} size={18} color={tile.border === c.border ? c.textSub : tile.border} />
+            <View style={[styles.tile, { backgroundColor: g.tile.bg }, gone && styles.gone]}>
+              <Icon name={g.icon} size={18} color={g.tile.fg} />
             </View>
           }
           title={
@@ -649,7 +663,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           }
           subtitle={
             <View style={gone ? styles.gone : undefined}>
-              <Text style={[t.sub, styles.body]} numberOfLines={open ? undefined : 2}>{n.body}</Text>
+              <Text style={[t.sub, styles.body]} numberOfLines={open ? undefined : 2}>{body}</Text>
               {long ? (
                 // Nested in the card's touchable on purpose (sighted users tap it;
                 // VoiceOver reads the card's whole text anyway): the inner press
