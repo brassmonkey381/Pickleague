@@ -23,7 +23,7 @@ import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { formatPluprShort } from '../../lib/plupr';
 import { playerModeLine, playModeNowLine, type PlayModeRow } from '../../lib/courtRoutineRules';
-import { courtHeaderActions } from '../../lib/checkinOptions';
+import { courtHeaderActions, lineIsPast, sheetLineFacts } from '../../lib/checkinOptions';
 import { capCourtLines, type DayBandKey, type FeedCourtCard as Card, type FeedCourtLine, type FeedSheetLine } from '../../lib/pickleagueFeed';
 import FeedHeaderAction from './FeedHeaderAction';
 
@@ -40,6 +40,8 @@ export type FeedCourtCardActions = {
   /** What the header can offer: friends to tell, told them in the last 30
    *  minutes from this device, anything to plan tomorrow. */
   headerFacts: (card: Card) => { canOnMyWay: boolean; onMyWaySent: boolean; canPlan: boolean };
+  /** A header action is running ("…") / something else is (dimmed). */
+  headerState: (card: Card, action: 'checkIn' | 'onMyWay' | 'plan') => { busy: boolean; disabled: boolean };
   /** A league-side line (event, match, tournament, drill, vote) on this card. */
   renderAgenda: (line: Extract<FeedCourtLine, { kind: 'agenda' }>, card: Card, day: DayBandKey) => React.ReactNode;
   /** A line's time chip: its action sheet. */
@@ -243,6 +245,7 @@ export default function FeedCourtCard({
                       key={a}
                       label="On my way"
                       options
+                      {...actions.headerState(card, 'onMyWay')}
                       onPress={() => actions.onMyWay(card)}
                       accessibilityLabel={`Tell friends at ${card.venueName} you're on the way`}
                     />
@@ -253,6 +256,7 @@ export default function FeedCourtCard({
                       key={a}
                       label="Check in"
                       options
+                      {...actions.headerState(card, 'checkIn')}
                       onPress={() => actions.checkInOptions(card)}
                       accessibilityLabel={`Check in at ${card.venueName}: options`}
                     />
@@ -263,6 +267,7 @@ export default function FeedCourtCard({
                       key={a}
                       label="Plan"
                       options
+                      {...actions.headerState(card, 'plan')}
                       onPress={() => actions.plan(card)}
                       accessibilityLabel={`Plan at ${card.venueName} tomorrow: options`}
                     />
@@ -297,7 +302,8 @@ export default function FeedCourtCard({
             );
           }
           const own = l.kind === 'stop' || l.kind === 'mine';
-          const past = l.kind === 'left' || (l.kind === 'stop' && l.stop.status === 'cancelled');
+          // Over (Doggle's isPast): a visit that ended, a skipped stop, a stop whose time has passed.
+          const past = lineIsPast(sheetLineFacts(l), now);
           return (
             <View
               key={l.key}

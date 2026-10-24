@@ -25,7 +25,8 @@
 // courtPrimaryAction). Check in now is this page's own flow
 // (lib/useCourtCheckIn), so its notes show here. Every check-in starts the
 // play session; the island switches its mode. Checked in here, the page
-// offers Check out (it ends the session too) and the plan line. An alias id
+// offers Check out (it ends the session too), the plan line and, at a
+// starred court, Make this a routine (Check in ▾ is gone then). An alias id
 // opens its facility, and the URL moves to the facility's id. A court that
 // is gone says so (refusals 'view').
 //
@@ -286,6 +287,20 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         ) : null}
         {courtCrowdText(crowdNow, { friendsEnabled: FRIENDS_AT_COURTS_ENABLED }) ? (
           <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} openNow={openNow} />
+        ) : null}
+        {/* Checked in here, Check out takes Check in ▾'s place: its "Make
+            this a routine" stays a tap away (the likeliest moment to set one up). */}
+        {here && ROUTINES_ENABLED && starred ? (
+          <TextLink
+            label="Make this a routine"
+            iconName="calendar-event"
+            size="sub"
+            onPress={() => {
+              track('courts.checkin_option', { option: 'makeRoutine', primary });
+              navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } });
+            }}
+            accessibilityHint="Plan a weekly check-in at this court"
+          />
         ) : null}
       </Panel>
 

@@ -46,8 +46,15 @@ import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { trackHomeTap } from '../../lib/analytics';
 import { openDiscover } from '../../lib/discoverNav';
-import { checkinAtRequested, checkinHostOwnsNotes } from '../../lib/checkinHost';
-import { lineActionIds, type LineActionId } from '../../lib/checkinOptions';
+import {
+  checkinAtRequested,
+  checkinHereRequested,
+  checkinHostBusy,
+  checkinHostOwnsNotes,
+  type CheckinHostBusy,
+} from '../../lib/checkinHost';
+import { checkinChanged } from '../../lib/courtCheckin';
+import { lineActionIds, sheetLineFacts, type LineActionId } from '../../lib/checkinOptions';
 import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
@@ -178,6 +185,16 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     enabled: ROUTINES_ENABLED,
   });
   const routines = React.useMemo(() => (ROUTINES_ENABLED ? routinesQ.data ?? [] : []), [routinesQ.data]);
+  // A check-in within 30 minutes of a routine stop keeps that stop on the
+  // server (_pl_routine_plan_at): reload my routines when a new check-in
+  // lands, so a kept stop leaves the card instead of sitting next to my own
+  // "Here now" line (Doggle reloads its feed after every check-in).
+  const seenCheckin = React.useRef<string | null>(null);
+  useSignal(checkinChanged, (cur) => {
+    const id = cur && !cur.queued ? cur.id : null;
+    if (ROUTINES_ENABLED && id && id !== seenCheckin.current) void routinesQ.refresh();
+    seenCheckin.current = id;
+  });
   const friendsFailed = FRIENDS_AT_COURTS_ENABLED && friendsQ.error != null && friendsQ.data === undefined;
 
   // Home's pull-to-refresh reloads the court side too.
@@ -288,6 +305,19 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const [timePick, setTimePick] = React.useState<{ planId: string; at: string; venueName: string; key: string } | null>(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [confirmed, setConfirmed] = React.useState<ReadonlySet<string>>(() => new Set());
+  // CheckinHost's work (a Check in now from here, the bar's centre button,
+  // the island's Stay or Check out): the card whose check-in it runs shows
+  // "…" on its Check in, and the other controls dim meanwhile (Doggle's
+  // pillState). Which court: the last check-in asked of the host, until it
+  // is done.
+  const [hostBusy, setHostBusy] = React.useState<CheckinHostBusy>(null);
+  const [checkingInAt, setCheckingInAt] = React.useState<string | null>(null);
+  useSignal(checkinAtRequested, (v) => setCheckingInAt(v.id));
+  useSignal(checkinHereRequested, () => setCheckingInAt(null));
+  useSignal(checkinHostBusy, (b) => {
+    setHostBusy(b);
+    if (b == null) setCheckingInAt(null);
+  });
   // omwTick re-labels "On my way" as "On the way" after a send.
   const [, setOmwTick] = React.useState(0);
   useSignal(onMyWaySent, () => setOmwTick((n) => n + 1));
@@ -342,14 +372,13 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
   /** A line's sheet, in Doggle's order (lib/checkinOptions lineActionIds). */
   function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
-    const ids = lineActionIds(
-      line.kind === 'mine'
-        ? { kind: 'mine', queued: line.checkin.queued }
-        : line.kind === 'stop'
-          ? { kind: 'stop', status: line.stop.status, at: line.stop.at }
-          : { kind: line.kind },
-      { day, nowMs: now, hereMine: card.hereMine, canOnMyWay, onMyWaySent: sentOnMyWayRecently(card.venueId, now) },
-    );
+    const ids = lineActionIds(sheetLineFacts(line), {
+      day,
+      nowMs: now,
+      hereMine: card.hereMine,
+      canOnMyWay,
+      onMyWaySent: sentOnMyWayRecently(card.venueId, now),
+    });
     const today = day === 'today';
     const stop = line.kind === 'stop' ? line.stop : null;
     const person = line.kind === 'here' || line.kind === 'left' ? line.person : null;
@@ -361,13 +390,15 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         case 'extend':
           return { label: 'Stay 1 more hour', iconName: 'clock', onPress: () => void checkin.extend() };
         case 'checkOut':
-          return { label: 'Check out', iconName: 'logout', onPress: () => void checkin.checkOut() };
+          // With a session running, Check out opens the play end sheet (a
+          // modal): only once this one has gone, or iOS drops it.
+          return { label: 'Check out', iconName: 'logout', onPress: then(() => void checkin.checkOut()) };
         case 'checkInNow':
           return { label: 'Check in now', iconName: 'pin', onPress: then(() => checkInHere(card, 'stop_check_in')) };
         case 'checkInHere':
           return { label: 'Check in here', iconName: 'pin', onPress: then(() => checkInHere(card, 'friend_check_in')) };
         case 'onMyWay':
-          return { label: 'On my way', iconName: 'walk', onPress: then(() => onMyWay(card, 'feed_sheet')) };
+          return { label: 'On my way', iconName: 'megaphone', onPress: then(() => onMyWay(card, 'feed_sheet')) };
         case 'profile':
           return person
             ? {
@@ -409,7 +440,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     return ids.map(item).filter((a): a is ActionSheetAction => a != null);
   }
 
-  /** A line's sheet title ("You · Lakeside") and subtitle ("Here since 5:29 PM"). */
+  /** A line's sheet title ("You · Lakeside") and subtitle ("Checked in since 5:29 PM"), Doggle's words. */
   function lineSheetText(line: FeedSheetLine, card: CourtCard, day: DayBandKey): { title: string; subtitle: string } {
     const clock = (iso: string) => shortTime(new Date(iso));
     if (line.kind === 'mine') {
@@ -418,15 +449,17 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         title: `You · ${card.venueName}`,
         subtitle: m.queued
           ? `Saved with no signal · until ${clock(m.expiresAt)}`
-          : `${m.checkedInAt ? `Here since ${clock(m.checkedInAt)}, until` : 'Here until'} ${clock(m.expiresAt)}`,
+          : m.checkedInAt
+            ? `Checked in since ${clock(m.checkedInAt)}`
+            : `Checked in until ${clock(m.expiresAt)}`,
       };
     }
     if (line.kind === 'stop') {
       const s = line.stop;
       const when = day === 'later' ? `${dayLabel(new Date(s.at), new Date(now))} ${clock(s.at)}` : clock(s.at);
       return {
-        title: `Your routine · ${card.venueName}`,
-        subtitle: s.status === 'cancelled' ? `Skipped: ${when}` : `Planned check-in ${day === 'later' ? '' : 'at '}${when}`,
+        title: `You · ${card.venueName}`,
+        subtitle: s.status === 'cancelled' ? `Skipped: ${when} (routine)` : `Planned check-in ${day === 'later' ? '' : 'at '}${when} (routine)`,
       };
     }
     return {
@@ -441,23 +474,26 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
   // My own line's Stay / Check out runs in the hook: its chip shows it.
   const ownBusyKey = checkin.busy != null ? `mine|${checkin.current?.id ?? ''}` : null;
+  // What runs now, if anything: a line's action, my own line's, or the host's.
+  const running = busyKey ?? ownBusyKey ?? (hostBusy != null ? 'checkin-host' : null);
   const courtCardActions: FeedCourtCardActions = {
     openCourt: (card) => { tap('court'); openCourt(card.venueId); },
-    checkInOptions: (card) => { if (!busyKey) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
-    plan: (card) => { if (!busyKey) { tap('plan_options'); checkin.openPlan(courtOf(card)); } },
+    checkInOptions: (card) => { if (!running) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
+    plan: (card) => { if (!running) { tap('plan_options'); checkin.openPlan(courtOf(card)); } },
     onMyWay: (card) => onMyWay(card),
     headerFacts: (card) => ({ canOnMyWay, onMyWaySent: sentOnMyWayRecently(card.venueId, now), canPlan: checkin.canPlan(card) }),
+    headerState: (card, action) => {
+      const busy = action === 'checkIn' && hostBusy === 'checkin' && checkingInAt === card.venueId;
+      return { busy, disabled: running != null && !busy };
+    },
     renderAgenda: (line, _card, day) => agendaRow(line, 0, day),
     openLine: (line, card, day) => {
-      if (busyKey || ownBusyKey) return;
+      if (running) return;
       afterLineSheet.current = null;
       setLineSheet({ line, card, day });
     },
     openPerson: (id, name) => { tap('person'); openPerson(id, name); },
-    lineState: (key) => {
-      const running = busyKey ?? ownBusyKey;
-      return { busy: running === key, disabled: running != null && running !== key };
-    },
+    lineState: (key) => ({ busy: running === key, disabled: running != null && running !== key }),
   };
 
   async function confirmDrill(sessionId: string) {

@@ -22,6 +22,7 @@
 // PURE: no React, no Supabase. The vitest suite is
 // lib/__tests__/checkinOptions.test.ts.
 import type { DayBandKey } from '@just-messin-around/expo-foundation/scheduling/dayBands';
+import type { FeedSheetLine } from './pickleagueFeed';
 
 /** A planned stop stays "On my way"-able this long after its time (Doggle's PLAN_OVER_MS). */
 export const ON_MY_WAY_PLAN_OVER_MS = 30 * 60_000;
@@ -84,9 +85,15 @@ export function planOptionIds(s: Pick<CheckinOptionsState, 'canRoutine'>): Check
   return s.canRoutine ? ['makeRoutine'] : [];
 }
 
-/** The sheet's note when I'm checked in somewhere else: a check-in here closes that one (and its session). */
-export function movesCheckinNote(current: { venueId: string; venueName: string } | null, venueId: string): string | undefined {
-  if (!current || current.venueId === venueId) return undefined;
+/** The sheet's note when I'm checked in somewhere else: a check-in here closes
+ *  that one (and its session). A check-in whose time has run out is no longer
+ *  one (this device's copy can outlive it). */
+export function movesCheckinNote(
+  current: { venueId: string; venueName: string; expiresAt: string } | null,
+  venueId: string,
+  nowMs: number,
+): string | undefined {
+  if (!current || current.venueId === venueId || !(Date.parse(current.expiresAt) > nowMs)) return undefined;
   return `You're checked in at ${current.venueName}. Checking in here moves you.`;
 }
 
@@ -121,6 +128,21 @@ export type SheetLineFacts =
   | { kind: 'stop'; status: 'planned' | 'cancelled'; at: string }
   | { kind: 'here' | 'left' };
 
+/** What the rules need from a feed line. */
+export function sheetLineFacts(line: FeedSheetLine): SheetLineFacts {
+  if (line.kind === 'mine') return { kind: 'mine', queued: line.checkin.queued };
+  if (line.kind === 'stop') return { kind: 'stop', status: line.stop.status, at: line.stop.at };
+  return { kind: line.kind };
+}
+
+/** Already over, so the line is faded (Doggle's isPast): a visit that ended,
+ *  a skipped stop, or a stop whose time has passed. */
+export function lineIsPast(l: SheetLineFacts, nowMs: number): boolean {
+  if (l.kind === 'left') return true;
+  if (l.kind === 'stop') return l.status === 'cancelled' || !(Date.parse(l.at) > nowMs);
+  return false;
+}
+
 /** The sheet's items for one line, in display order (Doggle's rowActions). */
 export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineActionId[] {
   const today = ctx.day === 'today';
@@ -139,9 +161,12 @@ export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineAc
     add('checkInNow', today && !ctx.hereMine);
     // Always on my own stop today (I pick who to tell), until 30 min past its time.
     add('onMyWay', today && !ctx.hereMine && ctx.canOnMyWay && Date.parse(l.at) > ctx.nowMs - ON_MY_WAY_PLAN_OVER_MS);
-    add('changeTime', true);
+    // Once its time has passed it can't move or be skipped (Doggle: while
+    // the plan is still ahead).
+    const ahead = Date.parse(l.at) > ctx.nowMs;
+    add('changeTime', ahead);
     add('editRoutine', true);
-    add('skipStop', true);
+    add('skipStop', ahead);
     return out;
   }
   if (l.kind === 'here') {

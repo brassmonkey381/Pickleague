@@ -3,6 +3,7 @@ import {
   checkinOptionIds,
   courtHeaderActions,
   lineActionIds,
+  lineIsPast,
   movesCheckinNote,
   planOptionIds,
   type CourtHeaderState,
@@ -76,11 +77,16 @@ describe('the Check in sheet', () => {
   });
 
   it('warns that a check-in here moves me from another court', () => {
-    expect(movesCheckinNote({ venueId: 'b', venueName: 'Star Park' }, 'a')).toBe(
+    expect(movesCheckinNote({ venueId: 'b', venueName: 'Star Park', expiresAt: at(17) }, 'a', NOW)).toBe(
       "You're checked in at Star Park. Checking in here moves you.",
     );
-    expect(movesCheckinNote({ venueId: 'a', venueName: 'Lakeside' }, 'a')).toBeUndefined();
-    expect(movesCheckinNote(null, 'a')).toBeUndefined();
+    expect(movesCheckinNote({ venueId: 'a', venueName: 'Lakeside', expiresAt: at(17) }, 'a', NOW)).toBeUndefined();
+    expect(movesCheckinNote(null, 'a', NOW)).toBeUndefined();
+  });
+
+  it('says nothing about a check-in elsewhere that has run out', () => {
+    expect(movesCheckinNote({ venueId: 'b', venueName: 'Star Park', expiresAt: at(13) }, 'a', NOW)).toBeUndefined();
+    expect(movesCheckinNote({ venueId: 'b', venueName: 'Star Park', expiresAt: at(15) }, 'a', NOW)).toBeUndefined();
   });
 });
 
@@ -125,6 +131,19 @@ describe("a line's time chip", () => {
     ]);
   });
 
+  it('my routine stop once its time has passed: no Change time or Skip (Doggle: only while ahead)', () => {
+    // 2:40 PM, 20 minutes ago: still Check in now and On my way, then Edit.
+    expect(lineActionIds({ kind: 'stop', status: 'planned', at: at(14, 40) }, ctx())).toEqual([
+      'checkInNow',
+      'onMyWay',
+      'editRoutine',
+    ]);
+    // Exactly now counts as passed.
+    const ids = lineActionIds({ kind: 'stop', status: 'planned', at: at(15) }, ctx());
+    expect(ids).not.toContain('changeTime');
+    expect(ids).not.toContain('skipStop');
+  });
+
   it('a skipped stop: Undo skip, Edit my routine', () => {
     expect(lineActionIds({ kind: 'stop', status: 'cancelled', at: at(18) }, ctx())).toEqual(['undoSkip', 'editRoutine']);
   });
@@ -140,5 +159,23 @@ describe("a line's time chip", () => {
 
   it('a friend who left: their profile only', () => {
     expect(lineActionIds({ kind: 'left' }, ctx())).toEqual(['profile']);
+  });
+});
+
+describe('which lines are faded (Doggle isPast)', () => {
+  it('a visit that ended and a skipped stop', () => {
+    expect(lineIsPast({ kind: 'left' }, NOW)).toBe(true);
+    expect(lineIsPast({ kind: 'stop', status: 'cancelled', at: at(18) }, NOW)).toBe(true);
+  });
+
+  it('a stop whose time has passed, not one still ahead', () => {
+    expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(14, 40) }, NOW)).toBe(true);
+    expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(15) }, NOW)).toBe(true);
+    expect(lineIsPast({ kind: 'stop', status: 'planned', at: at(18) }, NOW)).toBe(false);
+  });
+
+  it('never my own check-in or a friend here now', () => {
+    expect(lineIsPast({ kind: 'mine', queued: false }, NOW)).toBe(false);
+    expect(lineIsPast({ kind: 'here' }, NOW)).toBe(false);
   });
 });

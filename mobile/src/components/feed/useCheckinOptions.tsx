@@ -12,9 +12,9 @@
 //   (calendar)  Make this a routine      (a starred court)
 //   Close
 //
-// A follow-up (the On my way sheet, a check-in that may ask for location)
-// opens from the sheet's onDismissed: iOS won't present a second modal while
-// the sheet is still fading out.
+// A follow-up (the On my way sheet, a check-in that may ask for location, My
+// routine's add sheet) opens from the sheet's onDismissed: iOS won't present
+// a second modal while the sheet is still fading out.
 import React from 'react';
 import { ActionSheetModal, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -138,7 +138,8 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
             iconName: 'calendar-event',
             onPress: () => {
               tap();
-              cfg.openRoutines(court);
+              // My routine opens its add sheet (a modal) as it mounts: after this one has gone.
+              after.current = () => cfg.openRoutines(court);
             },
           };
       }
@@ -190,7 +191,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
         visible={sheet != null}
         title={sheet?.court.venueName}
         subtitle={
-          sheet?.kind === 'plan' ? 'Tomorrow' : sheet ? movesCheckinNote(current, sheet.court.venueId) : undefined
+          sheet?.kind === 'plan' ? 'Tomorrow' : sheet ? movesCheckinNote(current, sheet.court.venueId, Date.now()) : undefined
         }
         actions={sheet ? sheetActions(sheet.court, sheet.kind) : []}
         cancelLabel="Close"
