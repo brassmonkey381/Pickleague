@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
@@ -30,6 +34,9 @@ const REASON_COPY: Record<string, string> = {
 
 export default function ClaimAccountScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const title = [t.h3, styles.title];
+  const body = [t.bodySub, styles.body];
   const [state, setState] = useState<'working' | 'done' | 'failed' | 'signed-out'>('working');
   const [message, setMessage] = useState('');
 
@@ -72,54 +79,51 @@ export default function ClaimAccountScreen({ navigation }: Props) {
       {state === 'working' && (
         <>
           <ActivityIndicator size="large" color={c.primary} />
-          <Text style={[styles.title, { color: c.text }]}>Finishing your claim…</Text>
+          <Text style={title}>Finishing your claim…</Text>
         </>
       )}
 
       {state === 'done' && (
         <>
-          <Text style={styles.emoji}>🎉</Text>
-          <Text style={[styles.title, { color: c.text }]}>Account claimed</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>{message}</Text>
+          <Icon name="celebrate" size={48} color={c.primary} />
+          <Text style={title} accessibilityRole="header">Account claimed</Text>
+          <Text style={body}>{message}</Text>
         </>
       )}
 
       {state === 'failed' && (
         <>
-          <Text style={styles.emoji}>🤔</Text>
-          <Text style={[styles.title, { color: c.text }]}>We couldn't finish that</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>{message}</Text>
+          <Icon name="help" size={48} color={c.textMuted} />
+          <Text style={title} accessibilityRole="header">We couldn't finish that</Text>
+          <Text style={body}>{message}</Text>
         </>
       )}
 
       {state === 'signed-out' && (
         <>
-          <Text style={styles.emoji}>🔑</Text>
-          <Text style={[styles.title, { color: c.text }]}>Open the link from your email</Text>
-          <Text style={[styles.body, { color: c.textSub }]}>
+          <Icon name="key" size={48} color={c.primary} />
+          <Text style={title} accessibilityRole="header">Open the link from your email</Text>
+          <Text style={body}>
             The sign-in link has to be opened on this device so we know it's you.
           </Text>
         </>
       )}
 
       {state !== 'working' && (
-        <TouchableOpacity
-          activeOpacity={0.85}
-          style={[styles.btn, { backgroundColor: c.primary }]}
+        <Button
+          title="Go to Pickleague"
           onPress={() => navigation.reset({ index: 0, routes: [{ name: 'Home' }] })}
-        >
-          <Text style={styles.btnText}>Go to Pickleague</Text>
-        </TouchableOpacity>
+          style={styles.btn}
+        />
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
-  emoji: { fontSize: 44 },
-  title: { fontSize: 19, fontWeight: '800', marginTop: 14, textAlign: 'center' },
-  body: { fontSize: 14, marginTop: 8, textAlign: 'center', lineHeight: 20 },
-  btn: { marginTop: 26, paddingVertical: 12, paddingHorizontal: 30, borderRadius: 10 },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl },
+  title: { marginTop: SPACE.md, textAlign: 'center' },
+  body: { marginTop: SPACE.sm, textAlign: 'center' },
+  // Button md has no side padding of its own; this one hugs its label.
+  btn: { marginTop: SPACE.xl, paddingHorizontal: SPACE.xl },
 });

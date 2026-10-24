@@ -2,34 +2,46 @@ import React from 'react';
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'About'> };
 
+const VALUES: { icon: IconName; title: string; desc: string }[] = [
+  { icon: 'smile',     title: 'Fun first',        desc: 'Great sport, great people, no drama.' },
+  { icon: 'calendar',  title: 'Frequent play',    desc: 'Tools that make it easy to schedule and actually show up.' },
+  { icon: 'scale',     title: 'Fair matchups',    desc: 'PLUPR ratings that put you against the right opponents.' },
+  { icon: 'handshake', title: 'Community',        desc: 'Built for the groups and friendships that make pickleball great.' },
+  { icon: 'chart',     title: 'Real improvement', desc: 'Track your game over time and see yourself get better.' },
+];
+
 export default function AboutScreen({}: Props) {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const S = makeStyles(c);
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
-      <Text style={S.logo}>🥒</Text>
-      <Text style={S.appName}>Pickleague</Text>
-      <Text style={S.tagline}>More fun. More frequent. More fair.</Text>
+    <ScrollView style={S.screen} contentContainerStyle={S.container}>
+      <Icon name="pickle" size={64} color={c.primary} style={S.logo} />
+      <Text style={[t.display, S.center, S.appName]} accessibilityRole="header">Pickleague</Text>
+      <Text style={[S.tagline, S.center]}>More fun. More frequent. More fair.</Text>
 
-      <View style={S.card}>
-        <Text style={S.sectionTitle}>Our Mission</Text>
+      <Panel padded={SPACE.lg} style={S.card}>
+        <Text style={S.sectionTitle} accessibilityRole="header">Our Mission</Text>
         <Text style={S.body}>
           Pickleague exists to make recreational pickleball more fun, more frequent, and more fair — with the people you actually want to play with.
         </Text>
         <Text style={S.body}>
           We believe competitive play shouldn't require a club membership or a tournament entry fee. Every group of friends deserves a real league experience: standings that mean something, matches that are tracked, and rivals who keep you sharp.
         </Text>
-      </View>
+      </Panel>
 
-      <View style={S.card}>
-        <Text style={S.sectionTitle}>Why We Were Built</Text>
+      <Panel padded={SPACE.lg} style={S.card}>
+        <Text style={S.sectionTitle} accessibilityRole="header">Why We Were Built</Text>
         <Text style={S.body}>
           It started with a group of friends who loved pickleball but kept running into the same problems: Who do I play next? Is this a fair matchup? How do I actually get better?
         </Text>
@@ -39,57 +51,50 @@ export default function AboutScreen({}: Props) {
         <Text style={S.body}>
           Pickleague was built to solve all of that — bringing real league infrastructure to recreational players everywhere, without the bureaucracy of a formal club.
         </Text>
-      </View>
+      </Panel>
 
-      <View style={S.card}>
-        <Text style={S.sectionTitle}>Our Values</Text>
-        {[
-          { icon: '😄', title: 'Fun first',       desc: 'Great sport, great people, no drama.' },
-          { icon: '📅', title: 'Frequent play',   desc: 'Tools that make it easy to schedule and actually show up.' },
-          { icon: '⚖️', title: 'Fair matchups',   desc: 'PLUPR ratings that put you against the right opponents.' },
-          { icon: '🤝', title: 'Community',       desc: 'Built for the groups and friendships that make pickleball great.' },
-          { icon: '📈', title: 'Real improvement', desc: 'Track your game over time and see yourself get better.' },
-        ].map(({ icon, title, desc }) => (
-          <View key={title} style={S.valueRow}>
-            <Text style={S.valueIcon}>{icon}</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={S.valueTitle}>{title}</Text>
-              <Text style={S.valueDesc}>{desc}</Text>
+      <Panel padded={SPACE.lg} style={S.card}>
+        <Text style={S.sectionTitle} accessibilityRole="header">Our Values</Text>
+        {VALUES.map(({ icon, title, desc }, i) => (
+          <View key={title} style={[S.valueRow, i === VALUES.length - 1 && S.valueRowLast]}>
+            {/* The entity-row tile: 32, rounded square, glyph 18. */}
+            <View style={S.valueTile}>
+              <Icon name={icon} size={18} color={c.primary} />
+            </View>
+            <View style={S.valueText}>
+              <Text style={t.title}>{title}</Text>
+              <Text style={[t.sub, S.valueDesc]}>{desc}</Text>
             </View>
           </View>
         ))}
-      </View>
+      </Panel>
 
-      <Text style={S.version}>Pickleague v{Constants.expoConfig?.version ?? '—'}</Text>
-      <Text style={S.credit}>Made with love for recreational players everywhere</Text>
+      <Text style={[t.hint, S.center, S.version]}>Pickleague v{Constants.expoConfig?.version ?? '—'}</Text>
+      <Text style={[t.caption, S.center, S.credit]}>Made with love for recreational players everywhere</Text>
     </ScrollView>
   );
 }
 
+const TILE = 32;
+
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:    { padding: 24, backgroundColor: c.bg, paddingBottom: 48 },
-    logo:         { fontSize: 64, textAlign: 'center', marginTop: 8 },
-    appName:      { fontSize: 32, fontWeight: '800', color: c.text, textAlign: 'center', marginTop: 8 },
-    tagline:      { fontSize: 16, color: c.primary, fontWeight: '600', textAlign: 'center', marginTop: 4, marginBottom: 28 },
-    card: {
-      backgroundColor: c.surface,
-      borderRadius: 14,
-      padding: 18,
-      marginBottom: 16,
-      shadowColor: '#000',
-      shadowOpacity: 0.07,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 3,
-    },
-    sectionTitle: { fontSize: 17, fontWeight: '700', color: c.text, marginBottom: 12 },
-    body:         { fontSize: 15, color: c.textSub, lineHeight: 23, marginBottom: 10 },
-    valueRow:     { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14, gap: 12 },
-    valueIcon:    { fontSize: 24, width: 32, textAlign: 'center' },
-    valueTitle:   { fontSize: 14, fontWeight: '700', color: c.text },
-    valueDesc:    { fontSize: 13, color: c.textSub, marginTop: 2 },
-    version:      { textAlign: 'center', color: c.textMuted, fontSize: 13, marginTop: 16 },
-    credit:       { textAlign: 'center', color: c.textMuted, fontSize: 12, marginTop: 4 },
+    screen:       { flex: 1, backgroundColor: c.bg },
+    container:    { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
+    center:       { textAlign: 'center' },
+    logo:         { alignSelf: 'center', marginTop: SPACE.sm },
+    appName:      { marginTop: SPACE.sm },
+    tagline:      { ...t.body, color: c.primary, fontWeight: FONT.weight.semibold, marginTop: SPACE.xs, marginBottom: SPACE.xl },
+    card:         { marginBottom: SPACE.md },
+    sectionTitle: { ...t.h3, marginBottom: SPACE.md },
+    body:         { ...t.body, color: c.textSub, marginBottom: SPACE.sm },
+    valueRow:     { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACE.md, gap: SPACE.md },
+    valueRowLast: { marginBottom: 0 },
+    valueTile:    { width: TILE, height: TILE, borderRadius: RADIUS.md, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
+    valueText:    { flex: 1, minWidth: 0 },
+    valueDesc:    { marginTop: SPACE.xxs },
+    version:      { marginTop: SPACE.lg },
+    credit:       { marginTop: SPACE.xs },
   });
 }

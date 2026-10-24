@@ -1,13 +1,15 @@
 import React, { useRef, useState } from 'react';
-import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import GetTheAppButton from '../components/GetTheAppButton';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
@@ -59,15 +61,14 @@ export default function LoginScreen({ navigation }: Props) {
   const content = (
     <>
       <View style={S.hero}>
-        <Text style={S.title}>Pickleague</Text>
+        <Text style={S.title} accessibilityRole="header">Pickleague</Text>
         <Text style={S.subtitle}>Pickleball League Manager</Text>
       </View>
 
       <View style={S.form}>
-        <TextInput
-          style={S.input}
+        <TextField
           placeholder="Email"
-          placeholderTextColor={c.textMuted}
+          accessibilityLabel="Email"
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
@@ -75,10 +76,9 @@ export default function LoginScreen({ navigation }: Props) {
           value={email}
           onChangeText={setEmail}
         />
-        <TextInput
-          style={S.input}
+        <TextField
           placeholder="Password"
-          placeholderTextColor={c.textMuted}
+          accessibilityLabel="Password"
           secureTextEntry
           autoComplete="current-password"
           textContentType="password"
@@ -88,11 +88,9 @@ export default function LoginScreen({ navigation }: Props) {
 
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
 
-        <TouchableOpacity style={S.button} onPress={signIn} disabled={loading}>
-          <Text style={S.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
-        </TouchableOpacity>
+        <Button title={loading ? 'Signing in...' : 'Sign In'} onPress={signIn} disabled={loading} style={S.button} />
 
-        <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+        <TouchableOpacity onPress={() => navigation.navigate('Register')} style={S.linkBox} accessibilityRole="button">
           <Text style={S.link}>Don't have an account? Sign up</Text>
         </TouchableOpacity>
 
@@ -117,16 +115,18 @@ export default function LoginScreen({ navigation }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     root:      { flex: 1, backgroundColor: c.bg },
-    hero:      { backgroundColor: c.headerBg, paddingTop: 80, paddingBottom: 48, alignItems: 'center', paddingHorizontal: 24 },
-    title:     { fontSize: 36, fontWeight: 'bold', textAlign: 'center', color: c.headerText, marginBottom: 4 },
-    subtitle:  { fontSize: 16, textAlign: 'center', color: c.headerSub },
-    form:      { flex: 1, justifyContent: 'center', padding: 24 },
-    input:     { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, backgroundColor: c.surface, color: c.text },
-    errorText: { color: c.danger, fontSize: 14, marginBottom: 10, textAlign: 'center' },
-    button:    { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-    buttonText:{ color: '#fff', fontSize: 16, fontWeight: '600' },
-    link:      { textAlign: 'center', color: c.primary, marginTop: 20, fontSize: 15 },
+    // 80 on top clears the status bar on the header colour.
+    hero:      { backgroundColor: c.headerBg, paddingTop: SPACE.xl * 3 + SPACE.sm, paddingBottom: SPACE.xl * 2, alignItems: 'center', paddingHorizontal: SPACE.xl },
+    title:     { ...t.display, textAlign: 'center', color: c.headerText, marginBottom: SPACE.xs },
+    subtitle:  { ...t.body, textAlign: 'center', color: c.headerSub },
+    form:      { flex: 1, justifyContent: 'center', padding: SPACE.xl },
+    errorText: { ...t.bodySub, color: c.danger, marginBottom: SPACE.sm, textAlign: 'center' },
+    button:    { marginTop: SPACE.sm },
+    // A real 44 box under the button (react-native-web ignores hitSlop).
+    linkBox:   { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },
+    link:      { ...t.body, textAlign: 'center', color: c.primary },
   });
 }

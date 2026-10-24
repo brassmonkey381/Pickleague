@@ -1,4 +1,4 @@
-// The "⋯" on another player: Report, Block, Unblock, and "Hide my presence
+// The More menu (a "more" glyph) on another player: Report, Block, Unblock, and "Hide my presence
 // from <name>" (shipped with check-ins, not behind FRIENDS_AT_COURTS_ENABLED):
 // they see "a player" instead of your name at the courts, whatever your
 // setting. Undone here or in Settings > Privacy > Hidden from.
@@ -7,8 +7,10 @@
 // actions in the same order with the same wording — a profile, a drill thread,
 // a search result. Renders nothing at all on your own row.
 import React, { useState } from 'react';
-import { TouchableOpacity, View, Text, StyleSheet } from 'react-native';
+import { TouchableOpacity, View, StyleSheet } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { RADIUS } from '@just-messin-around/expo-foundation/styles';
 import ActionSheetModal, { ActionSheetAction } from './ActionSheetModal';
 import ConfirmModal from './ConfirmModal';
 import ReportPlayerModal from './ReportPlayerModal';
@@ -28,7 +30,7 @@ type Props = {
   snapshot?:    Record<string, unknown> | null;
   /** Called after a block or unblock lands, so the host can refetch its list. */
   onChanged?:   () => void;
-  /** Visual size of the "⋯" hit target. */
+  /** Visual size of the More button (the hit target stays 44). */
   compact?:     boolean;
 };
 
@@ -141,7 +143,7 @@ export default function PlayerModerationMenu({
         accessibilityRole="button"
       >
         <View style={[S.btn, compact && S.btnCompact]}>
-          <Text style={[S.glyph, compact && S.glyphCompact]}>⋯</Text>
+          <Icon name="more" size={20} color={compact ? colors.textMuted : colors.textSub} />
         </View>
       </TouchableOpacity>
 
@@ -185,9 +187,7 @@ export default function PlayerModerationMenu({
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     box:          { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    btn:          { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceAlt },
+    btn:          { width: 34, height: 34, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceAlt },
     btnCompact:   { backgroundColor: 'transparent' },
-    glyph:        { fontSize: 20, lineHeight: 22, fontWeight: '800', color: c.textSub },
-    glyphCompact: { color: c.textMuted },
   });
 }

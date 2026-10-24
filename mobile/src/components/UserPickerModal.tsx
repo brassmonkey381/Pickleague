@@ -4,6 +4,10 @@ import {
   StyleSheet, ActivityIndicator, Platform, Pressable,
 } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
@@ -54,6 +58,7 @@ export default function UserPickerModal({
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const t = textStyles(c);
   const [users, setUsers]     = useState<PickedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery]     = useState('');
@@ -122,12 +127,12 @@ export default function UserPickerModal({
   const content = (
     <>
       <View style={S.header}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={S.title}>{title}</Text>
+        <View style={S.headerText}>
+          <Text style={t.h3} accessibilityRole="header">{title}</Text>
           {subtitle ? <Text style={S.username} numberOfLines={1}>{subtitle}</Text> : null}
         </View>
-        <TouchableOpacity onPress={onClose}>
-          <Text style={S.close}>Cancel</Text>
+        <TouchableOpacity onPress={onClose} style={S.close} accessibilityRole="button">
+          <Text style={[t.title, { color: c.primary }]}>Cancel</Text>
         </TouchableOpacity>
       </View>
 
@@ -143,46 +148,57 @@ export default function UserPickerModal({
           returnKeyType="search"
         />
         {query.length > 0 && (
-          <TouchableOpacity style={S.clearBtn} onPress={() => setQuery('')}>
-            <Text style={S.clearBtnText}>✕</Text>
+          <TouchableOpacity
+            style={S.clearBtn}
+            onPress={() => setQuery('')}
+            accessibilityRole="button"
+            accessibilityLabel="Clear search"
+          >
+            <Icon name="close" size={16} color={c.textMuted} />
           </TouchableOpacity>
         )}
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color={c.primary} style={{ marginTop: 60 }} />
+        <ActivityIndicator size="large" color={c.primary} style={S.spinner} />
       ) : (
         <FlatList
           data={filtered}
           keyExtractor={u => u.id}
           ListEmptyComponent={loadError
-            ? <EmptyState
-                icon="⚠️"
-                title="Couldn't load players."
-                subtitle={loadError}
-                actionLabel="Try again"
-                onAction={() => setAttempt(n => n + 1)}
+            // A failed read is never "No matches": the message says why, with a retry.
+            ? <ErrorState
+                iconName="offline"
+                error={null}
+                message={loadError}
+                onRetry={() => setAttempt(n => n + 1)}
               />
-            : <EmptyState icon="🔍" title="No matches." subtitle={load && !query.trim() ? 'No one plays here yet. Try a wider radius.' : undefined} />}
+            : <EmptyState iconName="search" title="No matches." subtitle={load && !query.trim() ? 'No one plays here yet. Try a wider radius.' : undefined} />}
           renderItem={({ item }) => {
             const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
             const emoji   = item.avatar_emoji ?? cartoon.emoji;
             const bg      = item.avatar_bg_color ?? cartoon.bgColor;
             return (
-              <TouchableOpacity style={S.row} onPress={() => onPick(item)} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={S.row}
+                onPress={() => onPick(item)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.full_name}, @${item.username}${item.detail ? `, ${item.detail}` : ''}`}
+              >
                 <View style={[S.avatar, { backgroundColor: bg }]}>
                   <Text style={S.avatarEmoji}>{emoji}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={S.name}>{item.full_name}</Text>
+                <View style={S.rowText}>
+                  <Text style={t.title}>{item.full_name}</Text>
                   <Text style={S.username}>@{item.username}</Text>
                   {item.detail ? <Text style={S.username} numberOfLines={1}>{item.detail}</Text> : null}
                 </View>
-                <Text style={S.chevron}>›</Text>
+                <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>
             );
           }}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={S.listContent}
         />
       )}
     </>
@@ -215,35 +231,37 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     root:        { flex: 1, backgroundColor: c.bg },
     backdrop:    {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: c.backdrop,
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 16,
+      padding: SPACE.lg,
     },
     card:        {
       width: '100%',
       maxWidth: 480,
       maxHeight: '85%',
       backgroundColor: c.bg,
-      borderRadius: 14,
+      borderRadius: RADIUS.lg,
       overflow: 'hidden',
-      borderWidth: 1,
+      borderWidth: HAIRLINE,
       borderColor: c.border,
     },
-    header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
-    title:       { fontSize: 17, fontWeight: '800', color: c.text, flex: 1 },
-    close:       { fontSize: 14, color: c.primary, fontWeight: '700' },
+    header:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingLeft: SPACE.lg, paddingRight: SPACE.xs, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, backgroundColor: c.surface },
+    headerText:  { flex: 1, minWidth: 0 },
+    // Cancel: a real 44 box (react-native-web ignores hitSlop).
+    close:       { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.md, alignItems: 'center', justifyContent: 'center' },
 
-    searchRow:   { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    searchInput: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: c.text, backgroundColor: c.surface },
-    clearBtn:    { paddingHorizontal: 12, paddingVertical: 8 },
-    clearBtnText:{ fontSize: 16, color: c.textMuted, fontWeight: '700' },
+    searchRow:   { flexDirection: 'row', alignItems: 'center', padding: SPACE.md, gap: SPACE.xs, backgroundColor: c.surface, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    searchInput: { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.md, color: c.text, backgroundColor: c.surfaceAlt },
+    clearBtn:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 
-    row:         { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface, gap: 12 },
-    avatar:      { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji: { fontSize: 20 },
-    name:        { fontSize: 15, fontWeight: '700', color: c.text },
-    username:    { fontSize: 12, color: c.textMuted, marginTop: 1 },
-    chevron:     { fontSize: 20, color: c.textMuted },
+    spinner:     { marginTop: SPACE.xl * 2 },
+    listContent: { paddingBottom: SPACE.xl * 2 },
+    row:         { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, backgroundColor: c.surface, gap: SPACE.md },
+    rowText:     { flex: 1, minWidth: 0 },
+    avatar:      { width: 38, height: 38, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+    // The player's own avatar emoji (user content, kept as chosen).
+    avatarEmoji: { fontSize: FONT.size.h2 },
+    username:    { ...textStyles(c).hint, marginTop: SPACE.xxs / 2 },
   });
 }

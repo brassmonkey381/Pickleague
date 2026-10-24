@@ -1,5 +1,8 @@
 import React, { useMemo } from 'react';
 import { StyleSheet } from 'react-native';
+import { shadowColor } from '@just-messin-around/expo-foundation/theme';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { SpotlightTourBase } from '../lib/TourContext';
 
@@ -37,22 +40,23 @@ export default function SpotlightTour() {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     // Kit base: borderWidth 2 / borderRadius 12.
     ring: {
       borderWidth: 3,
-      borderRadius: 14,
+      borderRadius: RADIUS.lg,
       borderColor: c.primary,
     },
     // Kit base: padding 18, no border, no shadow. Width comes from the
     // factory's cardWidth: 280.
     card: {
       backgroundColor: c.surface,
-      borderRadius: 14,
-      padding: 16,
+      borderRadius: RADIUS.lg,
+      padding: SPACE.lg,
       borderWidth: 1,
       borderColor: c.border,
-      shadowColor: '#000',
+      shadowColor: shadowColor(c),
       shadowOpacity: 0.25,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 4 },
@@ -60,43 +64,36 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     },
     // Kit base: the `meta` type preset (13px/600, letterSpacing 0.4).
     counter: {
-      fontSize: 11,
-      fontWeight: '700',
+      fontSize: FONT.size.xs,
+      fontWeight: FONT.weight.bold,
       color: c.textMuted,
       letterSpacing: 0.5,
-      marginBottom: 4,
+      marginBottom: SPACE.xs,
     },
     // Kit base: the `h3` preset (17px/700, letterSpacing 0.2).
     title: {
-      fontSize: 16,
-      fontWeight: '800',
-      color: c.text,
+      ...t.title,
       letterSpacing: 0,
-      marginBottom: 6,
+      marginBottom: SPACE.xs,
     },
     // Kit base: the `bodySub` preset (14px, lineHeight 20).
-    body: {
-      fontSize: 13,
-      color: c.textSub,
-      lineHeight: 19,
-    },
+    body: t.sub,
     // Kit base: 14px/700.
     skip: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: c.textMuted,
+      ...t.hint,
+      fontWeight: FONT.weight.semibold,
     },
     // Kit base: borderRadius 8, paddingHorizontal 20.
     nextBtn: {
       backgroundColor: c.primary,
-      paddingHorizontal: 18,
-      paddingVertical: 9,
-      borderRadius: 20,
+      paddingHorizontal: SPACE.lg,
+      paddingVertical: SPACE.sm,
+      borderRadius: RADIUS.pill,
     },
     nextBtnText: {
-      color: '#fff',
-      fontSize: 14,
-      fontWeight: '800',
+      color: c.textInverse,
+      fontSize: FONT.size.md,
+      fontWeight: FONT.weight.heavy,
     },
   });
 }

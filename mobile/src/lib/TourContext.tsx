@@ -56,7 +56,9 @@ const tour = createTourContext<TourKey>({
     hideUntilMeasured: true,
     dimColor: 'rgba(0,0,0,0.62)',
     counterPlacement: 'aboveTitle',
-    nextLabel: 'Next →',
+    // Words only: the kit's button takes a label, not a glyph, and a text
+    // arrow would be the one non-glyph icon left in the app's chrome.
+    nextLabel: 'Next',
     // Pickleague's original overlay rendered a tight "1/3" and a 14px
     // body-to-footer gap (the kit defaults are " / " and 16).
     counterSeparator: '/',

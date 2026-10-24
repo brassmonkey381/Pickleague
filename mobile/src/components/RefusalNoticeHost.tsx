@@ -19,7 +19,8 @@ import { AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { TopChromeView } from '@just-messin-around/expo-foundation/navigation';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import {
   markRefusalNoticeShown,
@@ -74,24 +75,24 @@ export default function RefusalNoticeHost() {
 const S = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: Platform.OS === 'web' ? 16 : 48, // clears the status bar (matches the toasts and the update banner)
+    top: Platform.OS === 'web' ? SPACE.lg : SPACE.xl * 2, // clears the status bar (matches the toasts and the update banner)
     left: 0,
     right: 0,
     alignItems: 'center',
     zIndex: 9997, // under the offline banner (9998) and the toasts (9999)
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACE.md,
   },
   card: {
     width: '100%',
     maxWidth: 360,
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: RADIUS.md,
+    padding: SPACE.md,
+    borderWidth: HAIRLINE,
     borderLeftWidth: 4,
     elevation: 6,
-    gap: 8,
+    gap: SPACE.sm,
   },
-  title: { fontWeight: '700' },
+  title: { fontWeight: FONT.weight.bold },
   actions: { flexDirection: 'row', justifyContent: 'flex-end' },
   btn: { minWidth: 88 },
 });

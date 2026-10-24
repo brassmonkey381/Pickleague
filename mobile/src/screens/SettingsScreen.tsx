@@ -14,10 +14,10 @@ import {
 import {
   Panel,
   SectionHeader,
-  CollapsibleSection,
   SegmentedToggle,
   SettingSwitchRow,
 } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -120,18 +120,34 @@ function traceLine(e: ArrivalTraceEvent): string {
   return `${when}  ${e.kind}${detail ? `  ${detail}` : ''}`;
 }
 
-function ActionRow({ S, label, desc, onPress, danger, detail }: {
+/** A tappable settings row: optional leading glyph (16, beside the 15px
+ *  label), label, one-line description, optional detail, then a chevron. With
+ *  `expanded` set it is a disclosure row instead: the chevron points down while
+ *  open and the row announces its state. */
+function ActionRow({ S, c, label, desc, onPress, danger, detail, iconName, iconColor, expanded }: {
   S: Styles;
+  c: Colors;
   label: string; desc?: string; onPress: () => void; danger?: boolean; detail?: string;
+  iconName?: IconName; iconColor?: string; expanded?: boolean;
 }) {
+  const disclosure = expanded !== undefined;
   return (
-    <TouchableOpacity style={S.row} onPress={onPress} activeOpacity={0.7} accessibilityRole="button">
+    <TouchableOpacity
+      style={S.row}
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityState={disclosure ? { expanded } : undefined}
+      // RNW drops accessibilityState; aria-expanded reaches the DOM.
+      aria-expanded={disclosure ? expanded : undefined}
+    >
+      {iconName ? <Icon name={iconName} size={16} color={iconColor ?? (danger ? c.danger : c.primary)} /> : null}
       <View style={S.rowText}>
         <Text style={[S.rowLabel, danger && S.dangerText]} numberOfLines={1}>{label}</Text>
         {desc ? <Text style={S.rowDesc} numberOfLines={1}>{desc}</Text> : null}
       </View>
       {detail ? <Text style={S.rowDetail} numberOfLines={1}>{detail}</Text> : null}
-      <Text style={S.chevron}>›</Text>
+      <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={16} color={c.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -164,20 +180,28 @@ export default function SettingsScreen({ navigation, route }: Props) {
 
   // "Check-in automation" starts collapsed; settings/checkins (the Not here
   // notices) opens it and brings it into view, also when Settings is already
-  // open. The section's y is known only after layout, so a scroll asked for
-  // before then waits for onLayout.
+  // open. It is a row inside the Push notifications panel, so its y in the
+  // scroll content is the panel's y plus the row's y in the panel; both are
+  // known only after layout, so a scroll asked for before then waits for
+  // onLayout.
   const focusCheckins = route.params?.focus === 'checkins';
   const [checkinsOpen, setCheckinsOpen] = useState(focusCheckins);
+  const [typesOpen, setTypesOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const checkinsY = useRef<number | null>(null);
+  const pushPanelY = useRef<number | null>(null);
+  const checkinsRowY = useRef<number | null>(null);
   const scrollPending = useRef(false);
   const scrollToCheckins = () => {
-    if (checkinsY.current == null) {
+    if (pushPanelY.current == null || checkinsRowY.current == null) {
       scrollPending.current = true;
       return;
     }
     scrollPending.current = false;
-    scrollRef.current?.scrollTo({ y: Math.max(0, checkinsY.current - SPACE.md), animated: true });
+    const y = pushPanelY.current + checkinsRowY.current;
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - SPACE.md), animated: true });
+  };
+  const onCheckinsLayout = () => {
+    if (scrollPending.current) scrollToCheckins();
   };
   useEffect(() => {
     if (!focusCheckins) return;
@@ -415,7 +439,9 @@ export default function SettingsScreen({ navigation, route }: Props) {
           <>
             <ActionRow
               S={S}
-              label="✨ Create your account"
+              c={colors}
+              iconName="sparkle"
+              label="Create your account"
               desc="Add an email & password so you don't lose access"
               onPress={() => navigation.navigate('UpgradeAccount')}
             />
@@ -426,6 +452,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             name, username, tagline and avatar together); this is the pointer. */}
         <ActionRow
           S={S}
+          c={colors}
           label="Edit your name on your profile"
           onPress={() => navigation.navigate('Profile', {})}
         />
@@ -439,7 +466,10 @@ export default function SettingsScreen({ navigation, route }: Props) {
         {/* Password reset */}
         <ActionRow
           S={S}
-          label={resetSent ? 'Reset email sent ✓' : 'Reset password'}
+          c={colors}
+          iconName={resetSent ? 'check-mark' : undefined}
+          iconColor={colors.success}
+          label={resetSent ? 'Reset email sent' : 'Reset password'}
           desc="We'll email you a link to set a new password"
           onPress={sendPasswordReset}
         />
@@ -448,7 +478,9 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
-              label="🎲 My Wagers"
+              c={colors}
+              iconName="dice"
+              label="My Wagers"
               desc="View open, won, and lost pickle wagers"
               onPress={() => navigation.navigate('MyWagers')}
             />
@@ -457,76 +489,101 @@ export default function SettingsScreen({ navigation, route }: Props) {
       </Panel>
 
       {/* ── Notifications ────────────────────── */}
+      {/* One panel: the master switch, then the per-type switches and the
+          check-in automation as disclosure rows under it. The per-type
+          switches are reference settings most people set once, so they sit
+          folded under one line that still says how many are on. Folded
+          content unmounts (nothing inside keeps state). */}
       <SectionHeader title="Push notifications" />
-      <Panel padded={false} style={S.cardTight}>
-        {!prefsReady && (
-          <>
-            {/* Without a successful read these switches would show defaults, and
-                saving one would overwrite every other setting with them. */}
-            <ActionRow
-              S={S}
-              label="Settings not loaded"
-              desc="Tap to retry; switches stay locked"
-              onPress={loadPrefs}
-            />
-            <Divider S={S} />
-          </>
-        )}
-        <SettingSwitchRow
-          label="Push notifications"
-          hint="Phone alerts. A type turned off still shows in the in-app bell."
-          hintLines={2}
-          value={prefs.pushEnabled}
-          onChange={togglePush}
-          disabled={!prefsReady || pushBusy}
-        />
-      </Panel>
-      {/* The per-type switches are reference settings most people set
-          once, so they sit collapsed under one line that still says how many
-          are on. Children unmount on close (nothing inside keeps state). */}
-      <CollapsibleSection
-        compact
-        title="Notification types"
-        summary={pushTypesSummary}
-        onToggle={(open) => trackSectionToggle({ screen: 'Settings', section: 'push_types', open })}
-      >
-        {PUSH_TYPES.map((p, i) => (
-          <React.Fragment key={p.key}>
-            {i > 0 ? <View style={S.dividerFlush} /> : null}
-            <SettingSwitchRow
-              inset={false}
-              label={p.label}
-              hint={p.desc}
-              hintLines={2}
-              value={prefs[p.key]}
-              onChange={(v) => savePrefs({ ...prefs, [p.key]: v })}
-              disabled={!prefsReady}
-            />
-          </React.Fragment>
-        ))}
-      </CollapsibleSection>
-
-      {/* ── Check-in automation ─────────────── */}
-      {/* Starred courts, arrival check-ins and prompts (section F of the court
-          arrival plan). All platforms: the settings are per account, and web
-          says which ones apply on the phone. Children unmount on close. */}
       <View
         onLayout={(e) => {
-          checkinsY.current = e.nativeEvent.layout.y;
-          if (scrollPending.current) scrollToCheckins();
+          pushPanelY.current = e.nativeEvent.layout.y;
+          onCheckinsLayout();
         }}
       >
-        <CollapsibleSection
-          compact
-          title="Check-in automation"
-          open={checkinsOpen}
-          onToggle={(open) => {
-            setCheckinsOpen(open);
-            trackSectionToggle({ screen: 'Settings', section: 'checkin_automation', open });
-          }}
-        >
-          <CourtArrivalSettingsPanel />
-        </CollapsibleSection>
+        <Panel padded={false} style={S.card}>
+          {!prefsReady && (
+            <>
+              {/* Without a successful read these switches would show defaults, and
+                  saving one would overwrite every other setting with them. */}
+              <ActionRow
+                S={S}
+                c={colors}
+                label="Settings not loaded"
+                desc="Tap to retry; switches stay locked"
+                onPress={loadPrefs}
+              />
+              <Divider S={S} />
+            </>
+          )}
+          <SettingSwitchRow
+            label="Push notifications"
+            hint="Phone alerts. A type turned off still shows in the in-app bell."
+            hintLines={2}
+            value={prefs.pushEnabled}
+            onChange={togglePush}
+            disabled={!prefsReady || pushBusy}
+          />
+          <Divider S={S} />
+          <ActionRow
+            S={S}
+            c={colors}
+            label="Notification types"
+            desc={pushTypesSummary}
+            expanded={typesOpen}
+            onPress={() => {
+              const open = !typesOpen;
+              setTypesOpen(open);
+              trackSectionToggle({ screen: 'Settings', section: 'push_types', open });
+            }}
+          />
+          {typesOpen ? (
+            <View style={S.nested}>
+              {PUSH_TYPES.map((p, i) => (
+                <React.Fragment key={p.key}>
+                  {i > 0 ? <Divider S={S} /> : null}
+                  <SettingSwitchRow
+                    label={p.label}
+                    hint={p.desc}
+                    hintLines={2}
+                    value={prefs[p.key]}
+                    onChange={(v) => savePrefs({ ...prefs, [p.key]: v })}
+                    disabled={!prefsReady}
+                  />
+                </React.Fragment>
+              ))}
+            </View>
+          ) : null}
+          <Divider S={S} />
+          {/* ── Check-in automation ─────────────── */}
+          {/* Starred courts, arrival check-ins and prompts (section F of the court
+              arrival plan). All platforms: the settings are per account, and web
+              says which ones apply on the phone. */}
+          <View
+            onLayout={(e) => {
+              checkinsRowY.current = e.nativeEvent.layout.y;
+              onCheckinsLayout();
+            }}
+          >
+            <ActionRow
+              S={S}
+              c={colors}
+              label="Check-in automation"
+              desc="Starred courts, arrival check-ins and prompts"
+              expanded={checkinsOpen}
+              onPress={() => {
+                const open = !checkinsOpen;
+                setCheckinsOpen(open);
+                trackSectionToggle({ screen: 'Settings', section: 'checkin_automation', open });
+              }}
+            />
+          </View>
+          {checkinsOpen ? (
+            <View style={[S.nested, S.nestedPadded]}>
+              <CourtArrivalSettingsPanel />
+            </View>
+          ) : null}
+        </Panel>
       </View>
 
       {/* ── Privacy ──────────────────────────── */}
@@ -536,6 +593,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             profile field), like the display name. */}
         <ActionRow
           S={S}
+          c={colors}
           label="Manage profile visibility"
           desc="Badge visibility and what other players can see"
           onPress={() => navigation.navigate('Profile', {})}
@@ -543,6 +601,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         <Divider S={S} />
         <ActionRow
           S={S}
+          c={colors}
           label="Blocked players"
           desc="Review or undo the players you've blocked"
           onPress={() => navigation.navigate('BlockedPlayers')}
@@ -557,6 +616,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
       <Panel padded={false} style={S.card}>
         <ActionRow
           S={S}
+          c={colors}
           label="About Pickleague"
           desc="Our mission and story"
           onPress={() => navigation.navigate('About')}
@@ -564,6 +624,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         <Divider S={S} />
         <ActionRow
           S={S}
+          c={colors}
           label="Scoring Algo"
           desc="How PLUPR is calculated"
           onPress={() => navigation.navigate('ScoringAlgo')}
@@ -571,6 +632,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         <Divider S={S} />
         <ActionRow
           S={S}
+          c={colors}
           label="Privacy Policy"
           desc="What we collect, and what we don't"
           onPress={() => Linking.openURL('https://www.pickleague.club/privacy')}
@@ -585,10 +647,11 @@ export default function SettingsScreen({ navigation, route }: Props) {
       {/* ── Godmode (only shown to godmode user) ─────── */}
       {isGodmodeUserId(userId) && (
         <>
-          <SectionHeader title="🛠️ Godmode" />
+          <SectionHeader title="Godmode" icon="wrench" />
           <Panel padded={false} style={S.card}>
             <ActionRow
               S={S}
+              c={colors}
               label="Godmode Console"
               desc="Admin utilities (create test accounts, etc.)"
               onPress={() => navigation.navigate('Godmode')}
@@ -596,6 +659,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
+              c={colors}
               label="Gift Pickles"
               desc="Send pickles to any user"
               onPress={() => navigation.navigate('GiftPickles')}
@@ -603,6 +667,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
+              c={colors}
               label="Review Submitted Venues"
               desc="Confirm or reject user-added courts"
               onPress={() => navigation.navigate('AdminVenueReview')}
@@ -610,6 +675,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
+              c={colors}
               label="Court Outlines"
               desc="Draw a building outline so check-ins pass anywhere inside"
               onPress={() => navigation.navigate('AdminBoundaries')}
@@ -617,6 +683,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <Divider S={S} />
             <ActionRow
               S={S}
+              c={colors}
               label="Reported Content"
               desc="Act on player reports within 24 hours"
               onPress={() => navigation.navigate('ModerationQueue')}
@@ -625,6 +692,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             {/* Device-only: read from this phone, never uploaded. */}
             <ActionRow
               S={S}
+              c={colors}
               label="Court arrival trace"
               desc="This phone's last 200 arrival events"
               detail={trace !== null ? 'Hide' : undefined}
@@ -648,9 +716,9 @@ export default function SettingsScreen({ navigation, route }: Props) {
           variant="underline"
           size="sm"
           options={[
-            { label: 'System', icon: '⚙️', value: 'system' },
-            { label: 'Light',  icon: '☀️', value: 'light' },
-            { label: 'Dark',   icon: '🌙', value: 'dark' },
+            { label: 'System', iconName: 'gear', value: 'system' },
+            { label: 'Light',  iconName: 'sun',  value: 'light' },
+            { label: 'Dark',   iconName: 'moon', value: 'dark' },
           ]}
           value={themeMode}
           onChange={setThemeMode}
@@ -661,10 +729,11 @@ export default function SettingsScreen({ navigation, route }: Props) {
       {/* ── Danger zone ──────────────────────── */}
       <SectionHeader title="Account actions" />
       <Panel padded={false} style={S.card}>
-        <ActionRow S={S} label="Sign out" onPress={openSignOut} />
+        <ActionRow S={S} c={colors} label="Sign out" onPress={openSignOut} />
         <Divider S={S} />
         <ActionRow
           S={S}
+          c={colors}
           label="Delete account"
           desc="Permanently remove your account and all data"
           onPress={openDeleteAccount}
@@ -720,22 +789,22 @@ function makeStyles(c: Colors) {
     // home indicator / browser chrome.
     container:     { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xl * 2 },
     card:          { marginBottom: SPACE.md, overflow: 'hidden' },
-    // The master push card sits right on top of its collapsed types section.
-    cardTight:     { marginBottom: SPACE.sm, overflow: 'hidden' },
+    // An opened disclosure row's content: a tinted well under the row, so it
+    // reads as belonging to it. Switch rows bring their own 12 side padding.
+    nested:        { backgroundColor: c.surfaceAlt, borderTopWidth: HAIRLINE, borderTopColor: c.border },
+    nestedPadded:  { padding: SPACE.md },
     // A one-line row is 44; a row with a description lands at 56 on its own.
     row:           { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 44 },
     rowText:       { flex: 1, minWidth: 0 },
     rowLabel:      t.title,
     rowDesc:       { ...t.sub, marginTop: SPACE.xxs },
     rowDetail:     { ...t.sub, color: c.textMuted, flexShrink: 1 },
-    chevron:       { fontSize: FONT.size.h2, color: c.textMuted },
     divider:       { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
-    dividerFlush:  { height: HAIRLINE, backgroundColor: c.border },
     dangerText:    { color: c.danger },
     themeTabs:     { borderBottomWidth: 0 },
     hug:           { alignSelf: 'flex-start' },
     traceBox:      { paddingHorizontal: SPACE.md, paddingBottom: SPACE.sm, gap: SPACE.xs },
     traceText:     t.meta,
-    passwordInput: { borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: SPACE.xs },
+    passwordInput: { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: SPACE.xs },
   });
 }
