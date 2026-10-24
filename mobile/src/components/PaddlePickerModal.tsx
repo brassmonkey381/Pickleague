@@ -1,18 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal, View, Text, TouchableOpacity, TextInput,
-  FlatList, StyleSheet, Pressable, ActivityIndicator,
-  Platform, useWindowDimensions,
+  View, Text, TouchableOpacity, TextInput, FlatList, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { BottomSheet, FilterSearchField } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-
-const IS_WEB = Platform.OS === 'web';
 
 export type PaddleSelection = {
   brandId: string;
@@ -21,17 +18,14 @@ export type PaddleSelection = {
   thicknessMm: number | null;
 };
 
-type Brand  = { id: string; name: string };
+type Brand   = { id: string; name: string };
 type DBModel = { id: string; name: string; thickness_mm: number | null; notes: string | null };
-type Step   = 'brand' | 'model' | 'thickness';
+type Step    = 'brand' | 'model' | 'thickness';
 
-const THICKNESS_OPTIONS = [
-  { label: '13 mm', value: 13 },
-  { label: '14 mm', value: 14 },
-  { label: '15 mm', value: 15 },
-  { label: '16 mm', value: 16 },
-  { label: 'Other', value: null },
-];
+const THICKNESS_OPTIONS = [13, 14, 15, 16];
+// A typed core thickness outside this range is a typo, not a paddle.
+const MIN_MM = 5;
+const MAX_MM = 30;
 
 type Props = {
   visible: boolean;
@@ -40,42 +34,48 @@ type Props = {
   initial?: PaddleSelection | null;
 };
 
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Brand, then that brand's models, as tap lists. The search box never opens
+ * the keyboard by itself: the keyboard used to come up over the model list
+ * (autoFocus), hiding the presets. A catalog model with a known core
+ * thickness saves on tap; a typed model, or one without a thickness, asks for
+ * the thickness last.
+ */
 export default function PaddlePickerModal({ visible, onSelect, onClose, initial }: Props) {
   const { colors: c } = useTheme();
-  const { height: winHeight } = useWindowDimensions();
-  const listMaxHeight = Math.min(440, winHeight * 0.5);
-  const suggestMaxHeight = Math.min(260, winHeight * 0.32);
-  const styles = makeStyles(c, listMaxHeight, suggestMaxHeight);
+  const t = textStyles(c);
+  const styles = makeStyles(c);
 
-  const [brands, setBrands]           = useState<Brand[]>([]);
-  const [dbModels, setDbModels]       = useState<DBModel[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
   const [step, setStep]               = useState<Step>('brand');
-  const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
-  const [modelInput, setModelInput]   = useState('');
-  const [modelSearch, setModelSearch] = useState('');
-  const [thickness, setThickness]     = useState<number | null>(16);
-  const [customThickness, setCustomThickness] = useState('');
-  const [brandSearch, setBrandSearch] = useState('');
-  const [loading, setLoading]         = useState(true);
+  const [query, setQuery]             = useState('');
+  const [brands, setBrands]           = useState<Brand[]>([]);
+  const [brandsLoading, setBrandsLoading] = useState(false);
+  const [brand, setBrand]             = useState<Brand | null>(null);
+  const [models, setModels]           = useState<DBModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelName, setModelName]     = useState('');
+  const [customMm, setCustomMm]       = useState('');
   // A failed catalog read must not render as "there are no brands/models".
   const [loadError, setLoadError]     = useState<string | null>(null);
+  // The brand whose models were asked for last: a slow reply for a brand the
+  // player has already backed out of must not fill the list.
+  const modelsFor = useRef<string | null>(null);
 
+  // Every open starts at the brand list, whatever step the last one closed on.
   useEffect(() => {
-    if (visible) {
-      loadBrands();
-      if (initial) {
-        setSelectedBrand({ id: initial.brandId, name: initial.brandName });
-        setModelInput(initial.modelName);
-        setThickness(initial.thicknessMm);
-      } else {
-        reset();
-      }
-    }
+    if (!visible) return;
+    setStep('brand');
+    setQuery('');
+    setBrand(null);
+    setModelName('');
+    setCustomMm('');
+    if (brands.length === 0) loadBrands();
   }, [visible]);
 
   async function loadBrands() {
-    setLoading(true);
+    setBrandsLoading(true);
     setLoadError(null);
     try {
       const data = await sbCall(() =>
@@ -83,16 +83,16 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
       );
       setBrands((data ?? []) as Brand[]);
     } catch (e) {
-      // An empty brand list looks like the catalog is empty, and there's no
-      // way past step one — surface it so the user can retry.
       setLoadError(friendlySbMessage(e, "Couldn't load paddle brands."));
     } finally {
-      setLoading(false);
+      setBrandsLoading(false);
     }
   }
 
   async function loadModels(brandId: string) {
-    setLoadingModels(true);
+    modelsFor.current = brandId;
+    setModels([]);
+    setModelsLoading(true);
     setLoadError(null);
     try {
       const data = await sbCall(() => supabase
@@ -100,317 +100,239 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
         .select('id, name, thickness_mm, notes')
         .eq('brand_id', brandId)
         .order('sort_order'));
-      setDbModels((data ?? []) as DBModel[]);
+      if (modelsFor.current === brandId) setModels((data ?? []) as DBModel[]);
     } catch (e) {
-      setLoadError(friendlySbMessage(e, "Couldn't load models for that brand."));
+      if (modelsFor.current === brandId) setLoadError(friendlySbMessage(e, "Couldn't load models for that brand."));
     } finally {
-      setLoadingModels(false);
+      if (modelsFor.current === brandId) setModelsLoading(false);
     }
   }
 
-  function reset() {
-    setStep('brand');
-    setSelectedBrand(null);
-    setModelInput('');
-    setModelSearch('');
-    setThickness(16);
-    setCustomThickness('');
-    setBrandSearch('');
-    setDbModels([]);
-  }
-
-  function pickBrand(brand: Brand) {
-    setSelectedBrand(brand);
-    setModelInput('');
-    setModelSearch('');
+  function pickBrand(b: Brand) {
+    setBrand(b);
+    setQuery('');
     setStep('model');
-    loadModels(brand.id);
+    loadModels(b.id);
   }
 
-  function pickModel(model: DBModel) {
-    setModelInput(model.name);
-    if (model.thickness_mm) {
-      // Pre-select the model's thickness and skip straight to confirm
-      setThickness(model.thickness_mm);
-      setStep('thickness');
-    } else {
-      setStep('thickness');
-    }
+  function finish(name: string, thicknessMm: number | null) {
+    if (!brand) return;
+    onSelect({ brandId: brand.id, brandName: brand.name, modelName: name.trim(), thicknessMm });
   }
 
-  function confirmThickness(val: number | null) {
-    const finalThickness = val ?? (customThickness ? parseFloat(customThickness) : null);
-    onSelect({
-      brandId:      selectedBrand!.id,
-      brandName:    selectedBrand!.name,
-      modelName:    modelInput.trim(),
-      thicknessMm:  finalThickness,
-    });
-    reset();
+  function pickModel(m: DBModel) {
+    if (m.thickness_mm != null) { finish(m.name, Number(m.thickness_mm)); return; }
+    setModelName(m.name);
+    setCustomMm('');
+    setStep('thickness');
   }
 
-  const filteredBrands = brandSearch.trim()
-    ? brands.filter(b => b.name.toLowerCase().includes(brandSearch.toLowerCase()))
-    : brands;
+  function pickTyped(name: string) {
+    setModelName(name.trim());
+    setCustomMm('');
+    setStep('thickness');
+  }
 
-  const filteredModels = modelSearch.trim()
-    ? dbModels.filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
-    : dbModels;
+  function goBack() {
+    setQuery('');
+    setLoadError(null);
+    setStep(step === 'thickness' ? 'model' : 'brand');
+  }
+
+  const q = query.trim().toLowerCase();
+  const shownBrands = q ? brands.filter(b => b.name.toLowerCase().includes(q)) : brands;
+  const shownModels = q ? models.filter(m => m.name.toLowerCase().includes(q)) : models;
+  // Typed text that isn't a listed model can still be saved as the player's own.
+  const typed = query.trim();
+  const offerTyped = step === 'model' && !modelsLoading && typed.length > 0 && !models.some(m => same(m.name, typed));
+
+  const isCurrentBrand = (b: Brand) => initial?.brandId === b.id;
+  const isCurrentModel = (name: string) =>
+    !!initial && !!brand && initial.brandId === brand.id && same(initial.modelName, name);
+  // The thickness already saved for this exact paddle, when changing it.
+  const currentMm = modelName && isCurrentModel(modelName) ? initial?.thicknessMm ?? null : null;
+
+  const mm = parseFloat(customMm);
+  const customOk = Number.isFinite(mm) && mm >= MIN_MM && mm <= MAX_MM;
+
+  const title = step === 'brand' ? 'Pick your paddle brand'
+    : step === 'model' ? brand?.name ?? 'Model'
+    : 'Core thickness';
+
+  const retry = (onPress: () => void) => (
+    <TouchableOpacity style={styles.message} onPress={onPress} accessibilityRole="button">
+      <Text style={[t.hint, styles.center]}>{loadError}{'\n'}Tap to retry.</Text>
+    </TouchableOpacity>
+  );
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={styles.overlay}
-        onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      >
-        <View style={styles.sheet}>
-
-          {/* Header */}
-          <View style={styles.header}>
-            {step !== 'brand' ? (
-              <TouchableOpacity
-                onPress={() => setStep(step === 'thickness' ? 'model' : 'brand')}
-                style={[styles.headerSide, styles.backBtn]}
-                accessibilityRole="button"
-                accessibilityLabel="Back"
-              >
-                <Icon name="chevron-left" size={18} color={c.primary} />
-                <Text style={styles.back}>Back</Text>
-              </TouchableOpacity>
-            ) : <View style={styles.headerSide} />}
-            <Text style={styles.title}>
-              {step === 'brand' ? 'Select Brand'
-               : step === 'model' ? selectedBrand?.name ?? 'Model'
-               : 'Thickness'}
-            </Text>
-            <TouchableOpacity
-              onPress={() => { reset(); onClose(); }}
-              style={[styles.headerSide, styles.headerSideEnd]}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Icon name="close" size={20} color={c.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Step dots */}
-          <View style={styles.steps}>
-            {(['brand', 'model', 'thickness'] as Step[]).map((s, i) => {
-              const done   = ['brand','model','thickness'].indexOf(step) > i;
-              const active = step === s;
-              return <View key={s} style={[styles.stepDot, active && styles.stepDotActive, done && styles.stepDotDone]} />;
-            })}
-          </View>
-
-          {/* ── BRAND ── */}
-          {step === 'brand' && (
-            <>
-              {loading ? <ActivityIndicator style={styles.spinner} color={c.primary} /> : loadError ? (
-                <TouchableOpacity style={styles.retryBox} onPress={loadBrands} accessibilityRole="button">
-                  <Text style={styles.noModels}>{loadError}{'\n'}Tap to retry.</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder={`Search ${brands.length} brands…`}
-                    placeholderTextColor={c.textMuted}
-                    value={brandSearch}
-                    onChangeText={setBrandSearch}
-                    autoCorrect={false}
-                  />
-                  <FlatList
-                    data={filteredBrands}
-                    keyExtractor={b => b.id}
-                    style={styles.list}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity style={styles.brandRow} onPress={() => pickBrand(item)}>
-                        <Text style={styles.brandName}>{item.name}</Text>
-                        <Icon name="chevron-right" size={16} color={c.textMuted} />
-                      </TouchableOpacity>
-                    )}
-                  />
-                </>
-              )}
-            </>
-          )}
-
-          {/* ── MODEL ── */}
-          {step === 'model' && (
-            <View style={styles.modelContainer}>
-              <TextInput
-                style={styles.modelInput}
-                placeholder="Type or search a model…"
-                placeholderTextColor={c.textMuted}
-                value={modelSearch || modelInput}
-                onChangeText={v => { setModelSearch(v); setModelInput(v); }}
-                autoFocus
-                returnKeyType="next"
-                onSubmitEditing={() => modelInput.trim() && setStep('thickness')}
-              />
-
-              {loadingModels ? (
-                <ActivityIndicator style={styles.spinnerInline} color={c.primary} />
-              ) : filteredModels.length > 0 ? (
-                <>
-                  <Text style={styles.suggestLabel}>
-                    {modelSearch ? `${filteredModels.length} match${filteredModels.length !== 1 ? 'es' : ''}` : `${dbModels.length} known models`}
-                  </Text>
-                  <FlatList
-                    data={filteredModels}
-                    keyExtractor={m => m.id}
-                    style={styles.suggestList}
-                    keyboardShouldPersistTaps="handled"
-                    renderItem={({ item }) => (
-                      <TouchableOpacity style={styles.suggestRow} onPress={() => pickModel(item)}>
-                        <View style={styles.flex1}>
-                          <Text style={styles.suggestName}>{item.name}</Text>
-                          {(item.thickness_mm || item.notes) && (
-                            <Text style={styles.suggestMeta}>
-                              {[item.thickness_mm ? item.thickness_mm + 'mm' : null, item.notes].filter(Boolean).join(' · ')}
-                            </Text>
-                          )}
-                        </View>
-                        <Icon name="chevron-right" size={16} color={c.textMuted} style={styles.suggestArrow} />
-                      </TouchableOpacity>
-                    )}
-                  />
-                </>
-              ) : loadError ? (
-                // Distinct from "no models" — one is a fact about the catalog,
-                // the other is a fact about the network.
-                <TouchableOpacity onPress={() => selectedBrand && loadModels(selectedBrand.id)} accessibilityRole="button">
-                  <Text style={styles.noModels}>{loadError} Tap to retry — or just type your model above.</Text>
-                </TouchableOpacity>
-              ) : (
-                <Text style={styles.noModels}>No models found — type your model name above.</Text>
-              )}
-
-              <Button
-                title="Next — Select Thickness"
-                onPress={() => modelInput.trim() && setStep('thickness')}
-                disabled={!modelInput.trim()}
-                style={styles.nextBtn}
-              />
-            </View>
-          )}
-
-          {/* ── THICKNESS ── */}
-          {step === 'thickness' && (
-            <View style={styles.thicknessContainer}>
-              <Text style={styles.selectedModelPreview}>
-                {selectedBrand?.name} · {modelInput}
-              </Text>
-              <Text style={styles.stepLabel}>Core thickness</Text>
-              <Text style={styles.stepHint}>Thicker = more control  ·  Thinner = more power</Text>
-              {THICKNESS_OPTIONS.map(opt => (
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title={title}
+      onBack={step === 'brand' ? undefined : goBack}
+      height="85%"
+      keyboardShrink
+      contentStyle={styles.body}
+    >
+      {/* ── BRAND ── */}
+      {step === 'brand' && (
+        brandsLoading ? <ActivityIndicator style={styles.spinner} color={c.primary} />
+        : loadError ? retry(loadBrands)
+        : (
+          <>
+            <FilterSearchField
+              size="sm"
+              value={query}
+              onChangeText={setQuery}
+              placeholder={`Search ${brands.length} brands`}
+              autoCorrect={false}
+              autoCapitalize="none"
+              style={styles.search}
+            />
+            <FlatList
+              data={shownBrands}
+              keyExtractor={b => b.id}
+              style={styles.list}
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={<Text style={[t.hint, styles.message, styles.center]}>No brand matches "{typed}".</Text>}
+              renderItem={({ item }) => (
                 <TouchableOpacity
-                  key={String(opt.value)}
-                  style={[styles.thicknessRow, thickness === opt.value && opt.value !== null && styles.thicknessRowActive]}
-                  onPress={() => opt.value !== null ? confirmThickness(opt.value) : setThickness(null)}
+                  style={styles.row}
+                  onPress={() => pickBrand(item)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isCurrentBrand(item) }}
                 >
-                  <Text style={[styles.thicknessLabel, thickness === opt.value && opt.value !== null && styles.thicknessLabelActive]}>
-                    {opt.label}
-                  </Text>
-                  {thickness === opt.value && opt.value !== null && <Icon name="check-mark" size={18} color={c.primary} />}
+                  <Text style={styles.rowName}>{item.name}</Text>
+                  {isCurrentBrand(item) ? <Icon name="check-mark" size={18} color={c.primary} /> : null}
+                  <Icon name="chevron-right" size={16} color={c.textMuted} />
                 </TouchableOpacity>
-              ))}
-              <View style={styles.customRow}>
-                <TextInput
-                  style={styles.customInput}
-                  placeholder="Custom mm (e.g. 11.5)"
-                  placeholderTextColor={c.textMuted}
-                  keyboardType="decimal-pad"
-                  value={customThickness}
-                  onChangeText={setCustomThickness}
-                />
-                <Button
-                  size="sm"
-                  title="Use"
-                  onPress={() => customThickness && confirmThickness(parseFloat(customThickness))}
-                  disabled={!customThickness}
-                />
-              </View>
-            </View>
-          )}
+              )}
+            />
+          </>
+        )
+      )}
 
+      {/* ── MODEL ── */}
+      {step === 'model' && (
+        <>
+          <FilterSearchField
+            size="sm"
+            value={query}
+            onChangeText={setQuery}
+            placeholder={models.length ? `Search ${models.length} models, or type yours` : 'Type your model'}
+            autoCorrect={false}
+            style={styles.search}
+          />
+          {modelsLoading ? <ActivityIndicator style={styles.spinner} color={c.primary} />
+          : loadError && !offerTyped ? retry(() => brand && loadModels(brand.id))
+          : (
+            <FlatList
+              data={shownModels}
+              keyExtractor={m => m.id}
+              style={styles.list}
+              keyboardShouldPersistTaps="handled"
+              ListHeaderComponent={offerTyped ? (
+                <TouchableOpacity style={styles.row} onPress={() => pickTyped(typed)} accessibilityRole="button">
+                  <Icon name="plus" size={18} color={c.primary} />
+                  <View style={styles.flex1}>
+                    <Text style={[styles.rowName, styles.primary]} numberOfLines={1}>Use "{typed}"</Text>
+                    <Text style={t.caption}>Not in the list? Save it as you typed it.</Text>
+                  </View>
+                </TouchableOpacity>
+              ) : null}
+              ListEmptyComponent={offerTyped ? null : (
+                <Text style={[t.hint, styles.message, styles.center]}>
+                  No {brand?.name} models listed yet. Type yours in the box above.
+                </Text>
+              )}
+              ListFooterComponent={models.length > 0 && !q ? (
+                <Text style={[t.hint, styles.message, styles.center]}>Not listed? Type its name in the box above.</Text>
+              ) : null}
+              renderItem={({ item }) => {
+                const meta = [item.thickness_mm != null ? `${Number(item.thickness_mm)} mm` : null, item.notes].filter(Boolean).join(' · ');
+                const current = isCurrentModel(item.name);
+                return (
+                  <TouchableOpacity
+                    style={styles.row}
+                    onPress={() => pickModel(item)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: current }}
+                  >
+                    <View style={styles.flex1}>
+                      <Text style={styles.rowName}>{item.name}</Text>
+                      {meta ? <Text style={t.caption}>{meta}</Text> : null}
+                    </View>
+                    {current ? <Icon name="check-mark" size={18} color={c.primary} /> : null}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </>
+      )}
+
+      {/* ── THICKNESS (typed models, or models with no listed thickness) ── */}
+      {step === 'thickness' && (
+        <View>
+          <Text style={[t.hint, styles.center, styles.preview]}>{brand?.name} · {modelName}</Text>
+          <Text style={[t.caption, styles.hintLine]}>Thicker = more control · Thinner = more power</Text>
+          {THICKNESS_OPTIONS.map(v => {
+            const active = currentMm != null && Number(currentMm) === v;
+            return (
+              <TouchableOpacity
+                key={v}
+                style={[styles.option, active && styles.optionActive]}
+                onPress={() => finish(modelName, v)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.optionLabel, active && styles.primary]}>{v} mm</Text>
+                {active ? <Icon name="check-mark" size={18} color={c.primary} /> : null}
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity style={styles.option} onPress={() => finish(modelName, null)} accessibilityRole="button">
+            <Text style={styles.optionLabel}>Not sure</Text>
+          </TouchableOpacity>
+          <View style={styles.customRow}>
+            <TextInput
+              style={[styles.customInput, webInputFontFloor(styles.customInput)]}
+              placeholder="Other mm (e.g. 11.5)"
+              placeholderTextColor={c.textMuted}
+              keyboardType="decimal-pad"
+              value={customMm}
+              onChangeText={setCustomMm}
+              returnKeyType="done"
+              onSubmitEditing={() => customOk && finish(modelName, mm)}
+            />
+            <Button size="sm" title="Use" onPress={() => customOk && finish(modelName, mm)} disabled={!customOk} />
+          </View>
         </View>
-      </Pressable>
-    </Modal>
+      )}
+    </BottomSheet>
   );
 }
 
-function makeStyles(
-  c: ReturnType<typeof useTheme>['colors'],
-  listMaxHeight: number,
-  suggestMaxHeight: number,
-) {
-  const t = textStyles(c);
+function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    overlay:   {
-      flex: 1,
-      backgroundColor: c.backdrop,
-      justifyContent: IS_WEB ? 'center' : 'flex-end',
-      alignItems: IS_WEB ? 'center' : 'stretch',
-      ...(IS_WEB ? { padding: SPACE.lg } : null),
-    },
-    sheet:     {
-      backgroundColor: c.surface,
-      borderTopLeftRadius: RADIUS.lg,
-      borderTopRightRadius: RADIUS.lg,
-      ...(IS_WEB
-        ? {
-            borderBottomLeftRadius: RADIUS.lg,
-            borderBottomRightRadius: RADIUS.lg,
-            maxWidth: 560,
-            width: '100%',
-            maxHeight: '90%',
-          }
-        : { maxHeight: '88%' }),
-      paddingBottom: SPACE.xl,
-    },
-    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACE.lg, paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
-    // Both sides the same width so the title stays centred; real 44 boxes.
-    headerSide:    { minWidth: 72, minHeight: 44, justifyContent: 'center' },
-    headerSideEnd: { alignItems: 'flex-end' },
-    backBtn:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
-    back:      { fontSize: FONT.size.lg, color: c.primary, fontWeight: FONT.weight.semibold },
-    title:     { ...t.h3, flex: 1, textAlign: 'center' },
-    steps:     { flexDirection: 'row', justifyContent: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm },
-    stepDot:       { width: 8, height: 8, borderRadius: RADIUS.pill, backgroundColor: c.border },
-    stepDotActive: { backgroundColor: c.primary, width: 20 },
-    stepDotDone:   { backgroundColor: c.primary, opacity: 0.55 },
+    body:     { paddingTop: SPACE.xs },
+    search:   { marginBottom: SPACE.xs },
+    list:     { flex: 1 },
+    spinner:  { margin: SPACE.xl },
+    message:  { paddingVertical: SPACE.lg, paddingHorizontal: SPACE.md },
+    center:   { textAlign: 'center' },
+    flex1:    { flex: 1, minWidth: 0 },
+    primary:  { color: c.primary },
+    row:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 48, paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    rowName:  { flex: 1, fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.text },
 
-    spinner:       { margin: SPACE.xl },
-    spinnerInline: { marginVertical: SPACE.lg },
-    retryBox:      { padding: SPACE.xl },
-    flex1:         { flex: 1, minWidth: 0 },
-
-    searchInput:  { margin: SPACE.md, marginBottom: SPACE.xs, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
-    list:         { maxHeight: listMaxHeight },
-    brandRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
-    brandName:    { flex: 1, fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.text },
-
-    modelContainer: { flex: 1, padding: SPACE.lg },
-    modelInput:     { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, marginBottom: SPACE.sm, color: c.text, backgroundColor: c.surface },
-    suggestLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
-    suggestList:    { maxHeight: suggestMaxHeight, marginBottom: SPACE.md },
-    suggestRow:     { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
-    suggestName:    { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, color: c.text },
-    suggestMeta:    { ...t.caption, marginTop: SPACE.xxs },
-    suggestArrow:   { marginLeft: SPACE.sm },
-    noModels:       { ...t.hint, textAlign: 'center', paddingVertical: SPACE.lg },
-    nextBtn:        { marginTop: SPACE.sm },
-
-    thicknessContainer: { padding: SPACE.lg },
-    selectedModelPreview: { ...t.hint, textAlign: 'center', marginBottom: SPACE.md, fontStyle: 'italic' },
-    stepLabel:  { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.textSub, marginBottom: SPACE.xs },
-    stepHint:   { fontSize: FONT.size.sm, color: c.textMuted, marginBottom: SPACE.md },
-    thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, marginBottom: SPACE.sm },
-    thicknessRowActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    thicknessLabel:       { fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.textSub },
-    thicknessLabelActive: { color: c.primary },
+    preview:      { marginBottom: SPACE.xs, fontStyle: 'italic' },
+    hintLine:     { textAlign: 'center', marginBottom: SPACE.md },
+    option:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, marginBottom: SPACE.sm },
+    optionActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
+    optionLabel:  { fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.textSub },
     customRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.xs },
-    customInput:  { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
+    customInput:  { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
   });
 }
