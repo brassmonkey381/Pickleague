@@ -12,11 +12,14 @@
 //   note ........ why a check-in didn't happen, with Pick a court / Add this
 //                 court / Start without a court
 //
-// The bar's centre Check in (checkinHereRequested) is Doggle's one tap: a
-// fresh fix, the court within 150 m, checked in there for 2 hours (or to the
-// end of a routine stop due there). It asks, with the court picker, only when
-// it can't tell. While a session runs PlayIsland shows instead (a session at
-// a court is its check-in), and Check in expands that island.
+// The bar's centre ▶ Play (checkinHereRequested) is one tap (2026-10-24, "go
+// merge play and check-in"): a fresh fix, the court within 150 m, checked in
+// there and the timer started at once (lib/quickPlay: the Start carries the
+// fix, with the mode and length the ▶ Play sheet would have picked). The
+// sheet opens only when no court is found. While a session runs PlayIsland
+// shows instead (a session at a court is its check-in), and ▶ Play expands
+// that island. A check-in made here any other way (Pick a court, "At X?")
+// starts the timer too (lib/checkinPlay).
 //
 // Home's CourtCheckinCard still renders for now; it leaves the once-only
 // notes to this host (lib/checkinHost checkinHostOwnsNotes), so nothing is
@@ -53,6 +56,9 @@ import { CHECKOUT_FIX_WAIT_MS, FIX_REUSE_MS, isFixFresh } from '../../lib/courtC
 import { clockLabel } from '../../lib/courtRoutineRules';
 import { CHECKIN_BOUND_MS, CHECKIN_BOUND_MS_DEFAULT, useCourtCheckIn } from '../../lib/useCourtCheckIn';
 import { openPlayStart, playIslandExpand, playSession, startPlay } from '../../lib/playSession';
+import { quickPlayAt } from '../../lib/quickPlay';
+import { ensurePresenceConsent } from '../../lib/presenceConsent';
+import { refusalCopy } from '../../lib/refusals';
 import {
   checkinAtRequested,
   checkinHereRequested,
@@ -214,9 +220,28 @@ function Host() {
     setNearby(null);
     setExpanded(true);
     void (async () => {
+      // Who sees me at the courts, asked once (as the ▶ Play sheet does).
+      if (!(await ensurePresenceConsent())) {
+        setMessage(refusalCopy('consent.declined'));
+        setOfferUntracked(true);
+        return;
+      }
       const found = await findHere(true);
+      const fix = lastFix.current;
       track('checkin.tap', { result: found ? 'court' : 'none' });
-      if (found) await flow.checkIn({ id: found.id, name: found.name });
+      if (found && fix) {
+        // One tap: checked in here and the timer running (the Start carries
+        // the fix). The play island takes over from this one.
+        setExpanded(false);
+        await quickPlayAt({ id: found.id, name: found.name }, fix);
+        return;
+      }
+      // No court found (or no fix): the ▶ Play sheet, with its court list,
+      // Find my court and "No court, just time it".
+      if (!found) {
+        clearNotes();
+        openPlayStart();
+      }
     })();
   });
   // "Just check in" at a court the player named.

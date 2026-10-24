@@ -1,14 +1,18 @@
-// The bottom bar (PLAY_NAV_ENABLED; the user's layout, 2026-10-22):
+// The bottom bar (PLAY_NAV_ENABLED; the user's layout, 2026-10-24, "go merge
+// play and check-in"):
 //
-//   Home · Play · ( Check in ) · Discover · Me
+//   Home · Saved · ( ▶ Play ) · Discover · Me
 //
 // Pickleague's adapter on the foundation's FloatingNavBar (Doggle's
 // GlobalTabBar layout, plain Views). Mounted once inside AppNavigator's web
 // column, after the navigator, so on web it spans the 720 px column, not the
-// window. Play opens the ▶ Play sheet (or expands the island while a session
-// runs); the raised centre Check in is the one-tap check-in at the court I'm
-// at (components/play/CheckinHost), lit while I'm checked in. No Alerts slot:
-// the bell (with its badge) stays in Home's top bar.
+// window. Play and Check in are one raised centre action (lib/navBarRules
+// centreState): idle, ▶ Play checks me in at the court I'm at and starts the
+// timer in one tap (components/play/CheckinHost; the ▶ Play sheet only when
+// no court is found); playing, it shows the running clock and opens the
+// island; checked in with no session, it opens the check-in's island. Saved
+// is the Bookmarks screen. No Alerts slot: the bell (with its badge) stays in
+// Home's top bar.
 //
 // Hidden signed out, on Claim / UpgradeAccount / MatchEntry (lib/navBarRules)
 // and while the keyboard is up. It folds away when a session starts (the
@@ -19,15 +23,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Text } from 'react-native';
 import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
-import { createSignal, useSignal } from '@just-messin-around/expo-foundation/hooks';
+import { createSignal, useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { navigationRef } from '../lib/navigationRef';
 import { PLAY_NAV_ENABLED, DISCOVER_ENABLED } from '../lib/features';
-import { activeNavSlot, navBarVisible, type NavSlot } from '../lib/navBarRules';
+import { activeNavSlot, centreState, navBarVisible, navSideSlots, type NavSlot, type SideSlot } from '../lib/navBarRules';
 import { setNavBarHeight } from '../lib/appChrome';
-import { openPlayStart, playSession } from '../lib/playSession';
+import { playIslandExpand, playSession } from '../lib/playSession';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { checkinHereRequested, checkinHostBusy, type CheckinHostBusy } from '../lib/checkinHost';
 import { track } from '../lib/analytics';
@@ -35,7 +39,7 @@ import { track } from '../lib/analytics';
 /** AppNavigator calls this when the navigator is ready and on every state change. */
 export const navRouteChanged = createSignal<void>();
 
-type Tab = 'Home' | 'Discover' | 'Profile';
+type Tab = 'Home' | 'Bookmarks' | 'Discover' | 'Profile';
 
 /**
  * Go to a tab's screen without remounting it. Home pops back to the Home at
@@ -103,7 +107,9 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   useSignal(checkinHostBusy, setBusy);
 
   // Folds away when a session starts, comes back when it ends.
-  const playing = playSession.useLiveSession().status !== 'idle';
+  const live = playSession.useLiveSession();
+  const playing = live.status !== 'idle';
+  const elapsed = useElapsed(playing ? (live.startedAtMs ?? null) : null);
   const [collapsed, setCollapsed] = useState(false);
   const wasPlaying = useRef(playing);
   useEffect(() => {
@@ -134,30 +140,32 @@ function Bar({ signedIn }: { signedIn: boolean }) {
     fn();
   };
 
-  const items: FloatingNavItem[] = [
-    { key: 'home', label: 'Home', icon: 'home', active: lit === 'home', onPress: tap('home', () => go('Home', myId)) },
-    {
-      key: 'play',
-      label: playing ? 'Playing' : 'Play',
-      glyph: <Text style={{ fontSize: 20, lineHeight: 24, color: playing ? c.success : c.textMuted }}>▶</Text>,
-      active: playing,
-      accessibilityLabel: playing ? 'Playing now' : 'Play',
-      accessibilityHint: playing ? 'Shows your session' : 'Starts a play session',
-      onPress: tap('play', () => openPlayStart()),
+  const side: Record<SideSlot, FloatingNavItem> = {
+    home: { key: 'home', label: 'Home', icon: 'home', active: lit === 'home', onPress: tap('home', () => go('Home', myId)) },
+    saved: {
+      key: 'saved',
+      label: 'Saved',
+      glyph: <Text style={{ fontSize: 18, lineHeight: 24, opacity: lit === 'saved' ? 1 : 0.7 }}>🔖</Text>,
+      active: lit === 'saved',
+      accessibilityLabel: 'Saved',
+      onPress: tap('saved', () => go('Bookmarks', myId)),
     },
-    ...(DISCOVER_ENABLED
-      ? [{ key: 'discover', label: 'Discover', icon: 'search' as const, active: lit === 'discover', onPress: tap('discover', () => go('Discover', myId)) }]
-      : []),
-    { key: 'me', label: 'Me', icon: 'account', active: lit === 'me', onPress: tap('me', () => go('Profile', myId)) },
-  ];
+    discover: { key: 'discover', label: 'Discover', icon: 'search', active: lit === 'discover', onPress: tap('discover', () => go('Discover', myId)) },
+    me: { key: 'me', label: 'Me', icon: 'account', active: lit === 'me', onPress: tap('me', () => go('Profile', myId)) },
+  };
+  const items = navSideSlots({ discover: DISCOVER_ENABLED }).map((k) => side[k]);
+  // Play and Check in are one centre action (2026-10-24): ▶ Play when idle
+  // (one tap checks in here and starts the timer, components/play/CheckinHost),
+  // the running clock while playing (opens the island).
+  const state = centreState({ playing, elapsedSeconds: elapsed, checkedInVenue: checkin?.venueName ?? null, busy });
   const centre: FloatingNavItem = {
-    key: 'checkin',
-    label: busy === 'checkin' ? 'Checking in…' : busy === 'find' ? 'Finding…' : busy === 'out' ? 'Checking out…' : checkin ? 'Checked in' : 'Check in',
-    icon: 'pin',
-    active: !!checkin,
-    accessibilityLabel: checkin ? `Checked in at ${checkin.venueName}` : 'Check in',
-    accessibilityHint: checkin ? 'Shows your check-in' : 'Checks you in at the court you are at',
-    onPress: tap('checkin', () => checkinHereRequested.emit()),
+    key: 'play',
+    label: state.label,
+    glyph: <Text style={{ fontSize: 22, lineHeight: 26, color: c.textInverse }}>▶</Text>,
+    active: state.active,
+    accessibilityLabel: state.accessibilityLabel,
+    accessibilityHint: state.accessibilityHint,
+    onPress: tap('play', () => (state.action === 'island' ? playIslandExpand.emit() : checkinHereRequested.emit())),
   };
 
   return (

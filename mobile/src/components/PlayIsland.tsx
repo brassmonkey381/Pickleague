@@ -1,5 +1,8 @@
 // The floating play island: elapsed time + court while a play session runs,
-// with Enter score / Stay 1 more hour / End. Built on the foundation's
+// with Enter score / Switch mode / Stay 1 more hour / Check out (= End: one
+// tap ends the session and checks out; End when not checked in). Every
+// check-in starts the session and a check-out ends it (lib/checkinPlay,
+// imported here once). Built on the foundation's
 // LiveStatusIsland (every action bounded at 10 s, busy state always cleared).
 //
 // Also hosts the session's reconciliation with the server
@@ -18,9 +21,12 @@ import { useResumeLiveSession } from '@just-messin-around/expo-foundation/sessio
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { useToast } from '../lib/useToast';
 import { openMatchEntryForSession } from '../lib/navigationRef';
+// Every check-in starts the timer, a check-out ends it (side effects: once).
+import { checkOutAndEnd } from '../lib/checkinPlay';
+import { endActionLabel } from '../lib/checkinPlayRules';
 import {
-  endPlay,
   getActivePlay,
+  openPlayStart,
   playEnded,
   playIslandExpand,
   playLost,
@@ -122,6 +128,22 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       // MatchEntry already open (from an event, say) keeps its form and gains the link.
       onPress: () => openMatchEntryForSession(s.id ?? undefined),
     },
+    // Open play · Closed group · Drill, and how long: the ▶ Play sheet over
+    // this session; its Start replaces it (the part played so far stays).
+    ...(PLAY_NAV_ENABLED
+      ? [
+          {
+            label: 'Switch mode',
+            variant: 'secondary' as const,
+            onPress: () => {
+              setExpanded(false);
+              const venueId = meta?.venueId ?? checkin?.venueId ?? null;
+              const venueName = meta?.venueName ?? checkin?.venueName ?? null;
+              openPlayStart({ switching: true, ...(venueId && venueName ? { venue: { id: venueId, name: venueName } } : {}) });
+            },
+          },
+        ]
+      : []),
     ...(checkin && !checkin.queued
       ? [
           {
@@ -182,14 +204,18 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
         ]
       : []),
     {
-      label: 'End',
+      // Check out = End (2026-10-24): one tap ends the session and checks out.
+      label: endActionLabel(!!checkin),
       variant: 'secondary',
       timeoutMessage: STILL_WORKING,
-      // Never waits on the network: clears now, the server write queues. The
-      // end sheet (play/PlayEndSheet) takes it from there: "Record a match or
-      // drill?", or a note when the session was too short or already counts.
-      onPress: () => {
-        if (!endPlay()) toast.success('Session ended.');
+      // The End never waits on the network: the island clears now, the server
+      // write queues. The end sheet (play/PlayEndSheet) takes it from there:
+      // "Record a match or drill?", or a note when the session was too short
+      // or already counts. The check-out follows in the background.
+      onPress: async () => {
+        const where = checkin?.venueName ?? null;
+        const { ended, checkedOut } = await checkOutAndEnd();
+        if (!ended) toast.success(checkedOut && where ? `Checked out of ${where}.` : 'Session ended.');
       },
     },
   ];

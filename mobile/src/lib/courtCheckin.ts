@@ -199,6 +199,14 @@ export const checkinChanged = createSignal<CurrentCheckin | null>();
 export const courtPresenceTouched = createSignal<string[]>();
 /** Emits the notice when a queued check-in is refused on replay. */
 export const checkinRejected = createSignal<string>();
+// Every check-in starts the play session (lib/checkinPlay listens; it can't
+// be imported here: lib/playSession imports this file).
+/** A check-in this device made (by hand or a notification's Check in), live or queued. */
+export const checkedInHere = createSignal<CurrentCheckin>();
+/** A check-out this device sent (by hand, a notification's Check out, leaving). */
+export const checkedOutHere = createSignal<{ id: string; venueId: string | null }>();
+/** An arrival check-in the server took back (left, or Not here, within 5 minutes). */
+export const arrivalTakenBack = createSignal<{ venueId: string }>();
 
 /**
  * No signal, or no signed-in session right now: keep the queued write for the
@@ -762,6 +770,8 @@ export async function checkInAt(
     ...(queued ? { queued: true } : {}),
   };
   await setCurrent(c);
+  // Every check-in starts the play session (lib/checkinPlay).
+  if (c.source !== 'session') checkedInHere.emit(c);
   // Checked in with a fix (the court card or a notice button): an arrival
   // still waiting anywhere is skipped by the server now (this check-in is
   // open), and one that landed was closed or extended by it, so the phone's
@@ -910,13 +920,15 @@ export async function checkOut(
   const closedId = id ?? mine?.id;
   if (closedId) void cancelArrivalLocalNotices(closedId);
   if (mine) await setCurrent(null);
+  // A check-out ends the play session (lib/checkinPlay).
+  if (closedId) checkedOutHere.emit({ id: closedId, venueId: mine?.venueId ?? null });
   return { queued };
 }
 
 /** Forget a check-in the server closes on its own (a play session's, which End closes). Local only. */
-export async function forgetCheckin(id: string): Promise<void> {
+export async function forgetCheckin(id: string, source?: CheckinSource): Promise<void> {
   const cached = await readStored();
-  if (cached?.id === id) await setCurrent(null);
+  if (cached?.id === id && (!source || cached.source === source)) await setCurrent(null);
 }
 
 /** Sign-out: forget the local check-in, its reminder and any refusal notices (lib/signOutPresence closes the server row). */
@@ -1176,6 +1188,8 @@ function afterArrivalCancel(venueId: string, res: { queued: boolean; result?: Ca
   // Taken back or checked out: its "Checked in" / "Still at" (the server's,
   // or this phone's own) describe a visit that is over.
   if (res.result?.removed || res.result?.closed) void dismissArrivalCheckinPushes(venueId);
+  // Taken back: its session went with it on the server (lib/checkinPlay).
+  if (res.result?.removed) arrivalTakenBack.emit({ venueId });
   // Stopped before it became a check-in (or it will be, once sent): the
   // phone's own "Checked in" must not go off.
   else if (res.queued || res.result?.dropped) void cancelScheduledArrivalNotices(venueId);

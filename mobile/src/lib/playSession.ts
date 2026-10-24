@@ -376,12 +376,24 @@ registerMutationHandler(MUTATION_END, {
 export const playStartLanded = createSignal<{ id: string; venueId: string | null; at: string }>();
 
 export function startPlay(
-  meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null; viaCheckin?: boolean },
+  meta: Omit<PlayMeta, 'label'> & {
+    label?: string;
+    fix?: DeviceFix | null;
+    viaCheckin?: boolean;
+    /** The session's id: a check-in's own, when a check-in starts it (lib/checkinPlay). */
+    id?: string;
+    /** When it began, if earlier than now (the check-in's time). */
+    startedAtMs?: number;
+  },
 ): string {
-  const id = uuidv4();
+  const { fix, viaCheckin, id: givenId, startedAtMs, ...rest } = meta;
+  const id = givenId ?? uuidv4();
   const at = new Date().toISOString();
-  const { fix, viaCheckin, ...rest } = meta;
-  playSession.start(id, { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] }, Date.parse(at));
+  playSession.start(
+    id,
+    { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] },
+    startedAtMs != null && startedAtMs < Date.parse(at) ? startedAtMs : Date.parse(at),
+  );
   const payload: StartPayload = {
     id,
     kind: meta.kind,
@@ -450,8 +462,10 @@ export function endPlay(): EndedPlay | null {
   const payload: EndPayload = { id: s.id, at: new Date().toISOString() };
   const atCourt = !!s.meta?.venueId;
   playSession.clear();
-  // The server closes the session's own check-in; an adopted one stays.
-  void forgetCheckin(payload.id);
+  // The server closes the session's own check-in; an adopted one stays (a
+  // check-in that started this session shares its id but is not the
+  // session's own: Check out on the island closes it, lib/checkinPlay).
+  void forgetCheckin(payload.id, 'session');
   void Promise.all([
     markEndPending(payload.id, Date.parse(payload.at)).catch(() => {}), // best-effort; the End goes out regardless
     atCourt ? fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS) : Promise.resolve(null),
@@ -689,6 +703,8 @@ export type PlayStartRequest = {
   sourceId?: string | null;
   /** "▶ Play here": this court, picked (the plan's C3). */
   venue?: { id: string; name: string };
+  /** Switch mode on the island: the sheet opens over the running session, and its Start replaces it. */
+  switching?: boolean;
 };
 
 /** Emits when the start sheet should open (its host takes the request). */
@@ -701,7 +717,7 @@ let pendingStart: PlayStartRequest | null = null;
 
 /** Open the start sheet, or expand the island when a session already runs. */
 export function openPlayStart(req: PlayStartRequest = {}): void {
-  if (playSession.get().status !== 'idle') {
+  if (playSession.get().status !== 'idle' && !req.switching) {
     playIslandExpand.emit();
     return;
   }

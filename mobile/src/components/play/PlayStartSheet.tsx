@@ -95,7 +95,6 @@ import {
 } from '../../lib/playStartRules';
 import { loadChipRoutine, loadChipSchedule, readLastChip, saveLastChip } from '../../lib/playStartSchedule';
 import { planAfterStart } from '../../lib/playStartPlan';
-import { checkinAtRequested } from '../../lib/checkinHost';
 import { track } from '../../lib/analytics';
 import {
   DEFAULT_PLAY_LENGTH_MIN,
@@ -146,8 +145,9 @@ export default function PlayStartSheetHost({ signedIn }: { signedIn: boolean }) 
     if (!signedIn) return; // kept until sign-in
     const r = takePlayStartRequest();
     if (!r) return;
-    // The session was restored after the request was made: the island, not the sheet.
-    if (playSession.get().status !== 'idle') {
+    // The session was restored after the request was made: the island, not
+    // the sheet (unless the island asked for it: Switch mode).
+    if (playSession.get().status !== 'idle' && !r.switching) {
       playIslandExpand.emit();
       return;
     }
@@ -155,7 +155,7 @@ export default function PlayStartSheetHost({ signedIn }: { signedIn: boolean }) 
     // now: this sheet still opens, offering only the private timer.
     void ensurePresenceConsent().then((ok) => {
       if (!signedInRef.current) return;
-      if (playSession.get().status !== 'idle') {
+      if (playSession.get().status !== 'idle' && !r.switching) {
         playIslandExpand.emit();
         return;
       }
@@ -472,10 +472,13 @@ export function PlayStartSheet({
       // without a fix by an older build) is never adopted: it needs the fix.
       // viaCheckin: if the check-in turns out to be gone, the island says
       // that, not "couldn't get your location".
+      // Switch mode over a Start's own check-in: the new Start closes that
+      // check-in (it ends with its session), so it needs a fix to check in again.
       if (at.reason === 'checked_in') {
         const cur = await peekCurrentCheckin();
         if (stale()) return;
-        if (!startNeedsFix(at, cur && !cur.private ? cur.venueId : null)) {
+        const closesWithOld = !!req?.switching && cur?.source === 'session' && cur.id === playSession.get().id;
+        if (!closesWithOld && !startNeedsFix(at, cur && !cur.private ? cur.venueId : null)) {
           launch({ venueId: at.id, venueName: at.name, fix: fresh, viaCheckin: true });
           return;
         }
@@ -686,20 +689,7 @@ export function PlayStartSheet({
             onPress={() => void start({ anyway: offerAnyway })}
           />
           <View style={S.footer}>
-            {court && !privateOnly ? (
-              <TouchableOpacity
-                style={S.link}
-                disabled={busy}
-                onPress={() => {
-                  const v = { id: court.id, name: court.name };
-                  onClose();
-                  checkinAtRequested.emit(v);
-                }}
-                accessibilityRole="button"
-              >
-                <Text style={[t.meta, { color: c.primary }]}>Just check in</Text>
-              </TouchableOpacity>
-            ) : null}
+            {/* No "Just check in": a check-in starts the timer too (2026-10-24). */}
             {selected !== NO_COURT && !privateOnly ? (
               <TouchableOpacity
                 style={S.link}
