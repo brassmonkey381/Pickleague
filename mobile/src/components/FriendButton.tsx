@@ -1,16 +1,16 @@
-// Add friend / Requested / Accept + Decline / Friends ✓ on another player's
+// Add friend / Requested / Accept + Decline / Friends on another player's
 // profile (PlayerProfileScreen, beside Share · Save).
 //
 //   none              [+ Add friend]
 //   pending_outgoing  [Requested]           tap -> "Cancel your request?"
 //   pending_incoming  [Accept] [Decline]
-//   friends           [Friends ✓]           tap -> ⭐ close friend / Remove friend
+//   friends           [check Friends]       tap -> star close friend / Remove friend
 //   self, unavailable (guest, unclaimed placeholder, deleted, blocked): nothing
 //
 // The state is friendship_status_with's, cached per player (lib/useFriends),
 // so a request answered on the Friends screen shows here too. Nothing renders
 // until it is known, and nothing at all while FRIENDS_AT_COURTS_ENABLED is
-// off. Blocking from the "⋯" beside it hides it at once (the server drops the
+// off. Blocking from the More menu beside it hides it at once (the server drops the
 // friendship on block).
 import React, { useState } from 'react';
 import { View, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
@@ -128,21 +128,21 @@ export default function FriendButton({ userId, meId, profile, style }: Props) {
   );
   const toggleClose = () => run(
     () => markCloseFriend(userId, !closeFriend),
-    () => (closeFriend ? `${first} is no longer a close friend.` : `⭐ ${first} is a close friend.`),
+    () => (closeFriend ? `${first} is no longer a close friend.` : `${first} is a close friend.`),
     "Couldn't change that just now.",
   );
 
   const menu: ActionSheetAction[] = [
     closeFriend
-      ? { label: 'Remove from close friends', onPress: () => { void toggleClose(); } }
-      : { label: '⭐ Make close friend', onPress: () => { void toggleClose(); } },
+      ? { label: 'Remove from close friends', iconName: 'star-outline', onPress: () => { void toggleClose(); } }
+      : { label: 'Make close friend', iconName: 'star', onPress: () => { void toggleClose(); } },
     { label: 'Remove friend', style: 'destructive', onPress: () => setQueuedRemove(true) },
   ];
 
   return (
     <View style={[S.row, style]}>
       {state === 'add' && (
-        <Button size="sm" title="➕ Add friend" onPress={() => { void add(); }} loading={busy} style={S.btn} />
+        <Button size="sm" title="Add friend" iconName="plus" onPress={() => { void add(); }} loading={busy} style={S.btn} />
       )}
       {state === 'requested' && (
         <Button size="sm" variant="outline" title="Requested" onPress={() => setConfirm('cancel')} disabled={busy} style={S.btn} />
@@ -157,7 +157,10 @@ export default function FriendButton({ userId, meId, profile, style }: Props) {
         <Button
           size="sm"
           variant="outline"
-          title={closeFriend ? '⭐ Friends ✓' : 'Friends ✓'}
+          title="Friends"
+          // A close friend shows the star (as on the court lists); a friend the check.
+          iconName={closeFriend ? 'star' : 'check-mark'}
+          accessibilityLabel={closeFriend ? 'Friends, close friend. Options' : 'Friends. Options'}
           onPress={() => setMenuOpen(true)}
           loading={busy}
           style={S.btn}

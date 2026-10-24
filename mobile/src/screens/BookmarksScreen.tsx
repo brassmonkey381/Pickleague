@@ -1,10 +1,10 @@
 // Saved: the fast path to the standings you care about (2026-10-22).
 //
 //   LEAGUES                                   your saved leagues, FIRST
-//   [ball] Tuesday Ladder                [League] [🔖] ›
-//          You #3 of 16 · Fall 2026 · P7  ← tap: that season's standings, at my row
-//   YOUR LEAGUES  Tap ☆ to keep them here     leagues I play in but haven't saved
-//   [ball] Thursday Doubles                   [☆ Save]
+//   [ball] Tuesday Ladder          [League] [bookmark] >
+//          You #3 of 16 · Fall 2026 · P7  <- tap: that season's standings, at my row
+//   YOUR LEAGUES  Tap Save to keep them here  leagues I play in but haven't saved
+//   [ball] Thursday Doubles                   [star-outline Save]
 //   TOURNAMENTS / EVENTS / DRILLS / PEOPLE    as before; a tournament opens on
 //                                             its standings ("Finished #2 of 8")
 //
@@ -19,8 +19,9 @@ import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
-import { SectionHeader } from '@just-messin-around/expo-foundation/ui';
-import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { SectionHeader, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/useToast';
@@ -222,12 +223,11 @@ export default function BookmarksScreen({ navigation }: Props) {
   if (loadError && !loaded) {
     return (
       <View style={S.screen}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load your bookmarks"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => load(true)}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load your bookmarks. ${loadError}`}
+          onRetry={() => load(true)}
         />
       </View>
     );
@@ -237,9 +237,9 @@ export default function BookmarksScreen({ navigation }: Props) {
     return (
       <View style={S.screen}>
         <EmptyState
-          icon="🔖"
+          iconName="bookmark"
           title="No bookmarks yet"
-          subtitle="Tap the 🔖 icon on any tournament, league, event, drill session or player profile to save it here."
+          subtitle="Tap the bookmark icon on any tournament, league, event, drill session or player profile to save it here."
         />
       </View>
     );
@@ -247,7 +247,7 @@ export default function BookmarksScreen({ navigation }: Props) {
 
   const suggestionsBlock = suggestions.length > 0 ? (
     <View key="suggested" style={S.group}>
-      <SectionHeader title="Your leagues" count="Tap ☆ to keep them here" />
+      <SectionHeader title="Your leagues" count="Tap Save to keep them here" />
       {suggestions.map(l => {
         const st = standings[l.id];
         const line = (st && savedStandingLine(st)) || displayCourtName(l.home_court) || null;
@@ -266,7 +266,8 @@ export default function BookmarksScreen({ navigation }: Props) {
                 accessibilityLabel={`Save ${l.name} to Saved`}
                 hitSlop={4}
               >
-                <Text style={[S.saveText, { color: c.text }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>☆ Save</Text>
+                <Icon name="star-outline" size={14} color={c.textMuted} />
+                <Text style={[S.saveText, { color: c.text }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Save</Text>
               </Pressable>
             }
           />
@@ -326,12 +327,12 @@ export default function BookmarksScreen({ navigation }: Props) {
                           accessibilityRole="button"
                           accessibilityLabel={`Remove ${b.title} from bookmarks`}
                         >
-                          <Text style={S.removeGlyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🔖</Text>
+                          <Icon name="bookmark" size={20} color={c.primary} />
                         </Pressable>
                         {b.missing ? null : (
                           <Pressable
                             onPress={() => handleTap(b)}
-                            // 24 px wide box; slop on the trailing side only (🔖 Remove sits
+                            // 24 px wide box; slop on the trailing side only (the bookmark sits
                             // to its left) brings the target to 44 without widening the row.
                             hitSlop={{ right: 20 }}
                             style={({ pressed }) => [S.chevronBox, pressed && S.pressed]}
@@ -340,7 +341,7 @@ export default function BookmarksScreen({ navigation }: Props) {
                               ? `${b.title} standings${a11yLine ? `, ${a11yLine}` : ''}`
                               : `Open ${b.title}`}
                           >
-                            <Text style={S.chevron}>›</Text>
+                            <Icon name="chevron-right" size={20} color={c.textMuted} />
                           </Pressable>
                         )}
                       </View>
@@ -367,14 +368,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     removeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     chevronBox:  { minWidth: 24, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     saveBox:     {
-      minWidth: 44, minHeight: 36, paddingHorizontal: SPACE.sm, borderWidth: 1, borderRadius: 18,
-      alignItems: 'center', justifyContent: 'center',
+      minWidth: 44, minHeight: 36, paddingHorizontal: SPACE.sm, borderWidth: HAIRLINE, borderRadius: RADIUS.pill,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs,
     },
-    saveText:    { fontSize: FONT.size.sm, fontWeight: '700' },
-    leagueLink:  { fontSize: FONT.size.sm, fontWeight: '600' },
+    saveText:    { fontSize: FONT.size.sm, fontWeight: FONT.weight.bold },
+    leagueLink:  { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold },
     pressed:     { opacity: 0.6 },
-    removeGlyph: { fontSize: FONT.size.xl },
-    chevron:     { fontSize: FONT.size.h2, fontWeight: '700', color: c.textMuted },
   });
 }
 

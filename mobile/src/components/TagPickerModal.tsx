@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { PLAY_TAGS, TagDef } from '../data/profileCustomization';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -74,10 +75,13 @@ export default function TagPickerModal({
   const funnyTags      = PLAY_TAGS.filter(t => !t.unlock && t.funny);
   const unlockableTags = PLAY_TAGS.filter(t => !!t.unlock);
 
-  function Section({ title, tags, accentColor }: { title: string; tags: TagDef[]; accentColor: string }) {
+  function Section({ title, tags, accentColor, iconName }: { title: string; tags: TagDef[]; accentColor: string; iconName?: IconName }) {
     return (
       <>
-        <Text style={[S.sectionLabel, { color: accentColor }]}>{title}</Text>
+        <View style={S.sectionHead}>
+          {iconName ? <Icon name={iconName} size={12} color={accentColor} /> : null}
+          <Text style={[S.sectionLabel, { color: accentColor }]}>{title}</Text>
+        </View>
         <View style={S.tagsRow}>
           {tags.map(tag => {
             const unlocked = isUnlocked(tag);
@@ -102,7 +106,7 @@ export default function TagPickerModal({
                     atMax && !isOn && unlocked && S.chipDim,
                   ]}
                 >
-                  {!unlocked && <Text style={S.chipLock}>🔒 </Text>}
+                  {!unlocked && <Icon name="lock" size={12} color={colors.textMuted} />}
                   <Text style={[S.chipText, isOn && S.chipTextOn, !unlocked && S.chipTextLocked]}>
                     {tag.label}
                   </Text>
@@ -126,7 +130,8 @@ export default function TagPickerModal({
             accessibilityRole="button"
             accessibilityLabel="Back"
           >
-            <Text style={S.pageBackText}>‹ Back</Text>
+            <Icon name="chevron-left" size={18} color={colors.primary} />
+            <Text style={S.pageBackText}>Back</Text>
           </TouchableOpacity>
           <View style={S.headerCenter}>
             <Text style={S.headerTitle}>Play Style Tags</Text>
@@ -144,7 +149,7 @@ export default function TagPickerModal({
             <Text style={S.slotCount}>{selected.length}/{maxSlots} slots used</Text>
           </View>
           <TouchableOpacity onPress={() => onSave(selected)} style={S.headerBtn}>
-            <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: '700' }]}>Done</Text>
+            <Text style={[S.headerBtnText, { color: colors.primary, fontWeight: FONT.weight.bold }]}>Done</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -161,13 +166,16 @@ export default function TagPickerModal({
 
         <Section title="Serious" tags={freeTags}  accentColor={colors.primary} />
         <Section title="Funny"   tags={funnyTags}  accentColor={FUNNY_COLOR} />
-        <Section title="🔒 Earn by Badge" tags={unlockableTags} accentColor={colors.rarityRare} />
+        <Section title="Earn by Badge" iconName="lock" tags={unlockableTags} accentColor={colors.rarityRare} />
 
         {lockedHint && (
           <View style={S.hintCard}>
             <View style={S.hintRow}>
               <View style={S.hintBody}>
-                <Text style={S.hintTitle}>🔒 "{lockedHint.label}" is locked</Text>
+                <View style={S.hintTitleRow}>
+                  <Icon name="lock" size={16} color={colors.rarityRare} />
+                  <Text style={[S.hintTitle, S.flexShrink]}>"{lockedHint.label}" is locked</Text>
+                </View>
                 <Text style={S.hintText}>
                   Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
                   {lockedHint.unlock!.description}
@@ -179,7 +187,7 @@ export default function TagPickerModal({
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss"
               >
-                <Text style={S.hintClose}>✕</Text>
+                <Icon name="close" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
@@ -225,7 +233,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     root:       { flex: 1, backgroundColor: c.surface },
     page:       { flex: 1, minHeight: 0, backgroundColor: c.surface },
     // Page header buttons: real 44 boxes (react-native-web ignores hitSlop).
-    pageBackBtn:{ minWidth: 72, minHeight: 44, justifyContent: 'center' },
+    pageBackBtn:{ minWidth: 72, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
     pageBackText:{ ...t.title, color: c.primary },
     backdrop:   {
       flex: 1,
@@ -259,34 +267,35 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     scroll:     { padding: SPACE.lg, paddingBottom: SPACE.xl },
 
     meterRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.lg, padding: SPACE.md, backgroundColor: c.bg, borderRadius: RADIUS.md },
-    meterDot:   { width: 18, height: 18, borderRadius: 9, backgroundColor: c.border },
+    meterDot:   { width: 18, height: 18, borderRadius: RADIUS.pill, backgroundColor: c.border },
     meterDotFilled: { backgroundColor: c.primary },
     meterHint:  { ...t.hint, flex: 1, marginLeft: SPACE.xs },
 
     // Colour comes from each section's accent.
-    sectionLabel:{ ...t.label, marginTop: SPACE.lg, marginBottom: SPACE.sm },
+    sectionHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.lg, marginBottom: SPACE.sm },
+    sectionLabel:t.label,
 
     // Chips sit in 44-tall boxes; the column gap shrinks so rows stay as tight as
     // before (the box's transparent padding does the spacing).
     tagsRow:    { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm, rowGap: 0 },
     chipBox:    { minHeight: 44, justifyContent: 'center' },
-    chip:       { paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.pill, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surfaceAlt, flexDirection: 'row', alignItems: 'center' },
+    chip:       { paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.pill, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surfaceAlt, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     chipOn:     { borderColor: c.primary, backgroundColor: c.primaryLight },
     chipLocked: { borderColor: c.border, backgroundColor: c.bg },
     chipDim:    { opacity: 0.5 },
     chipText:   { ...t.sub, color: c.text },
-    chipTextOn: { color: c.primary, fontWeight: '700' },
+    chipTextOn: { color: c.primary, fontWeight: FONT.weight.bold },
     chipTextLocked: { color: c.textMuted },
-    chipLock:   { fontSize: FONT.size.xs },
 
     hintCard:   { backgroundColor: c.rarityRareLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.lg, borderWidth: HAIRLINE, borderColor: c.rarityRare },
     hintRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },
     hintBody:   { flex: 1 },
-    hintTitle:  { ...t.title, marginBottom: SPACE.xs },
+    hintTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.xs },
+    hintTitle:  t.title,
+    flexShrink: { flexShrink: 1 },
     hintText:   t.sub,
-    hintBold:   { fontWeight: '700' },
-    hintClose:  { fontSize: FONT.size.lg, color: c.textMuted },
-    // The ✕ in a real 44 box, pulled into the card's corner padding.
+    hintBold:   { fontWeight: FONT.weight.bold },
+    // The close glyph in a real 44 box, pulled into the card's corner padding.
     closeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: -SPACE.md, marginRight: -SPACE.md },
 
     footnote:   { ...t.hint, textAlign: 'center', marginTop: SPACE.xl },

@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -16,7 +15,11 @@ import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { LoadingState } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import AppRefreshControl from '../components/AppRefreshControl';
+import { PickleAmount, picklesLabel } from '../components/PickleAmount';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'GiftPickles'> };
 
@@ -78,8 +81,10 @@ export default function GiftPicklesScreen({ navigation }: Props) {
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.success) { status.error(row?.message ?? 'Could not send.'); return; }
       setMyBalance(row.new_caller_balance ?? myBalance - n);
+      const theirs = row.new_recipient_balance;
       status.success(
-        `${n.toLocaleString()} 🥒 sent to ${recipient.full_name}. Their new balance: ${row.new_recipient_balance?.toLocaleString() ?? '—'} 🥒`,
+        `${picklesLabel(n)} sent to ${recipient.full_name}. Their new balance: ${typeof theirs === 'number' ? picklesLabel(theirs) : '—'}.`,
+        { iconName: 'pickle' },
       );
       setRecipient(null);
       setAmount('');
@@ -100,9 +105,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
       <View style={S.deniedRoot}>
         <Text style={S.deniedTitle}>Godmode only</Text>
         <Text style={S.deniedBody}>This tool is reserved for the original developer account.</Text>
-        <TouchableOpacity style={S.deniedBtn} onPress={() => navigation.goBack()}>
-          <Text style={S.deniedBtnText}>Go back</Text>
-        </TouchableOpacity>
+        <Button title="Go back" onPress={() => navigation.goBack()} style={S.deniedBtn} />
       </View>
     );
   }
@@ -111,11 +114,16 @@ export default function GiftPicklesScreen({ navigation }: Props) {
     <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <View style={S.balanceCard}>
         <Text style={S.balanceLabel}>Your balance</Text>
-        <Text style={S.balanceValue}>🥒 {myBalance.toLocaleString()}</Text>
+        <PickleAmount amount={myBalance} preset="display" style={S.balanceValue} />
       </View>
 
       <Text style={S.fieldLabel}>Recipient</Text>
-      <TouchableOpacity style={S.pickBtn} onPress={() => setShowPicker(true)}>
+      <TouchableOpacity
+        style={S.pickBtn}
+        onPress={() => setShowPicker(true)}
+        accessibilityRole="button"
+        accessibilityLabel={recipient ? `Recipient: ${recipient.full_name}. Change` : 'Pick a recipient'}
+      >
         {recipient ? (
           <View style={S.recipientRow}>
             {(() => {
@@ -128,7 +136,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
                 </View>
               );
             })()}
-            <View style={{ flex: 1 }}>
+            <View style={S.flex1}>
               <Text style={S.recipientName}>{recipient.full_name}</Text>
               <Text style={S.recipientUsername}>@{recipient.username}</Text>
             </View>
@@ -141,7 +149,7 @@ export default function GiftPicklesScreen({ navigation }: Props) {
 
       <Text style={S.fieldLabel}>Amount (max {myBalance.toLocaleString()})</Text>
       <TextInput
-        style={S.input}
+        style={[S.input, webInputFontFloor(S.input)]}
         keyboardType="number-pad"
         placeholder="500"
         placeholderTextColor={c.textMuted}
@@ -149,12 +157,12 @@ export default function GiftPicklesScreen({ navigation }: Props) {
         onChangeText={setAmount}
       />
       {Number.isFinite(n) && n > myBalance && (
-        <Text style={S.errorText}>You only have {myBalance.toLocaleString()} 🥒.</Text>
+        <Text style={S.errorText}>You only have {picklesLabel(myBalance)}.</Text>
       )}
 
       <Text style={S.fieldLabel}>Reason (optional)</Text>
       <TextInput
-        style={S.input}
+        style={[S.input, webInputFontFloor(S.input)]}
         placeholder="e.g. great match yesterday"
         placeholderTextColor={c.textMuted}
         value={reason}
@@ -163,15 +171,16 @@ export default function GiftPicklesScreen({ navigation }: Props) {
 
       <StatusBanner status={status.value} />
 
-      <TouchableOpacity
-        style={[S.sendBtn, !valid && S.sendBtnDisabled]}
+      <Button
+        title={Number.isFinite(n) && n > 0 ? `Send ${n.toLocaleString()}` : 'Send'}
+        iconName="pickle"
+        iconPosition="trailing"
         onPress={send}
-        disabled={!valid || sending}
-      >
-        {sending
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={S.sendBtnText}>Send {Number.isFinite(n) && n > 0 ? `${n.toLocaleString()} 🥒` : '🥒'}</Text>}
-      </TouchableOpacity>
+        disabled={!valid}
+        loading={sending}
+        accessibilityLabel={Number.isFinite(n) && n > 0 ? `Send ${picklesLabel(n)}` : 'Send pickles'}
+        style={S.sendBtn}
+      />
 
       <UserPickerModal
         visible={showPicker}
@@ -185,35 +194,34 @@ export default function GiftPicklesScreen({ navigation }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 16, backgroundColor: c.bg, paddingBottom: 60 },
+    container: { padding: SPACE.lg, backgroundColor: c.bg, paddingBottom: SPACE.xl * 2 },
+    flex1:     { flex: 1, minWidth: 0 },
 
-    balanceCard:  { backgroundColor: c.primaryLight, borderRadius: 14, padding: 16, alignItems: 'center', marginBottom: 16, borderWidth: 1.5, borderColor: c.primary },
-    balanceLabel: { fontSize: 12, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8 },
-    balanceValue: { fontSize: 28, fontWeight: '900', color: c.primary, marginTop: 4 },
+    balanceCard:  { backgroundColor: c.primaryLight, borderRadius: RADIUS.lg, padding: SPACE.lg, alignItems: 'center', marginBottom: SPACE.lg, borderWidth: HAIRLINE, borderColor: c.primary },
+    balanceLabel: { ...t.label, color: c.primary },
+    balanceValue: { marginTop: SPACE.xs },
 
-    fieldLabel: { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 12, marginBottom: 6 },
-    input:      { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    fieldLabel: { ...t.fieldLabel, marginTop: SPACE.md, marginBottom: SPACE.xs },
+    input:      { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
 
-    pickBtn:    { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, backgroundColor: c.surface, borderStyle: 'dashed' },
-    pickBtnPlaceholder: { fontSize: 14, color: c.textMuted },
-    recipientRow:    { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    recipientAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+    pickBtn:    { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, backgroundColor: c.surface, borderStyle: 'dashed', justifyContent: 'center' },
+    pickBtnPlaceholder: { ...t.hint, fontSize: FONT.size.md },
+    recipientRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+    recipientAvatar: { width: 40, height: 40, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     recipientAvatarEmoji: { fontSize: 22 },
-    recipientName:   { fontSize: 15, fontWeight: '800', color: c.text },
-    recipientUsername:{ fontSize: 12, color: c.textMuted, marginTop: 1 },
-    changeText:      { fontSize: 13, color: c.primary, fontWeight: '700' },
+    recipientName:   t.title,
+    recipientUsername:{ ...t.meta, marginTop: SPACE.xxs },
+    changeText:      { fontSize: FONT.size.base, color: c.primary, fontWeight: FONT.weight.bold },
 
-    errorText: { fontSize: 12, color: c.danger, marginTop: 6 },
+    errorText: { fontSize: FONT.size.sm, color: c.danger, marginTop: SPACE.xs },
 
-    sendBtn:        { backgroundColor: c.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 24 },
-    sendBtnDisabled:{ opacity: 0.45 },
-    sendBtnText:    { color: '#fff', fontSize: 16, fontWeight: '900' },
+    sendBtn:   { marginTop: SPACE.xl },
 
-    deniedRoot:  { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: c.bg },
-    deniedTitle: { fontSize: 22, fontWeight: '900', color: c.text, marginBottom: 8 },
-    deniedBody:  { fontSize: 14, color: c.textMuted, textAlign: 'center', marginBottom: 20 },
-    deniedBtn:   { backgroundColor: c.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10 },
-    deniedBtnText:{ color: '#fff', fontWeight: '700' },
+    deniedRoot:  { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl, backgroundColor: c.bg },
+    deniedTitle: { ...t.h2, marginBottom: SPACE.sm },
+    deniedBody:  { ...t.hint, fontSize: FONT.size.md, textAlign: 'center', marginBottom: SPACE.lg },
+    deniedBtn:   { alignSelf: 'center' },
   });
 }

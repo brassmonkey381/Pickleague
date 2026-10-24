@@ -11,6 +11,8 @@ import { InviteEarnPanel } from '@just-messin-around/expo-foundation/referrals';
 import { cachedFetch, useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { shareInvite, setClipboard } from '@just-messin-around/expo-foundation/platform';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { picklesLabel } from '../PickleAmount';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
@@ -54,7 +56,7 @@ export default function InviteEarnSection({ onToggle }: { onToggle?: (open: bool
     <CollapsibleSection
       compact
       title="Invite & Earn"
-      summary={`Invite a friend · you both get ${REFERRAL_REWARD_PICKLES} 🥒`}
+      summary={`Invite a friend · you both get ${picklesLabel(REFERRAL_REWARD_PICKLES)}`}
       onToggle={onToggle}
     >
       <InviteEarnBody />
@@ -130,7 +132,7 @@ function InviteEarnBody() {
       onCopy={copy}
       busy={busy}
       qrCaption="Scan to join Pickleague"
-      footer={milestone ? <Text style={[t.sub, { marginTop: 12, textAlign: 'center' }]}>{milestone}</Text> : undefined}
+      footer={milestone ? <Text style={[t.sub, { marginTop: SPACE.md, textAlign: 'center' }]}>{milestone}</Text> : undefined}
       testID="invite-earn"
     />
   );

@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal, Pressable, ScrollView } from 'react-native';
+import { Icon, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BadgeItem = {
@@ -63,8 +66,18 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
         style={[styles.card, allHidden && styles.cardHidden]}
         onPress={() => setShowDetail(true)}
         activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={`${badge.badge.name} badge${count > 1 ? `, earned ${count} times` : ''}${allHidden && isOwner ? ', hidden' : ''}`}
       >
-        <Text style={[styles.icon, allHidden && styles.iconHidden]}>{badge.badge.icon}</Text>
+        {/* The stored emoji draws as our glyph when one maps (else the emoji). */}
+        <View style={styles.icon}>
+          <EmojiGlyph
+            emoji={badge.badge.icon}
+            size={28}
+            color={allHidden ? c.textMuted : c.primary}
+            style={allHidden ? styles.iconHidden : undefined}
+          />
+        </View>
         <Text style={[styles.name, allHidden && styles.nameHidden]} numberOfLines={2}>
           {badge.badge.name}
         </Text>
@@ -91,7 +104,9 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
           onPress={(e) => { if (e.target === e.currentTarget) closeDetail(); }}
         >
           <View style={styles.detailCard}>
-            <Text style={styles.detailIcon}>{badge.badge.icon}</Text>
+            <View style={styles.detailIcon}>
+              <EmojiGlyph emoji={badge.badge.icon} size={48} color={c.primary} />
+            </View>
 
             <View style={styles.detailNameRow}>
               <Text style={styles.detailName}>{badge.badge.name}</Text>
@@ -132,7 +147,10 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
                       <View style={styles.historyMeta}>
                         {inst.context && <Text style={styles.historyContext}>{inst.context}</Text>}
                         {inst.league?.name && (
-                          <Text style={styles.historyLeague}>🏆 {inst.league.name}</Text>
+                          <View style={styles.leagueLine}>
+                            <Icon name="pickleball" size={12} color={c.primary} />
+                            <Text style={styles.historyLeague} numberOfLines={1}>{inst.league.name}</Text>
+                          </View>
                         )}
                       </View>
                     </View>
@@ -148,7 +166,10 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
                   </View>
                 )}
                 {badge.league?.name && (
-                  <Text style={styles.detailLeague}>🏆 {badge.league.name}</Text>
+                  <View style={[styles.leagueLine, styles.detailLeagueLine]}>
+                    <Icon name="pickleball" size={14} color={c.textMuted} />
+                    <Text style={styles.detailLeague} numberOfLines={1}>{badge.league.name}</Text>
+                  </View>
                 )}
                 <Text style={styles.detailDate}>Earned {earnedDate}</Text>
               </>
@@ -161,11 +182,13 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
                   onToggleHide?.(instances.map(i => i.id), !allHidden);
                   setShowDetail(false);
                 }}
+                accessibilityRole="button"
               >
+                <Icon name={allHidden ? 'eye' : 'eye-off'} size={16} color={allHidden ? c.primary : c.textMuted} />
                 <Text style={[styles.hideBtnText, allHidden && styles.showBtnText]}>
                   {allHidden
-                    ? (count > 1 ? `👁  Show all (${count}) on profile` : '👁  Show on profile')
-                    : (count > 1 ? `🙈  Hide all (${count}) from profile` : '🙈  Hide from profile')}
+                    ? (count > 1 ? `Show all (${count}) on profile` : 'Show on profile')
+                    : (count > 1 ? `Hide all (${count}) from profile` : 'Hide from profile')}
                 </Text>
               </TouchableOpacity>
             )}
@@ -179,79 +202,84 @@ export default function BadgeDisplay({ badge, stack, isOwner, onToggleHide }: Pr
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     card: {
       width: 84, alignItems: 'center', backgroundColor: c.surface,
-      borderRadius: 12, padding: 10, borderWidth: 1.5, borderColor: c.primaryLight,
-      margin: 4, position: 'relative',
+      borderRadius: RADIUS.md, padding: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.primaryLight,
+      margin: SPACE.xs, position: 'relative',
     },
     cardHidden: { backgroundColor: c.bg, borderColor: c.border, opacity: 0.55 },
-    icon: { fontSize: 30, marginBottom: 5 },
-    iconHidden: { opacity: 0.4 },
-    name: { fontSize: 11, fontWeight: '700', color: c.text, textAlign: 'center', lineHeight: 14 },
+    icon: { height: 32, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.xs },
+    // The emoji fallback only (a glyph is drawn in the muted token instead).
+    iconHidden: { opacity: 0.5 },
+    name: { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.text, textAlign: 'center', lineHeight: 14 },
     nameHidden: { color: c.textMuted },
-    hiddenTag: { fontSize: 9, color: c.textMuted, marginTop: 3, fontStyle: 'italic' },
-    leagueTag: { fontSize: 9, color: c.primary, marginTop: 3, textAlign: 'center' },
+    hiddenTag: { fontSize: FONT.size.xxs, color: c.textMuted, marginTop: SPACE.xxs, fontStyle: 'italic' },
+    leagueTag: { fontSize: FONT.size.xxs, color: c.primary, marginTop: SPACE.xxs, textAlign: 'center' },
 
     countPill: {
-      position: 'absolute', top: -6, right: -6,
-      backgroundColor: c.primary, borderRadius: 10,
-      paddingHorizontal: 6, paddingVertical: 2, minWidth: 22,
-      alignItems: 'center', borderWidth: 1.5, borderColor: c.surface,
+      position: 'absolute', top: -SPACE.xs, right: -SPACE.xs,
+      backgroundColor: c.primary, borderRadius: RADIUS.pill,
+      paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xxs, minWidth: 22,
+      alignItems: 'center', borderWidth: HAIRLINE, borderColor: c.surface,
     },
-    countPillText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+    countPillText: { color: c.textInverse, fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy },
 
     overlay: {
-      flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-      justifyContent: 'center', alignItems: 'center', padding: 32,
+      flex: 1, backgroundColor: c.backdrop,
+      justifyContent: 'center', alignItems: 'center', padding: SPACE.xl,
     },
     detailCard: {
-      backgroundColor: c.surface, borderRadius: 20, padding: 24, width: '100%',
-      alignItems: 'center', shadowColor: '#000', shadowOpacity: 0.25,
+      backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.xl, width: '100%',
+      alignItems: 'center', shadowColor: c.shadow, shadowOpacity: 0.25,
       shadowRadius: 20, elevation: 10, maxHeight: '90%',
     },
-    detailIcon: { fontSize: 56, marginBottom: 12 },
-    detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap', justifyContent: 'center' },
-    detailName: { fontSize: 20, fontWeight: '800', color: c.text },
-    countChip: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10, backgroundColor: c.primary },
-    countChipText: { fontSize: 13, fontWeight: '800', color: '#fff' },
-    catChip: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
+    detailIcon: { marginBottom: SPACE.md },
+    detailNameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.sm, flexWrap: 'wrap', justifyContent: 'center' },
+    detailName: t.h2,
+    countChip: { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.pill, backgroundColor: c.primary },
+    countChipText: { fontSize: FONT.size.base, fontWeight: FONT.weight.heavy, color: c.textInverse },
+    catChip: { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.pill },
     catChipProfile:  { backgroundColor: c.primaryLight },
-    catChipLeague:   { backgroundColor: '#e3f2fd' },
-    catChipCosmetic: { backgroundColor: '#fce4ec' },
-    catChipText: { fontSize: 11, fontWeight: '700' },
+    catChipLeague:   { backgroundColor: c.infoLight },
+    catChipCosmetic: { backgroundColor: c.rarityRareLight },
+    catChipText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold },
     catChipTextProfile:  { color: c.primary },
-    catChipTextLeague:   { color: '#1565c0' },
-    catChipTextCosmetic: { color: '#ad1457' },
+    catChipTextLeague:   { color: c.info },
+    catChipTextCosmetic: { color: c.rarityRare },
     detailDesc: {
-      fontSize: 14, color: c.textSub, textAlign: 'center',
-      lineHeight: 20, marginBottom: 14,
+      fontSize: FONT.size.md, color: c.textSub, textAlign: 'center',
+      lineHeight: FONT.line.normal, marginBottom: SPACE.md,
     },
     contextBox: {
-      backgroundColor: c.primaryLight, borderRadius: 10, padding: 12,
-      width: '100%', marginBottom: 10,
+      backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md,
+      width: '100%', marginBottom: SPACE.sm,
     },
-    contextLabel: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-    contextText: { fontSize: 14, color: c.text },
-    detailLeague: { fontSize: 13, color: c.textMuted, marginBottom: 4 },
-    detailDate: { fontSize: 12, color: c.textMuted, marginBottom: 16 },
+    contextLabel: { ...t.label, marginBottom: SPACE.xxs },
+    contextText: { fontSize: FONT.size.md, color: c.text },
+    leagueLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xxs },
+    detailLeagueLine: { marginTop: 0, marginBottom: SPACE.xs, maxWidth: '100%' },
+    detailLeague: { fontSize: FONT.size.base, color: c.textMuted, flexShrink: 1 },
+    detailDate: { fontSize: FONT.size.sm, color: c.textMuted, marginBottom: SPACE.lg },
 
-    historyBox: { width: '100%', maxHeight: 240, marginBottom: 12 },
-    historyInner: { paddingBottom: 4 },
-    historyLabel: { fontSize: 11, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-    historyRow: { flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border, gap: 10 },
-    historyDate: { fontSize: 12, color: c.textMuted, width: 90 },
-    historyMeta: { flex: 1 },
-    historyContext: { fontSize: 13, color: c.text },
-    historyLeague: { fontSize: 11, color: c.primary, marginTop: 2 },
+    historyBox: { width: '100%', maxHeight: 240, marginBottom: SPACE.md },
+    historyInner: { paddingBottom: SPACE.xs },
+    historyLabel: { ...t.label, marginBottom: SPACE.sm },
+    historyRow: { flexDirection: 'row', paddingVertical: SPACE.xs, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, gap: SPACE.sm },
+    historyDate: { fontSize: FONT.size.sm, color: c.textMuted, width: 90 },
+    historyMeta: { flex: 1, minWidth: 0 },
+    historyContext: { fontSize: FONT.size.base, color: c.text },
+    historyLeague: { fontSize: FONT.size.xs, color: c.primary, flexShrink: 1 },
 
     hideBtn: {
-      borderWidth: 1.5, borderColor: c.border, borderRadius: 20,
-      paddingHorizontal: 16, paddingVertical: 8, marginBottom: 12,
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44,
+      borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.pill,
+      paddingHorizontal: SPACE.lg, paddingVertical: SPACE.sm, marginBottom: SPACE.md,
     },
     showBtn: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    hideBtnText: { fontSize: 14, color: c.textMuted, fontWeight: '600' },
+    hideBtnText: { fontSize: FONT.size.md, color: c.textMuted, fontWeight: FONT.weight.semibold },
     showBtnText: { color: c.primary },
-    dismissHint: { fontSize: 11, color: c.textMuted },
+    dismissHint: { fontSize: FONT.size.xs, color: c.textMuted },
   });
 }

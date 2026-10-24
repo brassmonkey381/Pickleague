@@ -14,8 +14,12 @@ import ConfirmModal from '../components/ConfirmModal';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import EmptyState from '../components/EmptyState';
-import { LoadingState } from '@just-messin-around/expo-foundation/ui';
+import { LoadingState, SegmentedToggle } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import FlairName from '../components/FlairName';
+import { PickleAmount } from '../components/PickleAmount';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'MyWagers'> };
 
@@ -114,8 +118,18 @@ function buildWagerContext(w: Wager): string | null {
 // Build a human "you bet X" line plus an optional "actually Y" line so the
 // MyWagers row tells the full story: predicted player / scope / rank for
 // rank wagers, predicted team / score for match wagers, and the actual
-// outcome once the wager has settled.
-function buildWagerNarrative(w: Wager): { prediction: string; outcome: string | null } {
+// outcome once the wager has settled. The glyphs are drawn beside the text
+// (`icon` for the prediction; `hit` picks the check or the cross for the
+// outcome), never inside the strings.
+type WagerNarrative = {
+  icon: IconName | null;
+  prediction: string;
+  outcome: string | null;
+  /** true: the outcome reads as a hit (check), false: a miss (cross), null: no mark. */
+  hit: boolean | null;
+};
+
+function buildWagerNarrative(w: Wager): WagerNarrative {
   const settled = w.status === 'won' || w.status === 'lost';
   const predRank = w.predicted_rank ?? (w.predicate?.rank as number | undefined);
   const predName = w.predicted_user_name ?? (w.predicate?.user_id ? String(w.predicate.user_id).slice(0, 6) : '');
@@ -124,52 +138,57 @@ function buildWagerNarrative(w: Wager): { prediction: string; outcome: string | 
   switch (w.subject_type) {
     case 'tournament_rank': {
       const rankLabel = predRank ? ordinal(predRank) : '?';
+      const icon: IconName = 'trophy';
       const prediction = scope
-        ? `🏆 ${predName} to finish ${rankLabel} in ${scope}`
-        : `🏆 ${predName} to finish ${rankLabel}`;
-      if (!settled) return { prediction, outcome: null };
+        ? `${predName} to finish ${rankLabel} in ${scope}`
+        : `${predName} to finish ${rankLabel}`;
+      if (!settled) return { icon, prediction, outcome: null, hit: null };
       const actual = w.actual_rank;
-      let outcome: string;
       if (actual != null && actual === predRank) {
-        outcome = `✓ ${predName} finished ${ordinal(actual)}`;
-      } else if (actual != null) {
-        outcome = `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`;
-      } else if (w.status === 'won') {
-        outcome = `✓ ${predName} hit ${rankLabel}`;
-      } else {
-        outcome = `✗ ${predName} missed ${rankLabel}`;
+        return { icon, prediction, outcome: `${predName} finished ${ordinal(actual)}`, hit: true };
       }
-      return { prediction, outcome };
+      if (actual != null) {
+        return { icon, prediction, outcome: `${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`, hit: false };
+      }
+      return w.status === 'won'
+        ? { icon, prediction, outcome: `${predName} hit ${rankLabel}`, hit: true }
+        : { icon, prediction, outcome: `${predName} missed ${rankLabel}`, hit: false };
     }
     case 'period_rank': {
       const rankLabel = predRank ? ordinal(predRank) : '?';
       const period    = w.predicate?.period_number;
       const periodLbl = period ? ` (Period ${period})` : '';
+      const icon: IconName = 'medal';
       const prediction = scope
-        ? `🏅 ${predName} to finish ${rankLabel} in ${scope}${periodLbl}`
-        : `🏅 ${predName} to finish ${rankLabel}${periodLbl}`;
-      if (!settled) return { prediction, outcome: null };
+        ? `${predName} to finish ${rankLabel} in ${scope}${periodLbl}`
+        : `${predName} to finish ${rankLabel}${periodLbl}`;
+      if (!settled) return { icon, prediction, outcome: null, hit: null };
       const actual = w.actual_rank;
-      const outcome = actual != null
-        ? (actual === predRank
-            ? `✓ ${predName} finished ${ordinal(actual)}`
-            : `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`)
-        : (w.status === 'won' ? `✓ ${predName} hit ${rankLabel}` : `✗ ${predName} missed ${rankLabel}`);
-      return { prediction, outcome };
+      if (actual != null) {
+        return actual === predRank
+          ? { icon, prediction, outcome: `${predName} finished ${ordinal(actual)}`, hit: true }
+          : { icon, prediction, outcome: `${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`, hit: false };
+      }
+      return w.status === 'won'
+        ? { icon, prediction, outcome: `${predName} hit ${rankLabel}`, hit: true }
+        : { icon, prediction, outcome: `${predName} missed ${rankLabel}`, hit: false };
     }
     case 'season_rank': {
       const rankLabel = predRank ? ordinal(predRank) : '?';
+      const icon: IconName = 'medal';
       const prediction = scope
-        ? `🏅 ${predName} to finish ${rankLabel} of ${scope}`
-        : `🏅 ${predName} to finish ${rankLabel}`;
-      if (!settled) return { prediction, outcome: null };
+        ? `${predName} to finish ${rankLabel} of ${scope}`
+        : `${predName} to finish ${rankLabel}`;
+      if (!settled) return { icon, prediction, outcome: null, hit: null };
       const actual = w.actual_rank;
-      const outcome = actual != null
-        ? (actual === predRank
-            ? `✓ ${predName} finished ${ordinal(actual)}`
-            : `✗ ${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`)
-        : (w.status === 'won' ? `✓ Won` : `✗ Didn't hit`);
-      return { prediction, outcome };
+      if (actual != null) {
+        return actual === predRank
+          ? { icon, prediction, outcome: `${predName} finished ${ordinal(actual)}`, hit: true }
+          : { icon, prediction, outcome: `${predName} finished ${ordinal(actual)} (you predicted ${rankLabel})`, hit: false };
+      }
+      return w.status === 'won'
+        ? { icon, prediction, outcome: 'Won', hit: true }
+        : { icon, prediction, outcome: "Didn't hit", hit: false };
     }
     case 'match':
     case 'tournament_match': {
@@ -177,20 +196,23 @@ function buildWagerNarrative(w: Wager): { prediction: string; outcome: string | 
       const teamA = w.team_label_a ?? 'Team 1';
       const teamB = w.team_label_b ?? 'Team 2';
       const pickedLabel = pickedTeam === 'team1' ? teamA : teamB;
+      const icon: IconName = 'versus';
       const prediction = scope
-        ? `🥒 ${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA} · ${scope}`
-        : `🥒 ${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA}`;
-      if (!settled) return { prediction, outcome: null };
+        ? `${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA} · ${scope}`
+        : `${pickedLabel} to beat ${pickedTeam === 'team1' ? teamB : teamA}`;
+      if (!settled) return { icon, prediction, outcome: null, hit: null };
       const winnerTeam = w.actual_winner_team;
       const s1 = w.actual_team1_score;
       const s2 = w.actual_team2_score;
       const scoreSuffix = s1 != null && s2 != null ? ` (${s1}-${s2})` : '';
-      const outcome = winnerTeam
-        ? (winnerTeam === pickedTeam
-            ? `✓ ${pickedLabel} won${scoreSuffix}`
-            : `✗ ${winnerTeam === 'team1' ? teamA : teamB} won${scoreSuffix}`)
-        : (w.status === 'won' ? '✓ Hit' : '✗ Miss');
-      return { prediction, outcome };
+      if (winnerTeam) {
+        return winnerTeam === pickedTeam
+          ? { icon, prediction, outcome: `${pickedLabel} won${scoreSuffix}`, hit: true }
+          : { icon, prediction, outcome: `${winnerTeam === 'team1' ? teamA : teamB} won${scoreSuffix}`, hit: false };
+      }
+      return w.status === 'won'
+        ? { icon, prediction, outcome: 'Hit', hit: true }
+        : { icon, prediction, outcome: 'Miss', hit: false };
     }
     case 'match_score':
     case 'tournament_match_score': {
@@ -198,19 +220,22 @@ function buildWagerNarrative(w: Wager): { prediction: string; outcome: string | 
       const teamB = w.team_label_b ?? 'Team 2';
       const ps1 = w.predicate?.team1_score;
       const ps2 = w.predicate?.team2_score;
+      const icon: IconName = 'target';
       const prediction = scope
-        ? `🎯 Exact: ${teamA} ${ps1}-${ps2} ${teamB} · ${scope}`
-        : `🎯 Exact: ${teamA} ${ps1}-${ps2} ${teamB}`;
-      if (!settled) return { prediction, outcome: null };
+        ? `Exact: ${teamA} ${ps1}-${ps2} ${teamB} · ${scope}`
+        : `Exact: ${teamA} ${ps1}-${ps2} ${teamB}`;
+      if (!settled) return { icon, prediction, outcome: null, hit: null };
       const s1 = w.actual_team1_score;
       const s2 = w.actual_team2_score;
-      const outcome = s1 != null && s2 != null
-        ? `Final: ${teamA} ${s1}-${s2} ${teamB}${w.status === 'won' ? ' — exact!' : ''}`
-        : (w.status === 'won' ? '✓ Exact hit' : '✗ Score missed');
-      return { prediction, outcome };
+      if (s1 != null && s2 != null) {
+        return { icon, prediction, outcome: `Final: ${teamA} ${s1}-${s2} ${teamB}${w.status === 'won' ? ' — exact!' : ''}`, hit: null };
+      }
+      return w.status === 'won'
+        ? { icon, prediction, outcome: 'Exact hit', hit: true }
+        : { icon, prediction, outcome: 'Score missed', hit: false };
     }
     default:
-      return { prediction: genericSubjectLabel(w.subject_type, w.predicate || {}), outcome: null };
+      return { icon: 'dice', prediction: genericSubjectLabel(w.subject_type, w.predicate || {}), outcome: null, hit: null };
   }
 }
 
@@ -406,25 +431,46 @@ export default function MyWagersScreen({ navigation }: Props) {
   // Renderers
   // ────────────────────────────────────────────────────────────────────────
   function renderWagerItem({ item }: { item: Wager }) {
-    const { prediction, outcome } = buildWagerNarrative(item);
+    const { icon, prediction, outcome, hit } = buildWagerNarrative(item);
     const context      = buildWagerContext(item);
     const settledLabel = item.settled_at ? timeAgo(item.settled_at) : '';
     const placedLabel  = timeAgo(item.placed_at);
+    const outcomeColor = item.status === 'won' ? c.success : item.status === 'lost' ? c.danger : c.textSub;
 
     return (
       <View style={S.row}>
-        <View style={{ flex: 1 }}>
-          <Text style={S.rowSubject} numberOfLines={3}>{prediction}</Text>
+        <View style={S.flex1}>
+          <View style={S.glyphLine}>
+            {icon ? <Icon name={icon} size={16} color={c.textSub} style={S.lineGlyph} /> : null}
+            <Text style={[S.rowSubject, S.flex1]} numberOfLines={3}>{prediction}</Text>
+          </View>
           {outcome && (
-            <Text style={[S.outcomeLine, item.status === 'won' && S.outcomeWon, item.status === 'lost' && S.outcomeLost]}>
-              {outcome}
-            </Text>
+            <View style={[S.glyphLine, S.outcomeGap]}>
+              {hit != null ? (
+                <Icon
+                  name={hit ? 'check-mark' : 'close'}
+                  size={14}
+                  color={hit ? c.success : c.danger}
+                  accessibilityLabel={hit ? 'Hit' : 'Missed'}
+                  style={S.lineGlyph}
+                />
+              ) : null}
+              <Text style={[S.outcomeLine, S.flex1, { color: outcomeColor }, item.status !== 'open' && S.outcomeStrong]}>
+                {outcome}
+              </Text>
+            </View>
           )}
           {context && <Text style={S.contextLine}>{context}</Text>}
           <View style={S.metaRow}>
-            <Text style={S.metaText}>Stake: <Text style={S.metaValue}>{item.stake} 🥒</Text></Text>
+            <View style={S.metaItem}>
+              <Text style={S.metaText}>Stake:</Text>
+              <PickleAmount amount={item.stake} preset="meta" color={c.text} iconColor={c.primary} textStyle={S.metaValue} />
+            </View>
             <Text style={S.metaText}>Odds: <Text style={S.metaValue}>{Number(item.odds).toFixed(2)}×</Text></Text>
-            <Text style={S.metaText}>To win: <Text style={S.metaValue}>{item.potential_payout} 🥒</Text></Text>
+            <View style={S.metaItem}>
+              <Text style={S.metaText}>To win:</Text>
+              <PickleAmount amount={item.potential_payout} preset="meta" color={c.text} iconColor={c.primary} textStyle={S.metaValue} />
+            </View>
           </View>
           <Text style={S.timestamp}>
             {item.status === 'open'
@@ -433,8 +479,15 @@ export default function MyWagersScreen({ navigation }: Props) {
           </Text>
         </View>
         {item.status === 'open' && (
-          <TouchableOpacity style={S.cancelBtn} onPress={() => setCancelTarget(item)}>
-            <Text style={S.cancelBtnText}>Cancel</Text>
+          <TouchableOpacity
+            style={S.cancelBox}
+            onPress={() => setCancelTarget(item)}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel wager"
+          >
+            <View style={S.cancelBtn}>
+              <Text style={S.cancelBtnText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Cancel</Text>
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -449,12 +502,15 @@ export default function MyWagersScreen({ navigation }: Props) {
         activeOpacity={0.7}
         onPress={() => navigation.navigate('TournamentDetail', { tournamentId: t.id, tournamentName: t.name })}
       >
-        <View style={{ flex: 1 }}>
+        <View style={S.flex1}>
           <Text style={S.rowSubject} numberOfLines={2}>{t.name}</Text>
           <Text style={S.marketTag}>
             {t.status === 'registration' ? 'Registration open' : 'Active'}
           </Text>
-          <Text style={S.marketLink}>Open wager market →</Text>
+          <View style={S.marketLinkRow}>
+            <Text style={S.marketLink}>Open wager market</Text>
+            <Icon name="chevron-right" size={14} color={c.primary} />
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -470,12 +526,15 @@ export default function MyWagersScreen({ navigation }: Props) {
           seasonId: m.seasonId, leagueId: m.leagueId, leagueName: m.leagueName,
         })}
       >
-        <View style={{ flex: 1 }}>
+        <View style={S.flex1}>
           <Text style={S.rowSubject} numberOfLines={2}>
             Period {m.periodNumber} · {m.leagueName}
           </Text>
           <Text style={S.marketTag}>Live league season</Text>
-          <Text style={S.marketLink}>Wager on period leaders →</Text>
+          <View style={S.marketLinkRow}>
+            <Text style={S.marketLink}>Wager on period leaders</Text>
+            <Icon name="chevron-right" size={14} color={c.primary} />
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -504,7 +563,7 @@ export default function MyWagersScreen({ navigation }: Props) {
           leagueId: m.leagueId, title: 'Upcoming Match',
         })}
       >
-        <View style={{ flex: 1 }}>
+        <View style={S.flex1}>
           <Text style={S.rowSubject} numberOfLines={2}>
             {renderPlayer(m.team1.player)}
             {m.team1.partner ? <>{' / '}{renderPlayer(m.team1.partner)}</> : null}
@@ -513,7 +572,10 @@ export default function MyWagersScreen({ navigation }: Props) {
             {m.team2.partner ? <>{' / '}{renderPlayer(m.team2.partner)}</> : null}
           </Text>
           <Text style={S.marketTag}>Scheduled for {formatWhen(m.whenIso)}</Text>
-          <Text style={S.marketLink}>Open in match history →</Text>
+          <View style={S.marketLinkRow}>
+            <Text style={S.marketLink}>Open in match history</Text>
+            <Icon name="chevron-right" size={14} color={c.primary} />
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -527,47 +589,34 @@ export default function MyWagersScreen({ navigation }: Props) {
   // Layout
   // ────────────────────────────────────────────────────────────────────────
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16, marginTop: 8 }} />
+    <View style={S.screen}>
+      <StatusBanner status={status.value} style={S.banner} />
 
-      <View style={S.topTabs}>
-        {TOP_TABS.map(t => (
-          <TouchableOpacity
-            key={t.key}
-            style={[S.topTab, topTab === t.key && S.topTabActive]}
-            onPress={() => setTopTab(t.key)}
-            activeOpacity={0.7}
-          >
-            <Text style={[S.topTabText, topTab === t.key && S.topTabTextActive]}>
-              {t.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SegmentedToggle
+        variant="solid"
+        options={TOP_TABS.map(t => ({ value: t.key, label: t.label }))}
+        value={topTab}
+        onChange={setTopTab}
+        style={S.topTabs}
+      />
 
       {topTab === 'mine' ? (
         <>
-          <View style={S.tabs}>
-            {STATUS_TABS.map(t => (
-              <TouchableOpacity
-                key={t.key}
-                style={[S.tab, tab === t.key && S.tabActive]}
-                onPress={() => setTab(t.key)}
-                activeOpacity={0.7}
-              >
-                <Text style={[S.tabText, tab === t.key && S.tabTextActive]}>
-                  {t.label} {counts[t.key] > 0 ? `(${counts[t.key]})` : ''}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <SegmentedToggle
+            variant="underline"
+            size="sm"
+            options={STATUS_TABS.map(t => ({ value: t.key, label: t.label, count: counts[t.key] }))}
+            value={tab}
+            onChange={setTab}
+            style={S.tabs}
+          />
 
           {loading ? (
             <LoadingState label="Loading…" />
           ) : visible.length === 0 ? (
             <View style={S.center}>
               <EmptyState
-                icon="🎲"
+                iconName="dice"
                 title={`No ${tab} wagers`}
                 subtitle={tab === 'open'
                   ? 'Place a wager from a match or tournament to see it here.'
@@ -579,8 +628,8 @@ export default function MyWagersScreen({ navigation }: Props) {
               data={visible}
               keyExtractor={(w) => w.id}
               renderItem={renderWagerItem}
-              contentContainerStyle={{ padding: 16 }}
-              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+              contentContainerStyle={S.list}
+              ItemSeparatorComponent={() => <View style={S.separator} />}
             />
           )}
         </>
@@ -589,7 +638,7 @@ export default function MyWagersScreen({ navigation }: Props) {
           <LoadingState label="Loading…" />
         ) : (
           <ScrollView
-            contentContainerStyle={{ padding: 16, paddingBottom: 24 }}
+            contentContainerStyle={S.marketsScroll}
             refreshControl={
               <RefreshControl
                 refreshing={marketsRefreshing}
@@ -649,41 +698,46 @@ const STATUS_LABEL: Record<WagerStatus, string> = {
 };
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    topTabs:      { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 12 },
-    topTab:       { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-    topTabActive: { backgroundColor: c.primary, borderColor: c.primary },
-    topTabText:   { fontSize: 14, fontWeight: '800', color: c.textSub },
-    topTabTextActive: { color: '#fff' },
+    screen:      { flex: 1, backgroundColor: c.bg },
+    banner:      { marginHorizontal: SPACE.lg, marginTop: SPACE.sm },
+    flex1:       { flex: 1, minWidth: 0 },
+    topTabs:     { marginHorizontal: SPACE.lg, marginTop: SPACE.md },
+    tabs:        { marginHorizontal: SPACE.lg, marginTop: SPACE.sm },
+    list:        { padding: SPACE.lg },
+    separator:   { height: SPACE.sm },
+    marketsScroll: { padding: SPACE.lg, paddingBottom: SPACE.xl },
 
-    tabs:        { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingTop: 12 },
-    tab:         { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    tabActive:   { backgroundColor: c.primary, borderColor: c.primary },
-    tabText:     { fontSize: 12, fontWeight: '700', color: c.textSub },
-    tabTextActive:{ color: '#fff' },
+    center:      { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl },
 
-    center:      { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+    row:         { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
+                   backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md,
+                   borderWidth: HAIRLINE, borderColor: c.border },
+    // A glyph beside a wrapping line: the glyph sits on the first line.
+    glyphLine:   { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.xs },
+    lineGlyph:   { marginTop: SPACE.xxs },
+    rowSubject:  { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.text, lineHeight: 19 },
+    outcomeGap:  { marginTop: SPACE.xs },
+    outcomeLine: { fontSize: FONT.size.base, color: c.textSub, lineHeight: FONT.line.tight },
+    outcomeStrong: { fontWeight: FONT.weight.bold },
+    contextLine: { ...t.caption, fontSize: FONT.size.sm, marginTop: SPACE.xs, fontStyle: 'italic' },
+    metaRow:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.md, rowGap: SPACE.xs, marginTop: SPACE.sm },
+    metaItem:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    metaText:    { fontSize: FONT.size.sm, color: c.textSub },
+    metaValue:   { color: c.text, fontWeight: FONT.weight.bold },
+    timestamp:   { ...t.caption, marginTop: SPACE.xs },
 
-    row:         { flexDirection: 'row', alignItems: 'center', gap: 10,
-                   backgroundColor: c.surface, borderRadius: 12, padding: 14,
-                   borderWidth: 1, borderColor: c.border },
-    rowSubject:  { fontSize: 14, fontWeight: '700', color: c.text, lineHeight: 19 },
-    outcomeLine: { fontSize: 13, color: c.textSub, marginTop: 4, lineHeight: 18 },
-    outcomeWon:  { color: c.primary, fontWeight: '700' },
-    outcomeLost: { color: c.danger, fontWeight: '700' },
-    contextLine: { fontSize: 12, color: c.textMuted, marginTop: 4, fontStyle: 'italic' },
-    metaRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 6 },
-    metaText:    { fontSize: 12, color: c.textSub },
-    metaValue:   { color: c.text, fontWeight: '700' },
-    timestamp:   { fontSize: 11, color: c.textMuted, marginTop: 6 },
+    // The pill is the visual, the 44 box the tap target.
+    cancelBox:    { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
+    cancelBtn:    { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.md, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    cancelBtnText:{ color: c.danger, fontWeight: FONT.weight.bold, fontSize: FONT.size.sm },
 
-    cancelBtn:    { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    cancelBtnText:{ color: c.danger, fontWeight: '700', fontSize: 12 },
-
-    sectionHeader: { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 8, marginBottom: 8 },
-    sectionList:   { gap: 10, marginBottom: 18 },
-    sectionEmpty:  { fontSize: 13, color: c.textMuted, fontStyle: 'italic', marginBottom: 18, lineHeight: 19 },
-    marketTag:     { fontSize: 12, color: c.textSub, marginTop: 4 },
-    marketLink:    { fontSize: 12, color: c.primary, fontWeight: '700', marginTop: 6 },
+    sectionHeader: { ...t.label, color: c.textSub, marginTop: SPACE.sm, marginBottom: SPACE.sm },
+    sectionList:   { gap: SPACE.sm, marginBottom: SPACE.lg },
+    sectionEmpty:  { ...t.hint, fontStyle: 'italic', marginBottom: SPACE.lg },
+    marketTag:     { fontSize: FONT.size.sm, color: c.textSub, marginTop: SPACE.xs },
+    marketLinkRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs, marginTop: SPACE.xs },
+    marketLink:    { fontSize: FONT.size.sm, color: c.primary, fontWeight: FONT.weight.bold },
   });
 }

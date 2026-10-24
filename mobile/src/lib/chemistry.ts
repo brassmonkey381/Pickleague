@@ -18,6 +18,8 @@
  *   overall_delta = win_rate_together - baseline_win_rate
  */
 
+import type { Theme } from '@just-messin-around/expo-foundation/theme';
+
 export const ELO_BUCKETS = ['< 2.75', '2.75–3.25', '3.25–3.75', '3.75+'] as const;
 export type EloBucket = typeof ELO_BUCKETS[number];
 
@@ -214,11 +216,19 @@ export function fmtDelta(delta: number): string {
   return `${delta >= 0 ? '+' : '-'}${pct}%`;
 }
 
-/** Color for a chemistry delta */
-export function chemistryColor(delta: number): string {
-  if (delta >=  0.08) return '#2e7d32';  // strong positive — green
-  if (delta >=  0.03) return '#558b2f';  // mild positive
-  if (delta <= -0.08) return '#c62828';  // strong negative — red
-  if (delta <= -0.03) return '#e65100';  // mild negative
-  return '#888';                          // neutral
+/** A chemistry delta's tone, from theme tokens (light and dark come free):
+ *  strong positive success, mild positive the brand primary, mild negative
+ *  warning, strong negative danger, neutral muted. `fg` is the text colour,
+ *  `bg` the matching light fill for a badge. */
+export function chemistryTone(delta: number, c: Theme): { fg: string; bg: string } {
+  if (delta >=  0.08) return { fg: c.success,   bg: c.successLight };
+  if (delta >=  0.03) return { fg: c.primary,   bg: c.primaryLight };
+  if (delta <= -0.08) return { fg: c.danger,    bg: c.dangerLight };
+  if (delta <= -0.03) return { fg: c.warning,   bg: c.warningLight };
+  return { fg: c.textMuted, bg: c.surfaceAlt };
+}
+
+/** Colour for a chemistry delta (the tone's text colour). */
+export function chemistryColor(delta: number, c: Theme): string {
+  return chemistryTone(delta, c).fg;
 }

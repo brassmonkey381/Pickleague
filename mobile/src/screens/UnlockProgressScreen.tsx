@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { Panel, SectionHeader, CollapsibleSection, Badge } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, CollapsibleSection, Badge, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -30,7 +31,6 @@ import FtueChecklistCard from '../components/FtueChecklistCard';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
-import EmptyState from '../components/EmptyState';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'UnlockProgress'> };
 
@@ -200,10 +200,13 @@ export default function UnlockProgressScreen({ navigation }: Props) {
             numberOfLines={1}
           />
         </View>
-        <Text style={[t.meta, styles.flexText]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-          {earned ? '✓ Unlocked' : 'Reward'} · {reward.name} · {reward.category === 'profile_name_style' ? 'Profile' : 'List'} style
-        </Text>
-        <Text style={styles.chevronSmall}>›</Text>
+        <View style={[styles.flexText, styles.inlineRow]}>
+          {earned ? <Icon name="check-mark" size={12} color={colors.success} /> : null}
+          <Text style={[t.meta, styles.flexShrink]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {earned ? 'Unlocked' : 'Reward'} · {reward.name} · {reward.category === 'profile_name_style' ? 'Profile' : 'List'} style
+          </Text>
+        </View>
+        <Icon name="chevron-right" size={16} color={colors.textMuted} />
       </TouchableOpacity>
     );
   }
@@ -211,19 +214,25 @@ export default function UnlockProgressScreen({ navigation }: Props) {
   /** One unlock: glyph · name + status chip · gating badge · progress or
    *  requirement · its name-style reward. A render function, not a nested
    *  component, so rows aren't remounted (and FlairName previews restarted)
-   *  on every render. */
+   *  on every render. The tile shows the avatar's own emoji (`emoji`: the
+   *  picture you unlock) or a glyph (`iconName` in `glyphColor`; a locked
+   *  row draws it in the muted token rather than at low opacity). */
   function renderUnlockRow({
-    key, glyph, glyphBg, name, badgeName, requirement, lastRow, onPress,
+    key, emoji, iconName, glyphColor, glyphBg, name, badgeName, requirement, lastRow, onPress,
   }: {
-    key: string | number; glyph: string; glyphBg: string; name: string; badgeName: string;
-    requirement: string; lastRow: boolean; onPress?: () => void;
+    key: string | number; emoji?: string; iconName?: IconName; glyphColor?: string; glyphBg: string;
+    name: string; badgeName: string; requirement: string; lastRow: boolean; onPress?: () => void;
   }) {
     const earned = earnedBadgeNames.includes(badgeName);
     const prog = badgeProgress[badgeName];
     const body = (
       <>
         <View style={[styles.tile, { backgroundColor: earned ? glyphBg : colors.surfaceAlt }]}>
-          <Text style={[styles.tileGlyph, !earned && styles.muted]}>{glyph}</Text>
+          {iconName ? (
+            <Icon name={iconName} size={22} color={earned ? glyphColor ?? colors.primary : colors.textMuted} />
+          ) : (
+            <Text style={[styles.tileGlyph, !earned && styles.muted]}>{emoji}</Text>
+          )}
         </View>
         <View style={styles.flexText}>
           <View style={styles.nameLine}>
@@ -267,17 +276,16 @@ export default function UnlockProgressScreen({ navigation }: Props) {
     );
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
+  if (loading) return <View style={styles.screen}><SkeletonList rows={6} variant="row" /></View>;
 
   if (loadError && earnedBadgeNames.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load your progress"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+      <View style={styles.screen}>
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load your progress. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -355,7 +363,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
           {lockedAvatars.map((av, i) => (
             renderUnlockRow({
               key: av.id,
-              glyph: av.emoji,
+              emoji: av.emoji,
               glyphBg: av.bgColor,
               name: `${av.name} Avatar`,
               badgeName: av.unlock!.badge,
@@ -375,7 +383,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
             // if any, keeps its own tap → Shop.)
             renderUnlockRow({
               key: u.badge,
-              glyph: '🏷️',
+              iconName: 'tag',
               glyphBg: colors.primaryLight,
               name: '+1 Tag Slot',
               badgeName: u.badge,
@@ -393,7 +401,7 @@ export default function UnlockProgressScreen({ navigation }: Props) {
           {lockedTags.map((tg, i) => (
             renderUnlockRow({
               key: tg.slug,
-              glyph: '🏷️',
+              iconName: 'tag',
               glyphBg: colors.primaryLight,
               name: tg.label,
               badgeName: tg.unlock!.badge,
@@ -419,7 +427,8 @@ export default function UnlockProgressScreen({ navigation }: Props) {
               return (
                 renderUnlockRow({
                   key: reward.slug,
-                  glyph: '🎨',
+                  iconName: 'palette',
+                  glyphColor: colors.warning,
                   glyphBg: colors.warningLight,
                   name: reward.name,
                   badgeName: badgeName,
@@ -437,7 +446,9 @@ export default function UnlockProgressScreen({ navigation }: Props) {
 
 function makeStyles(c: Colors) {
   return StyleSheet.create({
+    screen:     { flex: 1, backgroundColor: c.bg },
     container:  { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
+    inlineRow:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     intro:      { marginBottom: SPACE.md },
     block:      { marginBottom: SPACE.md },
     flexText:   { flex: 1, minWidth: 0 },
@@ -469,7 +480,6 @@ function makeStyles(c: Colors) {
       borderWidth: HAIRLINE, borderColor: c.border,
     },
     rewardPreviewBox:  { paddingVertical: SPACE.xxs, paddingHorizontal: SPACE.xs + SPACE.xxs, borderRadius: RADIUS.sm, backgroundColor: c.bg, minWidth: 60, maxWidth: 110, alignItems: 'center' },
-    rewardPreviewText: { fontSize: FONT.size.sm, fontWeight: '700' },
-    chevronSmall:      { fontSize: FONT.size.lg, fontWeight: '700', color: c.textMuted },
+    rewardPreviewText: { fontSize: FONT.size.sm, fontWeight: FONT.weight.bold },
   });
 }
