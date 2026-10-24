@@ -164,7 +164,10 @@ begin
         'claim_referral','my_referral_code','my_referral_stats','referral_preview',
         -- Hide test accounts from discovery (migration_hide_test_accounts.sql).
         'discover_players','get_hide_test_accounts','set_hide_test_accounts',
-        'get_profile_test_account','set_profile_test_account'
+        'get_profile_test_account','set_profile_test_account',
+        -- Discover's search area: players and drill partners near it
+        -- (migration_discover_players_near.sql, which grants it too).
+        'discover_players_near'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

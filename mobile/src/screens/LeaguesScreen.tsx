@@ -17,6 +17,10 @@
 // and refreshes on focus, so a league joined elsewhere (Home, LeagueDetail's
 // join card) is in MINE when you come back, without pull-to-refresh.
 // The old region pills (lib/regions.ts, now deleted) are replaced by distance.
+// In Discover (`areaLimited`) the shared search area above the tabs limits
+// DISCOVER (a league with no home court location can't be placed, so it is
+// left out); MINE never is. The sheet's Distance group goes (the area is the
+// distance) and Nearest measures from the area's centre.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable,
@@ -83,6 +87,8 @@ import { usePlayLocation } from '../components/play/usePlayLocation';
 import { usePlayTour } from '../components/play/usePlayTour';
 import { usePlayUserId } from '../components/play/usePlayUserId';
 import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
+import { useSearchArea } from '../lib/useSearchArea';
+import { searchAreaKey, widerSearchRadius } from '../lib/searchArea';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
@@ -95,6 +101,8 @@ type Props = {
   routeMineToken?: number;
   /** Play's toggle count (every league in the list). */
   onCount?: (n: number) => void;
+  /** Discover's search area limits DISCOVER (not MINE). */
+  areaLimited?: boolean;
 };
 
 /** A league row as Play shows it: the stats the list always loaded, plus
@@ -308,13 +316,17 @@ const itemKey = (it: Item) => (it.kind === 'row' ? `${it.section}:${it.league.id
 /** Default height of the "+ New league · Enter code" footer (before it is measured). */
 const CREATE_FOOTER_H = 44 + SPACE.sm;
 
-export default function LeaguesScreen({ navigation, route, active = true, routeMineToken, onCount }: Props) {
+export default function LeaguesScreen({ navigation, route, active = true, routeMineToken, onCount, areaLimited = false }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const S = makeStyles(c);
   const courtName = useCourtName();
   const uid = usePlayUserId();
   const { coords, setCoords } = usePlayLocation();
+  const { area: searchArea, setRadius: setAreaRadius } = useSearchArea();
+  const area = areaLimited ? searchArea : null;
+  // Under a search area, distance (Nearest) is measured from its centre.
+  const origin = areaLimited ? area?.center ?? null : coords;
   const fixtureOn = usePlayFixtureOn();
 
   // A tour start (first run or replay) closes the sheet and drops the chips
@@ -374,7 +386,10 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   // What the chip row and the Filters count show: a saved radius without a
   // device location filters nothing, so it isn't shown as on. The sheet
   // itself still gets the raw values, so the saved radius survives an Apply.
-  const sheetShown = useMemo(() => sheetInEffect(filters.sheet, coords), [filters.sheet, coords]);
+  const sheetShown = useMemo(
+    () => sheetInEffect(areaLimited ? { ...filters.sheet, distance: 'any' } : filters.sheet, coords),
+    [filters.sheet, coords, areaLimited],
+  );
 
   const split = useMemo(() => splitLeagues(allLeagues, {
     query: searchQuery,
@@ -383,17 +398,19 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
     sort: filters.sort,
     coords,
     courtLabel: (raw) => courtName(raw),
-  }), [allLeagues, searchQuery, filters.chips, filters.sheet, filters.sort, coords, courtName]);
+    areaLimited,
+    area,
+  }), [allLeagues, searchQuery, filters.chips, filters.sheet, filters.sort, coords, courtName, areaLimited, area]);
 
   const [mineExpanded, setMineExpanded] = useState(false);
   const [pages, setPages] = useState(1);
   // A new search / filter / sort starts Discover from page 1.
-  const filterSignature = `${searchQuery}|${filters.chips.join(',')}|${JSON.stringify(filters.sheet)}|${filters.sort}|${!!coords}`;
+  const filterSignature = `${searchQuery}|${filters.chips.join(',')}|${JSON.stringify(filters.sheet)}|${filters.sort}|${!!coords}|${searchAreaKey(area)}`;
   useEffect(() => { setPages(1); }, [filterSignature]);
 
   const shownDiscover = pagedCount(split.discover.length, pages);
   const discoverPage = split.discover.slice(0, shownDiscover);
-  const radius = distanceMiles(filters.sheet.distance);
+  const radius = areaLimited ? null : distanceMiles(filters.sheet.distance);
 
   // ── Overlays (only one RN Modal at a time) ────────────────────────────────
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -665,9 +682,21 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
   const distanceEnd = radius != null && coords != null && allPaged && !split.hideDiscover && !loadFailed && allLeagues.length > 0;
   const wider = widerDistance(filters.sheet.distance);
+  // The search area's end of the list: nothing more within it, and a wider radius.
+  const areaEnd = area != null && allPaged && !split.hideDiscover && !loadFailed && items.length > 0;
+  const widerArea = area ? widerSearchRadius(area.radiusMi) : null;
 
   const footer = (
     <View>
+      {areaEnd && area ? (
+        <EmptyState
+          compact
+          icon="📍"
+          title={split.discover.length > 0 ? `Nothing more within ${area.radiusMi} mi.` : `No other leagues within ${area.radiusMi} mi.`}
+          actionLabel={widerArea ? `Widen to ${widerArea} mi` : undefined}
+          onAction={widerArea ? () => setAreaRadius(widerArea) : undefined}
+        />
+      ) : null}
       {distanceEnd ? (
         <EmptyState
           compact
@@ -706,6 +735,16 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   ) : allLeagues.length === 0 ? (
     // The "+ New league · Enter code" footer below carries the actions.
     <EmptyState icon="🎾" title="No leagues yet" subtitle="Create one to get started!" />
+  ) : area && !searching && !split.filtersOn ? (
+    // Nothing near the search area (the area pills above change it).
+    <EmptyState
+      compact
+      icon="📍"
+      title={`No leagues within ${area.radiusMi} mi.`}
+      subtitle="Widen the search, or start one here."
+      actionLabel={widerArea ? `Widen to ${widerArea} mi` : 'New league'}
+      onAction={widerArea ? () => setAreaRadius(widerArea) : openCreate}
+    />
   ) : (
     <EmptyState
       compact
@@ -717,7 +756,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   );
 
   // ── Sheet + sort + "+" ────────────────────────────────────────────────────
-  const sheetGroups = useMemo<FilterSheetGroup[]>(() => [
+  const sheetGroups = useMemo<FilterSheetGroup[]>(() => ([
     {
       key: 'distance',
       title: 'Distance',
@@ -737,7 +776,9 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       kind: 'single',
       options: [{ value: 'any', label: 'Any' }, ...MIN_PLAYER_OPTIONS.map((o) => ({ value: o, label: `${o}+` }))],
     },
-  ], [coords, setCoords]);
+  ] as FilterSheetGroup[])
+    // Under a search area the area is the distance: no second one here.
+    .filter((g) => !(areaLimited && g.key === 'distance')), [coords, setCoords, areaLimited]);
 
   const formatSheetLabel = useCallback((e: ActiveFilterEntry) => {
     if (e.key === 'distance') return distanceLabel(e.value) ?? 'Distance';
@@ -747,10 +788,10 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   }, []);
 
   const sortActions = useMemo<ActionSheetAction[]>(() =>
-    leagueSortOptions({ coords, center: split.center }).map((k) => ({
+    leagueSortOptions({ coords: origin, center: split.center }).map((k) => ({
       label: `${k === split.sort ? '✓ ' : ''}${LEAGUE_SORT_LABELS[k]}`,
       onPress: () => filters.setSort(k),
-    })), [coords, split.center, split.sort, filters.setSort]);
+    })), [origin, split.center, split.sort, filters.setSort]);
 
   // A "+" action's follow-up Modal opens from the sheet's onDismissed, once
   // the sheet has fully closed: iOS won't present a second Modal while the

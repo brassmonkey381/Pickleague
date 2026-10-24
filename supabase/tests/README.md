@@ -254,3 +254,17 @@ touches playoff bracket generation or advancement.
     the server paths still write (welcome grant, Shop purchase, daily streak,
     match confirm with ratings / counters / first-match bonus, referral payout,
     service_role).
+
+- `players_near_personas.sql` (+ `build-players-near-test.mjs`)
+  - Players near a search area (`migration_discover_players_near.sql`): applies
+    the migration twice inside one rolled-back transaction (it does NOT re-run
+    `migration_rls_hardening_2026q3.sql`; the builder refuses unless that
+    file's allowlist names `discover_players_near`), then checks: grants and
+    attributes, no phone / email column, the signed-out and bad-centre
+    refusals; who is found by where they play (open-league home courts; a
+    closed league only when the viewer is in it; starred and frequent courts
+    only when presence privacy names them; expired guest passes, blocks both
+    ways, deleted accounts and the viewer left out); the radius and its 50 mi
+    cap; nearest first with the place columns; a pause and a new friendship
+    changing what the starred court reveals; drilling only, name / @username
+    search with literal `%`; and the God mode test-account switch.

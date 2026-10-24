@@ -20,7 +20,13 @@
 //     member gets "Near my courts" (the average of their leagues'
 //     home_court_lat/lng; venue_checkins is empty and home_court is free
 //     text); everyone else gets Most active.
+//   - Discover's search area (lib/searchArea, `area` + `areaLimited`): with
+//     an area, Discover rows outside it are left out, a row with no location
+//     included (it can't be placed); Mine never is. The area replaces the
+//     sheet's Distance (ignored then) and Nearest measures from its centre.
+//     Without an area yet nothing is limited.
 import { isAvailableAt } from '@just-messin-around/expo-foundation/scheduling/availability';
+import { withinSearchArea, type SearchArea } from './searchArea';
 
 export type PlayListKind = 'leagues' | 'tournaments';
 
@@ -379,7 +385,23 @@ export type LeagueQuery = {
   coords: LatLng | null;
   /** The court's display name (nickname), so search finds what the row shows. */
   courtLabel?: (raw: string | null) => string;
+  /** Discover's search area limits this list (the Distance sheet value is ignored). */
+  areaLimited?: boolean;
+  /** The area in effect; null = none yet (nothing is limited). */
+  area?: SearchArea | null;
 };
+
+/** The sheet and origin a list really uses: under a search area its centre
+ *  is the origin and the sheet's own Distance is off. */
+function areaContext<S extends SheetValues>(
+  sheet: S,
+  coords: LatLng | null,
+  q: { areaLimited?: boolean; area?: SearchArea | null },
+): { sheet: S; coords: LatLng | null; area: SearchArea | null } {
+  if (!q.areaLimited) return { sheet, coords, area: null };
+  const area = q.area ?? null;
+  return { sheet: { ...sheet, distance: 'any' }, coords: area ? area.center : null, area };
+}
 
 export type LeagueSplit<L> = {
   /** Mine rows, search-narrowed only, in Mine order. */
@@ -403,16 +425,19 @@ export type LeagueSplit<L> = {
 /** The whole Leagues list decision in one call. */
 export function splitLeagues<L extends PlayLeague>(leagues: readonly L[], q: LeagueQuery): LeagueSplit<L> {
   const query = normalizeQuery(q.query);
-  const sheet = { ...LEAGUE_SHEET_DEFAULTS, ...q.sheet };
+  const ac = areaContext({ ...LEAGUE_SHEET_DEFAULTS, ...q.sheet }, q.coords, q);
+  const sheet = ac.sheet;
+  q = { ...q, coords: ac.coords };
   const chips = q.chips.filter((c) => (LEAGUE_CHIPS as readonly string[]).includes(c));
   const searchHit = (l: L) => leagueMatchesSearch(l, query, q.courtLabel);
+  const inArea = (l: L) => withinSearchArea(pointOf(l.home_court_lat, l.home_court_lng), ac.area);
 
   const mineAll = leagues.filter(isMineLeague);
   const others = leagues.filter((l) => !isMineLeague(l));
   const mine = sortMineLeagues(mineAll.filter(searchHit));
 
   // Discover before chips: search + sheet. Chip counts are measured from here.
-  const base = others.filter((l) => searchHit(l) && leagueSheetMatches(l, sheet, q.coords));
+  const base = others.filter((l) => inArea(l) && searchHit(l) && leagueSheetMatches(l, sheet, q.coords));
   const discoverChips = chips.filter((c) => c !== 'mine');
   const passes = (l: L, except?: string) => discoverChips.every((c) => c === except || leagueChipMatches(l, c));
 
@@ -503,7 +528,21 @@ export type TournamentCtx = {
   leagueNames: Readonly<Record<string, string>>;
   coords: LatLng | null;
   now: number;
+  /** Discover's search area limits this list (the Distance sheet value is ignored). */
+  areaLimited?: boolean;
+  /** The area in effect; null = none yet (nothing is limited). */
+  area?: SearchArea | null;
+  /** A league's home court, for a tournament with no location of its own. */
+  leaguePoints?: Readonly<Record<string, LatLng | undefined>>;
 };
+
+/** Where a tournament is: its venue, else its league's home court. */
+export function tournamentPoint(
+  t: Pick<PlayTournament, 'location_lat' | 'location_lng' | 'league_id'>,
+  leaguePoints?: Readonly<Record<string, LatLng | undefined>>,
+): LatLng | null {
+  return pointOf(t.location_lat, t.location_lng) ?? (t.league_id ? leaguePoints?.[t.league_id] ?? null : null);
+}
 
 const ENDED = new Set(['completed', 'cancelled']);
 
@@ -566,7 +605,7 @@ function tournamentSheetMatches(t: PlayTournament, sheet: SheetValues, ctx: Tour
   if (sheet.entry === 'ante' && !((t.pickle_ante ?? 0) > 0)) return false;
   const radius = distanceMiles(sheet.distance);
   if (radius != null && ctx.coords) {
-    const p = pointOf(t.location_lat, t.location_lng);
+    const p = tournamentPoint(t, ctx.leaguePoints);
     if (!p || milesBetween(ctx.coords, p) > radius) return false;
   }
   return true;
@@ -586,7 +625,12 @@ const startMs = (t: PlayTournament) => (t.start_time ? new Date(t.start_time).ge
 
 /** Starting soon = start_time ascending (no start time last, newest first among
  *  those). Never mutates `list`. */
-export function sortTournaments<T extends PlayTournament>(list: readonly T[], sort: TournamentSortKey, coords: LatLng | null): T[] {
+export function sortTournaments<T extends PlayTournament>(
+  list: readonly T[],
+  sort: TournamentSortKey,
+  coords: LatLng | null,
+  leaguePoints?: Readonly<Record<string, LatLng | undefined>>,
+): T[] {
   const out = [...list];
   const newest = (a: T, b: T) => (b.created_at ?? '').localeCompare(a.created_at ?? '');
   const soonest = (a: T, b: T) => {
@@ -597,7 +641,7 @@ export function sortTournaments<T extends PlayTournament>(list: readonly T[], so
   if (sort === 'newest') return out.sort(newest);
   if (sort === 'nearest' && coords) {
     const d = (t: T) => {
-      const p = pointOf(t.location_lat, t.location_lng);
+      const p = tournamentPoint(t, leaguePoints);
       return p ? milesBetween(coords, p) : Number.POSITIVE_INFINITY;
     };
     return out.sort((a, b) => d(a) - d(b) || soonest(a, b));
@@ -645,9 +689,18 @@ export function splitTournaments<T extends PlayTournament>(
   ctx: TournamentCtx,
 ): TournamentSplit<T> {
   const query = normalizeQuery(q.query);
-  const sheet = { ...TOURNAMENT_SHEET_DEFAULTS, ...q.sheet };
+  const ac = areaContext({ ...TOURNAMENT_SHEET_DEFAULTS, ...q.sheet }, ctx.coords, ctx);
+  const sheet = ac.sheet;
+  ctx = { ...ctx, coords: ac.coords };
   const chips = q.chips.filter((c) => (TOURNAMENT_CHIPS as readonly string[]).includes(c));
-  const searchHit = (t: T) => tournamentMatchesSearch(t, query, ctx);
+  // My own registrations (ended ones too) are never limited by the area.
+  const inArea = (t: T) => {
+    if (!ac.area) return true;
+    const reg = ctx.myRegs[t.id];
+    if (reg && reg.status !== 'rejected') return true;
+    return withinSearchArea(tournamentPoint(t, ctx.leaguePoints), ac.area);
+  };
+  const searchHit = (t: T) => tournamentMatchesSearch(t, query, ctx) && inArea(t);
   const discoverChips = chips.filter((c) => c !== 'mine');
   const passes = (t: T, except?: string) => discoverChips.every((c) => c === except || tournamentChipMatches(t, c, ctx));
 
@@ -656,7 +709,7 @@ export function splitTournaments<T extends PlayTournament>(
   const base = live.filter((t) => searchHit(t) && tournamentSheetMatches(t, sheet, ctx));
   const hideDiscover = chips.includes('mine');
   const sort = resolveTournamentSort(q.sort, ctx.coords);
-  const shown = hideDiscover ? [] : sortTournaments(base.filter((t) => passes(t)), sort, ctx.coords);
+  const shown = hideDiscover ? [] : sortTournaments(base.filter((t) => passes(t)), sort, ctx.coords, ctx.leaguePoints);
 
   const ended = hideDiscover
     ? []

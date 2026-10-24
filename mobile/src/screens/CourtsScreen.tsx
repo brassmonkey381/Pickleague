@@ -37,13 +37,19 @@
 // then does it poll the crowds and, in Discover, own the header "+" (Add a
 // court), which replaces the inline "+ Add a court". While Discover is off the
 // Courts route renders it alone, as before (CourtsRouteScreen, below).
+//
+// The search area (lib/searchArea): the centre and radius are Discover's ONE
+// shared area, kept on this device, so Places, Leagues, Tournaments, Players
+// and Find Drillers all search the same place. In Discover the area pills
+// above the tabs change it, so this body drops its own "Near ... Change" line
+// and radius chips; alone (the Courts route) it keeps them, writing the same
+// shared area. A route lat / lng still centres the Courts route alone.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useIsFocused, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActionSheetModal,
-  FilterSearchField,
   ListFilterChrome,
   PlaceDiscoveryView,
   type ActionSheetAction,
@@ -51,7 +57,6 @@ import {
   type PlaceDiscoveryViewMode,
 } from '@just-messin-around/expo-foundation/ui';
 import { RadiusPlacesMap, type RadiusMapPlace } from '@just-messin-around/expo-foundation/ui/maps';
-import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -63,7 +68,6 @@ import {
   COURT_SORTS,
   COURT_SORT_LABELS,
   DEFAULT_COURT_RADIUS_MILES,
-  WIDEN_COURT_RADIUS_MILES,
   mergeCourtPages,
   milesToMeters,
   nextCourtCursor,
@@ -74,7 +78,6 @@ import {
 } from '../lib/courtDiscovery';
 import {
   listCourtsNearby,
-  searchUsCities,
   useCourtCrowds,
   useCourtsNearby,
   useNearestCityLabel,
@@ -86,8 +89,9 @@ import { dropWaitingArrivalNotices } from '../lib/courtArrivalNotice';
 import { googleMapsKey } from '../lib/maps';
 import { useReplaceCourtStar } from '../components/court/useReplaceCourtStar';
 import CourtPinModal from '../components/court/CourtPinModal';
-import { usePlayLocation } from '../components/play/usePlayLocation';
-import DistanceFilterGroup from '../components/play/DistanceFilterGroup';
+import { SearchAreaPanel } from '../components/SearchAreaBar';
+import { useSearchArea } from '../lib/useSearchArea';
+import { widerSearchRadius } from '../lib/searchArea';
 import CourtListRow from '../components/court/CourtListRow';
 import { usePlayHeaderPlus } from '../components/play/HeaderPlusButton';
 import type { RootStackParamList } from '../types';
@@ -121,22 +125,22 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
   const toast = useToast();
   const focused = useIsFocused();
   const live = focused && active;
-  const { coords, setCoords } = usePlayLocation();
+  const { area, coords, saved, setRadius, centerOnDevice, pickCity: pickCityArea } = useSearchArea();
 
-  const routeLat = route.params?.lat;
-  const routeLng = route.params?.lng;
-  const [city, setCity] = useState<CitySuggestion | null>(null);
-  const [radiusMi, setRadiusMi] = useState<number>(DEFAULT_COURT_RADIUS_MILES);
+  // Discover moves the shared area to a link's lat / lng itself; only the
+  // Courts route alone still centres on them here.
+  const routeLat = inDiscover ? undefined : route.params?.lat;
+  const routeLng = inDiscover ? undefined : route.params?.lng;
+  const radiusMi = saved.radiusMi ?? DEFAULT_COURT_RADIUS_MILES;
   const radiusM = milesToMeters(radiusMi);
 
   const center: Center | null = useMemo(() => {
     if (typeof routeLat === 'number' && typeof routeLng === 'number') {
       return { lat: routeLat, lng: routeLng, label: null, from: 'route' };
     }
-    if (city) return { lat: city.lat, lng: city.lng, label: city.label, from: 'city' };
-    if (coords) return { lat: coords.lat, lng: coords.lng, label: null, from: 'device' };
+    if (area) return { lat: area.center.lat, lng: area.center.lng, label: area.label, from: area.source };
     return null;
-  }, [routeLat, routeLng, city, coords]);
+  }, [routeLat, routeLng, area]);
 
   const nearLabel = useNearestCityLabel(center && !center.label ? center : null);
   const centerLabel = center?.label ?? nearLabel.data ?? (center?.from === 'device' ? 'your location' : null);
@@ -215,20 +219,20 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
 
   const changeRadius = (m: number) => {
     const mi = COURT_RADIUS_MILES.find((x) => milesToMeters(x) === m) ?? DEFAULT_COURT_RADIUS_MILES;
-    setRadiusMi(mi);
+    setRadius(mi);
     track('courts.filter', { kind: 'radius', miles: mi });
   };
 
   const pickCity = (s: CitySuggestion) => {
-    setCity(s);
+    pickCityArea(s);
     setChanging(false);
+    if (typeof routeLat === 'number') navigation.setParams({ lat: undefined, lng: undefined });
     track('courts.filter', { kind: 'city' });
   };
 
-  const useDevice = (p: LatLngLike) => {
-    setCoords({ lat: p.lat, lng: p.lng });
+  const chooseDevice = (p: LatLngLike) => {
     // A route or city centre gives way to the place the player is.
-    setCity(null);
+    centerOnDevice({ lat: p.lat, lng: p.lng });
     setChanging(false);
     if (typeof routeLat === 'number') navigation.setParams({ lat: undefined, lng: undefined });
     track('courts.filter', { kind: 'my_location' });
@@ -297,7 +301,7 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
   // Discover's header "+" follows the tab: here it adds a court.
   usePlayHeaderPlus(navigation, inDiscover && live, 'Add a court', addCourt);
 
-  const locationPanel = <LocationPanel onCity={pickCity} onDevice={useDevice} radiusMi={radiusMi} />;
+  const locationPanel = <SearchAreaPanel onCity={pickCity} onDevice={chooseDevice} radiusMi={radiusMi} noun="courts" />;
 
   const chrome = (
     <ListFilterChrome
@@ -332,7 +336,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
 
   const header = (
     <View style={S.headerWrap}>
-      <View style={S.line}>
+      {/* In Discover the area pills above the tabs say where (and change it). */}
+      {inDiscover ? null : <View style={S.line}>
         <Text style={[t.body, S.flex]} numberOfLines={1}>
           📍 Near {centerLabel ?? 'here'}
         </Text>
@@ -346,8 +351,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
             {changing ? 'Done' : 'Change'}
           </Text>
         </TouchableOpacity>
-      </View>
-      {changing ? locationPanel : null}
+      </View>}
+      {changing && !inDiscover ? locationPanel : null}
       <View style={S.line}>
         <TouchableOpacity
           style={S.link}
@@ -372,7 +377,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
     </View>
   );
 
-  const canWiden = radiusMi < WIDEN_COURT_RADIUS_MILES;
+  const widen = widerSearchRadius(radiusMi);
+  const canWiden = widen != null;
   const filtered = rows.length > 0 && visible.length === 0;
 
   return (
@@ -384,8 +390,9 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
         center={center}
         centerLabel={centerLabel}
         radiusM={radiusM}
-        radiusOptions={RADIUS_OPTIONS}
-        onRadiusChange={changeRadius}
+        // In Discover the radius pill above the tabs sets it (one control).
+        radiusOptions={inDiscover ? undefined : RADIUS_OPTIONS}
+        onRadiusChange={inDiscover ? undefined : changeRadius}
         view={view}
         onViewChange={changeView}
         mapPlacement="above"
@@ -429,8 +436,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
                   icon: '📍',
                   title: `No courts within ${radiusMi} mi`,
                   subtitle: "Widen the search, or add a court we don't know yet.",
-                  actionLabel: `Widen to ${WIDEN_COURT_RADIUS_MILES} mi`,
-                  onAction: () => changeRadius(milesToMeters(WIDEN_COURT_RADIUS_MILES)),
+                  actionLabel: `Widen to ${widen} mi`,
+                  onAction: () => changeRadius(milesToMeters(widen ?? radiusMi)),
                 }
               : {
                   icon: '📍',
@@ -459,90 +466,6 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
         }}
       />
       {replaceSheet}
-    </View>
-  );
-}
-
-/** "Use my location" (asks, through DistanceFilterGroup) and "Search a city". */
-function LocationPanel({
-  onCity,
-  onDevice,
-  radiusMi,
-}: {
-  onCity: (c: CitySuggestion) => void;
-  onDevice: (p: LatLngLike) => void;
-  radiusMi: number;
-}) {
-  const { colors: c } = useTheme();
-  const t = textStyles(c);
-  const { coords } = usePlayLocation();
-  const [text, setText] = useState('');
-  const [results, setResults] = useState<CitySuggestion[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const seq = useRef(0);
-
-  const search = async (q: string) => {
-    const n = ++seq.current;
-    if (q.trim().length < 2) {
-      setResults(null);
-      return;
-    }
-    try {
-      const r = await searchUsCities(q);
-      if (n === seq.current) {
-        setResults(r);
-        setFailed(false);
-      }
-    } catch {
-      if (n === seq.current) setFailed(true);
-    }
-  };
-
-  return (
-    <View style={S.panel}>
-      {coords ? (
-        <Button
-          size="sm"
-          variant="outline"
-          iconName="pin"
-          title="Use my location"
-          onPress={() => onDevice(coords)}
-          style={S.hug}
-        />
-      ) : (
-        // Without a location yet: the one place Courts asks for it.
-        <DistanceFilterGroup
-          noun="courts"
-          coords={null}
-          onCoords={onDevice}
-          value={String(radiusMi)}
-          includeAny={false}
-        />
-      )}
-      <FilterSearchField
-        size="sm"
-        value={text}
-        onChangeText={setText}
-        onDebouncedChange={(q) => void search(q)}
-        debounceMs={250}
-        placeholder="Search a city"
-        autoCorrect={false}
-        returnKeyType="search"
-        accessibilityLabel="Search a city"
-      />
-      {failed ? <Text style={t.sub}>Couldn't search cities just now. Try again.</Text> : null}
-      {results && results.length === 0 ? <Text style={t.sub}>No US city by that name.</Text> : null}
-      {results?.map((r) => (
-        <TouchableOpacity
-          key={`${r.label}:${r.lat}:${r.lng}`}
-          style={S.result}
-          onPress={() => onCity(r)}
-          accessibilityRole="button"
-          accessibilityLabel={`Courts near ${r.label}`}
-        >
-          <Text style={t.body}>📍 {r.label}</Text>
-        </TouchableOpacity>
-      ))}
     </View>
   );
 }

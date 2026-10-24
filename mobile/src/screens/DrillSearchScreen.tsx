@@ -1,3 +1,8 @@
+// Find Drillers. Limited to Discover's one search area (the pills at the top,
+// shared with every Discover tab): drillers who PLAY there, by their leagues'
+// home courts and, when their presence privacy names them to you, their
+// starred and frequent courts (data/playersNear; never where they are now).
+// Without an area yet: the 100 drillers nearest your level, as before.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
@@ -22,6 +27,11 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import SearchAreaBar from '../components/SearchAreaBar';
+import { useSearchArea } from '../lib/useSearchArea';
+import { searchAreaKey, type SearchArea } from '../lib/searchArea';
+import { listPlayersNear } from '../data/playersNear';
+import { playsAtLabel } from '../lib/playersNear';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'>;
@@ -43,6 +53,8 @@ type Candidate = {
   overlap: DateSlot[];
   sharedShots: number;
   sharedPartner: number;
+  /** "Plays at Lakeside Park · 2 mi" (search area only). */
+  playsAt: string | null;
 };
 
 type SortMode = 'overlap' | 'shots' | 'elo';
@@ -56,6 +68,10 @@ export default function DrillSearchScreen({ route }: Props) {
   const [search, setSearch]   = useState('');
   const [sort, setSort]       = useState<SortMode>('overlap');
   const [requestTarget, setRequestTarget] = useState<Candidate | null>(null);
+  const { area } = useSearchArea();
+  const areaKey = searchAreaKey(area);
+  const areaRef = useRef<SearchArea | null>(area);
+  areaRef.current = area;
   // "Find a new time" from a push: open the request form for that partner,
   // once, as soon as they are in the list.
   const partnerId = route.params?.partnerId;
@@ -85,9 +101,12 @@ export default function DrillSearchScreen({ route }: Props) {
     // not depend on a side effect of the scrub) and test accounts while God
     // mode hides them. p_near_rating: the 100 drillers nearest my level, so the
     // pool scored below is never just the first 100 names alphabetically.
-    const others = await sbCall(() => supabase
-      .rpc('discover_players', { p_drilling_only: true, p_exclude: [uid], p_limit: 100, p_near_rating: myRating })
-      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')) as any[];
+    const near = areaRef.current;
+    const others = near
+      ? await listPlayersNear(near, { drillingOnly: true, exclude: [uid], limit: 200 }) as any[]
+      : await sbCall(() => supabase
+        .rpc('discover_players', { p_drilling_only: true, p_exclude: [uid], p_limit: 100, p_near_rating: myRating })
+        .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')) as any[];
 
     const dates   = rollingDates();
     const myDated = expandWeeklyToDates(myWeekly, dates);
@@ -111,13 +130,15 @@ export default function DrillSearchScreen({ route }: Props) {
         overlap,
         sharedShots,
         sharedPartner,
+        playsAt: near && p.distance_m != null ? playsAtLabel(p) : null,
       };
     });
 
     return { me, candidates: list };
   }, []);
 
-  const query = useCachedQuery('drill:search', load, {
+  // Keyed by the area: a new area is a new list.
+  const query = useCachedQuery(`drill:search:${areaKey}`, load, {
     ttlMs: 60_000,
     persistMs: 12 * 60 * 60 * 1000,
   });
@@ -163,12 +184,14 @@ export default function DrillSearchScreen({ route }: Props) {
 
   // Only gate on the very first load, and never when it failed — the failure
   // path has to fall through to the list so its pull-to-refresh stays mounted.
+  const areaBar = <SearchAreaBar surface="drill" style={S.areaBar} />;
   if (query.loading && !loadFailed) {
-    return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} /></View>;
+    return <View style={{ flex: 1, backgroundColor: colors.bg }}>{areaBar}<SkeletonList rows={6} /></View>;
   }
 
   return (
     <View style={S.container}>
+      {areaBar}
       <View style={S.searchBar}>
         <TextInput
           style={S.searchInput}
@@ -221,11 +244,17 @@ export default function DrillSearchScreen({ route }: Props) {
                 actionLabel="Retry"
                 onAction={() => { void reload(); }}
               />
-            : <EmptyState
-                icon="🔍"
-                title="No drillers found"
-                subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
-              />
+            : area && !search.trim()
+              ? <EmptyState
+                  icon="📍"
+                  title={`No drillers within ${area.radiusMi} mi`}
+                  subtitle="Drillers show up here by their leagues' courts and the courts they star. Try a wider radius above."
+                />
+              : <EmptyState
+                  icon="🔍"
+                  title="No drillers found"
+                  subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
+                />
         }
         renderItem={({ item }) => {
           const avatar = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
@@ -243,6 +272,7 @@ export default function DrillSearchScreen({ route }: Props) {
                 <View style={{ flex: 1 }}>
                   <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
                   <Text style={S.username}>@{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR ({eloDiffLabel})</Text>
+                  {item.playsAt ? <Text style={S.username} numberOfLines={1}>{item.playsAt}</Text> : null}
                 </View>
               </View>
 
@@ -326,6 +356,7 @@ export default function DrillSearchScreen({ route }: Props) {
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container:     { flex: 1, backgroundColor: c.bg },
+    areaBar:       { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
     searchBar:     { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
     searchInput:   { flex: 1, fontSize: 14, color: c.text, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1.5, borderColor: c.border, borderRadius: 10, backgroundColor: c.surfaceAlt },
     clearBtn:      { paddingHorizontal: 10, paddingVertical: 8, marginLeft: 4 },
