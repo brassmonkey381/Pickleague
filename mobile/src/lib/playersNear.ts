@@ -65,7 +65,9 @@ export type PlayerAnchor = { place: string | null; distanceM: number };
  * The fallback's "where they play": for each player, the nearest home court
  * of a league they are in that lies inside the area. Open leagues only, or a
  * closed league I am in too (a closed league's roster is not public); a guest
- * pass that has run out doesn't count. The server's rule, exactly.
+ * pass that has run out doesn't count. The server's placement rule. Blocks are
+ * not applied here: the server leaves out blocks both ways, the fallback only
+ * the players I blocked (data/playersNear; who blocked me is not readable).
  */
 export function leagueAnchorsInArea(
   leagues: readonly AnchorLeague[],

@@ -12,7 +12,7 @@
 // the league's average PLUPR, ranked by schedule overlap. [Invite] opens the
 // invite code, whose picker searches everyone.
 import { useScreenBottomInset } from '../lib/appChrome';
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Pressable, StyleSheet,
   ActivityIndicator, Modal, ScrollView,
@@ -118,7 +118,10 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [loadingSuggest, setLoadingSuggest] = useState(false);
   // "Players near Lakeside Park · 5 mi" when the suggestions are nearby; null: the old ones.
   const [suggestHeading, setSuggestHeading] = useState<string | null>(null);
-  const { area, saved: savedArea } = useSearchArea();
+  const { area, saved: savedArea, ready: areaReady } = useSearchArea();
+  // Suggest was tapped: it runs once the search area is known (lib/useSearchArea's
+  // `ready`), so a tap on a fresh screen never skips the area step.
+  const [suggestPending, setSuggestPending] = useState(false);
   const [actionTarget, setActionTarget]     = useState<LeagueMember | null>(null);
   const [wagerTotals, setWagerTotals]       = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
@@ -127,6 +130,14 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const refresh = useRefresh(load);
 
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  useEffect(() => {
+    if (!suggestPending || !areaReady) return;
+    setSuggestPending(false);
+    void loadSuggestions();
+    // This render's loadSuggestions reads this render's area.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestPending, areaReady]);
 
   async function load() {
     try {
@@ -223,6 +234,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       // An empty suggestion list reads as "nobody matches you" — say otherwise.
       status.error(friendlySbMessage(e, "Couldn't load suggested players."));
       setSuggestions([]);
+      // Not the place the last list came from.
+      setSuggestHeading(null);
     } finally {
       setLoadingSuggest(false);
     }
@@ -311,7 +324,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
 
   function openSuggest() {
     setShowSuggest(true);
-    loadSuggestions();
+    setLoadingSuggest(true);
+    setSuggestPending(true);
   }
 
   function canManage(target: LeagueMember): boolean {
@@ -620,8 +634,13 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
         ) : suggestions.length === 0 ? (
           <EmptyState
             iconName="search"
-            title="No suggestions found nearby."
-            subtitle="Try setting your availability on your profile so we can find good matches!"
+            title="No players to suggest"
+            subtitle={`No one near ${leagueName || 'this league'} or close to its level turned up. Invite Players In-App searches everyone by name.`}
+            actionLabel="Invite"
+            onAction={() => {
+              setShowSuggest(false);
+              navigation.navigate('Invite', { leagueId, leagueName });
+            }}
           />
         ) : (
           <ScrollView contentContainerStyle={S.modalList}>

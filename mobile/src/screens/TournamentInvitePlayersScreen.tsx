@@ -9,7 +9,7 @@
 //   search        typing a name searches everyone (every page of
 //                 discover_players), not just the suggestions.
 // Registered or pending players are never offered.
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet,
@@ -62,6 +62,16 @@ type Candidate = {
 /** One row's invite: done (optimistic) or the reason it failed. */
 type InviteState = { invited: boolean; error: string | null };
 
+/** What one load() read, applied together (or not at all, when a newer load started). */
+type Loaded = {
+  excluded: Set<string>;
+  avg: number;
+  suggested: Candidate[];
+  everyone: Candidate[];
+  source: SuggestionSource;
+  heading: string | null;
+};
+
 /** The suggestions' level band around the tournament average. */
 const LEVEL_BAND = 1.5;
 const CANDIDATE_COLUMNS = 'id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color';
@@ -104,6 +114,10 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   const [invites, setInvites]       = useState<Record<string, InviteState>>({});
 
   const refresh = useRefresh(load);
+  // Only the newest load() may set the list: the area can change while one is
+  // in flight (the device fix lands after the saved city), and the older read
+  // must not finish last and overwrite it.
+  const loadSeq = useRef(0);
 
   // Waits for the search area (lib/useSearchArea's `ready`): the radius and
   // the fallback centre come from it.
@@ -113,20 +127,30 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   }, [tournamentId, ready, areaKey, saved.radiusMi]));
 
   async function load() {
+    const seq = ++loadSeq.current;
+    const newest = () => seq === loadSeq.current;
     setLoading(true);
     try {
-      await loadInner();
+      const next = await loadInner();
+      if (!newest()) return;
+      setExcluded(next.excluded);
+      setTournamentAvg(next.avg);
+      setCandidates(next.suggested);
+      setEveryone(next.everyone);
+      setSource(next.source);
+      setHeading(next.heading);
       setLoadError(null);
     } catch (e) {
+      if (!newest()) return;
       // Critically, a failed registration read would leave `excluded` empty and
       // list players who are ALREADY registered as invitable.
       setLoadError(friendlySbMessage(e));
     } finally {
-      setLoading(false);
+      if (newest()) setLoading(false);
     }
   }
 
-  async function loadInner() {
+  async function loadInner(): Promise<Loaded> {
     // 1. Existing tournament registrations (any status) — exclude these.
     const regs = ((await sbCall(() => supabase
       .from('tournament_registrations')
@@ -159,24 +183,30 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       (rows) => withinLevel(rows, avg, LEVEL_BAND),
     );
     let suggested: Candidate[];
+    let source: SuggestionSource;
+    let heading: string | null;
     if (hit) {
       suggested = hit.rows.map(p => toCandidate(p, avg, playsAtLabel(p)));
-      setSource(hit.step.source);
-      setHeading(suggestionsHeading(hit.step.source, hit.step.label, hit.step.circle.radiusMi));
+      source = hit.step.source;
+      heading = suggestionsHeading(hit.step.source, hit.step.label, hit.step.circle.radiusMi);
     } else {
       const profs = await sbCall(() => supabase
         .rpc('discover_players', { p_min_rating: avg - LEVEL_BAND, p_max_rating: avg + LEVEL_BAND, p_limit: 500, p_near_rating: avg })
         .select(CANDIDATE_COLUMNS));
       suggested = ((profs ?? []) as any[]).filter(p => !excludeIds.has(p.id)).map(p => toCandidate(p, avg));
-      setSource('anywhere');
-      setHeading(null);
+      source = 'anywhere';
+      heading = null;
     }
     suggested.sort((a, b) => a.ratingDiff - b.ratingDiff);
 
-    setExcluded(excludeIds);
-    setTournamentAvg(avg);
-    setCandidates(suggested);
-    setEveryone(all.filter(p => !excludeIds.has(p.id)).map(p => toCandidate(p, avg)));
+    return {
+      excluded: excludeIds,
+      avg,
+      suggested,
+      everyone: all.filter(p => !excludeIds.has(p.id)).map(p => toCandidate(p, avg)),
+      source,
+      heading,
+    };
   }
 
   async function invite(c: Candidate) {

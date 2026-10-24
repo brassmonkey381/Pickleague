@@ -61,7 +61,7 @@ export default function MultiUserPickerModal({
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
-  const { area, saved } = useSearchArea();
+  const { area, saved, ready } = useSearchArea();
   const areaKey = searchAreaKey(area);
 
   const [users, setUsers]     = useState<MultiPickedUser[]>([]);
@@ -71,11 +71,17 @@ export default function MultiUserPickerModal({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt]     = useState(0);
 
+  // With a nearScope the list waits for the search area (lib/useSearchArea's
+  // `ready`): the radius and the fallback centre come from it, and a list read
+  // before it would be reordered under the user a moment later.
+  const waiting = !!nearScope && !ready;
+
   useEffect(() => {
     if (!visible) return;
-    let live = true;
     setLoading(true);
     setLoadError(null);
+    if (waiting) return;
+    let live = true;
     const exclude = excludeUserIds ?? [];
     // Nearby first; a failure here only drops the suggestions.
     const suggested = (async (): Promise<MultiPickedUser[]> => {
@@ -115,7 +121,7 @@ export default function MultiUserPickerModal({
     return () => { live = false; };
     // The area is read by its key; the exclusions are set before it opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, attempt, nearScope?.type, nearScope?.id, areaKey, saved.radiusMi]);
+  }, [visible, waiting, attempt, nearScope?.type, nearScope?.id, areaKey, saved.radiusMi]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
   const items = useMemo(() => users.filter(u => !exclude.has(u.id)), [users, exclude]);

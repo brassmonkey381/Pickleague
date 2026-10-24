@@ -8,10 +8,10 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { ErrorState } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-import { supabase } from '../lib/supabase';
 import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
+import { listEveryone } from '../data/inviteSuggestions';
 import EmptyState from './EmptyState';
 
 export type PickedUser = {
@@ -75,8 +75,10 @@ export default function UserPickerModal({
     // discover_players (migration_hide_test_accounts.sql): never deleted
     // accounts ([deleted account] tombstones keep shared match history intact,
     // they are not people you can pick), test accounts left out while God mode
-    // hides them, ordered by name, at most 500. realPeopleOnly also leaves out
-    // unclaimed placeholders and guest passes.
+    // hides them. Every page past its 500-row cap (data/inviteSuggestions'
+    // listEveryone), so a name late in the alphabet is still found (the user,
+    // 2026-10-24: "search all"). realPeopleOnly also leaves out unclaimed
+    // placeholders and guest passes.
     if (load) {
       load().then((rows) => {
         if (!live) return;
@@ -90,17 +92,11 @@ export default function UserPickerModal({
       });
       return () => { live = false; };
     }
-    supabase
-      .rpc('discover_players', { p_real_people_only: realPeopleOnly })
-      .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
-      .then(({ data, error }) => {
+    listEveryone<PickedUser>('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color', { realPeopleOnly })
+      .then((rows) => {
         if (!live) return;
-        if (error) {
-          setUsers([]);
-          setLoadError(loadProblem(error));
-        } else {
-          setUsers((data ?? []) as PickedUser[]);
-        }
+        // By name: each page is the next names after the ids already read.
+        setUsers(rows);
         setLoading(false);
       }, (e: unknown) => {
         if (!live) return;

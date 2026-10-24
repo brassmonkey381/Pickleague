@@ -2,12 +2,15 @@
 // tournament's venue: data/inviteSuggestions). lib/playersNear has the rules.
 //
 //   area set   discover_players_near (the server: league home courts only,
-//              blocks, test accounts); before that SQL is applied, the
-//              fallback: discover_players placed by their leagues' home
-//              courts (lib/playersNear, the same rule)
+//              blocks both ways, test accounts); before that SQL is applied,
+//              the fallback: discover_players placed by their leagues' home
+//              courts (lib/playersNear, the same placement rule). The
+//              fallback can only leave out the players I blocked: who
+//              blocked me is not readable here (user_blocks is owner-only).
 //   no area    discover_players, unlimited (nothing to limit by yet)
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { loadBlockedIds } from '../lib/moderation';
 import type { NearCircle } from '../lib/searchArea';
 import {
   NEAR_PLAYER_COLUMNS,
@@ -71,9 +74,10 @@ async function fallbackNear(area: NearCircle, opts: PlayersNearOptions, limit: n
   )) ?? []) as AnchorMember[];
   const anchors = leagueAnchorsInArea(leagues, members, area, { meId, now: Date.now() });
   if (anchors.size === 0) return [];
-  // discover_players applies deletions, test accounts and the filters; 500 is its cap.
-  const everyone = await discoverPlayers(opts, 500);
-  return placePlayers(everyone, anchors).slice(0, limit);
+  // discover_players applies deletions, test accounts and the filters; 500 is
+  // its cap. It applies no blocks: leave out the players I blocked.
+  const [everyone, blocked] = await Promise.all([discoverPlayers(opts, 500), loadBlockedIds()]);
+  return placePlayers(everyone.filter((p) => !blocked.has(p.id)), anchors).slice(0, limit);
 }
 
 export async function listPlayersNear(area: NearCircle | null, opts: PlayersNearOptions = {}): Promise<NearPlayer[]> {

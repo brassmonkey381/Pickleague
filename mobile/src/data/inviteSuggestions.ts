@@ -49,14 +49,22 @@ export function nearForInvite(circle: NearCircle, exclude: readonly string[] = [
  */
 export function listEveryone<P extends { id: string }>(
   columns: string,
-  opts: { exclude?: readonly string[] } = {},
+  opts: {
+    exclude?: readonly string[];
+    /** Leave out unclaimed DUPR placeholders and guest passes. */
+    realPeopleOnly?: boolean;
+  } = {},
 ): Promise<P[]> {
   const base = opts.exclude ?? [];
   return readAllPages<P>(async (seen) => {
     const exclude = [...base, ...seen];
     const rows = await sbCall(() =>
       supabase
-        .rpc('discover_players', { p_exclude: exclude.length ? exclude : null, p_limit: 500 })
+        .rpc('discover_players', {
+          p_exclude: exclude.length ? exclude : null,
+          p_real_people_only: !!opts.realPeopleOnly,
+          p_limit: 500,
+        })
         .select(columns),
     );
     return (rows ?? []) as unknown as P[];
