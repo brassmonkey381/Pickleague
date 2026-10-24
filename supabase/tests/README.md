@@ -120,6 +120,29 @@ No CI runner is wired up yet — these are **human-runnable** today.
     supabase db query --linked -f /tmp/hide_test_accounts_test.sql -o csv
     ```
 
+- `checkin_session_personas.sql` (+ `build-checkin-session-test.mjs`)
+  - Every check-in starts the play session
+    (`migration_checkin_starts_session.sql`): applies it twice and re-runs
+    `migration_rls_hardening_2026q3.sql` inside one rolled-back transaction,
+    then checks: a check-in by hand and an arrival start a linked session (no extra push); Check out, the expiry job, a check-in or
+    an arrival elsewhere end it; a take-back deletes it and reopens the
+    session of the check-in it had closed; a "just time it" timer is adopted
+    by a check-in, and is unchanged alone (it still stops an arrival); a Start
+    right after a check-in takes its session over (no stray one); the app's
+    Start with the check-in's id is a replay; a check-in alone stays "not
+    said" for open to play; nothing pays pickles or streaks. Review fixes
+    (S15-S18): taking back an arrival that ended a running ▶ Play gives the
+    Play back; an arrival while a check-in elsewhere has run out (the expiry
+    job not run yet) lands; a check-in queued offline that lands after a
+    newer Play elsewhere leaves it running; ▶ Play with a fix after a no-fix
+    check-in keeps running. The presence and routines builders splice the
+    migration in too.
+
+    ```sh
+    node supabase/tests/build-checkin-session-test.mjs /tmp/checkin_session_test.sql
+    supabase db query --linked -f /tmp/checkin_session_test.sql -o csv
+    ```
+
 - `check-replaced-functions.mjs`
   - Run against live right before the court arrival files or
     `migration_hide_test_accounts.sql` are applied. Those

@@ -351,7 +351,8 @@ export function refusalCopy(
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
     case 'consent.declined':
-      return "Not checked in: first choose who sees you at the courts. Tap Check in when you're ready.";
+      // The court card's Check in and the bar's ▶ Play both land here.
+      return 'Not checked in: first choose who sees you at the courts, then try again.';
     case 'consent.unknown_offline':
       return "No connection, so Pickleague couldn't check who you chose to see you at the courts. Open Pickleague at the court to check in.";
   }

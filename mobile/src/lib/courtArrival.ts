@@ -38,7 +38,7 @@ import { catalog } from './notificationActions';
 import { loadUserPreferencesResult } from './userPreferences';
 // Also registers the check-in buttons and the queued arrival-cancel replay, so
 // a geofence wake that posts a notice has the handlers its buttons need.
-import { peekCurrentCheckin, PENDING_NOT_HERE_KEY } from './courtCheckin';
+import { arrivalTakenBack, peekCurrentCheckin, PENDING_NOT_HERE_KEY } from './courtCheckin';
 import { playSession } from './playSession';
 import { presenceConsentState } from './presenceConsent';
 import {
@@ -154,11 +154,18 @@ export function arrivedRecently(regionId: string, withinMs = ARRIVAL_QUIET_MS): 
 
 /** A play session is running: the one in memory, or the saved one a fresh wake hasn't loaded. */
 async function playSessionRunning(): Promise<boolean> {
+  return (await runningPlay()) !== null;
+}
+
+/** The play session running (restored if need be), with its court; null when none. */
+async function runningPlay(): Promise<{ venueId: string | null } | null> {
   try {
-    if (playSession.get().status !== 'idle') return true;
-    return (await playSession.restore()).status !== 'idle';
+    let s = playSession.get();
+    if (s.status === 'idle') s = await playSession.restore();
+    if (s.status === 'idle') return null;
+    return { venueId: s.meta?.venueId ?? null };
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -407,8 +414,9 @@ export async function handleCourtArrival(
  * The geofence Exit: take "At X?" down, and drop a waiting arrival (left
  * within the minute: no check-in) or take back the check-in it became (left
  * within 5 minutes: a drive-by). Then, if I'm still checked in there, post
- * "Leaving <court>?" with Check out / Stay 1 more hour. Skipped while a play
- * session runs and when "Remind me to check out when I leave" is off.
+ * "Leaving <court>?" with Check out / Stay 1 more hour (its Check out ends
+ * the play session there too). Skipped while a play session runs at another
+ * court or at none, and when "Remind me to check out when I leave" is off.
  */
 export async function handleCourtDeparture(
   regionId: string,
@@ -437,9 +445,13 @@ export async function handleCourtDeparture(
       // Stopped before it became a check-in (or it will be, once sent): the
       // phone's own "Checked in" must not go off.
       if (cancel?.queued || cancel?.result?.dropped) void cancelScheduledArrivalNotices(regionId);
+      // Taken back: the server deleted the session it started, so the island
+      // drops it (lib/checkinPlay), as after Not here. A queued cancel says
+      // so when it is sent (lib/courtCheckin's replay).
+      if (cancel?.result?.removed) arrivalTakenBack.emit({ venueId: regionId });
     }
-    const [session, settings] = await Promise.all([playSessionRunning(), settingsOrNull()]);
-    const d = decideDeparture({ cancel, playSessionActive: session, settings });
+    const [session, settings] = await Promise.all([runningPlay(), settingsOrNull()]);
+    const d = decideDeparture({ cancel, regionId, playSession: session, settings });
     traceArrival('departure', { id: regionId, action: d.action, why: d.action === 'quiet' ? d.why : null });
     if (d.action === 'took_back') {
       // Its "Checked in" / "Still at" now describe a visit that didn't count.

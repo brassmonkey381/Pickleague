@@ -32,6 +32,22 @@ export function takeCheckinIslandRequest(): boolean {
 export type CheckinHostBusy = 'find' | 'checkin' | 'extend' | 'out' | null;
 export const checkinHostBusy = createSignal<CheckinHostBusy>();
 
+// The play island's Check out (= End, lib/checkinPlay checkOutAndEnd): the
+// session clears at once, the check-out takes up to its fix wait plus the
+// write. Meanwhile the host and the bar hide that check-in (it is on its
+// way out), and it shows again if the check-out is refused.
+let checkingOut: string | null = null;
+/** Emits the check-in id the island is checking out of, or null when that is done. */
+export const checkoutInFlight = createSignal<string | null>();
+export function setCheckoutInFlight(id: string | null): void {
+  checkingOut = id;
+  checkoutInFlight.emit(id);
+}
+/** The check-in the island is checking out of right now, or null. */
+export function checkoutInFlightId(): string | null {
+  return checkingOut;
+}
+
 /**
  * Whether CheckinHost is mounted and owns the once-only notes (a queued
  * check-in refused later, one that ended without a Check out). Home's court

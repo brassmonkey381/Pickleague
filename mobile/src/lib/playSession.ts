@@ -72,6 +72,7 @@ import { queuedRefusalNotice, untrackedStartNote, type UntrackedStartReason } fr
 import {
   drillMadeItCount,
   drillReviewNote,
+  endedWithCheckin,
   type EndedPlay,
   type RecordedForSession,
   type LostPlayReason,
@@ -80,6 +81,7 @@ import {
   endPlaySession,
   getMyActivePlaySession,
   getMyPlaySession,
+  getMyPlaySessionCheckinId,
   getMySessionValidity,
   getMyUpcomingPlay,
   startPlaySession,
@@ -376,12 +378,24 @@ registerMutationHandler(MUTATION_END, {
 export const playStartLanded = createSignal<{ id: string; venueId: string | null; at: string }>();
 
 export function startPlay(
-  meta: Omit<PlayMeta, 'label'> & { label?: string; fix?: DeviceFix | null; viaCheckin?: boolean },
+  meta: Omit<PlayMeta, 'label'> & {
+    label?: string;
+    fix?: DeviceFix | null;
+    viaCheckin?: boolean;
+    /** The session's id: a check-in's own, when a check-in starts it (lib/checkinPlay). */
+    id?: string;
+    /** When it began, if earlier than now (the check-in's time). */
+    startedAtMs?: number;
+  },
 ): string {
-  const id = uuidv4();
+  const { fix, viaCheckin, id: givenId, startedAtMs, ...rest } = meta;
+  const id = givenId ?? uuidv4();
   const at = new Date().toISOString();
-  const { fix, viaCheckin, ...rest } = meta;
-  playSession.start(id, { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] }, Date.parse(at));
+  playSession.start(
+    id,
+    { ...rest, label: meta.label ?? PLAY_LABEL[meta.kind] },
+    startedAtMs != null && startedAtMs < Date.parse(at) ? startedAtMs : Date.parse(at),
+  );
   const payload: StartPayload = {
     id,
     kind: meta.kind,
@@ -450,8 +464,10 @@ export function endPlay(): EndedPlay | null {
   const payload: EndPayload = { id: s.id, at: new Date().toISOString() };
   const atCourt = !!s.meta?.venueId;
   playSession.clear();
-  // The server closes the session's own check-in; an adopted one stays.
-  void forgetCheckin(payload.id);
+  // The server closes the session's own check-in; an adopted one stays (a
+  // check-in that started this session shares its id but is not the
+  // session's own: Check out on the island closes it, lib/checkinPlay).
+  void forgetCheckin(payload.id, 'session');
   void Promise.all([
     markEndPending(payload.id, Date.parse(payload.at)).catch(() => {}), // best-effort; the End goes out regardless
     atCourt ? fixWithin(() => takeFixIfAllowed(CHECKOUT_FIX_WAIT_MS), CHECKOUT_FIX_WAIT_MS) : Promise.resolve(null),
@@ -579,6 +595,8 @@ export type LostPlay = {
   endedAtMs: number | null;
   reason: LostPlayReason;
   recorded: RecordedForSession;
+  /** The court, for 'checked_out' ("Your check-in at X ended..."). */
+  venueName?: string | null;
 };
 
 /** Emits when the island's session turns out to be over on the server (PlayIsland says why). */
@@ -607,11 +625,26 @@ async function explainLostPlay(local: { id: string; startedAtMs: number; meta: P
       }
       endedAtMs = startedAtMs + AUTO_END_MS;
     }
-    const reason: LostPlayReason = !row
+    let reason: LostPlayReason = !row
       ? 'never_saved'
       : endedAtMs != null && endedAtMs - startedAtMs >= AUTO_END_MS - 60_000
         ? 'auto_ended'
         : 'ended_elsewhere';
+    let venueName = local.meta.venueName ?? null;
+    if (reason === 'ended_elsewhere' && endedAtMs != null) {
+      // Its check-in ended, and the session with it (the server's check-out
+      // trigger, migration_checkin_starts_session.sql): it ran out, was
+      // checked out from a notification or another device, or an arrival or
+      // check-in at another court closed it. Before that file, no session
+      // has a check-in to read, and this stays 'ended_elsewhere'.
+      const checkinId = await getMyPlaySessionCheckinId(local.id);
+      const checkin = checkinId ? await getMyCheckin(checkinId) : null;
+      const end = checkin ? { checkedOutAtMs: checkin.checked_out_at ? Date.parse(checkin.checked_out_at) : null } : null;
+      if (checkin && endedWithCheckin({ endedAtMs, checkin: end })) {
+        reason = 'checked_out';
+        venueName = venueName ?? (await getVenueName(checkin.venue_id).catch(() => null));
+      }
+    }
     playLost.emit({
       id: local.id,
       kind: local.meta.kind,
@@ -620,6 +653,7 @@ async function explainLostPlay(local: { id: string; startedAtMs: number; meta: P
       endedAtMs,
       reason,
       recorded: recordedFor.get(local.id) ?? local.meta.recorded ?? null,
+      venueName,
     });
   } catch {
     explainedLost.delete(local.id); // offline: try again on the next resume
@@ -689,6 +723,8 @@ export type PlayStartRequest = {
   sourceId?: string | null;
   /** "▶ Play here": this court, picked (the plan's C3). */
   venue?: { id: string; name: string };
+  /** Switch mode on the island: the sheet opens over the running session, and its Start replaces it. */
+  switching?: boolean;
 };
 
 /** Emits when the start sheet should open (its host takes the request). */
@@ -701,7 +737,7 @@ let pendingStart: PlayStartRequest | null = null;
 
 /** Open the start sheet, or expand the island when a session already runs. */
 export function openPlayStart(req: PlayStartRequest = {}): void {
-  if (playSession.get().status !== 'idle') {
+  if (playSession.get().status !== 'idle' && !req.switching) {
     playIslandExpand.emit();
     return;
   }

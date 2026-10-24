@@ -609,6 +609,12 @@ begin
   perform pg_temp.ok('T35 1.0.4 embedded extend {p_id, p_until}: as before', r.expires_at = now() + interval '3 hours', r::text);
   select public.checkout_venue(p_id => 'c3000000-0000-4000-8000-000000000406', p_source => null) into n;
   perform pg_temp.ok('T35 1.0.4 embedded check-out {p_id, p_source}: as before', n = 1, n::text);
+  -- That check-in started a session (migration_checkin_starts_session.sql),
+  -- ended at its check-out, now(): the no-overlap rule would move the
+  -- backdated Start below up to it. Gone, so this checks the Start alone.
+  perform pg_temp.as_admin();
+  delete from public.play_sessions where user_id = pg_temp.p('TM') and checkin_id = id;
+  perform pg_temp.as_user(pg_temp.p('TM'));
   select * into s from public.start_play_session(p_id => 'f3000000-0000-4000-8000-000000000402', p_kind => 'open_play',
     p_source => null, p_venue => 'test:tt-court', p_at => now() - interval '20 minutes');
   perform pg_temp.ok('T35 1.0.4 embedded Start {p_id, p_kind, p_source, p_venue, p_at}: stored untracked, as before',

@@ -4,8 +4,84 @@
 //
 // PURE: no react-native, no expo.
 
-/** The bar's slots, left to right (the user's order, 2026-10-22). */
-export type NavSlot = 'home' | 'play' | 'checkin' | 'discover' | 'me';
+/**
+ * The bar's slots. Since 2026-10-24 ("go merge play and check-in"): Home ·
+ * Saved · ( ▶ Play ) · Discover · Me, with Play and Check in one centre
+ * action ('play'). 'checkin' stays for the analytics of older builds.
+ */
+export type NavSlot = 'home' | 'saved' | 'play' | 'checkin' | 'discover' | 'me';
+export type SideSlot = Extract<NavSlot, 'home' | 'saved' | 'discover' | 'me'>;
+
+/** The side slots, left to right (the centre ▶ Play sits in the middle). Discover only when it is on. */
+export function navSideSlots(p: { discover: boolean }): SideSlot[] {
+  return p.discover ? ['home', 'saved', 'discover', 'me'] : ['home', 'saved', 'me'];
+}
+
+/** What the centre button shows and does. */
+export type CentreState = {
+  /** The label under the button: "▶ Play", a running clock, or what it is doing. */
+  label: string;
+  /** Lit: a session or a check-in is on. */
+  active: boolean;
+  /** 'start': one tap checks in at the court I'm at and starts the timer;
+   *  'island': show the session's island; 'checkin': show the check-in's. */
+  action: 'start' | 'island' | 'checkin';
+  accessibilityLabel: string;
+  accessibilityHint: string;
+};
+
+/** m:ss, or h:mm:ss from an hour. */
+export function clockLabel(totalSeconds: number): string {
+  const t = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * The centre button. Idle: "Play" (one tap = check in here and start the
+ * timer). Playing: the running clock, opening the island. Checked in with no
+ * session running (a check-in from before the merge, or one whose session the
+ * 6-hour expiry ended): "Checked in", opening the check-in's island, which
+ * offers ▶ Start playing. Busy (finding the court, checking in or out) says so.
+ */
+export function centreState(p: {
+  playing: boolean;
+  elapsedSeconds: number;
+  checkedInVenue: string | null;
+  busy: 'find' | 'checkin' | 'extend' | 'out' | null;
+}): CentreState {
+  if (p.playing) {
+    const clock = clockLabel(p.elapsedSeconds);
+    return {
+      label: clock,
+      active: true,
+      action: 'island',
+      // Not the clock: it changes every second (the island reads it out).
+      accessibilityLabel: 'Playing',
+      accessibilityHint: 'Shows your session',
+    };
+  }
+  const busyLabel =
+    p.busy === 'find' ? 'Finding…' : p.busy === 'checkin' ? 'Starting…' : p.busy === 'out' ? 'Checking out…' : null;
+  if (p.checkedInVenue) {
+    return {
+      label: busyLabel ?? 'Checked in',
+      active: true,
+      action: 'checkin',
+      accessibilityLabel: `Checked in at ${p.checkedInVenue}`,
+      accessibilityHint: 'Shows your check-in',
+    };
+  }
+  return {
+    label: busyLabel ?? 'Play',
+    active: false,
+    action: 'start',
+    accessibilityLabel: 'Play',
+    accessibilityHint: 'Checks you in at the court you are at and starts timing your play',
+  };
+}
 
 /**
  * Routes with no bar: the signed-out stack (Login, Register, GuestJoin,
@@ -40,6 +116,8 @@ export function activeNavSlot(route: string | null | undefined, params?: Record<
   switch (route) {
     case 'Home':
       return 'home';
+    case 'Bookmarks':
+      return 'saved';
     case 'Discover':
       return 'discover';
     case 'Profile': {

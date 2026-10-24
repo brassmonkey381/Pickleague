@@ -26,6 +26,9 @@ const BODY = path.join(here, 'court_routines_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const MIGRATION = 'migration_court_routines.sql';
 const PLANNED_END = 'migration_court_routines_planned_end.sql';
+// Every check-in starts the play session: replaces process_court_arrivals and
+// cancel_court_arrival again, so it goes after every run of the two files above.
+const CHECKIN_SESSION = 'migration_checkin_starts_session.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
@@ -85,6 +88,7 @@ const spliced = [
   `-- ════ ${MIGRATION} (re-run) ════\n${read(MIGRATION)}`,
   `-- ════ ${PLANNED_END} ════\n${read(PLANNED_END)}`,
   `-- ════ ${PLANNED_END} (re-run) ════\n${read(PLANNED_END)}`,
+  `-- ════ ${CHECKIN_SESSION} ════\n${read(CHECKIN_SESSION)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,
 ].join('\n');
 

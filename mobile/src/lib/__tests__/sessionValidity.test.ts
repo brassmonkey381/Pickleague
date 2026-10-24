@@ -12,6 +12,7 @@ import {
   endDecisionWithServer,
   endSheetBody,
   isMissingColumnError,
+  endedWithCheckin,
   lostPlayNote,
   lostPlayOffersRecord,
   notNowNote,
@@ -563,6 +564,28 @@ describe("lostPlayNote (the island's session ended without this device)", () => 
     expect(
       lostPlayNote({ reason: 'auto_ended', startedAtMs: end - 6 * 60 * MIN, endedAtMs: end }, { timeLabel: label, nowMs: end + 10 * 60 * MIN }),
     ).toBe('Your play session from 11:30 ended on its own after 6 hours, at 17:30.');
+  });
+
+  it('ended with its check-in (run out, checked out elsewhere): says so, and the end sheet asks while there is time', () => {
+    const end = T0 - 30 * MIN;
+    expect(
+      lostPlayNote({ reason: 'checked_out', startedAtMs: end - 40 * MIN, endedAtMs: end, venueName: 'Riverside' }, { timeLabel: label, nowMs: T0 }),
+    ).toBe('Your check-in at Riverside ended at 17:30, so your play session did too. If you played, record a match or drill by 19:30 so it counts.');
+    expect(lostPlayOffersRecord({ reason: 'checked_out', endedAtMs: end }, T0)).toBe(true);
+    expect(lostPlayOffersRecord({ reason: 'checked_out', endedAtMs: end }, end + RECORD_WINDOW_MS)).toBe(false);
+    // Too late to record, and no court name: the end alone.
+    expect(
+      lostPlayNote({ reason: 'checked_out', startedAtMs: end - 40 * MIN, endedAtMs: end }, { timeLabel: label, nowMs: end + RECORD_WINDOW_MS }),
+    ).toBe('Your check-in ended at 17:30, so your play session did too.');
+  });
+
+  it("ended with its check-in: the check-in closed at the session's end (one statement on the server)", () => {
+    expect(endedWithCheckin({ endedAtMs: T0, checkin: { checkedOutAtMs: T0 } })).toBe(true);
+    expect(endedWithCheckin({ endedAtMs: T0, checkin: { checkedOutAtMs: T0 + 1_500 } })).toBe(true);
+    // Still open (a newer Start elsewhere ended the session), closed at another time, or no check-in.
+    expect(endedWithCheckin({ endedAtMs: T0, checkin: { checkedOutAtMs: null } })).toBe(false);
+    expect(endedWithCheckin({ endedAtMs: T0, checkin: { checkedOutAtMs: T0 + 10 * MIN } })).toBe(false);
+    expect(endedWithCheckin({ endedAtMs: T0, checkin: null })).toBe(false);
   });
 
   it('ended elsewhere, or never saved', () => {

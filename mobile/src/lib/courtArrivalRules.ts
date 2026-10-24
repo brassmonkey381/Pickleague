@@ -491,14 +491,20 @@ export type DepartureDecision =
 export function decideDeparture(f: {
   /** The Exit's cancel: null when none was sent (or it failed outright). */
   cancel: { queued: boolean; result?: CancelCourtArrivalResult | null } | null;
-  playSessionActive: boolean;
+  /** The court left. */
+  regionId: string;
+  /** The play session running, with its court (null: a timer at no court); null when none runs. */
+  playSession: { venueId: string | null } | null;
   settings: CourtArrivalSettings | null;
 }): DepartureDecision {
   // Removed or closed: nothing left to remind about. Only 'dropped' (no
   // check-in yet) and a queued cancel go on: "Check in now" may have made one.
   if (f.cancel?.result?.removed || f.cancel?.result?.closed) return { action: 'took_back' };
-  // A play session ends with its End, not with a reminder.
-  if (f.playSessionActive) return { action: 'quiet', why: 'play_session' };
+  // A session at another court, or at none (a timer): leaving this court
+  // says nothing about it. One at this court is its check-in's (every
+  // check-in starts the session, 2026-10-24): "Leaving X?" goes on, and its
+  // Check out ends the session too (lib/checkinPlay).
+  if (f.playSession && f.playSession.venueId !== f.regionId) return { action: 'quiet', why: 'play_session' };
   // "Remind me to check out when I leave" off. Unreadable settings: on.
   if (f.settings && !f.settings.departure_reminder) return { action: 'quiet', why: 'reminder_off' };
   return { action: 'check_open' };
@@ -532,10 +538,13 @@ export type LeavingDecision =
     };
 
 /**
- * "Leaving X?" only for an open check-in of mine at this court that isn't a
- * play session's, with its id: Check out with no id closes EVERY open
- * check-in I have, so a notice without one is never posted. Once per court
- * per 30 minutes.
+ * "Leaving X?" only for an open check-in of mine at this court, with its id:
+ * Check out with no id closes EVERY open check-in I have, so a notice without
+ * one is never posted. A ▶ Play's own check-in ('session') too: Check out is
+ * the End since 2026-10-24 ("go merge play and check-in"), and its Check out
+ * ends the session (lib/checkinPlay; the server too, once
+ * migration_checkin_starts_session.sql is live). Once per court per 30
+ * minutes.
  */
 export function decideLeaving(f: {
   regionId: string;
@@ -548,7 +557,6 @@ export function decideLeaving(f: {
   const o = f.open;
   if (!o) return { action: 'quiet', why: 'not_checked_in' };
   if (o.venue_id !== f.regionId) return { action: 'quiet', why: 'checked_in_elsewhere' };
-  if (o.source === 'session') return { action: 'quiet', why: 'session_checkin' };
   if (!o.id) return { action: 'quiet', why: 'no_checkin_id' };
   if (f.lastPromptAtMs != null && f.nowMs - f.lastPromptAtMs < DEPARTURE_COOLDOWN_MS) {
     return { action: 'quiet', why: 'cooldown' };
