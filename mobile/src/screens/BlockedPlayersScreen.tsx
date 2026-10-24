@@ -1,9 +1,13 @@
-// Settings → Blocked players. Every block made from a "⋯" menu is undoable
+// Settings → Blocked players. Every block made from a player's More menu is undoable
 // here, which is the half of blocking people actually go looking for.
 import React, { useCallback, useState } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, FlatList, TouchableOpacity, StyleSheet,
 } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
@@ -82,9 +86,9 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
           <ErrorState error={loadError} onRetry={() => { void load(true); }} />
         ) : (
         <EmptyState
-          icon="🛡️"
+          iconName="shield"
           title="No blocked players"
-          subtitle={`Block someone from the "⋯" menu on their profile. To report content, use the same menu — we review reports within 24 hours (${SUPPORT_EMAIL}).`}
+          subtitle={`Block someone from the More menu on their profile. To report content, use the same menu — we review reports within 24 hours (${SUPPORT_EMAIL}).`}
         />
         )
       }
@@ -94,24 +98,26 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
             style={S.who}
             activeOpacity={0.8}
             onPress={() => navigation.navigate('PlayerProfile', { userId: item.user_id, userName: item.full_name })}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${item.full_name}'s profile`}
           >
             {item.avatar_url
               ? <CachedImage source={{ uri: item.avatar_url }} style={S.avatar} />
-              : <View style={[S.avatar, S.avatarFallback]}><Text style={S.avatarGlyph}>🚫</Text></View>}
-            <View style={{ flex: 1 }}>
+              : <View style={[S.avatar, S.avatarFallback]}><Icon name="block" size={18} color={colors.textMuted} /></View>}
+            <View style={S.flex}>
               <Text style={S.name} numberOfLines={1}>{item.full_name}</Text>
               {item.username ? <Text style={S.handle} numberOfLines={1}>@{item.username}</Text> : null}
             </View>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={S.undoBtn}
+          <Button
+            title="Unblock"
+            size="sm"
+            variant="outline"
             onPress={() => { void undo(item); }}
-            disabled={busyId === item.user_id}
-          >
-            {busyId === item.user_id
-              ? <ActivityIndicator size="small" color={colors.primary} />
-              : <Text style={S.undoText}>Unblock</Text>}
-          </TouchableOpacity>
+            loading={busyId === item.user_id}
+            accessibilityLabel={`Unblock ${item.full_name}`}
+            style={S.undoBtn}
+          />
         </View>
       )}
     />
@@ -119,18 +125,18 @@ export default function BlockedPlayersScreen({ navigation }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     page:      { flex: 1, backgroundColor: c.bg },
-    content:   { padding: 16, flexGrow: 1 },
-    blurb:     { fontSize: 13, color: c.textMuted, lineHeight: 19, marginBottom: 14 },
-    row:       { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 12, padding: 12, marginBottom: 10, gap: 10 },
-    who:       { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
-    avatar:    { width: 40, height: 40, borderRadius: 20 },
+    content:   { padding: SPACE.lg, flexGrow: 1 },
+    blurb:     { ...t.hint, marginBottom: SPACE.md },
+    row:       { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.md, marginBottom: SPACE.sm, gap: SPACE.sm },
+    who:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flex: 1, minHeight: 44 },
+    flex:      { flex: 1, minWidth: 0 },
+    avatar:    { width: 40, height: 40, borderRadius: RADIUS.pill },
     avatarFallback: { backgroundColor: c.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
-    avatarGlyph: { fontSize: 18 },
-    name:      { fontSize: 15, fontWeight: '700', color: c.text },
-    handle:    { fontSize: 12, color: c.textMuted, marginTop: 1 },
-    undoBtn:   { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: c.primary, minWidth: 88, alignItems: 'center' },
-    undoText:  { color: c.primary, fontWeight: '700', fontSize: 13 },
+    name:      t.title,
+    handle:    { ...t.hint, marginTop: SPACE.xxs / 2 },
+    undoBtn:   { minWidth: 88 },
   });
 }

@@ -1,8 +1,20 @@
+// "New event" (Events > +): title, court, notes, minimum, the vote deadline and
+// 2-6 proposed times.
+//
+// Glyphs + tokens (2026-10-24): the inputs are the foundation TextField, the
+// deadline presets are Chips (as SeasonSetupSheet's presets), the result is a
+// StatusBanner (words, no check / cross characters), Create is the foundation
+// Button, and the arrow between a time option's Start and End is a glyph.
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, StyleSheet,
   ScrollView,
 } from 'react-native';
+import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
+import { Chip, StatusBanner } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -225,13 +237,12 @@ export default function CreateEventScreen({ navigation, route }: Props) {
     <>
       <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
         {/* Title */}
-        <Text style={S.label}>Event Title</Text>
-        <TextInput
-          style={S.input}
+        <TextField
+          label="Event Title"
           placeholder="e.g. May League Night"
-          placeholderTextColor={colors.textMuted}
           value={title}
           onChangeText={setTitle}
+          containerStyle={S.field}
         />
 
         <Text style={S.label}>Location (optional)</Text>
@@ -243,14 +254,14 @@ export default function CreateEventScreen({ navigation, route }: Props) {
           placeholder="Search for a court or venue…"
         />
 
-        <Text style={S.label}>Description (optional)</Text>
-        <TextInput
-          style={[S.input, S.multiline]}
+        <TextField
+          label="Description (optional)"
           placeholder="Notes, what to bring..."
-          placeholderTextColor={colors.textMuted}
           value={description}
           onChangeText={setDescription}
           multiline
+          style={S.multiline}
+          containerStyle={S.field}
         />
 
         <Text style={S.label}>Minimum players (optional)</Text>
@@ -258,14 +269,13 @@ export default function CreateEventScreen({ navigation, route }: Props) {
           If no single time option gets at least this many players, the event is
           cancelled when voting closes. Leave blank for no minimum.
         </Text>
-        <TextInput
-          style={S.input}
+        <TextField
           placeholder="e.g. 4"
-          placeholderTextColor={colors.textMuted}
           value={minPlayers}
-          onChangeText={(t) => setMinPlayers(t.replace(/[^0-9]/g, ''))}
+          onChangeText={(v) => setMinPlayers(v.replace(/[^0-9]/g, ''))}
           keyboardType="number-pad"
           maxLength={3}
+          containerStyle={S.fieldTight}
         />
 
         {/* Vote deadline */}
@@ -273,26 +283,32 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         <Text style={S.hint}>Players have until this time to mark their availability.</Text>
 
         <View style={S.presetRow}>
-          {DEADLINE_PRESETS.map((p) => (
-            <TouchableOpacity
-              key={p.hours}
-              style={[S.presetBtn, deadlinePreset === p.hours && !customDeadline && S.presetBtnActive]}
-              onPress={() => { setDeadlinePreset(p.hours); setCustomDeadline(null); }}
-            >
-              <Text style={[S.presetBtnText, deadlinePreset === p.hours && !customDeadline && S.presetBtnTextActive]}>
-                {p.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-          <TouchableOpacity
-            style={[S.presetBtn, !!customDeadline && S.presetBtnActive]}
+          {DEADLINE_PRESETS.map((p) => {
+            const active = deadlinePreset === p.hours && !customDeadline;
+            return (
+              <Chip
+                key={p.hours}
+                label={p.label}
+                tone={active ? 'brand' : 'neutral'}
+                selected={active}
+                hitBox
+                onPress={() => { setDeadlinePreset(p.hours); setCustomDeadline(null); }}
+                accessibilityRole="button"
+              />
+            );
+          })}
+          <Chip
+            label="Custom"
+            tone={customDeadline ? 'brand' : 'neutral'}
+            selected={!!customDeadline}
+            hitBox
             onPress={editDeadline}
-          >
-            <Text style={[S.presetBtnText, !!customDeadline && S.presetBtnTextActive]}>Custom</Text>
-          </TouchableOpacity>
+            accessibilityRole="button"
+          />
         </View>
 
-        <TouchableOpacity style={S.deadlineDisplay} onPress={editDeadline}>
+        <TouchableOpacity style={S.deadlineDisplay} onPress={editDeadline} accessibilityRole="button">
+          <Icon name="clock" size={14} color={colors.textMuted} />
           <Text style={S.deadlineLabel}>Closes</Text>
           <Text style={S.deadlineValue}>
             {voteEndsAt.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
@@ -310,19 +326,24 @@ export default function CreateEventScreen({ navigation, route }: Props) {
             <View style={S.slotHeader}>
               <Text style={S.slotNum}>Option {i + 1}</Text>
               {slots.length > 2 && (
-                <TouchableOpacity onPress={() => removeSlot(i)}>
+                <TouchableOpacity
+                  onPress={() => removeSlot(i)}
+                  style={S.removeBox}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove option ${i + 1}`}
+                >
                   <Text style={S.removeBtn}>Remove</Text>
                 </TouchableOpacity>
               )}
             </View>
             <View style={S.slotRow}>
-              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'start')}>
+              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'start')} accessibilityRole="button">
                 <Text style={S.timeBtnLabel}>Start</Text>
                 <Text style={S.timeBtnDate}>{fmtDate(slot.startsAt)}</Text>
                 <Text style={S.timeBtnTime}>{fmtTime(slot.startsAt)}</Text>
               </TouchableOpacity>
-              <Text style={S.arrow}>→</Text>
-              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'end')}>
+              <Icon name="arrow-right" size={16} color={colors.textMuted} />
+              <TouchableOpacity style={S.timeBtn} onPress={() => editSlot(i, 'end')} accessibilityRole="button">
                 <Text style={S.timeBtnLabel}>End</Text>
                 <Text style={S.timeBtnDate}>{fmtDate(slot.endsAt)}</Text>
                 <Text style={S.timeBtnTime}>{fmtTime(slot.endsAt)}</Text>
@@ -332,29 +353,25 @@ export default function CreateEventScreen({ navigation, route }: Props) {
         ))}
 
         {slots.length < 6 && (
-          <TouchableOpacity style={S.addSlotBtn} onPress={addSlot}>
-            <Text style={S.addSlotText}>+ Add another time option</Text>
+          <TouchableOpacity style={S.addSlotBtn} onPress={addSlot} accessibilityRole="button">
+            <Icon name="plus" size={16} color={colors.primary} />
+            <Text style={S.addSlotText}>Add another time option</Text>
           </TouchableOpacity>
         )}
 
         {/* Status message */}
-        {statusMsg && (
-          <View style={[S.statusBox, statusMsg.isError ? S.statusError : S.statusSuccess]}>
-            <Text style={[S.statusText, statusMsg.isError ? S.statusTextError : S.statusTextSuccess]}>
-              {statusMsg.isError ? '✕  ' : '✓  '}{statusMsg.text}
-            </Text>
-          </View>
-        )}
+        <StatusBanner
+          status={statusMsg ? { kind: statusMsg.isError ? 'error' : 'success', text: statusMsg.text } : null}
+          style={S.status}
+        />
 
-        <TouchableOpacity
-          style={[S.submitBtn, (loading || created) && S.submitBtnDisabled]}
+        <Button
+          title={loading ? 'Creating...' : created ? 'Created' : 'Create Event & Open Voting'}
           onPress={submit}
+          loading={loading}
           disabled={loading || created}
-        >
-          <Text style={S.submitText}>
-            {loading ? 'Creating...' : created ? 'Created' : 'Create Event & Open Voting'}
-          </Text>
-        </TouchableOpacity>
+          style={S.submit}
+        />
       </ScrollView>
 
       {/* Picker rendered outside ScrollView so it's not clipped */}
@@ -370,41 +387,49 @@ export default function CreateEventScreen({ navigation, route }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 40 },
-    label: { fontSize: 14, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 16 },
-    input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 16, backgroundColor: c.surface, color: c.text },
-    multiline: { height: 72, textAlignVertical: 'top' },
-    sectionHeader: { fontSize: 16, fontWeight: '700', color: c.text, marginTop: 28, marginBottom: 4 },
-    hint: { fontSize: 13, color: c.textMuted, marginBottom: 12 },
-    presetRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
-    presetBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: c.border },
-    presetBtnActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    presetBtnText: { fontSize: 14, color: c.textSub, fontWeight: '500' },
-    presetBtnTextActive: { color: c.primary, fontWeight: '700' },
-    deadlineDisplay: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: c.bg, borderRadius: 8, padding: 12, marginBottom: 4 },
-    deadlineLabel: { fontSize: 12, color: c.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
-    deadlineValue: { fontSize: 14, color: c.text, fontWeight: '600' },
-    slotCard: { backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
-    slotHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
-    slotNum: { fontSize: 14, fontWeight: '700', color: c.text },
-    removeBtn: { fontSize: 13, color: c.danger },
-    slotRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    timeBtn: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 10, backgroundColor: c.surface, alignItems: 'center' },
-    timeBtnLabel: { fontSize: 10, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 },
-    timeBtnDate: { fontSize: 13, fontWeight: '600', color: c.text },
-    timeBtnTime: { fontSize: 12, color: c.primary, marginTop: 2, fontWeight: '600' },
-    arrow: { fontSize: 18, color: c.border },
-    addSlotBtn: { borderWidth: 1.5, borderColor: c.primary, borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 8, borderStyle: 'dashed' },
-    addSlotText: { color: c.primary, fontWeight: '600', fontSize: 15 },
-    statusBox: { borderRadius: 8, padding: 14, marginTop: 12, marginBottom: 4 },
-    statusError: { backgroundColor: '#ffebee' },
-    statusSuccess: { backgroundColor: c.primaryLight },
-    statusText: { fontSize: 14, fontWeight: '600' },
-    statusTextError: { color: c.danger },
-    statusTextSuccess: { color: c.primary },
-    submitBtn: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 16 },
-    submitBtnDisabled: { backgroundColor: c.primary + '80' },
-    submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    // The lg gutter on the sides, as every sheet and form.
+    container: { padding: SPACE.lg, backgroundColor: c.surface, flexGrow: 1, paddingBottom: SPACE.xl * 2 },
+    // Same type and gap as TextField's own label, so the picker's label and
+    // the fields' labels read as one set.
+    label: { ...t.fieldLabel, marginTop: SPACE.lg, marginBottom: SPACE.xs + SPACE.xxs },
+    field: { marginTop: SPACE.lg, marginBottom: 0 },
+    fieldTight: { marginBottom: 0 },
+    multiline: { minHeight: 72, textAlignVertical: 'top' },
+    sectionHeader: { ...t.h3, marginTop: SPACE.xl, marginBottom: SPACE.xs },
+    hint: { ...t.hint, marginBottom: SPACE.md },
+    presetRow: { flexDirection: 'row', columnGap: SPACE.sm, flexWrap: 'wrap', marginBottom: SPACE.xs },
+    deadlineDisplay: {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44,
+      backgroundColor: c.bg, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, marginBottom: SPACE.xs,
+    },
+    deadlineLabel: { ...t.fieldLabel },
+    deadlineValue: { ...t.bodySub, color: c.text, fontWeight: FONT.weight.semibold },
+    slotCard: {
+      backgroundColor: c.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm,
+      borderWidth: HAIRLINE, borderColor: c.border,
+    },
+    slotHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACE.sm },
+    slotNum: { ...t.title },
+    // A 44 box that hugs the word (react-native-web ignores hitSlop); the
+    // negative margin keeps the header row as tall as before.
+    removeBox: { minHeight: 44, minWidth: 44, alignItems: 'flex-end', justifyContent: 'center', marginVertical: -SPACE.md },
+    removeBtn: { ...t.sub, color: c.danger, fontWeight: FONT.weight.semibold },
+    slotRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    timeBtn: {
+      flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md,
+      padding: SPACE.sm, backgroundColor: c.surface, alignItems: 'center',
+    },
+    timeBtnLabel: { ...t.fieldLabel, marginBottom: SPACE.xxs },
+    timeBtnDate: { ...t.sub, color: c.text, fontWeight: FONT.weight.semibold },
+    timeBtnTime: { ...t.meta, color: c.primary, marginTop: SPACE.xxs },
+    addSlotBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minHeight: 44,
+      borderWidth: 1.5, borderColor: c.primary, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.sm, borderStyle: 'dashed',
+    },
+    addSlotText: { ...t.title, color: c.primary },
+    status: { marginTop: SPACE.md, marginBottom: SPACE.xs },
+    submit: { marginTop: SPACE.lg },
   });
 }

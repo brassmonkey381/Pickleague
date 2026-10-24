@@ -5,7 +5,7 @@
  *
  *  [1st A] ─┐
  *            ├── [SEMI 1] ─┐
- *  [2nd B] ─┘               ├── [🏆 FINAL]
+ *  [2nd B] ─┘               ├── [trophy FINAL]
  *            ┌── [SEMI 2] ─┘
  *  [1st B] ─┘
  *            [etc.]
@@ -14,6 +14,9 @@
 
 import React from 'react';
 import { View, Text, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 
 export type BracketSlot = {
@@ -56,8 +59,6 @@ const SEMI2_TOP = SEMI_GROUP_H + SEMI_GAP;   // 154
 const SEMI2_MID = SEMI2_TOP + SEMI_GROUP_H / 2; // 213
 
 const FINAL_MID  = (SEMI1_MID + SEMI2_MID) / 2; // 136
-
-const FINAL_COLOR = '#b8860b';
 
 function SlotCard({
   slot, isFinal, onPressMatch,
@@ -170,7 +171,10 @@ export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi
 
         {/* ── Final card ─────────────────────────────────────────── */}
         <View style={[styles.abs, { left: CW + CONN + CW + CONN, top: FINAL_MID - CH / 2 - 20 }]}>
-          <Text style={[styles.roundLabel, styles.finalLabel]}>🏆 GRAND FINAL</Text>
+          <View style={styles.finalLabelRow}>
+            <Icon name="trophy" size={12} color={c.rarityLegendary} />
+            <Text style={[styles.roundLabel, styles.finalLabel]}>GRAND FINAL</Text>
+          </View>
         </View>
         <View style={[styles.abs, { left: CW + CONN + CW + CONN, top: FINAL_MID - CH / 2 }]}>
           <SlotCard slot={final} isFinal onPressMatch={onPressMatch} />
@@ -183,6 +187,8 @@ export default function TournamentBracket({ slotA1, slotA2, slotB1, slotB2, semi
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   const BORDER_COLOR = c.textSub;
+  // The final reads as the trophy's gold (theme token, light and dark).
+  const FINAL_COLOR = c.rarityLegendary;
 
   return StyleSheet.create({
     scroll: { backgroundColor: c.surfaceAlt },
@@ -190,7 +196,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       // total width = CW + CONN + CW + CONN + CW + 16 (right padding)
       width: 3 * CW + 2 * CONN + 24,
       position: 'relative',
-      margin: 8,
+      margin: SPACE.sm,
     },
     abs: { position: 'absolute' },
 
@@ -198,15 +204,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     card: {
       width: CW, height: CH,
       backgroundColor: c.surface,
-      borderRadius: 8,
+      borderRadius: RADIUS.md,
       borderWidth: 1.5,
       borderColor: c.border,
       justifyContent: 'center',
-      paddingHorizontal: 10,
+      paddingHorizontal: SPACE.sm,
     },
     cardFinal: {
       borderColor: FINAL_COLOR,
-      backgroundColor: '#fffbf0',
+      backgroundColor: c.rarityLegendaryLight,
       borderWidth: 2,
     },
     cardHighlight: {
@@ -216,18 +222,19 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     cardPressed: {
       opacity: 0.7,
     },
-    cardLabel: { fontSize: 9, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },
+    cardLabel: { fontSize: FONT.size.xxs, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: SPACE.xxs },
     cardLabelFinal: { color: FINAL_COLOR },
-    cardTeam: { fontSize: 13, fontWeight: '700', color: c.text },
+    cardTeam: { fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.text },
     cardTbd: { color: c.textMuted, fontStyle: 'italic' },
     cardTeamHighlight: { color: c.primary },
-    cardTeamFinal: { fontSize: 13 },
+    cardTeamFinal: { fontSize: FONT.size.base },
 
     roundLabel: {
-      fontSize: 9, color: c.textMuted, fontWeight: '700',
+      fontSize: FONT.size.xxs, color: c.textMuted, fontWeight: FONT.weight.bold,
       textTransform: 'uppercase', letterSpacing: 0.8,
     },
-    finalLabel: { color: FINAL_COLOR, fontSize: 10 },
+    finalLabel: { color: FINAL_COLOR, fontSize: FONT.size.xxs },
+    finalLabelRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 
     // Bracket connector lines (seeds → semis)
     connTop: {

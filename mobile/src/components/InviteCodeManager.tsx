@@ -15,6 +15,12 @@ import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import MultiUserPickerModal, { MultiPickedUser } from './MultiUserPickerModal';
 import { DISCOVER_ENABLED } from '../lib/features';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { shadowColor } from '@just-messin-around/expo-foundation/theme';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PickleAmount, picklesLabel } from './PickleAmount';
 
 export type InviteScope = 'league' | 'tournament';
 
@@ -278,7 +284,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
     }
   }
 
-  if (loading) return <ActivityIndicator style={{ marginVertical: 30 }} size="large" color={c.primary} />;
+  if (loading) return <ActivityIndicator style={{ marginVertical: SPACE.xl }} size="large" color={c.primary} />;
 
   const subsidyPreview = (() => {
     const n = parseInt(subsidyInput, 10);
@@ -309,45 +315,43 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
                 : `  ·  ${invite.used_count} use${invite.used_count !== 1 ? 's' : ''}`}
             </Text>
             {invite.pickle_subsidy > 0 && (
-              <View style={S.subsidyBadge}>
-                <Text style={S.subsidyBadgeText}>
-                  💸 Subsidizing {invite.pickle_subsidy} 🥒 per redemption
-                </Text>
+              <View
+                style={S.subsidyBadge}
+                accessible
+                accessibilityLabel={`Subsidizing ${picklesLabel(invite.pickle_subsidy)} per redemption`}
+              >
+                <Icon name="gift" size={14} color={c.warning} />
+                <Text style={S.subsidyBadgeText}>Subsidizing</Text>
+                <PickleAmount amount={invite.pickle_subsidy} preset="sub" color={c.warning} textStyle={S.subsidyAmount} />
+                <Text style={S.subsidyBadgeText}>per redemption</Text>
               </View>
             )}
           </View>
 
-          <TouchableOpacity style={S.primaryBtn} onPress={openBroadcast}>
-            <Text style={S.primaryBtnText}>💬  Invite Players In-App</Text>
-          </TouchableOpacity>
+          <Button iconName="chat" title="Invite Players In-App" onPress={openBroadcast} style={S.actionBtn} />
+          <Button iconName="phone" variant="outline" title="Invite via Text" onPress={textInvite} style={S.actionBtn} />
+          <Button iconName="outbox" variant="outline" title="Share via Text / Email" onPress={share} style={S.actionBtn} />
+          <Button
+            iconName={copied ? 'check-mark' : 'clipboard'}
+            variant="outline"
+            title={copied ? 'Copied!' : 'Copy Code'}
+            onPress={copyCode}
+            style={S.actionBtn}
+          />
 
-          <TouchableOpacity style={S.secondaryBtn} onPress={textInvite}>
-            <Text style={S.secondaryBtnText}>📱  Invite via Text</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={S.secondaryBtn} onPress={share}>
-            <Text style={S.secondaryBtnText}>📤  Share via Text / Email</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={S.secondaryBtn} onPress={copyCode}>
-            <Text style={S.secondaryBtnText}>{copied ? '✓  Copied!' : '📋  Copy Code'}</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={S.dangerBtn} onPress={revokeInvite}>
+          <TouchableOpacity style={S.dangerBtn} onPress={revokeInvite} accessibilityRole="button">
             <Text style={S.dangerBtnText}>Revoke & Generate New Code</Text>
           </TouchableOpacity>
         </>
       ) : (
         <>
           <View style={S.emptyCard}>
-            <Text style={S.emptyIcon}>🔒</Text>
+            <Icon name="lock" size={40} color={c.textMuted} style={S.emptyIcon} />
             <Text style={S.emptyText}>No active invite code.</Text>
             <Text style={S.emptyHint}>Generate one to start inviting players.</Text>
           </View>
 
-          <TouchableOpacity style={S.primaryBtn} onPress={openCreate}>
-            <Text style={S.primaryBtnText}>Generate Invite Code</Text>
-          </TouchableOpacity>
+          <Button title="Generate Invite Code" onPress={openCreate} style={S.actionBtn} />
         </>
       )}
 
@@ -379,11 +383,11 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 
             {scopeType === 'tournament' && (
               <>
-                <Text style={[S.modalLabel, { marginTop: 14 }]}>Pickle subsidy per redemption</Text>
+                <Text style={[S.modalLabel, { marginTop: SPACE.md }]}>Pickle subsidy per redemption</Text>
                 <Text style={S.modalHint}>
-                  You pay this much 🥒 to discount each redeemer's entry fee.
+                  You pay this many pickles to discount each redeemer's entry fee.
                   {tournamentAnte != null && tournamentAnte > 0
-                    ? ` Tournament ante is ${tournamentAnte} 🥒.`
+                    ? ` Tournament ante is ${picklesLabel(tournamentAnte)}.`
                     : ' This tournament has no entry fee, so subsidies have no effect.'}
                 </Text>
                 <TextInput
@@ -396,13 +400,15 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
                 />
                 {subsidyPreview && (
                   <View style={S.previewBox}>
-                    <Text style={S.previewLine}>
-                      Each redeemer saves: 🥒 {subsidyPreview.each}
-                    </Text>
+                    <View style={S.previewRow}>
+                      <Text style={S.previewLine}>Each redeemer saves:</Text>
+                      <PickleAmount amount={subsidyPreview.each} preset="sub" color={c.textSub} />
+                    </View>
                     {subsidyPreview.maxSpend != null && (
-                      <Text style={S.previewLineBold}>
-                        Your max spend: 🥒 {subsidyPreview.maxSpend}
-                      </Text>
+                      <View style={[S.previewRow, S.previewRowBold]}>
+                        <Text style={S.previewLineBold}>Your max spend:</Text>
+                        <PickleAmount amount={subsidyPreview.maxSpend} preset="bodySub" textStyle={S.previewLineBold} />
+                      </View>
                     )}
                   </View>
                 )}
@@ -441,47 +447,48 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:      { padding: 24, flexGrow: 1, backgroundColor: c.bg },
-    subtitle:       { fontSize: 15, color: c.textSub, lineHeight: 22, marginBottom: 16 },
-    scopeName:      { fontWeight: '700', color: c.text },
+    container:      { padding: SPACE.xl, flexGrow: 1, backgroundColor: c.bg },
+    subtitle:       { ...t.body, color: c.textSub, marginBottom: SPACE.lg },
+    scopeName:      { fontWeight: FONT.weight.bold, color: c.text },
 
     codeCard: {
-      backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 28,
-      alignItems: 'center', marginBottom: 20, marginTop: 8,
+      backgroundColor: c.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACE.xl,
+      alignItems: 'center', marginBottom: SPACE.lg, marginTop: SPACE.sm,
       borderWidth: 1.5, borderColor: c.border,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+      shadowColor: shadowColor(c), shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
     },
-    codeLabel:      { fontSize: 12, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 },
-    code:           { fontSize: 34, fontWeight: '800', color: c.text, letterSpacing: 6, fontVariant: ['tabular-nums'] as any },
-    expiry:         { fontSize: 13, color: c.textMuted, marginTop: 10 },
+    codeLabel:      { ...t.fieldLabel, letterSpacing: 1, marginBottom: SPACE.sm },
+    code:           { fontSize: FONT.size.display, fontWeight: FONT.weight.heavy, color: c.text, letterSpacing: 6, fontVariant: ['tabular-nums'] as any },
+    expiry:         { ...t.hint, marginTop: SPACE.sm },
 
-    subsidyBadge:    { marginTop: 12, backgroundColor: '#fff8e1', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#e6c875' },
-    subsidyBadgeText:{ fontSize: 13, fontWeight: '700', color: '#8a6d00' },
+    subsidyBadge:    { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, marginTop: SPACE.md, backgroundColor: c.warningLight, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.warning },
+    subsidyBadgeText:{ fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.warning },
+    subsidyAmount:   { fontWeight: FONT.weight.bold },
 
-    primaryBtn:     { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
-    primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-    secondaryBtn:   { borderWidth: 1.5, borderColor: c.primary, padding: 14, borderRadius: 10, alignItems: 'center', marginBottom: 12 },
-    secondaryBtnText:{ color: c.primary, fontSize: 15, fontWeight: '600' },
-    dangerBtn:      { padding: 14, alignItems: 'center', marginBottom: 8 },
-    dangerBtnText:  { color: c.danger, fontSize: 14 },
+    actionBtn:      { marginBottom: SPACE.md },
+    dangerBtn:      { minHeight: 44, padding: SPACE.md, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
+    dangerBtnText:  { color: c.danger, fontSize: FONT.size.md },
 
     emptyCard: {
-      backgroundColor: c.surfaceAlt, borderRadius: 14, padding: 36, alignItems: 'center', marginBottom: 24, marginTop: 8,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+      backgroundColor: c.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACE.xl, alignItems: 'center', marginBottom: SPACE.xl, marginTop: SPACE.sm,
+      shadowColor: shadowColor(c), shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
     },
-    emptyIcon:      { fontSize: 40, marginBottom: 12 },
-    emptyText:      { fontSize: 17, fontWeight: '700', color: c.text, marginBottom: 4 },
-    emptyHint:      { fontSize: 14, color: c.textMuted },
+    emptyIcon:      { marginBottom: SPACE.md },
+    emptyText:      { ...t.h3, marginBottom: SPACE.xs },
+    emptyHint:      { ...t.bodySub, color: c.textMuted },
 
-    infoBox:        { backgroundColor: c.bg, borderRadius: 10, padding: 14, marginTop: 8, borderWidth: 1, borderColor: c.border },
-    infoText:       { fontSize: 13, color: c.textSub, lineHeight: 20 },
+    infoBox:        { backgroundColor: c.bg, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    infoText:       { ...t.sub, lineHeight: FONT.line.normal },
 
-    modalLabel:     { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 4 },
-    modalHint:      { fontSize: 12, color: c.textMuted, lineHeight: 16, marginBottom: 6 },
-    input:          { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, color: c.text, backgroundColor: c.surface },
-    previewBox:     { backgroundColor: c.primaryLight, borderRadius: 10, padding: 12, marginTop: 12 },
-    previewLine:    { fontSize: 13, color: c.textSub, marginVertical: 1 },
-    previewLineBold:{ fontSize: 14, color: c.primary, fontWeight: '800', marginTop: 4 },
+    modalLabel:     { ...t.sub, fontWeight: FONT.weight.bold, marginBottom: SPACE.xs },
+    modalHint:      { ...t.hint, fontSize: FONT.size.sm, lineHeight: 16, marginBottom: SPACE.xs },
+    input:          { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
+    previewBox:     { backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
+    previewRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm, marginVertical: SPACE.xxs },
+    previewRowBold: { marginTop: SPACE.xs },
+    previewLine:    { fontSize: FONT.size.base, color: c.textSub },
+    previewLineBold:{ fontSize: FONT.size.md, color: c.primary, fontWeight: FONT.weight.heavy },
   });
 }

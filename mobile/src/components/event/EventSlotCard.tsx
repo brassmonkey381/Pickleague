@@ -55,9 +55,9 @@ export default function EventSlotCard({ slot, optionNo, memberCount, isWinner, v
         {busy ? (
           <ActivityIndicator size="small" color={c.primary} />
         ) : isWinner ? (
-          <Badge label="★ Confirmed" tone="info" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          <Badge iconName="star" label="Confirmed" tone="info" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
         ) : mine ? (
-          <Badge label="✓ Available" tone="success" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          <Badge iconName="check-mark" label="Available" tone="success" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
         ) : null}
       </View>
       <View style={S.barBg}>

@@ -9,6 +9,10 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PickleAmount } from '../components/PickleAmount';
 import { RootStackParamList } from '../types';
 
 type Props = {
@@ -100,7 +104,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
       setWagers((data ?? []) as WagerOnPlayer[]);
       setLoadError(null);
     } catch (e) {
-      // "🥒 0 wagered" from a failed read is a claim about other people's
+      // "0 pickles wagered" from a failed read is a claim about other people's
       // money — never present it as fact.
       setLoadError(friendlySbMessage(e, "Couldn't load wagers."));
     } finally {
@@ -110,17 +114,16 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
 
   const total = wagers.reduce((sum, w) => sum + w.stake, 0);
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} /></View>;
+  if (loading) return <View style={S.screen}><SkeletonList rows={6} /></View>;
 
   if (loadError && wagers.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load wagers"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+      <View style={S.screen}>
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load wagers. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -128,14 +131,21 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
 
   return (
     <FlatList
-      style={{ flex: 1, backgroundColor: c.bg }}
+      style={S.screen}
       data={wagers}
       keyExtractor={w => w.wager_id}
-      contentContainerStyle={{ padding: 16 }}
+      contentContainerStyle={S.list}
       refreshControl={<AppRefreshControl {...refresh} />}
       ListHeaderComponent={
         <View style={S.header}>
-          <Text style={S.headerTotal}>🥒 {total.toLocaleString()} wagered on {name || 'this player'}</Text>
+          <View
+            style={S.headerTotalRow}
+            accessible
+            accessibilityLabel={`${total.toLocaleString()} ${total === 1 ? 'pickle' : 'pickles'} wagered on ${name || 'this player'}`}
+          >
+            <PickleAmount amount={total} preset="h3" color={c.text} iconColor={c.primary} />
+            <Text style={[S.headerTotal, S.flex1]} numberOfLines={2}>wagered on {name || 'this player'}</Text>
+          </View>
           <Text style={S.headerSub}>
             {wagers.length} wager{wagers.length !== 1 ? 's' : ''}
             {scopeName ? ` · ${scopeName}` : ''}
@@ -143,7 +153,7 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
         </View>
       }
       renderItem={({ item }) => {
-        const statusColor = item.status === 'won' ? c.primary : item.status === 'lost' ? c.danger : c.textSub;
+        const statusColor = item.status === 'won' ? c.success : item.status === 'lost' ? c.danger : c.textSub;
         return (
           <View style={S.card}>
             <View style={S.cardTop}>
@@ -151,11 +161,13 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
                 style={S.bettorWrap}
                 onPress={() => navigation.navigate('PlayerProfile', { userId: item.bettor_id, userName: item.bettor_name })}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Wagered by ${item.bettor_name}. Open profile`}
               >
                 <View style={S.bettorAvatar}>
                   <Text style={S.bettorAvatarText}>{(item.bettor_name || '?')[0].toUpperCase()}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={S.flex1}>
                   <Text style={S.bettorLabel}>Wagered by</Text>
                   <Text style={S.bettor} numberOfLines={1}>{item.bettor_name}</Text>
                 </View>
@@ -171,15 +183,15 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
             <View style={S.metaRow}>
               <View style={S.metaCol}>
                 <Text style={S.metaLabel}>Size</Text>
-                <Text style={S.metaValue}>🥒 {item.stake.toLocaleString()}</Text>
+                <PickleAmount amount={item.stake} preset="bodySub" color={c.text} iconColor={c.primary} textStyle={S.metaValueText} style={S.metaValue} />
               </View>
               <View style={S.metaCol}>
                 <Text style={S.metaLabel}>Payout</Text>
-                <Text style={S.metaValue}>🥒 {item.potential_payout.toLocaleString()}</Text>
+                <PickleAmount amount={item.potential_payout} preset="bodySub" color={c.text} iconColor={c.primary} textStyle={S.metaValueText} style={S.metaValue} />
               </View>
               <View style={S.metaCol}>
                 <Text style={S.metaLabel}>Odds</Text>
-                <Text style={S.metaValue}>{Number(item.odds).toFixed(2)}×</Text>
+                <Text style={[S.metaValueText, S.metaValue, { color: c.text }]}>{Number(item.odds).toFixed(2)}×</Text>
               </View>
             </View>
             <Text style={S.placed}>Placed {timeAgo(item.placed_at)}</Text>
@@ -187,33 +199,39 @@ export default function PlayerWagersScreen({ navigation, route }: Props) {
         );
       }}
       ListEmptyComponent={
-        <EmptyState icon="🎲" title="No wagers yet" subtitle={`No wagers on ${name || 'this player'} yet.`} />
+        <EmptyState iconName="dice" title="No wagers yet" subtitle={`No wagers on ${name || 'this player'} yet.`} />
       }
     />
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    header:      { marginBottom: 14 },
-    headerTotal: { fontSize: 18, fontWeight: '800', color: c.text },
-    headerSub:   { fontSize: 13, color: c.textMuted, marginTop: 2 },
+    screen:      { flex: 1, backgroundColor: c.bg },
+    list:        { padding: SPACE.lg },
+    flex1:       { flex: 1, minWidth: 0 },
+    header:      { marginBottom: SPACE.md },
+    headerTotalRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.xs },
+    headerTotal: t.h3,
+    headerSub:   { ...t.hint, marginTop: SPACE.xxs },
 
-    card:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border },
-    cardTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-    bettorWrap:  { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
-    bettorAvatar:{ width: 32, height: 32, borderRadius: 16, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
-    bettorAvatarText: { fontSize: 14, fontWeight: '700', color: c.primary },
-    bettorLabel: { fontSize: 10, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-    bettor:      { fontSize: 15, fontWeight: '700', color: c.text },
-    statusChip:  { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1 },
-    statusText:  { fontSize: 11, fontWeight: '700' },
-    condition:   { fontSize: 13, color: c.textSub, marginTop: 4 },
-    context:     { fontSize: 12, color: c.textMuted, marginTop: 3, fontStyle: 'italic' },
-    metaRow:     { flexDirection: 'row', marginTop: 12, gap: 16 },
+    card:        { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    cardTop:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm },
+    bettorWrap:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flex: 1, minHeight: 44 },
+    bettorAvatar:{ width: 32, height: 32, borderRadius: RADIUS.pill, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
+    bettorAvatarText: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.primary },
+    bettorLabel: t.fieldLabel,
+    bettor:      t.title,
+    statusChip:  { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.pill, borderWidth: HAIRLINE },
+    statusText:  { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold },
+    condition:   { ...t.sub, marginTop: SPACE.xs },
+    context:     { fontSize: FONT.size.sm, color: c.textMuted, marginTop: SPACE.xs, fontStyle: 'italic' },
+    metaRow:     { flexDirection: 'row', marginTop: SPACE.md, gap: SPACE.lg },
     metaCol:     {},
-    metaLabel:   { fontSize: 11, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-    metaValue:   { fontSize: 14, fontWeight: '700', color: c.text, marginTop: 1 },
-    placed:      { fontSize: 11, color: c.textMuted, marginTop: 10 },
+    metaLabel:   t.fieldLabel,
+    metaValue:   { marginTop: SPACE.xxs },
+    metaValueText: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold },
+    placed:      { ...t.caption, marginTop: SPACE.sm },
   });
 }

@@ -7,9 +7,10 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useIsFocused } from '@react-navigation/native';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { CollapsibleSection, Panel, StickyActionBar } from '@just-messin-around/expo-foundation/ui';
+import { CollapsibleSection, ErrorState, Panel, StickyActionBar } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
 import { isTournamentPrivileged, requiresPartner, bracketReleaseLabel } from '../lib/tournamentRole';
 import { FORMAT_META } from '../lib/tournament';
@@ -28,6 +29,7 @@ import StatusBanner from '../components/StatusBanner';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { picklesLabel } from '../components/PickleAmount';
 import { useTheme } from '../lib/ThemeContext';
 import { useTournamentDetail } from '../components/tournament/useTournamentDetail';
 import { buildFlowStages } from '../components/tournament/flowStages';
@@ -327,13 +329,22 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     const missing = td.loadError == null || classifySbError(td.loadError) === 'notFound';
     return (
       <ScrollView style={{ flex: 1, backgroundColor: c.bg }} refreshControl={<AppRefreshControl {...td.refresh} />}>
-        <EmptyState
-          icon={missing ? '🔍' : '📡'}
-          title={missing ? 'Tournament not found.' : "Couldn't load this tournament"}
-          subtitle={missing ? undefined : friendlySbMessage(td.loadError)}
-          actionLabel="Retry"
-          onAction={() => { void td.load(); }}
-        />
+        {missing ? (
+          <EmptyState
+            iconName="search"
+            title="Tournament not found."
+            actionLabel="Retry"
+            onAction={() => { void td.load(); }}
+          />
+        ) : (
+          <ErrorState
+            iconName="offline"
+            error={td.loadError}
+            message={`Couldn't load this tournament. ${friendlySbMessage(td.loadError)}`}
+            retryLabel="Retry"
+            onRetry={() => { void td.load(); }}
+          />
+        )}
       </ScrollView>
     );
   }
@@ -502,7 +513,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       isMe: !!myUserId && p.userIds.includes(myUserId),
     })),
     payoutLine: pool > 0
-      ? (tournament.champion_payout_applied_at ? `🥒 ${pool} pot paid out` : `🥒 ${pool} pot · payout pending`)
+      ? (tournament.champion_payout_applied_at ? `${picklesLabel(pool)} pot paid out` : `${picklesLabel(pool)} pot · payout pending`)
       : null,
   });
 
@@ -523,7 +534,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   const structure = tournament.payout_structure ?? [60, 25, 15];
   // Hidden for non-organizers when there is nothing in it (plan section 5).
   const potShown = isPriv || pool > 0 || ante > 0;
-  const potSummary = [`🥒 ${pool} pot`, ante > 0 ? `${ante} ante` : null, `${structure.join('/')}% payout`]
+  const potSummary = [picklesLabel(pool), ante > 0 ? `${ante} ante` : null, `${structure.join('/')}% payout`]
     .filter(Boolean).join(' · ');
 
   // ── Manage ──
@@ -672,7 +683,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       current: !paidAt,
       meta: paidAt
         ? new Date(paidAt).toLocaleDateString()
-        : `Splits 🥒 ${pool} among the finishers · stamps badges · applies the PLUPR bonus`,
+        : `Splits ${picklesLabel(pool)} among the finishers · stamps badges · applies the PLUPR bonus`,
       actions: paidAt ? [] : [{ title: 'Review payout', onPress: () => td.setShowPayoutModal(true) }],
     });
   }
@@ -806,7 +817,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
       title="Pot"
       // PicklePotCard is `bare` (no title row, no pool pill), so the header
       // carries the total while open; closed, the summary line has it.
-      count={potOpen ? `🥒 ${pool}` : undefined}
+      count={potOpen ? picklesLabel(pool) : undefined}
       open={potOpen}
       onToggle={() => toggle('pot', !potOpen, setPotOpen)}
       collapsedContent={<Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{potSummary}</Text>}
@@ -893,7 +904,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
                 accessibilityLabel={`${stripText}. Open the schedule`}
               >
                 <Text style={[t.sub, styles.stripText, { color: c.text }]} numberOfLines={1}>{stripText}</Text>
-                <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
+                <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>
             </Panel>
           </View>
@@ -1078,7 +1089,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       <ConfirmModal
         visible={td.showCancelConfirm}
-        title={`🚫  Cancel "${tournament.name}"?`}
+        title={`Cancel "${tournament.name}"?`}
         body="This refunds every ante, pot contribution and open wager to its owner, notifies all participants, and permanently marks the tournament cancelled. Matches already played keep their rating effects."
         primaryLabel="Cancel & Refund Everyone"
         variant="danger"
@@ -1090,7 +1101,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
 
       <ConfirmModal
         visible={td.showDeleteConfirm}
-        title={`🗑  Delete "${tournament.name}"?`}
+        title={`Delete "${tournament.name}"?`}
         body="This permanently removes the tournament and all of its rounds, matches, registrations, and partner requests. This cannot be undone."
         primaryLabel="Delete Tournament"
         variant="danger"
@@ -1140,5 +1151,4 @@ const styles = StyleSheet.create({
   banner: { marginBottom: SPACE.md },
   strip: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md },
   stripText: { flex: 1, minWidth: 0 },
-  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
 });

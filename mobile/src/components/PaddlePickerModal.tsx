@@ -7,6 +7,10 @@ import {
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -164,17 +168,28 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
           {/* Header */}
           <View style={styles.header}>
             {step !== 'brand' ? (
-              <TouchableOpacity onPress={() => setStep(step === 'thickness' ? 'model' : 'brand')}>
-                <Text style={styles.back}>← Back</Text>
+              <TouchableOpacity
+                onPress={() => setStep(step === 'thickness' ? 'model' : 'brand')}
+                style={[styles.headerSide, styles.backBtn]}
+                accessibilityRole="button"
+                accessibilityLabel="Back"
+              >
+                <Icon name="chevron-left" size={18} color={c.primary} />
+                <Text style={styles.back}>Back</Text>
               </TouchableOpacity>
-            ) : <View style={{ width: 60 }} />}
+            ) : <View style={styles.headerSide} />}
             <Text style={styles.title}>
               {step === 'brand' ? 'Select Brand'
                : step === 'model' ? selectedBrand?.name ?? 'Model'
                : 'Thickness'}
             </Text>
-            <TouchableOpacity onPress={() => { reset(); onClose(); }} style={{ width: 36, alignItems: 'flex-end' }}>
-              <Text style={styles.closeBtn}>✕</Text>
+            <TouchableOpacity
+              onPress={() => { reset(); onClose(); }}
+              style={[styles.headerSide, styles.headerSideEnd]}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            >
+              <Icon name="close" size={20} color={c.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -190,8 +205,8 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
           {/* ── BRAND ── */}
           {step === 'brand' && (
             <>
-              {loading ? <ActivityIndicator style={{ margin: 24 }} color={c.primary} /> : loadError ? (
-                <TouchableOpacity style={{ padding: 24 }} onPress={loadBrands} accessibilityRole="button">
+              {loading ? <ActivityIndicator style={styles.spinner} color={c.primary} /> : loadError ? (
+                <TouchableOpacity style={styles.retryBox} onPress={loadBrands} accessibilityRole="button">
                   <Text style={styles.noModels}>{loadError}{'\n'}Tap to retry.</Text>
                 </TouchableOpacity>
               ) : (
@@ -211,7 +226,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                     renderItem={({ item }) => (
                       <TouchableOpacity style={styles.brandRow} onPress={() => pickBrand(item)}>
                         <Text style={styles.brandName}>{item.name}</Text>
-                        <Text style={styles.chevron}>›</Text>
+                        <Icon name="chevron-right" size={16} color={c.textMuted} />
                       </TouchableOpacity>
                     )}
                   />
@@ -235,7 +250,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
               />
 
               {loadingModels ? (
-                <ActivityIndicator style={{ marginVertical: 16 }} color={c.primary} />
+                <ActivityIndicator style={styles.spinnerInline} color={c.primary} />
               ) : filteredModels.length > 0 ? (
                 <>
                   <Text style={styles.suggestLabel}>
@@ -248,7 +263,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                     keyboardShouldPersistTaps="handled"
                     renderItem={({ item }) => (
                       <TouchableOpacity style={styles.suggestRow} onPress={() => pickModel(item)}>
-                        <View style={{ flex: 1 }}>
+                        <View style={styles.flex1}>
                           <Text style={styles.suggestName}>{item.name}</Text>
                           {(item.thickness_mm || item.notes) && (
                             <Text style={styles.suggestMeta}>
@@ -256,7 +271,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                             </Text>
                           )}
                         </View>
-                        <Text style={styles.suggestArrow}>›</Text>
+                        <Icon name="chevron-right" size={16} color={c.textMuted} style={styles.suggestArrow} />
                       </TouchableOpacity>
                     )}
                   />
@@ -271,13 +286,12 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                 <Text style={styles.noModels}>No models found — type your model name above.</Text>
               )}
 
-              <TouchableOpacity
-                style={[styles.nextBtn, !modelInput.trim() && styles.nextBtnDisabled]}
+              <Button
+                title="Next — Select Thickness"
                 onPress={() => modelInput.trim() && setStep('thickness')}
                 disabled={!modelInput.trim()}
-              >
-                <Text style={styles.nextBtnText}>Next — Select Thickness</Text>
-              </TouchableOpacity>
+                style={styles.nextBtn}
+              />
             </View>
           )}
 
@@ -298,7 +312,7 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                   <Text style={[styles.thicknessLabel, thickness === opt.value && opt.value !== null && styles.thicknessLabelActive]}>
                     {opt.label}
                   </Text>
-                  {thickness === opt.value && opt.value !== null && <Text style={styles.checkmark}>✓</Text>}
+                  {thickness === opt.value && opt.value !== null && <Icon name="check-mark" size={18} color={c.primary} />}
                 </TouchableOpacity>
               ))}
               <View style={styles.customRow}>
@@ -310,13 +324,12 @@ export default function PaddlePickerModal({ visible, onSelect, onClose, initial 
                   value={customThickness}
                   onChangeText={setCustomThickness}
                 />
-                <TouchableOpacity
-                  style={[styles.customConfirm, !customThickness && styles.nextBtnDisabled]}
+                <Button
+                  size="sm"
+                  title="Use"
                   onPress={() => customThickness && confirmThickness(parseFloat(customThickness))}
                   disabled={!customThickness}
-                >
-                  <Text style={styles.customConfirmText}>Use</Text>
-                </TouchableOpacity>
+                />
               </View>
             </View>
           )}
@@ -332,69 +345,72 @@ function makeStyles(
   listMaxHeight: number,
   suggestMaxHeight: number,
 ) {
+  const t = textStyles(c);
   return StyleSheet.create({
     overlay:   {
       flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: c.backdrop,
       justifyContent: IS_WEB ? 'center' : 'flex-end',
       alignItems: IS_WEB ? 'center' : 'stretch',
-      ...(IS_WEB ? { padding: 16 } : null),
+      ...(IS_WEB ? { padding: SPACE.lg } : null),
     },
     sheet:     {
       backgroundColor: c.surface,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
+      borderTopLeftRadius: RADIUS.lg,
+      borderTopRightRadius: RADIUS.lg,
       ...(IS_WEB
         ? {
-            borderBottomLeftRadius: 20,
-            borderBottomRightRadius: 20,
+            borderBottomLeftRadius: RADIUS.lg,
+            borderBottomRightRadius: RADIUS.lg,
             maxWidth: 560,
             width: '100%',
             maxHeight: '90%',
           }
         : { maxHeight: '88%' }),
-      paddingBottom: 32,
+      paddingBottom: SPACE.xl,
     },
-    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
-    back:      { fontSize: 15, color: c.primary, fontWeight: '600', width: 60 },
-    title:     { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, textAlign: 'center' },
-    closeBtn:  { fontSize: 18, color: c.textMuted },
-    steps:     { flexDirection: 'row', justifyContent: 'center', gap: 8, paddingVertical: 10 },
-    stepDot:       { width: 8, height: 8, borderRadius: 4, backgroundColor: c.border },
+    header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SPACE.lg, paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    // Both sides the same width so the title stays centred; real 44 boxes.
+    headerSide:    { minWidth: 72, minHeight: 44, justifyContent: 'center' },
+    headerSideEnd: { alignItems: 'flex-end' },
+    backBtn:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
+    back:      { fontSize: FONT.size.lg, color: c.primary, fontWeight: FONT.weight.semibold },
+    title:     { ...t.h3, flex: 1, textAlign: 'center' },
+    steps:     { flexDirection: 'row', justifyContent: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm },
+    stepDot:       { width: 8, height: 8, borderRadius: RADIUS.pill, backgroundColor: c.border },
     stepDotActive: { backgroundColor: c.primary, width: 20 },
-    stepDotDone:   { backgroundColor: c.primary + '88' },
+    stepDotDone:   { backgroundColor: c.primary, opacity: 0.55 },
 
-    searchInput:  { margin: 12, marginBottom: 4, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    spinner:       { margin: SPACE.xl },
+    spinnerInline: { marginVertical: SPACE.lg },
+    retryBox:      { padding: SPACE.xl },
+    flex1:         { flex: 1, minWidth: 0 },
+
+    searchInput:  { margin: SPACE.md, marginBottom: SPACE.xs, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
     list:         { maxHeight: listMaxHeight },
-    brandRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: c.bg },
-    brandName:    { flex: 1, fontSize: 16, fontWeight: '600', color: c.text },
-    chevron:      { fontSize: 20, color: c.textMuted },
+    brandRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.md, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    brandName:    { flex: 1, fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.text },
 
-    modelContainer: { flex: 1, padding: 16 },
-    modelInput:     { borderWidth: 1.5, borderColor: c.border, borderRadius: 10, padding: 14, fontSize: 16, marginBottom: 10, color: c.text, backgroundColor: c.surface },
-    suggestLabel:   { fontSize: 12, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-    suggestList:    { maxHeight: suggestMaxHeight, marginBottom: 12 },
-    suggestRow:     { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: c.bg },
-    suggestName:    { fontSize: 14, fontWeight: '600', color: c.text },
-    suggestMeta:    { fontSize: 11, color: c.textMuted, marginTop: 1 },
-    suggestArrow:   { fontSize: 18, color: c.textMuted, marginLeft: 8 },
-    noModels:       { fontSize: 13, color: c.textMuted, textAlign: 'center', paddingVertical: 20 },
-    nextBtn:        { backgroundColor: c.primary, borderRadius: 10, padding: 15, alignItems: 'center', marginTop: 8 },
-    nextBtnDisabled:{ backgroundColor: c.textMuted },
-    nextBtnText:    { color: '#fff', fontWeight: '700', fontSize: 15 },
+    modelContainer: { flex: 1, padding: SPACE.lg },
+    modelInput:     { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, marginBottom: SPACE.sm, color: c.text, backgroundColor: c.surface },
+    suggestLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
+    suggestList:    { maxHeight: suggestMaxHeight, marginBottom: SPACE.md },
+    suggestRow:     { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    suggestName:    { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, color: c.text },
+    suggestMeta:    { ...t.caption, marginTop: SPACE.xxs },
+    suggestArrow:   { marginLeft: SPACE.sm },
+    noModels:       { ...t.hint, textAlign: 'center', paddingVertical: SPACE.lg },
+    nextBtn:        { marginTop: SPACE.sm },
 
-    thicknessContainer: { padding: 16 },
-    selectedModelPreview: { fontSize: 13, color: c.textMuted, textAlign: 'center', marginBottom: 14, fontStyle: 'italic' },
-    stepLabel:  { fontSize: 14, fontWeight: '700', color: c.textSub, marginBottom: 4 },
-    stepHint:   { fontSize: 12, color: c.textMuted, marginBottom: 14 },
-    thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, borderWidth: 1.5, borderColor: c.border, marginBottom: 10 },
+    thicknessContainer: { padding: SPACE.lg },
+    selectedModelPreview: { ...t.hint, textAlign: 'center', marginBottom: SPACE.md, fontStyle: 'italic' },
+    stepLabel:  { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.textSub, marginBottom: SPACE.xs },
+    stepHint:   { fontSize: FONT.size.sm, color: c.textMuted, marginBottom: SPACE.md },
+    thicknessRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, marginBottom: SPACE.sm },
     thicknessRowActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    thicknessLabel:       { fontSize: 16, fontWeight: '600', color: c.textSub },
+    thicknessLabel:       { fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: c.textSub },
     thicknessLabelActive: { color: c.primary },
-    checkmark:    { fontSize: 18, color: c.primary, fontWeight: '800' },
-    customRow:    { flexDirection: 'row', gap: 10, marginTop: 4 },
-    customInput:  { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, padding: 12, fontSize: 15, color: c.text, backgroundColor: c.surface },
-    customConfirm:{ backgroundColor: c.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
-    customConfirmText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+    customRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.xs },
+    customInput:  { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
   });
 }

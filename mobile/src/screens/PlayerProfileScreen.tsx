@@ -12,7 +12,8 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { Panel, SectionHeader, Chip } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, Chip, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -187,20 +188,29 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     }
   }
 
-  if (loading) return <View style={{ flex: 1, backgroundColor: colors.bg }}><SkeletonList rows={6} variant="row" /></View>;
+  if (loading) return <View style={styles.screen}><SkeletonList rows={6} variant="row" /></View>;
   if (!profile) {
     // Keep a scroll view + pull-to-refresh mounted either way: the old bare
     // <Text> was a dead end that could only be escaped by leaving the screen.
     const missing = loadError == null || classifySbError(loadError) === 'notFound';
     return (
       <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-        <EmptyState
-          icon={missing ? '🔍' : '📡'}
-          title={missing ? 'Player not found.' : "Couldn't load this player"}
-          subtitle={missing ? undefined : friendlySbMessage(loadError)}
-          actionLabel="Retry"
-          onAction={() => { void load(); }}
-        />
+        {missing ? (
+          <EmptyState
+            iconName="search"
+            title="Player not found."
+            actionLabel="Retry"
+            onAction={() => { void load(); }}
+          />
+        ) : (
+          <ErrorState
+            iconName="offline"
+            error={loadError}
+            message={`Couldn't load this player. ${friendlySbMessage(loadError)}`}
+            retryLabel="Retry"
+            onRetry={() => { void load(); }}
+          />
+        )}
       </ScrollView>
     );
   }
@@ -310,16 +320,17 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
               claim flow had no confirmation surface at all — profiles.dupr_id was
               written and never shown. */}
           {profile.dupr_id ? (
-            <Chip label={`DUPR ${profile.dupr_id}`} tone="neutral" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+            <Chip label={`DUPR ${profile.dupr_id}`} tone="neutral" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
           ) : null}
           {tagsShown.map(label => (
-            <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+            <Chip key={label} label={label} tone="brand" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
           ))}
           {tagOverflow > 0 ? (
             <Chip
               label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
               tone="neutral"
               size="sm"
+              align="center"
               hitBox
               onPress={() => setTagsExpanded(v => !v)}
               accessibilityRole="button"
@@ -355,7 +366,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      {/* Add friend / Requested / Accept / Friends ✓ (renders nothing on
+      {/* Add friend / Requested / Accept / Friends (renders nothing on
           yourself, unclaimed placeholders, or while friends are off). */}
       <FriendButton userId={userId} meId={meId} profile={profile} style={styles.friendRow} />
 
@@ -368,7 +379,8 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         {isOther && (
           <Button
             size="sm"
-            title="⚔️ Head-to-head"
+            title="Head-to-head"
+            iconName="versus"
             onPress={() => navigation.navigate('HeadToHead', { opponentId: userId, opponentName: profile.full_name })}
             style={styles.quickBtn}
           />
@@ -394,7 +406,7 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         <Panel style={styles.block}>
           <View style={styles.chemMain}>
             <Text style={[t.title, styles.flexText]} numberOfLines={1}>Your chemistry together</Text>
-            <Text style={[styles.chemDelta, { color: chemistryColor(myChemistry.overallDelta) }]}>
+            <Text style={[styles.chemDelta, { color: chemistryColor(myChemistry.overallDelta, colors) }]}>
               {fmtDelta(myChemistry.overallDelta)}
             </Text>
           </View>
@@ -456,7 +468,10 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         </View>
       )}
       {!badgesPublic && (
-        <Text style={[t.hint, styles.block]}>🔒  This player's badges are private.</Text>
+        <View style={[styles.inlineRow, styles.block]}>
+          <Icon name="lock" size={14} color={colors.textMuted} />
+          <Text style={[t.hint, styles.flexText]}>This player's badges are private.</Text>
+        </View>
       )}
 
       {/* Court ratings (hidden) — per-court PLUPR is intentionally not shown on
@@ -468,19 +483,21 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
+    screen:    { flex: 1, backgroundColor: c.bg },
     container: { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
+    inlineRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     flexText:  { flex: 1, minWidth: 0 },
     box44:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     block:     { marginBottom: SPACE.md },
 
     identity:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
     identityText: { flex: 1, minWidth: 0, gap: SPACE.xxs },
-    avatar:       { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+    avatar:       { width: AVATAR, height: AVATAR, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji:  { fontSize: 34 },
-    fullName:     { fontSize: FONT.size.h2, fontWeight: '700', color: c.text },
+    fullName:     { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold, color: c.text },
     tagline:      { fontStyle: 'italic' },
 
-    // Chips wrap on the left; Share · Save · ⋯ stay together on the right.
+    // Chips wrap on the left; Share · Save · More stay together on the right.
     chipRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, marginTop: SPACE.xs },
     chips:     { flex: 1, minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
     utilities: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
@@ -491,7 +508,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     quickBtn: { flexGrow: 1 },
 
     chemMain:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-    chemDelta: { fontSize: FONT.size.h2, fontWeight: '800' },
+    chemDelta: { fontSize: FONT.size.h2, fontWeight: FONT.weight.heavy },
     insight:   { marginTop: SPACE.xs },
 
     moreRow:   { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },

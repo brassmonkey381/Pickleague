@@ -17,7 +17,7 @@
 //
 // Finding courts to star is Discover's job (COURT_DISCOVERY_ENABLED), as in
 // Doggle, whose Check-in automation lists favorite parks with no search: here
-// the list stays (switch + ★ to unstar), and "Find courts on Discover" replaces
+// the list stays (switch + star glyph to unstar), and "Find courts on Discover" replaces
 // the court search. With the flag off the search stays as it was.
 import React, { useCallback, useEffect, useState } from 'react';
 import { AccessibilityInfo, AppState, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -32,8 +32,9 @@ import {
   SettingSwitchRow,
   type SegmentedOption,
 } from '@just-messin-around/expo-foundation/ui';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { explainRefusal } from '../lib/refusalNotices';
@@ -323,7 +324,8 @@ function StarredCourtSwitches({ busy, setBusy, c }: { busy: boolean; setBusy: (b
               accessibilityState={{ disabled: busy }}
               accessibilityLabel={`Remove ${court.name} from your courts`}
             >
-              <Text style={[S.unstarGlyph, { color: c.warning }]}>★</Text>
+              {/* The filled star in the brand colour, as CourtFavoriteStar draws it. */}
+              <Icon name="star" size={22} color={c.primary} />
             </TouchableOpacity>
           </View>
         </React.Fragment>
@@ -477,6 +479,5 @@ const S = StyleSheet.create({
   courtRow: { flexDirection: 'row', alignItems: 'center' },
   // The ★ beside a court's switch, in its own 44 box (as CourtFavoriteStar).
   unstar: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginRight: SPACE.xs },
-  unstarGlyph: { fontSize: FONT.size.h2, lineHeight: FONT.size.h1 },
   dim: { opacity: 0.5 },
 });

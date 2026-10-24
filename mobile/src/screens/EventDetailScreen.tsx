@@ -22,12 +22,13 @@ import {
 import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  AvatarPile, Badge, Chip, ClampText, CollapsibleSection, Panel, SectionHeader, StatusBanner,
+  AvatarPile, Badge, ClampText, CollapsibleSection, FilterPill, Panel, SectionHeader, StatusBanner,
   StickyActionBar,
 } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { getLeagueRole, isPrivileged } from '../lib/leagueRole';
 import { LeagueEvent, EventSlot, SlotVoter, RootStackParamList } from '../types';
@@ -50,7 +51,7 @@ import EmptyState from '../components/EmptyState';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { optionNumbers } from '../lib/eventVote';
 import { displayCourtName } from '../lib/courtNickname';
-import { entityGlyph } from '../lib/entityGlyph';
+import { entityIcon } from '../lib/entityGlyph';
 import { trackSectionToggle } from '../lib/analytics';
 import { sbCall, friendlySbMessage, insertIgnoringDuplicate, currentUserId as localUserId } from '@just-messin-around/expo-foundation/supabase';
 import EventSlotCard from '../components/event/EventSlotCard';
@@ -775,7 +776,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   if (!event) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <EmptyState icon="🔍" title="Event not found." actionLabel="Retry" onAction={() => { setLoading(true); void load(); }} />
+        <EmptyState iconName="search" title="Event not found." actionLabel="Retry" onAction={() => { setLoading(true); void load(); }} />
       </View>
     );
   }
@@ -874,14 +875,17 @@ export default function EventDetailScreen({ navigation, route }: Props) {
             changes no spacing. */}
         <View onLayout={heightLayout(headH)}>
         <View style={S.chipRow}>
-          <Badge label={eventStatusLabel(category)} tone={eventStatusTone(category)} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          <Badge label={eventStatusLabel(category)} tone={eventStatusTone(category)} align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
           {leagueName ? (
-            <Chip
-              label={`${entityGlyph('league')} ${leagueName} ›`}
-              size="sm"
-              hitBox
+            // FilterPill: the 28px neutral pill in a 44 box, with the league glyph
+            // before the name and the chevron that says it opens.
+            <FilterPill
+              iconName={entityIcon('league')}
+              label={leagueName}
+              trailingIconName="chevron-right"
               accessibilityRole="button"
               accessibilityLabel={`League: ${leagueName}`}
+              accessibilityState={{}}
               maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
               onPress={() => {
                 // Back to the league, not a second copy of it. popTo matches by
@@ -899,7 +903,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
               }}
             />
           ) : null}
-          {place ? <Badge label={`📍 ${place}`} tone="neutral" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} /> : null}
+          {place ? <Badge iconName="pin" label={place} tone="neutral" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} /> : null}
         </View>
         {description ? (
           <ClampText style={t.sub} containerStyle={S.descBlock}>{description}</ClampText>
@@ -952,9 +956,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: iDeclined }}
               >
-                <Text style={[t.title, { color: iDeclined ? c.danger : c.textSub }]}>
-                  {voting === 'decline' ? 'Saving…' : "🚫 Can't make it"}
-                </Text>
+                {voting === 'decline' ? (
+                  <Text style={[t.title, { color: iDeclined ? c.danger : c.textSub }]}>Saving…</Text>
+                ) : (
+                  <IconTitle iconName="block" color={iDeclined ? c.danger : c.textSub}>Can't make it</IconTitle>
+                )}
                 <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
                   {decliners.length > 0
                     ? `${decliners.length} ${decliners.length === 1 ? 'player' : 'players'} can't make any of these times`
@@ -1041,7 +1047,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 const scoreLabel = m.player1_score != null && m.player2_score != null
                   ? `${m.player1_score}–${m.player2_score}`
                   : null;
-                const winSuffix = m.winner_team === 'team1' ? '✓ Team A' : m.winner_team === 'team2' ? '✓ Team B' : null;
+                const winSuffix = m.winner_team === 'team1' ? 'Team A won' : m.winner_team === 'team2' ? 'Team B won' : null;
                 return (
                   <View key={m.id} style={[S.matchRow, i < eventMatches.length - 1 && S.divider]}>
                     <Text style={t.title} numberOfLines={1}>{teamA} vs {teamB}</Text>
@@ -1087,19 +1093,19 @@ export default function EventDetailScreen({ navigation, route }: Props) {
 
               {canNudge && (
                 <View style={S.manageGroup}>
-                  <Text style={t.title}>
-                    {nudgeKind === 'vote' ? '📣 Chase the stragglers'
-                      : nudgeKind === 'today' ? '📣 Remind them it’s today'
-                      : '📣 Tell them it’s locked in'}
-                  </Text>
+                  <IconTitle iconName="megaphone">
+                    {nudgeKind === 'vote' ? 'Chase the stragglers'
+                      : nudgeKind === 'today' ? 'Remind them it’s today'
+                      : 'Tell them it’s locked in'}
+                  </IconTitle>
                   <Text style={t.sub} numberOfLines={2}>
                     Opens your messaging app with the group and the message ready — you tap send.
                   </Text>
                   <View style={S.btnRow}>
-                    <Button size="sm" title="💬 Text" loading={nudging} onPress={() => sendNudge('sms')} />
+                    <Button size="sm" iconName="chat" title="Text" loading={nudging} onPress={() => sendNudge('sms')} />
                     <Button size="sm" variant="success" title="WhatsApp" disabled={nudging} onPress={() => sendNudge('whatsapp')} />
                     {chatWebhookUrl && (
-                      <Button size="sm" variant="outline" title="📢 League chat" disabled={nudging} onPress={() => sendNudge('chat')} />
+                      <Button size="sm" variant="outline" iconName="megaphone" title="League chat" disabled={nudging} onPress={() => sendNudge('chat')} />
                     )}
                   </View>
                 </View>
@@ -1130,10 +1136,11 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                     </View>
                   </View>
                 ) : (
-                  <Pressable onPress={() => setWebhookSetupOpen(true)} style={S.linkBox} accessibilityRole="button">
-                    <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                      Connect a Discord/Slack webhook to post nudges with one tap →
+                  <Pressable onPress={() => setWebhookSetupOpen(true)} style={[S.linkBox, S.linkRow]} accessibilityRole="button">
+                    <Text style={[t.meta, S.shrink, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                      Connect a Discord/Slack webhook to post nudges with one tap
                     </Text>
+                    <Icon name="chevron-right" size={14} color={c.primary} />
                   </Pressable>
                 )
               )}
@@ -1141,7 +1148,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
               {canInvite && (
                 <View style={S.manageRow}>
                   <View style={S.manageText}>
-                    <Text style={t.title}>📲 Invite guests to vote</Text>
+                    <IconTitle iconName="phone">Invite guests to vote</IconTitle>
                     <Text style={t.sub} numberOfLines={2}>No account needed — a 7-day guest pass.</Text>
                   </View>
                   <Button size="sm" variant="outline" title="Invite" loading={invitingGuests} onPress={onInviteGuests} />
@@ -1177,7 +1184,7 @@ export default function EventDetailScreen({ navigation, route }: Props) {
                 ) : (
                   <View style={S.manageRow}>
                     <View style={S.manageText}>
-                      <Text style={t.title}>✏️ Edit details</Text>
+                      <IconTitle iconName="edit">Edit details</IconTitle>
                       <Text style={t.sub} numberOfLines={1}>Location and description</Text>
                     </View>
                     <Button size="sm" variant="outline" title="Edit" onPress={openDetailsEdit} />
@@ -1188,9 +1195,9 @@ export default function EventDetailScreen({ navigation, route }: Props) {
               {(canCancel || canRemove) && (
                 <View style={S.manageRow}>
                   <View style={S.manageText}>
-                    <Text style={[t.title, { color: c.danger }]}>
-                      {canRemove ? '🗑️ Remove from history' : '🚫 Cancel event'}
-                    </Text>
+                    <IconTitle iconName={canRemove ? 'trash' : 'block'} color={c.danger}>
+                      {canRemove ? 'Remove from history' : 'Cancel event'}
+                    </IconTitle>
                     <Text style={t.sub} numberOfLines={2}>
                       {canRemove ? 'Takes it off the events list for everyone.' : 'You choose whether the league is told.'}
                     </Text>
@@ -1278,6 +1285,21 @@ export default function EventDetailScreen({ navigation, route }: Props) {
   );
 }
 
+// A card title with its glyph: the glyph at 16 beside the 15px title, both in
+// the title's colour, centred on the line (glyphs-ui-plan.md 1.4: a row, never
+// a glyph inside the Text).
+function IconTitle({ iconName, color, children }: { iconName: IconName; color?: string; children: React.ReactNode }) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const tint = color ?? c.text;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.sm }}>
+      <Icon name={iconName} size={16} color={tint} />
+      <Text style={[t.title, { color: tint, flexShrink: 1 }]}>{children}</Text>
+    </View>
+  );
+}
+
 // A tappable checkbox row for the cancel dialog's two choices.
 function CheckRow({ label, sub, checked, onToggle }: {
   label: string; sub: string; checked: boolean; onToggle: () => void;
@@ -1298,7 +1320,7 @@ function CheckRow({ label, sub, checked, onToggle }: {
         backgroundColor: checked ? c.primary : 'transparent',
         alignItems: 'center', justifyContent: 'center',
       }}>
-        {checked && <Text style={{ color: '#fff', fontWeight: '800', fontSize: 14, lineHeight: 16 }}>✓</Text>}
+        {checked && <Icon name="check-mark" size={14} color={c.textInverse} />}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={t.title}>{label}</Text>
@@ -1338,9 +1360,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     checkGroup:  { gap: SPACE.sm, marginBottom: SPACE.md },
     btnRow:      { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
     linkBox:     { minHeight: 44, justifyContent: 'center' },
+    linkRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    shrink:      { flexShrink: 1 },
     input: {
       borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md,
-      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: 13, color: c.text, backgroundColor: c.surface,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.base, color: c.text, backgroundColor: c.surface,
       minHeight: 44,
     },
     inputMulti:  { minHeight: 72, textAlignVertical: 'top' },

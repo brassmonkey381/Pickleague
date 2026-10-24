@@ -2,7 +2,7 @@
 //
 //   [All] [Requests] [Unread] [Leagues] [Tournaments] [Rewards]   Mark all read
 //   TODAY
-//   (🏆) Tournament invite: Fall Open                      5m ago   ✕
+//   (trophy) Tournament invite: Fall Open                  5m ago   (x)
 //        Sam invited you to "Fall Open". Tap to accept or decline,
 //        or use invite code ABC-123 if you'd rather join by code.
 //   YESTERDAY ...
@@ -22,7 +22,7 @@
 //   drill is gone) is greyed out with "No longer available", and a tap only
 //   marks it read and opens its full text instead of navigating nowhere.
 //   Home's bell leaves those out of its dot too (homeData's unreadLive).
-// - Every row has a visible delete (✕, a 44 box) BESIDE the card, not inside
+// - Every row has a visible delete (a close glyph in a 44 box) BESIDE the card, not inside
 //   it: the card is one touchable, so VoiceOver can't reach a button nested in
 //   it (and on web it would be a press inside a press). The old hidden
 //   long-press delete is gone: it deleted with no confirmation on a slow press.
@@ -58,17 +58,18 @@ import { useFocusEffect, type RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
-import { ConfirmModal, FilterChipRow, ListCard, SectionHeader, SkeletonList } from '@just-messin-around/expo-foundation/ui';
+import { ConfirmModal, ErrorState, FilterChipRow, ListCard, SectionHeader, SkeletonList } from '@just-messin-around/expo-foundation/ui';
+import { Icon, glyphForEmoji, splitLeadingEmoji, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HOME_KEY, type HomeData } from '../components/home/homeData';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
 import { linkOf } from '../lib/pushLinks';
 import { routeLink } from '../lib/push';
 import { openDiscover } from '../lib/discoverNav';
 import { redeemLeagueInvite } from '../data/leagueInvites';
-import { entityTileColors, type EntityKind } from '../lib/entityGlyph';
+import { entityIcon, entityTileColors, type EntityKind } from '../lib/entityGlyph';
 import {
   NOTIFICATION_CHIPS,
   chipServerFilter,
@@ -233,7 +234,7 @@ async function loadPage(chip: NotificationChip): Promise<NotificationPage> {
 const LONG_BODY_CHARS = 70;
 const isLongBody = (body: string) => body.length > LONG_BODY_CHARS || body.includes('\n');
 
-/** A row's screen-reader actions: the same delete as its visible ✕. */
+/** A row's screen-reader actions: the same delete as its visible close glyph. */
 const DELETE_ACTIONS = [{ name: 'delete', label: 'Delete' }];
 
 // The invite code on a notice: push_data.invite_code (league invites from
@@ -247,23 +248,34 @@ function extractInviteCode(n: { body: string; push_data?: Record<string, unknown
   return m ? m[1] : null;
 }
 
-/** The row's glyph, by entity_type (never `type`). */
-function glyphFor(entityType: string | null): { glyph: string; kind: EntityKind } {
+/** The row's tile, by entity_type (never `type`): an entity's own glyph
+ *  (lib/entityGlyph), or the glyph for a notice that is about no one entity.
+ *  The tile colours always follow the kind. */
+function tileFor(entityType: string | null): { icon: IconName; kind: EntityKind } {
   switch (entityType) {
-    case 'tournament': return { glyph: '🏆', kind: 'tournament' };
-    case 'league': return { glyph: '🎾', kind: 'league' };
-    case 'event': return { glyph: '📅', kind: 'event' };
-    case 'match': return { glyph: '🏅', kind: 'match' };
-    case 'drill': return { glyph: '🏓', kind: 'drill' };
-    case 'shop': return { glyph: '🥒', kind: 'pickles' };
-    case 'shop_item': return { glyph: '🛒', kind: 'shop' };
-    case 'profile': return { glyph: '🎖️', kind: 'player' };
-    case 'plupr_history': return { glyph: '📈', kind: 'player' };
+    case 'tournament': return { icon: entityIcon('tournament'), kind: 'tournament' };
+    case 'league': return { icon: entityIcon('league'), kind: 'league' };
+    case 'event': return { icon: entityIcon('event'), kind: 'event' };
+    case 'match': return { icon: entityIcon('match'), kind: 'match' };
+    case 'drill': return { icon: entityIcon('drill'), kind: 'drill' };
+    case 'shop': return { icon: entityIcon('pickles'), kind: 'pickles' };
+    case 'shop_item': return { icon: entityIcon('shop'), kind: 'shop' };
+    case 'profile': return { icon: 'medal', kind: 'player' };
+    case 'plupr_history': return { icon: 'chart', kind: 'player' };
     case 'wager':
-    case 'wager_on_me': return { glyph: '🎲', kind: 'pickles' };
-    case 'friend': return { glyph: '🤝', kind: 'player' };
-    default: return { glyph: '📣', kind: 'shop' };
+    case 'wager_on_me': return { icon: 'dice', kind: 'pickles' };
+    case 'friend': return { icon: 'handshake', kind: 'player' };
+    default: return { icon: 'megaphone', kind: 'shop' };
   }
+}
+
+/** A title's leading emoji (server copy, also the push title) becomes the
+ *  tile's glyph when one is drawn for it, and leaves the words either way, so
+ *  the row never shows the icon twice. The push text itself is unchanged. */
+function rowGlyph(n: { title: string; entity_type: string | null }): { icon: IconName; kind: EntityKind; title: string } {
+  const { emoji, rest } = splitLeadingEmoji(n.title);
+  const tile = tileFor(n.entity_type);
+  return { icon: glyphForEmoji(emoji) ?? tile.icon, kind: tile.kind, title: rest || n.title };
 }
 
 export default function NotificationsScreen({ navigation, route }: Props) {
@@ -588,11 +600,11 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     const n = item.row;
     const gone = missing.has(n.id);
     const open = expanded.has(n.id);
-    const g = glyphFor(n.entity_type);
+    const g = rowGlyph(n);
     const tile = entityTileColors(g.kind, c);
     const long = isLongBody(n.body);
     const time = notificationTime(n.created_at, now);
-    // The ✕ is a SIBLING of the card, not its `trailing`: ListCard is one
+    // The delete button is a SIBLING of the card, not its `trailing`: ListCard is one
     // touchable (accessible by default), so iOS VoiceOver can't focus a button
     // nested in it, and a screen-reader user could not delete at all.
     // The card names itself once, with the whole body (the "more" toggle
@@ -602,9 +614,9 @@ export default function NotificationsScreen({ navigation, route }: Props) {
     // label either (aria-label is prohibited on a generic element); its text
     // and the "more" button read in order.
     // The card also offers "Delete" as a rotor / TalkBack action (native only:
-    // RNW drops accessibility actions, so the visible ✕ stays).
+    // RNW drops accessibility actions, so the visible delete stays).
     const webLong = long && Platform.OS === 'web';
-    const a11yLabel = `${n.is_read ? '' : 'Unread: '}${n.title}, ${time}. ${n.body}${gone ? '. No longer available' : ''}`;
+    const a11yLabel = `${n.is_read ? '' : 'Unread: '}${g.title}, ${time}. ${n.body}${gone ? '. No longer available' : ''}`;
     return (
       <View style={styles.rowWrap}>
         <ListCard
@@ -617,12 +629,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           accessibilityActions={DELETE_ACTIONS}
           onAccessibilityAction={(e) => { if (e.nativeEvent.actionName === 'delete') void deleteNotification(n); }}
           leading={
-            <View
-              style={[styles.tile, { backgroundColor: tile.bg, borderColor: tile.border }, gone && styles.gone]}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Text style={styles.glyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{g.glyph}</Text>
+            <View style={[styles.tile, { backgroundColor: tile.bg }, gone && styles.gone]}>
+              <Icon name={g.icon} size={18} color={tile.border === c.border ? c.textSub : tile.border} />
             </View>
           }
           title={
@@ -632,9 +640,9 @@ export default function NotificationsScreen({ navigation, route }: Props) {
                 style={[t.title, styles.titleText, n.is_read && { color: c.textSub }, gone && styles.gone]}
                 numberOfLines={open ? undefined : 1}
               >
-                {n.title}
+                {g.title}
               </Text>
-              <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              <Text style={[t.meta, styles.time]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
                 {time}
               </Text>
             </View>
@@ -653,7 +661,7 @@ export default function NotificationsScreen({ navigation, route }: Props) {
                   onPress={() => toggleExpanded(n.id)}
                   activeOpacity={0.6}
                   accessibilityRole="button"
-                  accessibilityLabel={open ? 'Show less' : `Show full notification: ${n.title}`}
+                  accessibilityLabel={open ? 'Show less' : `Show full notification: ${g.title}`}
                 >
                   <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
                     {open ? 'less' : 'more'}
@@ -673,9 +681,9 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           onPress={() => { void deleteNotification(n); }}
           activeOpacity={0.6}
           accessibilityRole="button"
-          accessibilityLabel={`Delete notification: ${n.title}`}
+          accessibilityLabel={`Delete notification: ${g.title}`}
         >
-          <Text style={[t.title, { color: c.textMuted }]}>✕</Text>
+          <Icon name="close" size={16} color={c.textMuted} />
         </TouchableOpacity>
       </View>
     );
@@ -735,16 +743,16 @@ export default function NotificationsScreen({ navigation, route }: Props) {
           ) : null}
           ListEmptyComponent={
             loadFailed
-              ? <EmptyState
-                  icon="📡"
-                  title="Couldn't load notifications"
-                  subtitle={friendlySbMessage(query.error)}
-                  actionLabel="Retry"
-                  onAction={() => { void reload(); }}
+              ? <ErrorState
+                  iconName="offline"
+                  error={query.error}
+                  message={`Couldn't load notifications. ${friendlySbMessage(query.error)}`}
+                  retryLabel="Retry"
+                  onRetry={() => { void reload(); }}
                 />
               : chip === 'all'
                 ? <EmptyState
-                    icon="🔔"
+                    iconName="bell"
                     title="All quiet here!"
                     subtitle="You'll be notified when brackets are set, invites arrive, and more."
                   />
@@ -766,7 +774,8 @@ export default function NotificationsScreen({ navigation, route }: Props) {
   );
 }
 
-const TILE = 36;
+// The entity row tile (EntityRow, the feed): 32, no border, glyph 18.
+const TILE = 32;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -779,26 +788,26 @@ const styles = StyleSheet.create({
   dayHeader: { marginTop: SPACE.sm },
   friendsLink: { marginTop: SPACE.sm },
   tile: {
-    minWidth: TILE,
-    minHeight: TILE,
+    width: TILE,
+    height: TILE,
     borderRadius: RADIUS.md,
-    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glyph: { fontSize: FONT.size.xl, lineHeight: FONT.size.xl + SPACE.xs * 2 },
   // Title, then the time on the same line (the day is in the header above).
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minWidth: 0 },
   titleText: { flexShrink: 1, flexGrow: 1 },
+  // The time never gives way to a long title ("10:17 PM", not "10:17 P…").
+  time: { flexShrink: 0 },
   unreadDot: { width: SPACE.sm, height: SPACE.sm, borderRadius: RADIUS.pill },
   body: { marginTop: SPACE.xxs },
   gone: { opacity: 0.5 },
   goneNote: { marginTop: SPACE.xxs },
-  // The card and its ✕ side by side, the ✕ level with the title line (the
+  // The card and its delete side by side, the delete level with the title line (the
   // compact card's top padding + half a title line is about half of 44).
   rowWrap: { flexDirection: 'row', alignItems: 'flex-start' },
   card: { flex: 1, minWidth: 0 },
-  // The ✕: a real 44 box (react-native-web ignores hitSlop).
+  // The delete: a real 44 box (react-native-web ignores hitSlop).
   deleteBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   // "more" / "less" under a long body: a real 44 box, hugging its text.
   moreBox: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },

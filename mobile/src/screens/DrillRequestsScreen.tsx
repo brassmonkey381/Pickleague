@@ -15,8 +15,10 @@ import {
   SectionHeader,
   SegmentedToggle,
   CollapsibleSection,
+  ErrorState,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -188,7 +190,7 @@ export default function DrillRequestsScreen({ route }: Props) {
     } catch (e) {
       // A pending drill invite hidden behind "no requests" gets ignored and
       // expires — say the read failed instead.
-      setLoadError(friendlySbMessage(e, "Couldn't load your drill requests."));
+      setLoadError(friendlySbMessage(e, 'Try again in a moment.'));
     } finally {
       // Always: the old early return + happy-path-only flag stranded the skeleton.
       setLoading(false);
@@ -377,12 +379,11 @@ export default function DrillRequestsScreen({ route }: Props) {
   if (loadError && requests.length === 0) {
     return (
       <View style={S.container}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load drill requests"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load drill requests. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -437,7 +438,8 @@ export default function DrillRequestsScreen({ route }: Props) {
       <Button
         size="sm"
         variant="outline"
-        title={tab === 'incoming' && isPending ? `💬 Reply to ${firstName}` : '💬 Chat'}
+        iconName="chat"
+        title={tab === 'incoming' && isPending ? `Reply to ${firstName}` : 'Chat'}
         onPress={() => setChatRequest(item)}
       />
     );
@@ -521,7 +523,8 @@ export default function DrillRequestsScreen({ route }: Props) {
               return (
                 <FilterPill
                   key={i}
-                  label={selected ? `✓ ${label}` : label}
+                  label={label}
+                  iconName={selected ? 'check-mark' : undefined}
                   active={selected}
                   onPress={() => setSelectedSlotIdx(prev => ({ ...prev, [item.id]: i }))}
                   accessibilityRole="radio"
@@ -545,11 +548,14 @@ export default function DrillRequestsScreen({ route }: Props) {
             accepted time it is locked in: "We're playing at X · <time>". */}
         {item.location_name ? (
           <View style={S.locationRow}>
-            <Text style={S.locationText} numberOfLines={isAccepted && item.accepted_slot ? 2 : 1}>
-              {isAccepted && item.accepted_slot
-                ? `📍 We're playing at ${item.location_name} · ${whenLabel(item, item.accepted_slot)}`
-                : `📍 ${item.location_name}`}
-            </Text>
+            <View style={S.locationLine}>
+              <Icon name="pin" size={14} color={colors.textSub} />
+              <Text style={S.locationText} numberOfLines={isAccepted && item.accepted_slot ? 2 : 1}>
+                {isAccepted && item.accepted_slot
+                  ? `We're playing at ${item.location_name} · ${whenLabel(item, item.accepted_slot)}`
+                  : item.location_name}
+              </Text>
+            </View>
             <Pressable
               onPress={() => openLocationPicker(item)}
               style={S.linkBox}
@@ -562,10 +568,12 @@ export default function DrillRequestsScreen({ route }: Props) {
         ) : (
           <Pressable
             onPress={() => openLocationPicker(item)}
-            style={({ pressed }) => [S.locationRow, pressed && S.pressed]}
+            style={({ pressed }) => [S.locationRow, S.setLocation, pressed && S.pressed]}
             accessibilityRole="button"
+            accessibilityLabel="Set a location"
           >
-            <Text style={S.linkText}>📍 Set a location</Text>
+            <Icon name="pin" size={14} color={colors.primary} />
+            <Text style={S.linkText}>Set a location</Text>
           </Pressable>
         )}
 
@@ -574,7 +582,8 @@ export default function DrillRequestsScreen({ route }: Props) {
           <View style={S.actions}>
             <Button
               size="sm"
-              title="✓ Accept"
+              iconName="check-mark"
+              title="Accept"
               onPress={() => acceptWithSelectedSlot(item)}
               disabled={selectedSlotIdx[item.id] == null}
             />
@@ -606,8 +615,8 @@ export default function DrillRequestsScreen({ route }: Props) {
       <SegmentedToggle<Tab>
         variant="underline"
         options={[
-          { value: 'incoming', label: 'Incoming', icon: '📥' },
-          { value: 'outgoing', label: 'Outgoing', icon: '📤' },
+          { value: 'incoming', label: 'Incoming', iconName: 'inbox' },
+          { value: 'outgoing', label: 'Outgoing', iconName: 'outbox' },
         ]}
         value={tab}
         onChange={setTab}
@@ -631,7 +640,7 @@ export default function DrillRequestsScreen({ route }: Props) {
           <View style={S.section}>
             <SectionHeader title="Review your drills" count={reviewable.length} />
             <Text style={S.sectionHint} numberOfLines={2}>
-              Rate 5 aspects (5 🥒 each) and add a self-review (up to 50 🥒) to claim your bonus.
+              Rate 5 aspects (5 pickles each) and add a self-review (up to 50 pickles) to claim your bonus.
             </Text>
             <Panel padded={false}>
               {reviewable.map((s, i) => (
@@ -641,7 +650,7 @@ export default function DrillRequestsScreen({ route }: Props) {
                   lastRow={i === reviewable.length - 1}
                   title={`Drill with ${s.partner_name}`}
                   subtitle={`${drillWhenLabel(s.starts_at, { date: s.session_date, slot: s.session_slot })} · ${durationLabel(s.length_minutes ?? 60)}`}
-                  trailing={<Button size="sm" title="📝 Review" onPress={() => setReviewTarget(s)} />}
+                  trailing={<Button size="sm" iconName="edit" title="Review" onPress={() => setReviewTarget(s)} />}
                   style={S.actionRow}
                 />
               ))}
@@ -651,7 +660,7 @@ export default function DrillRequestsScreen({ route }: Props) {
 
         {requests.length === 0 ? (
           <EmptyState
-            icon="📭"
+            iconName="inbox"
             title={`No ${tab} requests yet.`}
             subtitle={tab === 'incoming'
               ? 'When someone wants to drill with you, you\'ll see it here.'
@@ -873,7 +882,8 @@ function DrillChatModal({
   const sheet = (
     <View style={S.sheet}>
       <View style={S.header}>
-        <Text style={S.title} numberOfLines={1}>💬 {otherName}</Text>
+        <Icon name="chat" size={16} color={colors.textSub} />
+        <Text style={S.title} numberOfLines={1}>{otherName}</Text>
         {/* Report or block from inside the thread — where an abusive message is
             actually read. The last few messages ride along on the report so the
             queue still has them if the sender deletes theirs. */}
@@ -890,13 +900,16 @@ function DrillChatModal({
           compact
         />
         <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close chat">
-          <Text style={S.close}>✕</Text>
+          <Icon name="close" size={20} color={colors.textSub} />
         </TouchableOpacity>
       </View>
 
       {showLocationPrompt && (
         <View style={S.locationPrompt}>
-          <Text style={S.locationPromptText}>📍 Did you both decide on a location?</Text>
+          <View style={S.locationPromptHead}>
+            <Icon name="pin" size={14} color={colors.text} />
+            <Text style={S.locationPromptText}>Did you both decide on a location?</Text>
+          </View>
           <View style={S.locationPromptRow}>
             <TouchableOpacity
               style={[S.locationPromptBtn, S.locationPromptBtnYes]}
@@ -916,7 +929,7 @@ function DrillChatModal({
               accessibilityRole="button"
               accessibilityLabel="Dismiss location prompt"
             >
-              <Text style={S.locationPromptDismissText}>✕</Text>
+              <Icon name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -931,7 +944,7 @@ function DrillChatModal({
         {loadingMsgs ? (
           <ActivityIndicator size="small" color={colors.primary} />
         ) : messages.length === 0 ? (
-          <EmptyState icon="💬" title="No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept." />
+          <EmptyState iconName="chat" title="No messages yet. Say hi — you can ask about pace, courts, etc. before deciding to accept." />
         ) : (
           messages.map(m => {
             const mine = m.sender_id === currentUserId;
@@ -986,7 +999,7 @@ function DrillChatModal({
                 {locationPickerMode === 'confirm' ? 'Where are you playing?' : 'Suggest a court'}
               </Text>
               <TouchableOpacity onPress={() => setLocationPickerMode(null)} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close location picker">
-                <Text style={S.close}>✕</Text>
+                <Icon name="close" size={20} color={colors.textSub} />
               </TouchableOpacity>
             </View>
             {courtsLoading ? (
@@ -1047,9 +1060,10 @@ function CourtPickerModal({
       <View style={S.overlay}>
         <View style={S.panel}>
           <View style={S.header}>
-            <Text style={S.title}>📍 Pick a location</Text>
+            <Icon name="pin" size={16} color={colors.textSub} />
+            <Text style={S.title}>Pick a location</Text>
             <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close location picker">
-              <Text style={S.close}>✕</Text>
+              <Icon name="close" size={20} color={colors.textSub} />
             </TouchableOpacity>
           </View>
           {loading ? (
@@ -1077,14 +1091,13 @@ function makeCourtPickerStyles(c: ReturnType<typeof useTheme>['colors']) {
   const t = textStyles(c);
   return StyleSheet.create({
     overlay: { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
-    panel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
-    header:  { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    panel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: HAIRLINE, borderColor: c.border },
+    header:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     title:   { ...t.title, flex: 1 },
-    close:   { fontSize: FONT.size.h2, color: c.textSub, fontWeight: '700' },
     closeBox:{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     row:     { minHeight: 44, justifyContent: 'center', paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, marginBottom: SPACE.xs },
     rowName: { ...t.title },
-    rowSub:  { ...t.meta, fontWeight: '400', marginTop: SPACE.xxs },
+    rowSub:  { ...t.meta, fontWeight: FONT.weight.regular, marginTop: SPACE.xxs },
   });
 }
 
@@ -1093,9 +1106,8 @@ function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     backdrop:    { flex: 1, backgroundColor: c.backdrop, justifyContent: 'flex-end' },
     sheet:       { backgroundColor: c.bg, borderTopLeftRadius: RADIUS.lg, borderTopRightRadius: RADIUS.lg, maxHeight: '85%', minHeight: 420 },
-    header:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    header:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     title:       { ...t.title, flex: 1 },
-    close:       { fontSize: FONT.size.h2, color: c.textSub, fontWeight: '700' },
     closeBox:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     messageList: { flex: 1 },
     bubbleRow:   { flexDirection: 'row', marginBottom: SPACE.xs },
@@ -1107,32 +1119,32 @@ function makeChatStyles(c: ReturnType<typeof useTheme>['colors']) {
     bubbleTextMine: { color: c.textInverse },
     bubbleTime:  { ...t.meta, marginTop: SPACE.xxs },
     bubbleTimeMine: { color: c.textInverse, opacity: 0.7 },
-    composer:    { flexDirection: 'row', padding: SPACE.sm, gap: SPACE.sm, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface, alignItems: 'flex-end' },
-    input:       { flex: 1, minHeight: 44, borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, maxHeight: 100, fontSize: FONT.size.md, color: c.text, backgroundColor: c.bg },
+    composer:    { flexDirection: 'row', padding: SPACE.sm, gap: SPACE.sm, borderTopWidth: HAIRLINE, borderTopColor: c.border, backgroundColor: c.surface, alignItems: 'flex-end' },
+    input:       { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, maxHeight: 100, fontSize: FONT.size.md, color: c.text, backgroundColor: c.bg },
     sendBtn:     { backgroundColor: c.primary, paddingHorizontal: SPACE.lg, minHeight: 44, borderRadius: RADIUS.md, minWidth: 64, alignItems: 'center', justifyContent: 'center' },
     sendBtnDim:  { opacity: 0.5 },
-    sendBtnText: { color: c.textInverse, fontWeight: '800', fontSize: FONT.size.base },
+    sendBtnText: { color: c.textInverse, fontWeight: FONT.weight.heavy, fontSize: FONT.size.base },
     sendErrorRow:{ paddingHorizontal: SPACE.md, paddingTop: SPACE.sm, backgroundColor: c.surface },
     sendErrorText:{ ...t.meta, color: c.danger },
 
-    locationPrompt:        { padding: SPACE.md, backgroundColor: c.surfaceAlt, borderBottomWidth: 1, borderBottomColor: c.border },
-    locationPromptText:    { ...t.sub, fontWeight: '700', color: c.text, marginBottom: SPACE.sm },
+    locationPrompt:        { padding: SPACE.md, backgroundColor: c.surfaceAlt, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    locationPromptHead:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.sm },
+    locationPromptText:    { ...t.sub, flexShrink: 1, fontWeight: FONT.weight.bold, color: c.text },
     locationPromptRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-    locationPromptBtn:     { flex: 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: 1 },
+    locationPromptBtn:     { flex: 1, minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, alignItems: 'center', borderWidth: HAIRLINE },
     locationPromptBtnYes:  { backgroundColor: c.primary, borderColor: c.primary },
     locationPromptBtnNo:   { backgroundColor: c.bg, borderColor: c.border },
-    locationPromptBtnTextYes: { color: c.textInverse, fontWeight: '700', fontSize: FONT.size.sm },
-    locationPromptBtnTextNo:  { color: c.text, fontWeight: '700', fontSize: FONT.size.sm },
+    locationPromptBtnTextYes: { color: c.textInverse, fontWeight: FONT.weight.bold, fontSize: FONT.size.sm },
+    locationPromptBtnTextNo:  { color: c.text, fontWeight: FONT.weight.bold, fontSize: FONT.size.sm },
     locationPromptDismiss:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    locationPromptDismissText:{ color: c.textMuted, fontSize: FONT.size.lg, fontWeight: '700' },
 
     locationPickerOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
-    locationPickerPanel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: 1, borderColor: c.border },
-    locationPickerHeader:  { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: 1, borderBottomColor: c.border },
+    locationPickerPanel:   { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, borderWidth: HAIRLINE, borderColor: c.border },
+    locationPickerHeader:  { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs, paddingLeft: SPACE.md, paddingRight: SPACE.xs, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     locationPickerTitle:   { ...t.title, flex: 1 },
     courtRow:              { minHeight: 44, justifyContent: 'center', paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, marginBottom: SPACE.xs },
     courtRowName:          { ...t.title },
-    courtRowSub:           { ...t.meta, fontWeight: '400', marginTop: SPACE.xxs },
+    courtRowSub:           { ...t.meta, fontWeight: FONT.weight.regular, marginTop: SPACE.xxs },
   });
 }
 
@@ -1166,7 +1178,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     closedRow:   { paddingVertical: SPACE.xs, paddingHorizontal: 0 },
     cardTop:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
     cardTopText: { flex: 1, minWidth: 0 },
-    avatar:      { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    avatar:      { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: FONT.size.h2 },
 
     messageBox:  { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm },
@@ -1178,9 +1190,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     slotsWrap:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs },
 
     locationRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
-    locationText:{ ...t.sub, flex: 1, color: c.text, fontWeight: '600' },
+    // The pin glyph beside the court name, centred on its first line.
+    locationLine:{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    locationText:{ ...t.sub, flexShrink: 1, color: c.text, fontWeight: FONT.weight.semibold },
+    setLocation: { gap: SPACE.xs, alignSelf: 'flex-start' },
     linkBox:     { minHeight: 44, minWidth: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-    linkText:    { fontSize: FONT.size.base, fontWeight: '700', color: c.primary },
+    linkText:    { fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.primary },
     dangerText:  { color: c.danger },
 
     actions:     { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm },

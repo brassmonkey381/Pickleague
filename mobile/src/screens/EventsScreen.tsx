@@ -12,7 +12,7 @@ import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, friendlySbMessage, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
-import { FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, FilterChipRow, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { getLeagueRole, isPrivileged, LeagueRole } from '../lib/leagueRole';
 import { LeagueEvent, RootStackParamList } from '../types';
@@ -291,20 +291,20 @@ export default function EventsScreen({ navigation, route }: Props) {
         )}
         ListEmptyComponent={
           loadFailed
-            ? <EmptyState
-                icon="📡"
-                title="Couldn't load events"
-                subtitle={friendlySbMessage(query.error)}
-                actionLabel="Retry"
-                onAction={() => { void reload(); }}
+            ? <ErrorState
+                iconName="offline"
+                error={query.error}
+                message={`Couldn't load events. ${friendlySbMessage(query.error)}`}
+                retryLabel="Retry"
+                onRetry={() => { void reload(); }}
               />
             : query.loading && rows.length === 0
             ? <SkeletonList rows={4} variant="row" />
             : rows.length === 0
             ? privileged
-              ? <EmptyState icon="📅" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
-              : <EmptyState icon="📅" title="No events yet." subtitle="Your league admin schedules play days." />
-            : <EmptyState compact icon="🔍" title="Nothing here" actionLabel="Clear filters" onAction={() => setFilter('all')} />
+              ? <EmptyState iconName="calendar" title="No events yet" subtitle="Schedule a play day and let the league vote on a time." actionLabel="New event" onAction={openCreate} />
+              : <EmptyState iconName="calendar" title="No events yet." subtitle="Your league admin schedules play days." />
+            : <EmptyState compact iconName="search" title="Nothing here" actionLabel="Clear filters" onAction={() => setFilter('all')} />
         }
       />
     </View>

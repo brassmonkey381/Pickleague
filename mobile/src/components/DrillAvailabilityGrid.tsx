@@ -3,6 +3,7 @@ import {
   WeeklySlotGrid,
   AvailabilityOverlaySlot,
 } from '@just-messin-around/expo-foundation/ui';
+import { useTheme } from '../lib/ThemeContext';
 
 type Overlay = AvailabilityOverlaySlot; // { date: string; slot: number; length_minutes?: number }
 
@@ -20,8 +21,8 @@ type Props = {
 
 /**
  * Moved to @just-messin-around/expo-foundation/ui as WeeklySlotGrid. This
- * adapter reproduces the original overlay layers — drill-confirmed (yellow)
- * under scheduled-match (red, painted last so it wins) — and the drill empty
+ * adapter reproduces the original overlay layers — drill-confirmed (warning amber)
+ * under scheduled-match (danger red, painted last so it wins) — and the drill empty
  * label, so existing imports (`../components/DrillAvailabilityGrid`) keep
  * working unchanged.
  */
@@ -32,6 +33,9 @@ export default function DrillAvailabilityGrid({
   confirmedSlots,
   scheduledMatchSlots,
 }: Props) {
+  // Theme tokens, so both layers follow light/dark: drill = warning (the amber
+  // the session dot on the Drill screen uses), match = danger.
+  const { colors: c } = useTheme();
   return (
     <WeeklySlotGrid
       availability={availability}
@@ -43,8 +47,8 @@ export default function DrillAvailabilityGrid({
       dragSelect="rectangle"
       emptyLabel="No drill availability set"
       overlays={[
-        { label: 'Drill', color: { light: '#f5c542', dark: '#caa028' }, slots: confirmedSlots ?? [] },
-        { label: 'Match', color: { light: '#e75555', dark: '#a13434' }, slots: scheduledMatchSlots ?? [] },
+        { label: 'Drill', color: c.warning, slots: confirmedSlots ?? [] },
+        { label: 'Match', color: c.danger, slots: scheduledMatchSlots ?? [] },
       ]}
     />
   );

@@ -1,6 +1,12 @@
 import React from 'react';
-import { ScrollView, View, Text, StyleSheet } from 'react-native';
+import { Platform, ScrollView, View, Text, StyleSheet } from 'react-native';
+import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
+
+// Courier is iOS's; Android and web read the generic family.
+const MONO = Platform.select({ ios: 'Courier', default: 'monospace' });
 
 export default function ScoringAlgoScreen() {
   const { colors: c } = useTheme();
@@ -113,9 +119,9 @@ else         → K = 0.15`}</Mono>
           the next period; everyone else snaps to the base.
         </P>
         <View style={S.resetBox}>
-          <Reset S={S} rank="🥇 1st" final={3.65} bonus={0.40} />
-          <Reset S={S} rank="🥈 2nd" final={3.525} bonus={0.275} />
-          <Reset S={S} rank="🥉 3rd" final={3.425} bonus={0.175} />
+          <Reset S={S} place={1} rank="1st" final={3.65} bonus={0.40} />
+          <Reset S={S} place={2} rank="2nd" final={3.525} bonus={0.275} />
+          <Reset S={S} place={3} rank="3rd" final={3.425} bonus={0.175} />
           <Reset S={S} rank="4th"   final={3.35} bonus={0.10} />
           <Reset S={S} rank="5th"   final={3.30} bonus={0.05} />
           <Reset S={S} rank="rest"  final={3.25} bonus={0}   note="(default)" />
@@ -192,10 +198,15 @@ function Mono({ S, children }: { S: ReturnType<typeof makeStyles>; children: str
     </View>
   );
 }
-function Reset({ S, rank, final, bonus, note }: { S: ReturnType<typeof makeStyles>; rank: string; final: number; bonus: number; note?: string }) {
+/** One ladder row. `place` 1-3 draws the RankMedal before the label; the
+ *  other rows keep the medal's width so every label starts in one column. */
+function Reset({ S, place, rank, final, bonus, note }: { S: ReturnType<typeof makeStyles>; place?: number; rank: string; final: number; bonus: number; note?: string }) {
   return (
     <View style={S.resetRow}>
-      <Text style={S.resetRank}>{rank}</Text>
+      <View style={S.resetRank}>
+        {place ? <RankMedal place={place} /> : <View style={S.medalSpacer} />}
+        <Text style={S.resetRankText}>{rank}</Text>
+      </View>
       <Text style={S.resetCalc}>3.250 + {bonus.toFixed(3)}</Text>
       <Text style={S.resetEquals}>=</Text>
       <Text style={S.resetFinal}>{final.toFixed(3)}{note ? ` ${note}` : ''}</Text>
@@ -204,41 +215,46 @@ function Reset({ S, rank, final, bonus, note }: { S: ReturnType<typeof makeStyle
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 16, paddingBottom: 60, backgroundColor: c.bg },
+    container: { padding: SPACE.lg, paddingBottom: SPACE.xl * 2, backgroundColor: c.bg },
 
     hero: {
       backgroundColor: c.headerBg,
-      borderRadius: 14, padding: 20, marginBottom: 16,
-      shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4,
+      borderRadius: RADIUS.lg, padding: SPACE.lg, marginBottom: SPACE.md,
+      shadowColor: c.shadow, shadowOpacity: 0.15, shadowRadius: SPACE.sm, shadowOffset: { width: 0, height: 3 }, elevation: 4,
     },
-    heroVersion: { fontSize: 11, fontWeight: '800', color: c.headerSub, letterSpacing: 1.5, marginBottom: 4 },
-    heroTitle:   { fontSize: 28, fontWeight: '900', color: c.headerText, letterSpacing: 0.5, marginBottom: 6 },
-    heroSub:     { fontSize: 13, color: c.headerSub, lineHeight: 19 },
+    heroVersion: { ...t.label, color: c.headerSub, marginBottom: SPACE.xs },
+    heroTitle:   { ...t.display, color: c.headerText, marginBottom: SPACE.xs },
+    heroSub:     { ...t.sub, color: c.headerSub },
 
     section: {
-      backgroundColor: c.surface, borderRadius: 14, padding: 16, marginBottom: 12,
-      borderWidth: 1, borderColor: c.border,
+      backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, marginBottom: SPACE.md,
+      borderWidth: HAIRLINE, borderColor: c.border,
     },
-    sectionTitle: { fontSize: 16, fontWeight: '900', color: c.text, marginBottom: 8 },
-    subTitle:     { fontSize: 13, fontWeight: '800', color: c.textSub, marginTop: 12, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.6 },
-    body:         { fontSize: 14, color: c.textSub, lineHeight: 20, marginBottom: 8 },
-    bold:         { fontWeight: '800', color: c.text },
+    sectionTitle: { ...t.h3, marginBottom: SPACE.sm },
+    subTitle:     { ...t.fieldLabel, color: c.textSub, marginTop: SPACE.md, marginBottom: SPACE.xs },
+    body:         { ...t.bodySub, marginBottom: SPACE.sm },
+    bold:         { fontWeight: FONT.weight.heavy, color: c.text },
 
-    bulletRow:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 4 },
-    bulletDot:    { fontSize: 14, color: c.primary, marginRight: 8, lineHeight: 20 },
-    bulletText:   { flex: 1, fontSize: 14, color: c.textSub, lineHeight: 20 },
+    bulletRow:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: SPACE.xs },
+    bulletDot:    { fontSize: FONT.size.md, color: c.primary, marginRight: SPACE.sm, lineHeight: FONT.line.normal },
+    bulletText:   { ...t.bodySub, flex: 1 },
 
-    monoBox:  { backgroundColor: c.surfaceAlt, borderRadius: 8, padding: 10, marginVertical: 6, borderLeftWidth: 3, borderLeftColor: c.primary },
-    monoText: { fontFamily: 'Courier', fontSize: 12, color: c.text, lineHeight: 18 },
+    // 3px accent edge, as Panel's emphasis variant.
+    monoBox:  { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.sm, padding: SPACE.md, marginVertical: SPACE.sm, borderLeftWidth: 3, borderLeftColor: c.primary },
+    monoText: { fontFamily: MONO, fontSize: FONT.size.sm, color: c.text, lineHeight: FONT.line.tight },
 
-    resetBox: { backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginVertical: 8 },
-    resetRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
-    resetRank:   { width: 60, fontSize: 13, fontWeight: '700', color: c.text },
-    resetCalc:   { width: 110, fontSize: 12, color: c.textSub, fontFamily: 'Courier' },
+    resetBox: { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, marginVertical: SPACE.sm },
+    resetRow: { flexDirection: 'row', alignItems: 'center', minHeight: 28, paddingVertical: SPACE.xxs },
+    resetRank:     { width: 64, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    // RankMedal's default 20px disc, so the "4th" / "rest" labels line up with "1st".
+    medalSpacer:   { width: 20 },
+    resetRankText: { fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.text },
+    resetCalc:   { width: 110, fontSize: FONT.size.sm, color: c.textSub, fontFamily: MONO },
     resetEquals: { width: 18, textAlign: 'center', color: c.textMuted },
-    resetFinal:  { flex: 1, fontSize: 13, fontWeight: '800', color: c.primary, fontFamily: 'Courier' },
+    resetFinal:  { flex: 1, fontSize: FONT.size.base, fontWeight: FONT.weight.heavy, color: c.primary, fontFamily: MONO },
 
-    footnote: { textAlign: 'center', fontSize: 11, color: c.textMuted, marginTop: 12 },
+    footnote: { ...t.caption, textAlign: 'center', marginTop: SPACE.md },
   });
 }

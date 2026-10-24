@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { Text, StyleSheet, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { Text, StyleSheet, View } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { supabase } from '../lib/supabase';
 
@@ -40,7 +44,10 @@ export default function ClaimAccountButton({ profileId, isUnclaimed }: Props) {
   if (sent) {
     return (
       <View style={[styles.wrap, { borderColor: c.border }]}>
-        <Text style={[styles.sentTitle, { color: c.text }]}>📬  Check your email</Text>
+        <View style={styles.titleRow}>
+          <Icon name="mail" size={18} color={c.primary} />
+          <Text style={[styles.sentTitle, { color: c.text }]}>Check your email</Text>
+        </View>
         <Text style={[styles.sentBody, { color: c.textSub }]}>
           If that account can be claimed, we've sent a sign-in link to the email on file.
           Open it on this device to finish.
@@ -56,33 +63,24 @@ export default function ClaimAccountButton({ profileId, isUnclaimed }: Props) {
         This player was added from a DUPR club roster and hasn't been claimed yet.
         We'll email a sign-in link to the address on file.
       </Text>
-      <TouchableOpacity
-        activeOpacity={0.85}
-        disabled={busy}
-        onPress={onPress}
-        style={[styles.btn, { backgroundColor: c.primary, opacity: busy ? 0.7 : 1 }]}
-      >
-        {busy
-          ? <ActivityIndicator size="small" color="#fff" />
-          : <Text style={styles.btnText}>Claim this account</Text>}
-      </TouchableOpacity>
+      <Button size="sm" title="Claim this account" onPress={onPress} loading={busy} style={styles.btn} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    marginHorizontal: 16,
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
+    marginHorizontal: SPACE.lg,
+    marginTop: SPACE.md,
+    padding: SPACE.lg,
+    borderRadius: RADIUS.lg,
+    borderWidth: HAIRLINE,
     alignItems: 'center',
   },
-  title: { fontSize: 15, fontWeight: '800' },
-  body: { fontSize: 12, marginTop: 4, textAlign: 'center', lineHeight: 17 },
-  btn: { marginTop: 12, paddingVertical: 9, paddingHorizontal: 26, borderRadius: 8 },
-  btnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
-  sentTitle: { fontSize: 15, fontWeight: '800' },
-  sentBody: { fontSize: 12, marginTop: 4, textAlign: 'center', lineHeight: 17 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  title: { fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy },
+  body: { fontSize: FONT.size.sm, marginTop: SPACE.xs, textAlign: 'center', lineHeight: 17 },
+  btn: { marginTop: SPACE.sm, alignSelf: 'center' },
+  sentTitle: { fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy },
+  sentBody: { fontSize: FONT.size.sm, marginTop: SPACE.xs, textAlign: 'center', lineHeight: 17 },
 });

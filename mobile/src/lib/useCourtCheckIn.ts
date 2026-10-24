@@ -212,7 +212,7 @@ export function useCourtCheckIn(options: CourtCheckInOptions = {}): CourtCheckIn
       } catch (e) {
         // The star cap, a court that's gone: why, then what to do.
         tell(
-          explainRefusal(e, "Couldn't star this court. Try again with the ☆ above.", {
+          explainRefusal(e, "Couldn't star this court. Try again with the star above.", {
             action: 'favorite',
             venueName: offer.venueName,
           }),

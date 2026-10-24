@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Text, StyleSheet, Animated } from 'react-native';
+import { Platform, Text, StyleSheet, Animated, View } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { shadowColor } from '@just-messin-around/expo-foundation/theme';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 
 // Detects when a user lands on the web app from a Supabase email confirmation
@@ -11,6 +15,7 @@ import { useTheme } from '../lib/ThemeContext';
 // to the authenticated home stack.
 export default function EmailConfirmedBanner() {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const [visible, setVisible] = useState(false);
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -45,10 +50,16 @@ export default function EmailConfirmedBanner() {
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.container, { opacity, backgroundColor: c.primary }]}
+      style={[styles.container, { opacity, backgroundColor: c.primary, shadowColor: shadowColor(c) }]}
+      accessibilityRole="alert"
     >
-      <Text style={styles.title}>✓  Email confirmed</Text>
-      <Text style={styles.subtitle}>Welcome to Pickleague — taking you to your account.</Text>
+      <View style={styles.titleRow}>
+        <Icon name="check-mark" size={16} color={c.textInverse} />
+        <Text style={[t.title, { color: c.textInverse }]}>Email confirmed</Text>
+      </View>
+      <Text style={[t.sub, styles.subtitle, { color: c.textInverse }]}>
+        Welcome to Pickleague — taking you to your account.
+      </Text>
     </Animated.View>
   );
 }
@@ -56,20 +67,19 @@ export default function EmailConfirmedBanner() {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 24,
-    left: 16,
-    right: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 12,
+    top: SPACE.xl,
+    left: SPACE.lg,
+    right: SPACE.lg,
+    paddingVertical: SPACE.md,
+    paddingHorizontal: SPACE.lg,
+    borderRadius: RADIUS.lg,
     elevation: 6,
-    shadowColor: '#000',
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     zIndex: 9999,
     alignItems: 'center',
   },
-  title:    { color: '#fff', fontSize: 16, fontWeight: '800' },
-  subtitle: { color: '#fff', fontSize: 13, marginTop: 2, textAlign: 'center', opacity: 0.95 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  subtitle: { marginTop: SPACE.xxs, textAlign: 'center', opacity: 0.95 },
 });

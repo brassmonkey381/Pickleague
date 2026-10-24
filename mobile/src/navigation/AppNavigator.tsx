@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, TouchableOpacity, View } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
@@ -143,32 +144,38 @@ function WebMaxWidth({
   );
 }
 
+/** A header action: a real 44 box (RNW ignores hitSlop) around a 24 glyph,
+ *  the same size and colour as Home's top-bar actions. */
+const HEADER_ACTION = { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' } as const;
+const HEADER_ICON_SIZE = 24;
+
 /** The Me header's gear (PLAY_NAV_ENABLED). */
 function SettingsGear() {
   const { colors } = useTheme();
   return (
     <TouchableOpacity
       onPress={() => navigateWhenReady('Settings')}
-      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      style={HEADER_ACTION}
       accessibilityRole="button"
       accessibilityLabel="Settings"
     >
-      <Icon name="gear" size={22} color={colors.text} />
+      <Icon name="gear" size={HEADER_ICON_SIZE} color={colors.text} />
     </TouchableOpacity>
   );
 }
 
-/** Me's header: Saved (your leagues' standings live there), the same 🔖 as Home's top bar. */
+/** Me's header: Saved (your leagues' standings live there), the same bookmark as Home's top bar. */
 function SavedButton() {
+  const { colors } = useTheme();
   return (
     <TouchableOpacity
       onPress={() => navigateWhenReady('Bookmarks')}
-      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      style={HEADER_ACTION}
       accessibilityRole="button"
       accessibilityLabel="Saved"
       accessibilityHint="Your saved leagues, tournaments and players, with your standings"
     >
-      <Text style={{ fontSize: 20 }} maxFontSizeMultiplier={1.3}>🔖</Text>
+      <Icon name="bookmark" size={HEADER_ICON_SIZE} color={colors.text} />
     </TouchableOpacity>
   );
 }
@@ -351,7 +358,7 @@ export default function AppNavigator() {
             }}
           >
             <ErrorBoundary>
-            <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
+            <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: FONT.weight.bold } }}>
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
@@ -437,19 +444,19 @@ export default function AppNavigator() {
                 <Stack.Screen name="Drill" component={DrillScreen} options={{ title: 'Drill Partners' }} />
                 <Stack.Screen name="DrillSearch" component={DrillSearchScreen} options={{ title: 'Find Drillers' }} />
                 <Stack.Screen name="DrillRequests" component={DrillRequestsScreen} options={{ title: 'Drill Requests' }} />
-                <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '🥒 Pickle Shop' }} />
+                <Stack.Screen name="Shop" component={ShopScreen} options={{ title: 'Pickle Shop' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
-                <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
-                <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
+                <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: 'Gift Pickles' }} />
+                <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: 'Godmode' }} />
                 <Stack.Screen name="BlockedPlayers" component={BlockedPlayersScreen} options={{ title: 'Blocked Players' }} />
-                <Stack.Screen name="ModerationQueue" component={ModerationQueueScreen} options={{ title: '🛡️ Reports' }} />
+                <Stack.Screen name="ModerationQueue" component={ModerationQueueScreen} options={{ title: 'Reports' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
                 {/* Wager screens stay unregistered while WAGERS_ENABLED is
                     false (lib/features.ts): their backend RPCs do not exist
                     in production, so nothing may route here. */}
                 {WAGERS_ENABLED && (
                   <>
-                    <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
+                    <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: 'My Wagers' }} />
                     <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
                   </>
                 )}
@@ -467,12 +474,12 @@ export default function AppNavigator() {
                 {REFERRALS_ENABLED && (
                   <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ title: 'Invite' }} />
                 )}
-                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Saved' }} />
-                <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: '🎟️ QR Wallet' }} />
+                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: 'Saved' }} />
+                <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: 'QR Wallet' }} />
                 <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
                 <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />
-                <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
-                <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: '🛠️ Court Outlines' }} />
+                <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: 'Venue Review' }} />
+                <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: 'Court Outlines' }} />
                 <Stack.Screen name="AdminBoundaryEditor" component={AdminBoundaryEditorScreen} options={{ title: 'Court outline' }} />
                 {/* Court discovery stays unregistered while COURT_DISCOVERY_ENABLED
                     is false: its RPCs ship with migration_court_discovery_p1.sql. */}

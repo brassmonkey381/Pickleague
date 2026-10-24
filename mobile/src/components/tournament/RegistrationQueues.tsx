@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { TournamentRegistration } from '../../types';
 import { formatPlupr } from '../../lib/plupr';
 import FlairName from '../FlairName';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
 
@@ -19,7 +20,7 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
   approveLabel: string;
   rejectLabel: string;
 } & QueueProps) {
-  const { S } = useTournamentDetailStyles();
+  const { S, c } = useTournamentDetailStyles();
   const name = r.profile?.full_name ?? 'Player';
   return (
     <View style={[S.row, last && S.rowLast]}>
@@ -40,7 +41,7 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
           accessibilityRole="button"
           accessibilityLabel={`${approveLabel} ${name}`}
         >
-          <View style={S.approveDot}><Text style={S.approveDotText}>✓</Text></View>
+          <View style={S.approveDot}><Icon name="check-mark" size={16} color={c.textInverse} /></View>
         </TouchableOpacity>
         <TouchableOpacity
           style={S.queueBox}
@@ -48,7 +49,7 @@ function QueueRow({ r, index, last, approveReg, rejectReg, approveLabel, rejectL
           accessibilityRole="button"
           accessibilityLabel={`${rejectLabel} ${name}`}
         >
-          <View style={S.rejectDot}><Text style={S.rejectDotText}>✕</Text></View>
+          <View style={S.rejectDot}><Icon name="close" size={16} color={c.textMuted} /></View>
         </TouchableOpacity>
       </View>
     </View>

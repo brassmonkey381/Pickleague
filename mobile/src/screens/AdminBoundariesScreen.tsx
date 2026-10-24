@@ -8,8 +8,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { FilterChipRow } from '@just-messin-around/expo-foundation/ui';
 import { TextField } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
-import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import EmptyState from '../components/EmptyState';
@@ -26,6 +27,7 @@ const FILTERS: { value: BoundaryFilter; label: string }[] = [
 
 export default function AdminBoundariesScreen({ navigation }: Props) {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const toast = useToast();
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [query, setQuery] = useState('');
@@ -59,7 +61,7 @@ export default function AdminBoundariesScreen({ navigation }: Props) {
 
   if (authorized === null) return <ActivityIndicator style={styles.center} color={c.primary} />;
   if (!authorized) {
-    return <EmptyState icon="🔒" title="Admin access required" subtitle="This screen is for app admins." />;
+    return <EmptyState iconName="lock" title="Admin access required" subtitle="This screen is for app admins." />;
   }
 
   return (
@@ -71,7 +73,7 @@ export default function AdminBoundariesScreen({ navigation }: Props) {
       keyboardShouldPersistTaps="handled"
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={[styles.intro, { color: c.textSub }]}>
+          <Text style={t.bodySub}>
             An outline lets a check-in pass anywhere inside a building, however far the court's pin is. Courts
             without one use a 100 m circle around the pin.
           </Text>
@@ -80,7 +82,7 @@ export default function AdminBoundariesScreen({ navigation }: Props) {
           {loading ? <ActivityIndicator color={c.primary} /> : null}
         </View>
       }
-      ListEmptyComponent={loading ? null : <EmptyState icon="🗺️" title="No courts match" subtitle="Try another name or filter." />}
+      ListEmptyComponent={loading ? null : <EmptyState iconName="map" title="No courts match" subtitle="Try another name or filter." />}
       renderItem={({ item }) => (
         <Pressable
           onPress={() => navigation.navigate('AdminBoundaryEditor', { venueId: item.id })}
@@ -89,14 +91,15 @@ export default function AdminBoundariesScreen({ navigation }: Props) {
           accessibilityLabel={`${item.name}. ${item.has_boundary ? 'Has an outline' : 'No outline'}. Edit`}
         >
           <View style={styles.flex}>
-            <Text style={[styles.title, { color: c.text }]} numberOfLines={1}>{item.name}</Text>
-            <Text style={[styles.sub, { color: c.textSub }]} numberOfLines={1}>
+            <Text style={t.title} numberOfLines={1}>{item.name}</Text>
+            <Text style={[t.sub, styles.sub]} numberOfLines={1}>
               {[item.city, `${item.checkins} check-in${item.checkins === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}
             </Text>
           </View>
-          <Text style={[styles.badge, { color: item.has_boundary ? c.success : c.textSub }]}>
+          <Text style={[t.sub, styles.badge, { color: item.has_boundary ? c.success : c.textSub }]}>
             {item.has_boundary ? `${Math.round(item.area_sqm ?? 0).toLocaleString()} m²` : 'No outline'}
           </Text>
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </Pressable>
       )}
     />
@@ -107,10 +110,8 @@ const styles = StyleSheet.create({
   center: { flex: 1 },
   content: { padding: SPACE.lg, gap: SPACE.sm, paddingBottom: SPACE.xl * 2 },
   header: { gap: SPACE.md, marginBottom: SPACE.sm },
-  intro: { fontSize: 14, lineHeight: 20 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: 1 },
-  flex: { flex: 1 },
-  title: { fontSize: 15, fontWeight: FONT.weight.semibold },
-  sub: { fontSize: 13, marginTop: 2 },
-  badge: { fontSize: 13, fontWeight: FONT.weight.semibold },
+  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE },
+  flex: { flex: 1, minWidth: 0 },
+  sub: { marginTop: SPACE.xxs },
+  badge: { fontWeight: FONT.weight.semibold },
 });

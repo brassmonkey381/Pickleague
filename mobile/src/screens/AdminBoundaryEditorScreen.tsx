@@ -84,8 +84,8 @@ export default function AdminBoundaryEditorScreen({ navigation, route }: Props) 
   }
 
   if (authorized === null || (authorized && !loaded)) return <ActivityIndicator style={styles.center} color={c.primary} />;
-  if (!authorized) return <EmptyState icon="🔒" title="Admin access required" subtitle="This screen is for app admins." />;
-  if (!venue) return <EmptyState icon="🗺️" title="Court not found" subtitle="It may have been merged or removed." />;
+  if (!authorized) return <EmptyState iconName="lock" title="Admin access required" subtitle="This screen is for app admins." />;
+  if (!venue) return <EmptyState iconName="map" title="Court not found" subtitle="It may have been merged or removed." />;
 
   const canSave = ring.length >= 3;
   return (
@@ -129,8 +129,8 @@ export default function AdminBoundaryEditorScreen({ navigation, route }: Props) 
 const styles = StyleSheet.create({
   center: { flex: 1 },
   content: { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
-  meta: { fontSize: 13, fontWeight: FONT.weight.semibold },
-  hint: { fontSize: 13, lineHeight: 18, marginTop: SPACE.sm },
+  meta: { fontSize: FONT.size.base, fontWeight: FONT.weight.semibold },
+  hint: { fontSize: FONT.size.base, lineHeight: FONT.line.tight, marginTop: SPACE.sm },
   actions: { flexDirection: 'row', gap: SPACE.md, marginTop: SPACE.lg },
   flex: { flex: 1 },
 });

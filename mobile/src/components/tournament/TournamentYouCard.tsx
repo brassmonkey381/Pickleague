@@ -17,7 +17,8 @@
 // repeat the same primary action once the card scrolls off.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Panel, RankMedal, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button, type ButtonVariant } from '@just-messin-around/expo-foundation/forms';
 import { HAIRLINE, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -41,7 +42,7 @@ export type YouCardView = {
   primary?: YouCardAction;
   /** Sits after the primary (e.g. Decline next to Accept). */
   secondary?: YouCardAction;
-  /** A text link in its own 44 box ("Find a partner ›"). */
+  /** A text link in its own 44 box ("Find a partner" + chevron glyph). */
   link?: { label: string; onPress: () => void };
   /** The whole card opens something (Setup -> Manage); shows a chevron. */
   onPress?: () => void;
@@ -91,7 +92,8 @@ export type YouCardFacts = {
   payoutLine: string | null;
 };
 
-const rankMedal = (rank: number) => (rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : ordinal(rank));
+/** "50-pickle ante" (prose: the pickle glyph stays out of sentences). */
+const anteLabel = (ante: number) => `${ante.toLocaleString()}-pickle ante`;
 
 /** The card's content for a kind, or null when the kind has no card. */
 export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | null {
@@ -99,7 +101,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
     case 'join': {
       const facts = [
         f.isFull ? 'Full' : f.spotsLeft != null ? `${f.spotsLeft} spot${f.spotsLeft === 1 ? '' : 's'} left` : null,
-        f.ante > 0 ? `🥒 ${f.ante} ante` : null,
+        f.ante > 0 ? anteLabel(f.ante) : null,
         f.closesLabel,
       ].filter(Boolean) as string[];
       return {
@@ -118,7 +120,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
     case 'invited':
       return {
         title: `${f.inviterName} invited you`,
-        lines: f.ante > 0 ? [`Entry is a 🥒 ${f.ante} ante, charged when you accept.`] : ['Accept to take your spot.'],
+        lines: f.ante > 0 ? [`Entry is a ${anteLabel(f.ante)}, charged when you accept.`] : ['Accept to take your spot.'],
         primary: { title: 'Accept', onPress: f.accept, loading: f.responding },
         secondary: { title: 'Decline', onPress: f.decline, variant: 'outline', disabled: f.responding },
       };
@@ -135,7 +137,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
       return {
         title: 'You\'re in',
         lines: [f.teamLine, f.releaseLine].filter(Boolean) as string[],
-        link: f.needsPartner ? { label: `${f.findPartnerLabel} ›`, onPress: f.onFindPartner } : undefined,
+        link: f.needsPartner ? { label: f.findPartnerLabel, onPress: f.onFindPartner } : undefined,
       };
     case 'setup':
       return {
@@ -163,7 +165,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
       return {
         title: 'No match to play right now',
         lines: f.recordLine ? [f.recordLine] : ['Your next match shows here once it is drawn.'],
-        link: f.onOpenSchedule ? { label: 'Schedule ›', onPress: f.onOpenSchedule } : undefined,
+        link: f.onOpenSchedule ? { label: 'Schedule', onPress: f.onOpenSchedule } : undefined,
       };
     case 'finished':
       return {
@@ -204,7 +206,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
           accessibilityLabel={[view.eyebrow, view.title].filter(Boolean).join(': ')}
         >
           {textBlock}
-          <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
       ) : textBlock}
 
@@ -215,7 +217,9 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
               key={p.rank}
               style={[styles.podiumRow, i > 0 && { borderTopWidth: HAIRLINE, borderTopColor: c.border }]}
             >
-              <Text style={[t.sub, styles.medal]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{rankMedal(p.rank)}</Text>
+              <View style={styles.medal}>
+                <RankMedal place={p.rank} />
+              </View>
               <Text
                 style={[t.sub, styles.podiumName, { color: p.isMe ? c.primary : c.text }, p.isMe && styles.strong]}
                 numberOfLines={1}
@@ -249,13 +253,7 @@ export default function TournamentYouCard({ view }: { view: YouCardView }) {
               variant={view.secondary.variant ?? 'outline'}
             />
           ) : null}
-          {view.link ? (
-            <TouchableOpacity onPress={view.link.onPress} style={styles.link} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                {view.link.label}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
+          {view.link ? <TextLink label={view.link.label} onPress={view.link.onPress} /> : null}
         </View>
       ) : null}
     </Panel>
@@ -266,12 +264,10 @@ const styles = StyleSheet.create({
   card: { gap: SPACE.sm },
   text: { flex: 1, minWidth: 0, gap: SPACE.xxs },
   pressRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
   podium: {},
   podiumRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-  medal: { width: 32 },
+  medal: { width: 32, alignItems: 'flex-start' },
   podiumName: { flex: 1, minWidth: 0 },
   strong: { fontWeight: FONT.weight.bold },
   actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.sm },
-  link: { minHeight: 44, minWidth: 44, justifyContent: 'center' },
 });

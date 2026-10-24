@@ -36,6 +36,10 @@ import { useSearchArea } from '../lib/useSearchArea';
 import { searchAreaKey, type SearchArea } from '../lib/searchArea';
 import { listPlayersNear } from '../data/playersNear';
 import { playsAtLabel } from '../lib/playersNear';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'DrillSearch'>;
@@ -247,22 +251,25 @@ export default function DrillSearchScreen({ route }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Clear search"
           >
-            <Text style={S.clearText}>✕</Text>
+            <Icon name="close" size={16} color={colors.textMuted} />
           </TouchableOpacity>
         )}
       </View>
 
       <View style={S.sortRow}>
         {([
-          { v: 'overlap', label: '⏰ Overlap' },
-          { v: 'shots',   label: '🎯 Shared shots' },
-          { v: 'elo',     label: '⚖️ Skill match' },
-        ] as { v: SortMode; label: string }[]).map(({ v, label }) => (
+          { v: 'overlap', label: 'Overlap', icon: 'clock' },
+          { v: 'shots',   label: 'Shared shots', icon: 'target' },
+          { v: 'elo',     label: 'Skill match', icon: 'scale' },
+        ] as { v: SortMode; label: string; icon: IconName }[]).map(({ v, label, icon }) => (
           <TouchableOpacity
             key={v}
             style={[S.sortPill, sort === v && S.sortPillActive]}
             onPress={() => setSort(v)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: sort === v }}
           >
+            <Icon name={icon} size={12} color={sort === v ? colors.primary : colors.textSub} />
             <Text style={[S.sortPillText, sort === v && S.sortPillTextActive]}>{label}</Text>
           </TouchableOpacity>
         ))}
@@ -271,25 +278,25 @@ export default function DrillSearchScreen({ route }: Props) {
       <FlatList
         data={filtered}
         keyExtractor={c => c.id}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: SPACE.lg }}
         refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
           loadFailed
-            ? <EmptyState
-                icon="📡"
-                title="Couldn't load drillers"
-                subtitle={friendlySbMessage(query.error)}
-                actionLabel="Retry"
-                onAction={() => { void reload(); }}
+            ? <ErrorState
+                iconName="offline"
+                error={query.error}
+                message={`Couldn't load drillers. ${friendlySbMessage(query.error)}`}
+                retryLabel="Retry"
+                onRetry={() => { void reload(); }}
               />
             : area && !search.trim()
               ? <EmptyState
-                  icon="📍"
+                  iconName="pin"
                   title={`No drillers within ${area.radiusMi} mi`}
                   subtitle="Drillers show up here by their leagues' courts and the courts they star. Try a wider radius above."
                 />
               : <EmptyState
-                  icon="🔍"
+                  iconName="search"
                   title="No drillers found"
                   subtitle={'Either nobody\'s set "Open to drilling" yet, or your search is too narrow.'}
                 />
@@ -340,8 +347,9 @@ export default function DrillSearchScreen({ route }: Props) {
                     const shared = me?.shots.includes(slug);
                     return (
                       <View key={slug} style={[S.tagChip, shared && S.tagChipShared]}>
+                        <Icon name={p.iconName} size={12} color={shared ? colors.primary : colors.textSub} />
                         <Text style={[S.tagChipText, shared && S.tagChipTextShared]}>
-                          {p.emoji} {p.label}
+                          {p.label}
                         </Text>
                       </View>
                     );
@@ -366,9 +374,11 @@ export default function DrillSearchScreen({ route }: Props) {
                 style={[S.requestBtn, item.overlap.length === 0 && S.requestBtnDisabled]}
                 onPress={() => setRequestTarget(item)}
                 disabled={item.overlap.length === 0}
+                accessibilityRole="button"
               >
-                <Text style={S.requestBtnText}>
-                  {item.overlap.length === 0 ? 'No overlapping times' : '📨 Send Drill Request'}
+                {item.overlap.length > 0 ? <Icon name="mail" size={16} color={colors.textInverse} /> : null}
+                <Text style={[S.requestBtnText, item.overlap.length === 0 && S.requestBtnTextDisabled]}>
+                  {item.overlap.length === 0 ? 'No overlapping times' : 'Send Drill Request'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -395,54 +405,50 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     container:     { flex: 1, backgroundColor: c.bg },
     areaBar:       { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    searchBar:     { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    searchInput:   { flex: 1, fontSize: 14, color: c.text, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1.5, borderColor: c.border, borderRadius: 10, backgroundColor: c.surfaceAlt },
-    clearBtn:      { paddingHorizontal: 10, paddingVertical: 8, marginLeft: 4 },
-    clearText:     { fontSize: 16, color: c.textMuted },
+    searchBar:     { flexDirection: 'row', alignItems: 'center', padding: SPACE.md, backgroundColor: c.surface, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    searchInput:   { flex: 1, minHeight: 44, fontSize: FONT.size.md, color: c.text, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderWidth: 1.5, borderColor: c.border, borderRadius: RADIUS.md, backgroundColor: c.surfaceAlt },
+    clearBtn:      { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginLeft: SPACE.xs },
 
-    sortRow:       { flexDirection: 'row', gap: 8, padding: 12, paddingTop: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    sortPill:      { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    sortRow:       { flexDirection: 'row', gap: SPACE.sm, padding: SPACE.md, paddingTop: SPACE.sm, backgroundColor: c.surface, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    sortPill:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 32, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
     sortPillActive:{ borderColor: c.primary, backgroundColor: c.primaryLight },
-    sortPillText:  { fontSize: 12, color: c.textSub, fontWeight: '600' },
-    sortPillTextActive: { color: c.primary, fontWeight: '800' },
-
-    emptyWrap:     { alignItems: 'center', padding: 40, marginTop: 40 },
-    emptyEmoji:    { fontSize: 48, marginBottom: 12 },
-    emptyText:     { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 20 },
+    sortPillText:  { fontSize: FONT.size.sm, color: c.textSub, fontWeight: FONT.weight.semibold },
+    sortPillTextActive: { color: c.primary, fontWeight: FONT.weight.heavy },
 
     card:          {
-      backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 10,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+      backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm,
+      shadowColor: c.shadow, shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
     },
-    cardTop:       { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-    avatar:        { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji:   { fontSize: 24 },
-    name:          { fontSize: 16, fontWeight: '800', color: c.text },
-    username:      { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    cardTop:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginBottom: SPACE.sm },
+    avatar:        { width: 48, height: 48, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+    avatarEmoji:   { fontSize: FONT.size.h1 },
+    name:          { fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy, color: c.text },
+    username:      { fontSize: FONT.size.sm, color: c.textMuted, marginTop: SPACE.xxs },
 
-    statsRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
-    statPill:      { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+    statsRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.sm },
+    statPill:      { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill },
     statPillGood:  { backgroundColor: c.primaryLight },
     statPillEmpty: { backgroundColor: c.surfaceAlt },
-    statPillText:  { fontSize: 11, fontWeight: '700' },
+    statPillText:  { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold },
     statPillGoodText:  { color: c.primary },
     statPillEmptyText: { color: c.textMuted },
-    statPillShots: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: '#fff8e1' },
-    statPillShotsText: { fontSize: 11, fontWeight: '700', color: '#b8860b' },
-    statPillPartner:{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: '#e3f2fd' },
-    statPillPartnerText:{ fontSize: 11, fontWeight: '700', color: '#1565c0' },
+    statPillShots: { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: c.rarityLegendaryLight },
+    statPillShotsText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.rarityLegendary },
+    statPillPartner:{ paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: c.infoLight },
+    statPillPartnerText:{ fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.info },
 
-    tagRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
-    tagChip:       { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
+    tagRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, marginBottom: SPACE.sm },
+    tagChip:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
     tagChipShared: { backgroundColor: c.primaryLight, borderColor: c.primary },
-    tagChipText:   { fontSize: 11, color: c.textSub, fontWeight: '600' },
-    tagChipTextShared: { color: c.primary, fontWeight: '800' },
-    moreText:      { fontSize: 11, color: c.textMuted, alignSelf: 'center' },
-    customChip:    { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 12, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border, borderStyle: 'dashed' },
-    customChipText:{ fontSize: 11, color: c.textSub, fontStyle: 'italic' },
+    tagChipText:   { fontSize: FONT.size.xs, color: c.textSub, fontWeight: FONT.weight.semibold },
+    tagChipTextShared: { color: c.primary, fontWeight: FONT.weight.heavy },
+    moreText:      { fontSize: FONT.size.xs, color: c.textMuted, alignSelf: 'center' },
+    customChip:    { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border, borderStyle: 'dashed' },
+    customChipText:{ fontSize: FONT.size.xs, color: c.textSub, fontStyle: 'italic' },
 
-    requestBtn:    { backgroundColor: c.primary, borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 4 },
-    requestBtnDisabled: { backgroundColor: c.border },
-    requestBtnText:{ color: '#fff', fontSize: 14, fontWeight: '700' },
+    requestBtn:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.sm, minHeight: 44, backgroundColor: c.primary, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.xs },
+    requestBtnDisabled: { backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    requestBtnText:{ color: c.textInverse, fontSize: FONT.size.md, fontWeight: FONT.weight.bold },
+    requestBtnTextDisabled: { color: c.textMuted },
   });
 }

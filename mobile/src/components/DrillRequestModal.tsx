@@ -11,6 +11,10 @@ import {
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Chip, Panel, SegmentedToggle } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 
 const IS_WEB = Platform.OS === 'web';
 
@@ -29,6 +33,7 @@ export default function DrillRequestModal({
 }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const t = textStyles(colors);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
@@ -104,72 +109,67 @@ export default function DrillRequestModal({
   const content = (
     <View style={S.root}>
         <View style={S.header}>
-          <TouchableOpacity onPress={handleClose} style={S.headerBtn} disabled={sending}>
-            <Text style={[S.headerCancel, sending && { opacity: 0.4 }]}>Cancel</Text>
+          <TouchableOpacity onPress={handleClose} style={S.headerBtn} disabled={sending} accessibilityRole="button">
+            <Text style={[S.headerCancel, sending && S.dim]}>Cancel</Text>
           </TouchableOpacity>
-          <Text style={S.headerTitle}>Drill with {toName}</Text>
-          <TouchableOpacity onPress={send} style={S.headerBtn} disabled={sending}>
+          <Text style={[t.h3, S.headerTitle]} numberOfLines={1}>Drill with {toName}</Text>
+          <TouchableOpacity onPress={send} style={S.headerBtn} disabled={sending} accessibilityRole="button" accessibilityLabel="Send drill request">
             {sending
               ? <ActivityIndicator size="small" color={colors.primary} />
-              : <Text style={[S.headerSend, picked.size === 0 && { opacity: 0.4 }]}>Send</Text>}
+              : <Text style={[S.headerSend, picked.size === 0 && S.dim]}>Send</Text>}
           </TouchableOpacity>
         </View>
 
         <ScrollView contentContainerStyle={S.scroll}>
-          <Text style={S.intro}>
+          <Text style={[t.sub, S.intro]}>
             Pick the times that work for you. {toName} can accept any one of them.
           </Text>
 
           <StatusBanner status={status.value} />
 
           {Object.keys(groups).length === 0 ? (
-            <View style={S.emptyBox}>
-              <Text style={S.emptyText}>No overlapping slots in the next 7 days. Try expanding your availability!</Text>
-            </View>
+            <Panel style={S.emptyBox}>
+              <Text style={[t.hint, S.center]}>No overlapping slots in the next 7 days. Try expanding your availability!</Text>
+            </Panel>
           ) : (
             Object.entries(groups).map(([date, slots]) => (
-              <View key={date} style={S.dateGroup}>
-                <Text style={S.dateLabel}>{dateLabel(date)} · {dateSubLabel(date)}</Text>
+              <Panel key={date} style={S.dateGroup}>
+                <Text style={[t.label, S.dateLabel]}>{dateLabel(date)} · {dateSubLabel(date)}</Text>
                 <View style={S.slotRow}>
                   {slots.map(slot => {
                     const k = `${date}|${slot}`;
                     const on = picked.has(k);
                     return (
-                      <TouchableOpacity
+                      <Chip
                         key={slot}
-                        style={[S.slotChip, on && S.slotChipOn]}
+                        label={slotLabel(slot)}
+                        iconName={on ? 'check-mark' : undefined}
+                        tone={on ? 'brand' : 'neutral'}
+                        selected={on}
                         onPress={() => toggle({ date, slot })}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[S.slotChipText, on && S.slotChipTextOn]}>{slotLabel(slot)}</Text>
-                      </TouchableOpacity>
+                        accessibilityRole="button"
+                      />
                     );
                   })}
                 </View>
-              </View>
+              </Panel>
             ))
           )}
 
-          <Text style={S.label}>Session length</Text>
-          <View style={S.lengthRow}>
-            {LENGTH_OPTIONS.map(m => {
-              const on = lengthMinutes === m;
-              return (
-                <TouchableOpacity
-                  key={m}
-                  style={[S.lengthChip, on && S.lengthChipOn]}
-                  onPress={() => setLengthMinutes(m)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[S.lengthChipText, on && S.lengthChipTextOn]}>
-                    {m < 60 ? `${m}m` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h ${m % 60}m`}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <Text style={[t.fieldLabel, S.label]}>Session length</Text>
+          <SegmentedToggle<number>
+            size="lg"
+            fullWidth
+            value={lengthMinutes}
+            onChange={setLengthMinutes}
+            options={LENGTH_OPTIONS.map(m => ({
+              value: m,
+              label: m < 60 ? `${m}m` : m % 60 === 0 ? `${m / 60}h` : `${Math.floor(m / 60)}h ${m % 60}m`,
+            }))}
+            style={S.lengthRow}
+          />
 
-          <Text style={S.label}>Optional message</Text>
+          <Text style={[t.fieldLabel, S.label]}>Optional message</Text>
           <TextInput
             style={S.messageInput}
             value={message}
@@ -180,12 +180,15 @@ export default function DrillRequestModal({
             maxLength={300}
             textAlignVertical="top"
           />
-          <Text style={S.charCount}>{message.length}/300</Text>
+          <Text style={[t.caption, S.charCount]}>{message.length}/300</Text>
 
           {picked.size > 0 && (
-            <Text style={S.summary}>
-              📨 Sending {picked.size} time slot{picked.size !== 1 ? 's' : ''} for {toName} to choose from.
-            </Text>
+            <View style={S.summary}>
+              <Icon name="mail" size={14} color={colors.primary} />
+              <Text style={[t.sub, S.summaryText]}>
+                Sending {picked.size} time slot{picked.size !== 1 ? 's' : ''} for {toName} to choose from.
+              </Text>
+            </View>
           )}
         </ScrollView>
       </View>
@@ -213,38 +216,40 @@ export default function DrillRequestModal({
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-    card:        { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: c.bg, borderRadius: 14, overflow: 'hidden' },
+    backdrop:    { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.xl },
+    card:        { width: '100%', maxWidth: 560, maxHeight: '90%', backgroundColor: c.bg, borderRadius: RADIUS.lg, overflow: 'hidden' },
     root:        { flex: 1, backgroundColor: c.bg },
-    header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
-    headerBtn:   { minWidth: 60, alignItems: 'center' },
-    headerCancel:{ fontSize: 15, color: c.textMuted },
-    headerTitle: { fontSize: 17, fontWeight: '800', color: c.text, flex: 1, textAlign: 'center' },
-    headerSend:  { fontSize: 15, color: c.primary, fontWeight: '700' },
+    header:      {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs,
+      borderBottomWidth: HAIRLINE, borderBottomColor: c.border, backgroundColor: c.surface,
+    },
+    headerBtn:   { minWidth: 64, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    headerCancel:{ fontSize: FONT.size.lg, color: c.textSub },
+    headerTitle: { flex: 1, textAlign: 'center' },
+    headerSend:  { fontSize: FONT.size.lg, color: c.primary, fontWeight: FONT.weight.bold },
+    dim:         { opacity: 0.5 },
+    center:      { textAlign: 'center' },
 
-    scroll:      { padding: 16, paddingBottom: 60 },
-    intro:       { fontSize: 13, color: c.textSub, lineHeight: 19, marginBottom: 16 },
+    // Clears the home indicator / keyboard edge.
+    scroll:      { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 + SPACE.md },
+    intro:       { marginBottom: SPACE.lg },
 
-    emptyBox:    { padding: 32, backgroundColor: c.surface, borderRadius: 14, alignItems: 'center' },
-    emptyText:   { fontSize: 14, color: c.textMuted, textAlign: 'center' },
+    emptyBox:    { padding: SPACE.xl, alignItems: 'center' },
 
-    dateGroup:   { marginBottom: 16, backgroundColor: c.surface, borderRadius: 14, padding: 14, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-    dateLabel:   { fontSize: 13, fontWeight: '800', color: c.text, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.6 },
-    slotRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    slotChip:    { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    slotChipOn:  { borderColor: c.primary, backgroundColor: c.primaryLight },
-    slotChipText:{ fontSize: 13, color: c.textSub, fontWeight: '600' },
-    slotChipTextOn:{ color: c.primary, fontWeight: '800' },
+    dateGroup:   { marginBottom: SPACE.md },
+    dateLabel:   { marginBottom: SPACE.sm },
+    slotRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
 
-    label:       { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 12, marginBottom: 6 },
-    lengthRow:   { flexDirection: 'row', gap: 8, marginBottom: 4 },
-    lengthChip:  { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    lengthChipOn:{ borderColor: c.primary, backgroundColor: c.primaryLight },
-    lengthChipText:  { fontSize: 14, color: c.textSub, fontWeight: '700' },
-    lengthChipTextOn:{ color: c.primary, fontWeight: '800' },
-    messageInput:{ borderWidth: 1.5, borderColor: c.border, borderRadius: 12, padding: 14, fontSize: 14, color: c.text, backgroundColor: c.surface, minHeight: 80 },
-    charCount:   { fontSize: 11, color: c.textMuted, textAlign: 'right', marginTop: 4 },
+    label:       { marginTop: SPACE.md, marginBottom: SPACE.sm },
+    lengthRow:   { marginBottom: SPACE.xs },
+    messageInput:{
+      borderWidth: 1.5, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md,
+      fontSize: FONT.size.md, color: c.text, backgroundColor: c.surface, minHeight: 80,
+    },
+    charCount:   { textAlign: 'right', marginTop: SPACE.xs },
 
-    summary:     { fontSize: 13, color: c.primary, textAlign: 'center', marginTop: 16, fontWeight: '600' },
+    summary:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, marginTop: SPACE.lg },
+    summaryText: { color: c.primary, fontWeight: FONT.weight.semibold, flexShrink: 1, textAlign: 'center' },
   });
 }

@@ -8,7 +8,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
@@ -21,6 +20,11 @@ import {
   reverseGeocodeCoords,
 } from '@just-messin-around/expo-foundation/platform';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Chip, Panel, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
@@ -59,6 +63,7 @@ function parseLatLng(s: string): Coords | null {
 export default function SubmitVenueScreen({ navigation, route }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const t = textStyles(c);
   const status = useStatusMessage();
 
   const paramCoords: Coords | null =
@@ -212,11 +217,12 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
     }
   }
 
+
   if (phase === 'processing') {
     return (
       <View style={S.center}>
         <ActivityIndicator size="large" color={c.primary} />
-        <Text style={S.processingText}>Submitting…</Text>
+        <Text style={[t.body, S.processingText]}>Submitting…</Text>
       </View>
     );
   }
@@ -224,14 +230,12 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
   if (phase === 'thanks') {
     return (
       <View style={S.center}>
-        <Text style={S.thanksEmoji}>🎾</Text>
-        <Text style={S.thanksTitle}>Thanks!</Text>
-        <Text style={S.thanksBody}>
+        <Icon name="pickleball" size={48} color={c.primary} style={S.thanksGlyph} />
+        <Text style={[t.h2, S.thanksTitle]}>Thanks!</Text>
+        <Text style={[t.bodySub, S.thanksBody]}>
           Your court was added and is searchable right away. An admin will confirm the details soon.
         </Text>
-        <TouchableOpacity style={S.primaryBtn} onPress={() => navigation.goBack()}>
-          <Text style={S.primaryBtnText}>Done</Text>
-        </TouchableOpacity>
+        <Button title="Done" onPress={() => navigation.goBack()} style={S.stretch} />
       </View>
     );
   }
@@ -239,149 +243,149 @@ export default function SubmitVenueScreen({ navigation, route }: Props) {
   return (
     <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
       <StatusBanner status={status.value} style={S.banner} />
-      <Text style={S.intro}>
+      <Text style={[t.bodySub, S.intro]}>
         Add a court we're missing. We'll list it right away as unconfirmed so you can use it while an
         admin verifies the details.
       </Text>
 
       {/* Location */}
-      <Text style={S.label}>LOCATION</Text>
+      <Text style={[t.fieldLabel, S.label]}>LOCATION</Text>
       {coords ? (
         <View style={S.coordsRow}>
-          <Text style={S.coordsText}>📍 {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</Text>
-          <TouchableOpacity onPress={() => setCoords(null)}>
-            <Text style={S.link}>Change</Text>
-          </TouchableOpacity>
+          <View style={S.inline}>
+            <Icon name="pin" size={16} color={c.textSub} />
+            <Text style={S.coordsText}>{coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}</Text>
+          </View>
+          <TextLink label="Change" size="sub" chevron={false} onPress={() => setCoords(null)} accessibilityLabel="Change the location" />
         </View>
       ) : (
-        <View style={S.card}>
-          <TouchableOpacity style={[S.secondaryBtn, locating && S.dim]} onPress={useMyLocation} disabled={locating}>
-            {locating ? (
-              <ActivityIndicator color={c.primary} size="small" />
-            ) : (
-              <Text style={S.secondaryBtnText}>📍 Use my location</Text>
-            )}
-          </TouchableOpacity>
-          <Text style={S.orText}>or paste "lat, long" from a map</Text>
+        <Panel style={S.card}>
+          <Button
+            variant="outline"
+            iconName="pin"
+            title="Use my location"
+            onPress={useMyLocation}
+            loading={locating}
+          />
+          <Text style={[t.caption, S.orText]}>or paste "lat, long" from a map</Text>
           <View style={S.pasteRow}>
             <TextInput
-              style={[S.input, { flex: 1 }]}
+              style={[S.input, S.flex]}
               placeholder="37.7749, -122.4194"
               placeholderTextColor={c.textMuted}
               value={coordText}
               onChangeText={setCoordText}
               autoCapitalize="none"
+              accessibilityLabel="Coordinates, as latitude, longitude"
             />
-            <TouchableOpacity style={S.pasteBtn} onPress={applyPastedCoords}>
-              <Text style={S.pasteBtnText}>Set</Text>
-            </TouchableOpacity>
+            <Button size="sm" title="Set" onPress={applyPastedCoords} accessibilityLabel="Set these coordinates" />
           </View>
-        </View>
+        </Panel>
       )}
 
       {/* "Same place?" affirm prompt */}
       {coords && nearby.length > 0 ? (
         <View style={S.affirmCard}>
-          <Text style={S.affirmTitle}>Same place as this?</Text>
-          <Text style={S.affirmBody}>
+          <Text style={[t.title, S.affirmTitle]}>Same place as this?</Text>
+          <Text style={[t.sub, S.affirmBody]}>
             Someone already suggested “{nearby[0].name}” about {Math.round(nearby[0].distance_meters)} m
             from here.
           </Text>
-          <TouchableOpacity style={[S.primaryBtn, busy && S.dim]} onPress={() => affirm(nearby[0])} disabled={busy}>
-            <Text style={S.primaryBtnText}>Yes, it's this one</Text>
-          </TouchableOpacity>
-          <Text style={S.affirmHint}>Not it? Just fill in the form below to add a new court.</Text>
+          <Button title="Yes, it's this one" onPress={() => affirm(nearby[0])} disabled={busy} />
+          <Text style={[t.caption, S.affirmHint]}>Not it? Just fill in the form below to add a new court.</Text>
         </View>
       ) : null}
 
       {/* Name */}
-      <Text style={S.label}>NAME</Text>
+      <Text style={[t.fieldLabel, S.label]}>NAME</Text>
       <TextInput
         style={S.input}
         placeholder="e.g. Bay Club Pickleball Courts"
         placeholderTextColor={c.textMuted}
         value={name}
         onChangeText={setName}
+        accessibilityLabel="Name"
       />
 
       {/* Sports */}
-      <Text style={S.label}>SPORTS</Text>
+      <Text style={[t.fieldLabel, S.label]}>SPORTS</Text>
       <View style={S.chipRow}>
         {SPORT_OPTIONS.map((s) => {
           const active = sports.has(s);
           return (
-            <TouchableOpacity
+            <Chip
               key={s}
+              label={s}
+              tone={active ? 'brand' : 'neutral'}
+              selected={active}
               onPress={() => toggleSport(s)}
-              style={[S.chip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.primaryLight : c.surface }]}
-            >
-              <Text style={{ color: active ? c.primary : c.textSub, fontWeight: '600', fontSize: 13 }}>{s}</Text>
-            </TouchableOpacity>
+              accessibilityRole="button"
+            />
           );
         })}
       </View>
 
       {/* Kind */}
-      <Text style={S.label}>TYPE</Text>
+      <Text style={[t.fieldLabel, S.label]}>TYPE</Text>
       <View style={S.chipRow}>
         {KIND_OPTIONS.map((k) => {
           const active = kind === k.value;
           return (
-            <TouchableOpacity
+            <Chip
               key={k.value}
+              label={k.label}
+              tone={active ? 'brand' : 'neutral'}
+              selected={active}
               onPress={() => setKind(k.value)}
-              style={[S.chip, { borderColor: active ? c.primary : c.border, backgroundColor: active ? c.primaryLight : c.surface }]}
-            >
-              <Text style={{ color: active ? c.primary : c.textSub, fontWeight: '600', fontSize: 13 }}>{k.label}</Text>
-            </TouchableOpacity>
+              accessibilityRole="button"
+            />
           );
         })}
       </View>
 
       {/* Address / city (optional) */}
-      <Text style={S.label}>ADDRESS (OPTIONAL)</Text>
-      <TextInput style={S.input} placeholder="Street address" placeholderTextColor={c.textMuted} value={address} onChangeText={setAddress} />
-      <Text style={S.label}>CITY (OPTIONAL)</Text>
-      <TextInput style={S.input} placeholder="City" placeholderTextColor={c.textMuted} value={city} onChangeText={setCity} />
+      <Text style={[t.fieldLabel, S.label]}>ADDRESS (OPTIONAL)</Text>
+      <TextInput style={S.input} placeholder="Street address" placeholderTextColor={c.textMuted} value={address} onChangeText={setAddress} accessibilityLabel="Address" />
+      <Text style={[t.fieldLabel, S.label]}>CITY (OPTIONAL)</Text>
+      <TextInput style={S.input} placeholder="City" placeholderTextColor={c.textMuted} value={city} onChangeText={setCity} accessibilityLabel="City" />
 
-      <TouchableOpacity style={[S.primaryBtn, S.submitBtn, busy && S.dim]} onPress={submitNew} disabled={busy}>
-        {busy ? <ActivityIndicator color="#fff" size="small" /> : <Text style={S.primaryBtnText}>Submit court</Text>}
-      </TouchableOpacity>
+      <Button title="Submit court" onPress={submitNew} loading={busy} disabled={busy} style={S.submitBtn} />
     </ScrollView>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    container: { padding: 16, backgroundColor: c.bg, flexGrow: 1 },
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: c.bg },
-    banner: { marginBottom: 12 },
-    intro: { fontSize: 14, color: c.textSub, marginBottom: 16, lineHeight: 20 },
-    label: { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 6, marginTop: 6 },
-    card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 8 },
-    input: { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: c.bg, color: c.text, marginBottom: 4 },
-    coordsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, marginBottom: 8 },
-    coordsText: { fontSize: 15, color: c.text, fontWeight: '600' },
-    link: { color: c.primary, fontWeight: '700', fontSize: 13 },
-    secondaryBtn: { borderWidth: 1, borderColor: c.primary, borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: c.surface },
-    secondaryBtnText: { color: c.primary, fontWeight: '700', fontSize: 15 },
-    orText: { textAlign: 'center', color: c.textMuted, fontSize: 12, marginVertical: 8 },
-    pasteRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    pasteBtn: { backgroundColor: c.primary, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16 },
-    pasteBtnText: { color: '#fff', fontWeight: '700' },
-    affirmCard: { backgroundColor: c.primaryLight, borderWidth: 1, borderColor: c.primary, borderRadius: 12, padding: 14, marginBottom: 12, marginTop: 4 },
-    affirmTitle: { fontSize: 15, fontWeight: '800', color: c.text, marginBottom: 4 },
-    affirmBody: { fontSize: 13, color: c.textSub, marginBottom: 10, lineHeight: 18 },
-    affirmHint: { fontSize: 12, color: c.textMuted, marginTop: 8, textAlign: 'center' },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
-    chip: { borderWidth: 1.5, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14 },
-    primaryBtn: { backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-    submitBtn: { marginTop: 16 },
-    dim: { opacity: 0.5 },
-    processingText: { marginTop: 12, color: c.textSub, fontSize: 15 },
-    thanksEmoji: { fontSize: 48, marginBottom: 8 },
-    thanksTitle: { fontSize: 22, fontWeight: '800', color: c.text, marginBottom: 8 },
-    thanksBody: { fontSize: 14, color: c.textSub, textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+    container: { padding: SPACE.lg, backgroundColor: c.bg, flexGrow: 1 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl, backgroundColor: c.bg },
+    flex: { flex: 1 },
+    inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, flexShrink: 1 },
+    stretch: { alignSelf: 'stretch' },
+    banner: { marginBottom: SPACE.md },
+    intro: { marginBottom: SPACE.lg },
+    label: { marginTop: SPACE.sm, marginBottom: SPACE.xs },
+    card: { marginBottom: SPACE.sm },
+    input: {
+      minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg,
+      backgroundColor: c.bg, color: c.text, marginBottom: SPACE.xs,
+    },
+    coordsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm, marginBottom: SPACE.sm },
+    coordsText: { fontSize: FONT.size.lg, color: c.text, fontWeight: FONT.weight.semibold, fontVariant: ['tabular-nums'] },
+    orText: { textAlign: 'center', marginVertical: SPACE.sm },
+    pasteRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    affirmCard: {
+      backgroundColor: c.primaryLight, borderWidth: HAIRLINE, borderColor: c.primary, borderRadius: RADIUS.lg,
+      padding: SPACE.md, marginBottom: SPACE.md, marginTop: SPACE.xs,
+    },
+    affirmTitle: { marginBottom: SPACE.xs },
+    affirmBody: { marginBottom: SPACE.md },
+    affirmHint: { marginTop: SPACE.sm, textAlign: 'center' },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.sm },
+    submitBtn: { marginTop: SPACE.lg },
+    processingText: { marginTop: SPACE.md, color: c.textSub },
+    thanksGlyph: { marginBottom: SPACE.sm },
+    thanksTitle: { marginBottom: SPACE.sm },
+    thanksBody: { textAlign: 'center', marginBottom: SPACE.xl },
   });
 }

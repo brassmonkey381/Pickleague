@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View, type ViewProps } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { track } from '../lib/analytics';
 import { clearDestination, peekDestination } from '../lib/deferredLink';
 import { useTheme } from '../lib/ThemeContext';
@@ -14,9 +17,15 @@ import { useTheme } from '../lib/ThemeContext';
  * the right screen; if it did not, the browser just goes there. One control,
  * correct in both worlds, and it needs to know nothing about which world it is
  * in — which is what keeps it honest.
+ *
+ * The anchor is a View with `href` (react-native-web renders it as an `a`), so
+ * the label and its arrow glyph are one link. `onClick` is RNW's DOM click,
+ * which never prevents the navigation. Both are web-only props, cast here; the
+ * component returns null on native before rendering.
  */
 export default function ContinueInAppBanner() {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const S = makeStyles(c);
   const [path, setPath] = useState<string | null>(null);
 
@@ -29,30 +38,32 @@ export default function ContinueInAppBanner() {
 
   if (Platform.OS !== 'web' || !path) return null;
 
+  const anchor = {
+    href: path,
+    onClick: () => {
+      track('deferredlink.resume', { path });
+      clearDestination();
+    },
+  } as unknown as ViewProps;
+
   return (
     <View style={S.bar}>
-      <Text style={S.label} numberOfLines={1}>
+      <Text style={[t.sub, S.label]} numberOfLines={1}>
         Picking up where you left off?
       </Text>
 
-      <Text
-        accessibilityRole="link"
-        {...({ href: path } as unknown as TextProps)}
-        onPress={() => {
-          track('deferredlink.resume', { path });
-          clearDestination();
-        }}
-        style={S.cta}
-      >
-        Continue →
-      </Text>
+      <View accessibilityRole="link" {...anchor} style={S.cta}>
+        <Text style={[t.sub, S.ctaText]}>Continue</Text>
+        <Icon name="arrow-right" size={14} color={c.primary} />
+      </View>
 
       <TouchableOpacity
+        accessibilityRole="button"
         accessibilityLabel="Dismiss"
         onPress={() => { clearDestination(); setPath(null); }}
         style={S.dismiss}
       >
-        <Text style={S.dismissText}>✕</Text>
+        <Icon name="close" size={16} color={c.textMuted} />
       </TouchableOpacity>
     </View>
   );
@@ -60,10 +71,11 @@ export default function ContinueInAppBanner() {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    bar:        { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: c.surfaceAlt, borderBottomWidth: 1, borderBottomColor: c.border },
-    label:      { flex: 1, fontSize: 13, color: c.textSub },
-    cta:        { fontSize: 13, fontWeight: '800', color: c.primary, textDecorationLine: 'none' },
-    dismiss:    { paddingHorizontal: 6, paddingVertical: 2 },
-    dismissText:{ fontSize: 14, color: c.textMuted },
+    // A 44-tall strip: the link and the dismiss are each a real 44 box.
+    bar:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingLeft: SPACE.lg, paddingRight: SPACE.xs, backgroundColor: c.surfaceAlt, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    label:   { flex: 1 },
+    cta:     { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
+    ctaText: { color: c.primary, fontWeight: FONT.weight.heavy },
+    dismiss: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   });
 }

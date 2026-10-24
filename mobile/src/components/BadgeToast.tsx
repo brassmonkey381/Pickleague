@@ -1,6 +1,9 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native';
+import { EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
+import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { useBadgeNotifications } from '../lib/useBadgeNotifications';
 
@@ -24,8 +27,11 @@ export default function BadgeToast() {
           activeOpacity={0.85}
           onPress={() => dismissToast(t.id)}
           style={styles.card}
+          accessibilityRole="button"
+          accessibilityLabel={`Badge earned: ${t.name}. Dismiss`}
         >
-          <Text style={styles.icon}>{t.icon}</Text>
+          {/* The badge's stored emoji draws as our glyph when one maps. */}
+          <EmojiGlyph emoji={t.icon} size={28} color={c.textInverse} style={styles.icon} />
           <View style={styles.textCol}>
             <Text style={styles.label}>Badge earned</Text>
             <Text style={styles.name} numberOfLines={1}>{t.name}</Text>
@@ -44,37 +50,39 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       left: 0,
       right: 0,
       alignItems: 'center',
-      paddingTop: Platform.OS === 'android' ? 16 : 8,
-      paddingHorizontal: 12,
+      paddingTop: Platform.OS === 'android' ? SPACE.lg : SPACE.sm,
+      paddingHorizontal: SPACE.md,
       zIndex: 9999,
       elevation: 9999,
     },
     card: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: SPACE.md,
       backgroundColor: c.primary,
-      borderRadius: 16,
-      paddingVertical: 10,
-      paddingHorizontal: 14,
-      marginTop: 8,
+      borderRadius: RADIUS.lg,
+      paddingVertical: SPACE.sm,
+      paddingHorizontal: SPACE.md,
+      marginTop: SPACE.sm,
       minWidth: 240,
       maxWidth: 420,
-      shadowColor: '#000',
+      shadowColor: c.shadow,
       shadowOpacity: 0.25,
       shadowRadius: 10,
       shadowOffset: { width: 0, height: 4 },
       elevation: 8,
     },
-    icon: { fontSize: 28 },
+    // The emoji fallback (a badge emoji with no glyph).
+    icon: { fontSize: 26 },
     textCol: { flexShrink: 1 },
     label: {
-      color: 'rgba(255,255,255,0.85)',
-      fontSize: 11,
-      fontWeight: '700',
+      color: c.textInverse,
+      opacity: 0.85,
+      fontSize: FONT.size.xs,
+      fontWeight: FONT.weight.bold,
       textTransform: 'uppercase',
       letterSpacing: 0.6,
     },
-    name: { color: '#fff', fontSize: 15, fontWeight: '800' },
+    name: { color: c.textInverse, fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy },
   });
 }

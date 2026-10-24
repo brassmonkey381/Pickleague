@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { Gender, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { FilterPill } from '@just-messin-around/expo-foundation/ui';
+import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
 import { normalizeReferralCode } from '@just-messin-around/expo-foundation/referrals';
@@ -136,24 +140,24 @@ export default function RegisterScreen({ navigation }: Props) {
   const body = (
     <>
       <View style={S.hero}>
-        <Text style={S.heroTitle}>Create Account</Text>
+        <Text style={S.heroTitle} accessibilityRole="header">Create Account</Text>
         <Text style={S.heroSub}>Join your pickleball league today</Text>
       </View>
       <ScrollView contentContainerStyle={S.container} keyboardShouldPersistTaps="handled">
         <View style={S.nameRow}>
-          <TextInput
-            style={[S.input, S.nameInput]}
+          <TextField
+            containerStyle={S.nameInput}
             placeholder="First Name"
-            placeholderTextColor={c.textMuted}
+            accessibilityLabel="First name"
             autoComplete="given-name"
             textContentType="givenName"
             value={firstName}
             onChangeText={setFirstName}
           />
-          <TextInput
-            style={[S.input, S.nameInput]}
+          <TextField
+            containerStyle={S.nameInput}
             placeholder="Last Name"
-            placeholderTextColor={c.textMuted}
+            accessibilityLabel="Last name"
             autoComplete="family-name"
             textContentType="familyName"
             value={lastName}
@@ -161,10 +165,9 @@ export default function RegisterScreen({ navigation }: Props) {
           />
         </View>
 
-        <TextInput
-          style={S.input}
+        <TextField
           placeholder="Email"
-          placeholderTextColor={c.textMuted}
+          accessibilityLabel="Email"
           autoCapitalize="none"
           keyboardType="email-address"
           autoComplete="email"
@@ -177,48 +180,47 @@ export default function RegisterScreen({ navigation }: Props) {
         <Text style={S.fieldHint}>Used to classify doubles matches as Gendered (M+M+M+M / F+F+F+F) or Mixed.</Text>
         <View style={S.genderRow}>
           {GENDER_OPTIONS.map((opt) => (
-            <TouchableOpacity
+            <FilterPill
               key={opt.value}
-              style={[S.genderPill, gender === opt.value && S.genderPillActive]}
+              label={opt.label}
+              active={gender === opt.value}
               onPress={() => setGender(opt.value)}
-            >
-              <Text style={[S.genderPillText, gender === opt.value && S.genderPillTextActive]}>
-                {opt.label}
-              </Text>
-            </TouchableOpacity>
+            />
           ))}
         </View>
 
-        <TextInput
-          style={S.input}
+        <TextField
           placeholder="Password"
-          placeholderTextColor={c.textMuted}
+          accessibilityLabel="Password"
           secureTextEntry
           autoComplete="new-password"
           textContentType="newPassword"
           value={password}
           onChangeText={setPassword}
         />
-        <TextInput
-          style={[S.input, passwordsMatch && S.inputValid, passwordsMismatch && S.inputInvalid]}
+        <TextField
+          style={passwordsMatch ? S.inputValid : undefined}
+          error={passwordsMismatch ? 'Passwords do not match' : undefined}
           placeholder="Confirm Password"
-          placeholderTextColor={c.textMuted}
+          accessibilityLabel="Confirm password"
           secureTextEntry
           autoComplete="new-password"
           textContentType="newPassword"
           value={confirmPassword}
           onChangeText={setConfirmPassword}
         />
-        {passwordsMatch && <Text style={S.matchText}>Passwords match</Text>}
-        {passwordsMismatch && <Text style={S.mismatchText}>Passwords do not match</Text>}
+        {passwordsMatch && (
+          <View style={S.matchRow}>
+            <Icon name="check-mark" size={14} color={c.success} />
+            <Text style={S.matchText}>Passwords match</Text>
+          </View>
+        )}
 
         {REFERRALS_ENABLED && (
           <>
-            <Text style={S.fieldLabel}>Referral code (optional)</Text>
-            <TextInput
-              style={S.input}
+            <TextField
+              label="Referral code (optional)"
               placeholder="From a friend's invite"
-              placeholderTextColor={c.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
               value={referralCode}
@@ -231,13 +233,14 @@ export default function RegisterScreen({ navigation }: Props) {
         {errorMessage ? <Text style={S.errorText}>{errorMessage}</Text> : null}
         {successMessage ? <Text style={S.successText}>{successMessage}</Text> : null}
 
-        <TouchableOpacity style={[S.button, (loading || created) && S.buttonDisabled]} onPress={signUp} disabled={loading || created}>
-          <Text style={S.buttonText}>
-            {loading ? 'Creating account...' : created ? 'Account created' : 'Create Account'}
-          </Text>
-        </TouchableOpacity>
+        <Button
+          title={loading ? 'Creating account...' : created ? 'Account created' : 'Create Account'}
+          onPress={signUp}
+          disabled={loading || created}
+          style={S.button}
+        />
 
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={S.linkBox} accessibilityRole="button">
           <Text style={S.link}>Already have an account? Sign in</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -256,30 +259,26 @@ export default function RegisterScreen({ navigation }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    hero:         { backgroundColor: c.headerBg, paddingTop: 60, paddingBottom: 32, alignItems: 'center', paddingHorizontal: 24 },
-    heroTitle:    { fontSize: 28, fontWeight: '800', color: c.headerText, marginBottom: 4 },
-    heroSub:      { fontSize: 15, color: c.headerSub },
-    container:    { flexGrow: 1, padding: 24, backgroundColor: c.bg },
-    nameRow:      { flexDirection: 'row', gap: 10, marginBottom: 0 },
+    hero:         { backgroundColor: c.headerBg, paddingTop: SPACE.xl * 2 + SPACE.md, paddingBottom: SPACE.xl + SPACE.sm, alignItems: 'center', paddingHorizontal: SPACE.xl },
+    heroTitle:    { ...t.display, color: c.headerText, marginBottom: SPACE.xs },
+    heroSub:      { ...t.body, color: c.headerSub, textAlign: 'center' },
+    container:    { flexGrow: 1, padding: SPACE.xl, backgroundColor: c.bg },
+    nameRow:      { flexDirection: 'row', gap: SPACE.sm },
     nameInput:    { flex: 1 },
-    input:        { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, marginBottom: 12, fontSize: 16, backgroundColor: c.surface, color: c.text },
-    inputValid:   { borderColor: c.primary },
-    inputInvalid: { borderColor: c.danger },
-    fieldLabel:   { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 4, marginTop: 4 },
-    fieldHint:    { fontSize: 12, color: c.textMuted, marginBottom: 8 },
-    genderRow:    { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-    genderPill:   { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface },
-    genderPillActive:     { borderColor: c.primary, backgroundColor: c.primaryLight },
-    genderPillText:       { fontSize: 14, color: c.textSub, fontWeight: '600' },
-    genderPillTextActive: { color: c.primary, fontWeight: '700' },
-    matchText:    { color: c.primary, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
-    mismatchText: { color: c.danger, fontSize: 13, fontWeight: '600', marginBottom: 8, marginLeft: 2 },
-    errorText:    { color: c.danger, fontSize: 14, marginBottom: 12, textAlign: 'center' },
-    successText:  { color: c.primary, fontSize: 14, marginBottom: 12, textAlign: 'center', fontWeight: '600' },
-    button:       { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 8 },
-    buttonDisabled: { opacity: 0.5 },
-    buttonText:   { color: '#fff', fontSize: 16, fontWeight: '600' },
-    link:         { textAlign: 'center', color: c.primary, marginTop: 20, fontSize: 15 },
+    fieldLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
+    fieldHint:    t.hint,
+    genderRow:    { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.xs, marginBottom: SPACE.sm },
+    inputValid:   { borderColor: c.success },
+    // Pulls the match line up under its field (TextField keeps 14 below itself).
+    matchRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: -SPACE.sm, marginBottom: SPACE.md },
+    matchText:    { ...t.sub, color: c.success, fontWeight: FONT.weight.semibold },
+    errorText:    { ...t.bodySub, color: c.danger, marginBottom: SPACE.md, textAlign: 'center' },
+    successText:  { ...t.bodySub, color: c.success, marginBottom: SPACE.md, textAlign: 'center', fontWeight: FONT.weight.semibold },
+    button:       { marginTop: SPACE.sm },
+    // A real 44 box under the button (react-native-web ignores hitSlop).
+    linkBox:      { minHeight: 44, justifyContent: 'center', marginTop: SPACE.sm },
+    link:         { ...t.body, textAlign: 'center', color: c.primary },
   });
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -15,6 +15,11 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentInvitePlayers'>;
@@ -61,7 +66,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     } catch (e) {
       // Critically, a failed registration read would leave `excluded` empty and
       // list players who are ALREADY registered as invitable.
-      setLoadError(friendlySbMessage(e, "Couldn't load suggested players."));
+      setLoadError(friendlySbMessage(e));
     } finally {
       setLoading(false);
     }
@@ -136,8 +141,9 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       // eslint-disable-next-line no-console
       console.warn('[tournament_invite_player]', e);
       const msg = e?.message ?? '';
+      // Matches the server's error text (which spells pickles with the emoji).
       const friendlier = /only.*has.*🥒|ante is/i.test(msg)
-        ? 'They don\'t have enough 🥒 for the entry ante.'
+        ? 'They don\'t have enough pickles for the entry ante.'
         : friendlySbMessage(e, 'Could not invite.');
       setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: friendlier } : p));
       return;
@@ -171,12 +177,11 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   if (loadError && candidates.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load players"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={load}
+        <ErrorState
+          iconName="offline"
+          error={null}
+          message={`Couldn't load players. ${loadError}`}
+          onRetry={load}
         />
       </View>
     );
@@ -221,7 +226,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
             accessibilityRole="button"
             accessibilityLabel="Clear search"
           >
-            <Text style={S.clearBtnText}>✕</Text>
+            <Icon name="close" size={16} color={c.textMuted} />
           </TouchableOpacity>
         )}
       </View>
@@ -254,33 +259,36 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
                   </Text>
                 </View>
                 {item.invitedNow ? (
-                  <View style={[S.btn, S.btnDone]}>
-                    <Text style={S.btnDoneText}>✓ Invited</Text>
+                  <View style={S.btnDone} accessible accessibilityLabel={`${item.full_name} invited`}>
+                    <Icon name="check-mark" size={14} color={c.success} />
+                    <Text style={S.btnDoneText}>Invited</Text>
                   </View>
                 ) : (
-                  <TouchableOpacity
-                    style={[S.btn, S.btnPrimary, busy === item.id && S.btnDim]}
+                  <Button
+                    size="sm"
+                    title="Invite"
                     onPress={() => invite(item)}
-                    disabled={busy === item.id}
-                  >
-                    {busy === item.id
-                      ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={S.btnPrimaryText}>Invite</Text>}
-                  </TouchableOpacity>
+                    loading={busy === item.id}
+                    style={S.btn}
+                    accessibilityLabel={`Invite ${item.full_name}`}
+                  />
                 )}
               </View>
               {item.inviteError && (
-                <Text style={S.rowError}>⚠ {item.inviteError}</Text>
+                <View style={S.rowError}>
+                  <Icon name="warning" size={12} color={c.danger} />
+                  <Text style={S.rowErrorText}>{item.inviteError}</Text>
+                </View>
               )}
             </View>
           );
         }}
         ListEmptyComponent={
           query
-            ? <EmptyState icon="🔍" title="No matches" subtitle="No players match that search." />
-            : <EmptyState icon="🏓" title="No eligible players" subtitle="No eligible players found in the PLUPR band ±1.5 of the tournament average." />
+            ? <EmptyState iconName="search" title="No matches" subtitle="No players match that search." />
+            : <EmptyState iconName="group" title="No eligible players" subtitle="No eligible players found in the PLUPR band ±1.5 of the tournament average." />
         }
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: SPACE.xl * 2 }}
         refreshControl={<AppRefreshControl {...refresh} />}
       />
     </View>
@@ -288,40 +296,36 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    loadingRoot: { flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' },
     root:        { flex: 1, backgroundColor: c.bg },
 
-    header:      { backgroundColor: c.surface, padding: 16, borderBottomWidth: 1, borderBottomColor: c.border },
-    headerTitle: { fontSize: 22, fontWeight: '900', color: c.text },
-    headerSub:   { fontSize: 13, color: c.textSub, marginTop: 2 },
-    infoPills:   { flexDirection: 'row', gap: 8, marginTop: 12 },
-    infoPill:    { flex: 1, backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, alignItems: 'center' },
-    infoPillLabel: { fontSize: 10, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6 },
-    infoPillValue: { fontSize: 16, fontWeight: '800', color: c.text, marginTop: 2 },
+    header:      { backgroundColor: c.surface, padding: SPACE.lg, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    headerTitle: t.h2,
+    headerSub:   { ...t.sub, marginTop: SPACE.xxs },
+    infoPills:   { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
+    infoPill:    { flex: 1, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border, alignItems: 'center' },
+    infoPillLabel: { ...t.fieldLabel, fontSize: FONT.size.xxs },
+    infoPillValue: { ...t.h3, fontWeight: FONT.weight.heavy, fontVariant: ['tabular-nums'], marginTop: SPACE.xxs },
 
-    searchRow:   { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 8, backgroundColor: c.surface, borderBottomWidth: 1, borderBottomColor: c.border },
-    searchInput: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: c.text, backgroundColor: c.surface },
-    clearBtn:    { paddingHorizontal: 12, paddingVertical: 8 },
-    clearBtnText:{ fontSize: 16, color: c.textMuted, fontWeight: '700' },
+    searchRow:   { flexDirection: 'row', alignItems: 'center', padding: SPACE.md, gap: SPACE.sm, backgroundColor: c.surface, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    searchInput: { flex: 1, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, minHeight: 44, fontSize: FONT.size.md, color: c.text, backgroundColor: c.surface },
+    // 44 tap box (web ignores hitSlop).
+    clearBtn:    { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 
-    hint: { fontSize: 11, color: c.textMuted, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4, lineHeight: 15 },
+    hint: { ...t.caption, paddingHorizontal: SPACE.lg, paddingTop: SPACE.sm, paddingBottom: SPACE.xs, lineHeight: 15 },
 
-    rowWrap:     { borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface },
-    row:         { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
-    rowError:    { backgroundColor: '#ffe5e5', color: '#8a1414', fontSize: 12, fontWeight: '600', paddingHorizontal: 14, paddingBottom: 10, paddingTop: 0 },
+    rowWrap:     { borderBottomWidth: HAIRLINE, borderBottomColor: c.border, backgroundColor: c.surface },
+    row:         { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 60, gap: SPACE.md },
+    rowError:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, backgroundColor: c.dangerLight, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs },
+    rowErrorText:{ flex: 1, color: c.danger, fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold },
     avatar:      { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji: { fontSize: 22 },
-    name:        { fontSize: 15, fontWeight: '700', color: c.text },
-    sub:         { fontSize: 12, color: c.textMuted, marginTop: 1 },
+    avatarEmoji: { fontSize: FONT.size.h2 },
+    name:        t.title,
+    sub:         { ...t.hint, fontSize: FONT.size.sm, marginTop: SPACE.xxs },
 
-    btn:         { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, minWidth: 80, alignItems: 'center' },
-    btnPrimary:  { backgroundColor: c.primary },
-    btnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-    btnDone:     { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    btnDoneText: { color: c.textMuted, fontWeight: '700', fontSize: 13 },
-    btnDim:      { opacity: 0.6 },
-
-    empty:       { textAlign: 'center', color: c.textMuted, padding: 32, fontSize: 14 },
+    btn:         { minWidth: 80 },
+    btnDone:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minWidth: 80, minHeight: 32, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    btnDoneText: { color: c.textSub, fontWeight: FONT.weight.bold, fontSize: FONT.size.base },
   });
 }

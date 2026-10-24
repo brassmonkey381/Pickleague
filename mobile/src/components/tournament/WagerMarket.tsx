@@ -1,14 +1,17 @@
 import React from 'react';
-import { View, Text, Pressable } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { Tournament, TournamentRegistration } from '../../types';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
 
-// Wager Market table — top 3 finishing ranks, ordered as displayed.
-const WAGER_MARKET_RANKS: ReadonlyArray<{ rank: number; emoji: string }> = [
-  { rank: 1, emoji: '🥇' },
-  { rank: 2, emoji: '🥈' },
-  { rank: 3, emoji: '🥉' },
+// Wager Market table — top 3 finishing ranks, ordered as displayed. Each is
+// drawn as a RankMedal (the medal colour with the place on it).
+const WAGER_MARKET_RANKS: ReadonlyArray<{ rank: number }> = [
+  { rank: 1 },
+  { rank: 2 },
+  { rank: 3 },
 ];
 const WAGER_MARKET_TOP_N = 12;
 
@@ -36,15 +39,18 @@ export default function WagerMarket({
   const shown = overLimit && !wagerMarketShowAll
     ? wagerMarketSorted.slice(0, WAGER_MARKET_TOP_N)
     : wagerMarketSorted;
-  // Only offer finishing ranks the field can actually produce — no "🥉 3rd"
+  // Only offer finishing ranks the field can actually produce — no 3rd place
   // in a 2-player tournament.
   const ranks = WAGER_MARKET_RANKS.filter(rc => rc.rank <= approved.length);
   return (
     <View>
-      <View style={S.wagerMarketHeader}>
-        <Text style={[S.wagerMarketCellLabel, { flex: 1, textAlign: 'left' }]}>Player</Text>
+      {/* The header takes the rows' gap so each medal sits over its column. */}
+      <View style={[S.wagerMarketHeader, L.headerGap]}>
+        <Text style={[S.wagerMarketCellLabel, L.playerHead]}>Player</Text>
         {ranks.map(rc => (
-          <Text key={rc.rank} style={S.wagerMarketCellLabel}>{rc.emoji}</Text>
+          <View key={rc.rank} style={L.medalHead}>
+            <RankMedal place={rc.rank} size={18} />
+          </View>
         ))}
       </View>
       {shown.map(item => {
@@ -76,8 +82,9 @@ export default function WagerMarket({
                   setWagerOpen(true);
                 }}
               >
-                <View style={S.wagerMarketBetPill}>
-                  <Text style={S.wagerMarketBetText}>{rc.emoji} Bet</Text>
+                <View style={[S.wagerMarketBetPill, L.betPill]}>
+                  <RankMedal place={rc.rank} size={14} />
+                  <Text style={S.wagerMarketBetText}>Bet</Text>
                 </View>
               </Pressable>
             ))}
@@ -100,3 +107,12 @@ export default function WagerMarket({
     </View>
   );
 }
+
+// Layout only (colours and type come from the shared tournament styles).
+const L = StyleSheet.create({
+  headerGap: { gap: SPACE.xs },
+  playerHead: { flex: 1, textAlign: 'left' },
+  // The bet column's width (wagerMarketBetBox).
+  medalHead: { width: 64, alignItems: 'center' },
+  betPill: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+});

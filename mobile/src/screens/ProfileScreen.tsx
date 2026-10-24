@@ -1,7 +1,7 @@
 // Your own profile (plan section 5, "Profile"): about 600px collapsed, down
 // from 3,500-4,700px. The one section order every detail screen uses:
 //   1. Identity    avatar 64 (opens the Edit sheet; tour 'profile/edit'), name,
-//                  @username, tagline, pickle pill (-> Shop), tag chips (+N)
+//                  @username, tagline, pickle balance (-> Shop), tag chips (+N)
 //   2. Quick row   [Edit profile] [Match history] [Calendar]
 //   3. Status      "Next unlock: Ninja avatar 3/5 >" (tour 'profile/rewards';
 //                  replaces the ~900px Unlockable Rewards card, whose rows all
@@ -18,12 +18,14 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { Panel, SectionHeader, CollapsibleSection, Chip } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SectionHeader, CollapsibleSection, Chip, ListCard, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Icon, IconValue, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import InviteEarnSection from '../components/referrals/InviteEarnSection';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PickleBalance } from '../components/PickleAmount';
 import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-native-svg';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
@@ -48,14 +50,13 @@ import { TOTAL_CELLS } from '../lib/availability';
 import { computeReliability } from '../lib/reliability';
 import { formatPlupr, formatPluprShort } from '../lib/plupr';
 import {
-  computeAllPartnerChemistry, fmtDelta,
+  computeAllPartnerChemistry, fmtDelta, chemistryTone,
   ChemistryResult, DoublesMatch,
 } from '../lib/chemistry';
 import { computeBadgeProgress } from '../lib/unlockProgress';
 import { nextUnlockTeaser, NextUnlockResult } from '../lib/profileSummary';
 import { availabilityShortSummary } from '@just-messin-around/expo-foundation/scheduling/availability';
 import { trackSectionToggle } from '../lib/analytics';
-import { BallIcon } from '../components/PickleIcons';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -135,18 +136,6 @@ function facetColors(c: Colors) {
   return { overall: c.primary, singles: c.info, gendered: c.success, mixed: c.rarityRare } as const;
 }
 
-// The chemistry badge's tone, from theme tokens. lib/chemistry's chemistryColor
-// returns fixed light-mode hex (and a 3-digit '#888' for neutral, which turned
-// into the invalid '#88822' once an alpha suffix was appended), so the badge
-// maps the same thresholds onto tokens instead. Strong and mild positive share
-// one tone; mild negative is a warning, strong negative a danger.
-function chemTone(c: Colors, delta: number) {
-  if (delta >= 0.03)  return { fg: c.success,   bg: c.successLight };
-  if (delta <= -0.08) return { fg: c.danger,    bg: c.dangerLight };
-  if (delta <= -0.03) return { fg: c.warning,   bg: c.warningLight };
-  return { fg: c.textMuted, bg: c.surfaceAlt };
-}
-
 // Not rendered today (the PLUPR card is hidden — see the render). Kept whole
 // so the card can be restored by re-adding the block.
 function EloHistoryChart({
@@ -161,7 +150,7 @@ function EloHistoryChart({
   const n = series.points.length;
   if (n < 2) {
     return (
-      <Text style={{ fontSize: 12, color: c.textMuted, textAlign: 'center', paddingVertical: 16 }}>
+      <Text style={[textStyles(c).meta, { textAlign: 'center', paddingVertical: SPACE.lg }]}>
         Play a few matches to see your PLUPR trajectory.
       </Text>
     );
@@ -207,16 +196,16 @@ function EloHistoryChart({
   return (
     <View>
       {/* Legend */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 4 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.md, justifyContent: 'center', marginBottom: SPACE.xs }}>
         {[
           { key: 'overall',  label: 'Overall',          color: FACET_COLORS.overall  },
           { key: 'singles',  label: 'Singles',          color: FACET_COLORS.singles  },
           { key: 'gendered', label: 'Gendered Doubles', color: FACET_COLORS.gendered },
           { key: 'mixed',    label: 'Mixed Doubles',    color: FACET_COLORS.mixed    },
         ].map(item => (
-          <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-            <View style={{ width: 14, height: 3, backgroundColor: item.color, borderRadius: 2 }} />
-            <Text style={{ fontSize: 11, color: c.textSub, fontWeight: '600' }}>{item.label}</Text>
+          <View key={item.key} style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs }}>
+            <View style={{ width: 14, height: 3, backgroundColor: item.color, borderRadius: RADIUS.pill }} />
+            <Text style={{ fontSize: FONT.size.xs, color: c.textSub, fontWeight: FONT.weight.semibold }}>{item.label}</Text>
           </View>
         ))}
       </View>
@@ -267,10 +256,13 @@ function EloHistoryChart({
 // One owned Shop item: icon · name (+ gift line) · show/hide · Equip.
 // 56 tall; the eye toggle and the Equip button are real 44 boxes.
 function InvRow({
-  icon, bgColor, name, gift, message, isHidden,
+  icon, glyphify, bgColor, name, gift, message, isHidden,
   actionLabel, equipped, onAction, onToggleHidden, styles,
 }: {
   icon: string; bgColor: string; name: string;
+  /** Cosmetic badges: their stored emoji draws as our glyph when one maps.
+   *  Avatars, flairs and name styles keep the emoji the player bought. */
+  glyphify?: boolean;
   gift: string | null; message: string | null;
   isHidden: boolean;
   /** Omit for items with nothing to equip (cosmetic badges). */
@@ -281,17 +273,23 @@ function InvRow({
   onToggleHidden: () => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const { colors: c } = useTheme();
   return (
     <View style={[styles.invRow, isHidden && styles.invRowHidden]}>
       <View style={[styles.invIconBox, { backgroundColor: bgColor }]}>
-        <Text style={styles.invIconEmoji}>{icon}</Text>
+        {glyphify
+          ? <EmojiGlyph emoji={icon} size={20} style={styles.invIconEmoji} />
+          : <Text style={styles.invIconEmoji}>{icon}</Text>}
       </View>
       <View style={styles.flexText}>
         <Text style={[styles.rowTitle, isHidden && styles.textDim]} numberOfLines={1}>{name}</Text>
         {gift && (
-          <Text style={styles.rowSub} numberOfLines={1}>
-            🎁 Gift{message ? ` · "${message}"` : ''}
-          </Text>
+          <View style={styles.inlineRow}>
+            <Icon name="gift" size={14} color={c.textSub} />
+            <Text style={[styles.rowSub, styles.flexText]} numberOfLines={1}>
+              Gift{message ? ` · "${message}"` : ''}
+            </Text>
+          </View>
         )}
       </View>
       <TouchableOpacity
@@ -300,12 +298,13 @@ function InvRow({
         accessibilityRole="button"
         accessibilityLabel={isHidden ? `Show ${name}` : `Hide ${name}`}
       >
-        <Text style={styles.invHideText}>{isHidden ? '🙈' : '👁️'}</Text>
+        <Icon name={isHidden ? 'eye-off' : 'eye'} size={18} color={c.textSub} />
       </TouchableOpacity>
       {actionLabel ? (
         equipped ? (
-          <View style={styles.box44}>
-            <Text style={styles.equippedText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>✓ {actionLabel}</Text>
+          <View style={[styles.box44, styles.inlineRow]}>
+            <Icon name="check-mark" size={12} color={c.success} />
+            <Text style={styles.equippedText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{actionLabel}</Text>
           </View>
         ) : (
           <Button size="sm" title={actionLabel} onPress={onAction} />
@@ -957,7 +956,7 @@ export default function ProfileScreen({ navigation }: Props) {
             </View>
           )}
           <View style={styles.avatarEditBadge}>
-            <Text style={styles.avatarEditBadgeText}>✏️</Text>
+            <Icon name="edit" size={14} color={colors.textSub} />
           </View>
         </TouchableOpacity>
         <View style={styles.identityText}>
@@ -976,27 +975,25 @@ export default function ProfileScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.chipRow}>
-        {/* Pickle balance: the pill is the visual, the 44 box the tap target. */}
+        {/* Pickle balance, drawn as on Home (glyph + number); the 44 box is
+            the tap target. */}
         <TouchableOpacity
           style={styles.box44}
           onPress={() => navigation.navigate('Shop')}
           accessibilityRole="button"
-          accessibilityLabel={`${profile?.pickles ?? 0} pickles. Open the Pickle Shop`}
+          accessibilityLabel={`${(profile?.pickles ?? 0).toLocaleString()} pickles. Open the Pickle Shop`}
         >
-          <View style={styles.picklePill}>
-            <Text style={styles.pickleText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              🥒 {profile?.pickles ?? 0} ›
-            </Text>
-          </View>
+          <PickleBalance balance={profile ? profile.pickles ?? 0 : null} preset="title" />
         </TouchableOpacity>
         {tagsShown.map(label => (
-          <Chip key={label} label={label} tone="brand" size="sm" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+          <Chip key={label} label={label} tone="brand" size="sm" align="center" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
         ))}
         {tagOverflow > 0 ? (
           <Chip
             label={tagsExpanded ? 'Show less' : `+${tagOverflow}`}
             tone="neutral"
             size="sm"
+            align="center"
             hitBox
             onPress={() => setTagsExpanded(v => !v)}
             accessibilityRole="button"
@@ -1044,15 +1041,12 @@ export default function ProfileScreen({ navigation }: Props) {
         collapsable={false}
         onLayout={anchorOnLayout('rewards', rewardsAnchor)}
       >
-        <TouchableOpacity
-          style={styles.strip}
-          onPress={() => navigation.navigate('UnlockProgress')}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={unlockA11y}
-        >
-          <Text style={styles.stripGlyph}>🔓</Text>
-          {unlock?.kind === 'next' ? (
+        <ListCard
+          density="compact"
+          minHeight={STRIP_HEIGHT}
+          style={styles.block}
+          leading={<Icon name="lock-open" size={18} color={colors.primary} />}
+          title={unlock?.kind === 'next' ? (
             <ProgressBar
               layout="inline"
               progress={unlock.pct}
@@ -1062,28 +1056,31 @@ export default function ProfileScreen({ navigation }: Props) {
               label={`Next unlock: ${unlock.reward}`}
               labelStyle={styles.stripLabel}
               valueText={unlock.valueText}
-              containerStyle={styles.flexText}
             />
-          ) : (
-            <Text style={[styles.stripLabel, styles.flexText]} numberOfLines={1}>
-              {unlockText}
-            </Text>
-          )}
-          <Text style={styles.chevron}>›</Text>
-        </TouchableOpacity>
+          ) : <Text style={styles.stripLabel} numberOfLines={1}>{unlockText}</Text>}
+          chevron
+          onPress={() => navigation.navigate('UnlockProgress')}
+          accessibilityRole="button"
+          accessibilityLabel={unlockA11y}
+        />
       </View>
 
       {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
       <FriendsLink style={styles.block} />
 
-      {/* My routine (Doggle's Profile button; ROUTINES_ENABLED). */}
+      {/* My routine (Doggle's Profile button; ROUTINES_ENABLED): the same
+          strip row as Friends and the next unlock. */}
       {ROUTINES_ENABLED ? (
-        <Button
-          size="sm"
-          variant="outline"
-          title="📅 My routine"
+        <ListCard
+          density="compact"
+          minHeight={STRIP_HEIGHT}
+          style={styles.block}
+          leading={<Icon name="calendar" size={18} color={colors.primary} />}
+          title={<Text style={styles.stripLabel} numberOfLines={1}>My routine</Text>}
+          chevron
           onPress={() => navigation.navigate('Routines')}
-          style={[styles.block, { alignSelf: 'flex-start' }]}
+          accessibilityRole="button"
+          accessibilityLabel="My routine"
         />
       ) : null}
 
@@ -1148,8 +1145,18 @@ export default function ProfileScreen({ navigation }: Props) {
               Auto-saved · used for event filters and player matching
             </Text>
             {avSaveStatus === 'saving' && <Text style={t.meta}>Saving…</Text>}
-            {avSaveStatus === 'saved' && <Text style={[t.meta, { color: colors.primary }]}>✓ Saved</Text>}
-            {avSaveStatus === 'error' && <Text style={[t.meta, { color: colors.warning }]}>⚠ Save failed</Text>}
+            {avSaveStatus === 'saved' && (
+              <View style={styles.inlineRow}>
+                <Icon name="check-mark" size={12} color={colors.success} />
+                <Text style={[t.meta, { color: colors.success }]}>Saved</Text>
+              </View>
+            )}
+            {avSaveStatus === 'error' && (
+              <View style={styles.inlineRow}>
+                <Icon name="warning" size={12} color={colors.warning} />
+                <Text style={[t.meta, { color: colors.warning }]}>Save failed</Text>
+              </View>
+            )}
             {avSaveStatus === 'needs-migration' && (
               <Text style={[t.meta, { color: colors.warning }]}>Run migration_add_availability.sql</Text>
             )}
@@ -1257,9 +1264,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   );
                 })}
                 {profile?.avatar_emoji && (
-                  <TouchableOpacity style={styles.revertRow} onPress={() => equipAvatar(null, null)} accessibilityRole="button">
-                    <Text style={styles.revertText}>↺ Revert to cartoon avatar</Text>
-                  </TouchableOpacity>
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => equipAvatar(null, null)} />
                 )}
               </View>
             )}
@@ -1288,9 +1293,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   );
                 })}
                 {profile?.name_color && (
-                  <TouchableOpacity style={styles.revertRow} onPress={() => applyFlair(null)} accessibilityRole="button">
-                    <Text style={styles.revertText}>↺ Revert to default name color</Text>
-                  </TouchableOpacity>
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => applyFlair(null)} />
                 )}
               </View>
             )}
@@ -1319,9 +1322,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   );
                 })}
                 {profile?.list_name_style_id && (
-                  <TouchableOpacity style={styles.revertRow} onPress={() => applyListNameStyle(null)} accessibilityRole="button">
-                    <Text style={styles.revertText}>↺ Revert to default list name style</Text>
-                  </TouchableOpacity>
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => applyListNameStyle(null)} />
                 )}
               </View>
             )}
@@ -1350,9 +1351,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   );
                 })}
                 {profile?.profile_name_style_id && (
-                  <TouchableOpacity style={styles.revertRow} onPress={() => applyProfileNameStyle(null)} accessibilityRole="button">
-                    <Text style={styles.revertText}>↺ Revert to default profile name style</Text>
-                  </TouchableOpacity>
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => applyProfileNameStyle(null)} />
                 )}
               </View>
             )}
@@ -1364,6 +1363,7 @@ export default function ProfileScreen({ navigation }: Props) {
                   <InvRow
                     key={p.id}
                     icon={p.item.icon}
+                    glyphify
                     bgColor={p.item.payload?.bgColor ?? colors.surfaceAlt}
                     name={p.item.name}
                     gift={p.gifted_by_user_id}
@@ -1390,7 +1390,7 @@ export default function ProfileScreen({ navigation }: Props) {
             {chemRows.map(r => {
               const partner = partnerNames[r.partnerId];
               const av = AVATARS.find(a => a.id === (partner.avatar_id ?? 1)) ?? AVATARS[0];
-              const tone = chemTone(colors, r.overallDelta);
+              const tone = chemistryTone(r.overallDelta, colors);
               return (
                 <View key={r.partnerId} style={styles.chemRow}>
                   <View style={[styles.chemAvatar, { backgroundColor: av.bgColor }]}>
@@ -1402,10 +1402,14 @@ export default function ProfileScreen({ navigation }: Props) {
                       {r.insights[0] ?? `${r.matchesTogether} match${r.matchesTogether !== 1 ? 'es' : ''} together`}
                     </Text>
                   </View>
-                  <View style={styles.chemCount}>
-                    <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{r.matchesTogether}</Text>
-                    <BallIcon size={14} />
-                  </View>
+                  <IconValue
+                    iconName="pickleball"
+                    value={r.matchesTogether}
+                    preset="meta"
+                    iconColor={colors.textMuted}
+                    maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+                    accessibilityLabel={`${r.matchesTogether} ${r.matchesTogether === 1 ? 'match' : 'matches'} together`}
+                  />
                   <View style={[styles.chemBadge, { backgroundColor: tone.bg, borderColor: tone.fg }]}>
                     <Text style={[t.meta, { color: tone.fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
                       {fmtDelta(r.overallDelta)}
@@ -1447,49 +1451,41 @@ export default function ProfileScreen({ navigation }: Props) {
 }
 
 const AVATAR = 64;
+/** The one-line strip rows (next unlock, Friends, My routine): ListCard
+ *  compact, kept at the 48 they were rather than the 56 two-line default. */
+const STRIP_HEIGHT = 48;
 
 function makeStyles(c: Colors) {
   return StyleSheet.create({
     container: { padding: SPACE.lg, paddingBottom: SPACE.xl, backgroundColor: c.bg, flexGrow: 1 },
     flexText:  { flex: 1, minWidth: 0 },
     box44:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    chevron:   { fontSize: FONT.size.h2, fontWeight: '700', color: c.textMuted },
+    // A glyph beside a short text (gift line, Equipped, Saved).
+    inlineRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     block:     { marginBottom: SPACE.md },
 
     // 1. Identity: avatar 64 beside name / @username / tagline.
     identity:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
     identityText:    { flex: 1, minWidth: 0, gap: SPACE.xxs },
-    avatar:          { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+    avatar:          { width: AVATAR, height: AVATAR, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji:     { fontSize: 34 },
     avatarEditBadge: {
-      position: 'absolute', bottom: -2, right: -2, width: 24, height: 24, borderRadius: 12,
+      position: 'absolute', bottom: -SPACE.xxs, right: -SPACE.xxs, width: 24, height: 24, borderRadius: RADIUS.pill,
       backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center',
       borderWidth: HAIRLINE, borderColor: c.border,
     },
-    avatarEditBadgeText: { fontSize: FONT.size.xs },
-    fullName:        { fontSize: FONT.size.h2, fontWeight: '700', color: c.text },
+    fullName:        { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold, color: c.text },
     tagline:         { fontStyle: 'italic' },
     chipRow:         { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, marginBottom: SPACE.xs },
-    picklePill: {
-      flexDirection: 'row', alignItems: 'center', minHeight: 28,
-      paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill,
-      backgroundColor: c.primaryLight, borderWidth: HAIRLINE, borderColor: c.primary,
-    },
-    pickleText:      { fontSize: FONT.size.sm, fontWeight: '700', color: c.primary },
 
     // 2. Quick row: three sm buttons sized to their labels, sharing the spare width.
     quickRow:  { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
     quickBtn:  { flexGrow: 1 },
 
-    // 3. Status strip
-    strip: {
-      flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
-      minHeight: 48, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs,
-      borderRadius: RADIUS.lg, borderWidth: HAIRLINE, borderColor: c.border,
-      backgroundColor: c.surface, marginBottom: SPACE.md,
-    },
-    stripGlyph: { fontSize: FONT.size.lg },
-    stripLabel: { fontSize: FONT.size.base, fontWeight: '600', color: c.text },
+    // 3. The strip rows (next unlock, Friends, My routine) share one 13/600
+    // label: the unlock label shares its row with a bar and a count, so the
+    // reward name keeps more of its width.
+    stripLabel: { fontSize: FONT.size.base, fontWeight: FONT.weight.semibold, color: c.text },
 
     // 4. Coming up
     moreRow: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },
@@ -1502,7 +1498,7 @@ function makeStyles(c: Colors) {
     rowSub:     textStyles(c).sub,
     textDim:    { color: c.textMuted },
     textBtn:    { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
-    linkText:   { fontSize: FONT.size.sm, fontWeight: '600', color: c.primary },
+    linkText:   { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.primary },
 
     availHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     paddleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
@@ -1512,17 +1508,13 @@ function makeStyles(c: Colors) {
 
     invRow:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56 },
     invRowHidden: { opacity: 0.55 },
-    invIconBox:   { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    invIconBox:   { width: 36, height: 36, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     invIconEmoji: { fontSize: FONT.size.xl },
-    invHideText:  { fontSize: FONT.size.lg },
-    equippedText: { fontSize: FONT.size.sm, fontWeight: '600', color: c.textMuted, paddingHorizontal: SPACE.xs },
-    revertRow:    { minHeight: 44, justifyContent: 'center' },
-    revertText:   { fontSize: FONT.size.sm, color: c.textMuted, fontWeight: '600' },
+    equippedText: { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.textSub },
 
     chemRow:         { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
-    chemAvatar:      { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    chemAvatar:      { width: 32, height: 32, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     chemAvatarEmoji: { fontSize: FONT.size.xl },
-    chemCount:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     chemBadge:       { paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.md, borderWidth: HAIRLINE },
   });
 }

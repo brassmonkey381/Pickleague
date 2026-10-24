@@ -25,7 +25,8 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { explainRefusal } from '../../lib/refusalNotices';
@@ -133,13 +134,14 @@ export default function PresencePrivacyRows() {
 }
 
 function Row({ S, label, desc, onPress }: { S: Styles; label: string; desc: string; onPress: () => void }) {
+  const { colors: c } = useTheme();
   return (
     <TouchableOpacity style={S.row} onPress={onPress} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={`${label}: ${desc}`}>
       <View style={S.rowText}>
         <Text style={S.rowLabel} numberOfLines={1}>{label}</Text>
         <Text style={S.rowDesc} numberOfLines={1}>{desc}</Text>
       </View>
-      <Text style={S.chevron}>›</Text>
+      <Icon name="chevron-right" size={16} color={c.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -225,7 +227,7 @@ function HiddenFromSheet({
       <ScrollView style={sheetStyles.scroll} contentContainerStyle={sheetStyles.body}>
         <Text style={t.sub}>
           These players see "a player" instead of your name at the courts, whatever your setting. Hide yourself from
-          someone with the ⋯ menu on their profile.
+          someone with the More menu on their profile.
         </Text>
         {rows === undefined ? (
           query.error != null ? (
@@ -242,7 +244,8 @@ function HiddenFromSheet({
           rows.map((p, i) => (
             <View key={p.user_id} style={[sheetStyles.player, i > 0 && { borderTopWidth: HAIRLINE, borderTopColor: c.border }]}>
               <View style={[sheetStyles.avatar, { backgroundColor: c.surfaceAlt }]}>
-                <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
+                {/* The player's own avatar emoji; a person glyph when they have none. */}
+                {p.avatar_emoji ? <Text style={t.sub}>{p.avatar_emoji}</Text> : <Icon name="person" size={16} color={c.textMuted} />}
               </View>
               <Text style={[t.title, sheetStyles.flex]} numberOfLines={1}>
                 {p.full_name ?? 'Player'}
@@ -265,8 +268,8 @@ function HiddenFromSheet({
 
 type Styles = ReturnType<typeof makeStyles>;
 
-// SettingsScreen's row metrics (its `row`, `rowLabel`, `rowDesc`, `chevron`
-// and `divider`), so these rows match the ones above them.
+// SettingsScreen's row metrics (its `row`, `rowLabel`, `rowDesc` and
+// `divider`; the chevron is a 16px glyph), so these rows match the ones above them.
 function makeStyles(c: Colors) {
   const t = textStyles(c);
   return StyleSheet.create({
@@ -274,7 +277,6 @@ function makeStyles(c: Colors) {
     rowText: { flex: 1, minWidth: 0 },
     rowLabel: t.title,
     rowDesc: { ...t.sub, marginTop: SPACE.xxs },
-    chevron: { fontSize: FONT.size.h2, color: c.textMuted },
     divider: { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
   });
 }

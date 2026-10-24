@@ -1,8 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ActivityIndicator, ScrollView,
+  ScrollView,
 } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import EmptyState from '../components/EmptyState';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { track } from '../lib/analytics';
@@ -150,11 +155,11 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
   if (!preview?.valid) {
     return (
       <View style={S.centered}>
-        <Text style={S.emoji}>🚫</Text>
-        <Text style={S.invalidTitle}>Invite not available</Text>
-        <Text style={S.invalidBody}>
-          This guest link is invalid or has expired. Ask whoever invited you to send a new one.
-        </Text>
+        <EmptyState
+          iconName="block"
+          title="Invite not available"
+          subtitle="This guest link is invalid or has expired. Ask whoever invited you to send a new one."
+        />
       </View>
     );
   }
@@ -178,6 +183,9 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
                   key={n}
                   style={[S.rosterChip, selected && S.rosterChipSelected]}
                   onPress={() => { setName(n); setError(null); }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  aria-pressed={selected}
                 >
                   <Text style={[S.rosterChipText, selected && S.rosterChipTextSelected]}>{n}</Text>
                 </TouchableOpacity>
@@ -188,7 +196,7 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
 
         <Text style={S.inputLabel}>Your name {roster.length > 0 ? '(tap above or edit)' : ''}</Text>
         <TextInput
-          style={S.input}
+          style={[S.input, webInputFontFloor(S.input)]}
           value={name}
           onChangeText={(t) => { setName(t); setError(null); }}
           placeholder="Your name"
@@ -200,15 +208,15 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
 
         {error && <Text style={S.error}>{error}</Text>}
 
-        <TouchableOpacity
-          style={[S.cta, (submitting || !name.trim()) && S.ctaDim]}
-          disabled={submitting || !name.trim()}
+        <Button
+          title="Continue to the vote"
+          iconName="arrow-right"
+          iconPosition="trailing"
           onPress={continueAsGuest}
-        >
-          {submitting
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={S.ctaText}>Continue to the vote →</Text>}
-        </TouchableOpacity>
+          loading={submitting}
+          disabled={!name.trim()}
+          style={S.cta}
+        />
       </View>
 
       <Text style={S.fine}>
@@ -217,44 +225,48 @@ export default function GuestJoinScreen({ navigation, route }: Props) {
       {/* Anonymous sessions have no credentials — the browser's session
           storage is the only key, so closing this window loses the guest
           account permanently. Say so up front. */}
-      <Text style={S.fineWarning}>
-        ⚠️ Your guest pass lives in this browser only — if you close this window
-        (or use a private/incognito tab), you'll lose access to it and your votes
-        can't be changed. Create a free account any time to keep it.
-      </Text>
+      <View style={S.warnBox}>
+        <Icon name="warning" size={14} color={c.warning} style={S.warnGlyph} />
+        <Text style={S.fineWarning}>
+          Your guest pass lives in this browser only — if you close this window
+          (or use a private/incognito tab), you'll lose access to it and your votes
+          can't be changed. Create a free account any time to keep it.
+        </Text>
+      </View>
     </ScrollView>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:    { padding: 24, flexGrow: 1, backgroundColor: c.bg, justifyContent: 'center' },
-    centered:     { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, backgroundColor: c.bg },
-    emoji:        { fontSize: 48, marginBottom: 12 },
-    invalidTitle: { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 6 },
-    invalidBody:  { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 20 },
+    container:    { padding: SPACE.xl, flexGrow: 1, backgroundColor: c.bg, justifyContent: 'center' },
+    centered:     { flex: 1, justifyContent: 'center', backgroundColor: c.bg },
 
-    kicker:       { fontSize: 13, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center' },
-    eventTitle:   { fontSize: 26, fontWeight: '900', color: c.text, textAlign: 'center', marginTop: 6 },
-    leagueLine:   { fontSize: 15, color: c.textSub, textAlign: 'center', marginTop: 4, marginBottom: 20 },
+    kicker:       { ...t.hint, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center' },
+    eventTitle:   { ...t.h1, textAlign: 'center', marginTop: SPACE.xs },
+    leagueLine:   { ...t.body, color: c.textSub, textAlign: 'center', marginTop: SPACE.xs, marginBottom: SPACE.lg },
 
-    card:         { backgroundColor: c.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: c.border },
-    prompt:       { fontSize: 16, fontWeight: '800', color: c.text, marginBottom: 12 },
-    rosterWrap:   { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-    rosterChip:   { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    card:         { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, borderWidth: HAIRLINE, borderColor: c.border },
+    prompt:       { ...t.h3, marginBottom: SPACE.md },
+    rosterWrap:   { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.lg },
+    rosterChip:   { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surfaceAlt },
     rosterChipSelected: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    rosterChipText: { fontSize: 14, fontWeight: '600', color: c.textSub },
-    rosterChipTextSelected: { color: c.primary, fontWeight: '800' },
+    rosterChipText: { ...t.bodySub, fontWeight: FONT.weight.semibold },
+    rosterChipTextSelected: { color: c.primary, fontWeight: FONT.weight.heavy },
 
-    inputLabel:   { fontSize: 12, color: c.textMuted, marginBottom: 6 },
-    input:        { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 16, color: c.text, backgroundColor: c.surfaceAlt },
-    error:        { color: c.danger, fontSize: 13, marginTop: 10 },
+    inputLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
+    input:        { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt },
+    error:        { ...t.sub, color: c.danger, marginTop: SPACE.sm },
 
-    cta:          { backgroundColor: c.primary, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 18 },
-    ctaDim:       { opacity: 0.5 },
-    ctaText:      { color: '#fff', fontSize: 16, fontWeight: '800' },
+    cta:          { marginTop: SPACE.lg },
 
-    fine:         { fontSize: 12, color: c.textMuted, textAlign: 'center', marginTop: 18, lineHeight: 18 },
-    fineWarning:  { fontSize: 12, color: '#b8860b', textAlign: 'center', marginTop: 10, lineHeight: 18, paddingHorizontal: 8 },
+    fine:         { ...t.hint, textAlign: 'center', marginTop: SPACE.lg },
+    // A warning callout: the glyph carries the warning colour, the words keep
+    // body contrast (warning orange on the page is under 3:1 for small text).
+    warnBox:      { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, marginTop: SPACE.sm, padding: SPACE.sm, borderRadius: RADIUS.md, backgroundColor: c.warningLight },
+    // Centres the 14 glyph on the first line of 18-line text.
+    warnGlyph:    { marginTop: SPACE.xxs },
+    fineWarning:  { ...t.sub, flex: 1, color: c.text },
   });
 }

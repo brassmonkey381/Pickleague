@@ -4,6 +4,8 @@
  * and return structured match/pool data ready to insert into the DB.
  */
 
+import type { IconName } from '@just-messin-around/expo-foundation/icons';
+
 export type TournamentFormat =
   | 'round_robin'
   | 'single_elimination'
@@ -398,12 +400,15 @@ export function generateDoublesPoolPlay(
 }
 
 // ── Format labels ─────────────────────────────────────────────
-export const FORMAT_META: Record<TournamentFormat, { label: string; icon: string; description: string }> = {
-  round_robin:         { label: 'Round Robin',       icon: '🔄', description: 'Every player faces every other player.' },
-  single_elimination:  { label: 'Single Elim',       icon: '🏆', description: 'One loss and you\'re out.' },
-  double_elimination:  { label: 'Double Elim',       icon: '🔁', description: 'Two losses to be eliminated.' },
-  pool_play:           { label: 'Pool Play',          icon: '🏊', description: 'Balanced pools, then bracket.' },
-  mlp:                 { label: 'MLP / Fixed Teams',  icon: '🤝', description: 'Teams of 4 (2M + 2W). Captains form rosters and lock in.' },
-  mlp_random:          { label: 'MLP / Random Teams', icon: '🎲', description: 'Teams of 4 auto-generated from approved players (random or snake-draft) with wacky names.' },
-  rotating_partners:   { label: 'Rotating Partners',  icon: '🔀', description: 'Partners rotate each round.' },
+// `iconName` names the foundation glyph drawn for the format (<Icon name=…>,
+// Chip `iconName`). Type-only import: simulations/ runs this file under tsx
+// with no React Native, and a type import is erased.
+export const FORMAT_META: Record<TournamentFormat, { label: string; iconName: IconName; description: string }> = {
+  round_robin:         { label: 'Round Robin',       iconName: 'repeat',    description: 'Every player faces every other player.' },
+  single_elimination:  { label: 'Single Elim',       iconName: 'trophy',    description: 'One loss and you\'re out.' },
+  double_elimination:  { label: 'Double Elim',       iconName: 'bracket',   description: 'Two losses to be eliminated.' },
+  pool_play:           { label: 'Pool Play',          iconName: 'grid',      description: 'Balanced pools, then bracket.' },
+  mlp:                 { label: 'MLP / Fixed Teams',  iconName: 'handshake', description: 'Teams of 4 (2M + 2W). Captains form rosters and lock in.' },
+  mlp_random:          { label: 'MLP / Random Teams', iconName: 'dice',      description: 'Teams of 4 auto-generated from approved players (random or snake-draft) with wacky names.' },
+  rotating_partners:   { label: 'Rotating Partners',  iconName: 'shuffle',   description: 'Partners rotate each round.' },
 };

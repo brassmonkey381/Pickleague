@@ -8,7 +8,8 @@ import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { useTheme } from '../lib/ThemeContext';
 import EmptyState from '../components/EmptyState';
-import { LoadingState, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, LoadingState, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 
@@ -166,7 +167,7 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
       setLoadError(null);
     } catch (e) {
       // Was a discarded error rendering as "Tournament not found."
-      setLoadError(friendlySbMessage(e, "Couldn't load this tournament."));
+      setLoadError(friendlySbMessage(e));
     } finally {
       setLoading(false);
     }
@@ -175,12 +176,11 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
   if (loading) return <LoadingState label="Loading…" />;
   if (loadError && !t) {
     return (
-      <EmptyState
-        icon="📡"
-        title="Couldn't load this tournament"
-        subtitle={loadError}
-        actionLabel="Try again"
-        onAction={() => { setLoading(true); void load(); }}
+      <ErrorState
+        iconName="offline"
+        error={null}
+        message={`Couldn't load this tournament. ${loadError}`}
+        onRetry={() => { setLoading(true); void load(); }}
       />
     );
   }
@@ -199,7 +199,7 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
     <ScrollView style={S.container} contentContainerStyle={S.content}>
       {/* ── Format headline ────────────────────────────────── */}
       <View style={S.headline}>
-        <Text style={S.headlineIcon}>{meta.icon}</Text>
+        <Icon name={meta.iconName} size={28} color={c.primary} />
         <View style={{ flex: 1 }}>
           <Text style={S.headlineLabel}>{meta.label}</Text>
           <Text style={S.headlineDesc}>{expl.headline}</Text>
@@ -209,10 +209,10 @@ export default function TournamentInfoScreen({ navigation, route }: Props) {
       {/* ── At a glance ────────────────────────────────────── */}
       <Section S={S} title="At a glance">
         <Row S={S} label="Match type"        value={t.match_type === 'doubles' ? 'Doubles' : 'Singles'} />
-        <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? '📊 PLUPR-seeded' : '🎲 Random draw'} />
+        <Row S={S} label="Seeding"           value={t.seeding === 'elo' ? 'PLUPR-seeded' : 'Random draw'} iconName={t.seeding === 'elo' ? 'chart' : 'dice'} />
         {t.format === 'pool_play' && <Row S={S} label="Pools" value={`${t.pool_count} pool${t.pool_count === 1 ? '' : 's'}`} />}
         {t.partner_rotation && <Row S={S} label="Partner rotation" value={t.partner_rotation.replace('_', ' ')} />}
-        <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? '🔒 Invite only' : '📝 Request to join'} />
+        <Row S={S} label="Registration"      value={t.registration_mode === 'invite_only' ? 'Invite only' : 'Request to join'} iconName={t.registration_mode === 'invite_only' ? 'lock' : 'edit'} />
         {/* The identity row dropped the old "Registration closes" and "~Nh
             expected" header lines (P5b), so they live here. Shown only when
             set: never a TBD. */}
@@ -315,11 +315,21 @@ function Section({ S, title, children }: { S: any; title: string; children: Reac
   );
 }
 
-function Row({ S, label, value }: { S: any; label: string; value: string }) {
+// `iconName`: a glyph before the value, in the value's colour (decorative:
+// the value's words carry the meaning).
+function Row({ S, label, value, iconName }: { S: any; label: string; value: string; iconName?: IconName }) {
+  const { colors: c } = useTheme();
   return (
     <View style={S.row}>
       <Text style={S.rowLabel}>{label}</Text>
-      <Text style={S.rowValue}>{value}</Text>
+      {iconName ? (
+        <View style={S.rowValueWithIcon}>
+          <Icon name={iconName} size={14} color={c.text} />
+          <Text style={[S.rowValue, S.rowValueShrink]}>{value}</Text>
+        </View>
+      ) : (
+        <Text style={S.rowValue}>{value}</Text>
+      )}
     </View>
   );
 }
@@ -344,7 +354,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     container:    { flex: 1, backgroundColor: c.bg },
     content:      { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
     headline:     { backgroundColor: c.primaryLight, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, borderWidth: HAIRLINE, borderColor: c.primary },
-    headlineIcon: { fontSize: FONT.size.display },
     headlineLabel:{ fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.primary },
     headlineDesc: { fontSize: FONT.size.base, color: c.text, marginTop: SPACE.xxs, lineHeight: FONT.line.tight },
     section:      { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.border },
@@ -352,6 +361,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     row:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: SPACE.md, paddingVertical: SPACE.xs },
     rowLabel:     { fontSize: FONT.size.base, color: c.textMuted, fontWeight: FONT.weight.semibold },
     rowValue:     { fontSize: FONT.size.md, color: c.text, fontWeight: FONT.weight.semibold, flex: 1, textAlign: 'right' },
+    rowValueWithIcon: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: SPACE.xs },
+    rowValueShrink: { flex: 0, flexShrink: 1 },
     para:         { fontSize: FONT.size.md, color: c.text, lineHeight: FONT.line.normal },
     bold:         { fontWeight: FONT.weight.heavy },
     bulletRow:    { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },

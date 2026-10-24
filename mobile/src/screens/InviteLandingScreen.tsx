@@ -13,6 +13,7 @@ import { Button } from '@just-messin-around/expo-foundation/forms';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { normalizeReferralCode } from '@just-messin-around/expo-foundation/referrals';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { REFERRAL_REWARD_PICKLES } from '../lib/referralRules';
@@ -56,7 +57,7 @@ export default function InviteLandingScreen({ route, navigation }: Props) {
       <View style={styles.container}>
         <View style={[styles.hero, { backgroundColor: c.primaryLight }]}>
           {loading ? (
-            <ActivityIndicator color={c.primary} style={{ marginVertical: 24 }} />
+            <ActivityIndicator color={c.primary} style={styles.spinner} />
           ) : (
             <>
               {preview?.avatar_url ? (
@@ -73,7 +74,7 @@ export default function InviteLandingScreen({ route, navigation }: Props) {
                 Track your matches and PLUPR rating, join leagues and tournaments, and find people to play with at your courts.
               </Text>
               <Text style={[t.title, styles.center, styles.gap, { color: c.primary }]}>
-                Sign up with this invite and you both get {REFERRAL_REWARD_PICKLES} pickles 🥒
+                Sign up with this invite and you both get {REFERRAL_REWARD_PICKLES} pickles
               </Text>
             </>
           )}
@@ -103,14 +104,16 @@ export default function InviteLandingScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   scroll: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
-  container: { width: '100%', maxWidth: 560, paddingHorizontal: 16, paddingVertical: 32 },
-  hero: { borderRadius: 20, padding: 24, alignItems: 'center' },
-  avatar: { width: 96, height: 96, borderRadius: 48, marginBottom: 16 },
+  container: { width: '100%', maxWidth: 560, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.xl },
+  hero: { borderRadius: RADIUS.lg, padding: SPACE.xl, alignItems: 'center' },
+  spinner: { marginVertical: SPACE.xl },
+  avatar: { width: 96, height: 96, borderRadius: RADIUS.pill, marginBottom: SPACE.lg },
   emojiAvatar: { alignItems: 'center', justifyContent: 'center' },
+  // The referrer's own avatar emoji (user content), at half the 96 circle.
   emoji: { fontSize: 48 },
   center: { textAlign: 'center' },
-  gap: { marginTop: 12 },
-  ctas: { marginTop: 20, gap: 10 },
+  gap: { marginTop: SPACE.md },
+  ctas: { marginTop: SPACE.lg, gap: SPACE.sm },
   btn: { alignSelf: 'stretch' },
-  getApp: { alignSelf: 'center', marginTop: 4 },
+  getApp: { alignSelf: 'center', marginTop: SPACE.xs },
 });

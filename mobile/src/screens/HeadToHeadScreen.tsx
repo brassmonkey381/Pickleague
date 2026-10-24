@@ -3,7 +3,10 @@ import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { RemoteImage } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, Panel, RemoteImage } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -87,12 +90,11 @@ export default function HeadToHeadScreen({ route }: Props) {
   if (!me || !opp || !h2h) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load head-to-head"
-          subtitle={loadError ?? 'Try again in a moment.'}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load head-to-head. ${loadError ?? 'Try again in a moment.'}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -112,18 +114,18 @@ export default function HeadToHeadScreen({ route }: Props) {
 
   // Streak copy.
   const streak = o.streak;
-  const streakText =
+  const streakLine: { iconName: IconName; color: string; text: string } | null =
     !streak.holder || streak.count === 0 ? null
     : streak.holder === 'me'
-      ? `🔥 You've won the last ${streak.count}`
-      : `❄️ ${oppFirst} has won the last ${streak.count}`;
+      ? { iconName: 'fire', color: c.warning, text: `You've won the last ${streak.count}` }
+      : { iconName: 'snowflake', color: c.info, text: `${oppFirst} has won the last ${streak.count}` };
 
   const mePct = o.total > 0 ? o.meWins / o.total : 0;
 
   return (
-    <ScrollView style={S.container} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<AppRefreshControl {...refresh} />}>
+    <ScrollView style={S.container} contentContainerStyle={S.content} refreshControl={<AppRefreshControl {...refresh} />}>
       {/* VS header */}
-      <View style={S.vsCard}>
+      <Panel padded={SPACE.lg} style={S.vsCard}>
         <PlayerColumn p={me} label="You" S={S} c={c} />
         <View style={S.vsMiddle}>
           <Text style={S.vsText}>VS</Text>
@@ -134,11 +136,11 @@ export default function HeadToHeadScreen({ route }: Props) {
           </View>
         </View>
         <PlayerColumn p={opp} label={oppFirst} S={S} c={c} />
-      </View>
+      </Panel>
 
       {o.total === 0 && h2h.partners.total === 0 ? (
         <EmptyState
-          icon="🤝"
+          iconName="handshake"
           title={`You haven't played ${oppFirst} yet`}
           subtitle="Once you face off (or team up), your full head-to-head record shows up here."
         />
@@ -146,45 +148,59 @@ export default function HeadToHeadScreen({ route }: Props) {
         <>
           {/* Record summary */}
           {o.total > 0 && (
-            <View style={S.card}>
+            <Panel padded={SPACE.lg} style={S.card}>
               <Text style={S.headline}>{headline}</Text>
               <Text style={S.subtle}>{o.total} match{o.total !== 1 ? 'es' : ''} as opponents</Text>
 
               <View style={S.barRow}>
-                <View style={[S.barSeg, { flex: Math.max(mePct, 0.001), backgroundColor: c.primary, borderTopLeftRadius: 6, borderBottomLeftRadius: 6 }]} />
-                <View style={[S.barSeg, { flex: Math.max(1 - mePct, 0.001), backgroundColor: c.danger, borderTopRightRadius: 6, borderBottomRightRadius: 6 }]} />
+                <View style={[S.barSeg, { flex: Math.max(mePct, 0.001), backgroundColor: c.primary }]} />
+                <View style={[S.barSeg, { flex: Math.max(1 - mePct, 0.001), backgroundColor: c.danger }]} />
               </View>
               <View style={S.barLabels}>
                 <Text style={[S.barLabel, { color: c.primary }]}>You {o.meWins}</Text>
                 <Text style={[S.barLabel, { color: c.danger }]}>{o.oppWins} {oppFirst}</Text>
               </View>
 
-              {streakText && <Text style={S.streak}>{streakText}</Text>}
-            </View>
+              {streakLine && (
+                <View style={[S.iconRow, S.streakRow]}>
+                  <Icon name={streakLine.iconName} size={14} color={streakLine.color} />
+                  <Text style={S.streak}>{streakLine.text}</Text>
+                </View>
+              )}
+            </Panel>
           )}
 
           {/* Splits */}
           {(o.singles.meWins + o.singles.oppWins > 0 || o.doubles.meWins + o.doubles.oppWins > 0) && (
             <View style={S.splitRow}>
               {o.singles.meWins + o.singles.oppWins > 0 && (
-                <View style={S.splitCard}>
-                  <Text style={S.splitLabel}>🎾 Singles</Text>
+                <Panel padded={SPACE.md} style={S.splitCard}>
+                  <View style={S.iconRow}>
+                    <Icon name="person" size={12} color={c.textSub} />
+                    <Text style={S.splitLabel}>Singles</Text>
+                  </View>
                   <Text style={S.splitValue}>{o.singles.meWins}–{o.singles.oppWins}</Text>
-                </View>
+                </Panel>
               )}
               {o.doubles.meWins + o.doubles.oppWins > 0 && (
-                <View style={S.splitCard}>
-                  <Text style={S.splitLabel}>👥 Doubles</Text>
+                <Panel padded={SPACE.md} style={S.splitCard}>
+                  <View style={S.iconRow}>
+                    <Icon name="group" size={12} color={c.textSub} />
+                    <Text style={S.splitLabel}>Doubles</Text>
+                  </View>
                   <Text style={S.splitValue}>{o.doubles.meWins}–{o.doubles.oppWins}</Text>
-                </View>
+                </Panel>
               )}
             </View>
           )}
 
           {/* As partners */}
           {h2h.partners.total > 0 && (
-            <View style={S.card}>
-              <Text style={S.sectionTitle}>🤝 As partners</Text>
+            <Panel padded={SPACE.lg} style={S.card}>
+              <View style={[S.iconRow, S.sectionHead]}>
+                <Icon name="handshake" size={14} color={c.textSub} />
+                <Text style={S.sectionTitle}>As partners</Text>
+              </View>
               <Text style={S.partnerLine}>
                 {h2h.partners.wins}–{h2h.partners.losses} together
                 {'  '}
@@ -192,30 +208,35 @@ export default function HeadToHeadScreen({ route }: Props) {
                   ({Math.round((h2h.partners.wins / h2h.partners.total) * 100)}% win rate)
                 </Text>
               </Text>
-            </View>
+            </Panel>
           )}
 
           {/* Recent meetings */}
           {o.meetings.length > 0 && (
-            <View style={S.card}>
-              <Text style={S.sectionTitle}>Recent meetings</Text>
+            <Panel padded={SPACE.lg} style={S.card}>
+              <Text style={[S.sectionTitle, S.sectionHead]}>Recent meetings</Text>
               {o.meetings.slice(0, 10).map((meet) => {
                 const result = meet.iWon == null ? '—' : meet.iWon ? 'W' : 'L';
                 const resultColor = meet.iWon == null ? c.textMuted : meet.iWon ? c.primary : c.danger;
+                const resultBg = meet.iWon == null ? c.surfaceAlt : meet.iWon ? c.primaryLight : c.dangerLight;
+                const singles = meet.match_type === 'singles';
                 const score = meet.myScore != null && meet.oppScore != null ? `${meet.myScore}–${meet.oppScore}` : '';
                 return (
                   <View key={meet.id} style={S.meetRow}>
-                    <View style={[S.resultPill, { backgroundColor: resultColor + '22' }]}>
+                    <View style={[S.resultPill, { backgroundColor: resultBg }]}>
                       <Text style={[S.resultPillText, { color: resultColor }]}>{result}</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={S.meetType}>{meet.match_type === 'singles' ? '🎾 Singles' : '👥 Doubles'}{score ? `  ·  ${score}` : ''}</Text>
+                    <View style={S.flex}>
+                      <View style={S.iconRow}>
+                        <Icon name={singles ? 'person' : 'group'} size={14} color={c.textSub} />
+                        <Text style={S.meetType}>{singles ? 'Singles' : 'Doubles'}{score ? `  ·  ${score}` : ''}</Text>
+                      </View>
                       <Text style={S.meetDate}>{new Date(meet.played_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
                     </View>
                   </View>
                 );
               })}
-            </View>
+            </Panel>
           )}
         </>
       )}
@@ -261,44 +282,57 @@ function PlayerColumn({ p, label, S, c }: { p: MiniProfile; label: string; S: an
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
-    error: { padding: 24, color: c.text },
+    // The lg gutter and the md gap between cards, as every detail screen.
+    content: { padding: SPACE.lg, paddingBottom: SPACE.xl * 2, gap: SPACE.md },
+    iconRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    flex: { flex: 1, minWidth: 0 },
 
-    vsCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, margin: 12, borderRadius: 16, padding: 18, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4 },
+    vsCard: { flexDirection: 'row', alignItems: 'center' },
     playerCol: { flex: 1, alignItems: 'center' },
-    avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-    avatarPhoto: { width: 64, height: 64, borderRadius: 32, marginBottom: 8 },
-    avatarEmoji: { fontSize: 32 },
-    playerName: { fontSize: 16, fontWeight: '700', color: c.text, maxWidth: 110, textAlign: 'center' },
-    playerRating: { fontSize: 22, fontWeight: '800', color: c.primary, marginTop: 2 },
-    playerLabel: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    vsMiddle: { alignItems: 'center', paddingHorizontal: 6 },
-    vsText: { fontSize: 16, fontWeight: '800', color: c.textMuted, letterSpacing: 1 },
-    gapChip: { marginTop: 8, backgroundColor: c.surfaceAlt, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: c.border },
-    gapChipText: { fontSize: 11, color: c.textSub, fontWeight: '600', textAlign: 'center' },
+    avatar: { width: 64, height: 64, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
+    avatarPhoto: { width: 64, height: 64, borderRadius: RADIUS.pill, marginBottom: SPACE.sm },
+    // The player's own avatar emoji (content, not chrome), sized to the 64 circle.
+    avatarEmoji: { fontSize: FONT.size.display + SPACE.xs },
+    playerName: { ...t.title, maxWidth: 110, textAlign: 'center' },
+    playerRating: { ...t.h2, color: c.primary, marginTop: SPACE.xxs },
+    playerLabel: { ...t.meta, marginTop: SPACE.xxs },
+    vsMiddle: { alignItems: 'center', paddingHorizontal: SPACE.xs },
+    vsText: { ...t.title, fontWeight: FONT.weight.heavy, color: c.textMuted, letterSpacing: 1 },
+    gapChip: {
+      marginTop: SPACE.sm, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.pill,
+      paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border,
+    },
+    gapChipText: { ...t.caption, color: c.textSub, fontWeight: FONT.weight.semibold, textAlign: 'center' },
 
-    card: { backgroundColor: c.surface, marginHorizontal: 12, marginBottom: 12, borderRadius: 14, padding: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
-    headline: { fontSize: 20, fontWeight: '800', color: c.text },
-    subtle: { fontSize: 12, color: c.textMuted, fontWeight: '500' },
-    barRow: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', marginTop: 14, backgroundColor: c.border },
+    card: {},
+    headline: { ...t.h2 },
+    subtle: { ...t.meta, fontWeight: FONT.weight.medium, letterSpacing: 0 },
+    barRow: { flexDirection: 'row', height: 12, borderRadius: RADIUS.sm, overflow: 'hidden', marginTop: SPACE.md, backgroundColor: c.border },
     barSeg: { height: 12 },
-    barLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-    barLabel: { fontSize: 13, fontWeight: '700' },
-    streak: { fontSize: 14, fontWeight: '700', color: c.text, marginTop: 12 },
+    barLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: SPACE.xs },
+    barLabel: { fontSize: FONT.size.base, fontWeight: FONT.weight.bold },
+    streakRow: { marginTop: SPACE.md },
+    streak: { ...t.bodySub, color: c.text, fontWeight: FONT.weight.bold },
 
-    splitRow: { flexDirection: 'row', marginHorizontal: 12, marginBottom: 12, gap: 12 },
-    splitCard: { flex: 1, backgroundColor: c.surface, borderRadius: 14, padding: 14, alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
-    splitLabel: { fontSize: 12, color: c.textSub, fontWeight: '600' },
-    splitValue: { fontSize: 22, fontWeight: '800', color: c.text, marginTop: 4 },
+    splitRow: { flexDirection: 'row', gap: SPACE.md },
+    splitCard: { flex: 1, alignItems: 'center' },
+    splitLabel: { ...t.meta, color: c.textSub, letterSpacing: 0 },
+    splitValue: { ...t.h2, marginTop: SPACE.xs, fontVariant: ['tabular-nums'] },
 
-    sectionTitle: { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 },
-    partnerLine: { fontSize: 16, fontWeight: '700', color: c.text },
+    sectionHead: { marginBottom: SPACE.sm },
+    sectionTitle: { ...t.fieldLabel, color: c.textSub },
+    partnerLine: { ...t.title },
 
-    meetRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: c.border },
-    resultPill: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-    resultPillText: { fontSize: 14, fontWeight: '800' },
-    meetType: { fontSize: 14, fontWeight: '600', color: c.text },
-    meetDate: { fontSize: 12, color: c.textMuted, marginTop: 1 },
+    meetRow: {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 44, paddingVertical: SPACE.sm,
+      borderBottomWidth: HAIRLINE, borderBottomColor: c.border,
+    },
+    resultPill: { width: 30, height: 30, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
+    resultPillText: { fontSize: FONT.size.md, fontWeight: FONT.weight.heavy },
+    meetType: { ...t.bodySub, color: c.text, fontWeight: FONT.weight.semibold, flexShrink: 1 },
+    meetDate: { ...t.meta, fontWeight: FONT.weight.regular, letterSpacing: 0, marginTop: 1 },
   });
 }

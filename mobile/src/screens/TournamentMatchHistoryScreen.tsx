@@ -8,7 +8,7 @@ import {
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
 import {
-  FilterChipRow, FilterPill, FilterSearchField, FilterSheet, SingleSelectModal,
+  ErrorState, FilterChipRow, FilterPill, FilterSearchField, FilterSheet, SingleSelectModal,
   type FilterChipOption, type FilterSheetGroup,
 } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
@@ -127,7 +127,7 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
       setLoadError(null);
     } catch (e) {
       // Was a discarded error rendering as "no matches played yet".
-      setLoadError(friendlySbMessage(e, "Couldn't load the match history."));
+      setLoadError(friendlySbMessage(e));
     } finally {
       setLoading(false);
     }
@@ -309,12 +309,11 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
   if (loadError && matches.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load match history"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={null}
+          message={`Couldn't load match history. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -380,8 +379,8 @@ export default function TournamentMatchHistoryScreen({ route }: Props) {
         refreshControl={<AppRefreshControl {...refresh} />}
         ListEmptyComponent={
           activeFilterCount > 0
-            ? <EmptyState icon="🔍" title="No matches match these filters" actionLabel="Clear filters" onAction={clearAll} />
-            : <EmptyState icon="🎾" title="No matches yet" subtitle="No tournament matches yet." />
+            ? <EmptyState iconName="search" title="No matches match these filters" actionLabel="Clear filters" onAction={clearAll} />
+            : <EmptyState iconName="pickleball" title="No matches yet" subtitle="No tournament matches yet." />
         }
       />
 

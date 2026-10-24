@@ -18,6 +18,12 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { Chip, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { shadowColor } from '@just-messin-around/expo-foundation/theme';
+import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PickleAmount, picklesLabel } from '../components/PickleAmount';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'TournamentMembers'>;
@@ -80,7 +86,7 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
         }
       }
     } catch (e) {
-      setLoadError(friendlySbMessage(e, "Couldn't load the roster."));
+      setLoadError(friendlySbMessage(e));
     } finally {
       // Always: a throw used to leave the skeleton up for good.
       setLoading(false);
@@ -130,12 +136,11 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
   if (loadError && members.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load the roster"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={null}
+          message={`Couldn't load the roster. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -147,14 +152,14 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
       style={{ backgroundColor: colors.bg }}
       data={members}
       keyExtractor={item => item.id}
-      contentContainerStyle={{ padding: 16 }}
+      contentContainerStyle={{ padding: SPACE.lg }}
       refreshControl={<AppRefreshControl {...refresh} />}
       ListHeaderComponent={
         <Text style={S.count}>{members.length} approved member{members.length !== 1 ? 's' : ''}</Text>
       }
       renderItem={({ item }) => {
         const role       = item.role as TournamentRole;
-        const badgeColor = tournamentRoleBadgeColor(role);
+        const badgeColor = tournamentRoleBadgeColor(role, colors);
         const manageable = canManage(item);
         const wagered    = WAGERS_ENABLED ? (wagerTotals[item.user_id] ?? 0) : 0;
         return (
@@ -186,29 +191,29 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
                     scopeName: route.params.tournamentName,
                   });
                 }}
-                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityLabel={`${picklesLabel(wagered)} wagered on ${item.profile?.full_name ?? 'this player'}`}
               >
-                <Text style={S.wagerPillText}>🥒 {wagered.toLocaleString()}</Text>
+                <View style={S.wagerPillInner}>
+                  <PickleAmount amount={wagered} preset="meta" />
+                </View>
               </TouchableOpacity>
             )}
-            <View style={[S.badge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
-              <Text style={[S.badgeText, { color: badgeColor }]}>{tournamentRoleLabel(role)}</Text>
-            </View>
+            <Chip size="sm" accent={badgeColor} label={tournamentRoleLabel(role)} align="center" />
             {manageable && (
               <TouchableOpacity
                 style={S.kebab}
                 onPress={(e) => { e.stopPropagation?.(); showOptions(item); }}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
                 accessibilityLabel={`Manage ${item.profile?.full_name ?? 'member'}`}
               >
-                <Text style={S.kebabText}>⋮</Text>
+                <Icon name="more-vertical" size={20} color={colors.textMuted} />
               </TouchableOpacity>
             )}
           </TouchableOpacity>
         );
       }}
-      ListEmptyComponent={<EmptyState icon="👥" title="No members yet" subtitle="No approved members yet." />}
+      ListEmptyComponent={<EmptyState iconName="group" title="No members yet" subtitle="No approved members yet." />}
     />
 
     <ActionSheetModal
@@ -223,21 +228,19 @@ export default function TournamentMembersScreen({ navigation, route }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    count: { fontSize: 13, color: c.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
-    row: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 8, elevation: 3, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
-    avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-    avatarText: { fontSize: 18, fontWeight: '700', color: c.primary },
-    info: { flex: 1 },
-    name: { fontSize: 15, fontWeight: '600', color: c.text },
-    rating: { fontSize: 12, color: c.textMuted, marginTop: 1 },
-    badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, borderWidth: 1 },
-    badgeText: { fontSize: 11, fontWeight: '700' },
-    wagerPill: { backgroundColor: c.primaryLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
-    wagerPillText: { fontSize: 11, fontWeight: '700', color: c.primary },
-    chevron: { fontSize: 22, color: c.textMuted, marginLeft: 8 },
-    kebab: { paddingHorizontal: 10, paddingVertical: 4, marginLeft: 4 },
-    kebabText: { fontSize: 22, color: c.textMuted, fontWeight: '700' },
-    empty: { textAlign: 'center', color: c.textMuted, marginTop: 60, fontSize: 15 },
+    count: { ...t.fieldLabel, marginBottom: SPACE.md },
+    row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, minHeight: 64, marginBottom: SPACE.sm, elevation: 3, shadowColor: shadowColor(c), shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
+    avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: SPACE.xs },
+    avatarText: { ...t.h3, color: c.primary },
+    info: { flex: 1, minWidth: 0 },
+    name: t.title,
+    rating: { ...t.meta, marginTop: SPACE.xxs },
+    // A 44 tap box around the small pickle pill (web ignores hitSlop).
+    wagerPill: { minHeight: 44, justifyContent: 'center' },
+    wagerPillInner: { backgroundColor: c.primaryLight, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs },
+    // The 44 box overhangs the row padding so the glyph sits near the edge.
+    kebab: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginVertical: -SPACE.md, marginRight: -SPACE.sm },
   });
 }

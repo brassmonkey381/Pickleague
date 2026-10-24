@@ -11,7 +11,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Panel, SectionHeader, ConfirmModal, QrCode, SettingSwitchRow } from '@just-messin-around/expo-foundation/ui';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
-import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
+import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
@@ -213,7 +213,7 @@ export default function QrWalletScreen({ navigation }: Props) {
 
       {passes.length === 0 && !adding ? (
         <EmptyState
-          icon="🎟️"
+          iconName="ticket"
           title="No QR codes yet"
           subtitle="Add the code your club asks for, and pick its court."
           actionLabel="Add a QR code"
@@ -282,20 +282,22 @@ export default function QrWalletScreen({ navigation }: Props) {
   );
 }
 
+// The QR thumbnails and preview keep a white ground in both themes: a code
+// scans black on white (a printed surface, like the brand sticker art).
 const styles = StyleSheet.create({
   content: { padding: SPACE.lg, gap: SPACE.md, paddingBottom: SPACE.xl * 2 },
-  intro: { fontSize: 14, lineHeight: 20 },
-  body: { fontSize: 14, lineHeight: 20 },
+  intro: { fontSize: FONT.size.md, lineHeight: FONT.line.normal },
+  body: { fontSize: FONT.size.md, lineHeight: FONT.line.normal },
   start: { alignSelf: 'flex-start', marginTop: SPACE.sm },
   allowBox: { paddingHorizontal: SPACE.md, paddingBottom: SPACE.md },
-  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: 1 },
-  thumb: { width: 48, height: 48, borderRadius: 6, backgroundColor: '#fff' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE },
+  thumb: { width: 48, height: 48, borderRadius: RADIUS.sm, backgroundColor: '#fff' },
   inviteThumb: { alignItems: 'center', justifyContent: 'center' },
   flex: { flex: 1 },
-  title: { fontSize: 15, fontWeight: FONT.weight.semibold },
-  sub: { fontSize: 13, marginTop: 2 },
-  remove: { fontSize: 13 },
-  step: { fontSize: 14, fontWeight: FONT.weight.semibold, marginTop: SPACE.md, marginBottom: SPACE.sm },
+  title: { fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold },
+  sub: { fontSize: FONT.size.base, marginTop: SPACE.xxs },
+  remove: { fontSize: FONT.size.base },
+  step: { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, marginTop: SPACE.md, marginBottom: SPACE.sm },
   preview: { width: '100%', height: 220, backgroundColor: '#fff', borderRadius: RADIUS.md },
   actions: { flexDirection: 'row', gap: SPACE.md, marginTop: SPACE.md },
 });

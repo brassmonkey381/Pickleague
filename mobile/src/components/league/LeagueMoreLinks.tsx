@@ -10,7 +10,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 
 export type LeagueMoreLink = { key: string; label: string; a11yLabel?: string; onPress: () => void };
@@ -35,7 +35,7 @@ export default function LeagueMoreLinks({ links }: { links: LeagueMoreLink[] }) 
             accessibilityLabel={l.a11yLabel ?? l.label}
             style={styles.link}
           >
-            <Text style={[t.sub, { color: c.primary, fontWeight: '600' }]} numberOfLines={1}>{l.label}</Text>
+            <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.semibold }]} numberOfLines={1}>{l.label}</Text>
           </TouchableOpacity>
         </React.Fragment>
       ))}

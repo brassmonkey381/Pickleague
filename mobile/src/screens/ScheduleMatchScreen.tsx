@@ -5,10 +5,13 @@ import { RouteProp } from '@react-navigation/native';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, INPUT_MIN_FONT_WEB, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { Profile, RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
-import { gs } from '../lib/globalStyles';
 import StatusBanner from '../components/StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { explainRefusal } from '../lib/refusalNotices';
@@ -38,12 +41,14 @@ function WebPlayerSelect({
     {
       value,
       onChange: (e: any) => onChange(e.target.value),
+      // Same box as the date / time inputs below (webInputStyle); 16px so iOS
+      // Safari doesn't zoom the page on focus.
       style: {
-        fontSize: 15,
-        padding: '11px 12px',
+        fontSize: INPUT_MIN_FONT_WEB,
+        padding: `${SPACE.md}px`,
         width: '100%',
-        border: `1px solid ${colors.border}`,
-        borderRadius: 8,
+        border: `${HAIRLINE}px solid ${colors.border}`,
+        borderRadius: RADIUS.md,
         backgroundColor: colors.surface,
         color: value ? colors.text : colors.textMuted,
         outline: 'none',
@@ -62,11 +67,11 @@ function WebPlayerSelect({
 
 function webInputStyle(colors: ThemeColors) {
   return {
-    fontSize: 15,
-    padding: '13px 14px',
+    fontSize: INPUT_MIN_FONT_WEB,
+    padding: `${SPACE.md}px`,
     width: '100%',
-    border: `1px solid ${colors.border}`,
-    borderRadius: 10,
+    border: `${HAIRLINE}px solid ${colors.border}`,
+    borderRadius: RADIUS.md,
     backgroundColor: colors.surface,
     color: colors.text,
     outline: 'none',
@@ -232,11 +237,23 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
         </View>
       ) : (
         <View style={S.dateRow}>
-          <TouchableOpacity style={S.dateBtn} onPress={() => setShowDatePicker(true)}>
-            <Text style={S.dateBtnText}>{formattedDate}</Text>
+          <TouchableOpacity
+            style={[S.pickBtn, S.dateBtn]}
+            onPress={() => setShowDatePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Date, ${formattedDate}`}
+          >
+            <Icon name="calendar" size={16} color={c.textSub} />
+            <Text style={S.dateBtnText} numberOfLines={1}>{formattedDate}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={S.timeBtn} onPress={() => setShowTimePicker(true)}>
-            <Text style={S.dateBtnText}>{formattedTime}</Text>
+          <TouchableOpacity
+            style={[S.pickBtn, S.timeBtn]}
+            onPress={() => setShowTimePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Time, ${formattedTime}`}
+          >
+            <Icon name="clock" size={16} color={c.textSub} />
+            <Text style={S.dateBtnText} numberOfLines={1}>{formattedTime}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -259,23 +276,32 @@ export default function ScheduleMatchScreen({ navigation, route }: Props) {
 
       <StatusBanner status={status.value} />
 
-      <TouchableOpacity style={S.button} onPress={scheduleMatch} disabled={loading}>
-        <Text style={S.buttonText}>{loading ? 'Scheduling...' : 'Schedule Match'}</Text>
-      </TouchableOpacity>
+      <Button
+        title={loading ? 'Scheduling...' : 'Schedule Match'}
+        onPress={scheduleMatch}
+        loading={loading}
+        disabled={loading}
+        style={S.button}
+      />
     </ScrollView>
   );
 }
 
 function makeStyles(c: ThemeColors) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:     { padding: 24, backgroundColor: c.bg, flexGrow: 1 },
-    label:         { fontSize: 14, fontWeight: '700', color: c.text, marginBottom: 6, marginTop: 16 },
-    pickerWrapper: { borderWidth: 1, borderColor: c.border, borderRadius: 10, overflow: 'hidden', backgroundColor: c.surface },
-    dateRow:       { flexDirection: 'row', gap: 12 },
-    dateBtn:       { flex: 2, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', backgroundColor: c.surface },
-    timeBtn:       { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 14, alignItems: 'center', backgroundColor: c.surface },
-    dateBtnText:   { fontSize: 15, color: c.text },
-    button:        { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 32 },
-    buttonText:    { color: '#fff', fontSize: 16, fontWeight: '600' },
+    container:     { padding: SPACE.lg, backgroundColor: c.bg, flexGrow: 1 },
+    // The field-label preset (as TextField's label), so this form reads like the others.
+    label:         { ...t.fieldLabel, marginBottom: SPACE.xs + SPACE.xxs, marginTop: SPACE.lg },
+    pickerWrapper: { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, overflow: 'hidden', backgroundColor: c.surface },
+    dateRow:       { flexDirection: 'row', gap: SPACE.md },
+    pickBtn:       {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.sm, minHeight: 44,
+      borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, backgroundColor: c.surface,
+    },
+    dateBtn:       { flex: 2 },
+    timeBtn:       { flex: 1 },
+    dateBtnText:   { ...t.body, flexShrink: 1 },
+    button:        { marginTop: SPACE.xl },
   });
 }

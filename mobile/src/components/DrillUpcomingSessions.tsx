@@ -15,6 +15,7 @@ import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/s
 import { Panel, SectionHeader, FilterPill } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { durationLabel } from '../lib/drillTime';
@@ -139,9 +140,18 @@ export default function DrillUpcomingSessions({
               style={[S.row, i < sessions.length - 1 && S.rowDivider, focused && S.rowFocused]}
             >
               <Text style={t.title} numberOfLines={1}>Drill with {partner}</Text>
-              <Text style={t.sub} numberOfLines={place ? 2 : 1}>
-                {place ? `📍 We're playing at ${place} · ` : ''}{when} · {durationLabel(s.length_minutes ?? 60)}
-              </Text>
+              {place ? (
+                <View style={S.placeLine}>
+                  <Icon name="pin" size={14} color={c.textSub} style={S.placeGlyph} />
+                  <Text style={[t.sub, S.shrink]} numberOfLines={2}>
+                    We're playing at {place} · {when} · {durationLabel(s.length_minutes ?? 60)}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={t.sub} numberOfLines={1}>
+                  {when} · {durationLabel(s.length_minutes ?? 60)}
+                </Text>
+              )}
               <Text
                 style={[t.meta, theirs === 'cant_make_it' && { color: c.danger }]}
                 numberOfLines={1}
@@ -156,7 +166,8 @@ export default function DrillUpcomingSessions({
               {/* Your answer: a 2-option radio of FilterPills (28 pill, 44 box). */}
               <View style={S.answers} accessibilityRole="radiogroup">
                 <FilterPill
-                  label={mine === 'on_my_way' ? '✓ Confirmed' : 'Confirm'}
+                  label={mine === 'on_my_way' ? 'Confirmed' : 'Confirm'}
+                  iconName={mine === 'on_my_way' ? 'check-mark' : undefined}
                   active={mine === 'on_my_way'}
                   onPress={busy || mine === 'on_my_way' ? undefined : () => answer(s, 'on_my_way')}
                   accessibilityRole="radio"
@@ -164,7 +175,8 @@ export default function DrillUpcomingSessions({
                   accessibilityLabel="Confirm"
                 />
                 <FilterPill
-                  label={mine === 'cant_make_it' ? "✓ Can't make it" : "Can't make it"}
+                  label="Can't make it"
+                  iconName={mine === 'cant_make_it' ? 'check-mark' : undefined}
                   active={mine === 'cant_make_it'}
                   onPress={busy || mine === 'cant_make_it' ? undefined : () => answer(s, 'cant_make_it')}
                   accessibilityRole="radio"
@@ -185,7 +197,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     section: { marginBottom: SPACE.md },
     // Row variant: padding 10/12, hairline divider, no margin.
-    row: { paddingVertical: 10, paddingHorizontal: SPACE.md, gap: SPACE.xxs },
+    row: { paddingVertical: SPACE.sm + SPACE.xxs, paddingHorizontal: SPACE.md, gap: SPACE.xxs },
+    // The pin sits on the first line of a court name that may wrap to two.
+    placeLine: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.xs },
+    placeGlyph: { marginTop: SPACE.xxs },
+    shrink: { flexShrink: 1 },
     rowDivider: { borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     rowFocused: { backgroundColor: c.primaryLight },
     answers: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm },

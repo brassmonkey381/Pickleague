@@ -1,11 +1,12 @@
 // "Wager market" on SeasonStandings: a collapsed reference section listing the
-// players by PLUPR with a 🎲 cell per podium rank. Gated by WAGERS_ENABLED at
+// players by PLUPR with a dice cell per podium rank. Gated by WAGERS_ENABLED at
 // the call site (its RPCs are absent in production), so this only renders in
 // builds that turn wagering on. Moved out of the screen unchanged in behaviour:
 // top 12 by PLUPR, "Show N more" when there are more.
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { CollapsibleSection } from '@just-messin-around/expo-foundation/ui';
+import { CollapsibleSection, RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -20,7 +21,7 @@ export type MarketRow = {
 };
 
 const MARKET_RANKS = [1, 2, 3] as const;
-const MARKET_RANK_LABELS: Record<(typeof MARKET_RANKS)[number], string> = { 1: '🥇 1st', 2: '🥈 2nd', 3: '🥉 3rd' };
+const MARKET_RANK_LABELS: Record<(typeof MARKET_RANKS)[number], string> = { 1: '1st', 2: '2nd', 3: '3rd' };
 const MARKET_TOP_N = 12;
 
 export default function WagerMarketSection({
@@ -52,7 +53,10 @@ export default function WagerMarketSection({
       <View style={S.headRow}>
         <Text style={[t.fieldLabel, S.nameCol]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Player</Text>
         {MARKET_RANKS.map(r => (
-          <Text key={r} style={[t.fieldLabel, S.cellCol]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{MARKET_RANK_LABELS[r]}</Text>
+          <View key={r} style={[S.cellCol, S.headCell]}>
+            <RankMedal place={r} size={16} accessibilityLabel={`${MARKET_RANK_LABELS[r]} place`} />
+            <Text style={t.fieldLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{MARKET_RANK_LABELS[r]}</Text>
+          </View>
         ))}
       </View>
       {visible.map(row => (
@@ -73,7 +77,7 @@ export default function WagerMarketSection({
               accessibilityLabel={`Wager on ${row.full_name || 'this player'} to finish rank ${rank}`}
               onPress={() => onWager(row, rank)}
             >
-              <Text maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🎲</Text>
+              <Icon name="dice" size={18} color={c.primary} />
             </TouchableOpacity>
           ))}
         </View>
@@ -91,7 +95,9 @@ export default function WagerMarketSection({
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    headRow: { flexDirection: 'row', alignItems: 'center', minHeight: 32, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    // The head row takes the rows' gap so each label sits over its column.
+    headRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 32, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
+    headCell: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs },
     row: { flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: SPACE.xs },
     nameCol: { flex: 2.4, minWidth: 0 },
     cellCol: { flex: 1, textAlign: 'center' },
