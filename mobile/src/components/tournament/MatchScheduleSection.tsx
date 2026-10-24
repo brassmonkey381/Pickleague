@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { FilterChipRow, FilterPill, SingleSelectModal, type FilterChipOption } from '@just-messin-around/expo-foundation/ui';
-import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { Tournament } from '../../types';
 import { FlowOverviewStage } from '../TournamentFlowOverview';
@@ -170,7 +171,10 @@ export default function MatchScheduleSection({
     return (
       <React.Fragment key={m.id}>
         {isPendingDreambreaker && (
-          <Text style={S.dreambreakerBadge}>🏆 Dreambreaker (singles tiebreaker)</Text>
+          <View style={[local.dreamBadge, { backgroundColor: c.warningLight }]}>
+            <Icon name="trophy" size={12} color={c.warning} />
+            <Text style={[local.dreamText, { color: c.warning }]}>Dreambreaker (singles tiebreaker)</Text>
+          </View>
         )}
         <Row style={[S.matchRow, isMyMatch && S.matchRowHighlight]} {...rowProps}>
           <Text style={S.matchNum}>{i + 1}</Text>
@@ -192,7 +196,7 @@ export default function MatchScheduleSection({
             isMyMatch && S.matchupHighlight,
           ]} numberOfLines={1}>{t2}</Text>
           {isMyMatch && <Text style={S.youTag}>YOU</Text>}
-          {tappable && !isMyMatch && <Text style={S.recordChevron}>›</Text>}
+          {tappable && !isMyMatch && <Icon name="chevron-right" size={16} color={c.textMuted} />}
         </Row>
       </React.Fragment>
     );
@@ -277,3 +281,13 @@ export default function MatchScheduleSection({
     </SectionCard>
   );
 }
+
+// The dreambreaker label: trophy glyph + words on the warning tint (the shared
+// styles.ts `dreambreakerBadge` was a Text pill; a glyph needs a row).
+const local = StyleSheet.create({
+  dreamBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, alignSelf: 'flex-start',
+    paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.sm, marginTop: SPACE.xs,
+  },
+  dreamText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy },
+});

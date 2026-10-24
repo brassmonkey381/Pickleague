@@ -19,11 +19,14 @@ import { CollapsibleSection } from '@just-messin-around/expo-foundation/ui';
 import { Button, type ButtonVariant } from '@just-messin-around/expo-foundation/forms';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 
 export type ManageRowItem = {
   key: string;
   label: string;
+  /** Optional leading glyph, in the label's colour (decorative). */
+  iconName?: IconName;
   /** Right-aligned meta ("2 pending", "Oct 18"). */
   meta?: string | null;
   onPress: () => void;
@@ -85,6 +88,7 @@ export function ManageRow({ row, first }: { row: ManageRowItem; first: boolean }
       accessibilityState={{ disabled: !!row.disabled }}
       style={[styles.row, !first && { borderTopWidth: HAIRLINE, borderTopColor: c.border }, row.disabled && styles.dim]}
     >
+      {row.iconName ? <Icon name={row.iconName} size={14} color={row.danger ? c.danger : c.textSub} /> : null}
       <Text
         style={[
           t.sub,
@@ -105,7 +109,7 @@ export function ManageRow({ row, first }: { row: ManageRowItem; first: boolean }
           {row.meta}
         </Text>
       ) : null}
-      <Text style={[styles.chevron, { color: row.danger ? c.danger : c.textMuted }]}>›</Text>
+      <Icon name="chevron-right" size={16} color={row.danger ? c.danger : c.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -113,7 +117,6 @@ export function ManageRow({ row, first }: { row: ManageRowItem; first: boolean }
 function StepView({ step, index, first }: { step: ManageStep; index: number; first: boolean }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const marker = step.done ? '✓' : String(index + 1);
   return (
     <View
       style={[styles.step, !first && { borderTopWidth: HAIRLINE, borderTopColor: c.border }]}
@@ -130,15 +133,16 @@ function StepView({ step, index, first }: { step: ManageStep; index: number; fir
                 : { backgroundColor: c.surface, borderColor: c.border },
           ]}
         >
-          <Text
-            style={[
-              styles.markerText,
-              { color: step.done ? c.success : step.current ? c.textInverse : c.textMuted },
-            ]}
-            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-          >
-            {marker}
-          </Text>
+          {step.done ? (
+            <Icon name="check-mark" size={14} color={c.success} />
+          ) : (
+            <Text
+              style={[styles.markerText, { color: step.current ? c.textInverse : c.textMuted }]}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+            >
+              {index + 1}
+            </Text>
+          )}
         </View>
         <View style={styles.stepText}>
           <Text
@@ -218,7 +222,6 @@ const styles = StyleSheet.create({
   row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   label: { flex: 1, minWidth: 0 },
   strong: { fontWeight: FONT.weight.bold },
-  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
   dim: { opacity: 0.5 },
   step: { paddingVertical: SPACE.sm, gap: SPACE.xs },
   stepHead: { minHeight: 28, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },

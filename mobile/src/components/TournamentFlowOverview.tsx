@@ -22,6 +22,7 @@ import React from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 
 export type FlowOverviewStage = {
@@ -57,26 +58,32 @@ export default function TournamentFlowOverview({ stages, onPressStage, selectedK
     const started = s.exists && s.completed > 0;
     const final = isFinalStage(s);
     const selected = !!selectedKey && selectedKey === s.key;
-    const status = done ? '✓ complete'
+    const status = done ? 'complete'
       : started ? 'in progress'
       : s.exists ? 'ready to play'
       : 'upcoming';
     const body = (
       <>
-        <Text
-          style={[S.cardLabel, final && S.cardLabelFinal]}
-          numberOfLines={1}
-          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-        >
-          {final ? '🏆 ' : ''}{s.label.toUpperCase()}
-        </Text>
+        <View style={S.glyphRow}>
+          {final ? <Icon name="trophy" size={10} color={c.rarityLegendary} /> : null}
+          <Text
+            style={[S.cardLabel, final && S.cardLabelFinal, S.shrink]}
+            numberOfLines={1}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          >
+            {s.label.toUpperCase()}
+          </Text>
+        </View>
         <Text style={[S.cardCount, !s.exists && S.cardCountUpcoming]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
           {s.completed}/{s.total}
         </Text>
-        <Text style={S.cardSub} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-          {status}
-          {s.byes > 0 ? ` · ${s.byes} bye${s.byes === 1 ? '' : 's'}` : ''}
-        </Text>
+        <View style={[S.glyphRow, S.subRow]}>
+          {done ? <Icon name="check-mark" size={10} color={c.success} /> : null}
+          <Text style={[S.cardSub, S.shrink]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+            {status}
+            {s.byes > 0 ? ` · ${s.byes} bye${s.byes === 1 ? '' : 's'}` : ''}
+          </Text>
+        </View>
       </>
     );
     const style = [
@@ -111,7 +118,7 @@ export default function TournamentFlowOverview({ stages, onPressStage, selectedK
       )}
       {playoffs.map((s, i) => (
         <React.Fragment key={s.key}>
-          {(groups.length > 0 || i > 0) && <Text style={S.arrow}>→</Text>}
+          {(groups.length > 0 || i > 0) && <Icon name="arrow-right" size={16} color={c.textMuted} style={S.arrow} />}
           <View style={S.playoffColumn}>{card(s)}</View>
         </React.Fragment>
       ))}
@@ -123,7 +130,10 @@ const makeStyles = (c: ReturnType<typeof useTheme>['colors']) => StyleSheet.crea
   row: { alignItems: 'center', paddingVertical: SPACE.xs, paddingHorizontal: SPACE.xxs },
   groupColumn: { gap: SPACE.xs },
   playoffColumn: { justifyContent: 'center' },
-  arrow: { fontSize: FONT.size.lg, color: c.textMuted, marginHorizontal: SPACE.xs },
+  arrow: { marginHorizontal: SPACE.xs },
+  glyphRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
+  subRow: { marginTop: SPACE.xxs },
+  shrink: { flexShrink: 1, minWidth: 0 },
   card: {
     width: 118,
     minHeight: 44,
@@ -143,5 +153,5 @@ const makeStyles = (c: ReturnType<typeof useTheme>['colors']) => StyleSheet.crea
   cardLabelFinal: { color: c.rarityLegendary },
   cardCount:         { fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.text, marginTop: SPACE.xxs },
   cardCountUpcoming: { color: c.textMuted },
-  cardSub: { fontSize: FONT.size.xxs, color: c.textMuted, marginTop: SPACE.xxs },
+  cardSub: { fontSize: FONT.size.xxs, color: c.textMuted },
 });

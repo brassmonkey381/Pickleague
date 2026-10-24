@@ -20,15 +20,16 @@ export default function GodmodePanel({
 }: Props) {
   const rows: ManageRowItem[] = [];
   if (tournament.status === 'registration') {
-    rows.push({ key: 'approve-all', label: '✅ Force-approve all invitees', onPress: godmodeApproveAllInvitees });
+    rows.push({ key: 'approve-all', iconName: 'check', label: 'Force-approve all invitees', onPress: godmodeApproveAllInvitees });
     if (tournament.match_type === 'doubles' || tournament.format === 'mlp' || tournament.format === 'mlp_random') {
-      rows.push({ key: 'force-teams', label: '🤝 Force-create teams', onPress: godmodeForceCreateTeams });
+      rows.push({ key: 'force-teams', iconName: 'handshake', label: 'Force-create teams', onPress: godmodeForceCreateTeams });
     }
-    rows.push({ key: 'auto-preview', label: '🎯 Auto-generate bracket preview', onPress: godmodeAutoGeneratePreview });
+    rows.push({ key: 'auto-preview', iconName: 'target', label: 'Auto-generate bracket preview', onPress: godmodeAutoGeneratePreview });
     if (generatedMatches && generatedMatches.length > 0) {
       rows.push({
         key: 'lock',
-        label: locking ? 'Locking in…' : `🔒 Lock in bracket (${generatedMatches.length} matches) & notify`,
+        iconName: 'lock',
+        label: locking ? 'Locking in…' : `Lock in bracket (${generatedMatches.length} matches) & notify`,
         onPress: () => doLockIn(),
         disabled: locking,
         attention: true,
@@ -37,12 +38,13 @@ export default function GodmodePanel({
   }
   rows.push({
     key: 'simulate',
-    label: simulating ? 'Filling…' : '🎲 Auto-fill pending matches with random scores',
+    iconName: 'dice',
+    label: simulating ? 'Filling…' : 'Auto-fill pending matches with random scores',
     meta: 'PLUPR fires per update',
     onPress: simulateFillMatches,
     disabled: simulating,
   });
-  rows.push({ key: 'delete', label: '🗑  Delete tournament', onPress: deleteTournament, danger: true });
+  rows.push({ key: 'delete', iconName: 'trash', label: 'Delete tournament', onPress: deleteTournament, danger: true });
   return (
     <View>
       {rows.map((r, i) => <ManageRow key={r.key} row={r} first={i === 0} />)}

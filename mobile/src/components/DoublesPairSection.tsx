@@ -13,7 +13,10 @@ import EmptyState from './EmptyState';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 
 type Props = {
   tournamentId: string;
@@ -316,17 +319,25 @@ export default function DoublesPairSection({
   }
 
   // ── Render ──────────────────────────────────────────────────────────
-  if (loading) return <ActivityIndicator size="large" color={c.primary} style={{ marginVertical: 24 }} />;
+  if (loading) return <ActivityIndicator size="large" color={c.primary} style={{ marginVertical: SPACE.xl }} />;
 
   return (
     <View style={S.root}>
-      {!bare && <Text style={S.title}>🤝 Doubles Partners</Text>}
+      {!bare && (
+        <View style={S.titleRow}>
+          <Icon name="handshake" size={18} color={c.primary} />
+          <Text style={S.title}>Doubles Partners</Text>
+        </View>
+      )}
       <StatusBanner status={status.value} />
       {/* Recruitment pitch only makes sense while pairing is still possible —
           once the bracket is locked (active/completed) just show the teams. */}
       {tournamentStatus === 'registration' && (
         <View style={S.callout}>
-          <Text style={S.calloutTitle}>👯 Every player needs a fixed teammate</Text>
+          <View style={S.glyphRow}>
+            <Icon name="group" size={16} color={c.primary} />
+            <Text style={[S.calloutTitle, S.shrink]}>Every player needs a fixed teammate</Text>
+          </View>
           <Text style={S.calloutBody}>
             This is a doubles tournament with fixed partners — you'll play with the same teammate every round. Pair up by creating a pair (you become captain) or accepting an invite.
           </Text>
@@ -339,15 +350,13 @@ export default function DoublesPairSection({
       {/* Create */}
       {onApproved && !myPair && tournamentStatus === 'registration' && (
         <View style={S.actionRow}>
-          <TouchableOpacity style={S.primaryBtn} onPress={() => setShowCreate(true)}>
-            <Text style={S.primaryBtnText}>+ Create a Pair</Text>
-          </TouchableOpacity>
+          <Button iconName="plus" title="Create a Pair" onPress={() => setShowCreate(true)} />
         </View>
       )}
 
       {/* Pairs list */}
       {pairs.length === 0 && (
-        <EmptyState icon="🤝" title="No pairs yet — be the first to create one!" />
+        <EmptyState iconName="handshake" title="No pairs yet — be the first to create one!" />
       )}
 
       {pairs.map(p => {
@@ -360,15 +369,24 @@ export default function DoublesPairSection({
         return (
           <View key={p.id} style={S.teamCard}>
             <View style={S.teamHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={S.teamName} numberOfLines={1}>
-                  {p.is_random_generated ? '🎲 ' : ''}{p.name}
-                </Text>
-                {captain && <Text style={S.teamCaptain}>👑 {captain.full_name}</Text>}
+              <View style={S.teamTitleCol}>
+                <View style={S.glyphRow}>
+                  {p.is_random_generated ? (
+                    <Icon name="dice" size={14} color={c.textSub} accessibilityLabel="Randomly drawn" />
+                  ) : null}
+                  <Text style={[S.teamName, S.shrink]} numberOfLines={1}>{p.name}</Text>
+                </View>
+                {captain && (
+                  <View style={[S.glyphRow, S.teamCaptainRow]}>
+                    <Icon name="crown" size={12} color={c.rarityLegendary} accessibilityLabel="Captain" />
+                    <Text style={[S.teamCaptain, S.shrink]} numberOfLines={1}>{captain.full_name}</Text>
+                  </View>
+                )}
               </View>
               <View style={[S.statusBadge, p.status === 'locked' ? S.statusLocked : S.statusForming]}>
+                {p.status === 'locked' ? <Icon name="lock" size={12} color={c.primary} /> : null}
                 <Text style={[S.statusText, p.status === 'locked' ? S.statusLockedText : S.statusFormingText]}>
-                  {p.status === 'locked' ? '🔒 Locked' : 'Forming'}
+                  {p.status === 'locked' ? 'Locked' : 'Forming'}
                 </Text>
               </View>
             </View>
@@ -385,8 +403,13 @@ export default function DoublesPairSection({
                       {member ? member.full_name : <Text style={S.slotEmpty}>— empty —</Text>}
                     </Text>
                     {isMyPair && isCaptain && p.status === 'forming' && member && (
-                      <TouchableOpacity onPress={() => clearSlot(p.id, slot)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Text style={S.removeIcon}>✕</Text>
+                      <TouchableOpacity
+                        style={S.removeBox}
+                        onPress={() => clearSlot(p.id, slot)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${member.full_name}`}
+                      >
+                        <Icon name="close" size={16} color={c.danger} />
                       </TouchableOpacity>
                     )}
                   </View>
@@ -398,8 +421,9 @@ export default function DoublesPairSection({
             {isMyPair && isCaptain && p.status === 'forming' && (
               <View style={S.captainPanel}>
                 {!teamFullN && (
-                  <TouchableOpacity style={S.captainBtn} onPress={() => setInvitingPairId(p.id)}>
-                    <Text style={S.captainBtnText}>+ Invite a partner</Text>
+                  <TouchableOpacity style={S.captainBtn} onPress={() => setInvitingPairId(p.id)} accessibilityRole="button">
+                    <Icon name="plus" size={14} color={c.primary} />
+                    <Text style={S.captainBtnText}>Invite a partner</Text>
                   </TouchableOpacity>
                 )}
 
@@ -411,12 +435,19 @@ export default function DoublesPairSection({
                       return (
                         <View key={r.id} style={S.reqRow}>
                           <Text style={S.reqName} numberOfLines={1}>{u?.full_name ?? 'Unknown'}</Text>
-                          <TouchableOpacity style={S.acceptBtn} onPress={() => respondToRequest(r.id, true)}>
-                            <Text style={S.acceptBtnText}>Accept</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={S.declineBtn} onPress={() => respondToRequest(r.id, false)}>
-                            <Text style={S.declineBtnText}>Decline</Text>
-                          </TouchableOpacity>
+                          <Button
+                            size="sm"
+                            title="Accept"
+                            onPress={() => respondToRequest(r.id, true)}
+                            accessibilityLabel={`Accept ${u?.full_name ?? 'this player'}'s request`}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Decline"
+                            onPress={() => respondToRequest(r.id, false)}
+                            accessibilityLabel={`Decline ${u?.full_name ?? 'this player'}'s request`}
+                          />
                         </View>
                       );
                     })}
@@ -439,9 +470,7 @@ export default function DoublesPairSection({
                 )}
 
                 {teamFullN && (
-                  <TouchableOpacity style={S.lockBtn} onPress={() => lockPair(p.id)} disabled={busy}>
-                    <Text style={S.lockBtnText}>🔒 Lock In Pair</Text>
-                  </TouchableOpacity>
+                  <Button iconName="lock" title="Lock In Pair" onPress={() => lockPair(p.id)} disabled={busy} style={S.lockBtn} />
                 )}
               </View>
             )}
@@ -453,17 +482,19 @@ export default function DoublesPairSection({
                 onPress={() => setLeaveConfirm({ pairId: p.id, pairName: p.name, asCaptain: false })}
                 disabled={busy}
               >
-                <Text style={S.leaveBtnText}>🚪 Leave Pair</Text>
+                <Icon name="logout" size={16} color={c.danger} />
+                <Text style={S.leaveBtnText}>Leave Pair</Text>
               </TouchableOpacity>
             )}
             {isMyPair && isCaptain && p.status === 'forming' && tournamentStatus === 'registration' && (
-              <TouchableOpacity
-                style={S.disbandBtn}
+              <Button
+                variant="danger"
+                iconName="trash"
+                title="Disband Pair"
                 onPress={() => setLeaveConfirm({ pairId: p.id, pairName: p.name, asCaptain: true })}
                 disabled={busy}
-              >
-                <Text style={S.disbandBtnText}>🗑  Disband Pair</Text>
-              </TouchableOpacity>
+                style={S.disbandBtn}
+              />
             )}
 
             {/* Player POV — invite to me */}
@@ -471,26 +502,25 @@ export default function DoublesPairSection({
               && myReqHere?.direction === 'invite' && myReqHere?.status === 'pending' && (
               <View style={S.captainPanel}>
                 <Text style={S.captainBtnText}>You've been invited to pair with this captain.</Text>
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-                  <TouchableOpacity style={S.acceptBtn} onPress={() => respondToRequest(myReqHere.id, true)}>
-                    <Text style={S.acceptBtnText}>Accept Invite</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={S.declineBtn} onPress={() => respondToRequest(myReqHere.id, false)}>
-                    <Text style={S.declineBtnText}>Decline</Text>
-                  </TouchableOpacity>
+                <View style={S.inviteBtnRow}>
+                  <Button size="sm" title="Accept Invite" onPress={() => respondToRequest(myReqHere.id, true)} />
+                  <Button size="sm" variant="outline" title="Decline" onPress={() => respondToRequest(myReqHere.id, false)} />
                 </View>
               </View>
             )}
 
             {/* Player POV — request to join */}
             {!myPair && !isMyPair && p.status === 'forming' && onApproved && !teamFullN && !myReqHere && tournamentStatus === 'registration' && (
-              <TouchableOpacity style={S.requestBtn} onPress={() => requestJoin(p.id)} disabled={busy}>
+              <TouchableOpacity style={S.requestBtn} onPress={() => requestJoin(p.id)} disabled={busy} accessibilityRole="button">
                 <Text style={S.requestBtnText}>Request to Join</Text>
               </TouchableOpacity>
             )}
 
             {!isMyPair && myReqHere?.direction === 'request' && (
-              <Text style={S.pendingNote}>⏳ Your join request is pending.</Text>
+              <View style={[S.glyphRow, S.pendingRow]}>
+                <Icon name="hourglass" size={12} color={c.warning} />
+                <Text style={S.pendingNote}>Your join request is pending.</Text>
+              </View>
             )}
           </View>
         );
@@ -499,11 +529,13 @@ export default function DoublesPairSection({
       {/* Admin: random pair generation from unpaired approved players */}
       {isPriv && tournamentStatus === 'registration' && playersWithoutPair.length >= 2 && (
         <View style={S.adminRow}>
-          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomPairs('random')} disabled={busy}>
-            <Text style={S.adminBtnText}>🎲 Random-Pair Remaining ({playersWithoutPair.length})</Text>
+          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomPairs('random')} disabled={busy} accessibilityRole="button">
+            <Icon name="dice" size={14} color={c.text} />
+            <Text style={S.adminBtnText}>Random-Pair Remaining ({playersWithoutPair.length})</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomPairs('snake')} disabled={busy}>
-            <Text style={S.adminBtnText}>🐍 Snake-Pair (balanced)</Text>
+          <TouchableOpacity style={[S.adminBtn, busy && S.btnDim]} onPress={() => generateRandomPairs('snake')} disabled={busy} accessibilityRole="button">
+            <Icon name="scale" size={14} color={c.text} />
+            <Text style={S.adminBtnText}>Snake-Pair (balanced)</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -541,7 +573,7 @@ export default function DoublesPairSection({
                 <Text style={S.modalBtnSecondaryText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[S.modalBtn, S.modalBtnPrimary, (busy || !newPairName.trim()) && S.modalBtnDim]} onPress={createPair} disabled={busy || !newPairName.trim()}>
-                {busy ? <ActivityIndicator color="#fff" /> : <Text style={S.modalBtnPrimaryText}>Create</Text>}
+                {busy ? <ActivityIndicator color={c.textInverse} /> : <Text style={S.modalBtnPrimaryText}>Create</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -596,85 +628,86 @@ export default function DoublesPairSection({
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
+  const W = FONT.weight;
   return StyleSheet.create({
-    root:     { marginTop: 8 },
-    title:    { fontSize: 18, fontWeight: '900', color: c.text, marginBottom: 8 },
-    subtitle: { fontSize: 13, color: c.textMuted, marginBottom: 14, lineHeight: 18 },
+    root:     { marginTop: SPACE.sm },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.sm },
+    title:    { ...t.h3, fontWeight: W.black, flexShrink: 1 },
+    // A glyph beside its words (decorative unless the Icon has a label).
+    glyphRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    shrink:   { flexShrink: 1, minWidth: 0 },
 
-    callout:        { backgroundColor: c.primaryLight, borderLeftWidth: 4, borderLeftColor: c.primary, borderRadius: 10, padding: 12, marginBottom: 14, gap: 6 },
-    calloutTitle:   { fontSize: 14, fontWeight: '800', color: c.text },
-    calloutBody:    { fontSize: 13, color: c.textSub, lineHeight: 19 },
-    calloutEmphasis:{ fontWeight: '800', color: c.text },
+    callout:        { backgroundColor: c.primaryLight, borderLeftWidth: 4, borderLeftColor: c.primary, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.md, gap: SPACE.xs },
+    calloutTitle:   { fontSize: FONT.size.md, fontWeight: W.heavy, color: c.text },
+    calloutBody:    t.sub,
+    calloutEmphasis:{ fontWeight: W.heavy, color: c.text },
 
-    actionRow:    { marginBottom: 14 },
-    primaryBtn:   { backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
+    actionRow:    { marginBottom: SPACE.md },
 
-    adminRow:     { flexDirection: 'row', gap: 8, marginVertical: 10, flexWrap: 'wrap' },
-    adminBtn:     { flex: 1, minWidth: 160, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
-    adminBtnText: { color: c.text, fontWeight: '700', fontSize: 13 },
-    btnDim:       { opacity: 0.4 },
+    adminRow:     { flexDirection: 'row', gap: SPACE.sm, marginVertical: SPACE.sm, flexWrap: 'wrap' },
+    adminBtn:     { flex: 1, minWidth: 160, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.sm, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md },
+    adminBtnText: { color: c.text, fontWeight: W.bold, fontSize: FONT.size.base },
+    btnDim:       { opacity: 0.5 },
 
-
-    teamCard:     { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: c.border },
-    teamHeader:   { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-    teamName:     { fontSize: 16, fontWeight: '800', color: c.text },
-    teamCaptain:  { fontSize: 12, color: c.textSub, marginTop: 2 },
-    statusBadge:  { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+    teamCard:     { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    teamHeader:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.sm },
+    teamTitleCol: { flex: 1, minWidth: 0 },
+    teamName:     { fontSize: FONT.size.lg, fontWeight: W.heavy, color: c.text },
+    teamCaptainRow: { marginTop: SPACE.xxs },
+    teamCaptain:  { fontSize: FONT.size.sm, color: c.textSub },
+    statusBadge:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.pill },
     statusLocked: { backgroundColor: c.primaryLight },
-    statusForming:{ backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    statusText:   { fontSize: 11, fontWeight: '800' },
+    statusForming:{ backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    statusText:   { fontSize: FONT.size.xs, fontWeight: W.heavy },
     statusLockedText:  { color: c.primary },
     statusFormingText: { color: c.textSub },
 
-    roster:    { gap: 6, marginVertical: 4 },
-    slotRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    slotLabel: { fontSize: 12, color: c.textMuted, fontWeight: '700', width: 80 },
-    slotName:  { flex: 1, fontSize: 14, color: c.text, fontWeight: '600' },
-    slotEmpty: { color: c.textMuted, fontStyle: 'italic', fontWeight: '500' },
-    removeIcon:{ color: c.danger, fontSize: 16, paddingHorizontal: 6, fontWeight: '700' },
+    roster:    { gap: SPACE.xs, marginVertical: SPACE.xs },
+    slotRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 24 },
+    slotLabel: { fontSize: FONT.size.sm, color: c.textMuted, fontWeight: W.bold, width: 80 },
+    slotName:  { flex: 1, fontSize: FONT.size.md, color: c.text, fontWeight: W.semibold },
+    slotEmpty: { color: c.textMuted, fontStyle: 'italic', fontWeight: W.medium },
+    // 44 tap box that doesn't grow the 24px row (web ignores hitSlop).
+    removeBox: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginVertical: -SPACE.md, marginRight: -SPACE.md },
 
-    captainPanel:    { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
-    captainBtn:      { backgroundColor: c.surfaceAlt, borderRadius: 10, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: c.border },
-    captainBtnText:  { fontSize: 13, color: c.primary, fontWeight: '700' },
+    captainPanel:    { marginTop: SPACE.md, paddingTop: SPACE.sm, borderTopWidth: HAIRLINE, borderTopColor: c.border },
+    captainBtn:      { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border },
+    captainBtnText:  { fontSize: FONT.size.base, color: c.primary, fontWeight: W.bold },
 
-    reqList:        { marginTop: 10 },
-    reqListTitle:   { fontSize: 11, color: c.textMuted, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-    reqRow:         { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
-    reqName:        { flex: 1, fontSize: 13, color: c.text, fontWeight: '600' },
-    reqWaiting:     { fontSize: 11, color: c.textMuted, fontStyle: 'italic' },
-    acceptBtn:      { backgroundColor: c.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-    acceptBtnText:  { color: '#fff', fontSize: 12, fontWeight: '700' },
-    declineBtn:     { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-    declineBtnText: { color: c.textSub, fontSize: 12, fontWeight: '700' },
+    reqList:        { marginTop: SPACE.sm },
+    reqListTitle:   { ...t.fieldLabel, marginBottom: SPACE.xs },
+    reqRow:         { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 32 },
+    reqName:        { flex: 1, fontSize: FONT.size.base, color: c.text, fontWeight: W.semibold },
+    reqWaiting:     { ...t.caption, fontStyle: 'italic' },
+    inviteBtnRow:   { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.xs },
 
-    requestBtn:     { marginTop: 8, backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: c.primary, paddingVertical: 9, borderRadius: 10, alignItems: 'center' },
-    requestBtnText: { color: c.primary, fontWeight: '800', fontSize: 13 },
-    pendingNote:    { marginTop: 8, fontSize: 12, color: c.textMuted, fontStyle: 'italic', textAlign: 'center' },
+    requestBtn:     { marginTop: SPACE.sm, minHeight: 44, justifyContent: 'center', backgroundColor: c.primaryLight, borderWidth: 1.5, borderColor: c.primary, borderRadius: RADIUS.md, alignItems: 'center' },
+    requestBtnText: { color: c.primary, fontWeight: W.heavy, fontSize: FONT.size.base },
+    pendingRow:     { justifyContent: 'center', marginTop: SPACE.sm },
+    pendingNote:    { fontSize: FONT.size.sm, color: c.textMuted, fontStyle: 'italic', textAlign: 'center' },
 
-    lockBtn:        { marginTop: 10, backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    lockBtnText:    { color: '#fff', fontWeight: '800', fontSize: 14 },
-    leaveBtn:       { marginTop: 12, paddingVertical: 10, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: c.danger, backgroundColor: c.surface },
-    leaveBtnText:   { color: c.danger, fontWeight: '700', fontSize: 13 },
-    disbandBtn:     { marginTop: 12, paddingVertical: 10, alignItems: 'center', borderRadius: 10, backgroundColor: c.danger },
-    disbandBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+    lockBtn:        { marginTop: SPACE.sm },
+    leaveBtn:       { marginTop: SPACE.md, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.danger, backgroundColor: c.surface },
+    leaveBtnText:   { color: c.danger, fontWeight: W.bold, fontSize: FONT.size.base },
+    disbandBtn:     { marginTop: SPACE.md },
 
-    unteamedBox:    { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 12, marginTop: 8, borderWidth: 1, borderColor: c.border },
-    unteamedTitle:  { fontSize: 12, fontWeight: '700', color: c.textSub, marginBottom: 4 },
-    unteamedNames:  { fontSize: 12, color: c.textMuted, lineHeight: 17 },
+    unteamedBox:    { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    unteamedTitle:  { fontSize: FONT.size.sm, fontWeight: W.bold, color: c.textSub, marginBottom: SPACE.xs },
+    unteamedNames:  { fontSize: FONT.size.sm, color: c.textMuted, lineHeight: 17 },
 
-    modalBackdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-    modalCard:        { width: '100%', maxWidth: 440, backgroundColor: c.surface, borderRadius: 14, padding: 22 },
-    modalTitle:       { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 10 },
-    modalBody:        { fontSize: 14, color: c.textSub, lineHeight: 20, marginBottom: 12 },
-    modalInput:       { borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: 10 },
-    modalError:       { color: c.danger, fontSize: 13, fontWeight: '600', marginBottom: 8 },
-    modalBtnRow:      { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 8 },
-    modalBtn:         { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, minWidth: 96, alignItems: 'center', justifyContent: 'center' },
+    modalBackdrop:    { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.xl },
+    modalCard:        { width: '100%', maxWidth: 440, backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.xl },
+    modalTitle:       { ...t.h3, fontWeight: W.heavy, marginBottom: SPACE.sm },
+    modalBody:        { ...t.bodySub, marginBottom: SPACE.md },
+    modalInput:       { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt, marginBottom: SPACE.sm },
+    modalError:       { color: c.danger, fontSize: FONT.size.base, fontWeight: W.semibold, marginBottom: SPACE.sm },
+    modalBtnRow:      { flexDirection: 'row', justifyContent: 'flex-end', gap: SPACE.sm, marginTop: SPACE.sm },
+    modalBtn:         { minHeight: 44, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.lg, borderRadius: RADIUS.md, minWidth: 96, alignItems: 'center', justifyContent: 'center' },
     modalBtnSecondary:    { backgroundColor: c.surfaceAlt },
-    modalBtnSecondaryText:{ color: c.textSub, fontWeight: '700' },
+    modalBtnSecondaryText:{ color: c.textSub, fontWeight: W.bold },
     modalBtnPrimary:      { backgroundColor: c.primary },
-    modalBtnPrimaryText:  { color: '#fff', fontWeight: '800' },
+    modalBtnPrimaryText:  { color: c.textInverse, fontWeight: W.heavy },
     modalBtnDim:          { opacity: 0.5 },
   });
 }
