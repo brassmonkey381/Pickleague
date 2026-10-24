@@ -45,6 +45,9 @@ export type Prefs = {
   /** "Check in nearby?" (category notifyCheckinPrompts,
    *  migration_court_checkin_prompt.sql). */
   notifyCheckinPrompts:     boolean;
+  /** "Sam is on the way to Lakeside" (category notifyFriendsOnTheWay,
+   *  migration_on_my_way.sql). The server reads it too, before it queues one. */
+  notifyFriendsOnTheWay:    boolean;
   defaultMatchType:         MatchType;
   defaultScoreLimit:        ScoreLimit;
 };
@@ -61,6 +64,7 @@ export const DEFAULT_PREFS: Prefs = {
   notifyFriendRequests:     true,
   notifyAutoCheckins:       true,
   notifyCheckinPrompts:     true,
+  notifyFriendsOnTheWay:    true,
   defaultMatchType:         'doubles',
   defaultScoreLimit:        11,
 };

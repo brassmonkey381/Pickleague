@@ -29,7 +29,7 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/native';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
-import { usePollWhileActive, useTicker } from '@just-messin-around/expo-foundation/hooks';
+import { usePollWhileActive, useSignal, useTicker } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, TITLE_ICON_COLUMN, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -81,6 +81,8 @@ import {
 import RoutineSuggestionCard from '../routines/RoutineSuggestionCard';
 import FeedAgendaLine from './FeedAgendaLine';
 import FeedCourtCard, { type FeedCourtCardActions } from './FeedCourtCard';
+import OnMyWaySheet, { type OnMyWayTarget } from '../OnMyWaySheet';
+import { onMyWaySent, sentOnMyWayRecently } from '../../data/onMyWay';
 
 const POLL_MS = 60_000;
 const CLOCK_MS = 60_000;
@@ -263,6 +265,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const [timePick, setTimePick] = React.useState<{ planId: string; at: string; venueName: string; key: string } | null>(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [confirmed, setConfirmed] = React.useState<ReadonlySet<string>>(() => new Set());
+  // "On my way": the court whose sheet is open. omwTick re-labels the pill after a send.
+  const [omwTarget, setOmwTarget] = React.useState<OnMyWayTarget | null>(null);
+  const [, setOmwTick] = React.useState(0);
+  useSignal(onMyWaySent, () => setOmwTick((n) => n + 1));
   const afterSheet = (fn: () => void) => setTimeout(fn, SHEET_FADE_MS);
 
   const openCourt = (venueId: string) => {
@@ -283,6 +289,18 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     if (checkinHostOwnsNotes()) checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
     else openCourt(card.venueId);
   };
+
+  // On my way: friends the card shows here now start ticked (with close friends).
+  const onMyWay = (card: CourtCard, from: OnMyWayTarget['from'] = 'feed') => {
+    if (busyKey) return;
+    tap('on_my_way');
+    const atCourt = new Map<string, string>();
+    for (const l of card.lines) {
+      if (l.kind === 'here' && friendIds?.has(l.person.userId)) atCourt.set(l.person.userId, l.viaSession ? 'Playing now' : 'Here now');
+    }
+    setOmwTarget({ venueId: card.venueId, venueName: card.venueName, atCourt, from });
+  };
+  const canOnMyWay = FRIENDS_AT_COURTS_ENABLED && (myFriendsQ.data?.length ?? 0) > 0;
 
   async function runRoutine(key: string, fn: () => Promise<unknown>, done: string, fail: string) {
     if (busyKey) return;
@@ -341,6 +359,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       : [];
     if (day !== 'today') return routine;
     return [
+      ...(canOnMyWay
+        ? [{ label: 'On my way: tell friends', iconName: 'arrow-right' as const, onPress: () => afterSheet(() => onMyWay(card, 'feed_sheet')) }]
+        : []),
       { label: 'Check in here', iconName: 'pin' as const, onPress: () => checkInHere(card) },
       { label: 'Play here', iconName: 'play' as const, onPress: () => playHere(card) },
       ...routine,
@@ -356,6 +377,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     courtOptions: (card, day) => { if (!busyKey) setCourtSheet({ card, day }); },
     checkIn: (card) => checkInHere(card),
     play: (card) => playHere(card),
+    onMyWay: (card) => onMyWay(card),
+    onMyWayState: (card) => (!canOnMyWay ? 'hidden' : sentOnMyWayRecently(card.venueId, now) ? 'sent' : 'ready'),
     renderAgenda: (line, _card, day) => agendaRow(line, 0, day),
     openLine: (line, card, day) => { if (!busyKey) setLineSheet({ line, card, day }); },
     openPerson: (id, name) => { tap('person'); openPerson(id, name); },
@@ -610,6 +633,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         searchPlaceholder="e.g. 5:30"
         emptyText="No later times left that day."
       />
+      <OnMyWaySheet target={omwTarget} onClose={() => setOmwTarget(null)} />
       <LeaguePickerModal
         visible={pickerOpen}
         leagues={privilegedLeagues}

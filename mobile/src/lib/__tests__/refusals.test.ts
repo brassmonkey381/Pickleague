@@ -70,6 +70,9 @@ const SERVER_CODES: RefusalCode[] = [
   'friend.not_friends',
   // migration_profiles_column_guard.sql
   'profile.server_owned',
+  // migration_on_my_way.sql
+  'omw.bad_eta',
+  'omw.too_many',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;
@@ -89,6 +92,7 @@ describe('every refusal code has its own plain words', () => {
       { action: 'favorite' as const },
       { action: 'hide' as const },
       { action: 'view' as const },
+      { action: 'on_my_way' as const, venueName: 'Lakeside' },
     ];
     for (const code of REFUSAL_CODES) {
       for (const ctx of contexts) {
@@ -102,6 +106,16 @@ describe('every refusal code has its own plain words', () => {
       }
       expect(refusalTitle(code).length, code).toBeGreaterThan(3);
     }
+  });
+
+  it('On my way: the server codes and a court that is gone', () => {
+    expect(refusalMessage({ message: 'x', hint: 'pl:omw.bad_eta' })).toBe('Pick how far away you are: 1 minute to 3 hours.');
+    expect(refusalMessage({ message: 'x', hint: 'pl:omw.too_many' })).toBe(
+      'You can tell up to 50 friends at once. Pick fewer friends, then send.',
+    );
+    expect(refusalCopy('court.gone', { action: 'on_my_way', venueName: 'Lakeside' })).toBe(
+      "Lakeside isn't in Pickleague any more, so your friends can't be told you're on the way. Find your court again.",
+    );
   });
 
   it('words what the app knows: the court, the person, the league', () => {

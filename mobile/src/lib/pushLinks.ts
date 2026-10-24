@@ -24,12 +24,15 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' && v.leng
  *  Discover holds the leagues list and the friends (its Leagues and Players
  *  tabs), so an invite code and the friend pushes open it there directly.
  *  `checkinIsland` (PLAY_NAV_ENABLED): 'home/' still opens Home, and asks the
- *  root CheckinHost to show my check-in on the island (or "At X?"). */
+ *  root CheckinHost to show my check-in on the island (or "At X?").
+ *  `courtsEnabled` (COURT_DISCOVERY_ENABLED): 'court/<venue id>' opens the
+ *  court's page; off, Home (where the court cards are). */
 export function pushRoutes(opts: {
   wagersEnabled: boolean;
   friendsEnabled?: boolean;
   discoverEnabled?: boolean;
   checkinIsland?: boolean;
+  courtsEnabled?: boolean;
 }): Routes {
   const discover = !!opts.discoverEnabled;
   const routes: Routes = {
@@ -66,6 +69,11 @@ export function pushRoutes(opts: {
     // Court check-in reminder and arrival notice: Home's court card, and with
     // the bottom bar the island too (Home passes `checkin` to CheckinHost).
     'home/': () => (opts.checkinIsland ? ['Home', { checkin: true }] : ['Home']),
+    // "Sam is on the way to Lakeside" (migration_on_my_way.sql): that court's
+    // page. A venue id may hold a slash (osm:way/123), so the rest of the
+    // link is part of it.
+    'court/': (id, rest) =>
+      has(id) ? (opts.courtsEnabled ? ['CourtDetail', { venueId: rest ? `${id}/${rest}` : id }] : ['Home']) : null,
     'notifications/': () => ['Notifications'],
     // Court arrival with a saved QR code: that code, full screen.
     'wallet/': (id) => (has(id) ? ['QrPass', { passId: id }] : ['QrWallet']),

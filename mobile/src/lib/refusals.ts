@@ -75,6 +75,9 @@ export const REFUSAL_CODES = [
   'plan.bad_end',
   // migration_profiles_column_guard.sql: a profile column only the server writes.
   'profile.server_owned',
+  // migration_on_my_way.sql: send_on_my_way.
+  'omw.bad_eta',
+  'omw.too_many',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // The app's own.
@@ -91,7 +94,8 @@ const CODE_SET: ReadonlySet<string> = new Set(REFUSAL_CODES);
 /** Which action was refused, where the same code reads differently. */
 /** 'view': opening a court's page (Courts, a shared court link). 'plan': a
  *  check-in's planned end or play windows (set_checkin_plan). */
-export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view' | 'plan';
+/** 'on_my_way': telling friends I'm heading to a court (send_on_my_way). */
+export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view' | 'plan' | 'on_my_way';
 
 export type RefusalContext = {
   action?: RefusalAction;
@@ -224,6 +228,9 @@ export function refusalCopy(
       if (ctx.action === 'view') {
         return `${court ?? 'That court'} isn't in Pickleague any more. It may have been merged with another court; search Courts to find it.`;
       }
+      if (ctx.action === 'on_my_way') {
+        return `${court ?? 'That court'} isn't in Pickleague any more, so your friends can't be told you're on the way. Find your court again.`;
+      }
       return ctx.action === 'favorite'
         ? "That court isn't in Pickleague any more, so it can't be starred."
         : `${court ?? 'That court'} isn't in Pickleague any more, so you can't check in there. Find your court again.`;
@@ -350,6 +357,10 @@ export function refusalCopy(
     case 'profile.server_owned':
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
+    case 'omw.bad_eta':
+      return 'Pick how far away you are: 1 minute to 3 hours.';
+    case 'omw.too_many':
+      return 'You can tell up to 50 friends at once. Pick fewer friends, then send.';
     case 'consent.declined':
       // The court card's Check in and the bar's ▶ Play both land here.
       return 'Not checked in: first choose who sees you at the courts, then try again.';

@@ -65,7 +65,8 @@ type PushTypeKey =
   | 'notifyDrillRequests'
   | 'notifyAutoCheckins'
   | 'notifyCheckinPrompts'
-  | 'notifyFriendRequests';
+  | 'notifyFriendRequests'
+  | 'notifyFriendsOnTheWay';
 
 const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyMatchResults', label: 'Match results', desc: 'When a match you played is recorded' },
@@ -89,7 +90,10 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   { key: 'notifyAutoCheckins', label: 'Auto check-ins', desc: 'At your starred courts, and when a check-in ends' },
   { key: 'notifyCheckinPrompts', label: 'Check-in prompts', desc: 'Near courts, when you arrive' },
   ...(FRIENDS_AT_COURTS_ENABLED
-    ? [{ key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' }]
+    ? [
+        { key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' },
+        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court" },
+      ]
     : []),
 ];
 

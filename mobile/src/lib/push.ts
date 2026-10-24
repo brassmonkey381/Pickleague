@@ -32,7 +32,7 @@ import {
 } from './notificationActions';
 import { linkForAction, linkOf, pushGo, pushRoutes } from './pushLinks';
 import { requestCheckinIsland } from './checkinHost';
-import { DISCOVER_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAY_NAV_ENABLED, WAGERS_ENABLED } from './features';
+import { COURT_DISCOVERY_ENABLED, DISCOVER_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAY_NAV_ENABLED, WAGERS_ENABLED } from './features';
 import { redeemLeagueInvite } from '../data/leagueInvites';
 import { refreshMyOpenCheckin } from '../data/venueCheckins';
 import { loadUserPreferencesResult } from './userPreferences';
@@ -189,6 +189,7 @@ const router = createDeepLinkRouter(
     friendsEnabled: FRIENDS_AT_COURTS_ENABLED,
     discoverEnabled: DISCOVER_ENABLED,
     checkinIsland: PLAY_NAV_ENABLED,
+    courtsEnabled: COURT_DISCOVERY_ENABLED,
   }),
   go,
 );

@@ -1,7 +1,8 @@
 // One court in one day of the Pickleague Feed: the feed's top layer (Doggle's
 // FeedParkCard, with the player's avatar and PLUPR where Doggle shows the
 // dog). The header is the court (a star glyph for a starred court, a pin otherwise; tap
-// opens its page) with its crowd line and, today, one-tap [Check in] and
+// opens its page) with its crowd line and, today, [On my way] (tell friends
+// I'm about 15 min out: components/OnMyWaySheet), one-tap [Check in] and
 // [(play) Play] at this court; tomorrow "Plan v". Its lines run in time order:
 // friends who came and went today (faded), friends here now (with their play
 // mode), then what is coming there (league events, booked matches,
@@ -32,6 +33,11 @@ export type FeedCourtCardActions = {
   checkIn: (card: Card) => void;
   /** Today's Play pill (and the empty card's "Start playing"): the start sheet at this court. */
   play: (card: Card) => void;
+  /** Today's [On my way]: the sheet that tells friends I'm heading there. */
+  onMyWay: (card: Card) => void;
+  /** 'hidden' (no friends, or friends at the courts off), 'ready', or 'sent'
+   *  (this device told friends about this court in the last 30 minutes). */
+  onMyWayState: (card: Card) => 'hidden' | 'ready' | 'sent';
   /** A league-side line (event, match, tournament, drill, vote) on this card. */
   renderAgenda: (line: Extract<FeedCourtLine, { kind: 'agenda' }>, card: Card, day: DayBandKey) => React.ReactNode;
   /** A line's time chip: its action sheet. */
@@ -167,6 +173,8 @@ export default function FeedCourtCard({
     );
   }
 
+  const omw = day === 'today' ? actions.onMyWayState(card) : 'hidden';
+
   // Today: check in / play right here. Tomorrow: plan (a routine).
   const optionsLabel = day === 'tomorrow' ? 'Plan' : null;
 
@@ -202,22 +210,38 @@ export default function FeedCourtCard({
           keeps the whole first line, a long court name stays readable). */}
       {day === 'today' ? (
         <View style={styles.subHeader}>
-          <Text style={[t.meta, styles.subText, { color: c.textSub }]} numberOfLines={1}>
+          {/* With three pills the crowd line keeps at least ~120 px; on a
+              narrow phone the pills wrap under it as one group. */}
+          <Text style={[t.meta, omw === 'hidden' ? styles.subText : styles.subTextWrap, { color: c.textSub }]} numberOfLines={1}>
             {crowd ?? ''}
           </Text>
-          <FeedActionPill
-            label="Check in"
-            iconName="pin"
-            onPress={() => actions.checkIn(card)}
-            accessibilityLabel={`Check in at ${card.venueName}`}
-          />
-          <FeedActionPill
-            label="Play"
-            iconName="play"
-            filled
-            onPress={() => actions.play(card)}
-            accessibilityLabel={`Start playing at ${card.venueName}`}
-          />
+          <View style={styles.pills}>
+            {omw !== 'hidden' ? (
+              <FeedActionPill
+                label={omw === 'sent' ? 'Told friends' : 'On my way'}
+                iconName={omw === 'sent' ? 'check-mark' : 'arrow-right'}
+                onPress={() => actions.onMyWay(card)}
+                accessibilityLabel={
+                  omw === 'sent'
+                    ? `You told friends you're on the way to ${card.venueName}. Open On my way`
+                    : `On my way to ${card.venueName}: tell friends`
+                }
+              />
+            ) : null}
+            <FeedActionPill
+              label="Check in"
+              iconName="pin"
+              onPress={() => actions.checkIn(card)}
+              accessibilityLabel={`Check in at ${card.venueName}`}
+            />
+            <FeedActionPill
+              label="Play"
+              iconName="play"
+              filled
+              onPress={() => actions.play(card)}
+              accessibilityLabel={`Start playing at ${card.venueName}`}
+            />
+          </View>
         </View>
       ) : crowd ? (
         <Text style={[t.meta, styles.crowd, { color: c.textSub }]} numberOfLines={1}>
@@ -276,8 +300,10 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   headerAction: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
-  subHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xs },
+  subHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xs },
   subText: { flex: 1, minWidth: 0 },
+  subTextWrap: { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 },
+  pills: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   agendaRow: { marginHorizontal: -SPACE.xs },
   crowd: { marginTop: SPACE.xxs },
   shrink: { flexShrink: 1 },

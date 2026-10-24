@@ -7,7 +7,7 @@
 //   Lakeside Park                                                    ☆
 //   1 Lakeside Dr, Oakland
 //   1.2 mi · 6 courts
-//   [Check in] [Directions] [Share]
+//   [Check in] [On my way] [Directions] [Share]
 //   6 playing now · mostly 3.5–4.0
 //   [map: the court, its mapped outline drawn on it]
 //   WHO'S HERE        (PlayersHereList)
@@ -20,6 +20,9 @@
 // otherwise Directions is the way there. It is the same flow as Home's card
 // (lib/useCourtCheckIn). An alias id opens its facility, and the URL moves to
 // the facility's id. A court that is gone says so (refusals 'view').
+// On my way (not checked in here, with friends to tell) tells friends I'm
+// heading there, about 15 min out (components/OnMyWaySheet; close friends
+// start ticked).
 //
 // The map (Phase 2) is Doggle's place map: the foundation PlaceMap, interactive
 // on every platform (lib/maps), with the court's outline (venues.boundary) as
@@ -73,6 +76,8 @@ import { useCourtFavoriteIds } from '../data/courtFavorites';
 import CourtCheckInNotes from '../components/court/CourtCheckInNotes';
 import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
+import OnMyWaySheet, { type OnMyWayTarget } from '../components/OnMyWaySheet';
+import { useMyFriends } from '../lib/useFriends';
 import EntityRow from '../components/EntityRow';
 import type { RootStackParamList } from '../types';
 
@@ -158,6 +163,15 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
   const primary = courtPrimaryAction(court, fix);
   const distance = fix ? courtDistanceLabel(metersBetween(fix, court)) : null;
 
+  // On my way: only with friends to tell, and not once checked in here.
+  const friendsQ = useMyFriends(FRIENDS_AT_COURTS_ENABLED);
+  const canOnMyWay = FRIENDS_AT_COURTS_ENABLED && !here && (friendsQ.data?.length ?? 0) > 0;
+  const [omwTarget, setOmwTarget] = useState<OnMyWayTarget | null>(null);
+  const onMyWay = () => {
+    track('courts.on_my_way', { primary });
+    setOmwTarget({ venueId: court.id, venueName: court.name, from: 'court' });
+  };
+
   const checkIn = useCallback(() => {
     track('courts.checkin_tap', { primary });
     void flow.checkIn({ id: court.id, name: court.name });
@@ -233,6 +247,18 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
                     },
                   ]
                 : []),
+            ...(canOnMyWay
+              ? [
+                  {
+                    key: 'omw',
+                    label: 'On my way',
+                    iconName: 'arrow-right' as const,
+                    variant: 'outline' as const,
+                    disabled: !!flow.busy,
+                    onPress: onMyWay,
+                  },
+                ]
+              : []),
           ]}
           actionsSlot={
             <ShareLinkButton
@@ -309,6 +335,7 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           onPress={() => navigation.navigate('AdminBoundaryEditor', { venueId: court.id })}
         />
       ) : null}
+      <OnMyWaySheet target={omwTarget} onClose={() => setOmwTarget(null)} />
     </ScrollView>
   );
 }
