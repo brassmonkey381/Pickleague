@@ -330,7 +330,9 @@ touches playoff bracket generation or advancement.
     completes a season the day after its end date in the league creator's zone
     (Kiritimati vs Pago Pago), leaves one ending today, one not ended, one with
     a due period unlocked (completed once it locks), an upcoming and a
-    completed one; one season failing is rolled back alone and retried; final
+    completed one; a creator whose stored zone no longer parses (the default
+    zone is used, the run goes on); one season failing is rolled back alone
+    and retried; final
     standings, the league rating reset, the Season Crown / Silver / Bronze and
     Period Sweeper badges, +150 pickles and the badge notification + push; a
     second run does nothing; the admin's button still works and the job never

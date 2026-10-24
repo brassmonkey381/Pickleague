@@ -34,10 +34,12 @@
 --      date has arrived is locked, and at least one is (complete_season
 --      refuses a season with no snapshots). A season with a due period still
 --      unlocked waits for the auto-lock (:05) and is completed by the next run.
---      Each season runs in its own subtransaction: one that fails is rolled
---      back, logged with RAISE WARNING and retried next hour; the others still
---      complete. (auto_lock_due_periods has no per-season guard, so one bad
---      season stops that whole run; this one does not copy that.)
+--      Each season runs in its own subtransaction, its due checks included:
+--      one that fails is rolled back, logged with RAISE WARNING and retried
+--      next hour; the others still complete. A creator's stored zone that no
+--      longer parses (a retired tzdata name) falls back to the default zone
+--      instead of failing. (auto_lock_due_periods has no per-season guard, so
+--      one bad season stops that whole run; this one does not copy that.)
 --   4. Its own cron job, pickleague-auto-complete-seasons, hourly at :08.
 --      Separate from the auto-lock job, as every scheduled job here is (one
 --      job per function, unscheduled then scheduled): a failing lock run then
@@ -259,27 +261,36 @@ begin
        and not s.elo_reset_applied
      order by s.end_date, s.id
   ) loop
-    -- Today in the league's zone (no creator / no stored zone: the default).
-    v_today := (now() at time zone v_season.tz)::date;
-    -- Not over yet: the season runs to the end of its end_date.
-    continue when v_season.end_date >= v_today;
-    -- Nothing locked at all: complete_season would refuse it.
-    continue when not exists (
-      select 1 from public.season_snapshots where season_id = v_season.id
-    );
-    -- A period whose lock date has arrived is still unlocked: the auto-lock
-    -- (:05) takes it first; the next run completes the season.
-    continue when exists (
-      select 1
-        from generate_series(1, coalesce(v_season.total_periods, 0)) as g(p)
-       where v_season.start_date + g.p * v_season.lock_frequency_weeks * 7 <= v_today
-         and not exists (
-           select 1 from public.season_snapshots ss
-            where ss.season_id = v_season.id and ss.period_number = g.p
-         )
-    );
-
+    -- Everything for one season, the due checks too, runs in this block, so
+    -- whatever fails for one season (rolled back, logged) never stops the run.
     begin
+      -- Today in the league's zone (no creator / no stored zone: the default).
+      -- A stored zone is validated when written, but a later tzdata update
+      -- could retire its name: then the default, as _pickleague_local_label
+      -- does, so the season still completes.
+      begin
+        v_today := (now() at time zone v_season.tz)::date;
+      exception when others then
+        v_today := (now() at time zone public._pickleague_default_tz())::date;
+      end;
+      -- Not over yet: the season runs to the end of its end_date.
+      continue when v_season.end_date >= v_today;
+      -- Nothing locked at all: complete_season would refuse it.
+      continue when not exists (
+        select 1 from public.season_snapshots where season_id = v_season.id
+      );
+      -- A period whose lock date has arrived is still unlocked: the auto-lock
+      -- (:05) takes it first; the next run completes the season.
+      continue when exists (
+        select 1
+          from generate_series(1, coalesce(v_season.total_periods, 0)) as g(p)
+         where v_season.start_date + g.p * v_season.lock_frequency_weeks * 7 <= v_today
+           and not exists (
+             select 1 from public.season_snapshots ss
+              where ss.season_id = v_season.id and ss.period_number = g.p
+           )
+      );
+
       -- Re-checked under a row lock: an admin completing it right now holds
       -- the row (skip it), or has just completed it (no longer active).
       perform 1 from public.league_seasons

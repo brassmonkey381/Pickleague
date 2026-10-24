@@ -14,7 +14,9 @@
 -- now() is fixed for the whole transaction, so "today" is computed once below.
 -- Personas (temporary accounts, example.invalid emails): AD (admin of every
 -- test league), M1-M4 (members), NM (not a member), KZ (a creator in
--- Pacific/Kiritimati, UTC+14), PZ (a creator in Pacific/Pago_Pago, UTC-11).
+-- Pacific/Kiritimati, UTC+14), PZ (a creator in Pacific/Pago_Pago, UTC-11),
+-- BZ (a creator whose stored zone no longer parses: written straight to the
+-- table, as if tzdata had retired a once-valid name).
 -- Seasons (one league each, 5 members, weekly locks, baseline 4.00; "today"
 -- is the default zone's, America/Los_Angeles, unless said):
 --   A  ended yesterday, all 3 periods locked        -> the job completes it
@@ -25,6 +27,8 @@
 --      insert fails (a test trigger)                -> rolled back alone, the others still complete
 --   K  creator in Kiritimati, ends today in Pago Pago (already past in Kiritimati) -> completes
 --   P  creator in Pago Pago, same dates             -> untouched (ends today there)
+--   Z  creator's zone unparseable, ended 2 days ago, all locked
+--                                                   -> the default zone is used; completes, the run goes on
 --   N  upcoming, nothing locked                     -> complete_season's refusal
 --   X  already completed                            -> untouched
 -- ============================================================
@@ -41,7 +45,8 @@ insert into _p values
   ('AD', 'a9a00000-0000-4000-8000-000000000001'), ('M1', 'a9a00000-0000-4000-8000-000000000002'),
   ('M2', 'a9a00000-0000-4000-8000-000000000003'), ('M3', 'a9a00000-0000-4000-8000-000000000004'),
   ('M4', 'a9a00000-0000-4000-8000-000000000005'), ('NM', 'a9a00000-0000-4000-8000-000000000006'),
-  ('KZ', 'a9a00000-0000-4000-8000-000000000007'), ('PZ', 'a9a00000-0000-4000-8000-000000000008');
+  ('KZ', 'a9a00000-0000-4000-8000-000000000007'), ('PZ', 'a9a00000-0000-4000-8000-000000000008'),
+  ('BZ', 'a9a00000-0000-4000-8000-000000000009');
 grant select on _p to authenticated, anon;
 
 -- k, league, season, creator, first day, last day (end_date), periods, status
@@ -140,7 +145,8 @@ insert into auth.users (id, email, raw_user_meta_data)
 select id, 'autoseason-' || lower(k) || '@example.invalid', jsonb_build_object('full_name', 'Autoseason ' || k)
   from _p;
 insert into public.pickleague_time_zones (profile_id, tz) values
-  (pg_temp.p('KZ'), 'Pacific/Kiritimati'), (pg_temp.p('PZ'), 'Pacific/Pago_Pago')
+  (pg_temp.p('KZ'), 'Pacific/Kiritimati'), (pg_temp.p('PZ'), 'Pacific/Pago_Pago'),
+  (pg_temp.p('BZ'), 'Mars/Olympus_Mons')
 on conflict (profile_id) do update set tz = excluded.tz;
 
 insert into _s (k, league_id, season_id, creator, start_date, end_date, periods, status) values
@@ -161,7 +167,9 @@ insert into _s (k, league_id, season_id, creator, start_date, end_date, periods,
   ('N', 'a9a10000-0000-4000-8000-000000000008', 'a9a20000-0000-4000-8000-000000000008', 'AD',
         pg_temp.d('la') + 7, pg_temp.d('la') + 28, 3, 'upcoming'),
   ('X', 'a9a10000-0000-4000-8000-000000000009', 'a9a20000-0000-4000-8000-000000000009', 'AD',
-        pg_temp.d('la') - 60, pg_temp.d('la') - 39, 3, 'completed');
+        pg_temp.d('la') - 60, pg_temp.d('la') - 39, 3, 'completed'),
+  ('Z', 'a9a10000-0000-4000-8000-00000000000a', 'a9a20000-0000-4000-8000-00000000000a', 'BZ',
+        pg_temp.d('la') - 23, pg_temp.d('la') - 2, 3, 'active');
 
 insert into public.leagues (id, name, created_by, is_open)
 select league_id, '[TEST] autoseason ' || k, pg_temp.p(creator), true from _s;
@@ -191,7 +199,8 @@ select pg_temp.lock('A', 1), pg_temp.lock('A', 2), pg_temp.lock('A', 3),
        pg_temp.lock('F', 1), pg_temp.lock('F', 2), pg_temp.lock('F', 3),
        pg_temp.lock('K', 1), pg_temp.lock('K', 2),
        pg_temp.lock('P', 1), pg_temp.lock('P', 2),
-       pg_temp.lock('X', 1), pg_temp.lock('X', 2), pg_temp.lock('X', 3);
+       pg_temp.lock('X', 1), pg_temp.lock('X', 2), pg_temp.lock('X', 3),
+       pg_temp.lock('Z', 1), pg_temp.lock('Z', 2), pg_temp.lock('Z', 3);
 
 -- complete_season's grants before the migration (it must keep them).
 create temp table _acl_before as
@@ -327,7 +336,7 @@ begin
   select count(*) into v_flipped
     from _before b join public.league_seasons s on s.id = b.id
    where b.status = 'active' and s.status = 'completed';
-  perform pg_temp.ok('J1 the job returns how many seasons it completed', v_run = v_flipped and v_run >= 2,
+  perform pg_temp.ok('J1 the job returns how many seasons it completed', v_run = v_flipped and v_run >= 3,
     format('returned %s, seasons flipped to completed %s', v_run, v_flipped));
 
   perform pg_temp.ok('J1 A (ended yesterday, all locked): completed, reset applied',
@@ -353,6 +362,11 @@ begin
 
   perform pg_temp.ok('J1 K (creator in Kiritimati, ended there yesterday or before): completed',
     pg_temp.state('K') = 'completed/t' and pg_temp.finals('K') = 5, pg_temp.state('K') || ' ' || pg_temp.finals('K'));
+  perform pg_temp.ok('J1 Z setup: its creator''s stored zone really does not parse',
+    pg_temp.err('select now() at time zone ''Mars/Olympus_Mons''') is not null
+    and (select tz from public.pickleague_time_zones where profile_id = pg_temp.p('BZ')) = 'Mars/Olympus_Mons');
+  perform pg_temp.ok('J1 Z (creator''s zone unparseable, ended 2 days ago): the default zone is used, completed',
+    pg_temp.state('Z') = 'completed/t' and pg_temp.finals('Z') = 5, pg_temp.state('Z') || ' ' || pg_temp.finals('Z'));
   perform pg_temp.ok('J1 P (creator in Pago Pago, ends there today): untouched',
     pg_temp.state('P') = 'active/f' and pg_temp.finals('P') = 0, pg_temp.state('P'));
   perform pg_temp.ok('J1 B (ends in 6 days): untouched',
@@ -372,13 +386,13 @@ begin
       where league_id in (pg_temp.l('B'), pg_temp.l('C'), pg_temp.l('D'), pg_temp.l('P'))));
 
   -- The badge triggers still fire: +150 pickles per new badge, and its notification + push.
-  perform pg_temp.ok('J1 +150 pickles for every badge the run awarded (AD: A crown + sweeper, K crown + sweeper)',
+  perform pg_temp.ok('J1 +150 pickles for every badge the run awarded (AD: crown + sweeper in A, K and Z)',
     (select bool_and(coalesce(p.pickles, 0) - b.pickles
                      = 150 * (select count(*) from public.player_badges pb
                                where pb.user_id = p.id and pb.id not in (select id from _bdg)))
        from public.profiles p join _pk b on b.id = p.id)
     and (select coalesce(p.pickles, 0) - b.pickles from public.profiles p join _pk b on b.id = p.id
-          where p.id = pg_temp.p('AD')) = 600,
+          where p.id = pg_temp.p('AD')) = 900,
     (select string_agg(k.k || ' +' || (coalesce(p.pickles, 0) - b.pickles), ', ' order by k.k)
        from public.profiles p join _pk b on b.id = p.id join _p k on k.id = p.id));
   perform pg_temp.ok('J1 the badge notification ("+150 pickles for earning Season Crown!") and its push are queued',

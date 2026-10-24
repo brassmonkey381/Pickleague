@@ -384,7 +384,9 @@ type StatusDateOpts = {
  * that is due (its date has arrived, local) is admin information, so admins
  * read "Lock due" (it drives Manage) and members the date-free "Period 7
  * locking soon" / "Season ending soon" / "Final lock soon". Every period
- * locked: "Season ends Dec 1" until end_date has passed. Past end_date and
+ * locked, end_date not passed yet: "Final standings Dec 2" (the day after
+ * end_date, when it completes; "tomorrow" on end_date itself), since nothing
+ * played after the last lock counts for the season. Past end_date and
  * not completed yet (the hourly job completes it from 00:00 local the day
  * after, migration_auto_complete_seasons.sql): "Ended Aug 19 · Final
  * standings soon", admins "Ended Aug 19 · Completion due" (or "· Lock due"
@@ -412,9 +414,12 @@ export function seasonDatePart(
     return `${ended} · ${lockLeft ? 'Lock due' : 'Completion due'}`;
   }
   if (s.nextPeriod == null || s.nextLockOn == null) {
-    // Every period locked; the season still runs to its end_date.
+    // Every period locked: nothing played from here counts for the season
+    // (the final standings come from the locks, and completing resets league
+    // ratings). It completes the day after end_date, so say when.
     if (s.endsOn == null) return compact ? 'Final soon' : 'Final standings soon';
-    return compact ? `Ends ${fmt(s.endsOn)}` : `Season ends ${fmt(s.endsOn)}`;
+    const finalOn = fmt(addDaysIso(s.endsOn, 1));
+    return compact ? `Final ${finalOn}` : `Final standings ${finalOn}`;
   }
   const last = s.nextPeriod >= s.totalPeriods;
   // The last lock is the season's end only when the weeks divide evenly
@@ -447,6 +452,7 @@ export type SeasonStatusArgs = StatusDateOpts & {
  *   "You #2 of 14 · Period 7 locks Oct 20"     mid-season
  *   "You #2 of 14 · Season ends Dec 1"         last period (on end_date)
  *   "You #2 of 14 · Final lock Nov 17"         last period, before end_date
+ *   "You #2 of 14 · Final standings Dec 2"     every period locked, end_date not passed
  *   "You #2 of 14 · Ended Aug 19 · Final standings soon"   past end_date, not completed yet
  *   "14 players · Period 7 locks Oct 20"       not ranked (no matches / not in the table)
  *   "Starts Nov 3"                             upcoming

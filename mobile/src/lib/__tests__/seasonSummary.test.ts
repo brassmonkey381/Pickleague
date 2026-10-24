@@ -255,19 +255,26 @@ describe('summarizeSeason + status line', () => {
     expect(late.lockDue).toBe(true);
     expect(line(late, on(2026, 12, 1))).toBe('5 players · Ended Nov 23 · Final standings soon');
     expect(line(late, on(2026, 12, 1), true)).toBe('5 players · Ended Nov 23 · Lock due');
-    // On the end date itself, every period locked: it ends today (completed from tomorrow).
+    // On the end date itself, every period locked (the auto-lock takes the last
+    // one at 00:05 that day): nothing played today counts, the job completes it
+    // tomorrow. Not "Season ends today".
     const lastDay = summarizeSeason({ season: SEASON, lockedPeriods: [1, 2, 3, 4, 5, 6], members, matches: [], myUserId: 'me', today: '2026-11-23' });
-    expect(line(lastDay, on(2026, 11, 23, 9))).toBe('5 players · Season ends today');
+    expect(line(lastDay, on(2026, 11, 23, 9))).toBe('5 players · Final standings tomorrow');
+    expect(line(lastDay, on(2026, 11, 23, 9), true)).toBe('5 players · Final standings tomorrow');
     // A summary cached on the end date, read the next morning: ended.
     expect(line(lastDay, on(2026, 11, 24, 7))).toBe('5 players · Ended Nov 23 · Final standings soon');
   });
 
-  it('every period locked before end_date (weeks not divisible by the lock): the season still runs to its end', () => {
-    // 12 weeks locking every 5: 2 periods, last lock Nov 9, end Nov 23.
+  it('every period locked before end_date (weeks not divisible by the lock): final standings the day after end_date', () => {
+    // 12 weeks locking every 5: 2 periods, last lock Nov 9, end Nov 23 (Mon),
+    // completed from Tue Nov 24. Play after Nov 9 no longer counts for the season.
     const odd: SeasonInput = { ...SEASON, lock_frequency_weeks: 5, total_periods: 2 };
     const s = summarizeSeason({ season: odd, lockedPeriods: [1, 2], members, matches: [], myUserId: 'me', today: '2026-11-12' });
-    expect(line(s, on(2026, 11, 12))).toBe('5 players · Season ends Nov 23');
-    expect(seasonDatePart(s, { now: on(2026, 11, 12), locale: L, compact: true })).toBe('Ends Nov 23');
+    expect(line(s, on(2026, 11, 12))).toBe('5 players · Final standings Nov 24');
+    expect(line(s, on(2026, 11, 12), true)).toBe('5 players · Final standings Nov 24');
+    expect(line(s, on(2026, 11, 20))).toBe('5 players · Final standings Tue Nov 24');
+    expect(line(s, on(2026, 11, 23, 23, 59))).toBe('5 players · Final standings tomorrow');
+    expect(seasonDatePart(s, { now: on(2026, 11, 12), locale: L, compact: true })).toBe('Final Nov 24');
     expect(seasonDatePart(s, { now: on(2026, 11, 24), locale: L, compact: true })).toBe('Ended Nov 23');
     // No end_date on the row: nothing to date.
     expect(line({ ...s, endsOn: null }, on(2026, 11, 12))).toBe('5 players · Final standings soon');
