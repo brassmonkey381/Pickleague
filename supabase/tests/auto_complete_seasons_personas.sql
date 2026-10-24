@@ -10,8 +10,11 @@
 --   (from the linked checkout) supabase db query --linked -f <out.sql> -o csv
 -- Every row should read ok = true; the first row is the summary. INFO rows
 -- show what the first run did to REAL seasons (rolled back with the rest) and
--- whether their league's PLUPR reset ran; their ok is true when it ran exactly
--- if the season ended 7 or fewer days before the run.
+-- whether their league's PLUPR reset ran (pg_temp.reset_verdict). Their ok:
+-- ended 7 or fewer days before the run -> every finisher's league rating row
+-- now holds their new PLUPR and no other row changed (true when the league has
+-- no rows for its finishers: nothing to reset); more than 7 days -> no league
+-- rating row changed.
 --
 -- now() is fixed for the whole transaction, so "today" is computed once below.
 -- Personas (temporary accounts, example.invalid emails): AD (admin of every
@@ -28,6 +31,9 @@
 --                                                      saved, league ratings unchanged
 --   H  ended 30 days ago, all locked; the admin presses Complete before the job runs
 --                                                   -> reset applied (the button always resets)
+--   V  ended 3 days ago, all locked, its members have no league rating rows
+--                                                   -> completed; nothing to reset, and the INFO
+--                                                      check (reset_verdict) still reads ok
 --   B  ends in 6 days, 2 of 3 locked                -> untouched
 --   C  ended yesterday, P3 (due) not locked         -> waits; completes once P3 locks
 --   D  ends TODAY, all locked                       -> the job leaves it; the admin may complete it
@@ -222,7 +228,9 @@ insert into _s (k, league_id, season_id, creator, start_date, end_date, periods,
   ('S', 'a9a10000-0000-4000-8000-00000000000d', 'a9a20000-0000-4000-8000-00000000000d', 'AD',
         pg_temp.d('la') - 51, pg_temp.d('la') - 30, 3, 'active'),
   ('H', 'a9a10000-0000-4000-8000-00000000000e', 'a9a20000-0000-4000-8000-00000000000e', 'AD',
-        pg_temp.d('la') - 51, pg_temp.d('la') - 30, 3, 'active');
+        pg_temp.d('la') - 51, pg_temp.d('la') - 30, 3, 'active'),
+  ('V', 'a9a10000-0000-4000-8000-00000000000f', 'a9a20000-0000-4000-8000-00000000000f', 'AD',
+        pg_temp.d('la') - 24, pg_temp.d('la') - 3, 3, 'active');
 
 insert into public.leagues (id, name, created_by, is_open)
 select league_id, '[TEST] autoseason ' || k, pg_temp.p(creator), true from _s;
@@ -236,6 +244,8 @@ select s.league_id, pg_temp.p(m.k), 3.33, 3.33, 3.33, 3.33
   from _s s, (values ('AD'), ('M1'), ('M2'), ('M3'), ('M4')) m(k)
 on conflict (league_id, user_id) do update
   set rating = 3.33, singles_rating = 3.33, doubles_rating = 3.33, mixed_doubles_rating = 3.33;
+-- V: its finishers have no league rating rows (the reset has nothing to write).
+delete from public.league_player_ratings where league_id = 'a9a10000-0000-4000-8000-00000000000f';
 
 -- total_periods is generated (total_weeks / lock_frequency_weeks).
 insert into public.league_seasons (
@@ -257,7 +267,8 @@ select pg_temp.lock('A', 1), pg_temp.lock('A', 2), pg_temp.lock('A', 3),
        pg_temp.lock('W', 1), pg_temp.lock('W', 2), pg_temp.lock('W', 3),
        pg_temp.lock('E', 1), pg_temp.lock('E', 2), pg_temp.lock('E', 3),
        pg_temp.lock('S', 1), pg_temp.lock('S', 2), pg_temp.lock('S', 3),
-       pg_temp.lock('H', 1), pg_temp.lock('H', 2), pg_temp.lock('H', 3);
+       pg_temp.lock('H', 1), pg_temp.lock('H', 2), pg_temp.lock('H', 3),
+       pg_temp.lock('V', 1), pg_temp.lock('V', 2), pg_temp.lock('V', 3);
 
 -- A stale one-arg helper, as an earlier draft of the migration would have
 -- left it (never on live): the migration must drop it, or a one-arg call is
@@ -394,13 +405,54 @@ create temp table _pk as select id, coalesce(pickles, 0) as pickles from public.
 create temp table _bdg as select id from public.player_badges where user_id in (select id from _p);
 create temp table _ntf as select id from public.notifications where user_id in (select id from _p);
 create temp table _run (n int primary key, completed int not null);
--- Real leagues with an active season: their league ratings before the run, to
--- tell whether the run reset them (the INFO rows).
+-- Every league with an active season (real and test): its league ratings
+-- before the run, to tell whether the run reset them (reset_verdict, the INFO
+-- rows).
 create temp table _lpr as
 select r.league_id, r.user_id, r.rating, r.singles_rating, r.doubles_rating, r.mixed_doubles_rating, r.updated_at
   from public.league_player_ratings r
- where r.league_id in (select league_id from public.league_seasons
-                        where status = 'active' and id not in (select season_id from _s));
+ where r.league_id in (select league_id from public.league_seasons where status = 'active');
+
+-- After a run: did it apply season p_season's league PLUPR reset, and is that
+-- what the 7-day rule asks (in the league's day, as the job reads it)?
+--   ended 7 or fewer days before: every finisher row in _lpr now holds the
+--     finisher's new PLUPR on all four facets (changed by the run), and no
+--     other row of the league changed. A league with no rows for its
+--     finishers has nothing to reset: ok.
+--   more than 7 days: no row of the league changed.
+create function pg_temp.reset_verdict(p_season uuid)
+returns table (outcome text, ok boolean, detail text) language sql stable as $$
+  with s as (
+    select s.id, s.league_id, s.end_date, pg_temp.today_for(l.created_by) - s.end_date as days_late
+      from public.league_seasons s
+      left join public.leagues l on l.id = s.league_id
+     where s.id = p_season
+  ), r as (
+    select (cur.rating, cur.singles_rating, cur.doubles_rating, cur.mixed_doubles_rating, cur.updated_at)
+             is distinct from (o.rating, o.singles_rating, o.doubles_rating, o.mixed_doubles_rating, o.updated_at) as changed,
+           f.user_id is not null as finisher,
+           coalesce(cur.rating = f.new_elo and cur.singles_rating = f.new_elo
+                    and cur.doubles_rating = f.new_elo and cur.mixed_doubles_rating = f.new_elo, false) as at_new_elo
+      from s
+      join _lpr o on o.league_id = s.league_id
+      left join public.league_player_ratings cur on cur.league_id = o.league_id and cur.user_id = o.user_id
+      left join public.season_final_standings f on f.season_id = s.id and f.user_id = o.user_id
+  ), c as (
+    select count(*) as total,
+           count(*) filter (where changed) as changed,
+           count(*) filter (where finisher) as fin_rows,
+           count(*) filter (where finisher and changed and at_new_elo) as fin_reset
+      from r
+  )
+  select case when c.changed > 0 then 'PLUPR reset applied'
+              when c.fin_rows = 0 then 'no league ratings to reset'
+              else 'PLUPR reset NOT applied' end,
+         case when s.days_late <= 7 then c.fin_reset = c.fin_rows and c.changed = c.fin_reset
+              else c.changed = 0 end,
+         format('ended %s, %s day(s) before the run; league ratings changed: %s of %s; finishers'' rows at their new PLUPR: %s of %s',
+                s.end_date, s.days_late, c.changed, c.total, c.fin_reset, c.fin_rows)
+    from s cross join c
+$$;
 
 create function pg_temp.refuse_f() returns trigger language plpgsql as $$
 begin
@@ -427,7 +479,7 @@ begin
   select count(*) into v_flipped
     from _before b join public.league_seasons s on s.id = b.id
    where b.status = 'active' and s.status = 'completed';
-  perform pg_temp.ok('J1 the job returns how many seasons it completed (A, E, K, S, W, Z at least)', v_run = v_flipped and v_run >= 6,
+  perform pg_temp.ok('J1 the job returns how many seasons it completed (A, E, K, S, V, W, Z at least)', v_run = v_flipped and v_run >= 7,
     format('returned %s, seasons flipped to completed %s', v_run, v_flipped));
 
   perform pg_temp.ok('J1 A (ended yesterday, all locked): completed',
@@ -459,6 +511,10 @@ begin
   perform pg_temp.ok('J1 E (ended 8 days ago, the first day past it): completed, finals saved, NO reset',
     pg_temp.state('E') = 'completed/t' and pg_temp.finals('E') = 5 and pg_temp.ratings('E') = 'kept',
     pg_temp.state('E') || ' ' || pg_temp.finals('E') || ' ' || pg_temp.ratings('E'));
+  perform pg_temp.ok('J1 V (ended 3 days ago, no league rating rows): completed, finals saved, still no rows',
+    pg_temp.state('V') = 'completed/t' and pg_temp.finals('V') = 5
+    and not exists (select 1 from public.league_player_ratings where league_id = pg_temp.l('V')),
+    pg_temp.state('V') || ' ' || pg_temp.finals('V') || ' ' || pg_temp.ratings('V'));
 
   perform pg_temp.ok('J1 K (creator in Kiritimati, ended there 1 or 2 days ago): completed, reset applied',
     pg_temp.state('K') = 'completed/t' and pg_temp.finals('K') = 5 and pg_temp.ratings('K') = 'reset',
@@ -489,13 +545,13 @@ begin
       where league_id in (pg_temp.l('B'), pg_temp.l('C'), pg_temp.l('D'), pg_temp.l('P'))));
 
   -- The badge triggers still fire: +150 pickles per new badge, and its notification + push.
-  perform pg_temp.ok('J1 +150 pickles for every badge the run awarded (AD: crown + sweeper in A, E, K, S, W and Z)',
+  perform pg_temp.ok('J1 +150 pickles for every badge the run awarded (AD: crown + sweeper in A, E, K, S, V, W and Z)',
     (select bool_and(coalesce(p.pickles, 0) - b.pickles
                      = 150 * (select count(*) from public.player_badges pb
                                where pb.user_id = p.id and pb.id not in (select id from _bdg)))
        from public.profiles p join _pk b on b.id = p.id)
     and (select coalesce(p.pickles, 0) - b.pickles from public.profiles p join _pk b on b.id = p.id
-          where p.id = pg_temp.p('AD')) = 1800,
+          where p.id = pg_temp.p('AD')) = 2100,
     (select string_agg(k.k || ' +' || (coalesce(p.pickles, 0) - b.pickles), ', ' order by k.k)
        from public.profiles p join _pk b on b.id = p.id join _p k on k.id = p.id));
   perform pg_temp.ok('J1 the badge notification ("+150 pickles for earning Season Crown!") and its push are queued',
@@ -505,16 +561,49 @@ begin
                and exists (select 1 from public.push_outbox o where o.notification_id = n.id)));
 end $$;
 
+-- ════ J1v the INFO check (reset_verdict) on the test seasons ═════════════
+-- The rule the INFO rows hold real seasons to, run on seasons whose outcome is
+-- known: ok for the right outcome (V: no rows to reset, which once read as a
+-- failure), and not ok for a wrong one (tried in a subtransaction, undone).
+do $$
+declare
+  v      text;
+  v_late boolean;
+  v_part boolean;
+begin
+  v := (select string_agg(k || ' ' || r.outcome || ' ' || r.ok, ', ' order by k)
+          from _s, pg_temp.reset_verdict(_s.season_id) r where k in ('A', 'E', 'S', 'V', 'W'));
+  perform pg_temp.ok('J1v reset_verdict reads the run right: A, W applied; E, S not applied; V nothing to reset (all ok)',
+    v = 'A PLUPR reset applied true, E PLUPR reset NOT applied true, S PLUPR reset NOT applied true, '
+        || 'V no league ratings to reset true, W PLUPR reset applied true', v);
+  -- S reset anyway (30 days late), then A only partly reset (one row put back).
+  begin
+    update public.league_player_ratings r
+       set rating = f.new_elo, singles_rating = f.new_elo, doubles_rating = f.new_elo,
+           mixed_doubles_rating = f.new_elo, updated_at = now()
+      from public.season_final_standings f
+     where f.season_id = pg_temp.s('S') and r.league_id = pg_temp.l('S') and r.user_id = f.user_id;
+    v_late := (select ok from pg_temp.reset_verdict(pg_temp.s('S')));
+    update public.league_player_ratings
+       set rating = 3.33, singles_rating = 3.33, doubles_rating = 3.33, mixed_doubles_rating = 3.33
+     where league_id = pg_temp.l('A') and user_id = pg_temp.p('M4');
+    v_part := (select ok from pg_temp.reset_verdict(pg_temp.s('A')));
+    raise exception 'undo';
+  exception when others then
+    null;
+  end;
+  perform pg_temp.ok('J1v reset_verdict catches a wrong run: a reset 30 days late, a reset that missed a finisher (not ok)',
+    v_late = false and v_part = false and pg_temp.ratings('S') = 'kept' and pg_temp.ratings('A') = 'reset',
+    format('late %s, partial %s; after the undo S %s, A %s', v_late, v_part, pg_temp.ratings('S'), pg_temp.ratings('A')));
+end $$;
+
 -- What the first run did to real seasons (it is rolled back with the rest),
--- and whether it reset their league's ratings (any of them changed). ok: it
--- did exactly when the season ended 7 or fewer days before the run, in the
--- league's day (The League, Season 1, ended 2026-08-19: NOT applied).
+-- and whether it reset their league's ratings; ok as reset_verdict says
+-- (The League, Season 1, ended 2026-08-19: NOT applied).
 insert into _results (test, ok, detail)
-select 'INFO the run also completed (live, rolled back): ' || coalesce(l.name, '?') || ' / ' || s.name
-         || case when x.changed > 0 then ' - PLUPR reset applied' else ' - PLUPR reset NOT applied' end,
-       (x.changed > 0) = (x.days_late <= 7),
-       format('ended %s, %s day(s) before the run; league ratings changed: %s of %s; final: %s',
-              s.end_date, x.days_late, x.changed, x.total,
+select 'INFO the run also completed (live, rolled back): ' || coalesce(l.name, '?') || ' / ' || s.name || ' - ' || v.outcome,
+       v.ok,
+       format('%s; final: %s', v.detail,
               (select string_agg('#' || f.final_rank || ' ' || coalesce(pr.full_name, '?') || ' ' || f.new_elo,
                                  ', ' order by f.final_rank)
                  from public.season_final_standings f left join public.profiles pr on pr.id = f.user_id
@@ -522,17 +611,7 @@ select 'INFO the run also completed (live, rolled back): ' || coalesce(l.name, '
   from _before b
   join public.league_seasons s on s.id = b.id
   left join public.leagues l on l.id = s.league_id
-  cross join lateral (
-    select pg_temp.today_for(l.created_by) - s.end_date as days_late,
-           (select count(*) from _lpr o where o.league_id = s.league_id) as total,
-           (select count(*)
-              from _lpr o
-              join public.league_player_ratings r on r.league_id = o.league_id and r.user_id = o.user_id
-             where o.league_id = s.league_id
-               and (r.rating, r.singles_rating, r.doubles_rating, r.mixed_doubles_rating, r.updated_at)
-                   is distinct from (o.rating, o.singles_rating, o.doubles_rating, o.mixed_doubles_rating, o.updated_at)
-           ) as changed
-  ) x
+  cross join lateral pg_temp.reset_verdict(s.id) v
  where b.status = 'active' and s.status = 'completed' and s.id not in (select season_id from _s);
 
 
@@ -607,7 +686,7 @@ end $$;
 -- The job resets within 7 days of the end date (A, K, Z in the first run, C
 -- and F in later ones, W on the 7th day); the admin's button always does (D,
 -- H). More than 7 days late the job does not (E, S). The rest never completed
--- here (B, N, P; X was completed before the test).
+-- here (B, N, P; X was completed before the test). V has no rows to check.
 do $$
 declare v_all text := (select string_agg(k || ' ' || pg_temp.ratings(k), ', ' order by k) from _s);
 begin

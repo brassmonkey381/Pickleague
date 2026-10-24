@@ -334,10 +334,16 @@ touches playoff bracket generation or advancement.
     zone is used, the run goes on); one season failing is rolled back alone
     and retried; final
     standings, the league rating reset, the Season Crown / Silver / Bronze and
-    Period Sweeper badges, +150 pickles and the badge notification + push; a
-    second run does nothing; the admin's button still works and the job never
-    completes a season twice. INFO rows list the REAL seasons the run would
-    complete (rolled back).
+    Period Sweeper badges, +150 pickles and the badge notification + push; the
+    7-day reset rule: the job resets a season's league ratings only when it
+    completes it 7 or fewer days after its end date (7 days: reset; 8 and 30
+    days: finals and badges saved, ratings kept), while the admin's button
+    resets however late (30 days); a season whose finishers have no league
+    rating rows (nothing to reset); a second run does nothing; the admin's
+    button still works and the job never completes a season twice. INFO rows
+    list the REAL seasons the run would complete (rolled back) and whether
+    their reset ran; their ok follows the 7-day rule, and the check behind it
+    is itself tested on the test seasons, wrong outcomes included.
 
     ```sh
     node supabase/tests/build-auto-complete-seasons-test.mjs /tmp/auto_complete_seasons_test.sql
