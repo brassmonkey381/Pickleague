@@ -129,6 +129,16 @@ export async function nearestCityLabel(p: LatLngLike): Promise<string | null> {
   return cityLabel(raw as { city?: unknown; state?: unknown } | null);
 }
 
+/** The nearest US city to a point, at the city's own centre (nearest_us_city). */
+export async function nearestCity(p: LatLngLike): Promise<{ label: string; lat: number; lng: number } | null> {
+  const raw = (await sbCall(() => supabase.rpc('nearest_us_city', { p_lat: p.lat, p_lng: p.lng }), BOUND)) as
+    { city?: unknown; state?: unknown; lat?: unknown; lng?: unknown } | null;
+  const label = cityLabel(raw);
+  if (!label || !raw || typeof raw.lat !== 'number' || typeof raw.lng !== 'number') return null;
+  if (!Number.isFinite(raw.lat) || !Number.isFinite(raw.lng)) return null;
+  return { label, lat: raw.lat, lng: raw.lng };
+}
+
 export function useNearestCityLabel(p: LatLngLike | null) {
   const lat = p ? p.lat.toFixed(2) : '';
   const lng = p ? p.lng.toFixed(2) : '';

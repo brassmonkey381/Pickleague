@@ -17,6 +17,10 @@
 // the header "+". Filters are saved per user for Play's list; the
 // league-scoped list keeps them in memory only, so a league page never
 // inherits (or overwrites) your Play filters.
+// In Discover (`areaLimited`) the shared search area above the tabs limits
+// every section but MINE (and my own ended ones), by the venue's location,
+// else the league's home court; a tournament with neither can't be placed and
+// is left out. The sheet's Distance goes and Nearest measures from the area.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, Pressable, type LayoutChangeEvent, type ListRenderItemInfo } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -75,6 +79,8 @@ import { usePlayFilterState } from '../components/play/usePlayFilterState';
 import { usePlayLocation } from '../components/play/usePlayLocation';
 import { usePlayUserId } from '../components/play/usePlayUserId';
 import { fixtureTournaments, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
+import { useSearchArea } from '../lib/useSearchArea';
+import { pointOf, searchAreaKey, widerSearchRadius, type LatLng } from '../lib/searchArea';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Tournaments'>;
@@ -88,6 +94,8 @@ type Props = {
   /** "Browse leagues >" in the empty state. Play switches its own tab; the
    *  standalone route opens Play on Leagues. */
   onBrowseLeagues?: () => void;
+  /** Discover's search area limits the list (not MINE). */
+  areaLimited?: boolean;
 };
 
 type MyReg = { status: 'pending' | 'approved' | 'rejected' | 'waitlisted'; role: string | null; invited_by: string | null };
@@ -108,6 +116,8 @@ type TournamentsData = {
   // persisted to disk).
   leagueNames?: Record<string, string>;
   myLeagueIds?: string[];
+  /** A league's home court, to place a tournament with no venue (search area). */
+  leaguePoints?: Record<string, LatLng>;
 };
 
 const EMPTY_DATA: TournamentsData = {
@@ -150,12 +160,17 @@ function startLabel(iso: string | null, now: number): string | null {
 
 const CREATE_FOOTER_H = 44 + SPACE.sm;
 
-export default function TournamentsScreen({ navigation, route, active = true, routeMineToken, onCount, onBrowseLeagues }: Props) {
+export default function TournamentsScreen({ navigation, route, active = true, routeMineToken, onCount, onBrowseLeagues, areaLimited = false }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const S = makeStyles(c);
   const uid = usePlayUserId();
   const { coords, setCoords } = usePlayLocation();
+  const { area: searchArea, ready: areaReady, setRadius: setAreaRadius } = useSearchArea();
+  const area = areaLimited ? searchArea : null;
+  // Until the area is known the list waits (no unlimited flash first).
+  const areaPending = areaLimited && !areaReady;
+  const origin = areaLimited ? area?.center ?? null : coords;
   const fixtureOn = usePlayFixtureOn();
   const isFocused = useIsFocused();
   const live = isFocused && active;
@@ -194,6 +209,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     const approvedOnly: Record<string, number> = {};
     const mine: Record<string, MyReg> = {};
     const leagueNames: Record<string, string> = {};
+    const leaguePoints: Record<string, LatLng> = {};
 
     if (tList.length > 0) {
       const ids = tList.map(x => x.id);
@@ -218,7 +234,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         // League names for search + the row subtitle (leagues: select using
         // (true)). Non-fatal: rows just omit the league.
         leagueIds.length > 0
-          ? sbCall(() => supabase.from('leagues').select('id, name').in('id', leagueIds)).catch(() => [])
+          ? sbCall(() => supabase.from('leagues').select('id, name, home_court_lat, home_court_lng').in('id', leagueIds)).catch(() => [])
           : Promise.resolve([]),
       ]);
       (regs ?? []).forEach((r: any) => {
@@ -234,7 +250,11 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
       (mineRows ?? []).forEach((r: any) => {
         mine[r.tournament_id] = { status: r.status, role: r.role ?? null, invited_by: r.invited_by ?? null };
       });
-      ((leagueRows ?? []) as { id: string; name: string }[]).forEach((l) => { leagueNames[l.id] = l.name; });
+      ((leagueRows ?? []) as { id: string; name: string; home_court_lat: number | null; home_court_lng: number | null }[]).forEach((l) => {
+        leagueNames[l.id] = l.name;
+        const p = pointOf(l.home_court_lat, l.home_court_lng);
+        if (p) leaguePoints[l.id] = p;
+      });
     }
 
     return {
@@ -247,6 +267,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
       godmode: isGodmodeUserId(me),
       activeOwnedTournamentCount: ownedCount,
       leagueNames,
+      leaguePoints,
       myLeagueIds: ((myLeagueRows ?? []) as { league_id: string }[]).map((r) => r.league_id),
     };
   }, [leagueId]);
@@ -320,7 +341,10 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   // What the chip row and the Filters count show: a saved radius without a
   // device location filters nothing, so it isn't shown as on. The sheet
   // itself still gets the raw values, so the saved radius survives an Apply.
-  const sheetShown = useMemo(() => sheetInEffect(filters.sheet, coords), [filters.sheet, coords]);
+  const sheetShown = useMemo(
+    () => sheetInEffect(areaLimited ? { ...filters.sheet, distance: 'any' } : filters.sheet, coords),
+    [filters.sheet, coords, areaLimited],
+  );
 
   const now = Date.now();
   const ctx = useMemo<TournamentCtx>(() => ({
@@ -331,7 +355,10 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     leagueNames,
     coords,
     now: Date.now(),
-  }), [myRegs, data.myLeagueIds, myAvailability, approvedCounts, leagueNames, coords]);
+    areaLimited,
+    area,
+    leaguePoints: data.leaguePoints,
+  }), [myRegs, data.myLeagueIds, myAvailability, approvedCounts, leagueNames, coords, areaLimited, area, data.leaguePoints]);
 
   const split = useMemo(
     () => splitTournaments(tournaments, { query: searchQuery, chips, sheet: filters.sheet, sort: filters.sort }, ctx),
@@ -341,7 +368,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   const [mineExpanded, setMineExpanded] = useState(false);
   const [endedToggled, setEndedToggled] = useState<boolean | null>(null);
   const [pages, setPages] = useState(1);
-  const filterSignature = `${searchQuery}|${chips.join(',')}|${JSON.stringify(filters.sheet)}|${filters.sort}|${!!coords}`;
+  const filterSignature = `${searchQuery}|${chips.join(',')}|${JSON.stringify(filters.sheet)}|${filters.sort}|${!!coords}|${searchAreaKey(area)}`;
   useEffect(() => { setPages(1); }, [filterSignature]);
   // ENDED (incl. cancelled) starts collapsed. "Show ended" in the sheet opens
   // it; so does a search that only matches there (search covers every status).
@@ -542,6 +569,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     </View>
   ) : null;
 
+  const widerArea = area ? widerSearchRadius(area.radiusMi) : null;
   const emptyList = loadFailed ? (
     // A failed fetch must never read as "you have no tournaments".
     <EmptyState
@@ -564,6 +592,16 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         onAction={browseLeagues}
       />
     )
+  ) : area && !searching && !split.filtersOn ? (
+    // Nothing near the search area (the area pills above change it).
+    <EmptyState
+      compact
+      icon="📍"
+      title={`No tournaments within ${area.radiusMi} mi.`}
+      subtitle="Leagues run them."
+      actionLabel={widerArea ? `Widen to ${widerArea} mi` : 'Browse leagues'}
+      onAction={widerArea ? () => setAreaRadius(widerArea) : browseLeagues}
+    />
   ) : (
     <EmptyState
       compact
@@ -575,7 +613,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   );
 
   // ── Sheet + sort + "+" ────────────────────────────────────────────────────
-  const sheetGroups = useMemo<FilterSheetGroup[]>(() => [
+  const sheetGroups = useMemo<FilterSheetGroup[]>(() => ([
     {
       key: 'format',
       title: 'Format',
@@ -606,7 +644,9 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
       kind: 'single',
       options: [{ value: 'hidden', label: 'Collapsed' }, { value: 'shown', label: 'Show' }],
     },
-  ], [coords, setCoords]);
+  ] as FilterSheetGroup[])
+    // Under a search area the area is the distance: no second one here.
+    .filter((g) => !(areaLimited && g.key === 'distance')), [coords, setCoords, areaLimited]);
 
   const formatSheetLabel = useCallback((e: ActiveFilterEntry) => {
     switch (e.key) {
@@ -620,10 +660,10 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   }, []);
 
   const sortActions = useMemo<ActionSheetAction[]>(() =>
-    tournamentSortOptions(coords).map((k) => ({
+    tournamentSortOptions(origin).map((k) => ({
       label: `${k === split.sort ? '✓ ' : ''}${TOURNAMENT_SORT_LABELS[k]}`,
       onPress: () => filters.setSort(k),
-    })), [coords, split.sort, filters.setSort]);
+    })), [origin, split.sort, filters.setSort]);
 
   // The "+" action runs from the sheet's onDismissed, once the sheet has fully
   // closed: iOS won't present the limit Modal while the sheet animates out.
@@ -661,7 +701,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         onOpenFilters={() => setSheetOpen(true)}
       />
 
-      {query.loading && !loadFailed ? (
+      {(query.loading || areaPending) && !loadFailed ? (
         <View style={S.skeleton}><SkeletonList rows={4} variant="row" /></View>
       ) : (
         <FlatList

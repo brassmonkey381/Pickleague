@@ -3,8 +3,8 @@
 // this same panel when Discover is off). No new server work: the friends RPCs
 // and the player search the Friends screen already used.
 //
-//   [🔍 Search players by name or @username]      opens a player's profile
-//   (Friends 5) (Requests 2) (Played with)          the view; Requests counts what waits on you
+//   [🔍 Search players near Alameda, CA]            opens a player's profile
+//   (Friends 5) (Requests 2) (Played with) (Nearby)  the view; Requests counts what waits on you
 //   Friends     ⭐ Close friends are listed first...  (A) Sam · Friends since Oct 2   ⭐ ⋯
 //   Requests    WAITING ON YOU (A) Sam · 2d ago   [Accept] [Decline]
 //               SENT           (B) Ana · requested 3d ago   [Cancel]
@@ -26,12 +26,19 @@
 // - The search is UserPickerModal with realPeopleOnly (no unclaimed DUPR
 //   placeholders, guest passes or deleted accounts). Picking a player opens
 //   their profile, where Add friend is one tap.
+// - Discover's search area (the pills above the tabs) limits the search and
+//   Nearby to the players who PLAY there (data/playersNear: their leagues'
+//   home courts, and their starred and frequent courts when their presence
+//   privacy names them to you; never where they are now). Friends, Requests
+//   and Played with are yours and are not limited. Until the area is known
+//   neither lists anyone; only with no area at all (no location, no city, no
+//   located league court) does the search cover everyone, as before.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
-import { cachedFetch } from '@just-messin-around/expo-foundation/cache';
+import { cachedFetch, useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import {
   ActionSheetModal,
   Avatar,
@@ -93,6 +100,12 @@ import {
   referralShareContent,
 } from '../../data/referrals';
 import type { PlayersView } from '../../lib/discoverTabs';
+import { useSearchArea } from '../../lib/useSearchArea';
+import { searchAreaKey } from '../../lib/searchArea';
+import { playsAtLabel, type NearPlayer } from '../../lib/playersNear';
+import { listPlayersNear } from '../../data/playersNear';
+import { useBlockedIds } from '../../lib/moderation';
+import { useSearchAreaPlace } from '../SearchAreaBar';
 import type { RootStackParamList } from '../../types';
 
 type Props = {
@@ -108,7 +121,20 @@ type Colors = ReturnType<typeof useTheme>['colors'];
 
 const AVATAR = 40;
 
-const VIEW_LABELS: Record<PlayersView, string> = { friends: 'Friends', requests: 'Requests', find: 'Played with' };
+const VIEW_LABELS: Record<PlayersView, string> = { friends: 'Friends', requests: 'Requests', find: 'Played with', near: 'Nearby' };
+
+/** A people-list row for the picker (discover_players_near's columns). */
+function toPicked(p: NearPlayer): PickedUser {
+  return {
+    id: p.id,
+    full_name: p.full_name ?? 'Player',
+    username: p.username ?? '',
+    avatar_id: p.avatar_id,
+    avatar_emoji: p.avatar_emoji,
+    avatar_bg_color: p.avatar_bg_color,
+    detail: playsAtLabel(p),
+  };
+}
 
 /** One person: avatar + name + one line, which opens their profile, and the
  *  row's buttons BESIDE it (not inside it: a button nested in a touchable
@@ -209,16 +235,38 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   );
   const friends = useMemo(() => sortFriends(friendsQ.data), [friendsQ.data]);
 
+  // ── The search area: Nearby and the search ──
+  const { area, ready: areaReady } = useSearchArea();
+  const areaKey = searchAreaKey(area);
+  const areaPlace = useSearchAreaPlace();
+  const blockedIds = useBlockedIds();
+  const nearQ = useCachedQuery<NearPlayer[]>(
+    `players:near:${areaKey}`,
+    () => listPlayersNear(area, { realPeopleOnly: true, limit: 200 }),
+    { ttlMs: 60_000, persistMs: 6 * 60 * 60 * 1000, enabled: view === 'near' && active && areaReady && area != null },
+  );
+  const nearby = useMemo(
+    () => (nearQ.data ?? []).filter((p) => p.id !== meId && !blockedIds.has(p.id)),
+    [nearQ.data, meId, blockedIds],
+  );
+  const friendIds = useMemo(() => new Set((friendsQ.data ?? []).map((f) => f.user_id)), [friendsQ.data]);
+  const requestedIds = useMemo(
+    () => new Set([...incoming, ...outgoing].map((r) => r.user_id)),
+    [incoming, outgoing],
+  );
+
   const { refresh: refreshRequests } = requestsQ;
   const { refresh: refreshFriendsList } = friendsQ;
   const { refresh: refreshSuggestions } = suggestQ;
+  const { refresh: refreshNear } = nearQ;
   const reload = useCallback(async () => {
     await Promise.all([
       refreshRequests(),
       refreshFriendsList(),
       view === 'find' ? refreshSuggestions() : Promise.resolve(),
+      view === 'near' && area ? refreshNear() : Promise.resolve(),
     ]);
-  }, [refreshRequests, refreshFriendsList, refreshSuggestions, view]);
+  }, [refreshRequests, refreshFriendsList, refreshSuggestions, refreshNear, view, area]);
   const refresh = useRefresh(reload);
   // Requests arrive by push while this is in the background.
   useFocusEffect(useCallback(() => { void refreshRequests(); }, [refreshRequests]));
@@ -260,7 +308,13 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
 
   // ── Search: a player's profile ──
   const [pickerOpen, setPickerOpen] = useState(false);
-  const notMe = useMemo(() => (meId ? [meId] : []), [meId]);
+  const notMe = useMemo(() => [...(meId ? [meId] : []), ...blockedIds], [meId, blockedIds]);
+  // The search lists the players near the search area (everyone only when
+  // there is no area at all); nobody until the area is known.
+  const loadNear = useCallback(
+    async () => (area ? (await listPlayersNear(area, { realPeopleOnly: true, limit: 500 })).map(toPicked) : []),
+    [area],
+  );
   function onPick(u: PickedUser) {
     setPickerOpen(false);
     track('discover.players_search_pick', {});
@@ -514,6 +568,84 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     );
   }
 
+  function nearView() {
+    if (!areaReady) {
+      return (
+        <View style={S.block}>
+          <SkeletonList rows={4} variant="row" />
+        </View>
+      );
+    }
+    if (!area) {
+      return (
+        <Panel>
+          <EmptyState
+            compact
+            icon="📍"
+            title="Choose an area"
+            subtitle="Pick your location or a city above to see the players who play there."
+          />
+        </Panel>
+      );
+    }
+    return (
+      <View style={S.block}>
+        <SectionHeader title={`Players near ${areaPlace ?? 'here'}`} />
+        <QueryState
+          query={nearQ}
+          isEmpty={() => nearby.length === 0}
+          renderSkeleton={() => <SkeletonList rows={4} variant="row" />}
+          renderEmpty={() => (
+            <Panel>
+              <EmptyState
+                compact
+                icon="🏓"
+                title={`No one plays within ${area.radiusMi} mi yet`}
+                subtitle="Players show up here by their leagues' courts and the courts they star. Try a wider radius above."
+              />
+            </Panel>
+          )}
+        >
+          {() => (
+            <Panel padded={false}>
+              {nearby.map((p, i) => {
+                const person: FriendPerson = {
+                  user_id: p.id,
+                  full_name: p.full_name,
+                  avatar_url: p.avatar_url,
+                  avatar_emoji: p.avatar_emoji,
+                  avatar_bg_color: p.avatar_bg_color,
+                  doubles_rating: p.doubles_rating,
+                };
+                const known = friendIds.has(p.id) || requestedIds.has(p.id);
+                return (
+                  <PersonRow
+                    key={p.id}
+                    c={c}
+                    person={person}
+                    subtitle={friendIds.has(p.id) ? `Friend · ${playsAtLabel(p) ?? ''}`.replace(/ · $/, '') : playsAtLabel(p)}
+                    lastRow={i === nearby.length - 1}
+                    onOpen={() => openProfile(p.id, p.full_name)}
+                    trailing={known ? undefined : (
+                      <Button
+                        size="sm"
+                        title="➕ Add"
+                        accessibilityLabel={`Add ${p.full_name ?? 'this player'} as a friend`}
+                        loading={busyId === p.id}
+                        disabled={!!busyId}
+                        onPress={() => { void add(person); }}
+                      />
+                    )}
+                  />
+                );
+              })}
+            </Panel>
+          )}
+        </QueryState>
+      </View>
+    );
+  }
+
   function playedWithView() {
     return (
       <View style={S.block}>
@@ -576,16 +708,18 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           // A button that opens the search (role "search" made it a landmark
           // on web and a "search field" to VoiceOver).
           accessibilityRole="button"
-          accessibilityLabel="Search players by name"
+          accessibilityLabel={area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name'}
           accessibilityHint="Opens player search"
         >
           <Text style={S.searchGlyph}>🔍</Text>
-          <Text style={[t.sub, S.flex]} numberOfLines={1}>Search players by name or @username</Text>
+          <Text style={[t.sub, S.flex]} numberOfLines={1}>
+            {area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name or @username'}
+          </Text>
         </TouchableOpacity>
 
         <SegmentedToggle<PlayersView>
           size="sm"
-          options={(['friends', 'requests', 'find'] as const).map((k) => ({
+          options={(['friends', 'requests', 'find', 'near'] as const).map((k) => ({
             value: k,
             label: VIEW_LABELS[k],
             count: k === 'requests' ? incoming.length : k === 'friends' ? friendsQ.data?.length : undefined,
@@ -595,7 +729,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           style={S.views}
         />
 
-        {view === 'requests' ? requestsView() : view === 'friends' ? friendsView() : playedWithView()}
+        {view === 'requests' ? requestsView() : view === 'friends' ? friendsView() : view === 'near' ? nearView() : playedWithView()}
 
         <View style={[S.divider, { backgroundColor: c.border }]} />
 
@@ -641,6 +775,9 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         title="Find a player"
         excludeUserIds={notMe}
         realPeopleOnly
+        load={area || !areaReady ? loadNear : undefined}
+        loadKey={areaKey}
+        subtitle={area ? `Players near ${areaPlace ?? 'your area'} · ${area.radiusMi} mi` : null}
         onPick={onPick}
         onClose={() => setPickerOpen(false)}
       />

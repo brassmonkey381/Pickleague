@@ -17,6 +17,8 @@ export type PickedUser = {
   avatar_id: number | null;
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
+  /** A line under the @username ("Plays at Lakeside Park · 2 mi"). */
+  detail?: string | null;
 };
 
 type Props = {
@@ -27,6 +29,13 @@ type Props = {
    *  of 524 profiles; claiming one deletes it) and guest passes. Friends >
    *  Find sets it; every other picker keeps listing them. */
   realPeopleOnly?: boolean;
+  /** Who to list instead of everyone (discover_players): Discover's Players
+   *  search passes the players near its search area. Changing `loadKey`
+   *  reloads it. */
+  load?: () => Promise<PickedUser[]>;
+  loadKey?: string;
+  /** A line under the title ("Players near Alameda, CA · 5 mi"). */
+  subtitle?: string | null;
   onPick: (u: PickedUser) => void;
   onClose: () => void;
 };
@@ -40,7 +49,9 @@ function loadProblem(e: unknown): string {
   return `${friendlySbMessage(e, "Couldn't load players.")} Check your connection, then tap Try again.`;
 }
 
-export default function UserPickerModal({ visible, title, excludeUserIds, realPeopleOnly = false, onPick, onClose }: Props) {
+export default function UserPickerModal({
+  visible, title, excludeUserIds, realPeopleOnly = false, load, loadKey, subtitle, onPick, onClose,
+}: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
   const [users, setUsers]     = useState<PickedUser[]>([]);
@@ -61,6 +72,19 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
     // they are not people you can pick), test accounts left out while God mode
     // hides them, ordered by name, at most 500. realPeopleOnly also leaves out
     // unclaimed placeholders and guest passes.
+    if (load) {
+      load().then((rows) => {
+        if (!live) return;
+        setUsers(rows);
+        setLoading(false);
+      }, (e: unknown) => {
+        if (!live) return;
+        setUsers([]);
+        setLoadError(loadProblem(e));
+        setLoading(false);
+      });
+      return () => { live = false; };
+    }
     supabase
       .rpc('discover_players', { p_real_people_only: realPeopleOnly })
       .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
@@ -80,7 +104,9 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
         setLoading(false);
       });
     return () => { live = false; };
-  }, [visible, realPeopleOnly, attempt]);
+    // `load` is read when the key changes, not on every render's new closure.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, realPeopleOnly, attempt, loadKey, !!load]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
@@ -89,14 +115,17 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
     return users.filter(u => {
       if (exclude.has(u.id)) return false;
       if (!q) return true;
-      return u.full_name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q);
+      return (u.full_name ?? '').toLowerCase().includes(q) || (u.username ?? '').toLowerCase().includes(q.replace(/^@/, ''));
     });
   }, [users, query, exclude]);
 
   const content = (
     <>
       <View style={S.header}>
-        <Text style={S.title}>{title}</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={S.title}>{title}</Text>
+          {subtitle ? <Text style={S.username} numberOfLines={1}>{subtitle}</Text> : null}
+        </View>
         <TouchableOpacity onPress={onClose}>
           <Text style={S.close}>Cancel</Text>
         </TouchableOpacity>
@@ -134,7 +163,7 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
                 actionLabel="Try again"
                 onAction={() => setAttempt(n => n + 1)}
               />
-            : <EmptyState icon="🔍" title="No matches." />}
+            : <EmptyState icon="🔍" title="No matches." subtitle={load && !query.trim() ? 'No one plays here yet. Try a wider radius.' : undefined} />}
           renderItem={({ item }) => {
             const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
             const emoji   = item.avatar_emoji ?? cartoon.emoji;
@@ -147,6 +176,7 @@ export default function UserPickerModal({ visible, title, excludeUserIds, realPe
                 <View style={{ flex: 1 }}>
                   <Text style={S.name}>{item.full_name}</Text>
                   <Text style={S.username}>@{item.username}</Text>
+                  {item.detail ? <Text style={S.username} numberOfLines={1}>{item.detail}</Text> : null}
                 </View>
                 <Text style={S.chevron}>›</Text>
               </TouchableOpacity>

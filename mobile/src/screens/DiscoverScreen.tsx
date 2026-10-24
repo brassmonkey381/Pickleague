@@ -28,6 +28,11 @@
 // - The leagues tour (FTUE "Join a league") selects Leagues when it starts.
 // - Once per device, on the Leagues or Tournaments tab: "Leagues and
 //   tournaments live here now." (they used to be the Play tile's screen).
+// - One search area for every tab (lib/searchArea, components/SearchAreaBar):
+//   "[📍 Alameda, CA ▾] [Within 5 mi ▾]" under the tabs. Leagues, Tournaments,
+//   Places and Players' searches are limited to it; the Mine lists (my
+//   leagues, my tournaments, my friends and requests) are not. A link's lat /
+//   lng (Courts {lat, lng}) moves the area there (a city-like centre).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -55,6 +60,9 @@ import LeaguesScreen from './LeaguesScreen';
 import TournamentsScreen from './TournamentsScreen';
 import CourtsScreen from './CourtsScreen';
 import PlayersPanel, { usePlayersBadge } from '../components/discover/PlayersPanel';
+import SearchAreaBar from '../components/SearchAreaBar';
+import { searchAreaStore } from '../lib/useSearchArea';
+import { nearestCityLabel } from '../data/courtDiscovery';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Discover'>;
 
@@ -132,6 +140,26 @@ export default function DiscoverScreen({ navigation, route }: Props) {
     if (prefillInviteCode && tab && tab !== 'leagues') selectTab('leagues');
   }, [prefillInviteCode, tab, selectTab]);
 
+  // A link's lat / lng (the old Courts {lat, lng}): the shared area moves
+  // there, labelled by the nearest city, then the params go so a refresh or
+  // Back doesn't move it again.
+  const routeLat = params?.lat;
+  const routeLng = params?.lng;
+  useEffect(() => {
+    const lat = typeof routeLat === 'string' ? Number(routeLat) : routeLat;
+    const lng = typeof routeLng === 'string' ? Number(routeLng) : routeLng;
+    if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    let alive = true;
+    void nearestCityLabel({ lat, lng })
+      .catch(() => null)
+      .then((label) => {
+        if (!alive) return;
+        searchAreaStore.pickCity({ label: label ?? 'Pinned place', lat, lng });
+        navigation.setParams({ lat: undefined, lng: undefined });
+      });
+    return () => { alive = false; };
+  }, [routeLat, routeLng, navigation]);
+
   // The leagues tour (search -> join) runs on the Leagues body.
   useEffect(() => onTourStart((key) => { if (key === 'leagues') selectTab('leagues'); }), [selectTab]);
 
@@ -193,6 +221,7 @@ export default function DiscoverScreen({ navigation, route }: Props) {
               } as RouteProp<RootStackParamList, 'Leagues'>}
               active={active}
               routeMineToken={mineTokens.leagues}
+              areaLimited
             />
           );
         case 'tournaments':
@@ -203,6 +232,7 @@ export default function DiscoverScreen({ navigation, route }: Props) {
               active={active}
               routeMineToken={mineTokens.tournaments}
               onBrowseLeagues={() => selectTab('leagues')}
+              areaLimited
             />
           );
         case 'places':
@@ -242,6 +272,7 @@ export default function DiscoverScreen({ navigation, route }: Props) {
         }}
         style={[S.tabs, { backgroundColor: c.surface, borderBottomColor: c.border }]}
       />
+      <SearchAreaBar surface="discover" style={[S.area, { backgroundColor: c.surface, borderBottomColor: c.border }]} />
       {tab ? <LazyTabPanels<DiscoverTab> value={tab} panels={panels} /> : <View style={S.screen} />}
     </View>
   );
@@ -255,6 +286,11 @@ const S = StyleSheet.create({
     paddingHorizontal: SPACE.sm,
     paddingTop: SPACE.sm + 2,
     paddingBottom: SPACE.sm,
+    borderBottomWidth: HAIRLINE,
+  },
+  area: {
+    paddingHorizontal: SPACE.lg,
+    paddingVertical: SPACE.xs,
     borderBottomWidth: HAIRLINE,
   },
 });
