@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { ListCard } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -197,8 +198,9 @@ export function useFtueChecklist({ profile, navigation, onClaimed, inLeague: inL
   };
 }
 
-/** One starter quest as a row (ListCard variant='row'): ✓ / ○, the title, and
- *  Claim +N / Claimed / Go ›. Incomplete rows open the screen that finishes it. */
+/** One starter quest as a row (ListCard variant='row'): a check-mark / circle
+ *  glyph, the title, and [pickle Claim +N] / Claimed / Go >. Incomplete rows
+ *  open the screen that finishes it (the whole row is the button). */
 export function FtueStepRow({
   step,
   onClaim,
@@ -216,15 +218,21 @@ export function FtueStepRow({
   const trailing = step.canClaim ? (
     <Button
       size="sm"
-      title={step.busy ? 'Claiming' : `Claim +${step.reward} 🥒`}
+      title={step.busy ? 'Claiming' : `Claim +${step.reward.toLocaleString()}`}
+      iconName={step.busy ? undefined : 'pickle'}
       loading={step.busy}
       disabled={step.busy}
       onPress={onClaim}
+      accessibilityLabel={`Claim ${step.reward.toLocaleString()} pickles`}
     />
   ) : step.claimed ? (
     <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Claimed</Text>
   ) : step.complete ? null : (
-    <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Go ›</Text>
+    // The row is the button; this only says where it goes.
+    <View style={s.go}>
+      <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Go</Text>
+      <Icon name="chevron-right" size={14} color={c.primary} />
+    </View>
   );
   return (
     <ListCard
@@ -232,7 +240,12 @@ export function FtueStepRow({
       lastRow={lastRow}
       leading={
         <View style={s.checkBox}>
-          <Text style={[t.title, { color: step.complete ? c.primary : c.textMuted }]}>{step.complete ? '✓' : '○'}</Text>
+          <Icon
+            name={step.complete ? 'check-mark' : 'circle'}
+            size={18}
+            color={step.complete ? c.success : c.textMuted}
+            accessibilityLabel={step.complete ? 'Done' : 'Not done yet'}
+          />
         </View>
       }
       title={
@@ -279,7 +292,12 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
 
   return (
     <View style={embedded ? s.embedded : s.card}>
-      {embedded ? null : <Text style={[t.title, s.title]}>🚀 Get started</Text>}
+      {embedded ? null : (
+        <View style={s.titleRow}>
+          <Icon name="rocket" size={22} color={colors.primary} />
+          <Text style={t.title} accessibilityRole="header">Get started</Text>
+        </View>
+      )}
       {ftue.steps.map((st, i) => (
         <FtueStepRow
           key={st.id}
@@ -290,7 +308,10 @@ export default function FtueChecklistCard({ profile, navigation, onClaimed, alwa
         />
       ))}
       {ftue.allClaimed && (
-        <Text style={[t.meta, s.allDone, { color: colors.primary }]}>🎉 All starter quests complete!</Text>
+        <View style={[s.titleRow, s.allDone]}>
+          <Icon name="celebrate" size={14} color={colors.primary} />
+          <Text style={[t.meta, { color: colors.primary }]}>All starter quests complete!</Text>
+        </View>
       )}
     </View>
   );
@@ -308,10 +329,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderColor: c.border,
     },
     embedded: { marginTop: SPACE.xs },
-    title: { paddingHorizontal: SPACE.md, paddingTop: SPACE.xs },
-    allDone: { paddingHorizontal: SPACE.md, paddingTop: SPACE.sm },
-    // A 24-wide column so the titles line up whatever the glyph.
-    checkBox: { width: 24, alignItems: 'center' },
+    titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.md, paddingTop: SPACE.xs },
+    allDone: { paddingTop: SPACE.sm, gap: SPACE.xs },
+    go: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
+    // A 32-wide column (EntityRow's tile width) so every Get started title
+    // lines up, whatever the glyph.
+    checkBox: { width: 32, alignItems: 'center' },
     // A 44 Claim box plus ListCard's 10/10 padding would make a 64 row; 4px
     // keeps it 52 (the box stays inside the row, which Android needs to
     // deliver the touch).

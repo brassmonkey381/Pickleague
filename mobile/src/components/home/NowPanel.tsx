@@ -4,15 +4,15 @@
 // CourtCheckinCard itself, rendered just above this by HomeScreen, because that
 // component must never unmount (see its header).
 //
-//   ▶ Open play · Lake Merritt               [Enter score]
+//   (play) Open play · Lake Merritt          [Enter score]
 //   Now  Ladder night                                     ›
 //        Sean Leegue · you're in
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Panel, ListCard } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import { joinFacts } from '../../lib/entityGlyph';
 import type { AgendaRow as AgendaRowData } from '../../lib/agenda';
@@ -31,7 +31,7 @@ type Props = {
 
 export default function NowPanel({ session, liveEvents, now, emphasis, onEnterScore, onEvent }: Props) {
   const { colors: c } = useTheme();
-  const t = textStyles(c);
+
   if (!session && liveEvents.length === 0) return null;
   return (
     <Panel padded={false} emphasis={emphasis}>
@@ -39,7 +39,7 @@ export default function NowPanel({ session, liveEvents, now, emphasis, onEnterSc
         <ListCard
           variant="row"
           lastRow={liveEvents.length === 0}
-          leading={<Text style={t.title}>▶</Text>}
+          leading={<Icon name="play" size={18} color={c.primary} />}
           title={joinFacts([session.label, session.venueName])}
           trailing={<Button size="sm" title="Enter score" onPress={onEnterScore} />}
           style={styles.actionRow}

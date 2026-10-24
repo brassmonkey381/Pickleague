@@ -104,6 +104,7 @@ import AppNavBar, { navRouteChanged } from './AppNavBar';
 import CheckinHost from '../components/play/CheckinHost';
 import PlayStartScreen from '../screens/PlayStartScreen';
 import { useNavReserve } from '../lib/appChrome';
+import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 import InviteLandingScreen from '../screens/InviteLandingScreen';
 import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
@@ -135,7 +136,7 @@ function WebMaxWidth({
   if (Platform.OS !== 'web') return <>{children}</>;
   return (
     <View style={{ flex: 1, backgroundColor: background, alignItems: 'center' }}>
-      <View style={{ flex: 1, width: '100%', maxWidth: 720 }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: WEB_COLUMN_MAX_WIDTH }}>
         {children}
       </View>
     </View>

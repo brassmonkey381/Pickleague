@@ -60,7 +60,7 @@ export function GuestUpgradeRow({ lastRow, onPressed }: RowProps) {
     <EntityRow
       kind="player"
       layout="row"
-      glyph="👋"
+      iconName="wave"
       title="Save your account"
       subtitle="You're a guest. Add an email so you don't lose access."
       trailingText="Save"

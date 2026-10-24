@@ -24,10 +24,11 @@
 import React, { type ReactNode } from 'react';
 import { View, Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { ListCard, Badge } from '@just-messin-around/expo-foundation/ui';
+import { EmojiGlyph, Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
-import { entityGlyph, entityTileColors, type EntityKind, type RowChipTone } from '../lib/entityGlyph';
+import { entityIcon, entityTileColors, type EntityKind, type RowChipTone } from '../lib/entityGlyph';
 
 /** 'compact' = standalone card in a full-screen list; 'row' = divider row inside a Panel. */
 export type EntityRowLayout = 'compact' | 'row';
@@ -58,7 +59,9 @@ export type EntityRowProps = {
   lastRow?: boolean;
   /** Tinted background (e.g. the league you just joined). */
   highlighted?: boolean;
-  /** Replaces the kind's glyph. */
+  /** Replaces the kind's glyph (a glyph name; wins over `glyph`). */
+  iconName?: IconName;
+  /** Replaces the kind's glyph with an emoji (drawn as its glyph when one maps). */
   glyph?: string;
   style?: StyleProp<ViewStyle>;
 };
@@ -75,12 +78,16 @@ export default function EntityRow({
   onPress,
   lastRow,
   highlighted,
+  iconName,
   glyph,
   style,
 }: EntityRowProps) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const tile = entityTileColors(kind, c);
+  // The glyph takes the kind's accent; a neutral kind (court, player, shop)
+  // has only the border grey, too faint for a glyph, so it uses textSub.
+  const glyphColor = tile.border === c.border ? c.textSub : tile.border;
   const shownChips = (chips ?? [])
     .filter((x): x is EntityRowChip => !!x && !!x.label)
     .slice(0, MAX_ROW_CHIPS);
@@ -89,11 +96,15 @@ export default function EntityRow({
 
   const leading = (
     <View
-      style={[styles.tile, { backgroundColor: tile.bg, borderColor: tile.border }]}
+      style={[styles.tile, { backgroundColor: tile.bg }]}
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Text style={styles.glyph} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{glyph ?? entityGlyph(kind)}</Text>
+      {glyph && !iconName ? (
+        <EmojiGlyph emoji={glyph} size={GLYPH} color={glyphColor} />
+      ) : (
+        <Icon name={iconName ?? entityIcon(kind)} size={GLYPH} color={glyphColor} />
+      )}
     </View>
   );
 
@@ -122,7 +133,7 @@ export default function EntityRow({
             {trailingText}
           </Text>
         ) : null}
-        {showChevron ? <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text> : null}
+        {showChevron ? <Icon name="chevron-right" size={16} color={c.textMuted} /> : null}
       </View>
     );
   }
@@ -154,7 +165,10 @@ export default function EntityRow({
   );
 }
 
-const TILE = 36;
+// A 32px rounded-square tile, no border, 18px glyph (people keep round avatars;
+// things get rounded squares).
+const TILE = 32;
+const GLYPH = 18;
 
 const styles = StyleSheet.create({
   // A trailing action is a 44 tap box; with ListCard's 10px vertical padding
@@ -163,17 +177,14 @@ const styles = StyleSheet.create({
   // inside the row's bounds, which Android needs to deliver a touch to it.
   actionRow: { paddingVertical: SPACE.xs },
   tile: {
-    minWidth: TILE,
-    minHeight: TILE,
+    width: TILE,
+    height: TILE,
     borderRadius: RADIUS.md,
-    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glyph: { fontSize: FONT.size.xl, lineHeight: FONT.size.xl + SPACE.xs * 2 },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minWidth: 0 },
   // The name gives way first (ellipsis) so the chips stay readable.
   titleText: { flexShrink: 1 },
   trailingLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
-  chevron: { fontSize: FONT.size.h2, fontWeight: '700' },
 });

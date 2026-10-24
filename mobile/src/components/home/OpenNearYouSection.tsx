@@ -3,9 +3,9 @@
 // "Open near you" (nearest first, with distance) only when location is ALREADY
 // granted; otherwise "Open leagues". Home never asks for location to fill it.
 // Plain navigation rows: inline Join lives only in JOIN A LEAGUE (decision 1).
-// Capped at 3, so when more were found the header says "See all (N) ›" (section
+// Capped at 3, so when more were found the header says "See all (N) >" (section
 // 6 rule 4: a capped list never cuts silently), opening Play's Discover. N is
-// dropped ("See all ›") when the fetch itself hit a row limit and N is a floor.
+// dropped ("See all >") when the fetch itself hit a row limit and N is a floor.
 import React from 'react';
 import { View } from 'react-native';
 import { Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
@@ -38,7 +38,8 @@ export default function OpenNearYouSection({ items, nearby, now, onPress, total,
       <SectionHeader
         title={nearby ? 'Open near you' : 'Open leagues'}
         action={cut ? {
-          label: totalIsFloor ? 'See all ›' : `See all (${total}) ›`,
+          label: totalIsFloor ? 'See all' : `See all (${total})`,
+          chevron: true,
           a11yLabel: totalIsFloor ? 'See all open leagues and tournaments' : `See all ${total} open leagues and tournaments`,
           onPress: onSeeAll,
         } : undefined}

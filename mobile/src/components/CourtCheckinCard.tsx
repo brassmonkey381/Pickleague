@@ -46,7 +46,8 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Panel, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -358,7 +359,7 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   );
 
   if (current) {
-    // NOW: "📍 Lake Merritt · checked in · til 7:30", then who's here next to
+    // NOW: "(pin) Lake Merritt · checked in · til 7:30", then who's here next to
     // the actions. "Start playing" rides the title line (the plan's second line
     // only fits [+1 h] [Check out] beside the avatars) and opens the start
     // sheet with this court preselected. "Start playing" and "+1 h" hide while
@@ -370,10 +371,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
-          <Text style={[t.title, S.flex]} numberOfLines={1}>
-            📍 {current.venueName}
-            <Text style={t.sub}> · checked in · til {timeLabel(current.expiresAt)}</Text>
-          </Text>
+          <View style={[S.flex, S.inline]}>
+            <Icon name="pin" size={14} color={c.textSub} />
+            <Text style={[t.title, S.shrink]} numberOfLines={1}>
+              {current.venueName}
+              <Text style={t.sub}> · checked in · til {timeLabel(current.expiresAt)}</Text>
+            </Text>
+          </View>
           {/* Star the court you're at: next time, arriving checks you in. */}
           <CourtFavoriteStar venueId={current.venueId} venueName={current.venueName} />
           {!playing && (
@@ -434,10 +438,13 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
     return (
       <Panel padded={false} emphasis style={S.panel}>
         <View style={[S.line, S.titleRow]}>
-          <Text style={[t.title, S.flex]} numberOfLines={2}>
-            📍 Check in at {nearby.name}{' '}
-            {nearbyUntil ? `until ${timeLabel(nearbyUntil)}` : 'for 2 hours'}?
-          </Text>
+          <View style={[S.flex, S.inline]}>
+            <Icon name="pin" size={14} color={c.textSub} />
+            <Text style={[t.title, S.shrink]} numberOfLines={2}>
+              Check in at {nearby.name}{' '}
+              {nearbyUntil ? `until ${timeLabel(nearbyUntil)}` : 'for 2 hours'}?
+            </Text>
+          </View>
           <CourtFavoriteStar venueId={nearby.id} venueName={nearby.name} />
         </View>
         <HereLine key={`${nearby.id}:${rosterKey}`} venueId={nearby.id}>
@@ -470,9 +477,12 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   return (
     <Panel padded={false} style={S.panel}>
       <View style={S.courtRow}>
-        <Text style={[t.title, S.flex]} numberOfLines={1}>
-          📍 At the courts?
-        </Text>
+        <View style={[S.flex, S.inline]}>
+          <Icon name="pin" size={14} color={c.textSub} />
+          <Text style={[t.title, S.shrink]} numberOfLines={1}>
+            At the courts?
+          </Text>
+        </View>
         {busy === 'find' ? <ActivityIndicator color={c.primary} /> : null}
         {!playing && (
           <TouchableOpacity
@@ -489,35 +499,25 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
             </Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity
-          style={S.link}
-          activeOpacity={0.6}
-          disabled={!!busy}
-          onPress={tap('find_court', () => {
-            void findCourt();
-          })}
-          accessibilityRole="button"
-          accessibilityLabel="Find my court"
-        >
-          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            Find my court ›
-          </Text>
-        </TouchableOpacity>
+        <TextLink
+          label="Find my court"
+          style={S.textLink}
+          onPress={() => {
+            if (busy) return;
+            tap('find_court', () => {
+              void findCourt();
+            })();
+          }}
+        />
       </View>
       {COURT_DISCOVERY_ENABLED ? (
         // Its own line: the row above has no room left at 375 px.
-        <TouchableOpacity
-          style={[S.link, S.browse]}
-          activeOpacity={0.6}
+        <TextLink
+          label="Discover courts"
+          style={[S.textLink, S.browse]}
           onPress={tap('browse_courts', () => openDiscover(navigation, { tab: 'places' }))}
-          accessibilityRole="button"
-          accessibilityLabel="Discover courts"
           accessibilityHint="Shows the courts near you, as a list or a map"
-        >
-          <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            Discover courts ›
-          </Text>
-        </TouchableOpacity>
+        />
       ) : null}
       {footer}
     </Panel>
@@ -536,7 +536,11 @@ function makeStyles(_c: ReturnType<typeof useTheme>['colors']) {
     line: { minHeight: 44, justifyContent: 'center' },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     flex: { flex: 1, minWidth: 0 },
+    // A pin glyph beside the title, centred on its line.
+    inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    shrink: { flexShrink: 1 },
     link: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
+    textLink: { paddingHorizontal: SPACE.xs },
     browse: { alignSelf: 'flex-end' },
     hug: { alignSelf: 'flex-start' },
     gapSm: { marginTop: SPACE.xs, marginBottom: SPACE.xs },

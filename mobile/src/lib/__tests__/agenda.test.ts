@@ -194,9 +194,9 @@ describe('drillAgendaItems', () => {
     expect(todayLocked.dismissibleDrillId).toBeUndefined();
   });
 
-  it('locked and I confirmed: ✓ Confirmed, scheduled, no button', () => {
+  it('locked and I confirmed: Confirmed with a check-mark glyph, scheduled, no button', () => {
     const [d] = drillAgendaItems([stage({ myRsvp: 'on_my_way' })], NOW);
-    expect(d).toMatchObject({ title: 'Drill with Sam at Lake Merritt', status: '✓ Confirmed', needsYou: false, deadline: null });
+    expect(d).toMatchObject({ title: 'Drill with Sam at Lake Merritt', status: 'Confirmed', statusIcon: 'check-mark', needsYou: false, deadline: null });
     expect(d.confirmDrillId).toBeUndefined();
     expect(buildAgenda([d], NOW).rows[0].bucket).toBe('thisWeek');
     expect(needsYouCount([d], NOW)).toBe(0);

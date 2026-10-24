@@ -83,7 +83,8 @@ function FriendsAtCourtsBody() {
       <SectionHeader
         title="Friends at the courts"
         action={{
-          label: 'Friends ›',
+          label: 'Friends',
+          chevron: true,
           a11yLabel: 'See your friends',
           onPress: () => {
             trackHomeTap({ section: 'friends_courts', target: 'header' });

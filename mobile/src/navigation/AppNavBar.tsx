@@ -17,7 +17,7 @@
 // AppNavigator keeps that much clear under every screen and the island sits
 // just above it.
 import React, { useEffect, useRef, useState } from 'react';
-import { Text } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
 import { createSignal, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -139,7 +139,7 @@ function Bar({ signedIn }: { signedIn: boolean }) {
     {
       key: 'play',
       label: playing ? 'Playing' : 'Play',
-      glyph: <Text style={{ fontSize: 20, lineHeight: 24, color: playing ? c.success : c.textMuted }}>▶</Text>,
+      glyph: <Icon name="pickleball" size={24} color={playing ? c.success : c.textMuted} />,
       active: playing,
       accessibilityLabel: playing ? 'Playing now' : 'Play',
       accessibilityHint: playing ? 'Shows your session' : 'Starts a play session',

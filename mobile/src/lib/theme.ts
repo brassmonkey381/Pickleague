@@ -15,7 +15,7 @@ export const LIGHT: Theme = {
   primaryDark:  '#1b5e20',
   text:         '#1a1a1a',
   textSub:      '#555555',
-  textMuted:    '#999999',
+  textMuted:    '#6b6b6b', // 4.7:1 on bg (was #999999, 2.5:1)
   border:       '#e8e8e8',
   danger:       '#c62828',
   dangerLight:  '#fbe7e5',
@@ -35,6 +35,12 @@ export const LIGHT: Theme = {
   headerBg:     '#2e7d32',
   headerText:   '#ffffff',
   headerSub:    'rgba(255,255,255,0.75)',
+  // Theme-invariant medal metals (RankMedal) and the one shadow colour.
+  medalGold:    '#d4a017',
+  medalSilver:  '#a8b0b8',
+  medalBronze:  '#c07a3f',
+  onMedal:      '#1a1a1a',
+  shadow:       '#000000',
 };
 
 export const DARK: Theme = {
@@ -46,7 +52,7 @@ export const DARK: Theme = {
   primaryDark:  '#4caf50',
   text:         '#f0f0f0',
   textSub:      '#b0b0b0',
-  textMuted:    '#666666',
+  textMuted:    '#8a8a8a', // 4.7:1 on surface (was #666666, 2.8:1)
   border:       '#2a3d2a',
   danger:       '#ef5350',
   dangerLight:  '#3a1f1d',
@@ -66,4 +72,9 @@ export const DARK: Theme = {
   headerBg:     '#0d1a0d',
   headerText:   '#66bb6a',
   headerSub:    'rgba(102,187,106,0.65)',
+  medalGold:    '#d4a017',
+  medalSilver:  '#a8b0b8',
+  medalBronze:  '#c07a3f',
+  onMedal:      '#1a1a1a',
+  shadow:       '#000000',
 };

@@ -7,6 +7,7 @@
 import React from 'react';
 import { LoginBonusModal, type LoginBonusReward } from '@just-messin-around/expo-foundation/gamification';
 import { streakRoadmapFor, DAILY_STREAK_PICKLES, type StreakResult } from '../../lib/loginStreak';
+import { useTheme } from '../../lib/ThemeContext';
 
 type Props = {
   visible: boolean;
@@ -14,13 +15,15 @@ type Props = {
   onClose: () => void;
 };
 
-const pickles = (n: number) => `+${n} 🥒`;
+// The pickle glyph sits before every amount (amountIconName), so the text is just "+N".
+const pickles = (n: number) => `+${n.toLocaleString()}`;
 
 export default function StreakBonusModal({ visible, result, onClose }: Props) {
+  const { colors: c } = useTheme();
   if (!result) return null;
   const rewards: LoginBonusReward[] = [{ label: 'Daily login', amount: result.daily_pickles }];
   if (result.milestone_pickles > 0) {
-    rewards.push({ label: `🎉 ${result.milestone_label ?? 'Milestone'}`, amount: result.milestone_pickles, emphasis: true });
+    rewards.push({ label: result.milestone_label ?? 'Milestone', amount: result.milestone_pickles, emphasis: true, iconName: 'celebrate' });
   }
   return (
     <LoginBonusModal
@@ -31,8 +34,10 @@ export default function StreakBonusModal({ visible, result, onClose }: Props) {
       hero
       rewards={rewards}
       alreadyClaimed={!result.claimed_today}
+      claimedTitle="Already claimed today"
       claimedMessage="Come back tomorrow to extend your streak."
-      message={result.used_freeze ? '❄️ Used a streak freeze to bridge a missed day.' : undefined}
+      message={result.used_freeze ? 'Used a streak freeze to bridge a missed day.' : undefined}
+      messageIconName={result.used_freeze ? 'snowflake' : undefined}
       // daily_pickles is 0 on an already-claimed result; fall back to the rate.
       roadmap={streakRoadmapFor(result.daily_pickles || DAILY_STREAK_PICKLES)}
       stats={[
@@ -40,6 +45,9 @@ export default function StreakBonusModal({ visible, result, onClose }: Props) {
         { label: 'Freezes left', value: result.freezes_remaining },
       ]}
       formatAmount={pickles}
+      amountIconName="pickle"
+      streakIconName="fire"
+      streakIconColor={c.warning}
       ctaLabel={result.claimed_today ? 'Sweet!' : 'Got it'}
       dismissOnBackdrop
       onClose={onClose}

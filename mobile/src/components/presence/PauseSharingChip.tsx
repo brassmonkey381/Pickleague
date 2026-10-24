@@ -1,4 +1,4 @@
-// "⏸ Pause sharing" on the checked-in court card: for 1 hour, the rest of
+// "Pause sharing" (with the pause glyph) on the checked-in court card: for 1 hour, the rest of
 // today or 24 hours, everyone but you sees "a player" instead of your name
 // (you still count toward "N playing now"). Paused, the chip says until when
 // and offers Resume. The pause is presence_settings.paused_until on the
@@ -60,7 +60,7 @@ export default function PauseSharingChip({ style }: Props) {
     ...PAUSE_CHOICES.map((c) => ({ label: c.label, onPress: () => void pause(c.value) })),
   ];
 
-  const label = paused && pausedUntil ? `⏸ Paused ${pausedUntilLabel(pausedUntil, now)}` : '⏸ Pause sharing';
+  const label = paused && pausedUntil ? `Paused ${pausedUntilLabel(pausedUntil, now)}` : 'Pause sharing';
 
   return (
     <>
@@ -68,6 +68,7 @@ export default function PauseSharingChip({ style }: Props) {
         size="sm"
         hitBox
         label={busy ? 'Saving…' : label}
+        iconName="pause"
         tone={paused ? 'warning' : 'neutral'}
         variant={paused ? 'soft' : 'outline'}
         maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}

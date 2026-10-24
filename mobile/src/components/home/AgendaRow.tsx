@@ -9,15 +9,17 @@
 // tall, a two-line "when" column, the title, a one-line subtitle that always
 // names the league, and either a button (opens the detail screen AT that
 // control via a `focus` param; never an inline write, decision 1), a bookmark
-// + ✕ (drill rows: the old drill banner's dismiss, moved here), or a chevron.
+// + close glyph (drill rows: the old drill banner's dismiss, moved here), or a chevron.
 // A locked-in drill (court + time) I haven't answered gets an inline [Confirm]
-// instead, the one inline write on Up next; once tapped it reads "✓ Confirmed".
+// instead, the one inline write on Up next; once tapped it reads "Confirmed"
+// beside a check-mark glyph.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { ListCard } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import { joinFacts } from '../../lib/entityGlyph';
 import { agendaWhen, type AgendaRow as AgendaRowData } from '../../lib/agenda';
@@ -69,9 +71,10 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConf
   let trailing: React.ReactNode;
   if (row.confirmDrillId && confirmed) {
     trailing = (
-      <View style={styles.box}>
+      <View style={[styles.box, styles.inline]}>
+        <Icon name="check-mark" size={12} color={c.success} />
         <Text style={[t.meta, { color: c.success }]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-          ✓ Confirmed
+          Confirmed
         </Text>
       </View>
     );
@@ -92,13 +95,31 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConf
           accessibilityRole="button"
           accessibilityLabel="Hide this drill from Home"
         >
-          <Text style={[t.title, { color: c.textMuted }]}>✕</Text>
+          <Icon name="close" size={16} color={c.textMuted} />
         </TouchableOpacity>
       </View>
     );
   } else {
-    trailing = <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>;
+    trailing = <Icon name="chevron-right" size={16} color={c.textMuted} />;
   }
+
+  // "Dinks · (check) Confirmed": a status with a glyph is drawn as a row.
+  const subtitleNode =
+    row.statusIcon && row.status ? (
+      <View style={[styles.inline, styles.subtitle]}>
+        {row.leagueName ? (
+          <Text style={[t.sub, styles.shrink]} numberOfLines={1}>
+            {`${row.leagueName} · `}
+          </Text>
+        ) : null}
+        <Icon name={row.statusIcon} size={12} color={c.success} />
+        <Text style={[t.sub, { color: c.success }]} numberOfLines={1}>
+          {row.status}
+        </Text>
+      </View>
+    ) : (
+      subtitle || undefined
+    );
 
   return (
     <ListCard
@@ -106,7 +127,7 @@ export default function AgendaRow({ row, now, lastRow, onPress, onAction, onConf
       lastRow={lastRow}
       leading={leading}
       title={row.title}
-      subtitle={subtitle || undefined}
+      subtitle={subtitleNode}
       trailing={trailing}
       onPress={onPress}
       // A 44 action box plus the row's 10/10 padding would make a 64 row; 4px
@@ -120,6 +141,8 @@ const styles = StyleSheet.create({
   when: { minWidth: WHEN_MIN_WIDTH, flexShrink: 0, alignItems: 'flex-start' },
   pair: { flexDirection: 'row', alignItems: 'center' },
   box: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  chevron: { fontSize: FONT.size.h2, fontWeight: '700' },
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  subtitle: { marginTop: SPACE.xxs },
+  shrink: { flexShrink: 1 },
   actionRow: { paddingVertical: SPACE.xs },
 });

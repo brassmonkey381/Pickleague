@@ -31,6 +31,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Panel, SectionHeader, FilterChipRow, SkeletonList, EmptyState, ROW_MIN_HEIGHT } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { usePersistedState } from '@just-messin-around/expo-foundation/hooks';
 import { useCachedQuery, cachedFetch } from '@just-messin-around/expo-foundation/cache';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -180,8 +181,9 @@ export default function LeagueSpotlight({
           accessibilityLabel={`All my leagues, ${leagues.length}`}
         >
           <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            All my leagues ({leagues.length}) ›
+            All my leagues ({leagues.length})
           </Text>
+          <Icon name="chevron-right" size={14} color={c.primary} />
         </TouchableOpacity>
       ) : null}
       {tournamentCount > 0 ? (
@@ -193,8 +195,9 @@ export default function LeagueSpotlight({
           accessibilityLabel={`My tournaments, ${tournamentCount}`}
         >
           <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            My tournaments ({tournamentCount}) ›
+            My tournaments ({tournamentCount})
           </Text>
+          <Icon name="chevron-right" size={14} color={c.primary} />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -269,7 +272,7 @@ export default function LeagueSpotlight({
           <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{caption}</Text>
         ) : null}
       </View>
-      <Text style={[t.sub, { color: c.textMuted }]}>›</Text>
+      <Icon name="chevron-right" size={16} color={c.textMuted} />
     </TouchableOpacity>
   );
 
@@ -286,7 +289,7 @@ export default function LeagueSpotlight({
         accessibilityLabel={nextText}
       >
         <Text style={[t.sub, styles.flex, { color: c.text }]} numberOfLines={1}>{nextText}</Text>
-        {nextTarget ? <Text style={[t.sub, { color: c.textMuted }]}>›</Text> : null}
+        {nextTarget ? <Icon name="chevron-right" size={16} color={c.textMuted} /> : null}
       </TouchableOpacity>,
     );
   }
@@ -301,8 +304,9 @@ export default function LeagueSpotlight({
         accessibilityLabel="Start a season in Manage"
       >
         <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-          Start a season in Manage ›
+          Start a season in Manage
         </Text>
+        <Icon name="chevron-right" size={14} color={c.primary} />
       </TouchableOpacity>,
     );
   }
@@ -332,7 +336,7 @@ export default function LeagueSpotlight({
       body = (
         <EmptyState
           compact
-          icon="📡"
+          iconName="offline"
           title="Couldn't load standings"
           subtitle={friendlySbMessage(standings.error)}
           actionLabel="Retry"
@@ -389,5 +393,5 @@ const styles = StyleSheet.create({
   },
   divider: { borderTopWidth: HAIRLINE },
   links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg },
-  link: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md },
+  link: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs, paddingHorizontal: SPACE.md },
 });

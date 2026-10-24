@@ -2,11 +2,11 @@
 // as extra rows, the guest "save your account" and DUPR import offers (they
 // used to be separate banners above it).
 //
-//   GET STARTED  0 of 3                      v     44, toggles
-//   ○ Join a league                       Go ›     44
-//   ○ Set up your profile                 Go ›
-//   ✓ Record your first match   [Claim +1000 🥒]
-//   👋 Save your account                  Save ›   (guests only)
+//   (rocket) Get started  0 of 3              v     44, toggles (the shared Home card header)
+//   (circle) Join a league                 [Go >]   44
+//   (circle) Set up your profile           [Go >]
+//   (check) Record your first match  [(pickle) Claim +1000]
+//   (wave) Save your account               Save >   (guests only)
 //
 // Expanded by default while the account is under 7 days old; after that it is
 // one 44px row ("Get started · 2 of 3 · Claim +500") until tapped. HomeScreen
@@ -80,6 +80,9 @@ export default function GetStartedPanel({ ftue, isGuest, dupr, defaultOpen, emph
     <Panel padded={false} emphasis={emphasis}>
       <SectionHeader
         title="Get started"
+        size="title"
+        icon="rocket"
+        chevronAtEnd
         count={count || undefined}
         open={open}
         onToggle={() => {

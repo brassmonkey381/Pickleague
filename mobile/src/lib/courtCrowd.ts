@@ -92,11 +92,17 @@ export function anonymousPlayerLabel(rating: number | null | undefined): string 
   return b ? `Player · ${bandLabel(b.low, b.high)}` : 'Player';
 }
 
-/** A named row's label, with ⭐ for a close friend. */
+/** A named row's label. A close friend is no longer marked in the text: the
+ *  row draws a star glyph beside it (presenceIsCloseFriend). */
 export function presenceRowLabel(row: PresenceRowLike): string {
   if (row.anonymous) return anonymousPlayerLabel(row.doubles_rating);
   const name = row.full_name?.trim() || 'Player';
-  return row.is_close_friend ? `⭐ ${name}` : name;
+  return name;
+}
+
+/** Draw the close-friend star beside this row's label (named rows only). */
+export function presenceIsCloseFriend(row: PresenceRowLike): boolean {
+  return !row.anonymous && !!row.is_close_friend;
 }
 
 /** Close friends, then friends, then other named players (each by arrival),

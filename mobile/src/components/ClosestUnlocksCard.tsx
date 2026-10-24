@@ -5,10 +5,10 @@
 // ProgressBar"). Home renders it only when Get started is hidden; it hides
 // itself when nothing account-wide is left to earn or the progress can't load.
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS } from '@just-messin-around/expo-foundation/styles';
-import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { computeBadgeProgress, BadgeProgress } from '../lib/unlockProgress';
 
@@ -53,6 +53,7 @@ export default function ClosestUnlocksCard({ userId, navigation, onPressed }: Pr
       accessibilityRole="button"
       accessibilityLabel={`Next unlock: ${next.badge}, ${next.current} of ${next.target}. See all unlocks`}
     >
+      <Icon name="lock-open" size={16} color={c.primary} />
       <View style={styles.bar}>
         <ProgressBar
           progress={next.pct}
@@ -64,7 +65,7 @@ export default function ClosestUnlocksCard({ userId, navigation, onPressed }: Pr
           minFill={0.02}
         />
       </View>
-      <Text style={[styles.chevron, { color: c.textMuted }]}>›</Text>
+      <Icon name="chevron-right" size={16} color={c.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -77,8 +78,7 @@ const styles = StyleSheet.create({
     gap: SPACE.sm,
     paddingHorizontal: SPACE.md,
     borderWidth: 1,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.lg,
   },
   bar: { flex: 1, minWidth: 0 },
-  chevron: { fontSize: FONT.size.h2, fontWeight: '700' },
 });

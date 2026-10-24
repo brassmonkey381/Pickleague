@@ -1,8 +1,8 @@
 // One court in one day of the Pickleague Feed: the feed's top layer (Doggle's
 // FeedParkCard, with the player's avatar and PLUPR where Doggle shows the
-// dog). The header is the court (★ for a starred court, a pin otherwise; tap
+// dog). The header is the court (a star glyph for a starred court, a pin otherwise; tap
 // opens its page) with its crowd line and, today, one-tap [Check in] and
-// [▶ Play] at this court; tomorrow "Plan ▾". Its lines run in time order:
+// [(play) Play] at this court; tomorrow "Plan v". Its lines run in time order:
 // friends who came and went today (faded), friends here now (with their play
 // mode), then what is coming there (league events, booked matches,
 // tournaments, drills, votes, my routine stops). Each person / stop line's
@@ -14,6 +14,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Avatar, type ChipTone } from '@just-messin-around/expo-foundation/ui';
 import { FeedActionPill, FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../../lib/ThemeContext';
 import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
@@ -25,11 +26,11 @@ const AVATAR = 36;
 
 export type FeedCourtCardActions = {
   openCourt: (card: Card) => void;
-  /** "Plan ▾" (tomorrow): the court's options sheet. */
+  /** "Plan" + chevron (tomorrow): the court's options sheet. */
   courtOptions: (card: Card, day: DayBandKey) => void;
   /** Today's [Check in]: one tap, at this court. */
   checkIn: (card: Card) => void;
-  /** Today's [▶ Play] (and the empty card's "▶ Start playing"): the start sheet at this court. */
+  /** Today's Play pill (and the empty card's "Start playing"): the start sheet at this court. */
   play: (card: Card) => void;
   /** A league-side line (event, match, tournament, drill, vote) on this card. */
   renderAgenda: (line: Extract<FeedCourtLine, { kind: 'agenda' }>, card: Card, day: DayBandKey) => React.ReactNode;
@@ -123,15 +124,17 @@ export default function FeedCourtCard({
           backgroundColor={p.avatarBgColor ?? undefined}
         />
         <View style={styles.body}>
-          <Text
-            style={t.title}
-            numberOfLines={1}
-            onPress={() => actions.openPerson(p.userId, p.name)}
-            accessibilityRole="link"
-          >
-            {p.name}
-            {p.isCloseFriend ? ' ★' : ''}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text
+              style={[t.title, styles.shrink]}
+              numberOfLines={1}
+              onPress={() => actions.openPerson(p.userId, p.name)}
+              accessibilityRole="link"
+            >
+              {p.name}
+            </Text>
+            {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+          </View>
           {facts.length ? (
             <Text style={[t.meta, { color: l.kind === 'here' ? c.success : c.textSub }]} numberOfLines={1}>
               {facts.join(' · ')}
@@ -195,7 +198,7 @@ export default function FeedCourtCard({
           </TouchableOpacity>
         ) : null}
       </View>
-      {/* Today: the crowd line beside one-tap Check in / ▶ Play (the name
+      {/* Today: the crowd line beside one-tap Check in / Play (the name
           keeps the whole first line, a long court name stays readable). */}
       {day === 'today' ? (
         <View style={styles.subHeader}>
@@ -209,7 +212,8 @@ export default function FeedCourtCard({
             accessibilityLabel={`Check in at ${card.venueName}`}
           />
           <FeedActionPill
-            label="▶ Play"
+            label="Play"
+            iconName="play"
             filled
             onPress={() => actions.play(card)}
             accessibilityLabel={`Start playing at ${card.venueName}`}
@@ -268,22 +272,25 @@ export default function FeedCourtCard({
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  headerAction: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  subHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  card: { borderWidth: 1, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
+  header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  headerAction: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
+  subHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xs },
   subText: { flex: 1, minWidth: 0 },
-  agendaRow: { marginHorizontal: -4 },
-  crowd: { marginTop: 2 },
+  agendaRow: { marginHorizontal: -SPACE.xs },
+  crowd: { marginTop: SPACE.xxs },
   shrink: { flexShrink: 1 },
-  rows: { gap: 4, marginTop: 8 },
-  row: { paddingVertical: 5 },
-  line: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  ownRow: { marginHorizontal: -8, paddingHorizontal: 8, borderRadius: 10 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  rows: { gap: SPACE.xs, marginTop: SPACE.sm },
+  row: { paddingVertical: SPACE.xs },
+  line: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+  ownRow: { marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md },
   past: { opacity: 0.55 },
-  body: { flex: 1, minWidth: 0, gap: 1 },
-  kindIcon: { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+  body: { flex: 1, minWidth: 0, gap: SPACE.xxs / 2 },
+  // Things get rounded-square tiles (people keep round avatars).
+  kindIcon: { width: AVATAR, height: AVATAR, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
+  // The player's own avatar emoji (content, not chrome).
   emoji: { fontSize: 20 },
-  seeAll: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingTop: 6 },
+  seeAll: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, paddingTop: SPACE.xs },
 });

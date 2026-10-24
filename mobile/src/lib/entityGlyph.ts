@@ -15,7 +15,13 @@
 //     leagues yet". The Play / Leagues rework (P2) switches both to this map.
 //   - 🏓 (the paddle) stays the DRILL glyph (Home's drill rows, Bookmarks'
 //     drill sessions), so it can't also be the league.
+//
+// Glyphs (2026-10-24, glyphs-ui-plan.md): ENTITY_ICON / entityIcon() name the
+// drawn glyph for each kind (lib/glyphs.tsx registers the Pickleague art), and
+// rows draw it with <Icon>. ENTITY_GLYPH / entityGlyph() keep the emoji for
+// text that leaves the app (push, share) and for screens not converted yet.
 import type { Theme } from '@just-messin-around/expo-foundation/theme';
+import type { IconName } from '@just-messin-around/expo-foundation/icons';
 
 export type EntityKind =
   | 'league'
@@ -44,9 +50,29 @@ export const ENTITY_GLYPH: Readonly<Record<EntityKind, string>> = {
   pickles: '🥒',
 };
 
-/** The glyph for an entity kind. */
+/** The glyph for an entity kind (the emoji; for UI prefer entityIcon). */
 export function entityGlyph(kind: EntityKind): string {
   return ENTITY_GLYPH[kind];
+}
+
+/** The drawn glyph per kind. Event and season share the calendar. */
+export const ENTITY_ICON: Readonly<Record<EntityKind, IconName>> = {
+  league: 'pickleball',
+  tournament: 'trophy',
+  event: 'calendar',
+  vote: 'ballot',
+  drill: 'paddle',
+  court: 'pin',
+  match: 'medal',
+  season: 'calendar',
+  player: 'person',
+  shop: 'cart',
+  pickles: 'pickle',
+};
+
+/** The glyph name for an entity kind: <Icon name={entityIcon(kind)} />. */
+export function entityIcon(kind: EntityKind): IconName {
+  return ENTITY_ICON[kind];
 }
 
 /** Background + border for a row's glyph tile, from theme tokens only (no

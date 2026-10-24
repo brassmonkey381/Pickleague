@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   ENTITY_GLYPH,
+  ENTITY_ICON,
   entityGlyph,
+  entityIcon,
   entityTileColors,
   joinFacts,
   leagueRoleChip,
@@ -21,6 +23,25 @@ describe('entity glyphs', () => {
   it('no two kinds share a glyph', () => {
     const glyphs = Object.values(ENTITY_GLYPH);
     expect(new Set(glyphs).size).toBe(glyphs.length);
+  });
+
+  it('drawn glyphs: pickleball league, trophy tournament, paddle drill, pickle pickles', () => {
+    expect(entityIcon('league')).toBe('pickleball');
+    expect(entityIcon('tournament')).toBe('trophy');
+    expect(entityIcon('drill')).toBe('paddle');
+    expect(entityIcon('pickles')).toBe('pickle');
+    expect(entityIcon('court')).toBe('pin');
+  });
+
+  it('only event and season share a drawn glyph (both are dates)', () => {
+    const byIcon = new Map<string, string[]>();
+    for (const [kind, icon] of Object.entries(ENTITY_ICON)) byIcon.set(icon, [...(byIcon.get(icon) ?? []), kind]);
+    const shared = [...byIcon.values()].filter((kinds) => kinds.length > 1);
+    expect(shared).toEqual([['event', 'season']]);
+  });
+
+  it('every kind has both an emoji and a glyph', () => {
+    expect(Object.keys(ENTITY_ICON).sort()).toEqual(Object.keys(ENTITY_GLYPH).sort());
   });
 
   it('tile colours come from the theme', () => {
