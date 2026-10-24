@@ -13,6 +13,7 @@ import { BottomSheet, Chip, ClockTimeField, DurationChips, TimeWindowsEditor, We
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import {
   KEEP_WINDOWS_APART,
   fitWindowsToLength,
@@ -93,7 +94,7 @@ export default function RoutineEditSheet({
         <Text style={[t.label, S.label]}>COURT</Text>
         {courts.length === 0 ? (
           <Text style={t.hint}>
-            Routines are for your starred courts. Star a court (the ☆ on Home's court card or a court's page), then add it
+            Routines are for your starred courts. Star a court (the star on Home's court card or a court's page), then add it
             here.
           </Text>
         ) : (
@@ -108,8 +109,9 @@ export default function RoutineEditSheet({
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
                 >
+                  <Icon name="star" size={16} color={c.primary} />
                   <Text style={[t.title, S.shrink, { color: on ? c.primary : c.text }]} numberOfLines={1}>
-                    ★ {f.venue_name}
+                    {f.venue_name}
                   </Text>
                 </TouchableOpacity>
               );
@@ -215,9 +217,9 @@ const S = StyleSheet.create({
   court: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: SPACE.xs,
     borderWidth: 1.5,
-    borderRadius: RADIUS.md + 2,
+    borderRadius: RADIUS.md,
     minHeight: 44,
     paddingHorizontal: SPACE.md,
     maxWidth: '100%',

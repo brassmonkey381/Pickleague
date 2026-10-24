@@ -16,12 +16,16 @@ import DrillReviewModal from '../components/DrillReviewModal';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { isoDate, rollingDates, durationLabel, spanToDailyOverlays, toWeeklyTemplate, WEEKLY_CELLS } from '../lib/drillTime';
 import { drillWhenRangeLabel } from '../lib/drillWhen';
-import { SHOT_PREFS, PARTNER_PREFS, findShotPref, findPartnerPref } from '../data/drillOptions';
-import { DumbbellIcon } from '../components/PickleIcons';
+import { SHOT_PREFS, PARTNER_PREFS, type DrillPref } from '../data/drillOptions';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { Chip, ErrorState, Panel, SegmentedToggle, ShortcutGrid } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 
 type SessionWithPartner = DrillSession & { partner_id: string; partner_name: string; reviewed: boolean; calledOff: boolean };
 
@@ -30,6 +34,7 @@ type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Drill'
 export default function DrillScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
+  const t = textStyles(colors);
 
   const [userId, setUserId]                   = useState<string | null>(null);
   const [enabled, setEnabled]                 = useState(false);
@@ -65,7 +70,7 @@ export default function DrillScreen({ navigation }: Props) {
     } catch (e) {
       // Preferences rendering as "off" / sessions as "none" on a failed read is
       // indistinguishable from the user never having set anything up.
-      setLoadError(friendlySbMessage(e, "Couldn't load your drill settings."));
+      setLoadError(friendlySbMessage(e, 'Try again in a moment.'));
     } finally {
       // Always: the old `if (!user) return` and the happy-path-only
       // setLoading(false) both left the screen spinning.
@@ -210,16 +215,16 @@ export default function DrillScreen({ navigation }: Props) {
   }
 
   function addCustomTag() {
-    const t = customDraft.trim();
-    if (!t || customTags.includes(t) || customTags.length >= 12) return;
-    const next = [...customTags, t];
+    const tag = customDraft.trim();
+    if (!tag || customTags.includes(tag) || customTags.length >= 12) return;
+    const next = [...customTags, tag];
     setCustomTags(next);
     setCustomDraft('');
     persist({ drill_custom_tags: next });
   }
 
   function removeCustomTag(tag: string) {
-    const next = customTags.filter(t => t !== tag);
+    const next = customTags.filter(x => x !== tag);
     setCustomTags(next);
     persist({ drill_custom_tags: next });
   }
@@ -231,12 +236,11 @@ export default function DrillScreen({ navigation }: Props) {
   if (loadError && !loadedOnce) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load drilling"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load drilling. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -247,7 +251,7 @@ export default function DrillScreen({ navigation }: Props) {
   const pastSessions     = sessions.filter(s => s.session_date <  today).reverse();
   const visibleSessions  = sessionFilter === 'upcoming' ? upcomingSessions : pastSessions;
 
-  // Yellow-paint the grid for upcoming sessions inside the rolling 7-day window.
+  // Paint the grid (warning amber) for upcoming sessions inside the rolling 7-day window.
   const visibleDates = new Set(rollingDates());
   const confirmedSlots = upcomingSessions
     .filter(s => visibleDates.has(s.session_date))
@@ -255,28 +259,41 @@ export default function DrillScreen({ navigation }: Props) {
   // Red-paint scheduled matches inside the same window.
   const matchOverlay = scheduledMatches.filter(m => visibleDates.has(m.date));
 
+  // One preference chip: the glyph + label, brand-tinted when picked.
+  const prefChip = (p: DrillPref, active: boolean, onToggle: () => void) => (
+    <Chip
+      key={p.slug}
+      label={p.label}
+      iconName={p.iconName}
+      tone={active ? 'brand' : 'neutral'}
+      selected={active}
+      onPress={onToggle}
+      accessibilityRole="button"
+    />
+  );
+
   return (
     <>
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ paddingBottom: 60 }}
+      contentContainerStyle={S.scrollContent}
       scrollEnabled={!scrollLocked}
       refreshControl={<AppRefreshControl {...refresh} />}
     >
       {/* Hero */}
       <View style={S.hero}>
-        <View style={S.heroEmoji}><DumbbellIcon size={56} /></View>
-        <Text style={S.heroTitle}>Drill Partners</Text>
-        <Text style={S.heroSub}>Find someone to grind cross-court dinks with at 7am.</Text>
+        <Icon name="paddle" size={48} color={colors.headerText} style={S.heroGlyph} />
+        <Text style={[t.h1, { color: colors.headerText }]}>Drill Partners</Text>
+        <Text style={[t.sub, S.heroSub]}>Find someone to grind cross-court dinks with at 7am.</Text>
       </View>
 
-      <StatusBanner status={status.value} style={{ marginHorizontal: 16 }} />
+      <StatusBanner status={status.value} style={S.gutter} />
 
       {/* Opt-in toggle */}
-      <View style={S.optInCard}>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={S.optInLabel}>Open to drilling</Text>
-          <Text style={S.optInDesc}>
+      <Panel style={[S.card, S.optInCard]}>
+        <View style={S.flex}>
+          <Text style={t.title}>Open to drilling</Text>
+          <Text style={[t.sub, S.optInDesc]}>
             {enabled
               ? 'Other players can find you and send drill requests.'
               : 'You\'re hidden. Turn this on to send and receive drill requests.'}
@@ -286,108 +303,126 @@ export default function DrillScreen({ navigation }: Props) {
           value={enabled}
           onValueChange={toggleEnabled}
           trackColor={{ false: colors.border, true: colors.primary }}
-          thumbColor="#fff"
+          thumbColor={colors.textInverse}
+          accessibilityLabel="Open to drilling"
         />
-      </View>
+      </Panel>
 
       {!enabled ? (
         <View style={S.disabledHint}>
-          <Text style={S.disabledHintText}>
+          <Text style={[t.hint, S.center]}>
             Toggle "Open to drilling" above to set your schedule and find partners.
           </Text>
         </View>
       ) : (
         <>
           {/* Quick actions */}
-          <View style={S.actionsRow}>
-            <TouchableOpacity
-              style={S.actionBtn}
-              onPress={() => navigation.navigate('DrillSearch')}
-            >
-              <Text style={S.actionEmoji}>🔍</Text>
-              <Text style={S.actionLabel}>Find Partners</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={S.actionBtn}
-              onPress={() => navigation.navigate('DrillRequests')}
-            >
-              <Text style={S.actionEmoji}>📨</Text>
-              <Text style={S.actionLabel}>Requests</Text>
-              {pendingCount > 0 && (
-                <View style={S.actionBadge}>
-                  <Text style={S.actionBadgeText}>{pendingCount > 9 ? '9+' : pendingCount}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
+          <View style={[S.gutter, S.actions]}>
+            <ShortcutGrid
+              columns={2}
+              tileRadius={RADIUS.lg}
+              items={[
+                {
+                  key: 'find',
+                  label: 'Find Partners',
+                  a11y: 'Find drill partners',
+                  iconName: 'search',
+                  onPress: () => navigation.navigate('DrillSearch'),
+                },
+                {
+                  key: 'requests',
+                  label: 'Requests',
+                  a11y: pendingCount > 0 ? `Requests, ${pendingCount} pending` : 'Requests',
+                  onPress: () => navigation.navigate('DrillRequests'),
+                  glyph: (
+                    <View>
+                      <Icon name="mail" size={24} color={colors.primary} />
+                      {pendingCount > 0 && (
+                        <View style={S.actionBadge}>
+                          <Text style={t.badge}>{pendingCount > 9 ? '9+' : pendingCount}</Text>
+                        </View>
+                      )}
+                    </View>
+                  ),
+                },
+              ]}
+            />
           </View>
 
           {/* Save status */}
           {saveStatus !== 'idle' && (
-            <Text style={[S.saveStatus, saveStatus === 'error' ? { color: colors.danger } : { color: colors.primary }]}>
-              {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : 'Save failed'}
-            </Text>
+            <View style={S.saveStatus}>
+              {saveStatus === 'saved' ? <Icon name="check-mark" size={12} color={colors.primary} /> : null}
+              <Text style={[t.meta, { color: saveStatus === 'error' ? colors.danger : colors.primary }]}>
+                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : 'Save failed'}
+              </Text>
+            </View>
           )}
 
           {/* Drill sessions card */}
-          <View style={S.card}>
+          <Panel style={S.card}>
             <View style={S.sessionsHeader}>
-              <Text style={S.cardTitle}>Drill Sessions</Text>
-              <View style={S.filterRow}>
-                {(['upcoming', 'past'] as const).map(f => (
-                  <TouchableOpacity
-                    key={f}
-                    style={[S.filterPill, sessionFilter === f && S.filterPillActive]}
-                    onPress={() => setSessionFilter(f)}
-                  >
-                    <Text style={[S.filterPillText, sessionFilter === f && S.filterPillTextActive]}>
-                      {f === 'upcoming' ? `Upcoming (${upcomingSessions.length})` : `Past (${pastSessions.length})`}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <Text style={t.title}>Drill Sessions</Text>
+              <SegmentedToggle
+                size="sm"
+                showZero
+                value={sessionFilter}
+                onChange={setSessionFilter}
+                options={[
+                  { value: 'upcoming', label: 'Upcoming', count: upcomingSessions.length },
+                  { value: 'past', label: 'Past', count: pastSessions.length },
+                ]}
+              />
             </View>
             {visibleSessions.length === 0 ? (
               <EmptyState
-                icon="🏓"
+                iconName="paddle"
                 title={sessionFilter === 'upcoming' ? 'No upcoming sessions yet' : 'No past sessions yet'}
                 subtitle={sessionFilter === 'upcoming'
                   ? 'Find a partner and accept a request to schedule one.'
                   : undefined}
               />
             ) : (
-              <View style={{ marginTop: 10, gap: 8 }}>
+              <View style={S.sessionList}>
                 {visibleSessions.map(s => (
                   <View key={s.id} style={S.sessionRow}>
                     <View style={[S.sessionDot, sessionFilter === 'past' && S.sessionDotPast]} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={S.sessionTitle}>{s.partner_name}</Text>
-                      <Text style={S.sessionSub}>
+                    <View style={S.flex}>
+                      <Text style={t.title} numberOfLines={1}>{s.partner_name}</Text>
+                      <Text style={t.sub}>
                         {/* starts_at on this device's clock; the wall-clock slot is the fallback. */}
                         {drillWhenRangeLabel(s.starts_at, { date: s.session_date, slot: s.session_slot }, s.length_minutes ?? 60)} · {durationLabel(s.length_minutes ?? 60)}
                       </Text>
                     </View>
                     {sessionFilter === 'past' && (
                       s.reviewed ? (
-                        <Text style={S.sessionReviewed}>✓ Reviewed</Text>
+                        <View style={S.inline}>
+                          <Icon name="check-mark" size={12} color={colors.success} />
+                          <Text style={t.meta}>Reviewed</Text>
+                        </View>
                       ) : s.calledOff ? (
-                        <Text style={S.sessionReviewed}>Called off</Text>
+                        <Text style={t.meta}>Called off</Text>
                       ) : (
-                        <TouchableOpacity style={S.sessionReviewBtn} onPress={() => setReviewTarget(s)}>
-                          <Text style={S.sessionReviewBtnText}>📝 Review</Text>
-                        </TouchableOpacity>
+                        <Button
+                          size="sm"
+                          iconName="edit"
+                          title="Review"
+                          onPress={() => setReviewTarget(s)}
+                          accessibilityLabel={`Review your drill with ${s.partner_name}`}
+                        />
                       )
                     )}
                   </View>
                 ))}
               </View>
             )}
-          </View>
+          </Panel>
 
           {/* Availability grid */}
-          <View style={S.card}>
-            <Text style={S.cardTitle}>Your Drill Availability</Text>
-            <Text style={S.cardSub}>Recurring weekly · drag to paint your usual free slots · yellow = drill · red = match/tournament (next 7 days)</Text>
-            <View style={{ marginTop: 10 }}>
+          <Panel style={S.card}>
+            <Text style={t.title}>Your Drill Availability</Text>
+            <Text style={[t.hint, S.cardSub]}>Recurring weekly · drag to paint your usual free slots · amber = drill · red = match/tournament (next 7 days)</Text>
+            <View style={S.gridWrap}>
               <DrillAvailabilityGrid
                 availability={availability}
                 onChange={onAvailabilityChange}
@@ -396,58 +431,30 @@ export default function DrillScreen({ navigation }: Props) {
                 scheduledMatchSlots={matchOverlay}
               />
             </View>
-          </View>
+          </Panel>
 
           {/* Shot prefs */}
-          <View style={S.card}>
-            <Text style={S.cardTitle}>Shots You Want to Drill</Text>
-            <Text style={S.cardSub}>Pick what you'd like to focus on</Text>
+          <Panel style={S.card}>
+            <Text style={t.title}>Shots You Want to Drill</Text>
+            <Text style={[t.hint, S.cardSub]}>Pick what you'd like to focus on</Text>
             <View style={S.chipsWrap}>
-              {SHOT_PREFS.map(p => {
-                const active = shotPrefs.includes(p.slug);
-                return (
-                  <TouchableOpacity
-                    key={p.slug}
-                    style={[S.chip, active && S.chipActive]}
-                    onPress={() => toggleShotPref(p.slug)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[S.chipText, active && S.chipTextActive]}>
-                      {p.emoji} {p.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+              {SHOT_PREFS.map(p => prefChip(p, shotPrefs.includes(p.slug), () => toggleShotPref(p.slug)))}
             </View>
-          </View>
+          </Panel>
 
           {/* Partner prefs */}
-          <View style={S.card}>
-            <Text style={S.cardTitle}>Partner Preferences</Text>
-            <Text style={S.cardSub}>What you're looking for in a drill partner</Text>
+          <Panel style={S.card}>
+            <Text style={t.title}>Partner Preferences</Text>
+            <Text style={[t.hint, S.cardSub]}>What you're looking for in a drill partner</Text>
             <View style={S.chipsWrap}>
-              {PARTNER_PREFS.map(p => {
-                const active = partnerPrefs.includes(p.slug);
-                return (
-                  <TouchableOpacity
-                    key={p.slug}
-                    style={[S.chip, active && S.chipActive]}
-                    onPress={() => togglePartnerPref(p.slug)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[S.chipText, active && S.chipTextActive]}>
-                      {p.emoji} {p.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+              {PARTNER_PREFS.map(p => prefChip(p, partnerPrefs.includes(p.slug), () => togglePartnerPref(p.slug)))}
             </View>
-          </View>
+          </Panel>
 
           {/* Custom tags */}
-          <View style={S.card}>
-            <Text style={S.cardTitle}>Custom Tags</Text>
-            <Text style={S.cardSub}>Add anything else (max 12)</Text>
+          <Panel style={S.card}>
+            <Text style={t.title}>Custom Tags</Text>
+            <Text style={[t.hint, S.cardSub]}>Add anything else (max 12)</Text>
             <View style={S.customRow}>
               <TextInput
                 style={S.customInput}
@@ -459,16 +466,15 @@ export default function DrillScreen({ navigation }: Props) {
                 returnKeyType="done"
                 maxLength={32}
               />
-              <TouchableOpacity
-                style={[S.addBtn, (!customDraft.trim() || customTags.length >= 12) && S.addBtnDisabled]}
+              <Button
+                size="sm"
+                title="Add"
                 onPress={addCustomTag}
                 disabled={!customDraft.trim() || customTags.length >= 12}
-              >
-                <Text style={S.addBtnText}>Add</Text>
-              </TouchableOpacity>
+              />
             </View>
             {customTags.length > 0 && (
-              <View style={[S.chipsWrap, { marginTop: 10 }]}>
+              <View style={S.chipsWrap}>
                 {customTags.map(tag => (
                   <TouchableOpacity
                     key={tag}
@@ -478,12 +484,13 @@ export default function DrillScreen({ navigation }: Props) {
                     accessibilityRole="button"
                     accessibilityLabel={`Remove tag ${tag}`}
                   >
-                    <Text style={S.customChipText}>{tag}  ✕</Text>
+                    <Text style={[t.sub, S.customChipText]}>{tag}</Text>
+                    <Icon name="close" size={12} color={colors.primary} />
                   </TouchableOpacity>
                 ))}
               </View>
             )}
-          </View>
+          </Panel>
         </>
       )}
     </ScrollView>
@@ -503,72 +510,53 @@ export default function DrillScreen({ navigation }: Props) {
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    hero:          { backgroundColor: c.headerBg, paddingTop: 24, paddingBottom: 22, paddingHorizontal: 24, alignItems: 'center' },
-    heroEmoji:     { marginBottom: 4, alignItems: 'center' },
-    heroTitle:     { fontSize: 24, fontWeight: '900', color: c.headerText, letterSpacing: 2 },
-    heroSub:       { fontSize: 13, color: c.headerSub, marginTop: 4, textAlign: 'center' },
+    // Clears the floating nav bar.
+    scrollContent: { paddingBottom: SPACE.xl * 2 + SPACE.md },
+    gutter:        { marginHorizontal: SPACE.lg },
+    flex:          { flex: 1, minWidth: 0 },
+    center:        { textAlign: 'center' },
+    inline:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 
-    optInCard:     {
-      flexDirection: 'row', alignItems: 'center',
-      backgroundColor: c.surface, marginHorizontal: 16, marginTop: 16,
-      padding: 16, borderRadius: 14,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    hero:          { backgroundColor: c.headerBg, paddingVertical: SPACE.xl, paddingHorizontal: SPACE.xl, alignItems: 'center' },
+    heroGlyph:     { marginBottom: SPACE.sm },
+    heroSub:       { color: c.headerSub, marginTop: SPACE.xs, textAlign: 'center' },
+
+    card:          { marginHorizontal: SPACE.lg, marginTop: SPACE.md },
+    optInCard:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: SPACE.lg },
+    optInDesc:     { marginTop: SPACE.xxs },
+
+    disabledHint:  { padding: SPACE.xl, alignItems: 'center' },
+
+    actions:       { marginTop: SPACE.md },
+    actionBadge:   {
+      position: 'absolute', top: -(SPACE.xs + SPACE.xxs), right: -SPACE.md,
+      backgroundColor: c.danger, minWidth: 18, height: 18, borderRadius: RADIUS.pill,
+      paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center',
     },
-    optInLabel:    { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 2 },
-    optInDesc:     { fontSize: 12, color: c.textSub, lineHeight: 17 },
 
-    disabledHint:  { padding: 32, alignItems: 'center' },
-    disabledHintText: { fontSize: 14, color: c.textMuted, textAlign: 'center', lineHeight: 20 },
+    saveStatus:    { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: SPACE.xs, marginTop: SPACE.sm },
 
-    actionsRow:    { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 14 },
-    actionBtn:     {
-      flex: 1, backgroundColor: c.surface, borderRadius: 14,
-      paddingVertical: 18, alignItems: 'center',
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    cardSub:       { marginTop: SPACE.xxs },
+    gridWrap:      { marginTop: SPACE.sm },
+
+    chipsWrap:     { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginTop: SPACE.md },
+
+    customRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.md },
+    customInput:   {
+      flex: 1, minHeight: 44, borderWidth: 1.5, borderColor: c.border, borderRadius: RADIUS.md,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.md, color: c.text, backgroundColor: c.surface,
     },
-    actionEmoji:   { fontSize: 28, marginBottom: 4 },
-    actionLabel:   { fontSize: 14, fontWeight: '700', color: c.text },
-    actionBadge:   { position: 'absolute', top: 12, right: 18, backgroundColor: c.danger, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, alignItems: 'center', justifyContent: 'center' },
-    actionBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-
-    saveStatus:    { textAlign: 'center', fontSize: 12, marginTop: 8, fontWeight: '600' },
-
-    card:          {
-      backgroundColor: c.surface, marginHorizontal: 16, marginTop: 14,
-      padding: 16, borderRadius: 14,
-      shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    customChip:    {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.xs,
+      minHeight: 32, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs,
+      borderRadius: RADIUS.pill, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight,
     },
-    cardTitle:     { fontSize: 15, fontWeight: '700', color: c.text },
-    cardSub:       { fontSize: 12, color: c.textMuted, marginTop: 2 },
+    customChipText:{ color: c.primary, fontWeight: FONT.weight.semibold },
 
-    chipsWrap:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-    chip:          { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 18, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
-    chipActive:    { borderColor: c.primary, backgroundColor: c.primaryLight },
-    chipText:      { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    chipTextActive:{ color: c.primary, fontWeight: '700' },
-
-    customRow:     { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
-    customInput:   { flex: 1, borderWidth: 1.5, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: c.text, backgroundColor: c.surface },
-    addBtn:        { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: c.primary },
-    addBtnDisabled:{ opacity: 0.4 },
-    addBtnText:    { color: '#fff', fontSize: 14, fontWeight: '700' },
-    customChip:    { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 18, borderWidth: 1.5, borderColor: c.primary, backgroundColor: c.primaryLight },
-    customChipText:{ fontSize: 13, color: c.primary, fontWeight: '600' },
-
-    sessionsHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', rowGap: 6 },
-    filterRow:         { flexDirection: 'row', gap: 6 },
-    filterPill:        { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    filterPillActive:  { backgroundColor: c.primaryLight, borderColor: c.primary },
-    filterPillText:    { fontSize: 11, fontWeight: '700', color: c.textSub },
-    filterPillTextActive: { color: c.primary },
-    sessionsEmpty:     { fontSize: 13, color: c.textMuted, marginTop: 10, lineHeight: 19 },
-    sessionRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: c.surfaceAlt, borderRadius: 10 },
-    sessionDot:        { width: 10, height: 10, borderRadius: 5, backgroundColor: '#f5c542' },
+    sessionsHeader:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: SPACE.sm },
+    sessionList:       { marginTop: SPACE.md, gap: SPACE.sm },
+    sessionRow:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md },
+    sessionDot:        { width: 10, height: 10, borderRadius: RADIUS.pill, backgroundColor: c.warning },
     sessionDotPast:    { backgroundColor: c.textMuted },
-    sessionTitle:      { fontSize: 14, fontWeight: '700', color: c.text },
-    sessionSub:        { fontSize: 12, color: c.textSub, marginTop: 1 },
-    sessionReviewBtn:  { backgroundColor: c.primary, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8 },
-    sessionReviewBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
-    sessionReviewed:   { fontSize: 11, fontWeight: '700', color: c.textMuted },
   });
 }

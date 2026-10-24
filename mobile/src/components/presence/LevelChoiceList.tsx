@@ -1,5 +1,5 @@
 // The radio list behind "Who sees me at the courts" and "Who sees my planned
-// games": one row per level (label, one-line meaning, ✓ on the current one).
+// games": one row per level (label, one-line meaning, a check on the current one).
 // Used by the Settings sheets and by the consent sheet's "Change".
 //
 // Not the kit PrivacySettingsPanel: it hard-codes four levels with its own
@@ -9,7 +9,8 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import type { LevelOption } from '../../lib/presencePrivacy';
 
@@ -48,7 +49,7 @@ export default function LevelChoiceList<L extends string>({ options, value, onPi
             {saving === o.value ? (
               <ActivityIndicator color={c.primary} />
             ) : on ? (
-              <Text style={[S.check, { color: c.primary }]}>✓</Text>
+              <Icon name="check-mark" size={18} color={c.primary} />
             ) : null}
           </TouchableOpacity>
         );
@@ -61,5 +62,4 @@ const S = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, minHeight: 44 },
   text: { flex: 1, minWidth: 0 },
   desc: { marginTop: SPACE.xxs },
-  check: { fontSize: FONT.size.lg, fontWeight: FONT.weight.bold },
 });

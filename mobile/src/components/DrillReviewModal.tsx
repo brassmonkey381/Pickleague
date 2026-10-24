@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Modal, TouchableOpacity, TextInput, ScrollView,
-  ActivityIndicator, StyleSheet,
+  View, Text, Modal, TouchableOpacity, TextInput, ScrollView, StyleSheet,
 } from 'react-native';
 import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { PickleAmount } from './PickleAmount';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
@@ -29,8 +33,8 @@ const PICKLES_PER_FACET = 5;
 const TEXT_PICKLE_CAP = 50;
 
 /**
- * Drill self-review: rate 5 facets (5 🥒 each) + an optional long-text review
- * (0.1 🥒/char, capped at 50). Submits via submit_drill_review and shows the
+ * Drill self-review: rate 5 facets (5 pickles each) + an optional long-text review
+ * (0.1 pickle/char, capped at 50). Submits via submit_drill_review and shows the
  * pickles earned. One review per participant per session (server-enforced).
  *
  * The call is bounded at 15 s and never retried. A lost answer (timeout or
@@ -48,6 +52,7 @@ export default function DrillReviewModal({
 }) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const t = textStyles(c);
   const toast = useToast();
 
   const [ratings, setRatings] = useState<Record<FacetKey, number>>({
@@ -138,56 +143,68 @@ export default function DrillReviewModal({
     setTimeout(() => onSubmitted(sid, earned), 1300);
   }
 
+
   return (
     <Modal visible={!!session} transparent animationType="fade" onRequestClose={onClose}>
       <View style={S.overlay}>
         <View style={S.panel}>
           <View style={S.header}>
-            <Text style={S.title} numberOfLines={1}>📝 Review your drill</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-              <Text style={S.close}>✕</Text>
+            <Icon name="edit" size={16} color={c.textSub} />
+            <Text style={[t.title, S.title]} numberOfLines={1}>Review your drill</Text>
+            <TouchableOpacity onPress={onClose} style={S.closeBox} accessibilityRole="button" accessibilityLabel="Close">
+              <Icon name="close" size={20} color={c.textSub} />
             </TouchableOpacity>
           </View>
 
           {done !== null ? (
             <View style={S.successWrap}>
-              <Text style={S.successEmoji}>🥒</Text>
+              <Icon name="pickle" size={48} color={c.primary} style={S.successGlyph} />
               {done.earned !== null ? (
                 <>
-                  <Text style={S.successText}>+{done.earned} pickles earned!</Text>
-                  <Text style={S.successSub}>Thanks for reviewing your drill.</Text>
+                  <Text style={[t.h2, S.successText]}>+{done.earned} pickles earned!</Text>
+                  <Text style={[t.sub, S.center]}>Thanks for reviewing your drill.</Text>
                 </>
               ) : (
                 <>
-                  <Text style={S.successText}>Your review was saved</Text>
-                  <Text style={S.successSub}>It went through before the connection dropped. Thanks for reviewing your drill.</Text>
+                  <Text style={[t.h2, S.successText]}>Your review was saved</Text>
+                  <Text style={[t.sub, S.center]}>It went through before the connection dropped. Thanks for reviewing your drill.</Text>
                 </>
               )}
             </View>
           ) : (
-            <ScrollView contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
-              <Text style={S.partnerLine}>Drill with {session.partner_name}</Text>
-              <Text style={S.hint}>Rate each aspect (5 🥒 each) and add a review (0.1 🥒/char, up to 50).</Text>
+            <ScrollView contentContainerStyle={S.body} keyboardShouldPersistTaps="handled">
+              <Text style={t.title}>Drill with {session.partner_name}</Text>
+              <Text style={[t.hint, S.hint]}>Rate each aspect (5 pickles each) and add a review (1 pickle per 10 characters, up to 50).</Text>
 
               {FACETS.map(f => (
                 <View key={f.key} style={S.facetRow}>
-                  <Text style={S.facetLabel}>{f.label}</Text>
+                  <Text style={S.facetLabel} numberOfLines={1}>{f.label}</Text>
                   <View style={S.starsRow}>
-                    {[1, 2, 3, 4, 5].map(n => (
-                      <TouchableOpacity
-                        key={n}
-                        onPress={() => setRatings(prev => ({ ...prev, [f.key]: n }))}
-                        hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
-                        disabled={submitting}
-                      >
-                        <Text style={[S.star, n <= ratings[f.key] ? S.starOn : S.starOff]}>★</Text>
-                      </TouchableOpacity>
-                    ))}
+                    {[1, 2, 3, 4, 5].map(n => {
+                      const on = n <= ratings[f.key];
+                      return (
+                        <TouchableOpacity
+                          key={n}
+                          style={S.starBox}
+                          onPress={() => setRatings(prev => ({ ...prev, [f.key]: n }))}
+                          disabled={submitting}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${f.label}, ${n} of 5`}
+                          accessibilityState={{ selected: n === ratings[f.key], disabled: submitting }}
+                        >
+                          <Icon
+                            name={on ? 'star' : 'star-outline'}
+                            size={24}
+                            color={on ? c.rarityLegendary : c.textMuted}
+                          />
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
               ))}
 
-              <Text style={S.label}>Self-review (optional)</Text>
+              <Text style={[t.fieldLabel, S.label]}>Self-review (optional)</Text>
               <TextInput
                 style={S.notesInput}
                 value={notes}
@@ -198,20 +215,23 @@ export default function DrillReviewModal({
                 maxLength={TEXT_MAX}
                 editable={!submitting}
               />
-              <Text style={S.counter}>{notes.trim().length}/{TEXT_MAX} · +{textPickles} 🥒</Text>
+              <View style={S.counter}>
+                <Text style={t.caption}>{notes.trim().length}/{TEXT_MAX} ·</Text>
+                <PickleAmount amount={textPickles} prefix="+" preset="caption" color={c.textMuted} iconColor={c.primary} />
+              </View>
 
               {error && <Text style={S.errorText}>{error}</Text>}
 
-              <TouchableOpacity
-                style={[S.submitBtn, (answered < 1 || submitting) && S.submitBtnDim]}
+              <Button
+                title={`Submit & claim ${preview}`}
+                iconName="pickle"
+                iconPosition="trailing"
                 onPress={submit}
+                loading={submitting}
                 disabled={answered < 1 || submitting}
-              >
-                {submitting
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={S.submitBtnText}>Submit & claim {preview} 🥒</Text>}
-              </TouchableOpacity>
-              {answered < 1 && <Text style={S.hint}>Rate at least one aspect to claim your bonus.</Text>}
+                accessibilityLabel={`Submit and claim ${preview} pickles`}
+              />
+              {answered < 1 && <Text style={[t.hint, S.hint]}>Rate at least one aspect to claim your bonus.</Text>}
             </ScrollView>
           )}
         </View>
@@ -222,29 +242,33 @@ export default function DrillReviewModal({
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    overlay:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 16 },
-    panel:        { backgroundColor: c.bg, borderRadius: 14, width: '100%', maxWidth: 480, maxHeight: '88%', borderWidth: 1, borderColor: c.border, overflow: 'hidden' },
-    header:       { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: c.border },
-    title:        { flex: 1, fontSize: 16, fontWeight: '800', color: c.text },
-    close:        { fontSize: 20, color: c.textSub, fontWeight: '700', paddingHorizontal: 4 },
-    partnerLine:  { fontSize: 14, color: c.text, fontWeight: '700' },
-    hint:         { fontSize: 12, color: c.textMuted, marginTop: 4, marginBottom: 12, lineHeight: 17 },
-    facetRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-    facetLabel:   { fontSize: 14, fontWeight: '600', color: c.text, flex: 1 },
-    starsRow:     { flexDirection: 'row', gap: 4 },
-    star:         { fontSize: 26 },
-    starOn:       { color: '#f5b301' },
-    starOff:      { color: c.border },
-    label:        { fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 8, marginBottom: 6 },
-    notesInput:   { borderWidth: 1, borderColor: c.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 84, maxHeight: 160, fontSize: 14, color: c.text, backgroundColor: c.surface, textAlignVertical: 'top' },
-    counter:      { fontSize: 11, color: c.textMuted, textAlign: 'right', marginTop: 4, marginBottom: 12 },
-    errorText:    { color: c.danger, fontSize: 12, fontWeight: '600', marginBottom: 10 },
-    submitBtn:    { backgroundColor: c.primary, paddingVertical: 13, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-    submitBtnDim: { opacity: 0.5 },
-    submitBtnText:{ color: '#fff', fontWeight: '800', fontSize: 15 },
-    successWrap:  { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
-    successEmoji: { fontSize: 56, marginBottom: 12 },
-    successText:  { fontSize: 22, fontWeight: '800', color: c.primary, marginBottom: 6 },
-    successSub:   { fontSize: 14, color: c.textSub, textAlign: 'center' },
+    overlay:      { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
+    panel:        { backgroundColor: c.bg, borderRadius: RADIUS.lg, width: '100%', maxWidth: 480, maxHeight: '88%', borderWidth: HAIRLINE, borderColor: c.border, overflow: 'hidden' },
+    header:       {
+      flexDirection: 'row', alignItems: 'center', gap: SPACE.xs,
+      paddingVertical: SPACE.xs, paddingLeft: SPACE.lg, paddingRight: SPACE.xs,
+      borderBottomWidth: HAIRLINE, borderBottomColor: c.border,
+    },
+    title:        { flex: 1 },
+    closeBox:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    body:         { padding: SPACE.lg },
+    center:       { textAlign: 'center' },
+    hint:         { marginTop: SPACE.xs, marginBottom: SPACE.md },
+    facetRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm },
+    facetLabel:   { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, color: c.text, flex: 1, minWidth: 0 },
+    starsRow:     { flexDirection: 'row' },
+    // 40 wide x 44 tall: five fit beside the longest facet name at 375.
+    starBox:      { width: 40, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+    label:        { marginTop: SPACE.sm, marginBottom: SPACE.sm },
+    notesInput:   {
+      borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, minHeight: 84, maxHeight: 160,
+      fontSize: FONT.size.md, color: c.text, backgroundColor: c.surface, textAlignVertical: 'top',
+    },
+    counter:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: SPACE.xs, marginTop: SPACE.xs, marginBottom: SPACE.md },
+    errorText:    { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.danger, marginBottom: SPACE.sm },
+    successWrap:  { alignItems: 'center', paddingVertical: SPACE.xl + SPACE.lg, paddingHorizontal: SPACE.xl },
+    successGlyph: { marginBottom: SPACE.md },
+    successText:  { color: c.primary, marginBottom: SPACE.xs, textAlign: 'center' },
   });
 }

@@ -52,6 +52,7 @@ import {
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { supabase } from '../../lib/supabase';
 import { inviteUrl } from '../../lib/qrWallet';
 import { useTheme } from '../../lib/ThemeContext';
@@ -361,10 +362,11 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   const queuedRef = useRef<null | (() => void)>(null);
   usePlayHeaderPlus(navigation, live, 'Find or invite a player', () => setPlusOpen(true));
   const plusActions: ActionSheetAction[] = [
-    { label: '🔍 Find a player', onPress: () => { queuedRef.current = () => setPickerOpen(true); } },
+    { label: 'Find a player', iconName: 'search', onPress: () => { queuedRef.current = () => setPickerOpen(true); } },
     {
       // The Invite & Earn panel's wording, with the amount.
-      label: canRefer ? `↗ Invite a friend (you both get ${REFERRAL_REWARD_PICKLES} 🥒)` : '↗ Invite a friend',
+      label: canRefer ? `Invite a friend (you both get ${REFERRAL_REWARD_PICKLES} pickles)` : 'Invite a friend',
+      iconName: 'share',
       onPress: () => { queuedRef.current = () => { void invite('best'); }; },
     },
   ];
@@ -380,7 +382,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
     return run(
       f.user_id,
       () => markCloseFriend(f.user_id, !f.is_close_friend),
-      () => (f.is_close_friend ? `${first} is no longer a close friend.` : `⭐ ${first} is a close friend.`),
+      () => (f.is_close_friend ? `${first} is no longer a close friend.` : `${first} is a close friend now.`),
       "Couldn't change that just now. Try again.",
       f.full_name,
     );
@@ -410,7 +412,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         renderSkeleton={() => <SkeletonList rows={4} variant="row" />}
         renderEmpty={() => (
           <EmptyState
-            icon="🤝"
+            iconName="handshake"
             title="No friend requests"
             subtitle="Requests you send or get show up here."
             actionLabel="People you've played with"
@@ -512,7 +514,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         renderSkeleton={() => <SkeletonList rows={5} variant="row" />}
         renderEmpty={() => (
           <EmptyState
-            icon="🤝"
+            iconName="handshake"
             title="No friends yet"
             subtitle="Add the people you play with to see each other at the courts."
             actionLabel="People you've played with"
@@ -522,7 +524,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
       >
         {() => (
           <View style={S.block}>
-            <Text style={[t.hint, S.explainer]}>⭐ {CLOSE_FRIEND_EXPLAINER}</Text>
+            <View style={[S.explainer, S.explainerRow]}>
+              <Icon name="star" size={14} color={c.primary} style={S.explainerGlyph} />
+              <Text style={[t.hint, S.shrink]}>{CLOSE_FRIEND_EXPLAINER}</Text>
+            </View>
             <Panel padded={false}>
               {friends.map((f, i) => {
                 const name = f.full_name ?? 'Player';
@@ -544,9 +549,12 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                           accessibilityState={{ checked: f.is_close_friend, disabled: !!busyId }}
                           accessibilityLabel={`Close friend: ${name}`}
                         >
-                          <Text style={[S.star, { color: f.is_close_friend ? c.warning : c.textMuted }]}>
-                            {f.is_close_friend ? '★' : '☆'}
-                          </Text>
+                          {/* Doggle's FavoriteStarIcon: filled in the brand colour, the outline muted. */}
+                          <Icon
+                            name={f.is_close_friend ? 'star' : 'star-outline'}
+                            size={20}
+                            color={f.is_close_friend ? c.primary : c.textMuted}
+                          />
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={S.iconBox}
@@ -554,7 +562,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                           accessibilityRole="button"
                           accessibilityLabel={`More options for ${name}`}
                         >
-                          <Text style={[S.more, { color: c.textSub }]}>⋯</Text>
+                          <Icon name="more" size={20} color={c.textSub} />
                         </TouchableOpacity>
                       </>
                     }
@@ -581,7 +589,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         <Panel>
           <EmptyState
             compact
-            icon="📍"
+            iconName="pin"
             title="Choose an area"
             subtitle="Pick your location or a city above to see the players who play there."
           />
@@ -599,7 +607,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
             <Panel>
               <EmptyState
                 compact
-                icon="🏓"
+                iconName="paddle"
                 title={`No one plays within ${area.radiusMi} mi yet`}
                 subtitle="Players show up here by their leagues' courts and the courts they star. Try a wider radius above."
               />
@@ -629,7 +637,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                     trailing={known ? undefined : (
                       <Button
                         size="sm"
-                        title="➕ Add"
+                        iconName="plus"
+                        title="Add"
                         accessibilityLabel={`Add ${p.full_name ?? 'this player'} as a friend`}
                         loading={busyId === p.id}
                         disabled={!!busyId}
@@ -659,7 +668,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
               {/* Not a dead end (Friends' empty state points here): search. */}
               <EmptyState
                 compact
-                icon="🏓"
+                iconName="paddle"
                 title="No one yet"
                 subtitle="Play a match, drill or join a league, and they show up here."
                 actionLabel="Search players"
@@ -681,8 +690,9 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                   trailing={
                     <Button
                       size="sm"
-                      title="➕ Add"
-                      // Not "heavy plus sign Add": who, and what.
+                      iconName="plus"
+                      title="Add"
+                      // Who, and what.
                       accessibilityLabel={`Add ${s.full_name ?? 'this player'} as a friend`}
                       loading={busyId === s.user_id}
                       disabled={!!busyId}
@@ -711,7 +721,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           accessibilityLabel={area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name'}
           accessibilityHint="Opens player search"
         >
-          <Text style={S.searchGlyph}>🔍</Text>
+          <Icon name="search" size={16} color={c.textSub} />
           <Text style={[t.sub, S.flex]} numberOfLines={1}>
             {area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name or @username'}
           </Text>
@@ -740,12 +750,12 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           accessibilityRole="button"
           accessibilityLabel="Drill partners. Find someone to drill with"
         >
-          <Text style={S.linkGlyph}>🏋️</Text>
+          <Icon name="paddle" size={20} color={c.primary} />
           <View style={S.flex}>
             <Text style={[S.linkLabel, { color: c.text }]} numberOfLines={1}>Drill partners</Text>
             <Text style={t.sub} numberOfLines={1}>Find someone to drill with</Text>
           </View>
-          <Text style={[S.chevron, { color: c.textMuted }]}>›</Text>
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
 
         {/* Renders nothing while REFERRALS_ENABLED is off, and for guests. */}
@@ -761,7 +771,8 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
             </Text>
             <Button
               size="sm"
-              title={sharing ? 'Opening…' : '↗ Share my profile link'}
+              title={sharing ? 'Opening…' : 'Share my profile link'}
+              iconName={sharing ? undefined : 'share'}
               onPress={() => { void invite('profile'); }}
               disabled={sharing}
               style={S.inviteBtn}
@@ -799,7 +810,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         actions={menuFor ? [
           menuFor.is_close_friend
             ? { label: 'Remove from close friends', onPress: () => { void toggleClose(menuFor); } }
-            : { label: '⭐ Make close friend', onPress: () => { void toggleClose(menuFor); } },
+            : { label: 'Make close friend', iconName: 'star', onPress: () => { void toggleClose(menuFor); } },
           { label: 'View profile', onPress: () => openProfile(menuFor.user_id, menuFor.full_name) },
           { label: 'Remove friend', style: 'destructive', onPress: () => setQueuedRemove(menuFor) },
         ] : []}
@@ -837,32 +848,31 @@ const S = StyleSheet.create({
   block: { marginBottom: SPACE.md },
   flex: { flex: 1, minWidth: 0 },
   explainer: { marginBottom: SPACE.sm },
+  // The star beside a hint that may wrap: on its first line.
+  explainerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.xs },
+  explainerGlyph: { marginTop: SPACE.xxs },
+  shrink: { flexShrink: 1 },
   views: { marginBottom: SPACE.md },
   divider: { height: HAIRLINE, marginBottom: SPACE.md },
 
   // A person row inside a grouped Panel (ListCard 'row' metrics: padding
   // 10/12, 56 tall with a subtitle, hairline divider).
-  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56, paddingVertical: 10, paddingHorizontal: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56, paddingVertical: SPACE.sm + SPACE.xxs, paddingHorizontal: SPACE.md },
   who: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.md, minHeight: 44 },
   whoText: { flex: 1, minWidth: 0 },
   emoji: { fontSize: FONT.size.lg },
   actions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   iconBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  star: { fontSize: FONT.size.xl },
-  more: { fontSize: FONT.size.xl, fontWeight: '700' },
 
   search: {
     flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 48,
     paddingHorizontal: SPACE.md, borderRadius: RADIUS.lg, borderWidth: HAIRLINE, marginBottom: SPACE.sm,
   },
-  searchGlyph: { fontSize: FONT.size.base },
   linkRow: {
     flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56,
     paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderRadius: RADIUS.lg, borderWidth: HAIRLINE,
     marginBottom: SPACE.md,
   },
-  linkGlyph: { fontSize: FONT.size.lg },
-  linkLabel: { fontSize: FONT.size.base, fontWeight: '600' },
-  chevron: { fontSize: FONT.size.h2, fontWeight: '700' },
+  linkLabel: { fontSize: FONT.size.base, fontWeight: FONT.weight.semibold },
   inviteBtn: { alignSelf: 'flex-start', marginTop: SPACE.sm },
 });
