@@ -58,7 +58,8 @@ export function centreState(p: {
       label: clock,
       active: true,
       action: 'island',
-      accessibilityLabel: `Playing, ${clock}`,
+      // Not the clock: it changes every second (the island reads it out).
+      accessibilityLabel: 'Playing',
       accessibilityHint: 'Shows your session',
     };
   }

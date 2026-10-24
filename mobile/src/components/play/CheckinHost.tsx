@@ -24,7 +24,7 @@
 // Home's CourtCheckinCard still renders for now; it leaves the once-only
 // notes to this host (lib/checkinHost checkinHostOwnsNotes), so nothing is
 // said twice.
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -64,6 +64,8 @@ import {
   checkinHereRequested,
   checkinHostBusy,
   checkinIslandExpand,
+  checkoutInFlight,
+  checkoutInFlightId,
   setCheckinHostMounted,
   takeCheckinIslandRequest,
 } from '../../lib/checkinHost';
@@ -97,7 +99,13 @@ function Host() {
   const toast = useToast();
   const insets = useContext(SafeAreaInsetsContext);
   const barPx = useNavBarHeight();
-  const [current, setCurrent] = useState<CurrentCheckin | null>(null);
+  const [stored, setCurrent] = useState<CurrentCheckin | null>(null);
+  // The play island's Check out is on its way (lib/checkinPlay): that
+  // check-in is leaving, so it doesn't show here meanwhile (it does again if
+  // the check-out is refused).
+  const [outId, setOutId] = useState<string | null>(checkoutInFlightId());
+  useSignal(checkoutInFlight, setOutId);
+  const current = stored && stored.id !== outId ? stored : null;
   // A court found by a push's look-up: "At X?" with Check in / Not here.
   const [nearby, setNearby] = useState<ResolvedCourt | null>(null);
   const [addAt, setAddAt] = useState<{ lat: number; lng: number } | null>(null);
@@ -114,14 +122,21 @@ function Host() {
   });
   const { busy, message, setMessage, offerUntracked, setOfferUntracked, starOffer, alertsResult, run, noFix, lastFix } = flow;
   const playing = playSession.useLiveSession().status !== 'idle';
+  // The centre ▶ Play's one tap, from the tap until its Start is made (the
+  // ref guards a second tap; the state shows "Starting…" while the mode is
+  // picked, up to 1.5 s, lib/quickPlay).
+  const tapping = useRef(false);
+  const [starting, setStarting] = useState(false);
+  // A fix this tap found no court near: the note keeps Add this court.
+  const noCourtAt = useRef<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     setCheckinHostMounted(true);
     return () => setCheckinHostMounted(false);
   }, []);
   useEffect(() => {
-    checkinHostBusy.emit(busy);
-  }, [busy]);
+    checkinHostBusy.emit(busy ?? (starting ? 'checkin' : null));
+  }, [busy, starting]);
 
   // My check-in, from the cache at once and the server on mount and on every
   // return to the foreground. The once-only notes are said here (and on any
@@ -182,6 +197,7 @@ function Host() {
         }
       }
       let found: ResolvedCourt | null = null;
+      noCourtAt.current = null;
       await run(
         'find',
         async () => {
@@ -196,6 +212,7 @@ function Host() {
           if (!found && interactive) {
             setMessage('No court found within 150 m of you.');
             setAddAt({ lat: fix.lat, lng: fix.lng });
+            noCourtAt.current = { lat: fix.lat, lng: fix.lng };
           }
         },
         "Couldn't look up nearby courts. Try again.",
@@ -212,35 +229,56 @@ function Host() {
       playIslandExpand.emit();
       return;
     }
-    if (busy) return;
+    // Busy, a tap already on its way, or the island's Check out still going.
+    if (busy || tapping.current || checkoutInFlightId()) return;
     if (current) {
       setExpanded((x) => !x);
       return;
     }
+    tapping.current = true;
     setNearby(null);
     setExpanded(true);
     void (async () => {
-      // Who sees me at the courts, asked once (as the ▶ Play sheet does).
-      if (!(await ensurePresenceConsent())) {
-        setMessage(refusalCopy('consent.declined'));
-        setOfferUntracked(true);
-        return;
-      }
-      const found = await findHere(true);
-      const fix = lastFix.current;
-      track('checkin.tap', { result: found ? 'court' : 'none' });
-      if (found && fix) {
-        // One tap: checked in here and the timer running (the Start carries
-        // the fix). The play island takes over from this one.
-        setExpanded(false);
-        await quickPlayAt({ id: found.id, name: found.name }, fix);
-        return;
-      }
-      // No court found (or no fix): the ▶ Play sheet, with its court list,
-      // Find my court and "No court, just time it".
-      if (!found) {
-        clearNotes();
-        openPlayStart();
+      try {
+        // Who sees me at the courts, asked once (as the ▶ Play sheet does).
+        if (!(await ensurePresenceConsent())) {
+          setMessage(refusalCopy('consent.declined'));
+          setOfferUntracked(true);
+          return;
+        }
+        const found = await findHere(true);
+        const fix = lastFix.current;
+        track('checkin.tap', { result: found ? 'court' : 'none' });
+        if (found && fix) {
+          // A session started meanwhile (a notice, another screen): show it.
+          if (playSession.get().status !== 'idle') {
+            setExpanded(false);
+            playIslandExpand.emit();
+            return;
+          }
+          // One tap: checked in here and the timer running (the Start carries
+          // the fix). "Starting…" until the Start is made; then the play
+          // island takes over from this one.
+          setStarting(true);
+          setExpanded(false);
+          await quickPlayAt({ id: found.id, name: found.name }, fix);
+          return;
+        }
+        // A fix, but no court within 150 m: the note says so, with Add this
+        // court, Pick a court and Start without a court.
+        if (!found && noCourtAt.current) {
+          setOfferUntracked(true);
+          return;
+        }
+        // No fix: the ▶ Play sheet, with its court list, Find my court and
+        // "No court, just time it".
+        if (!found) {
+          clearNotes();
+          openPlayStart();
+        }
+      } finally {
+        tapping.current = false;
+        setStarting(false);
       }
     })();
   });
@@ -319,7 +357,7 @@ function Host() {
   };
 
   const noted = !!message || !!starOffer || !!alertsResult || offerUntracked || !!addAt;
-  const finding = busy === 'find' || busy === 'checkin';
+  const finding = busy === 'find' || busy === 'checkin' || starting;
   // Home's court card already shows my check-in: there the island shows only
   // when asked (the centre button, a push) or with something to say, and
   // keeps no room clear under Home for it.
@@ -393,7 +431,7 @@ function Host() {
     title = `AT ${nearby.name.toUpperCase()}?`;
     sections.push(
       <Text key="ask" style={t.sub}>
-        Check in for 2 hours, so friends can find you.
+        Check in for 2 hours: friends can find you, and your play timer starts.
       </Text>,
     );
     actions = [
@@ -405,7 +443,7 @@ function Host() {
       { label: 'Not here', variant: 'secondary', onPress: () => clearNotes() },
     ];
   } else if (finding) {
-    pill = { primary: busy === 'find' ? 'Finding your court…' : 'Checking you in…' };
+    pill = { primary: busy === 'find' ? 'Finding your court…' : busy === 'checkin' ? 'Checking you in…' : 'Starting your session…' };
     title = 'CHECK IN';
   } else {
     pill = { primary: 'Check in', secondary: 'Tap for details' };

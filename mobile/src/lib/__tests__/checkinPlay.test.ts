@@ -42,7 +42,7 @@ describe('the centre button', () => {
       label: '12:34',
       active: true,
       action: 'island',
-      accessibilityLabel: 'Playing, 12:34',
+      accessibilityLabel: 'Playing',
     });
     expect(centreState({ playing: true, elapsedSeconds: 3_725, checkedInVenue: null, busy: null }).label).toBe('1:02:05');
   });
@@ -80,8 +80,12 @@ describe('a check-in starts the timer', () => {
   it('a "just time it" timer running: it gains the court', () => {
     expect(onCheckedIn({ play: { id: 's1', venueId: null, startedAtMs: 1 }, checkin: at('manual') })).toEqual({ kind: 'adopt' });
   });
-  it('a session at a court running: nothing new', () => {
-    expect(onCheckedIn({ play: { id: 's1', venueId: 'v2', startedAtMs: 1 }, checkin: at('manual') })).toBeNull();
+  it('a session at this court running: nothing new', () => {
+    expect(onCheckedIn({ play: { id: 's1', venueId: 'v1', startedAtMs: 1 }, checkin: at('manual') })).toBeNull();
+    expect(onCheckedIn({ play: { id: 'c1', venueId: 'v1', startedAtMs: 1 }, checkin: at('geofence') })).toBeNull();
+  });
+  it('a session at another court running: switch to this court (the old one ended on the server)', () => {
+    expect(onCheckedIn({ play: { id: 's1', venueId: 'v2', startedAtMs: 1 }, checkin: at('manual') })).toEqual({ kind: 'switch', id: 'c1' });
   });
   it("a Start's own check-in: nothing (the Start is the session)", () => {
     expect(onCheckedIn({ play: null, checkin: at('session') })).toBeNull();

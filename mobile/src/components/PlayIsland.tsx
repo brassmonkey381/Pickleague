@@ -77,11 +77,13 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
     toast.info(untrackedStartNote(venueName, reason, { endedAtMs }));
   });
   // The session the island showed is over on the server without this
-  // device's End (the 6-hour expiry, another device, or its Start never
-  // landed): say why. After the expiry, while its 2 hours to record are still
-  // running, the end sheet asks for the match or drill that makes it count,
-  // as End would have. Once they're over, the toast alone says it ended
-  // (nothing recorded now could make it count).
+  // device's End (the 6-hour expiry, its check-in ending: run out, checked
+  // out on the lock screen or elsewhere, an arrival at another court;
+  // another device, or its Start never landed): say why. After the expiry or
+  // a check-out, while its 2 hours to record are still running, the end
+  // sheet asks for the match or drill that makes it count, as End would
+  // have. Once they're over, the toast alone says it ended (nothing recorded
+  // now could make it count).
   useSignal(playLost, (lost) => {
     toast.info(lostPlayNote(lost));
     if (lostPlayOffersRecord(lost) && lost.endedAtMs != null) {
@@ -211,11 +213,15 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       // The End never waits on the network: the island clears now, the server
       // write queues. The end sheet (play/PlayEndSheet) takes it from there:
       // "Record a match or drill?", or a note when the session was too short
-      // or already counts. The check-out follows in the background.
+      // or already counts. The check-out follows (its check-in hidden
+      // meanwhile); one refused says why, and the check-in shows again.
       onPress: async () => {
-        const where = checkin?.venueName ?? null;
-        const { ended, checkedOut } = await checkOutAndEnd();
-        if (!ended) toast.success(checkedOut && where ? `Checked out of ${where}.` : 'Session ended.');
+        const { ended, checkedOut, venueName, error } = await checkOutAndEnd();
+        if (error) {
+          toast.error(explainRefusal(error, "Couldn't check you out. Try again.", { venueName }));
+          return;
+        }
+        if (!ended) toast.success(checkedOut && venueName ? `Checked out of ${venueName}.` : 'Session ended.');
       },
     },
   ];

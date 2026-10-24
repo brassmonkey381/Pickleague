@@ -30,8 +30,25 @@ export const END_CHECK_MS = 2_000;
  */
 export type RecordedForSession = 'match' | 'match_pending' | 'match_confirmed' | 'drill' | null;
 
-/** Why the island's session turned out to be over on the server. */
-export type LostPlayReason = 'auto_ended' | 'ended_elsewhere' | 'never_saved';
+/**
+ * Why the island's session turned out to be over on the server.
+ * 'checked_out': its check-in ended (ran out, checked out from a notification
+ * or another device, an arrival or a check-in at another court) and the
+ * session with it (supabase/migration_checkin_starts_session.sql).
+ */
+export type LostPlayReason = 'auto_ended' | 'checked_out' | 'ended_elsewhere' | 'never_saved';
+
+/** How far apart a session's end and its check-in's check-out may be and still be one end (the server writes both in one statement). */
+const SAME_END_MS = 2_000;
+
+/**
+ * A session the server ended (before its 6 hours): did its check-in's end
+ * end it? Its check-in closed, at the session's end.
+ */
+export function endedWithCheckin(p: { endedAtMs: number; checkin: { checkedOutAtMs: number | null } | null }): boolean {
+  if (!p.checkin || p.checkin.checkedOutAtMs == null) return false;
+  return Math.abs(p.checkin.checkedOutAtMs - p.endedAtMs) <= SAME_END_MS;
+}
 
 /** A session the player just ended, as the island knew it. */
 export type EndedPlay = {
@@ -430,21 +447,26 @@ export function drillReviewNote(v: SessionValidity | null | undefined, o: Fmt & 
 }
 
 /**
- * After the island's session turns out to have auto-ended: whether the end
- * sheet should still ask for a match or drill (PlayIsland). Only while its 2
- * hours to record are running; after that nothing recorded can make it count,
- * and lostPlayNote alone says it ended.
+ * After the island's session turns out to have auto-ended, or ended with its
+ * check-in: whether the end sheet should still ask for a match or drill
+ * (PlayIsland), as End would have. Only while its 2 hours to record are
+ * running; after that nothing recorded can make it count, and lostPlayNote
+ * alone says it ended.
  */
 export function lostPlayOffersRecord(
   p: { reason: LostPlayReason; endedAtMs: number | null },
   nowMs: number = Date.now(),
 ): boolean {
-  return p.reason === 'auto_ended' && p.endedAtMs != null && p.endedAtMs + RECORD_WINDOW_MS > nowMs;
+  return (
+    (p.reason === 'auto_ended' || p.reason === 'checked_out') &&
+    p.endedAtMs != null &&
+    p.endedAtMs + RECORD_WINDOW_MS > nowMs
+  );
 }
 
 /** Why the island's session is gone, and what to do (PlayIsland says it once). */
 export function lostPlayNote(
-  p: { reason: LostPlayReason; startedAtMs: number; endedAtMs: number | null },
+  p: { reason: LostPlayReason; startedAtMs: number; endedAtMs: number | null; venueName?: string | null },
   o: Fmt = {},
 ): string {
   const at = fmt(o);
@@ -457,6 +479,12 @@ export function lostPlayNote(
       return by > now
         ? `Your play session ended on its own after 6 hours, at ${at(new Date(end))}. If you played, record a match or drill by ${at(new Date(by))} so it counts.`
         : `Your play session from ${start} ended on its own after 6 hours, at ${at(new Date(end))}.`;
+    }
+    case 'checked_out': {
+      const end = p.endedAtMs ?? now;
+      const by = end + RECORD_WINDOW_MS;
+      const head = `Your check-in${p.venueName ? ` at ${p.venueName}` : ''} ended at ${at(new Date(end))}, so your play session did too.`;
+      return by > now ? `${head} If you played, record a match or drill by ${at(new Date(by))} so it counts.` : head;
     }
     case 'ended_elsewhere':
       return `Your play session from ${start} ended${p.endedAtMs ? ` at ${at(new Date(p.endedAtMs))}` : ''}, on another device or when you started a new one.`;

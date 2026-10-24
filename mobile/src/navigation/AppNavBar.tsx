@@ -33,7 +33,13 @@ import { activeNavSlot, centreState, navBarVisible, navSideSlots, type NavSlot, 
 import { setNavBarHeight } from '../lib/appChrome';
 import { playIslandExpand, playSession } from '../lib/playSession';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
-import { checkinHereRequested, checkinHostBusy, type CheckinHostBusy } from '../lib/checkinHost';
+import {
+  checkinHereRequested,
+  checkinHostBusy,
+  checkoutInFlight,
+  checkoutInFlightId,
+  type CheckinHostBusy,
+} from '../lib/checkinHost';
 import { track } from '../lib/analytics';
 
 /** AppNavigator calls this when the navigator is ready and on every state change. */
@@ -105,22 +111,29 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   }, [signedIn]);
   const [busy, setBusy] = useState<CheckinHostBusy>(null);
   useSignal(checkinHostBusy, setBusy);
+  // The island's Check out on its way (lib/checkinPlay): that check-in is
+  // leaving, so the button says so instead of "Checked in".
+  const [outId, setOutId] = useState<string | null>(checkoutInFlightId());
+  useSignal(checkoutInFlight, setOutId);
+  const shownCheckin = checkin && checkin.id !== outId ? checkin : null;
 
-  // Folds away when a session starts, comes back when it ends.
+  // Folds away when a session starts, comes back when it ends (except on
+  // Home, where it stays folded to its chevron, as below).
+  const routeName = route?.name ?? null;
   const live = playSession.useLiveSession();
   const playing = live.status !== 'idle';
   const elapsed = useElapsed(playing ? (live.startedAtMs ?? null) : null);
   const [collapsed, setCollapsed] = useState(false);
   const wasPlaying = useRef(playing);
   useEffect(() => {
-    if (playing !== wasPlaying.current) setCollapsed(playing);
+    if (playing !== wasPlaying.current) setCollapsed(playing || routeName === 'Home');
     wasPlaying.current = playing;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on a session's start or end only
   }, [playing]);
 
   // Folded to its chevron on Home (the user, 2026-10-22: "closed by default on
   // the home page"), open elsewhere. Only on a change of screen, so a tap on
   // the chevron holds until the player moves on.
-  const routeName = route?.name ?? null;
   const lastRoute = useRef<string | null>(null);
   useEffect(() => {
     if (!routeName || routeName === lastRoute.current) return;
@@ -157,7 +170,12 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   // Play and Check in are one centre action (2026-10-24): ▶ Play when idle
   // (one tap checks in here and starts the timer, components/play/CheckinHost),
   // the running clock while playing (opens the island).
-  const state = centreState({ playing, elapsedSeconds: elapsed, checkedInVenue: checkin?.venueName ?? null, busy });
+  const state = centreState({
+    playing,
+    elapsedSeconds: elapsed,
+    checkedInVenue: shownCheckin?.venueName ?? null,
+    busy: busy ?? (outId ? 'out' : null),
+  });
   const centre: FloatingNavItem = {
     key: 'play',
     label: state.label,

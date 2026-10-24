@@ -30,7 +30,11 @@
 --   at A, an arrival at B moves both · KX a timer blocks an arrival as before ·
 --   KO open to play: a check-in alone says nothing, Play says open ·
 --   KB checks in at B by hand while playing at A · KD a replayed check-in, and
---   one the app closed before it landed
+--   one the app closed before it landed · KF ▶ Play at C, a drive-by arrival
+--   at A taken back gives the Play back · KG an arrival while my check-in
+--   elsewhere has run out (the expiry job not run yet) · KL a check-in queued
+--   offline lands after a newer Play elsewhere · KN, KQ a no-fix check-in,
+--   then ▶ Play with a fix 10 and 2 minutes later
 -- ============================================================
 
 begin;
@@ -48,7 +52,10 @@ insert into _p values
   ('KU', 'b9000000-0000-4000-8000-000000000007'), ('KS', 'b9000000-0000-4000-8000-000000000008'),
   ('KP', 'b9000000-0000-4000-8000-000000000009'), ('KV', 'b9000000-0000-4000-8000-00000000000a'),
   ('KX', 'b9000000-0000-4000-8000-00000000000b'), ('KO', 'b9000000-0000-4000-8000-00000000000c'),
-  ('KB', 'b9000000-0000-4000-8000-00000000000d'), ('KD', 'b9000000-0000-4000-8000-00000000000e');
+  ('KB', 'b9000000-0000-4000-8000-00000000000d'), ('KD', 'b9000000-0000-4000-8000-00000000000e'),
+  ('KF', 'b9000000-0000-4000-8000-00000000000f'), ('KG', 'b9000000-0000-4000-8000-000000000010'),
+  ('KL', 'b9000000-0000-4000-8000-000000000011'), ('KN', 'b9000000-0000-4000-8000-000000000012'),
+  ('KQ', 'b9000000-0000-4000-8000-000000000013');
 grant select on _p to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -173,7 +180,8 @@ begin
              and t.tgenabled = 'O' and t.tgfoid = 'public._pl_play_session_checkin()'::regprocedure));
   foreach f in array array['public._pl_checkin_starts_session()', 'public._pl_checkin_ends_session()',
                            'public._pl_play_session_checkin()', 'public.process_court_arrivals()',
-                           'public._pl_venue_open_now(uuid,text)'] loop
+                           'public._pl_venue_open_now(uuid,text)',
+                           'public._pl_take_back_arrival(uuid,uuid[],timestamptz)'] loop
     if has_function_privilege('authenticated', f, 'EXECUTE') or has_function_privilege('anon', f, 'EXECUTE') then
       v_bad := v_bad || f || ' ';
     end if;
@@ -189,11 +197,13 @@ begin
        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public'
         and p.proname in ('_pl_checkin_starts_session', '_pl_checkin_ends_session', '_pl_play_session_checkin',
-                          'process_court_arrivals', 'cancel_court_arrival', '_pl_venue_open_now', 'court_play_modes'))
+                          'process_court_arrivals', 'cancel_court_arrival', '_pl_venue_open_now', 'court_play_modes',
+                          '_pl_take_back_arrival'))
     and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
           where n.nspname = 'public'
             and p.proname in ('_pl_checkin_starts_session', '_pl_checkin_ends_session', '_pl_play_session_checkin',
-                              'process_court_arrivals', 'cancel_court_arrival', '_pl_venue_open_now', 'court_play_modes')) = 7);
+                              'process_court_arrivals', 'cancel_court_arrival', '_pl_venue_open_now', 'court_play_modes',
+                              '_pl_take_back_arrival')) = 8);
   perform pg_temp.ok('S1 no trigger on play_sessions beyond no-overlap, validity and the new link (nothing pays for a session)',
     (select array_agg(t.tgname::text order by t.tgname) from pg_trigger t
       where t.tgrelid = 'public.play_sessions'::regclass and not t.tgisinternal)
@@ -515,6 +525,126 @@ exception when others then
   perform pg_temp.ok('S13 block crashed', false, sqlerrm);
 end $$;
 
+
+-- ════ S15 ▶ Play at C, a drive-by arrival at A taken back ════════════════
+do $$
+declare
+  s public.play_sessions;
+  j jsonb;
+begin
+  perform pg_temp.as_user(pg_temp.p('KF'));
+  select * into s from public.start_play_session(p_id => 'f9000000-0000-4000-8000-000000000f01', p_kind => 'open_play',
+    p_venue => 'test:cs-c', p_at => now(), p_lat => 41.5201, p_lng => -101.0, p_accuracy_m => 10,
+    p_fix_at => now(), p_fix_age_ms => 1000);
+  perform pg_temp.age(s.id, interval '20 minutes');
+  j := pg_temp.arrive('KF', 'test:cs-a', 'c9000000-0000-4000-8000-000000000f02');
+  perform pg_temp.ok('S15 playing at C (▶ Play, its own check-in), an arrival at A ends the Play there and starts A''s',
+    (pg_temp.vci(s.id)).checked_out_at = now() - interval '2 minutes'
+    and (pg_temp.ps(s.id)).ended_at = now() - interval '2 minutes'
+    and (pg_temp.ps('c9000000-0000-4000-8000-000000000f02')).ended_at is null,
+    (pg_temp.ps(s.id))::text);
+  perform pg_temp.as_user(pg_temp.p('KF'));
+  j := public.cancel_court_arrival(p_venue => 'test:cs-a');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S15 taking A back gives the Play back: its check-in and its session reopen, A''s session is gone',
+    (j ->> 'removed')::boolean and (pg_temp.vci(s.id)).checked_out_at is null
+    and (pg_temp.ps(s.id)).ended_at is null and (pg_temp.ps(s.id)).started_at = now() - interval '20 minutes'
+    and pg_temp.ps('c9000000-0000-4000-8000-000000000f02') is null
+    and pg_temp.open_sessions('KF') = 1 and pg_temp.sessions('KF') = 1,
+    j::text || ' ' || (pg_temp.ps(s.id))::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S15 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ S16 an arrival while my check-in elsewhere has run out ═════════════
+do $$
+declare
+  c public.venue_checkins;
+  j jsonb;
+begin
+  c := pg_temp.ci('KG', 'c9000000-0000-4000-8000-000000001001', 'test:cs-c', 41.5201);
+  -- It ran out 5 minutes ago; the expiry job (every 10 minutes) hasn't closed it.
+  perform pg_temp.age(c.id, interval '2 hours 5 minutes');
+  c := pg_temp.vci(c.id);
+  j := pg_temp.arrive('KG', 'test:cs-a', 'c9000000-0000-4000-8000-000000001002');
+  perform pg_temp.ok('S16 the arrival at A lands (no "You have a play session running"); C''s session ends at C''s end',
+    (pg_temp.vci('c9000000-0000-4000-8000-000000001002')).checked_out_at is null
+    and (pg_temp.ps('c9000000-0000-4000-8000-000000001002')).ended_at is null
+    and pg_temp.pushes('KG', 'arrival_failed') = 0
+    and c.expires_at = now() - interval '5 minutes'
+    and (pg_temp.ps(c.id)).ended_at = c.expires_at
+    and pg_temp.open_sessions('KG') = 1,
+    coalesce((pg_temp.ps(c.id))::text, 'no C session'));
+  perform public.expire_venue_checkins();
+  perform pg_temp.ok('S16 ...the expiry job then closes C at its end and leaves A''s session be',
+    (pg_temp.vci(c.id)).checked_out_at = c.expires_at
+    and (pg_temp.ps(c.id)).ended_at = c.expires_at
+    and (pg_temp.ps('c9000000-0000-4000-8000-000000001002')).ended_at is null);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S16 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ S17 a check-in queued offline lands after a newer Play elsewhere ═══
+do $$
+declare
+  s public.play_sessions;
+  c public.venue_checkins;
+begin
+  perform pg_temp.as_user(pg_temp.p('KL'));
+  select * into s from public.start_play_session(p_id => 'f9000000-0000-4000-8000-000000001101', p_kind => 'open_play',
+    p_venue => 'test:cs-b');
+  perform pg_temp.as_user(pg_temp.p('KL'));
+  select * into c from public.checkin_venue(p_id => 'c9000000-0000-4000-8000-000000001102', p_venue => 'test:cs-a',
+    p_minutes => 120, p_source => 'manual', p_at => now() - interval '5 minutes');
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S17 the newer Play at B keeps running; the older check-in at A starts no session',
+    (pg_temp.ps(s.id)).ended_at is null and pg_temp.ps(c.id) is null and pg_temp.open_sessions('KL') = 1,
+    (pg_temp.ps(s.id))::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S17 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ S18 a no-fix check-in, then ▶ Play with a fix ══════════════════════
+do $$
+declare
+  c public.venue_checkins;
+  s public.play_sessions;
+  k text;
+  v_ago interval;
+  v_cid uuid;
+  v_sid uuid;
+begin
+  foreach k in array array['KN', 'KQ'] loop
+    v_ago := case k when 'KN' then interval '10 minutes' else interval '2 minutes' end;
+    v_cid := case k when 'KN' then 'c9000000-0000-4000-8000-000000001201'::uuid else 'c9000000-0000-4000-8000-000000001301'::uuid end;
+    v_sid := case k when 'KN' then 'f9000000-0000-4000-8000-000000001202'::uuid else 'f9000000-0000-4000-8000-000000001302'::uuid end;
+    -- An older build's check-in without a fix (not location_confirmed).
+    perform pg_temp.as_user(pg_temp.p(k));
+    select * into c from public.checkin_venue(p_id => v_cid, p_venue => 'test:cs-a', p_minutes => 120, p_source => 'manual');
+    perform pg_temp.age(c.id, v_ago);
+    perform pg_temp.as_user(pg_temp.p(k));
+    select * into s from public.start_play_session(p_id => v_sid, p_kind => 'open_play',
+      p_venue => 'test:cs-a', p_at => now(), p_lat => 41.5001, p_lng => -101.0, p_accuracy_m => 10,
+      p_fix_at => now(), p_fix_age_ms => 1000);
+    perform pg_temp.as_admin();
+    s := pg_temp.ps(v_sid);
+    perform pg_temp.ok('S18 ' || k || ' ▶ Play with a fix ' || v_ago::text || ' after a no-fix check-in keeps running, on its own check-in',
+      not c.location_confirmed and s.ended_at is null and s.checkin_id = s.id
+      and (pg_temp.vci(s.id)).checked_out_at is null and pg_temp.open_sessions(k) = 1
+      and not exists (select 1 from public.venue_checkins x
+                       where x.user_id = pg_temp.p(k) and x.checked_out_at is null and x.id <> s.id),
+      coalesce(s::text, 'gone') || ' | no-fix ci=' || (pg_temp.vci(c.id))::text);
+  end loop;
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('S18 block crashed', false, sqlerrm);
+end $$;
 
 -- ════ S14 nothing paid twice ═════════════════════════════════════════════
 do $$

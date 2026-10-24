@@ -72,6 +72,7 @@ import { queuedRefusalNotice, untrackedStartNote, type UntrackedStartReason } fr
 import {
   drillMadeItCount,
   drillReviewNote,
+  endedWithCheckin,
   type EndedPlay,
   type RecordedForSession,
   type LostPlayReason,
@@ -80,6 +81,7 @@ import {
   endPlaySession,
   getMyActivePlaySession,
   getMyPlaySession,
+  getMyPlaySessionCheckinId,
   getMySessionValidity,
   getMyUpcomingPlay,
   startPlaySession,
@@ -593,6 +595,8 @@ export type LostPlay = {
   endedAtMs: number | null;
   reason: LostPlayReason;
   recorded: RecordedForSession;
+  /** The court, for 'checked_out' ("Your check-in at X ended..."). */
+  venueName?: string | null;
 };
 
 /** Emits when the island's session turns out to be over on the server (PlayIsland says why). */
@@ -621,11 +625,26 @@ async function explainLostPlay(local: { id: string; startedAtMs: number; meta: P
       }
       endedAtMs = startedAtMs + AUTO_END_MS;
     }
-    const reason: LostPlayReason = !row
+    let reason: LostPlayReason = !row
       ? 'never_saved'
       : endedAtMs != null && endedAtMs - startedAtMs >= AUTO_END_MS - 60_000
         ? 'auto_ended'
         : 'ended_elsewhere';
+    let venueName = local.meta.venueName ?? null;
+    if (reason === 'ended_elsewhere' && endedAtMs != null) {
+      // Its check-in ended, and the session with it (the server's check-out
+      // trigger, migration_checkin_starts_session.sql): it ran out, was
+      // checked out from a notification or another device, or an arrival or
+      // check-in at another court closed it. Before that file, no session
+      // has a check-in to read, and this stays 'ended_elsewhere'.
+      const checkinId = await getMyPlaySessionCheckinId(local.id);
+      const checkin = checkinId ? await getMyCheckin(checkinId) : null;
+      const end = checkin ? { checkedOutAtMs: checkin.checked_out_at ? Date.parse(checkin.checked_out_at) : null } : null;
+      if (checkin && endedWithCheckin({ endedAtMs, checkin: end })) {
+        reason = 'checked_out';
+        venueName = venueName ?? (await getVenueName(checkin.venue_id).catch(() => null));
+      }
+    }
     playLost.emit({
       id: local.id,
       kind: local.meta.kind,
@@ -634,6 +653,7 @@ async function explainLostPlay(local: { id: string; startedAtMs: number; meta: P
       endedAtMs,
       reason,
       recorded: recordedFor.get(local.id) ?? local.meta.recorded ?? null,
+      venueName,
     });
   } catch {
     explainedLost.delete(local.id); // offline: try again on the next resume

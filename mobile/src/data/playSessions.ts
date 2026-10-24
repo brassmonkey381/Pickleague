@@ -97,6 +97,25 @@ export async function getMyPlaySession(id: string): Promise<PlaySessionRow | nul
   )) ?? null) as PlaySessionRow | null;
 }
 
+/**
+ * The check-in one of my sessions belongs to (play_sessions.checkin_id,
+ * supabase/migration_checkin_starts_session.sql), or null: none, or a server
+ * without that column yet (the read is refused, and there is nothing to tell
+ * then). No signal throws, so the caller can ask again later.
+ */
+export async function getMyPlaySessionCheckinId(id: string): Promise<string | null> {
+  try {
+    const row = (await sbCall(
+      () => supabase.from('play_sessions').select('checkin_id').eq('id', id).maybeSingle(),
+      BOUND,
+    )) as { checkin_id?: string | null } | null;
+    return row?.checkin_id ?? null;
+  } catch (e) {
+    if (classifySbError(e) === 'network') throw e;
+    return null;
+  }
+}
+
 /** My open session started in the last 6 hours, or null. */
 export async function getMyActivePlaySession(userId: string): Promise<PlaySessionRow | null> {
   const rows = (await sbCall(

@@ -16,7 +16,7 @@
 --   4. A taken-back automatic arrival (the 5-minute take-back) removes its
 --      session too: no stats left behind.
 --
--- How (one trigger-based mechanism; four functions replaced, one condition
+-- How (one trigger-based mechanism; five functions replaced, one condition
 -- each, from their live bodies, checked by tests/check-replaced-functions.mjs):
 --
 --   play_sessions.checkin_id (new): the check-in this session belongs to. A
@@ -36,6 +36,8 @@
 --       id = the check-in's id. Not for a 'session' check-in (start_play_
 --       session makes those for its own session), nor for an id the app
 --       already closed before it landed (presence_closed_ids).
+--     * a check-in older than my open session elsewhere (queued offline, it
+--       landed late) leaves that session running and starts none.
 --   No push: the check-in's own ("Checked in at ...") says it.
 --
 --   trg_venue_checkins_session_end (after update of checked_out_at,
@@ -53,11 +55,15 @@
 --   (ended_at = this start; its check-in still open) under 5 minutes in, with
 --   no match linked, is deleted and the new session keeps its start and its
 --   check-in. Any other new open session at a court links to my open
---   check-in there, so a check-out ends it as well (Check out = End).
+--   check-in there, so a check-out ends it as well (Check out = End). Only a
+--   check-in with a fix (location_confirmed) is taken over or linked:
+--   start_play_session closes a no-fix one when its Start has a fix, which
+--   would end the new session at once.
 --
 --   process_court_arrivals (from migration_court_routines.sql, the live body;
 --   one change): "you have a play session running" now means a session with
---   no open check-in. A session that belongs to an open check-in no longer
+--   no open check-in. A session that belongs to an open check-in (one that
+--   has run out but the expiry job hasn't closed yet included) no longer
 --   stops an arrival elsewhere: the arrival closes that check-in (its
 --   session ends) and starts its own, as a check-in without a session did.
 --
@@ -70,6 +76,11 @@
 --   "open to play" only when the player started it (Play), not when a
 --   check-in started it, so a check-in alone still says nothing (unsaid).
 --
+--   _pl_take_back_arrival (from migration_court_routines.sql, the live body;
+--   one condition): taking an arrival back may reopen a ▶ Play's own
+--   'session' check-in the arrival closed (now that a running Play no longer
+--   stops an arrival), and with it its session.
+--
 -- Rewards: no trigger pays for a play session (validity only gates future
 -- rewards: valid AND at_court), so an extra session doubles nothing. A Start
 -- right after the check-in reuses its session (above), so a match recorded
@@ -77,8 +88,17 @@
 -- session expiry (expire_play_sessions) is unchanged: a check-in extended past
 -- 6 hours keeps going after its session ended. Validity rules unchanged.
 --
+-- Known gaps (review, 2026-10-24; left for later):
+--   * A Start queued offline that lands after a newer check-in elsewhere
+--     still ends that check-in's session (start_play_session ends every open
+--     session at greatest(its time, their start); not changed here).
+--   * A no-fix check-in (builds 1.0.4 and older) then a check-in with a fix
+--     at the same court gives two sessions: the first ends at the second.
+--   * An arrival at the court where a no-fix ▶ Play runs is still refused
+--     ("You have a play session running"); it could link to that session.
+--
 -- Re-runnable. Re-running migration_court_routines.sql (or the court arrival
--- files) puts the old bodies of the four back: re-run this file afterwards.
+-- files) puts the old bodies of the five back: re-run this file afterwards.
 -- Internal helpers revoked from public, anon, authenticated;
 -- cancel_court_arrival and court_play_modes keep their grants to
 -- authenticated. No new client RPC.
@@ -146,9 +166,15 @@ begin
        where ps.id = s.id;
       return null;
     end if;
-    -- A session at another court with no open check-in: I'm here now.
+    -- A check-in older than that session (queued offline, it landed late):
+    -- the newer session stays, and this check-in starts none.
+    if s.started_at > new.checked_in_at then return null; end if;
+    -- A session at another court with no open check-in: I'm here now. One
+    -- whose check-in ran out (the expiry job not run yet) ends at its end.
     update public.play_sessions ps
-       set ended_at = greatest(ps.started_at, least(new.checked_in_at, now()))
+       set ended_at = greatest(ps.started_at, least(new.checked_in_at, now(),
+             coalesce((select c.expires_at from public.venue_checkins c
+                        where c.id = ps.checkin_id and c.checked_out_at is null), 'infinity'::timestamptz)))
      where ps.id = s.id;
   end if;
 
@@ -239,7 +265,7 @@ begin
      and ps.ended_at is not null
      and ps.ended_at = greatest(new.started_at, ps.started_at)
      and ps.ended_at < ps.started_at + interval '5 minutes'
-     and c.user_id = new.user_id and c.checked_out_at is null and c.expires_at > now()
+     and c.user_id = new.user_id and c.checked_out_at is null and c.expires_at > now() and c.location_confirmed
      and coalesce((select v.canonical_id from public.venues v where v.id = ps.venue_id), ps.venue_id) = v_venue
      and not exists (select 1 from public.matches m where m.play_session_id = ps.id)
    order by ps.started_at desc
@@ -254,7 +280,7 @@ begin
   if new.checkin_id is null then
     select c.id into new.checkin_id
       from public.venue_checkins c
-     where c.user_id = new.user_id and c.checked_out_at is null and c.expires_at > now()
+     where c.user_id = new.user_id and c.checked_out_at is null and c.expires_at > now() and c.location_confirmed
        and c.venue_id in (select v.id from public.venues v where v.id = v_venue or v.canonical_id = v_venue)
      order by c.checked_in_at desc
      limit 1;
@@ -379,7 +405,7 @@ grant execute on function public.cancel_court_arrival(text, timestamptz, boolean
 -- ── 6. process_court_arrivals: a check-in's session doesn't block ─────────
 -- From migration_court_routines.sql (the live body). Changed: only a session
 -- with no open check-in (a timer, or a Start elsewhere that checked nobody
--- in) stops an arrival ("You have a play session running"); a session that
+-- in; one that ran out but isn't closed yet still counts) stops an arrival ("You have a play session running"); a session that
 -- belongs to an open check-in ends with it when the arrival closes that
 -- check-in, and the arrival starts its own (trg_venue_checkins_session).
 create or replace function public.process_court_arrivals()
@@ -437,13 +463,14 @@ begin
 
         -- A session nobody ended counts as running until the 6-hour expiry
         -- (expire_play_sessions) would close it. One that belongs to an open
-        -- check-in ends with it below (migration_checkin_starts_session.sql).
+        -- check-in (run out or not) ends with it below, or at its end
+        -- (migration_checkin_starts_session.sql).
         if exists (select 1 from public.play_sessions s
                     where s.user_id = r.user_id and s.ended_at is null
                       and s.started_at > now() - interval '6 hours'
                       and not exists (select 1 from public.venue_checkins sc
                                        where sc.id = s.checkin_id and sc.user_id = r.user_id
-                                         and sc.checked_out_at is null and sc.expires_at > now())) then
+                                         and sc.checked_out_at is null)) then
           v_fail := 'session';
         else
           v_id := r.checkin_id;
@@ -672,3 +699,73 @@ begin
 end $$;
 revoke all on function public.court_play_modes(text) from public, anon;
 grant execute on function public.court_play_modes(text) to authenticated;
+
+
+-- ── 8. The take-back gives a Play's check-in back too ─────────────────────
+-- From migration_court_routines.sql (the live body). Changed: an arrival
+-- elsewhere now closes a running Play's own 'session' check-in (above: its
+-- session no longer blocks the arrival), which ends that session. Taking the
+-- arrival back reopens that check-in too, when its session ended with it
+-- (within a second of the check-out, in the last 6 hours); the end trigger
+-- (section 3) then reopens the session. Before, a 'session' check-in was
+-- never reopened: a running Play stopped the arrival instead.
+create or replace function public._pl_take_back_arrival(p_uid uuid, p_ids uuid[], p_left timestamptz)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  t        record;
+  v_any    boolean := false;
+  v_reopen uuid;
+begin
+  if p_uid is null or p_ids is null or cardinality(p_ids) = 0 then return false; end if;
+  for t in
+    update public.venue_checkins c
+       set taken_back_at      = now(),
+           location_confirmed = false,
+           plan_id            = null,
+           checked_out_at     = coalesce(c.checked_out_at,
+                                         greatest(c.checked_in_at + interval '1 second',
+                                                  least(coalesce(p_left, now()), c.expires_at)))
+     where c.id = any (p_ids) and c.user_id = p_uid and c.via_arrival and c.taken_back_at is null
+    returning c.id, c.checked_in_at, c.arrival_closed_ids
+  loop
+    v_any := true;
+    delete from public.push_outbox o
+     where o.recipient_id = p_uid and o.notification_id is null
+       and o.status in ('pending', 'failed')
+       and o.push_data ->> 'checkin_id' = t.id::text
+       and o.push_data ->> 'kind' in ('arrival_checkin', 'arrival_extend', 'arrival_extend_until');
+
+    update public.court_plans pl
+       set status = 'planned', checkin_id = null, updated_at = now()
+     where pl.checkin_id = t.id and pl.user_id = p_uid and pl.status = 'completed';
+
+    if t.arrival_closed_ids is not null
+       and not exists (select 1 from public.venue_checkins o
+                        where o.user_id = p_uid and o.checked_out_at is null and o.expires_at > now()) then
+      select c.id into v_reopen
+        from public.venue_checkins c
+       where c.id = any (t.arrival_closed_ids) and c.user_id = p_uid
+         and c.checked_out_at is not null and c.checked_out_at <= t.checked_in_at
+         and c.taken_back_at is null and c.expires_at > now()
+         -- A Play's own check-in too, when the arrival ended its session
+         -- (its end trigger then gives the session back as well).
+         and (c.source <> 'session'
+              or exists (select 1 from public.play_sessions s
+                          where s.id = c.id and s.user_id = p_uid and s.checkin_id = c.id
+                            and s.started_at > now() - interval '6 hours'
+                            and s.ended_at between c.checked_out_at - interval '1 second'
+                                               and c.checked_out_at + interval '1 second'))
+       order by c.checked_in_at desc
+       limit 1;
+      if v_reopen is not null then
+        update public.venue_checkins set checked_out_at = null where id = v_reopen;
+      end if;
+    end if;
+  end loop;
+  return v_any;
+end $$;
+revoke all on function public._pl_take_back_arrival(uuid, uuid[], timestamptz) from public, anon, authenticated;

@@ -12,6 +12,7 @@
 // id, which the migrated server answers as a replay of its session.
 import { arrivalTakenBack, checkedInHere, checkedOutHere, checkOut, peekCurrentCheckin } from './courtCheckin';
 import { endPlay, playSession, startPlay, type PlayMeta } from './playSession';
+import { setCheckoutInFlight } from './checkinHost';
 import {
   checkinToCloseWithEnd,
   checkoutEndsPlay,
@@ -35,6 +36,11 @@ checkedInHere.subscribe((c) => {
     playSession.patchMeta({ venueId: c.venueId, venueName: c.venueName });
     return;
   }
+  // Checked in at another court while a session ran: the server ended that
+  // one (this check-in closed its court's), or ends it when the Start below
+  // lands. No end sheet for it: the player moved on, and its end is the
+  // server's. The island drops it and shows this court's.
+  if (next.kind === 'switch') playSession.clear();
   startPlay({
     id: next.id,
     kind: 'open_play',
@@ -58,21 +64,34 @@ arrivalTakenBack.subscribe(({ venueId }) => {
 /**
  * The island's Check out (= End): ends the session now (the end sheet takes
  * it from there) and checks out of my check-in, unless End closes it itself
- * (a Start's own check-in). The check-out runs in the background, bounded by
- * lib/courtCheckin (a queued one goes when the signal comes back).
+ * (a Start's own check-in). The check-out runs behind it, bounded by
+ * lib/courtCheckin (a queued one goes when the signal comes back); while it
+ * runs, the check-in island and the bar leave that check-in out (lib/checkinHost
+ * checkoutInFlight). `error`: the check-out was refused (still checked in, so
+ * the check-in shows again), for the island to say why.
  */
-export async function checkOutAndEnd(): Promise<{ ended: boolean; checkedOut: boolean }> {
+export async function checkOutAndEnd(): Promise<{
+  ended: boolean;
+  checkedOut: boolean;
+  venueName: string | null;
+  error?: unknown;
+}> {
   const s = playSession.get();
   const sessionId = s.id;
   const cur = await peekCurrentCheckin();
-  const ended = !!endPlay();
   // A check-in still queued is checked out behind it (lib/courtCheckin checkOut).
   const closeId = sessionId && cur ? checkinToCloseWithEnd({ sessionId, checkin: cur }) : null;
-  if (!closeId) return { ended, checkedOut: false };
+  const venueName = cur?.venueName ?? null;
+  // Hidden before the session clears, so the check-in island never flashes in.
+  if (closeId) setCheckoutInFlight(closeId);
+  const ended = !!endPlay();
+  if (!closeId) return { ended, checkedOut: false, venueName };
   try {
     await checkOut(closeId);
-    return { ended, checkedOut: true };
-  } catch {
-    return { ended, checkedOut: false };
+    return { ended, checkedOut: true, venueName };
+  } catch (error) {
+    return { ended, checkedOut: false, venueName, error };
+  } finally {
+    setCheckoutInFlight(null);
   }
 }

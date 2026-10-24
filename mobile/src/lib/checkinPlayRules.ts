@@ -17,17 +17,20 @@ export type CheckinFacts = { id: string; venueId: string; source: 'manual' | 'ge
 /**
  * After a check-in this device made: start the timer with the check-in's own
  * id (so a server that starts the session itself already has it: a replay),
- * adopt the running timer (a "just time it" session gains the court), or do
- * nothing (a session already runs at a court, or this is a Start's own
- * check-in).
+ * adopt the running timer (a "just time it" session gains the court), switch
+ * (a session at another court: the server ended it when this check-in closed
+ * that court's, or ends it when this Start lands; the island drops it without
+ * asking and starts this one), or do nothing (a session already runs at this
+ * court, or this is a Start's own check-in).
  */
 export function onCheckedIn(p: {
   play: RunningPlay;
   checkin: CheckinFacts;
-}): { kind: 'start'; id: string } | { kind: 'adopt' } | null {
+}): { kind: 'start'; id: string } | { kind: 'adopt' } | { kind: 'switch'; id: string } | null {
   if (p.checkin.source === 'session') return null;
   if (!p.play) return { kind: 'start', id: p.checkin.id };
   if (!p.play.venueId) return { kind: 'adopt' };
+  if (p.play.id !== p.checkin.id && p.play.venueId !== p.checkin.venueId) return { kind: 'switch', id: p.checkin.id };
   return null;
 }
 

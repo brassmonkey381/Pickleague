@@ -50,13 +50,16 @@ const REPLACED = [
   ['public.court_presence(text)', 'migration_presence_p1_reads.sql', 'migration_hide_test_accounts.sql'],
   ['public._pl_venue_crowd(uuid,text)', 'migration_presence_p1_reads.sql', 'migration_hide_test_accounts.sql'],
   // Every check-in starts the play session (migration_checkin_starts_session.sql):
-  // one line each in the arrival processor, the take-back and the two
-  // "open to play" reads, all last defined by migration_court_routines.sql.
+  // one line each in the arrival processor, the take-back (cancel and its
+  // helper) and the two "open to play" reads, all last defined by
+  // migration_court_routines.sql.
   ['public.process_court_arrivals()', 'migration_court_routines.sql', 'migration_checkin_starts_session.sql'],
   ['public.cancel_court_arrival(text,timestamptz,boolean)', 'migration_court_routines.sql',
     'migration_checkin_starts_session.sql'],
   ['public._pl_venue_open_now(uuid,text)', 'migration_court_routines.sql', 'migration_checkin_starts_session.sql'],
   ['public.court_play_modes(text)', 'migration_court_routines.sql', 'migration_checkin_starts_session.sql'],
+  ['public._pl_take_back_arrival(uuid,uuid[],timestamptz)', 'migration_court_routines.sql',
+    'migration_checkin_starts_session.sql'],
 ];
 const TAG = '$pl_expect$';
 

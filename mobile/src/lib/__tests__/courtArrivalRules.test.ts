@@ -305,7 +305,7 @@ describe('departure (rows 38-39)', () => {
   });
 
   it('a removed or closed arrival check-in is taken back, with nothing to remind about', () => {
-    const base = { playSessionActive: false, settings: settings() };
+    const base = { regionId: 'venue-1', playSession: null, settings: settings() };
     expect(decideDeparture({ ...base, cancel: { queued: false, result: { dropped: false, removed: true, closed: true } } })).toEqual({
       action: 'took_back',
     });
@@ -315,7 +315,8 @@ describe('departure (rows 38-39)', () => {
     // Even during a play session or with the reminder off: the take-back comes first.
     expect(
       decideDeparture({
-        playSessionActive: true,
+        regionId: 'venue-1',
+        playSession: { venueId: 'venue-2' },
         settings: settings({ departure_reminder: false }),
         cancel: { queued: false, result: { dropped: false, removed: true, closed: true } },
       }),
@@ -323,7 +324,7 @@ describe('departure (rows 38-39)', () => {
   });
 
   it('dropped, queued or no cancel: goes on to "Leaving X?" (Check in now may have checked me in)', () => {
-    const base = { playSessionActive: false, settings: settings() };
+    const base = { regionId: 'venue-1', playSession: null, settings: settings() };
     expect(decideDeparture({ ...base, cancel: { queued: false, result: { dropped: true, removed: false, closed: false } } })).toEqual({
       action: 'check_open',
     });
@@ -331,16 +332,32 @@ describe('departure (rows 38-39)', () => {
     expect(decideDeparture({ ...base, cancel: null })).toEqual({ action: 'check_open' });
   });
 
-  it('skips a play session and the reminder switched off; unreadable settings keep it on', () => {
-    expect(decideDeparture({ cancel: null, playSessionActive: true, settings: settings() })).toEqual({
+  it('skips a play session at another court or at none, and the reminder switched off; unreadable settings keep it on', () => {
+    const at = { cancel: null, regionId: 'venue-1' };
+    expect(decideDeparture({ ...at, playSession: { venueId: 'venue-2' }, settings: settings() })).toEqual({
       action: 'quiet',
       why: 'play_session',
     });
-    expect(decideDeparture({ cancel: null, playSessionActive: false, settings: settings({ departure_reminder: false }) })).toEqual({
+    expect(decideDeparture({ ...at, playSession: { venueId: null }, settings: settings() })).toEqual({
+      action: 'quiet',
+      why: 'play_session',
+    });
+    expect(decideDeparture({ ...at, playSession: null, settings: settings({ departure_reminder: false }) })).toEqual({
       action: 'quiet',
       why: 'reminder_off',
     });
-    expect(decideDeparture({ cancel: null, playSessionActive: false, settings: null })).toEqual({ action: 'check_open' });
+    expect(decideDeparture({ ...at, playSession: null, settings: null })).toEqual({ action: 'check_open' });
+  });
+
+  it('a session at the court left (its check-in started it): "Leaving X?" goes on, its Check out ends the session', () => {
+    const at = { cancel: null, regionId: 'venue-1', playSession: { venueId: 'venue-1' } };
+    expect(decideDeparture({ ...at, settings: settings() })).toEqual({ action: 'check_open' });
+    expect(decideDeparture({ ...at, settings: null })).toEqual({ action: 'check_open' });
+    // The reminder switched off still wins.
+    expect(decideDeparture({ ...at, settings: settings({ departure_reminder: false }) })).toEqual({
+      action: 'quiet',
+      why: 'reminder_off',
+    });
   });
 
   const open = (over: Partial<OpenCheckinFact> = {}): OpenCheckinFact => ({
@@ -378,18 +395,22 @@ describe('departure (rows 38-39)', () => {
     });
   });
 
-  it('skips no check-in, one elsewhere, a play session\'s, and a second within 30 minutes', () => {
+  it('skips no check-in, one elsewhere, and a second within 30 minutes', () => {
     expect(decideLeaving({ regionId: 'venue-1', open: null, nowMs: NOW })).toMatchObject({ action: 'quiet', why: 'not_checked_in' });
     expect(decideLeaving({ regionId: 'venue-2', open: open(), nowMs: NOW })).toMatchObject({ why: 'checked_in_elsewhere' });
-    expect(decideLeaving({ regionId: 'venue-1', open: open({ source: 'session' }), nowMs: NOW })).toMatchObject({
-      why: 'session_checkin',
-    });
     expect(
       decideLeaving({ regionId: 'venue-1', open: open(), nowMs: NOW, lastPromptAtMs: NOW - DEPARTURE_COOLDOWN_MS + 1 }),
     ).toMatchObject({ why: 'cooldown' });
     expect(
       decideLeaving({ regionId: 'venue-1', open: open(), nowMs: NOW, lastPromptAtMs: NOW - DEPARTURE_COOLDOWN_MS }).action,
     ).toBe('leaving');
+  });
+
+  it("a ▶ Play's own check-in gets it too (Check out = End since the merge)", () => {
+    expect(decideLeaving({ regionId: 'venue-1', open: open({ source: 'session' }), nowMs: NOW })).toMatchObject({
+      action: 'leaving',
+      data: { checkin_id: open().id },
+    });
   });
 
   it('names the court from the check-in, else the region, else "the courts"', () => {

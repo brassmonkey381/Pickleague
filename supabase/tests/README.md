@@ -130,8 +130,13 @@ No CI runner is wired up yet — these are **human-runnable** today.
     by a check-in, and is unchanged alone (it still stops an arrival); a Start
     right after a check-in takes its session over (no stray one); the app's
     Start with the check-in's id is a replay; a check-in alone stays "not
-    said" for open to play; nothing pays pickles or streaks. The presence
-    and routines builders splice the migration in too.
+    said" for open to play; nothing pays pickles or streaks. Review fixes
+    (S15-S18): taking back an arrival that ended a running ▶ Play gives the
+    Play back; an arrival while a check-in elsewhere has run out (the expiry
+    job not run yet) lands; a check-in queued offline that lands after a
+    newer Play elsewhere leaves it running; ▶ Play with a fix after a no-fix
+    check-in keeps running. The presence and routines builders splice the
+    migration in too.
 
     ```sh
     node supabase/tests/build-checkin-session-test.mjs /tmp/checkin_session_test.sql
