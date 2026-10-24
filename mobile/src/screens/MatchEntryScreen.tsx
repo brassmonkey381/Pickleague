@@ -96,7 +96,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     prefillTeam1Player, prefillTeam1Partner,
     prefillTeam2Player, prefillTeam2Partner,
     playSessionId,
-  } = route.params;
+    // A cold web link (/match-entry) has no params: the Home-launched form.
+  } = route.params ?? ({} as RootStackParamList['MatchEntry']);
   const toast = useToast();
   const isTournamentMatch = !!tournamentMatchId;
   // Home-launched entry: no fixed league, so the user picks the league (required)
