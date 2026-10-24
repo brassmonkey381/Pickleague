@@ -26,7 +26,8 @@
 --   GU  friends, a guest pass                                  -> ignored
 --   S2  a second sender: close friend C1, friend C2 (no star)
 --   C1, C2  S2's friends, push on
---   S3  a third sender with friends but no close friends
+--   S3  a third sender with a friend (C2) but no close friends
+--   NF also stands in for a sender with no friends at all
 -- ============================================================
 
 begin;
@@ -125,8 +126,12 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:omw-court',  array['pickleball'], 'Omw Test Courts',  'court', 44.1, -150.1, 'google', 100),
   ('test:omw-alias',  array['pickleball'], 'Omw Test Alias',   'court', 44.1, -150.1, 'google', 100),
   ('test:omw-second', array['pickleball'], 'Omw Second Courts', 'court', 44.2, -150.2, 'google', 100),
-  ('test:omw-third',  array['pickleball'], 'Omw Third Courts', 'court', 44.3, -150.3, 'google', 100);
+  ('test:omw-third',  array['pickleball'], 'Omw Third Courts', 'court', 44.3, -150.3, 'google', 100),
+  ('test:omw-rejected', array['pickleball'], 'Omw Rejected Courts', 'court', 44.4, -150.4, 'google', 100),
+  ('test:omw-rej-alias', array['pickleball'], 'Omw Rejected Alias', 'court', 44.4, -150.4, 'google', 100);
 update public.venues set canonical_id = 'test:omw-court' where id = 'test:omw-alias';
+update public.venues set confirmation_status = 'rejected' where id = 'test:omw-rejected';
+update public.venues set canonical_id = 'test:omw-rejected' where id = 'test:omw-rej-alias';
 
 -- Friendships first (a block deletes them; BK / BB are re-added after).
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
@@ -199,6 +204,10 @@ begin
   perform pg_temp.ok('O2 51 friends: pl:omw.too_many', e->>'hint' = 'pl:omw.too_many', e::text);
   e := pg_temp.err($q$select public.send_on_my_way('test:omw-nowhere', 15, null)$q$);
   perform pg_temp.ok('O2 unknown court: pl:court.gone', e->>'hint' = 'pl:court.gone', e::text);
+  e := pg_temp.err($q$select public.send_on_my_way('test:omw-rejected', 15, null)$q$);
+  perform pg_temp.ok('O2 a court an admin rejected: pl:court.gone (its page says gone too)', e->>'hint' = 'pl:court.gone', e::text);
+  e := pg_temp.err($q$select public.send_on_my_way('test:omw-rej-alias', 15, null)$q$);
+  perform pg_temp.ok('O2 an alias of a rejected court: pl:court.gone', e->>'hint' = 'pl:court.gone', e::text);
   e := pg_temp.err($q$select public.send_on_my_way(null, 15, null)$q$);
   perform pg_temp.ok('O2 no court: pl:court.gone', e->>'hint' = 'pl:court.gone', e::text);
   perform pg_temp.as_admin();
@@ -216,11 +225,11 @@ begin
     (v->>'sent')::boolean = false and v->>'reason' = 'nobody' and (v->>'count')::int = 0, v::text);
   v := pg_temp.send('SN', 'test:omw-court', 15, array[]::text[]);
   perform pg_temp.ok('O3 an empty pick: reason nobody', v->>'reason' = 'nobody', v::text);
-  v := pg_temp.send('S3', 'test:omw-court', 15, null);
-  perform pg_temp.ok('O3 no pick and no close friends: reason nobody', v->>'reason' = 'nobody', v::text);
+  v := pg_temp.send('NF', 'test:omw-court', 15, null);
+  perform pg_temp.ok('O3 no pick and no friends at all: reason nobody', v->>'reason' = 'nobody', v::text);
   perform pg_temp.ok('O3 nobody spends no window and queues nothing',
-    pg_temp.pushed('SN') = '' and pg_temp.pushed('S3') = ''
-    and not exists (select 1 from public.pl_throttle where scope in (pg_temp.p('SN')::text, pg_temp.p('S3')::text)));
+    pg_temp.pushed('SN') = '' and pg_temp.pushed('NF') = ''
+    and not exists (select 1 from public.pl_throttle where scope in (pg_temp.p('SN')::text, pg_temp.p('NF')::text)));
 end $$;
 
 
@@ -246,7 +255,8 @@ begin
   perform pg_temp.ok('O4 title names the sender and the court',
     o.title = 'Sam Sender is on the way to Omw Test Courts', o.title);
   perform pg_temp.ok('O4 body: about 15 min', o.body = 'About 15 min away. Tap to see the court.', o.body);
-  perform pg_temp.ok('O4 opens the court page (court/<facility id>)', o.deep_link = 'court/test:omw-court', o.deep_link);
+  perform pg_temp.ok('O4 link home/- (what older bundles route; this build reads kind + venue_id for the court page)',
+    o.deep_link = 'home/-', o.deep_link);
   perform pg_temp.ok('O4 category notifyFriendsOnTheWay, kind info, pending',
     o.category = 'notifyFriendsOnTheWay' and o.kind = 'info' and o.status = 'pending', format('%s %s %s', o.category, o.kind, o.status));
   perform pg_temp.ok('O4 push_data: kind, court, sender, ETA',
@@ -297,7 +307,7 @@ begin
     pg_temp.pushed('SN'));
   perform pg_temp.ok('O6 F5''s push: the second court, about 30 min',
     (select title = 'Sam Sender is on the way to Omw Second Courts' and body = 'About 30 min away. Tap to see the court.'
-            and deep_link = 'court/test:omw-second'
+            and deep_link = 'home/-' and push_data ->> 'venue_id' = 'test:omw-second'
        from public.push_outbox where recipient_id = pg_temp.p('F5') and push_data ->> 'kind' = 'on_my_way'));
 end $$;
 
@@ -318,18 +328,19 @@ begin
 end $$;
 
 
--- ════ O8 no pick: my close friends ═══════════════════════════════════════
+-- ════ O8 no pick: all my friends (a star never decides who is told) ════
 do $$
 declare v jsonb;
 begin
+  perform pg_temp.ok('O8 another sender''s windows are their own: S2 at the court SN just used',
+    (pg_temp.send('S2', 'test:omw-court', 15, array['C2']) ->> 'sent')::boolean);
   v := pg_temp.send('S2', 'test:omw-third', 5, null);
-  perform pg_temp.ok('O8 no pick: only the close friend (C1) is told',
-    (v->>'sent')::boolean and (v->>'count')::int = 1 and pg_temp.pushed('S2') = 'C1', v::text || ' ' || pg_temp.pushed('S2'));
+  perform pg_temp.ok('O8 no pick: every friend, starred or not (C1 told, C2 skipped as told minutes ago)',
+    (v->>'sent')::boolean and (v->>'count')::int = 1 and (v->>'skipped_recent')::int = 1
+    and pg_temp.pushed('S2') = 'C1,C2', v::text || ' ' || pg_temp.pushed('S2'));
   perform pg_temp.ok('O8 a short ETA still keeps the push for 10 minutes',
     (select expires_at = now() + interval '10 minutes' and body = 'About 5 min away. Tap to see the court.'
        from public.push_outbox where recipient_id = pg_temp.p('C1') and push_data ->> 'kind' = 'on_my_way'));
-  perform pg_temp.ok('O8 another sender''s windows are their own: S2 at the court SN just used',
-    (pg_temp.send('S2', 'test:omw-court', 15, array['C2']) ->> 'sent')::boolean);
 end $$;
 
 
@@ -343,14 +354,16 @@ begin
 end $$;
 
 
--- ════ O10 the default ETA when the argument is left out ═════════════════
+-- ════ O10 the defaults: court only (15 minutes, all my friends) ══════════
 do $$
 declare v jsonb;
 begin
   perform pg_temp.as_user(pg_temp.p('S3'));
-  v := public.send_on_my_way('test:omw-second', p_recipients => array[pg_temp.p('C2')]);
+  v := public.send_on_my_way('test:omw-second');
   perform pg_temp.as_admin();
-  perform pg_temp.ok('O10 left out: 15 minutes', (v->>'sent')::boolean and (v->>'eta_minutes')::int = 15, v::text);
+  perform pg_temp.ok('O10 left out: 15 minutes, and a sender with no close friends still tells their friend (C2)',
+    (v->>'sent')::boolean and (v->>'eta_minutes')::int = 15 and (v->>'count')::int = 1 and pg_temp.pushed('S3') = 'C2',
+    v::text || ' ' || pg_temp.pushed('S3'));
 end $$;
 
 

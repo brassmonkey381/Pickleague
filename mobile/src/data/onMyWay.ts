@@ -11,6 +11,7 @@ import {
   parseStoredEta,
   sentRecently,
   validEta,
+  windowStartMs,
   type OnMyWayResult,
 } from '../lib/onMyWay';
 
@@ -19,7 +20,7 @@ const BOUND = { timeoutMs: 9_000 };
 
 /**
  * Tell friends I'm on the way to a court. `recipients`: the friends ticked in
- * the sheet (null = the server's default, my close friends). Refusals (signed
+ * the sheet (null = the server's default, all my friends). Refusals (signed
  * out, a bad ETA, too many friends, a court that's gone) throw with their
  * 'pl:' code; "not sent" answers come back as a result with a reason.
  */
@@ -35,11 +36,11 @@ export async function sendOnMyWay(venueId: string, etaMinutes: number, recipient
   );
   const res = normalizeOnMyWayResult(raw, etaMinutes);
   // The court's window started (sent) or is still running ('recent'): the
-  // feed shows "Told friends" there. Under the facility's id and the one tapped.
-  // The device's clock, not the server's sent_at: the label is read against
-  // the device's clock too.
-  if (res.sent || res.reason === 'recent') {
-    const ms = Date.now();
+  // feed shows "Told friends" there, until the window ends. Under the
+  // facility's id and the one tapped. A 'recent' answer keeps the server's
+  // last send (lib/onMyWay windowStartMs), not the refused tap.
+  const ms = windowStartMs(res, Date.now());
+  if (ms != null) {
     sentAt.set(venueId, ms);
     if (res.venueId) sentAt.set(res.venueId, ms);
     onMyWaySent.emit(venueId);
@@ -57,17 +58,31 @@ export function sentOnMyWayRecently(venueId: string, nowMs = Date.now()): boolea
   return sentRecently(sentAt.get(venueId), nowMs);
 }
 
+// The remembered ETA once read (or saved) this session, so a later sheet
+// starts on it at once.
+let lastEta: number | null = null;
+
+/** The remembered ETA when this session already knows it, else null (then loadLastEta). */
+export function peekLastEta(): number | null {
+  return lastEta;
+}
+
 /** The ETA this device last sent with (15 the first time, or when storage is unavailable). */
 export async function loadLastEta(): Promise<number> {
+  if (lastEta != null) return lastEta;
+  let m = DEFAULT_ETA_MINUTES;
   try {
-    return parseStoredEta(await AsyncStorage.getItem(ETA_KEY));
+    m = parseStoredEta(await AsyncStorage.getItem(ETA_KEY));
   } catch {
-    return DEFAULT_ETA_MINUTES;
+    // Storage unavailable: 15.
   }
+  lastEta ??= m;
+  return lastEta;
 }
 
 export async function saveLastEta(minutes: number): Promise<void> {
   if (!validEta(minutes)) return;
+  lastEta = minutes;
   try {
     await AsyncStorage.setItem(ETA_KEY, String(minutes));
   } catch {

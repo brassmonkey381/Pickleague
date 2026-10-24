@@ -1215,19 +1215,22 @@ send_on_my_way(p_venue text, p_eta_minutes int default 15, p_recipients uuid[] d
   --  venue_name, sent_at?, retry_at?}
 ```
 
-- Refusals: `pl:auth.signed_out`, `pl:omw.bad_eta` (outside 1-180), `pl:omw.too_many` (over 50), `pl:court.gone`.
-- Recipients: the picked ids (null = my close friends), kept only when an accepted friend, `_pl_friendable`, and not
-  blocked either way. Friends are never hidden by the test-account switch.
+- Refusals: `pl:auth.signed_out`, `pl:omw.bad_eta` (outside 1-180), `pl:omw.too_many` (over 50), `pl:court.gone`
+  (unknown, or rejected by an admin, as `get_court`).
+- Recipients: the picked ids (null = all my friends, at most 50, starred first; the app pre-ticks the same), kept only when an accepted friend, `_pl_friendable`, and not
+  blocked either way. Friends are never hidden by the test-account switch. Not a close-friend push: a star only orders
+  the list, so `CLOSE_FRIEND_EXPLAINER` stays as it is (Phase 2 still decides the close-friend direction).
 - Not spam: one send per sender per (canonical) court per 30 minutes (`recent`), one push per sender per friend per
   30 minutes whatever the court (`recent_friends`, or counted in `skipped_recent`). `nobody` spends no window.
-- Push straight into `push_outbox`: kind `info`, category `notifyFriendsOnTheWay`, deep link `court/<venue>`
-  (CourtDetail), `push_data {kind: 'on_my_way', venue_id, venue_name, sender_id, eta_minutes}`, expires at the ETA
+- Push straight into `push_outbox`: kind `info`, category `notifyFriendsOnTheWay`, deep link `home/-` (what
+  older bundles route), `push_data {kind: 'on_my_way', venue_id, venue_name, sender_id, eta_minutes}`, expires at the ETA
   (at least 10 minutes). Queued only when `_pl_push_reaches(friend, 'notifyFriendsOnTheWay')`; a friend it can't
-  reach is still counted, so the reply never reveals settings.
+  reach is still counted, so the reply never reveals settings. The app turns kind `on_my_way` + `venue_id` into
+  `court/<venue>` (CourtDetail; `lib/pushLinks` `linkOf`).
 - Title "<name> is on the way to <court>", body "About 15 min away. Tap to see the court." ("about 1 hr" for 60).
 - send-push: `KNOWN_PREF_KEYS` += `notifyFriendsOnTheWay` (redeploy with `--no-verify-jwt`). No buttons, no catalog
   category.
 - Client: `lib/onMyWay.ts` (rules, copy), `data/onMyWay.ts` (the call, the remembered ETA),
-  `components/OnMyWaySheet.tsx` (ETA chips 5-60, friends at the court and close friends ticked), the feed court card's
+  `components/OnMyWaySheet.tsx` (ETA chips 5-60, every friend ticked, friends at the court and close friends listed first), the feed court card's
   On my way pill and options sheet, and the court page. Settings > Notifications gains "Friends on the way".
-- Apply order: the OTA first (older builds don't route `court/`), then the SQL, then send-push.
+- Apply order: the SQL, then send-push; the OTA any time (an older bundle opens Home on the tap).

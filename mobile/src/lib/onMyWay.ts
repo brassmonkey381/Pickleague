@@ -3,9 +3,10 @@
 //
 // The sheet (components/OnMyWaySheet) sends with the ETA already picked (15
 // minutes, or the last one this device used), so one tap on its button does
-// it; the chips change it. Friends at the court and close friends start
-// ticked. The server keeps it from being spam: one send per court per 30
-// minutes, and each friend told at most once per 30 minutes; every "not sent"
+// it; the chips change it. Every friend starts ticked (friends at the court
+// and close friends listed first; untick to leave someone out). The server
+// keeps it from being spam: one send per court per 30 minutes, and each
+// friend told at most once per 30 minutes; every "not sent"
 // answer comes back with a reason this module words (rule 11: say why and
 // what to do).
 //
@@ -55,7 +56,7 @@ export type OnMyWayResult = {
   etaMinutes: number;
   venueId: string | null;
   venueName: string | null;
-  /** The send (sent), or the last send at this court ('recent'). */
+  /** The send (sent), or the last send at this court ('recent'), by the server's clock. */
   sentAt: string | null;
   /** When another send can go out ('recent', 'recent_friends'). */
   retryAt: string | null;
@@ -94,7 +95,7 @@ export function agoLabel(atIso: string | null, nowMs: number): string | null {
 
 /**
  * The toast for an answer. `picked`: the friends were chosen in the sheet
- * (false: the server's default, close friends). `timeLabel` formats a time in
+ * (false: the server's default, all friends). `timeLabel` formats a time in
  * the device's zone (default "6:42 PM", or "Thu 6:42 PM" another day).
  */
 export function onMyWayMessage(
@@ -125,14 +126,14 @@ export function onMyWayMessage(
     }
     case 'recent_friends': {
       const next = at(res.retryAt);
-      return `You told ${ctx.picked === false ? 'your close friends' : 'those friends'} you were on the way less than 30 minutes ago, so they weren't told again. Pick other friends${
+      return `You told ${ctx.picked === false ? 'your friends' : 'those friends'} you were on the way less than 30 minutes ago, so they weren't told again. Pick other friends${
         next ? `, or try again after ${next}` : ''
       }.`;
     }
     case 'nobody':
     default:
       return ctx.picked === false
-        ? "You don't have any close friends to tell yet. Pick the friends to tell instead."
+        ? "You don't have any friends to tell yet. Add friends from a player's profile, then try again."
         : "None of the friends you picked could be told: they're no longer on your friends list. Pick other friends.";
   }
 }
@@ -145,13 +146,16 @@ export type OnMyWayFriend = {
   note: string | null;
 };
 
-/** Who starts ticked: friends at that court, then close friends (the presence
- *  rule: pushes go to close friends). Never more than the server's cap. */
+/** Who starts ticked: every friend, so one tap tells them all (the server's
+ *  own default, p_recipients null, is the same). In list order (at the court,
+ *  close friends, then by name), so past the server's cap the ones left
+ *  unticked are the least likely to care. A star only orders: it never
+ *  decides who is told (docs/play-sessions-presence.md Phase 2 decides the
+ *  close-friend direction). */
 export function defaultRecipients(friends: readonly OnMyWayFriend[]): string[] {
-  const out: string[] = [];
-  for (const f of friends) if (f.note != null) out.push(f.userId);
-  for (const f of friends) if (f.note == null && f.isCloseFriend) out.push(f.userId);
-  return out.slice(0, MAX_RECIPIENTS);
+  return sortRecipients(friends)
+    .slice(0, MAX_RECIPIENTS)
+    .map((f) => f.userId);
 }
 
 /** The list order: friends at the court, then close friends, then everyone by name. */
@@ -171,6 +175,20 @@ export function sendBlockedReason(count: number): string | null {
   if (count === 0) return 'Pick at least one friend to tell.';
   if (count > MAX_RECIPIENTS) return `You can tell up to ${MAX_RECIPIENTS} friends at once. Untick ${count - MAX_RECIPIENTS} to send.`;
   return null;
+}
+
+/**
+ * When the court's 30-minute window started, for the feed's "Told friends"
+ * (device ms), or null when the answer starts none. A send: now. A 'recent'
+ * refusal: the server's last send (never later than now, in case the clocks
+ * differ), so a refused re-tap doesn't push the label past the server's
+ * window.
+ */
+export function windowStartMs(res: OnMyWayResult, nowMs: number): number | null {
+  if (res.sent) return nowMs;
+  if (res.reason !== 'recent') return null;
+  const t = res.sentAt ? Date.parse(res.sentAt) : NaN;
+  return Number.isFinite(t) ? Math.min(t, nowMs) : nowMs;
 }
 
 /** Whether this device sent one for that court in the last 30 minutes (the feed's "Told friends"). */

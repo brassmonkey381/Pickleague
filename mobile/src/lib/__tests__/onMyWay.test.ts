@@ -17,10 +17,12 @@ import {
   sentRecently,
   sortRecipients,
   validEta,
+  windowStartMs,
   type OnMyWayFriend,
+  type OnMyWayResult,
 } from '../onMyWay';
 import { REFUSAL_CODES } from '../refusals';
-import { pushRoutes } from '../pushLinks';
+import { linkOf, pushRoutes } from '../pushLinks';
 
 const T0 = Date.parse('2026-10-24T18:00:00.000Z');
 const label = (d: Date) => d.toISOString().slice(11, 16);
@@ -119,9 +121,16 @@ describe('messages say why and what to do', () => {
     );
   });
 
-  it('nobody: picked vs the close-friends default', () => {
+  it('nobody: picked vs the all-friends default', () => {
     expect(onMyWayMessage({ ...base, reason: 'nobody' }, ctx)).toMatch(/no longer on your friends list\. Pick other friends\.$/);
-    expect(onMyWayMessage({ ...base, reason: 'nobody' }, { ...ctx, picked: false })).toMatch(/close friends.*Pick the friends/);
+    expect(onMyWayMessage({ ...base, reason: 'nobody' }, { ...ctx, picked: false })).toBe(
+      "You don't have any friends to tell yet. Add friends from a player's profile, then try again.",
+    );
+  });
+
+  it('recent_friends with the default: "your friends", never "close friends"', () => {
+    const r = { ...base, reason: 'recent_friends' as const, retryAt: null };
+    expect(onMyWayMessage(r, { ...ctx, picked: false })).toMatch(/^You told your friends you were on the way/);
   });
 
   it('the server court name wins (an alias opens its facility)', () => {
@@ -145,14 +154,25 @@ describe('recipients', () => {
   });
   const friends = [f('c', 'Cal'), f('b', 'Ben', true), f('a', 'Ann', false, 'Here now'), f('d', 'Dee', true, 'Playing now')];
 
-  it('friends at the court, then close friends, start ticked', () => {
-    expect(defaultRecipients(friends)).toEqual(['a', 'd', 'b']);
-    expect(defaultRecipients([f('x', 'X')])).toEqual([]);
+  it('every friend starts ticked, in list order', () => {
+    expect(defaultRecipients(friends)).toEqual(['a', 'd', 'b', 'c']);
   });
 
-  it('never more than the server cap', () => {
-    const many = Array.from({ length: 70 }, (_, i) => f(`id${i}`, `P${i}`, true));
-    expect(defaultRecipients(many)).toHaveLength(MAX_RECIPIENTS);
+  it('no close friends and nobody at the court: still everyone, so one tap sends', () => {
+    const plain = [f('x', 'Xan'), f('y', 'Yul')];
+    expect(defaultRecipients(plain)).toEqual(['x', 'y']);
+    expect(sendBlockedReason(defaultRecipients(plain).length)).toBeNull();
+  });
+
+  it('never more than the server cap: the ones left out are last in the list', () => {
+    const many = [
+      ...Array.from({ length: 60 }, (_, i) => f(`p${i}`, `P${String(i).padStart(2, '0')}`)),
+      ...Array.from({ length: 5 }, (_, i) => f(`s${i}`, `Z${i}`, true)),
+    ];
+    const ticked = defaultRecipients(many);
+    expect(ticked).toHaveLength(MAX_RECIPIENTS);
+    expect(ticked.slice(0, 5)).toEqual(['s0', 's1', 's2', 's3', 's4']);
+    expect(ticked).not.toContain('p59');
   });
 
   it('the list: at the court, close friends, then by name', () => {
@@ -166,6 +186,30 @@ describe('recipients', () => {
     expect(sendBlockedReason(0)).toBe('Pick at least one friend to tell.');
     expect(sendBlockedReason(3)).toBeNull();
     expect(sendBlockedReason(52)).toBe('You can tell up to 50 friends at once. Untick 2 to send.');
+  });
+
+  it("the pill's window: a send starts it now, a 'recent' refusal keeps the server's last send", () => {
+    const res: OnMyWayResult = {
+      sent: false,
+      count: 0,
+      skippedRecent: 0,
+      reason: null,
+      etaMinutes: 15,
+      venueId: 'v',
+      venueName: 'V',
+      sentAt: null,
+      retryAt: null,
+    };
+    expect(windowStartMs({ ...res, sent: true }, T0)).toBe(T0);
+    const recent = { ...res, reason: 'recent' as const, sentAt: new Date(T0 - 25 * 60_000).toISOString() };
+    expect(windowStartMs(recent, T0)).toBe(T0 - 25 * 60_000);
+    // So the pill ends with the server's window (5 minutes on), not 30 after the re-tap.
+    expect(sentRecently(windowStartMs(recent, T0)!, T0 + 5 * 60_000)).toBe(false);
+    // A server clock ahead of the phone never stamps the future; no sent_at reads as now.
+    expect(windowStartMs({ ...recent, sentAt: new Date(T0 + 60_000).toISOString() }, T0)).toBe(T0);
+    expect(windowStartMs({ ...recent, sentAt: null }, T0)).toBe(T0);
+    expect(windowStartMs({ ...res, reason: 'recent_friends' }, T0)).toBeNull();
+    expect(windowStartMs({ ...res, reason: 'nobody' }, T0)).toBeNull();
   });
 
   it('the feed pill: told friends for 30 minutes', () => {
@@ -183,6 +227,14 @@ describe('the push tap opens the court', () => {
     expect(routes['court/']('ven-1', '')).toEqual(['CourtDetail', { venueId: 'ven-1' }]);
     expect(routes['court/']('osm:way', '123')).toEqual(['CourtDetail', { venueId: 'osm:way/123' }]);
     expect(routes['court/']('-', '')).toBeNull();
+  });
+
+  it("the push's home/- link plus kind on_my_way + venue_id opens the court in this build", () => {
+    expect(linkOf({ deepLink: 'home/-', kind: 'on_my_way', venue_id: 'osm:way/123' })).toBe('court/osm:way/123');
+    expect(linkOf({ kind: 'on_my_way', venue_id: 'ven-1' })).toBe('court/ven-1');
+    // Without a venue it stays Home; other home/- pushes are untouched.
+    expect(linkOf({ deepLink: 'home/-', kind: 'on_my_way' })).toBe('home/-');
+    expect(linkOf({ deepLink: 'home/-', kind: 'checkin_prompt', venue_id: 'ven-1' })).toBe('home/-');
   });
 
   it('without the court pages: Home, where the court cards are', () => {
@@ -209,7 +261,10 @@ describe('the server and the app agree', () => {
 
   it('the RPC is on the hardening allowlist and its link is routed', () => {
     expect(readRepo('supabase/migration_rls_hardening_2026q3.sql')).toContain("'send_on_my_way'");
-    expect(sql).toContain("'court/' || v_venue");
+    // home/- for older bundles; linkOf turns it into court/<venue> in this one.
+    expect(sql).toContain("'notifyFriendsOnTheWay', v_title, v_body, 'home/-'");
+    expect(sql).toContain("'kind', 'on_my_way', 'venue_id', v_venue");
+    expect(readRepo('supabase/functions/send-push/index.ts')).toMatch(/PASS_KEYS = \[[^\]]*'kind'[^\]]*'venue_id'/);
   });
 
   it('the server range matches the app', () => {

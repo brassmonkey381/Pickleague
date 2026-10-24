@@ -10,14 +10,20 @@
 --                  sent_at?, retry_at?}
 --
 --   * p_venue: any court id; the facility's canonical id is used (a duplicate
---     row or an alias tells friends about the facility). Unknown: refused
+--     row or an alias tells friends about the facility). Unknown, or
+--     rejected by an admin (get_court calls that gone too, so the push's
+--     link would open "That court isn't in Pickleague any more"): refused
 --     with pl:court.gone.
 --   * p_eta_minutes: 1..180, null = 15. Anything else: refused with
 --     pl:omw.bad_eta (the app only offers 5-60).
 --   * p_recipients: the friends picked in the app (at most 50, else
---     pl:omw.too_many). null = my close friends (the presence rule: pushes go
---     to close friends). Ids that aren't an accepted friend, are blocked
---     either way, deleted, a guest pass or unclaimed are ignored.
+--     pl:omw.too_many). null = all my friends (at most 50: the ones I
+--     starred first, then the rest by id), which is what the app's sheet
+--     pre-ticks. Ids that aren't an accepted friend, are blocked either way,
+--     deleted, a guest pass or unclaimed are ignored.
+--     This is not a close-friend push: the star still only orders lists
+--     (Phase 2 of docs/play-sessions-presence.md decides the close-friend
+--     direction), so who is told never depends on a star.
 --
 --   Not spam (the user's decisions, 2026-10-24):
 --   * One send per sender per court per 30 minutes. A second send inside the
@@ -27,8 +33,8 @@
 --     friend already told in the window is skipped (and not counted). When
 --     every friend picked was told already: reason 'recent_friends', with
 --     retry_at (the earliest a skipped friend can be told again).
---   * Nobody to tell (no friend picked is still a friend, or no close
---     friends): reason 'nobody', and the 30-minute window is not spent.
+--   * Nobody to tell (no friend picked is still a friend, or no friends at
+--     all): reason 'nobody', and the 30-minute window is not spent.
 --   * The recipient's own switches decide the push: a phone registered, push
 --     on (opt-in), and "Friends on the way" (notifyFriendsOnTheWay) not off
 --     (_pl_push_reaches; send-push checks the same at send time). A friend it
@@ -42,10 +48,17 @@
 -- lock-screen notice, not an inbox item, like the court arrival pushes):
 --   title  "<Name> is on the way to <Court>"
 --   body   "About 15 min away. Tap to see the court."  ("about 1 hr" for 60)
---   kind 'info', category 'notifyFriendsOnTheWay', deep link 'court/<venue>'
---   (CourtDetail), push_data {kind: 'on_my_way', venue_id, venue_name,
---   sender_id, eta_minutes}, outbox expires at the ETA (min 10 minutes): a
---   push still pending after the sender should have arrived says nothing.
+--   kind 'info', category 'notifyFriendsOnTheWay', deep link 'home/-', push_data
+--   {kind: 'on_my_way', venue_id, venue_name, sender_id, eta_minutes}, outbox
+--   expires at the ETA (min 10 minutes): a push still pending after the
+--   sender should have arrived says nothing.
+--   The tap: builds with this feature read kind 'on_my_way' + venue_id (both
+--   ride on the push already, send-push PASS_KEYS) and open the court's page
+--   (lib/pushLinks linkOf -> 'court/<venue>'). 'home/-' is the link an older
+--   bundle routes (Home, where the court cards are; the court arrival pushes
+--   use it too), so a friend who hasn't got the OTA yet never lands on an
+--   inbox that doesn't mention the push (KIND_LINKS' rule: keep a link the
+--   older builds know).
 --
 -- Throttle rows (pl_throttle, scope = the sender's id): kind 'on_my_way' key
 -- <canonical venue>, kind 'on_my_way_to' key <friend id>. _purge_account
@@ -60,7 +73,7 @@
 -- send_on_my_way is on the allowlist in migration_rls_hardening_2026q3.sql
 -- and grants itself below. Re-runnable.
 --
--- Apply (after the app OTA that knows the 'court/' link):
+-- Apply (any order with the OTA: an older bundle opens Home):
 --   supabase db query --linked -f supabase/migration_on_my_way.sql
 -- Then redeploy send-push (notifyFriendsOnTheWay in KNOWN_PREF_KEYS):
 --   supabase functions deploy send-push --no-verify-jwt
@@ -129,7 +142,8 @@ declare
   v_window   constant interval := interval '30 minutes';
   v_venue    text;
   v_court    text;
-  v_last     timestamptz;
+  v_status   text;
+  v_last    timestamptz;
   v_title    text;
   v_body     text;
   v_expires  timestamptz;
@@ -154,8 +168,9 @@ begin
   end if;
 
   v_venue := public._pl_canonical_venue(p_venue);
-  select nullif(trim(v.name), '') into v_court from public.venues v where v.id = v_venue;
-  if v_venue is null then
+  select nullif(trim(v.name), ''), v.confirmation_status into v_court, v_status
+    from public.venues v where v.id = v_venue;
+  if v_venue is null or not found or v_status = 'rejected' then
     raise exception using
       message = 'That court isn''t in Pickleague any more, so your friends can''t be told you''re on the way. Find your court again.',
       hint = 'pl:court.gone';
@@ -167,7 +182,8 @@ begin
   perform pg_advisory_xact_lock(hashtext('omw:' || v_me::text));
 
   -- Who would be told: accepted friends, real live accounts, not blocked
-  -- either way. Picked ids, or (none picked) my close friends. v_fresh: the
+  -- either way. Picked ids, or (none picked) all my friends, starred first,
+  -- at most 50. v_fresh: the
   -- ones not told by me (about any court) in the last 30 minutes.
   select coalesce(array_agg(x.id order by x.id), '{}'),
          coalesce(array_agg(x.id order by x.id) filter (
@@ -179,7 +195,18 @@ begin
         from (
           select unnest(p_recipients) as id where p_recipients is not null
           union all
-          select cf.friend_id from public.close_friends cf where p_recipients is null and cf.user_id = v_me
+          (select a.id from (
+            select case when f.requester_id = v_me then f.addressee_id else f.requester_id end as id
+              from public.friendships f
+             where p_recipients is null
+               and f.status = 'accepted'
+               and (f.requester_id = v_me or f.addressee_id = v_me)
+          ) a
+           where public._pl_friendable(a.id)
+             and not public._pl_blocked_pair(v_me, a.id)
+           order by exists (select 1 from public.close_friends cf
+                             where cf.user_id = v_me and cf.friend_id = a.id) desc, a.id
+           limit 50)
         ) y
        where y.id is not null
          and y.id <> v_me
@@ -232,7 +259,7 @@ begin
       insert into public.push_outbox
         (recipient_id, kind, category, title, body, deep_link, expires_at, push_data)
       values (
-        v_to, 'info', 'notifyFriendsOnTheWay', v_title, v_body, 'court/' || v_venue, v_expires,
+        v_to, 'info', 'notifyFriendsOnTheWay', v_title, v_body, 'home/-', v_expires,
         jsonb_build_object('kind', 'on_my_way', 'venue_id', v_venue, 'venue_name', v_court,
                            'sender_id', v_me, 'eta_minutes', v_eta));
     exception when others then

@@ -69,9 +69,9 @@ export function pushRoutes(opts: {
     // Court check-in reminder and arrival notice: Home's court card, and with
     // the bottom bar the island too (Home passes `checkin` to CheckinHost).
     'home/': () => (opts.checkinIsland ? ['Home', { checkin: true }] : ['Home']),
-    // "Sam is on the way to Lakeside" (migration_on_my_way.sql): that court's
-    // page. A venue id may hold a slash (osm:way/123), so the rest of the
-    // link is part of it.
+    // "Sam is on the way to Lakeside" (migration_on_my_way.sql; linkOf builds
+    // this from its kind + venue_id): that court's page. A venue id may hold
+    // a slash (osm:way/123), so the rest of the link is part of it.
     'court/': (id, rest) =>
       has(id) ? (opts.courtsEnabled ? ['CourtDetail', { venueId: rest ? `${id}/${rest}` : id }] : ['Home']) : null,
     'notifications/': () => ['Notifications'],
@@ -118,6 +118,10 @@ export function linkOf(data: Record<string, unknown> | null | undefined): string
   if (!data) return '';
   const type = str(data.entity_type);
   const base = str(data.deepLink) ?? (type ? `${type}/${str(data.entity_id) ?? NO_ID}` : '');
+  // "Sam is on the way to Lakeside" (migration_on_my_way.sql) carries
+  // home/-, which older bundles route to Home; this build opens the court.
+  const venue = str(data.venue_id);
+  if (data.kind === 'on_my_way' && venue && (base === '' || base.startsWith('home/'))) return `court/${venue}`;
   const k = KIND_LINKS[str(data.kind) ?? ''];
   if (k && base.startsWith(k.from) && has(base.slice(k.from.length))) return k.to + base.slice(k.from.length);
   return base;

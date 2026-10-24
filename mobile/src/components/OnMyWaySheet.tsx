@@ -9,12 +9,14 @@
 //   Tell                                              All · None
 //   ☑ Ann        Here now
 //   ☑ Ben        Close friend
-//   ☐ Cal
-//   [ Tell 2 friends · about 15 min ]
+//   ☑ Cal
+//   [ Tell 3 friends · about 15 min ]
 //
 // One tap on the button sends: the ETA starts at the last one this device
-// used (15 the first time) and friends at the court and close friends start
-// ticked (lib/onMyWay defaultRecipients). The server keeps it from being spam
+// used (15 the first time; the button waits the moment it takes to read it,
+// so a quick tap never sends 15 over the remembered choice) and every friend
+// starts ticked, friends at the court and close friends listed first
+// (lib/onMyWay defaultRecipients). The server keeps it from being spam
 // (one send per court, and one push per friend, per 30 minutes) and every
 // "not sent" answer is a toast that says why and what to do.
 import React from 'react';
@@ -32,6 +34,7 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { FRIENDS_AT_COURTS_ENABLED } from '../lib/features';
 import { useMyFriends } from '../lib/useFriends';
 import {
+  DEFAULT_ETA_MINUTES,
   ETA_OPTIONS,
   defaultRecipients,
   etaLabel,
@@ -41,7 +44,7 @@ import {
   sortRecipients,
   type OnMyWayFriend,
 } from '../lib/onMyWay';
-import { loadLastEta, saveLastEta, sendOnMyWay } from '../data/onMyWay';
+import { loadLastEta, peekLastEta, saveLastEta, sendOnMyWay } from '../data/onMyWay';
 
 export type OnMyWayTarget = {
   venueId: string;
@@ -97,7 +100,7 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
       return;
     }
     let on = true;
-    setEta(null);
+    setEta(peekLastEta());
     void loadLastEta().then((m) => on && setEta((prev) => prev ?? m));
     return () => {
       on = false;
@@ -111,7 +114,9 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
 
   const count = friends.reduce((n, f) => n + (picked.has(f.userId) ? 1 : 0), 0);
   const blocked = sendBlockedReason(count);
-  const minutes = eta ?? ETA_OPTIONS[2];
+  const minutes = eta ?? DEFAULT_ETA_MINUTES;
+  // The remembered ETA is still being read (the first sheet this session).
+  const etaPending = eta == null;
 
   const toggle = (id: string) =>
     setPicked((prev) => {
@@ -123,7 +128,7 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
 
   async function send() {
     const sentFor = target;
-    if (!sentFor || busy || blocked) return;
+    if (!sentFor || busy || blocked || etaPending) return;
     const ids = friends.filter((f) => picked.has(f.userId)).map((f) => f.userId);
     setBusy(true);
     try {
@@ -234,7 +239,7 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
           variant="success"
           onPress={() => void send()}
           loading={busy}
-          disabled={!!blocked || loading}
+          disabled={!!blocked || loading || etaPending}
         />
         <Text style={[t.hint, { color: c.textSub }]}>
           Each friend gets one notice, at most once every 30 minutes, and only if they allow it.

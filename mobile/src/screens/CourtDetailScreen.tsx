@@ -21,8 +21,8 @@
 // (lib/useCourtCheckIn). An alias id opens its facility, and the URL moves to
 // the facility's id. A court that is gone says so (refusals 'view').
 // On my way (not checked in here, with friends to tell) tells friends I'm
-// heading there, about 15 min out (components/OnMyWaySheet; close friends
-// start ticked).
+// heading there, about 15 min out (components/OnMyWaySheet; every friend
+// starts ticked).
 //
 // The map (Phase 2) is Doggle's place map: the foundation PlaceMap, interactive
 // on every platform (lib/maps), with the court's outline (venues.boundary) as

@@ -290,7 +290,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     else openCourt(card.venueId);
   };
 
-  // On my way: friends the card shows here now start ticked (with close friends).
+  // On my way: friends the card shows here now are listed first (all start ticked).
   const onMyWay = (card: CourtCard, from: OnMyWayTarget['from'] = 'feed') => {
     if (busyKey) return;
     tap('on_my_way');
