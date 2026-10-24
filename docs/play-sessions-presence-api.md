@@ -1204,3 +1204,30 @@ vitest), `lib/courtArrival.ts` (Enter / Exit), `lib/courtGeofence.ts` (the watch
   Off, which still finds an outline I'm inside), only with location already granted; prompts go through
   `enqueue_court_checkin_prompt` first, and the phone posts the same words only when that throws, or enqueued
   and not pushable.
+
+## On my way (2026-10-24)
+
+`supabase/migration_on_my_way.sql` (ported from Doggle 0425 / 0437, plus an ETA). Not applied yet.
+
+```
+send_on_my_way(p_venue text, p_eta_minutes int default 15, p_recipients uuid[] default null) returns jsonb
+  -- {sent, count, skipped_recent?, reason?: 'recent'|'recent_friends'|'nobody', eta_minutes, venue_id,
+  --  venue_name, sent_at?, retry_at?}
+```
+
+- Refusals: `pl:auth.signed_out`, `pl:omw.bad_eta` (outside 1-180), `pl:omw.too_many` (over 50), `pl:court.gone`.
+- Recipients: the picked ids (null = my close friends), kept only when an accepted friend, `_pl_friendable`, and not
+  blocked either way. Friends are never hidden by the test-account switch.
+- Not spam: one send per sender per (canonical) court per 30 minutes (`recent`), one push per sender per friend per
+  30 minutes whatever the court (`recent_friends`, or counted in `skipped_recent`). `nobody` spends no window.
+- Push straight into `push_outbox`: kind `info`, category `notifyFriendsOnTheWay`, deep link `court/<venue>`
+  (CourtDetail), `push_data {kind: 'on_my_way', venue_id, venue_name, sender_id, eta_minutes}`, expires at the ETA
+  (at least 10 minutes). Queued only when `_pl_push_reaches(friend, 'notifyFriendsOnTheWay')`; a friend it can't
+  reach is still counted, so the reply never reveals settings.
+- Title "<name> is on the way to <court>", body "About 15 min away. Tap to see the court." ("about 1 hr" for 60).
+- send-push: `KNOWN_PREF_KEYS` += `notifyFriendsOnTheWay` (redeploy with `--no-verify-jwt`). No buttons, no catalog
+  category.
+- Client: `lib/onMyWay.ts` (rules, copy), `data/onMyWay.ts` (the call, the remembered ETA),
+  `components/OnMyWaySheet.tsx` (ETA chips 5-60, friends at the court and close friends ticked), the feed court card's
+  On my way pill and options sheet, and the court page. Settings > Notifications gains "Friends on the way".
+- Apply order: the OTA first (older builds don't route `court/`), then the SQL, then send-push.

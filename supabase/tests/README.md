@@ -293,3 +293,24 @@ touches playoff bracket generation or advancement.
     columns (a paused player with nearer stars and check-ins shows only at
     their league court, before and after the pause); drilling only, name /
     @username search with literal `%`; and the God mode test-account switch.
+
+- `on_my_way_personas.sql` (+ `build-on-my-way-test.mjs`)
+  - "On my way" (`migration_on_my_way.sql`): applies the migration twice
+    inside one rolled-back transaction (it does NOT re-run
+    `migration_rls_hardening_2026q3.sql`; the builder refuses unless that
+    file's allowlist names `send_on_my_way`), then checks: grants and
+    attributes; the refusals (signed out, ETA outside 1-180, over 50 friends,
+    a court that is gone); "nobody" for non-friends, pending requests, blocks
+    both ways, deleted accounts, guest passes and no close friends, without
+    spending the window; the send (alias -> facility, title / body / deep link
+    `court/<id>` / category / push_data / expiry at the ETA, no notifications
+    row, pushes only where a phone and the switches allow, everyone counted);
+    one send per court per 30 minutes (`recent`, with `sent_at` and
+    `retry_at`, a new ETA included); one push per friend per 30 minutes across
+    courts (`recent_friends`, `skipped_recent`); sends again after 30 minutes
+    (backdated throttle rows); no pick = close friends; the ETA wording.
+
+    ```sh
+    node supabase/tests/build-on-my-way-test.mjs /tmp/on_my_way_test.sql
+    supabase db query --linked -f /tmp/on_my_way_test.sql -o csv
+    ```

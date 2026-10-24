@@ -167,7 +167,10 @@ begin
         'get_profile_test_account','set_profile_test_account',
         -- Discover's search area: players and drill partners near it
         -- (migration_discover_players_near.sql, which grants it too).
-        'discover_players_near'
+        'discover_players_near',
+        -- "On my way" to a court, with an ETA (migration_on_my_way.sql, which
+        -- grants it too).
+        'send_on_my_way'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

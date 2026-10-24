@@ -70,6 +70,9 @@ const KNOWN_PREF_KEYS = new Set([
   'notifyAutoCheckins',
   // "Check in nearby?" (migration_court_checkin_prompt.sql).
   'notifyCheckinPrompts',
+  // "Sam is on the way to Lakeside" (migration_on_my_way.sql). No buttons;
+  // the tap opens the court (deep link court/<venue id>).
+  'notifyFriendsOnTheWay',
 ]);
 
 type Row = OutboxRow & {
