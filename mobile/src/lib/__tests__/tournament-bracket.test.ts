@@ -543,10 +543,10 @@ describe('FORMAT_META', () => {
     expect(Object.keys(FORMAT_META).sort()).toEqual(expected.sort());
   });
 
-  it('every entry has label, icon, description', () => {
+  it('every entry has label, iconName, description', () => {
     for (const meta of Object.values(FORMAT_META)) {
       expect(meta.label).toBeTruthy();
-      expect(meta.icon).toBeTruthy();
+      expect(meta.iconName).toBeTruthy();
       expect(meta.description).toBeTruthy();
     }
   });

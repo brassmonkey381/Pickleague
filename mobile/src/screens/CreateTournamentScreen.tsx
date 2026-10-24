@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Switch,
+  StyleSheet,
 } from 'react-native';
+import { ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
@@ -13,6 +14,11 @@ import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { shadowColor } from '@just-messin-around/expo-foundation/theme';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateTournament'>;
@@ -73,13 +79,20 @@ function makeAutoName(
   return `${prefix ? `${prefix} ` : ''}${fmt}${typeSuffix}`;
 }
 
-function Pill({ label, active, onPress, S, disabled }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles>; disabled?: boolean }) {
+// A selectable option pill. `iconName`: a glyph before the label in the
+// label's colour (decorative; the label names the option).
+function Pill({ label, active, onPress, S, disabled, iconName }: { label: string; active: boolean; onPress: () => void; S: ReturnType<typeof makeStyles>; disabled?: boolean; iconName?: IconName }) {
+  const { colors: c } = useTheme();
   return (
     <TouchableOpacity
-      style={[S.pill, active && S.pillActive, disabled && { opacity: 0.4 }]}
+      style={[S.pill, active && S.pillActive, disabled && S.pillDisabled]}
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active, disabled: !!disabled }}
     >
+      {iconName ? <Icon name={iconName} size={14} color={active ? c.primary : c.textSub} /> : null}
       <Text style={[S.pillText, active && S.pillTextActive]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -89,8 +102,14 @@ function Pill({ label, active, onPress, S, disabled }: { label: string; active: 
 // MLP is handled via matchType='mlp' and DOES NOT appear in FORMATS now.
 const DOUBLES_ONLY_FORMATS: TournamentFormat[] = ['rotating_partners'];
 
-function SectionHeader({ title, S }: { title: string; S: ReturnType<typeof makeStyles> }) {
-  return <Text style={S.sectionHeader}>{title}</Text>;
+function SectionHeader({ title, S, iconName }: { title: string; S: ReturnType<typeof makeStyles>; iconName?: IconName }) {
+  const { colors: c } = useTheme();
+  return (
+    <View style={S.sectionHeader}>
+      {iconName ? <Icon name={iconName} size={16} color={c.primary} /> : null}
+      <Text style={S.sectionHeaderText} accessibilityRole="header">{title}</Text>
+    </View>
+  );
 }
 
 export default function CreateTournamentScreen({ navigation, route }: Props) {
@@ -428,8 +447,13 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               : 'Set date & time'}
           </Text>
           {startTime && (
-            <TouchableOpacity onPress={() => setStartTime(null)}>
-              <Text style={S.clearDate}>✕</Text>
+            <TouchableOpacity
+              style={S.clearDate}
+              onPress={() => setStartTime(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Clear the date and time"
+            >
+              <Icon name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
@@ -460,9 +484,9 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Team Type ── (moved above Format; defaults to Doubles) */}
         <SectionHeader title="Team Type" S={S} />
         <View style={[S.pillRow, { flexWrap: 'wrap' }]}>
-          <Pill label="① Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
-          <Pill label="② Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
-          <Pill label="④ MLP"     active={matchType === 'mlp'}     onPress={() => setMatchType('mlp')}     S={S} />
+          <Pill iconName="person"    label="Singles" active={matchType === 'singles'} onPress={() => setMatchType('singles')} S={S} disabled={isDoublesOnlyFormat} />
+          <Pill iconName="handshake" label="Doubles" active={matchType === 'doubles'} onPress={() => setMatchType('doubles')} S={S} />
+          <Pill iconName="group"     label="MLP"     active={matchType === 'mlp'}     onPress={() => setMatchType('mlp')}     S={S} />
         </View>
         {isDoublesOnlyFormat && matchType !== 'mlp' && <Text style={S.hint}>This format is doubles-only.</Text>}
         {matchType === 'mlp' && (
@@ -480,8 +504,11 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                 key={f}
                 style={[S.formatCard, active && S.formatCardActive]}
                 onPress={() => setFormat(f)}
+                accessibilityRole="button"
+                accessibilityLabel={`${meta.label}. ${meta.description}`}
+                accessibilityState={{ selected: active }}
               >
-                <Text style={S.formatIcon}>{meta.icon}</Text>
+                <Icon name={meta.iconName} size={24} color={active ? colors.primary : colors.textSub} style={S.formatIcon} />
                 <Text style={[S.formatLabel, active && S.formatLabelActive]}>{meta.label}</Text>
                 <Text style={S.formatDesc}>{meta.description}</Text>
               </TouchableOpacity>
@@ -492,8 +519,8 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         {/* ── Seeding ── */}
         <SectionHeader title="Bracket Seeding" S={S} />
         <View style={S.pillRow}>
-          <Pill label="🎲 Random draw"  active={seeding === 'random'} onPress={() => setSeeding('random')} S={S} />
-          <Pill label="📊 PLUPR-based" active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
+          <Pill iconName="dice"  label="Random draw" active={seeding === 'random'} onPress={() => setSeeding('random')} S={S} />
+          <Pill iconName="chart" label="PLUPR-based" active={seeding === 'elo'}    onPress={() => setSeeding('elo')}    S={S} />
         </View>
         <Text style={S.hint}>
           {seeding === 'elo'
@@ -557,12 +584,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
                       : 'No 3rd place match — losing semifinalists tie for 3rd.'}
                   </Text>
                 </View>
-                <Switch
-                  value={playoffThirdPlace}
-                  onValueChange={setPlayoffThirdPlace}
-                  trackColor={{ true: colors.primary }}
-                  thumbColor="#fff"
-                />
+                <ThemedSwitch value={playoffThirdPlace} onValueChange={setPlayoffThirdPlace} />
               </View>
             )}
           </>
@@ -602,14 +624,17 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 
         {/* ── Registration ── */}
         <SectionHeader title="Registration" S={S} />
-        <Text style={S.closedNote}>🔒 All tournaments are closed — players must be approved to participate.</Text>
+        <View style={S.closedNote}>
+          <Icon name="lock" size={14} color={colors.textMuted} />
+          <Text style={S.closedNoteText}>All tournaments are closed — players must be approved to participate.</Text>
+        </View>
 
         <View style={S.toggleRow}>
           <View style={{ flex: 1 }}>
             <Text style={S.label}>Invite only</Text>
             <Text style={S.hint}>{inviteOnly ? 'Only players you invite can register.' : 'Players can request to join; you approve them.'}</Text>
           </View>
-          <Switch value={inviteOnly} onValueChange={setInviteOnly} trackColor={{ true: colors.primary }} thumbColor="#fff" />
+          <ThemedSwitch value={inviteOnly} onValueChange={setInviteOnly} />
         </View>
 
         <Text style={S.label}>Registration Deadline (optional)</Text>
@@ -620,15 +645,20 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
               : 'No deadline'}
           </Text>
           {regCloses && (
-            <TouchableOpacity onPress={() => setRegCloses(null)}>
-              <Text style={S.clearDate}>✕</Text>
+            <TouchableOpacity
+              style={S.clearDate}
+              onPress={() => setRegCloses(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Clear the registration deadline"
+            >
+              <Icon name="close" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </TouchableOpacity>
         <Text style={S.hint}>After this, players can no longer request to join. Non-registered players get a reminder 6 hours before it closes.</Text>
 
         {/* ── Pickle pot ── */}
-        <SectionHeader title="🥒 Pickle Pot" S={S} />
+        <SectionHeader iconName="pickle" title="Pickle Pot" S={S} />
 
         <Text style={S.label}>Entry Ante</Text>
         <TextInput
@@ -671,8 +701,14 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
             : 'Updates automatically as you change the league/location, format, or match type.'}
         </Text>
         {nameManuallyEdited && (
-          <TouchableOpacity onPress={() => { setNameEdited(false); }}>
-            <Text style={[S.hint, { color: colors.primary, marginTop: 4 }]}>↺ Re-enable auto-name</Text>
+          <TouchableOpacity
+            style={S.relink}
+            onPress={() => { setNameEdited(false); }}
+            accessibilityRole="button"
+            accessibilityLabel="Re-enable auto-name"
+          >
+            <Icon name="undo" size={14} color={colors.primary} />
+            <Text style={[S.hint, S.relinkText]}>Re-enable auto-name</Text>
           </TouchableOpacity>
         )}
 
@@ -681,16 +717,18 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           <View style={S.errorBox}><Text style={S.errorText}>{error}</Text></View>
         ) : null}
         {success ? (
-          <View style={S.successBox}><Text style={S.successText}>✓ Tournament created!</Text></View>
+          <View style={S.successBox}>
+            <Icon name="check-mark" size={16} color={colors.success} />
+            <Text style={S.successText}>Tournament created!</Text>
+          </View>
         ) : null}
 
-        <TouchableOpacity
-          style={[S.submitBtn, (loading || success) && S.submitBtnDisabled]}
+        <Button
+          title={loading ? 'Creating…' : success ? 'Created' : 'Create Tournament'}
           onPress={submit}
           disabled={loading || success}
-        >
-          <Text style={S.submitText}>{loading ? 'Creating…' : success ? 'Created' : 'Create Tournament'}</Text>
-        </TouchableOpacity>
+          style={S.submitBtn}
+        />
       </ScrollView>
 
       <AppDateTimePicker
@@ -712,37 +750,42 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 20, backgroundColor: c.surface, flexGrow: 1, paddingBottom: 48 },
-    sectionHeader: { fontSize: 15, fontWeight: '800', color: c.text, marginTop: 28, marginBottom: 10, borderBottomWidth: 1, borderBottomColor: c.border, paddingBottom: 6 },
-    label: { fontSize: 13, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6, marginTop: 12 },
-    hint: { fontSize: 12, color: c.textMuted, marginTop: 6, lineHeight: 17 },
-    input: { borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 13, fontSize: 15, color: c.text, backgroundColor: c.surface },
+    container: { padding: SPACE.lg, backgroundColor: c.surface, flexGrow: 1, paddingBottom: SPACE.xl * 2 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xl, marginBottom: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, paddingBottom: SPACE.xs },
+    sectionHeaderText: { ...t.title, fontWeight: FONT.weight.heavy },
+    label: { ...t.fieldLabel, marginBottom: SPACE.xs, marginTop: SPACE.md },
+    hint: { ...t.hint, marginTop: SPACE.xs },
+    input: { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
     multiline: { height: 68, textAlignVertical: 'top' },
     inputSmall: { width: 120 },
-    dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 13 },
-    dateBtnText: { fontSize: 15, color: c.textSub },
-    clearDate: { fontSize: 15, color: c.textMuted, paddingHorizontal: 4 },
-    formatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    formatCard: { width: '47%', borderWidth: 1.5, borderColor: c.border, borderRadius: 14, padding: 12, backgroundColor: c.surfaceAlt, elevation: 1, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+    dateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingLeft: SPACE.md, minHeight: 48 },
+    dateBtnText: { flex: 1, fontSize: FONT.size.lg, color: c.textSub, paddingVertical: SPACE.md },
+    // 44 tap box for the clear glyph (web ignores hitSlop).
+    clearDate: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    formatGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
+    formatCard: { width: '47%', borderWidth: 1.5, borderColor: c.border, borderRadius: RADIUS.lg, padding: SPACE.md, backgroundColor: c.surfaceAlt, elevation: 1, shadowColor: shadowColor(c), shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
     formatCardActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    formatIcon: { fontSize: 26, marginBottom: 4 },
-    formatLabel: { fontSize: 13, fontWeight: '700', color: c.textSub },
+    formatIcon: { marginBottom: SPACE.xs },
+    formatLabel: { ...t.sub, fontWeight: FONT.weight.bold },
     formatLabelActive: { color: c.primary },
-    formatDesc: { fontSize: 11, color: c.textMuted, marginTop: 3, lineHeight: 15 },
-    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    pill: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
+    formatDesc: { ...t.caption, marginTop: SPACE.xxs, lineHeight: 15 },
+    pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
+    pill: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 36, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.pill, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceAlt },
     pillActive: { borderColor: c.primary, backgroundColor: c.primaryLight },
-    pillText: { fontSize: 13, color: c.textSub, fontWeight: '500' },
-    pillTextActive: { color: c.primary, fontWeight: '700' },
-    closedNote: { fontSize: 13, color: c.textMuted, backgroundColor: c.surfaceAlt, borderRadius: 8, padding: 10, marginBottom: 4 },
-    toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 14, marginTop: 8 },
-    errorBox: { backgroundColor: '#ffebee', borderRadius: 8, padding: 12, marginTop: 12 },
-    errorText: { color: c.danger, fontSize: 14, fontWeight: '600' },
-    successBox: { backgroundColor: c.primaryLight, borderRadius: 8, padding: 12, marginTop: 12 },
-    successText: { color: c.primary, fontSize: 14, fontWeight: '700' },
-    submitBtn: { backgroundColor: c.primary, padding: 16, borderRadius: 10, alignItems: 'center', marginTop: 20 },
-    submitBtnDisabled: { backgroundColor: c.primary + '80' },
-    submitText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    pillDisabled: { opacity: 0.5 },
+    pillText: { ...t.sub, fontWeight: FONT.weight.medium },
+    pillTextActive: { color: c.primary, fontWeight: FONT.weight.bold },
+    closedNote: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.xs },
+    closedNoteText: { ...t.hint, flex: 1 },
+    toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.sm },
+    relink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: SPACE.xs, minHeight: 44 },
+    relinkText: { color: c.primary, marginTop: 0, fontWeight: FONT.weight.semibold },
+    errorBox: { backgroundColor: c.dangerLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
+    errorText: { ...t.bodySub, color: c.danger, fontWeight: FONT.weight.semibold },
+    successBox: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: c.successLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
+    successText: { ...t.bodySub, color: c.success, fontWeight: FONT.weight.bold },
+    submitBtn: { marginTop: SPACE.xl },
   });
 }

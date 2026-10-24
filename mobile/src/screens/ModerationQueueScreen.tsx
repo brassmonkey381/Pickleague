@@ -15,7 +15,10 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from '../components/StatusBanner';
 import ConfirmModal from '../components/ConfirmModal';
 import EmptyState from '../components/EmptyState';
-import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Chip, ErrorState, Panel, TextLink } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import type { RootStackParamList } from '../types';
 import { amIGodmode } from '../data/venueAdmin';
 import { REPORT_REASONS } from '../lib/moderation';
@@ -109,7 +112,7 @@ export default function ModerationQueueScreen({ navigation }: Props) {
   if (authorized === false) {
     return (
       <View style={S.center}>
-        <EmptyState icon="🔒" title="Not authorised" subtitle="This queue is godmode-only." />
+        <EmptyState iconName="lock" title="Not authorised" subtitle="This queue is godmode-only." />
       </View>
     );
   }
@@ -124,26 +127,24 @@ export default function ModerationQueueScreen({ navigation }: Props) {
       <View style={S.summary}>
         <Text style={S.summaryNum}>{open.length}</Text>
         <Text style={S.summaryLabel}>open {open.length === 1 ? 'report' : 'reports'}</Text>
-        {overdue > 0 && (
-          <View style={S.overduePill}>
-            <Text style={S.overdueText}>{overdue} past 24h</Text>
-          </View>
-        )}
+        {overdue > 0 && <Chip size="sm" tone="danger" label={`${overdue} past 24h`} align="center" />}
       </View>
 
-      <TouchableOpacity style={S.toggle} onPress={() => setShowAll(v => !v)}>
-        <Text style={S.toggleText}>{showAll ? 'Show open only' : 'Show resolved too'}</Text>
-      </TouchableOpacity>
+      <TextLink
+        label={showAll ? 'Show open only' : 'Show resolved too'}
+        size="sub"
+        onPress={() => setShowAll(v => !v)}
+      />
 
       {loading ? (
-        <ActivityIndicator style={{ marginTop: 24 }} color={c.primary} />
+        <ActivityIndicator style={S.spinner} color={c.primary} />
       ) : reports.length === 0 && loadError ? (
         <ErrorState error={loadError} onRetry={() => { void load(showAll); }} compact />
       ) : reports.length === 0 ? (
         <EmptyState
-          icon="✅"
+          iconName="check"
           title="Nothing to review"
-          subtitle="Reports filed from a player's ⋯ menu land here."
+          subtitle="Reports filed from a player's More menu land here."
         />
       ) : (
         reports.map(r => {
@@ -151,7 +152,7 @@ export default function ModerationQueueScreen({ navigation }: Props) {
           const busy   = actingId === r.id;
           const snap   = r.snapshot ?? {};
           return (
-            <View key={r.id} style={[S.card, isOverdue(r) && S.cardOverdue]}>
+            <Panel key={r.id} style={[S.card, isOverdue(r) && S.cardOverdue]}>
               <View style={S.cardTop}>
                 <Text style={S.reason}>{reason}</Text>
                 <Text style={S.when}>{new Date(r.created_at).toLocaleString()}</Text>
@@ -160,11 +161,13 @@ export default function ModerationQueueScreen({ navigation }: Props) {
               <TouchableOpacity
                 style={S.subjectRow}
                 onPress={() => navigation.navigate('PlayerProfile', { userId: r.subject_user_id, userName: r.subject?.full_name ?? 'Player' })}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${r.subject?.full_name ?? 'this player'}'s profile`}
               >
                 {r.subject?.avatar_url
                   ? <CachedImage source={{ uri: r.subject.avatar_url }} style={S.avatar} />
-                  : <View style={[S.avatar, S.avatarFallback]}><Text>👤</Text></View>}
-                <View style={{ flex: 1 }}>
+                  : <View style={[S.avatar, S.avatarFallback]}><Icon name="person" size={18} color={c.textMuted} /></View>}
+                <View style={S.flex}>
                   <Text style={S.subjectName}>{r.subject?.full_name ?? 'Unknown player'}</Text>
                   <Text style={S.meta}>
                     reported by {r.reporter?.full_name ?? 'someone'} · {r.subject_type}
@@ -184,32 +187,39 @@ export default function ModerationQueueScreen({ navigation }: Props) {
               )}
 
               {r.status !== 'open' ? (
-                <Text style={S.resolved}>
-                  {r.status === 'actioned' ? '✅ Actioned' : '➖ Dismissed'}
-                  {r.resolution ? ` — ${r.resolution}` : ''}
-                </Text>
+                <View style={S.resolvedRow}>
+                  {r.status === 'actioned'
+                    ? <Icon name="check" size={14} color={c.success} />
+                    : <Icon name="minus" size={14} color={c.textMuted} />}
+                  <Text style={S.resolved}>
+                    {r.status === 'actioned' ? 'Actioned' : 'Dismissed'}
+                    {r.resolution ? ` — ${r.resolution}` : ''}
+                  </Text>
+                </View>
               ) : busy ? (
-                <ActivityIndicator style={{ marginTop: 10 }} color={c.primary} />
+                <ActivityIndicator style={S.busy} color={c.primary} />
               ) : (
                 <View style={S.actions}>
-                  <TouchableOpacity style={S.btn} onPress={() => { void dismiss(r); }}>
+                  <TouchableOpacity style={S.btn} onPress={() => { void dismiss(r); }} accessibilityRole="button">
                     <Text style={S.btnText}>Dismiss</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[S.btn, S.btnWarn]}
                     onPress={() => setPending({ report: r, action: 'avatar' })}
+                    accessibilityRole="button"
                   >
                     <Text style={[S.btnText, S.btnWarnText]}>Remove photo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[S.btn, S.btnDanger]}
                     onPress={() => setPending({ report: r, action: 'eject' })}
+                    accessibilityRole="button"
                   >
                     <Text style={[S.btnText, S.btnDangerText]}>Remove account</Text>
                   </TouchableOpacity>
                 </View>
               )}
-            </View>
+            </Panel>
           );
         })
       )}
@@ -229,41 +239,41 @@ export default function ModerationQueueScreen({ navigation }: Props) {
         onConfirm={() => { if (pending) void run(pending); }}
         onClose={() => { if (!actingId) setPending(null); }}
       />
-      <View style={{ height: 40 }} />
     </ScrollView>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     page:        { flex: 1, backgroundColor: c.bg },
-    content:     { padding: 16 },
-    center:      { flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', padding: 24 },
-    summary:     { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 10 },
-    summaryNum:  { fontSize: 32, fontWeight: '900', color: c.text },
-    summaryLabel:{ fontSize: 14, color: c.textMuted, flex: 1 },
-    overduePill: { backgroundColor: c.dangerLight, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-    overdueText: { color: c.danger, fontWeight: '800', fontSize: 12 },
-    toggle:      { alignSelf: 'flex-start', marginBottom: 12 },
-    toggleText:  { color: c.primary, fontWeight: '700', fontSize: 13 },
-    card:        { backgroundColor: c.surface, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: c.border },
-    cardOverdue: { borderColor: c.danger, borderWidth: 1.5 },
-    cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    reason:      { fontSize: 15, fontWeight: '800', color: c.text },
-    when:        { fontSize: 11, color: c.textMuted },
-    subjectRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
-    avatar:      { width: 36, height: 36, borderRadius: 18 },
+    content:     { padding: SPACE.lg, paddingBottom: SPACE.xl * 2 },
+    center:      { flex: 1, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl },
+    flex:        { flex: 1, minWidth: 0 },
+    spinner:     { marginTop: SPACE.xl },
+    busy:        { marginTop: SPACE.sm },
+    summary:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.sm },
+    summaryNum:  t.display,
+    summaryLabel:{ ...t.bodySub, color: c.textMuted, flex: 1 },
+    card:        { marginBottom: SPACE.md },
+    cardOverdue: { borderColor: c.danger },
+    cardTop:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.sm },
+    reason:      t.title,
+    when:        t.caption,
+    subjectRow:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44, marginBottom: SPACE.sm },
+    avatar:      { width: 36, height: 36, borderRadius: RADIUS.pill },
     avatarFallback: { backgroundColor: c.surfaceAlt, alignItems: 'center', justifyContent: 'center' },
-    subjectName: { fontSize: 15, fontWeight: '700', color: c.text },
-    meta:        { fontSize: 12, color: c.textMuted, marginTop: 1 },
-    details:     { fontSize: 14, color: c.textSub, fontStyle: 'italic', marginBottom: 8 },
-    snapBox:     { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10, marginBottom: 10 },
-    snapLabel:   { fontSize: 11, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 },
-    snapText:    { fontSize: 12, color: c.textSub, fontFamily: 'monospace' },
-    resolved:    { fontSize: 13, color: c.textMuted, marginTop: 4 },
-    actions:     { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-    btn:         { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1.5, borderColor: c.border },
-    btnText:     { fontSize: 13, fontWeight: '700', color: c.textSub },
+    subjectName: t.title,
+    meta:        { ...t.hint, marginTop: SPACE.xxs / 2 },
+    details:     { ...t.bodySub, fontStyle: 'italic', marginBottom: SPACE.sm },
+    snapBox:     { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.sm, marginBottom: SPACE.sm },
+    snapLabel:   { ...t.fieldLabel, marginBottom: SPACE.xs },
+    snapText:    { fontSize: FONT.size.sm, color: c.textSub, fontFamily: 'monospace' },
+    resolvedRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xs },
+    resolved:    { ...t.hint, flexShrink: 1 },
+    actions:     { flexDirection: 'row', gap: SPACE.sm, flexWrap: 'wrap' },
+    btn:         { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border },
+    btnText:     { ...t.sub, fontWeight: FONT.weight.bold },
     btnWarn:     { borderColor: c.primary },
     btnWarnText: { color: c.primary },
     btnDanger:   { borderColor: c.danger, backgroundColor: c.dangerLight },

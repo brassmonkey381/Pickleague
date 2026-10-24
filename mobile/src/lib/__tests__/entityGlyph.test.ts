@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ENTITY_GLYPH,
-  entityGlyph,
+  ENTITY_ICON,
+  entityIcon,
   entityTileColors,
+  glyphTileColors,
   joinFacts,
   leagueRoleChip,
   myRegistrationChip,
@@ -12,20 +13,43 @@ import {
 import { LIGHT } from '../theme';
 
 describe('entity glyphs', () => {
-  it('tournaments are the trophy, leagues the ball, drills the paddle', () => {
-    expect(entityGlyph('tournament')).toBe('🏆');
-    expect(entityGlyph('league')).toBe('🎾');
-    expect(entityGlyph('drill')).toBe('🏓');
+  it('drawn glyphs: pickleball league, trophy tournament, paddle drill, pickle pickles', () => {
+    expect(entityIcon('league')).toBe('pickleball');
+    expect(entityIcon('tournament')).toBe('trophy');
+    expect(entityIcon('drill')).toBe('paddle');
+    expect(entityIcon('pickles')).toBe('pickle');
+    expect(entityIcon('court')).toBe('pin');
   });
 
-  it('no two kinds share a glyph', () => {
-    const glyphs = Object.values(ENTITY_GLYPH);
-    expect(new Set(glyphs).size).toBe(glyphs.length);
+  it('only event and season share a drawn glyph (both are dates)', () => {
+    const byIcon = new Map<string, string[]>();
+    for (const [kind, icon] of Object.entries(ENTITY_ICON)) byIcon.set(icon, [...(byIcon.get(icon) ?? []), kind]);
+    const shared = [...byIcon.values()].filter((kinds) => kinds.length > 1);
+    expect(shared).toEqual([['event', 'season']]);
+  });
+
+  it('every kind has a glyph', () => {
+    expect(Object.keys(ENTITY_ICON).sort()).toEqual(
+      ['court', 'drill', 'event', 'league', 'match', 'pickles', 'player', 'season', 'shop', 'tournament', 'vote'],
+    );
   });
 
   it('tile colours come from the theme', () => {
     expect(entityTileColors('league', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
     expect(entityTileColors('court', LIGHT)).toEqual({ bg: LIGHT.surfaceAlt, border: LIGHT.border });
+    expect(entityTileColors('pickles', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
+  });
+
+  it('event and season use the filled calendar', () => {
+    expect(entityIcon('event')).toBe('calendar-event');
+    expect(entityIcon('season')).toBe('calendar-event');
+  });
+
+  it('a glyph with a colour of its own: fire warning, trophy gold, pickle brand; others none', () => {
+    expect(glyphTileColors('fire', LIGHT)).toEqual({ bg: LIGHT.warningLight, border: LIGHT.warning });
+    expect(glyphTileColors('trophy', LIGHT)).toEqual({ bg: LIGHT.rarityLegendaryLight, border: LIGHT.rarityLegendary });
+    expect(glyphTileColors('pickle', LIGHT)).toEqual({ bg: LIGHT.primaryLight, border: LIGHT.primary });
+    expect(glyphTileColors('megaphone', LIGHT)).toBeNull();
   });
 });
 

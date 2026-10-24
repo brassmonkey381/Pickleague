@@ -10,7 +10,9 @@ import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useIsFocused, useNavigation, type NavigationProp } from '@react-navigation/native';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { formatClockTime, formatWeekdayMask, zoneSuffix } from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
 import { formatDurationMinutes } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { useTheme } from '../../lib/ThemeContext';
@@ -45,16 +47,19 @@ function Section({ profileId }: { profileId: string }) {
   return (
     <View style={S.wrap}>
       <Text style={[t.label, S.label]}>PLANNED CHECK-INS</Text>
-      <View style={[S.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+      <Panel padded={false}>
         {stops.map((s, i) => {
           const windows = routineWindowsLine(s);
           const head = `${formatClockTime(s.localTime)}${zoneSuffix(s.tz)} · ${s.venueName}`;
           const sub = `${formatWeekdayMask(s.days)} · ${formatDurationMinutes(s.lengthMin)}`;
           const body = (
             <>
-              <Text style={t.title} numberOfLines={1}>
-                📅 {head}
-              </Text>
+              <View style={S.head}>
+                <Icon name="calendar-event" size={16} color={c.textSub} />
+                <Text style={[t.title, S.shrink]} numberOfLines={1}>
+                  {head}
+                </Text>
+              </View>
               <Text style={[t.meta, { color: c.textSub }]}>{sub}</Text>
               {windows ? (
                 <Text style={[t.meta, { color: c.textSub }]} numberOfLines={2}>
@@ -63,7 +68,7 @@ function Section({ profileId }: { profileId: string }) {
               ) : null}
             </>
           );
-          const rowStyle = [S.row, i > 0 && { borderTopColor: c.border, borderTopWidth: StyleSheet.hairlineWidth }];
+          const rowStyle = [S.row, i > 0 && { borderTopColor: c.border, borderTopWidth: HAIRLINE }];
           // The court's page, once court discovery is on; else just the line.
           return COURT_DISCOVERY_ENABLED ? (
             <TouchableOpacity
@@ -81,14 +86,16 @@ function Section({ profileId }: { profileId: string }) {
             </View>
           );
         })}
-      </View>
+      </Panel>
     </View>
   );
 }
 
 const S = StyleSheet.create({
   wrap: { width: '100%' },
-  label: { marginTop: 20, marginBottom: 10 },
-  card: { borderWidth: 1, borderRadius: RADIUS.md + 2 },
-  row: { paddingVertical: 10, paddingHorizontal: SPACE.md, minHeight: 44, gap: 2 },
+  label: { marginTop: SPACE.lg, marginBottom: SPACE.sm },
+  row: { paddingVertical: SPACE.sm + SPACE.xxs, paddingHorizontal: SPACE.md, minHeight: 44, gap: SPACE.xxs },
+  // The calendar glyph beside the time and court, centred on the line.
+  head: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  shrink: { flexShrink: 1 },
 });

@@ -1,12 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, Modal, ScrollView, TouchableOpacity, ActivityIndicator, StyleSheet,
+  View, Text, Modal, ScrollView, ActivityIndicator, StyleSheet,
   Pressable, Platform,
 } from 'react-native';
+import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import StatusBanner from './StatusBanner';
 import { useStatusMessage } from '../lib/useStatusMessage';
+import { PickleAmount, picklesLabel } from './PickleAmount';
 
 type PreviewRow = {
   place:           number;
@@ -26,8 +32,6 @@ type Props = {
   onClose: () => void;
   onPaid: () => void;
 };
-
-const PLACE_EMOJI = ['', '🥇', '🥈', '🥉'];
 
 export default function PayoutPreviewModal({ visible, tournamentId, prizePool, onClose, onPaid }: Props) {
   const { colors: c } = useTheme();
@@ -98,16 +102,22 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
         } : undefined}
       >
         <View style={S.card}>
-          <Text style={S.title}>🏆 Pay Out Prizes</Text>
+          <View style={S.titleRow}>
+            <Icon name="trophy" size={20} color={c.rarityLegendary} />
+            <Text style={S.title} accessibilityRole="header">Pay Out Prizes</Text>
+          </View>
           <Text style={S.sub}>
             Auto-resolves the winning teams from the bracket. Each team receives its
             place's share of the pool (e.g. 1st = 60%), and the team prize is split
             equally among its members. Champion badges and a PLUPR bonus are also applied.
           </Text>
-          <Text style={S.sub}>Pool: 🥒 {prizePool}</Text>
+          <View style={S.poolRow}>
+            <Text style={S.subInline}>Pool:</Text>
+            <PickleAmount amount={prizePool} preset="sub" color={c.text} iconColor={c.primary} />
+          </View>
 
           {loading ? (
-            <ActivityIndicator style={{ marginVertical: 30 }} color={c.primary} />
+            <ActivityIndicator style={S.spinner} color={c.primary} />
           ) : rows.length === 0 ? (
             <View style={S.emptyBox}>
               <Text style={S.emptyText}>
@@ -115,25 +125,26 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
               </Text>
             </View>
           ) : (
-            <ScrollView style={S.list} contentContainerStyle={{ paddingBottom: 8 }}>
+            <ScrollView style={S.list} contentContainerStyle={{ paddingBottom: SPACE.sm }}>
               {rows.map((r, i) => {
                 const teamSize = r.uids?.length ?? 0;
                 return (
                   <View key={`${r.place}-${r.team_id ?? i}`} style={S.placeCard}>
                     <View style={S.placeHeader}>
-                      <Text style={S.placeBadge}>
-                        {PLACE_EMOJI[r.place] ?? `#${r.place}`} {r.team_name ?? '—'}
-                      </Text>
-                      <Text style={S.placeShare}>🥒 {r.pool_share}</Text>
+                      <View style={S.placeBadgeRow}>
+                        <RankMedal place={r.place} />
+                        <Text style={S.placeBadge} numberOfLines={1}>{r.team_name ?? '—'}</Text>
+                      </View>
+                      <PickleAmount amount={r.pool_share} preset="title" textStyle={S.heavy} />
                     </View>
                     <Text style={S.placeMeta}>
-                      Team prize 🥒 {r.pool_share} ÷ {teamSize} {teamSize === 1 ? 'player' : 'players'} = 🥒 {r.share_per_user} each · +{r.plupr_bonus} PLUPR · 🏅 Champion badge
+                      Team prize {picklesLabel(r.pool_share)} ÷ {teamSize} {teamSize === 1 ? 'player' : 'players'} = {picklesLabel(r.share_per_user)} each · +{r.plupr_bonus} PLUPR · Champion badge
                     </Text>
                     <View style={S.userList}>
                       {(r.user_names ?? []).map((n, j) => (
                         <View key={j} style={S.userRow}>
                           <Text style={S.userName} numberOfLines={1}>{n}</Text>
-                          <Text style={S.userShare}>+🥒 {r.share_per_user}</Text>
+                          <PickleAmount amount={r.share_per_user} prefix="+" preset="sub" textStyle={S.heavy} />
                         </View>
                       ))}
                     </View>
@@ -142,7 +153,7 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
               })}
               <View style={S.totalBox}>
                 <Text style={S.totalLabel}>Total distributed</Text>
-                <Text style={S.totalValue}>🥒 {totalDistributed}</Text>
+                <PickleAmount amount={totalDistributed} preset="h3" textStyle={S.black} />
               </View>
             </ScrollView>
           )}
@@ -150,18 +161,14 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
           <StatusBanner status={status.value} />
 
           <View style={S.btnRow}>
-            <TouchableOpacity style={[S.btn, S.btnCancel]} onPress={onClose} disabled={busy}>
-              <Text style={S.btnCancelText}>Close</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[S.btn, S.btnConfirm, (busy || rows.length === 0) && S.btnDisabled]}
+            <Button title="Close" variant="outline" onPress={onClose} disabled={busy} style={S.btn} />
+            <Button
+              title="Confirm Payout"
               onPress={confirm}
-              disabled={busy || rows.length === 0}
-            >
-              {busy
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={S.btnConfirmText}>Confirm Payout</Text>}
-            </TouchableOpacity>
+              loading={busy}
+              disabled={rows.length === 0}
+              style={S.btn}
+            />
           </View>
         </View>
       </Pressable>
@@ -170,36 +177,36 @@ export default function PayoutPreviewModal({ visible, tournamentId, prizePool, o
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    backdrop:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16 },
-    card:        { backgroundColor: c.surface, borderRadius: 16, padding: 18, maxWidth: 520, width: '100%', alignSelf: 'center', maxHeight: '90%', flexDirection: 'column' },
-    title:       { fontSize: 19, fontWeight: '900', color: c.text, marginBottom: 4 },
-    sub:         { fontSize: 12, color: c.textSub, lineHeight: 17, marginBottom: 4 },
+    backdrop:    { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', padding: SPACE.lg },
+    card:        { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, maxWidth: 520, width: '100%', alignSelf: 'center', maxHeight: '90%', flexDirection: 'column' },
+    titleRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.xs },
+    title:       { ...t.h3, fontWeight: FONT.weight.heavy, flexShrink: 1 },
+    sub:         { ...t.sub, marginBottom: SPACE.xs },
+    subInline:   t.sub,
+    poolRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.xs },
+    spinner:     { marginVertical: SPACE.xl },
 
-    list:        { marginTop: 10, flex: 1 },
-    placeCard:   { backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: c.border },
-    placeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-    placeBadge:  { fontSize: 15, fontWeight: '900', color: c.text },
-    placeShare:  { fontSize: 14, fontWeight: '800', color: c.primary },
-    placeMeta:   { fontSize: 11, color: c.textMuted, marginBottom: 8, fontStyle: 'italic' },
-    userList:    { gap: 4 },
-    userRow:     { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: c.surface, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border },
-    userName:    { flex: 1, fontSize: 13, color: c.text, fontWeight: '600' },
-    userShare:   { fontSize: 13, color: c.primary, fontWeight: '800' },
+    list:        { marginTop: SPACE.sm, flex: 1 },
+    placeCard:   { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    placeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.xs },
+    placeBadgeRow: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    placeBadge:  { ...t.title, fontWeight: FONT.weight.black, flexShrink: 1 },
+    heavy:       { fontWeight: FONT.weight.heavy },
+    black:       { fontWeight: FONT.weight.black },
+    placeMeta:   { ...t.caption, marginBottom: SPACE.sm, fontStyle: 'italic' },
+    userList:    { gap: SPACE.xs },
+    userRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACE.sm, backgroundColor: c.surface, borderRadius: RADIUS.sm, paddingVertical: SPACE.xs, paddingHorizontal: SPACE.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    userName:    { flex: 1, fontSize: FONT.size.base, color: c.text, fontWeight: FONT.weight.semibold },
 
-    totalBox:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: c.border, paddingTop: 10, marginTop: 6 },
-    totalLabel:  { fontSize: 13, color: c.textSub, fontWeight: '700' },
-    totalValue:  { fontSize: 16, color: c.primary, fontWeight: '900' },
+    totalBox:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border, paddingTop: SPACE.sm, marginTop: SPACE.xs },
+    totalLabel:  { ...t.sub, fontWeight: FONT.weight.bold },
 
-    emptyBox:    { padding: 20, alignItems: 'center' },
-    emptyText:   { fontSize: 13, color: c.textMuted, textAlign: 'center', lineHeight: 18 },
+    emptyBox:    { padding: SPACE.lg, alignItems: 'center' },
+    emptyText:   { ...t.hint, textAlign: 'center' },
 
-    btnRow:      { flexDirection: 'row', gap: 10, marginTop: 14 },
-    btn:         { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    btnCancel:   { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    btnCancelText: { color: c.textSub, fontWeight: '700' },
-    btnConfirm:  { backgroundColor: c.primary },
-    btnConfirmText: { color: '#fff', fontWeight: '900' },
-    btnDisabled: { opacity: 0.5 },
+    btnRow:      { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
+    btn:         { flex: 1 },
   });
 }

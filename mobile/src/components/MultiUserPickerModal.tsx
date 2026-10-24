@@ -6,7 +6,8 @@ import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
 import MultiSelectModal from './MultiSelectModal';
-import EmptyState from './EmptyState';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 
 export type MultiPickedUser = {
   id: string;
@@ -87,12 +88,12 @@ export default function MultiUserPickerModal({
       loading={loading}
       busy={busy}
       notice={loadError ? (
-        <EmptyState
-          icon="⚠️"
-          title="Couldn't load players."
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => setAttempt(n => n + 1)}
+        // loadProblem() already says what failed and what to do.
+        <ErrorState
+          iconName="warning"
+          error={null}
+          message={loadError}
+          onRetry={() => setAttempt(n => n + 1)}
         />
       ) : null}
       searchPlaceholder="Search by name or @username…"
@@ -124,6 +125,7 @@ export default function MultiUserPickerModal({
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
     avatar:      { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji: { fontSize: 20 },
+    // The avatar emoji is the player's own picture (content, not chrome).
+    avatarEmoji: { fontSize: FONT.size.h2 },
   });
 }

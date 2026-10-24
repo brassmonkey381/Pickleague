@@ -30,6 +30,7 @@ import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/ex
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import {
   ActionSheetModal,
+  ErrorState,
   FilterSheet,
   SectionHeader,
   type ActionSheetAction,
@@ -38,7 +39,7 @@ import {
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Tournament, RootStackParamList } from '../types';
 import { FORMAT_META } from '../lib/tournament';
 import { TOTAL_CELLS } from '../lib/availability';
@@ -496,7 +497,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   const renderItem = ({ item }: ListRenderItemInfo<TItem>) => {
     if (item.kind === 'discoverEmpty') {
       return (
-        <EmptyState compact icon="🔍" title="No tournaments match your filters." actionLabel="Clear filters" onAction={clearAll} />
+        <EmptyState compact iconName="search" title="No tournaments match your filters." actionLabel="Clear filters" onAction={clearAll} />
       );
     }
     if (item.kind === 'row') return renderRow(item.t, item.section);
@@ -542,7 +543,8 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         style={style}
         action={showSort
           ? {
-              label: `${TOURNAMENT_SORT_LABELS[split.sort]} ▾`,
+              label: TOURNAMENT_SORT_LABELS[split.sort],
+              trailingIconName: 'chevron-down',
               onPress: () => setSortOpen(true),
               a11yLabel: `Sort: ${TOURNAMENT_SORT_LABELS[split.sort]}. Change sort`,
             }
@@ -572,20 +574,20 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   const widerArea = area ? widerSearchRadius(area.radiusMi) : null;
   const emptyList = loadFailed ? (
     // A failed fetch must never read as "you have no tournaments".
-    <EmptyState
-      icon="📡"
-      title="Couldn't load tournaments"
-      subtitle={friendlySbMessage(query.error)}
-      actionLabel="Retry"
-      onAction={() => { void reload(); }}
+    <ErrorState
+      iconName="offline"
+      error={query.error}
+      message={`Couldn't load tournaments. ${friendlySbMessage(query.error)}`}
+      retryLabel="Retry"
+      onRetry={() => { void reload(); }}
     />
   ) : tournaments.length === 0 ? (
     leagueId ? (
-      <EmptyState compact icon="🏆" title={`No tournaments in ${leagueName ?? 'this league'} yet.`} />
+      <EmptyState compact iconName="trophy" title={`No tournaments in ${leagueName ?? 'this league'} yet.`} />
     ) : (
       <EmptyState
         compact
-        icon="🏆"
+        iconName="trophy"
         title="No tournaments yet."
         subtitle="Leagues run them."
         actionLabel="Browse leagues"
@@ -596,7 +598,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
     // Nothing near the search area (the area pills above change it).
     <EmptyState
       compact
-      icon="📍"
+      iconName="pin"
       title={`No tournaments within ${area.radiusMi} mi.`}
       subtitle="Leagues run them."
       actionLabel={widerArea ? `Widen to ${widerArea} mi` : 'Browse leagues'}
@@ -605,7 +607,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   ) : (
     <EmptyState
       compact
-      icon="🔍"
+      iconName="search"
       title={searching ? `No tournaments match "${searchQuery.trim()}".` : 'No tournaments match your filters.'}
       actionLabel="Clear filters"
       onAction={clearAll}
@@ -661,7 +663,8 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
 
   const sortActions = useMemo<ActionSheetAction[]>(() =>
     tournamentSortOptions(origin).map((k) => ({
-      label: `${k === split.sort ? '✓ ' : ''}${TOURNAMENT_SORT_LABELS[k]}`,
+      label: TOURNAMENT_SORT_LABELS[k],
+      iconName: k === split.sort ? 'check-mark' : undefined,
       onPress: () => filters.setSort(k),
     })), [origin, split.sort, filters.setSort]);
 
@@ -773,6 +776,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     header: { marginTop: SPACE.md },
     createFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: SPACE.sm, minHeight: 44 },
     footerLink: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.sm, alignItems: 'center', justifyContent: 'center' },
-    footerLinkText: { color: c.primary, fontWeight: '700' },
+    footerLinkText: { color: c.primary, fontWeight: FONT.weight.bold },
   });
 }

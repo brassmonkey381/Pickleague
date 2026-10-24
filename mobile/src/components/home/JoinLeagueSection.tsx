@@ -1,5 +1,5 @@
 // JOIN A LEAGUE (plan section 3, layout B): for an account in no league.
-// [Enter code] and [Browse all ›], then 3 open leagues with a working inline
+// [Enter code] and [Browse all >], then 3 open leagues with a working inline
 // [Join] (open) / [Request] (private) through useLeagueJoin, the one
 // data-changing action allowed on Home (decision 1: joining never touches the
 // ratings cascade). After a join, Home reloads and the league moves into YOURS.
@@ -38,8 +38,16 @@ export default function JoinLeagueSection({
     <View>
       <SectionHeader title="Join a league" />
       <View style={styles.buttons}>
-        <Button size="sm" variant="outline" title="Enter code" onPress={onEnterCode} style={styles.flex} />
-        <Button size="sm" variant="outline" title="Browse all ›" onPress={onBrowse} style={styles.flex} />
+        <Button size="sm" variant="outline" title="Enter code" iconName="key" onPress={onEnterCode} style={styles.flex} />
+        <Button
+          size="sm"
+          variant="outline"
+          title="Browse all"
+          iconName="chevron-right"
+          iconPosition="trailing"
+          onPress={onBrowse}
+          style={styles.flex}
+        />
       </View>
       {leagues.length > 0 ? (
         <Panel padded={false}>

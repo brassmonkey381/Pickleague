@@ -1,5 +1,7 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { Tournament } from '../../types';
 import TournamentBracket from '../TournamentBracket';
 import { computeTeamStandings, type TeamStanding } from '../../lib/tournamentStandings';
@@ -22,7 +24,7 @@ type Props = {
 export default function PoolPlayBracketSection({
   tournament, myUserId, savedRounds, savedMatches, profileNames, openMatchActionSheetById,
 }: Props) {
-  const { S } = useTournamentDetailStyles();
+  const { S, c } = useTournamentDetailStyles();
   const poolRounds = savedRounds.filter((r: any) => r.round_type === 'pool');
   if (poolRounds.length === 0) return null;
 
@@ -110,9 +112,12 @@ export default function PoolPlayBracketSection({
         <Text style={S.advancementPoint}>2.  Head-to-head (when exactly 2 are tied)</Text>
         <Text style={S.advancementPoint}>3.  Point differential</Text>
         {poolMatchesPlayed && a1 && b2 && (
-          <Text style={S.advancementResultLine}>
-            ✓ Pools complete: the top 2 from each pool are seeded into the bracket below.
-          </Text>
+          <View style={[local.resultRow, { borderTopColor: c.border }]}>
+            <Icon name="check-mark" size={12} color={c.primary} style={local.resultGlyph} />
+            <Text style={[S.advancementResultLine, local.resultText]}>
+              Pools complete: the top 2 from each pool are seeded into the bracket below.
+            </Text>
+          </View>
         )}
       </View>
 
@@ -153,3 +158,12 @@ export default function PoolPlayBracketSection({
     </SectionCard>
   );
 }
+
+// "Pools complete" line: a check glyph beside the words. The rule above it
+// moves from the shared Text style to the row so the glyph sits inside it.
+const local = StyleSheet.create({
+  resultRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.xs, marginTop: SPACE.sm, paddingTop: SPACE.sm, borderTopWidth: HAIRLINE },
+  // Centres the 12px glyph on the 12px text's first line.
+  resultGlyph: { marginTop: SPACE.xxs },
+  resultText: { flex: 1, marginTop: 0, paddingTop: 0, borderTopWidth: 0 },
+});

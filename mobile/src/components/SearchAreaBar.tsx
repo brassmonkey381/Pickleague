@@ -20,6 +20,7 @@ import {
   SingleSelectModal,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
@@ -202,7 +203,8 @@ export function SearchAreaPanel({
           accessibilityRole="button"
           accessibilityLabel={`Search near ${r.label}`}
         >
-          <Text style={t.body}>📍 {r.label}</Text>
+          <Icon name="pin" size={16} color={c.textSub} />
+          <Text style={[t.body, S.place]} numberOfLines={1}>{r.label}</Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -216,5 +218,5 @@ const S = StyleSheet.create({
   hint: { marginTop: SPACE.xxs },
   panel: { gap: SPACE.sm, paddingVertical: SPACE.xs },
   hug: { alignSelf: 'flex-start' },
-  result: { minHeight: 44, justifyContent: 'center' },
+  result: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 });

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, TouchableOpacity, View } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../types';
 import SplashScreen from '../components/SplashScreen';
@@ -104,6 +105,7 @@ import AppNavBar, { navRouteChanged } from './AppNavBar';
 import CheckinHost from '../components/play/CheckinHost';
 import PlayStartScreen from '../screens/PlayStartScreen';
 import { useNavReserve } from '../lib/appChrome';
+import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 import InviteLandingScreen from '../screens/InviteLandingScreen';
 import ReferralHost from '../components/referrals/ReferralHost';
 import { linking } from './linking';
@@ -135,12 +137,17 @@ function WebMaxWidth({
   if (Platform.OS !== 'web') return <>{children}</>;
   return (
     <View style={{ flex: 1, backgroundColor: background, alignItems: 'center' }}>
-      <View style={{ flex: 1, width: '100%', maxWidth: 720 }}>
+      <View style={{ flex: 1, width: '100%', maxWidth: WEB_COLUMN_MAX_WIDTH }}>
         {children}
       </View>
     </View>
   );
 }
+
+/** A header action: a real 44 box (RNW ignores hitSlop) around a 24 glyph,
+ *  the same size and colour as Home's top-bar actions. */
+const HEADER_ACTION = { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' } as const;
+const HEADER_ICON_SIZE = 24;
 
 /** The Me header's gear (PLAY_NAV_ENABLED). */
 function SettingsGear() {
@@ -148,26 +155,27 @@ function SettingsGear() {
   return (
     <TouchableOpacity
       onPress={() => navigateWhenReady('Settings')}
-      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      style={HEADER_ACTION}
       accessibilityRole="button"
       accessibilityLabel="Settings"
     >
-      <Icon name="gear" size={22} color={colors.text} />
+      <Icon name="gear" size={HEADER_ICON_SIZE} color={colors.text} />
     </TouchableOpacity>
   );
 }
 
-/** Me's header: Saved (your leagues' standings live there), the same 🔖 as Home's top bar. */
+/** Me's header: Saved (your leagues' standings live there), the same bookmark as Home's top bar. */
 function SavedButton() {
+  const { colors } = useTheme();
   return (
     <TouchableOpacity
       onPress={() => navigateWhenReady('Bookmarks')}
-      style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+      style={HEADER_ACTION}
       accessibilityRole="button"
       accessibilityLabel="Saved"
       accessibilityHint="Your saved leagues, tournaments and players, with your standings"
     >
-      <Text style={{ fontSize: 20 }} maxFontSizeMultiplier={1.3}>🔖</Text>
+      <Icon name="bookmark" size={HEADER_ICON_SIZE} color={colors.text} />
     </TouchableOpacity>
   );
 }
@@ -350,7 +358,7 @@ export default function AppNavigator() {
             }}
           >
             <ErrorBoundary>
-            <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: '700' } }}>
+            <Stack.Navigator screenOptions={{ headerTitleStyle: { fontWeight: FONT.weight.bold } }}>
             {session ? (
               <>
                 <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
@@ -375,16 +383,16 @@ export default function AppNavigator() {
                     <Stack.Screen name="Leagues" component={LeaguesScreen} options={{ title: 'Leagues' }} />
                   </>
                 )}
-                <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params.leagueName })} />
-                <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params.leagueName + ' Members' })} />
+                <Stack.Screen name="LeagueDetail" component={LeagueDetailScreen} options={({ route }) => ({ title: route.params?.leagueName ?? 'League' })} />
+                <Stack.Screen name="LeagueMembers" component={LeagueMembersScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Members' : 'Members' })} />
                 <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Invite Players' }} />
-                <Stack.Screen name="TournamentInvite" component={TournamentInviteScreen} options={({ route }) => ({ title: 'Invite to ' + route.params.tournamentName })} />
-                <Stack.Screen name="Events" component={EventsScreen} options={({ route }) => ({ title: route.params.leagueName + ' Events' })} />
+                <Stack.Screen name="TournamentInvite" component={TournamentInviteScreen} options={({ route }) => ({ title: route.params?.tournamentName ? 'Invite to ' + route.params.tournamentName : 'Invite' })} />
+                <Stack.Screen name="Events" component={EventsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Events' : 'Events' })} />
                 <Stack.Screen name="CreateEvent" component={CreateEventScreen} options={{ title: 'New Event' }} />
-                <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params.title })} />
+                <Stack.Screen name="EventDetail" component={EventDetailScreen} options={({ route }) => ({ title: route.params?.title ?? 'Event' })} />
                 <Stack.Screen name="MatchEntry" component={MatchEntryScreen} options={{ title: 'Record Match' }} />
-                <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params.title })} />
-                <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params.title })} />
+                <Stack.Screen name="MatchHistory" component={MatchHistoryScreen} options={({ route }) => ({ title: route.params?.title ?? 'Match History' })} />
+                <Stack.Screen name="CalendarAnalytics" component={CalendarAnalyticsScreen} options={({ route }) => ({ title: route.params?.title ?? 'Calendar' })} />
                 <Stack.Screen name="SeasonStandings" component={SeasonStandingsScreen} options={({ route }) => ({ title: route.params?.leagueName ? route.params.leagueName + ' Season' : 'Standings' })} />
                 <Stack.Screen
                   name="Profile"
@@ -410,9 +418,9 @@ export default function AppNavigator() {
                   }}
                 />
                 <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
-                <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params.userName })} />
+                <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params?.userName ?? 'Player' })} />
                 <Stack.Screen name="Claim" component={ClaimAccountScreen} options={{ title: 'Claim account' }} />
-                <Stack.Screen name="HeadToHead" component={HeadToHeadScreen} options={({ route }) => ({ title: `You vs ${route.params.opponentName}` })} />
+                <Stack.Screen name="HeadToHead" component={HeadToHeadScreen} options={({ route }) => ({ title: route.params?.opponentName ? `You vs ${route.params.opponentName}` : 'Head to head' })} />
                 {/* With Discover on, a league's own list (leagueId) renders as
                     before and the full list replaces itself with Discover. */}
                 <Stack.Screen
@@ -424,11 +432,11 @@ export default function AppNavigator() {
                       : { title: route.params?.leagueName ? route.params.leagueName + ' Tournaments' : 'Tournaments' }}
                 />
                 <Stack.Screen name="CreateTournament" component={CreateTournamentScreen} options={{ title: 'New Tournament' }} />
-                <Stack.Screen name="TournamentDetail" component={TournamentDetailScreen} options={({ route }) => ({ title: route.params.tournamentName })} />
-                <Stack.Screen name="TournamentMembers" component={TournamentMembersScreen} options={({ route }) => ({ title: route.params.tournamentName + ' Members' })} />
-                <Stack.Screen name="TournamentMatchHistory" component={TournamentMatchHistoryScreen} options={({ route }) => ({ title: route.params.title })} />
-                <Stack.Screen name="TournamentInfo" component={TournamentInfoScreen} options={({ route }) => ({ title: 'How ' + route.params.tournamentName + ' works' })} />
-                <Stack.Screen name="LeagueInfo" component={LeagueInfoScreen} options={({ route }) => ({ title: 'How ' + route.params.leagueName + ' works' })} />
+                <Stack.Screen name="TournamentDetail" component={TournamentDetailScreen} options={({ route }) => ({ title: route.params?.tournamentName ?? 'Tournament' })} />
+                <Stack.Screen name="TournamentMembers" component={TournamentMembersScreen} options={({ route }) => ({ title: route.params?.tournamentName ? route.params.tournamentName + ' Members' : 'Members' })} />
+                <Stack.Screen name="TournamentMatchHistory" component={TournamentMatchHistoryScreen} options={({ route }) => ({ title: route.params?.title ?? 'Matches' })} />
+                <Stack.Screen name="TournamentInfo" component={TournamentInfoScreen} options={({ route }) => ({ title: route.params?.tournamentName ? 'How ' + route.params.tournamentName + ' works' : 'How it works' })} />
+                <Stack.Screen name="LeagueInfo" component={LeagueInfoScreen} options={({ route }) => ({ title: route.params?.leagueName ? 'How ' + route.params.leagueName + ' works' : 'How it works' })} />
                 <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications' }} />
                 <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
                 <Stack.Screen name="UpgradeAccount" component={UpgradeAccountScreen} options={{ title: 'Save Your Account' }} />
@@ -436,19 +444,19 @@ export default function AppNavigator() {
                 <Stack.Screen name="Drill" component={DrillScreen} options={{ title: 'Drill Partners' }} />
                 <Stack.Screen name="DrillSearch" component={DrillSearchScreen} options={{ title: 'Find Drillers' }} />
                 <Stack.Screen name="DrillRequests" component={DrillRequestsScreen} options={{ title: 'Drill Requests' }} />
-                <Stack.Screen name="Shop" component={ShopScreen} options={{ title: '🥒 Pickle Shop' }} />
+                <Stack.Screen name="Shop" component={ShopScreen} options={{ title: 'Pickle Shop' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
-                <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: '🎁 Gift Pickles' }} />
-                <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: '🛠️ Godmode' }} />
+                <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: 'Gift Pickles' }} />
+                <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: 'Godmode' }} />
                 <Stack.Screen name="BlockedPlayers" component={BlockedPlayersScreen} options={{ title: 'Blocked Players' }} />
-                <Stack.Screen name="ModerationQueue" component={ModerationQueueScreen} options={{ title: '🛡️ Reports' }} />
+                <Stack.Screen name="ModerationQueue" component={ModerationQueueScreen} options={{ title: 'Reports' }} />
                 <Stack.Screen name="TournamentInvitePlayers" component={TournamentInvitePlayersScreen} options={{ title: 'Invite Players' }} />
                 {/* Wager screens stay unregistered while WAGERS_ENABLED is
                     false (lib/features.ts): their backend RPCs do not exist
                     in production, so nothing may route here. */}
                 {WAGERS_ENABLED && (
                   <>
-                    <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: '🎲 My Wagers' }} />
+                    <Stack.Screen name="MyWagers" component={MyWagersScreen} options={{ title: 'My Wagers' }} />
                     <Stack.Screen name="PlayerWagers" component={PlayerWagersScreen} options={{ title: 'Wagers' }} />
                   </>
                 )}
@@ -466,12 +474,12 @@ export default function AppNavigator() {
                 {REFERRALS_ENABLED && (
                   <Stack.Screen name="InviteLanding" component={InviteLandingScreen} options={{ title: 'Invite' }} />
                 )}
-                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: '🔖 Saved' }} />
-                <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: '🎟️ QR Wallet' }} />
+                <Stack.Screen name="Bookmarks" component={BookmarksScreen} options={{ title: 'Saved' }} />
+                <Stack.Screen name="QrWallet" component={QrWalletScreen} options={{ title: 'QR Wallet' }} />
                 <Stack.Screen name="QrPass" component={QrPassScreen} options={{ title: 'QR code' }} />
                 <Stack.Screen name="SubmitVenue" component={SubmitVenueScreen} options={{ title: 'Add a Court' }} />
-                <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: '🛠️ Venue Review' }} />
-                <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: '🛠️ Court Outlines' }} />
+                <Stack.Screen name="AdminVenueReview" component={AdminVenueReviewScreen} options={{ title: 'Venue Review' }} />
+                <Stack.Screen name="AdminBoundaries" component={AdminBoundariesScreen} options={{ title: 'Court Outlines' }} />
                 <Stack.Screen name="AdminBoundaryEditor" component={AdminBoundaryEditorScreen} options={{ title: 'Court outline' }} />
                 {/* Court discovery stays unregistered while COURT_DISCOVERY_ENABLED
                     is false: its RPCs ship with migration_court_discovery_p1.sql. */}

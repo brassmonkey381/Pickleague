@@ -5,6 +5,7 @@ import {
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
 import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../lib/supabase';
 import { AVATARS, AvatarDef } from '../data/profileCustomization';
@@ -303,7 +304,8 @@ export default function AvatarPickerModal({
         accessibilityRole="button"
         accessibilityLabel={uploading ? 'Cancel upload' : 'Back'}
       >
-        <Text style={S.pageBackText} numberOfLines={1}>{uploading ? 'Cancel upload' : '‹ Back'}</Text>
+        {uploading ? null : <Icon name="chevron-left" size={18} color={colors.primary} />}
+        <Text style={S.pageBackText} numberOfLines={1}>{uploading ? 'Cancel upload' : 'Back'}</Text>
       </TouchableOpacity>
       <Text style={S.headerTitle}>Choose Avatar</Text>
       <View style={S.pageBackBtn} />
@@ -325,7 +327,7 @@ export default function AvatarPickerModal({
           style={S.headerBtn}
           disabled={uploading}
         >
-          <Text style={[S.headerBtnText, { color: uploading ? colors.textMuted : colors.primary, fontWeight: '700' }]}>Done</Text>
+          <Text style={[S.headerBtnText, { color: uploading ? colors.textMuted : colors.primary, fontWeight: FONT.weight.bold }]}>Done</Text>
         </TouchableOpacity>
       </View>}
 
@@ -341,7 +343,7 @@ export default function AvatarPickerModal({
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
           >
-            <Text style={S.hintClose}>✕</Text>
+            <Icon name="close" size={16} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       ) : null}
@@ -366,7 +368,10 @@ export default function AvatarPickerModal({
                 <Text style={S.photoBtnText}>Uploading…</Text>
               </View>
             ) : (
-              <Text style={S.photoBtnText}>📷  Upload a Photo</Text>
+              <View style={S.uploadingRow}>
+                <Icon name="camera" size={16} color={colors.primary} />
+                <Text style={S.photoBtnText}>Upload a Photo</Text>
+              </View>
             )}
           </TouchableOpacity>
           {photoUrl && !uploading && (
@@ -379,7 +384,10 @@ export default function AvatarPickerModal({
 
         {purchasedAvatars.length > 0 && (
           <>
-            <Text style={S.sectionLabel}>🥒 Premium (from Shop)</Text>
+            <View style={S.sectionHead}>
+              <Icon name="pickle" size={12} color={colors.primary} />
+              <Text style={S.sectionLabel}>Premium (from Shop)</Text>
+            </View>
             <View style={S.grid}>
               {purchasedAvatars.map(p => {
                 const selected = selectedPremium?.slug === p.slug && !photoUrl;
@@ -389,6 +397,9 @@ export default function AvatarPickerModal({
                     style={[S.cell, selected && S.cellSelected]}
                     onPress={() => handlePremiumPress(p)}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={p.name}
+                    accessibilityState={{ selected }}
                   >
                     <View style={[S.cellCircle, { backgroundColor: p.bgColor }]}>
                       <Text style={S.cellEmoji}>{p.emoji}</Text>
@@ -417,12 +428,20 @@ export default function AvatarPickerModal({
                 ]}
                 onPress={() => handleAvatarPress(av)}
                 activeOpacity={0.7}
+                // The lock glyph is hidden from screen readers, so the label says it.
+                accessibilityRole="button"
+                accessibilityLabel={unlocked ? av.name : `${av.name}, locked`}
+                accessibilityState={{ selected }}
               >
                 <View style={[S.cellCircle, { backgroundColor: unlocked ? av.bgColor : colors.border }]}>
                   <Text style={[S.cellEmoji, !unlocked && S.cellEmojiLocked]}>
                     {av.emoji}
                   </Text>
-                  {!unlocked && <Text style={S.lockOverlay}>🔒</Text>}
+                  {!unlocked && (
+                    <View style={S.lockOverlay}>
+                      <Icon name="lock" size={12} color={colors.textSub} />
+                    </View>
+                  )}
                 </View>
                 <Text style={[S.cellName, !unlocked && S.cellNameLocked]} numberOfLines={1}>
                   {av.name}
@@ -437,7 +456,10 @@ export default function AvatarPickerModal({
             <View style={S.hintRow}>
               <Text style={S.hintEmoji}>{lockedHint.emoji}</Text>
               <View style={S.hintBody}>
-                <Text style={S.hintTitle}>🔒 {lockedHint.name} is locked</Text>
+                <View style={S.hintTitleRow}>
+                  <Icon name="lock" size={16} color={colors.warning} />
+                  <Text style={[S.hintTitle, S.flexShrink]}>{lockedHint.name} is locked</Text>
+                </View>
                 <Text style={S.hintText}>
                   Earn the <Text style={S.hintBold}>{lockedHint.unlock!.badge}</Text> badge:{'\n'}
                   {lockedHint.unlock!.description}
@@ -449,7 +471,7 @@ export default function AvatarPickerModal({
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss"
               >
-                <Text style={S.hintClose}>✕</Text>
+                <Icon name="close" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
@@ -510,7 +532,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number)
     root:         { flex: 1, backgroundColor: c.surface },
     page:         { flex: 1, minHeight: 0, backgroundColor: c.surface },
     // Page header buttons: real 44 boxes (react-native-web ignores hitSlop).
-    pageBackBtn:  { minWidth: 88, minHeight: 44, justifyContent: 'center' },
+    pageBackBtn:  { minWidth: 88, minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
     pageBackText: { ...t.title, color: c.primary },
     backdrop:     { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
     card:         { width: '100%', maxWidth: WEB_CARD_MAX, maxHeight: '90%', backgroundColor: c.surface, borderRadius: RADIUS.lg, overflow: 'hidden' },
@@ -525,8 +547,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number)
     scroll:       { padding: SPACE.lg, paddingBottom: SPACE.xl },
 
     previewSection:{ alignItems: 'center', marginBottom: SPACE.lg },
-    previewCircle: { width: 90, height: 90, borderRadius: 45, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
-    previewPhoto:  { width: 90, height: 90, borderRadius: 45, marginBottom: SPACE.sm },
+    previewCircle: { width: 90, height: 90, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.sm },
+    previewPhoto:  { width: 90, height: 90, borderRadius: RADIUS.pill, marginBottom: SPACE.sm },
     previewEmoji:  { fontSize: 48 },
     previewName:   t.sub,
 
@@ -538,7 +560,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number)
     removePhotoBtnText: { ...t.sub, color: c.danger },
 
     orLabel:      { ...t.hint, textAlign: 'center', marginBottom: SPACE.lg },
-    sectionLabel: { ...t.fieldLabel, marginBottom: SPACE.sm },
+    sectionHead:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.sm },
+    sectionLabel: t.fieldLabel,
 
     // gap stays within the 6px per cell the cell-size math leaves, so five
     // cells still fit a row.
@@ -547,22 +570,28 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], CELL_SIZE: number)
     cell:         { width: CELL_SIZE, alignItems: 'center', padding: SPACE.xs, borderRadius: RADIUS.md, borderWidth: 2, borderColor: 'transparent' },
     cellSelected: { borderColor: c.primary, backgroundColor: c.primaryLight },
     cellLocked:   { opacity: 0.65 },
-    cellCircle:   { width: CELL_SIZE - 12, height: CELL_SIZE - 12, borderRadius: (CELL_SIZE - 12) / 2, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.xs },
+    cellCircle:   { width: CELL_SIZE - 12, height: CELL_SIZE - 12, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center', marginBottom: SPACE.xs },
     cellEmoji:    { fontSize: 28 },
     cellEmojiLocked: { opacity: 0.5 },
-    lockOverlay:  { position: 'absolute', bottom: -SPACE.xxs, right: -SPACE.xxs, fontSize: FONT.size.base },
-    cellName:     { fontSize: FONT.size.xxs, color: c.textSub, textAlign: 'center', fontWeight: '500' },
+    // The lock sits in a small surface disc on the circle's corner.
+    lockOverlay:  {
+      position: 'absolute', bottom: -SPACE.xxs, right: -SPACE.xxs, width: 20, height: 20,
+      borderRadius: RADIUS.pill, backgroundColor: c.surface, borderWidth: HAIRLINE, borderColor: c.border,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    cellName:     { fontSize: FONT.size.xxs, color: c.textSub, textAlign: 'center', fontWeight: FONT.weight.medium },
     cellNameLocked: { color: c.textMuted },
 
     hintCard:     { backgroundColor: c.warningLight, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.warning },
     hintRow:      { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md },
     hintEmoji:    { fontSize: 32, marginTop: SPACE.xxs },
     hintBody:     { flex: 1 },
-    hintTitle:    { ...t.title, marginBottom: SPACE.xs },
+    hintTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.xs },
+    hintTitle:    t.title,
+    flexShrink:   { flexShrink: 1 },
     hintText:     t.sub,
-    hintBold:     { fontWeight: '700' },
-    hintClose:    { fontSize: FONT.size.lg, color: c.textMuted },
-    // The ✕ in a real 44 box, pulled into the card's corner padding.
+    hintBold:     { fontWeight: FONT.weight.bold },
+    // The close glyph in a real 44 box, pulled into the card's corner padding.
     closeBox:     { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: -SPACE.md, marginRight: -SPACE.md },
 
     // Page mode: upload errors render inline (no second Modal over the host).

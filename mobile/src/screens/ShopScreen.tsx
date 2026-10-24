@@ -1,10 +1,14 @@
 // The Pickle Shop (plan section 8, P6: compacted). A 44px balance line, an
 // underline tab strip, then one grouped Panel of rows per tab:
 //
-//   [icon]  Name                                   [🎁] [ Buy ]
-//           🥒 120 · two-line description
-//   [icon]  Name                                  🔒 Earn Hot Streak
+//   [icon]  Name [pickle] 120                     [gift] [ Buy ]
+//           two-line description
+//   [icon]  Name                             [lock] Earn Hot Streak
 //           (name preview) · thin progress bar
+//
+// Item icons: avatars, flairs and name styles keep the emoji the player buys
+// (purchased cosmetics); every other item draws its stored emoji as our glyph
+// through EmojiGlyph. Prices and balances are PickleAmount / PickleBalance.
 //
 // Was a 2-column grid of ~260px cards. Every action stays: Buy, Buy & Equip
 // (in the confirm), Gift (pick a player, add a note), and the unlock-gated rows
@@ -14,10 +18,12 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   ActivityIndicator, Modal, TextInput, useWindowDimensions,
+  type StyleProp, type TextStyle,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { Panel, SegmentedToggle, ModalBackdrop } from '@just-messin-around/expo-foundation/ui';
+import { Panel, SegmentedToggle, ModalBackdrop, ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { Icon, EmojiGlyph } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { ProgressBar } from '@just-messin-around/expo-foundation/gamification';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
@@ -34,8 +40,18 @@ import { SkeletonList } from '../components/Skeleton';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { PickleAmount, PickleBalance, picklesLabel } from '../components/PickleAmount';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
+
+/** Kinds whose emoji IS the purchase (glyphs-ui-plan.md section 3): they keep it. */
+const COSMETIC_KINDS: ReadonlySet<ShopCategory> = new Set<ShopCategory>(['avatar', 'flair', 'list_name_style', 'profile_name_style']);
+
+/** An item's icon: the bought emoji for a cosmetic, our glyph (when one maps) for the rest. */
+function ItemIcon({ item, size, emojiStyle }: { item: ShopItem; size: number; emojiStyle: StyleProp<TextStyle> }) {
+  if (COSMETIC_KINDS.has(item.category)) return <Text style={emojiStyle}>{item.icon}</Text>;
+  return <EmojiGlyph emoji={item.icon} size={size} style={emojiStyle} />;
+}
 
 // "profile_name_style" tab also surfaces legacy `flair` items (which set
 // name_color), so users see all profile name styles in one place even
@@ -71,7 +87,7 @@ export default function ShopScreen({ navigation }: Props) {
   // badge id → badge name, for rendering "Earn X to unlock" labels.
   const [badgeNames, setBadgeNames] = useState<Map<string, string>>(new Map());
   // badge id → set of badge ids the viewer has already earned. Used to mark
-  // unlock-gated rows as ✓ Unlocked even on the (rare) chance the trigger
+  // unlock-gated rows as Unlocked even on the (rare) chance the trigger
   // didn't run (e.g. seed added after the user earned the badge).
   const [earnedBadgeIds, setEarnedBadgeIds] = useState<Set<string>>(new Set());
   // badge name → { current, target, label } for the small progress indicator
@@ -183,7 +199,7 @@ export default function ShopScreen({ navigation }: Props) {
       return;
     }
     if (pickles < item.cost) {
-      status.error(`Not enough pickles — you have ${pickles} 🥒, gifting ${item.name} costs ${item.cost} 🥒.`);
+      status.error(`Not enough pickles — you have ${picklesLabel(pickles)}, gifting ${item.name} costs ${picklesLabel(item.cost)}.`);
       return;
     }
     status.clear();
@@ -223,7 +239,7 @@ export default function ShopScreen({ navigation }: Props) {
       return;
     }
     if (pickles < item.cost) {
-      status.error(`Not enough pickles — you have ${pickles} 🥒, ${item.name} costs ${item.cost} 🥒.`);
+      status.error(`Not enough pickles — you have ${picklesLabel(pickles)}, ${item.name} costs ${picklesLabel(item.cost)}.`);
       return;
     }
     status.clear();
@@ -287,7 +303,7 @@ export default function ShopScreen({ navigation }: Props) {
   // and the Retry button stay reachable.
   const loadFailed = loadError != null && items.length === 0;
   if (loading && !loadFailed) {
-    return <View style={{ flex: 1, backgroundColor: c.bg }}><SkeletonList rows={6} variant="row" /></View>;
+    return <View style={S.root}><SkeletonList rows={6} variant="row" /></View>;
   }
 
   // The "Profile Styles" tab surfaces both the new profile_name_style items
@@ -315,7 +331,7 @@ export default function ShopScreen({ navigation }: Props) {
       : null;
     // Edge case: viewer earned the gating badge but the row isn't
     // owned (e.g. trigger wasn't in place when the badge was
-    // awarded). We surface this as "✓ Earned · pending grant" so
+    // awarded). We surface this as "Earned · pending grant" so
     // the UI doesn't claim "Locked" when it isn't, and skip the
     // "Claim" RPC for simplicity (see PR description).
     const badgeEarnedButNotOwned = isUnlockGated && !isOwned
@@ -331,18 +347,23 @@ export default function ShopScreen({ navigation }: Props) {
 
     let trailing: React.ReactNode;
     if (isUnlockGated) {
+      const unlocked = isOwned || badgeEarnedButNotOwned;
+      const gateColor = unlocked ? c.primary : c.textMuted;
       trailing = (
-        <Text
-          style={[t.meta, S.gateText, (isOwned || badgeEarnedButNotOwned) && { color: c.primary }]}
-          numberOfLines={2}
-          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-        >
-          {isOwned
-            ? '✓ Unlocked'
-            : badgeEarnedButNotOwned
-              ? '✓ Earned · pending grant'
-              : `🔒 Earn ${unlockBadgeName}`}
-        </Text>
+        <View style={S.gate}>
+          <Icon name={unlocked ? 'check-mark' : 'lock'} size={12} color={gateColor} />
+          <Text
+            style={[t.meta, S.gateText, { color: gateColor }]}
+            numberOfLines={2}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          >
+            {isOwned
+              ? 'Unlocked'
+              : badgeEarnedButNotOwned
+                ? 'Earned · pending grant'
+                : `Earn ${unlockBadgeName}`}
+          </Text>
+        </View>
       );
     } else {
       trailing = (
@@ -354,16 +375,20 @@ export default function ShopScreen({ navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`Gift ${item.name}`}
           >
-            <Text style={S.giftGlyph}>🎁</Text>
+            <Icon name="gift" size={20} color={c.textSub} />
           </TouchableOpacity>
           {isOwned ? (
-            <View style={S.box44}>
-              <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>✓ Owned</Text>
+            <View style={[S.box44, S.inlineRow]}>
+              <Icon name="check-mark" size={12} color={c.success} />
+              <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Owned</Text>
             </View>
           ) : (
             <Button
               size="sm"
-              title={!canAfford ? 'Need 🥒' : 'Buy'}
+              title={!canAfford ? 'Need' : 'Buy'}
+              iconName={!canAfford ? 'pickle' : undefined}
+              iconPosition="trailing"
+              accessibilityLabel={!canAfford ? `Need more pickles for ${item.name}` : `Buy ${item.name}`}
               onPress={() => startBuy(item)}
               disabled={isBuying || !canAfford}
               loading={isBuying}
@@ -376,10 +401,15 @@ export default function ShopScreen({ navigation }: Props) {
     return (
       <View key={item.id} style={[S.row, lastRow && S.rowLast]}>
         <View style={[S.tile, { backgroundColor: item.payload?.bgColor ?? c.surfaceAlt }, previewMuted && S.dim]}>
-          <Text style={S.tileGlyph}>{item.icon}</Text>
+          <ItemIcon item={item} size={22} emojiStyle={S.tileGlyph} />
         </View>
         <View style={S.flexText}>
-          <Text style={t.title} numberOfLines={1}>{item.name}</Text>
+          {/* Name, then the price beside it (unlock-gated rows have none), so
+              the description keeps the full width for its two lines. */}
+          <View style={S.nameRow}>
+            <Text style={[t.title, S.shrink]} numberOfLines={1}>{item.name}</Text>
+            {isUnlockGated ? null : <PickleAmount amount={item.cost} preset="sub" textStyle={S.price} />}
+          </View>
           {isNameStyle ? (
             <FlairName
               name={myFullName}
@@ -401,9 +431,7 @@ export default function ShopScreen({ navigation }: Props) {
               accessibilityValueText={progText}
             />
           ) : (
-            <Text style={t.sub} numberOfLines={isNameStyle ? 1 : 2}>
-              {isUnlockGated ? item.description : `🥒 ${item.cost} · ${item.description}`}
-            </Text>
+            <Text style={t.sub} numberOfLines={isNameStyle ? 1 : 2}>{item.description}</Text>
           )}
         </View>
         {trailing}
@@ -417,11 +445,10 @@ export default function ShopScreen({ navigation }: Props) {
       <View style={S.balanceRow}>
         <Text style={[t.sub, S.flexText]}>Your balance</Text>
         <View
-          style={S.balancePill}
           accessible
-          accessibilityLabel={pickles == null ? 'Balance unavailable' : `${pickles} pickles`}
+          accessibilityLabel={pickles == null ? 'Balance unavailable' : picklesLabel(pickles)}
         >
-          <Text style={S.balanceText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🥒 {pickles ?? '—'}</Text>
+          <PickleBalance balance={pickles} preset="title" />
         </View>
       </View>
 
@@ -439,19 +466,19 @@ export default function ShopScreen({ navigation }: Props) {
         <Text style={[t.sub, S.blurb]} numberOfLines={2}>{tabMeta.blurb}</Text>
 
         {loadFailed ? (
-          <EmptyState
-            icon="📡"
-            title="Couldn't load the shop"
-            subtitle={friendlySbMessage(loadError)}
-            actionLabel="Retry"
-            onAction={() => { setLoading(true); void load(); }}
+          <ErrorState
+            iconName="offline"
+            error={loadError}
+            message={`Couldn't load the shop. ${friendlySbMessage(loadError)}`}
+            retryLabel="Retry"
+            onRetry={() => { setLoading(true); void load(); }}
           />
         ) : tabItems.length === 0 ? (
-          <EmptyState compact icon="🛒" title="Nothing here yet" subtitle="No items in this category yet." />
+          <EmptyState compact iconName="cart" title="Nothing here yet" subtitle="No items in this category yet." />
         ) : (
           // TODO: smoke-test in browser — verify the locked name-style row
           // renders with a desaturated preview + "X / Y unit" progress
-          // indicator, and flips to "✓ Unlocked" once the badge is earned.
+          // indicator, and flips to "Unlocked" once the badge is earned.
           <Panel padded={false}>
             {tabItems.map((item, i) => renderItem(item, i === tabItems.length - 1))}
           </Panel>
@@ -474,7 +501,7 @@ export default function ShopScreen({ navigation }: Props) {
               <ScrollView style={S.modalScroll}>
                 <View style={S.previewRow}>
                   <View style={[S.previewTile, { backgroundColor: confirmingItem.payload?.bgColor ?? c.surfaceAlt }]}>
-                    <Text style={S.previewGlyph}>{confirmingItem.icon}</Text>
+                    <ItemIcon item={confirmingItem} size={32} emojiStyle={S.previewGlyph} />
                   </View>
                   <View style={S.flexText}>
                     <Text style={t.title}>{confirmingItem.name}</Text>
@@ -485,12 +512,12 @@ export default function ShopScreen({ navigation }: Props) {
                 <View style={S.costBox}>
                   <View style={S.costLine}>
                     <Text style={t.sub}>Cost</Text>
-                    <Text style={S.costValue}>🥒 {confirmingItem.cost}</Text>
+                    <PickleAmount amount={confirmingItem.cost} preset="title" />
                   </View>
                   <View style={S.costLine}>
                     <Text style={t.sub}>Balance after</Text>
                     {/* startBuy already refused to open this modal on an unknown balance. */}
-                    <Text style={S.costValue}>🥒 {(pickles ?? 0) - confirmingItem.cost}</Text>
+                    <PickleAmount amount={(pickles ?? 0) - confirmingItem.cost} preset="title" />
                   </View>
                 </View>
 
@@ -558,12 +585,15 @@ export default function ShopScreen({ navigation }: Props) {
               <ScrollView style={S.modalScroll} keyboardShouldPersistTaps="handled">
                 <View style={S.previewRow}>
                   <View style={[S.previewTile, { backgroundColor: giftItem.payload?.bgColor ?? c.surfaceAlt }]}>
-                    <Text style={S.previewGlyph}>{giftItem.icon}</Text>
+                    <ItemIcon item={giftItem} size={32} emojiStyle={S.previewGlyph} />
                   </View>
                   <View style={S.flexText}>
                     <Text style={t.fieldLabel}>To</Text>
                     <Text style={t.title}>{giftRecipient.full_name}</Text>
-                    <Text style={t.sub}>{giftItem.name} · 🥒 {giftItem.cost}</Text>
+                    <View style={S.inlineRow}>
+                      <Text style={[t.sub, S.shrink]} numberOfLines={1}>{giftItem.name} ·</Text>
+                      <PickleAmount amount={giftItem.cost} preset="sub" textStyle={S.price} />
+                    </View>
                   </View>
                 </View>
 
@@ -578,7 +608,10 @@ export default function ShopScreen({ navigation }: Props) {
                   multiline
                 />
 
-                <Text style={[t.sub, S.giftBalance]}>Your balance after: 🥒 {(pickles ?? 0) - giftItem.cost}</Text>
+                <View style={[S.inlineRow, S.giftBalance]}>
+                  <Text style={t.sub}>Your balance after:</Text>
+                  <PickleAmount amount={(pickles ?? 0) - giftItem.cost} preset="sub" textStyle={S.price} />
+                </View>
 
                 {giftError ? <Text style={S.inlineError}>{giftError}</Text> : null}
 
@@ -617,18 +650,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     flexText: { flex: 1, minWidth: 0 },
     box44:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     dim:      { opacity: 0.5 },
+    shrink:   { flexShrink: 1 },
+    // A glyph beside a short text (Owned, Unlocked, a price).
+    inlineRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
 
     balanceRow: {
       flexDirection: 'row', alignItems: 'center', gap: SPACE.sm,
       minHeight: 44, paddingHorizontal: SPACE.lg,
       backgroundColor: c.surface,
     },
-    balancePill: {
-      flexDirection: 'row', alignItems: 'center', minHeight: 28,
-      paddingHorizontal: SPACE.md, borderRadius: RADIUS.pill,
-      backgroundColor: c.primaryLight, borderWidth: HAIRLINE, borderColor: c.primary,
-    },
-    balanceText: { fontSize: FONT.size.md, fontWeight: '800', color: c.primary },
     tabs:        { backgroundColor: c.surface, paddingHorizontal: SPACE.sm },
 
     scroll: { padding: SPACE.lg, paddingBottom: SPACE.xl },
@@ -641,13 +671,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderBottomWidth: HAIRLINE, borderBottomColor: c.border,
     },
     rowLast:     { borderBottomWidth: 0 },
-    tile:        { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+    tile:        { width: 40, height: 40, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     tileGlyph:   { fontSize: FONT.size.h2 },
-    namePreview: { fontSize: FONT.size.md, fontWeight: '700' },
+    namePreview: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold },
     progress:    { marginTop: SPACE.xs },
+    nameRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    price:       { fontWeight: FONT.weight.bold },
     actions:     { flexDirection: 'row', alignItems: 'center' },
-    giftGlyph:   { fontSize: FONT.size.xl },
-    gateText:    { maxWidth: 112, textAlign: 'right', color: c.textMuted },
+    gate:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, maxWidth: 128 },
+    gateText:    { flexShrink: 1, textAlign: 'right' },
 
     // Overlays (confirm / gift): the only place a card floats.
     modalCard:   { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg, width: '100%', maxWidth: 460 },
@@ -655,11 +687,10 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalScroll: { flexShrink: 1 },
     modalTitle:  { marginBottom: SPACE.md },
     previewRow:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginBottom: SPACE.md },
-    previewTile: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
+    previewTile: { width: 56, height: 56, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     previewGlyph:{ fontSize: FONT.size.display },
     costBox:     { backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.lg },
-    costLine:    { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACE.xxs },
-    costValue:   { fontSize: FONT.size.md, color: c.primary, fontWeight: '800' },
+    costLine:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACE.xxs },
     fieldLabel:  { marginTop: SPACE.xs, marginBottom: SPACE.xs },
     giftMessage: {
       borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md,
@@ -672,12 +703,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalBtnRow: { flexDirection: 'row', gap: SPACE.sm },
     modalBtn:    { flex: 1, minHeight: 44, paddingVertical: SPACE.sm, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
     modalBtnPrimary:       { backgroundColor: c.primary },
-    modalBtnPrimaryText:   { color: c.textInverse, fontWeight: '800', fontSize: FONT.size.md },
+    modalBtnPrimaryText:   { color: c.textInverse, fontWeight: FONT.weight.heavy, fontSize: FONT.size.md },
     modalBtnSecondary:     { backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
-    modalBtnSecondaryText: { color: c.textSub, fontWeight: '700', fontSize: FONT.size.md },
-    modalBtnOutline:       { backgroundColor: c.surface, borderWidth: 1.5, borderColor: c.primary },
-    modalBtnOutlineText:   { color: c.primary, fontWeight: '800', fontSize: FONT.size.md },
+    modalBtnSecondaryText: { color: c.textSub, fontWeight: FONT.weight.bold, fontSize: FONT.size.md },
+    modalBtnOutline:       { backgroundColor: c.surface, borderWidth: HAIRLINE, borderColor: c.primary },
+    modalBtnOutlineText:   { color: c.primary, fontWeight: FONT.weight.heavy, fontSize: FONT.size.md },
     modalBtnEquip:         { marginTop: SPACE.sm },
-    inlineError: { color: c.danger, fontSize: FONT.size.base, fontWeight: '600', marginBottom: SPACE.sm },
+    inlineError: { color: c.danger, fontSize: FONT.size.base, fontWeight: FONT.weight.semibold, marginBottom: SPACE.sm },
   });
 }

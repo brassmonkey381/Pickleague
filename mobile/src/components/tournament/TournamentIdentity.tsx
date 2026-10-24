@@ -1,8 +1,12 @@
 // TournamentDetail's identity block (plan section 5, slot 1): the status pill
 // plus one chip row, and the description clamped to 2 lines with "more".
 //
-//   (Registration open) (🔄 Round Robin · Doubles) (📅 Sat, Oct 18, 9 AM)
-//   (📍 Lake Merritt) (👥 6/16) (🥒 50 ante) (ⓘ How it works)
+//   (Registration open) ([repeat] Round Robin · Doubles) ([calendar] Sat, Oct 18, 9 AM)
+//   ([pin] Lake Merritt) ([group] 6/16) ([pickle] 50 ante) ([info] How it works)
+//
+// Every chip glyph is an `iconName` (glyphs-ui-plan.md), drawn in the chip's
+// tone colour and hidden from screen readers; the chips centre in the row
+// (`align="center"`) so plain pills and 44px tap boxes sit on one line.
 //
 // Plan section 5 caps the chip row at 2 rows on a 358pt content width, so the
 // match type rides on the format chip, the date drops ":00", a long court name
@@ -18,7 +22,7 @@
 //
 // Content rules: no TBD / zero values for non-admins. A tournament with no
 // date or location shows nothing there to players; an admin who can still
-// edit gets a "No date ›" / "No location ›" chip that opens Edit.
+// edit gets a "No date" / "No location" outline chip that opens Edit.
 //
 // Pressable chips opt in to being announced as buttons, named without their
 // glyphs (same as LeagueIdentity; none sits inside another button).
@@ -38,7 +42,7 @@ export type TournamentIdentityProps = {
   approvedCount: number;
   isFull: boolean;
   regClosed: boolean;
-  /** "ⓘ How it works" -> TournamentInfo. */
+  /** "How it works" (info glyph) -> TournamentInfo. */
   onOpenInfo: () => void;
   /** Admin who can still edit: the "No date" / "No location" chips open Edit. */
   onEdit?: () => void;
@@ -51,7 +55,7 @@ export default function TournamentIdentity({
   const tx = textStyles(c);
   const fmt = FORMAT_META[t.format];
   const pill = statusPill({ status: t.status, regClosed, isFull });
-  const chipProps = { size: 'sm' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE };
+  const chipProps = { size: 'sm' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE, align: 'center' as const };
 
   const start = t.start_time ? new Date(t.start_time) : null;
   const date = start
@@ -63,20 +67,25 @@ export default function TournamentIdentity({
     : '';
   const court = displayCourtName(t.location_name);
   const players = t.max_players != null ? `${approvedCount}/${t.max_players}` : `${approvedCount}`;
+  const playersA11y = t.max_players != null
+    ? `${approvedCount} of ${t.max_players} players`
+    : `${approvedCount} ${approvedCount === 1 ? 'player' : 'players'}`;
   const desc = t.description?.trim() ?? '';
 
   return (
     <View style={styles.wrap}>
       <View style={styles.chips}>
         <Chip {...chipProps} label={pill.label} tone={pill.tone} variant="solid" />
-        <Chip {...chipProps} label={`${fmt.icon} ${fmt.label} · ${t.match_type === 'doubles' ? 'Doubles' : 'Singles'}`} />
+        <Chip {...chipProps} iconName={fmt.iconName} label={`${fmt.label} · ${t.match_type === 'doubles' ? 'Doubles' : 'Singles'}`} />
         {date ? (
-          <Chip {...chipProps} label={`📅 ${date}`} />
+          <Chip {...chipProps} iconName="calendar-event" label={date} />
         ) : onEdit ? (
           <Chip
             {...chipProps}
             hitBox
-            label="📅 No date ›"
+            iconName="calendar-event"
+            label="No date"
+            trailingIconName="chevron-right"
             tone="warning"
             variant="outline"
             onPress={onEdit}
@@ -86,12 +95,14 @@ export default function TournamentIdentity({
           />
         ) : null}
         {court ? (
-          <Chip {...chipProps} label={`📍 ${court}`} style={styles.courtChip} />
+          <Chip {...chipProps} iconName="pin" label={court} shrink style={styles.courtChip} />
         ) : onEdit ? (
           <Chip
             {...chipProps}
             hitBox
-            label="📍 No location ›"
+            iconName="pin"
+            label="No location"
+            trailingIconName="chevron-right"
             tone="warning"
             variant="outline"
             onPress={onEdit}
@@ -101,13 +112,17 @@ export default function TournamentIdentity({
           />
         ) : null}
         {approvedCount > 0 || t.max_players != null ? (
-          <Chip {...chipProps} label={`👥 ${players}`} />
+          // The glyph is hidden from screen readers, so the count gets words.
+          <View accessible accessibilityLabel={playersA11y} style={styles.a11yWrap}>
+            <Chip {...chipProps} iconName="group" label={players} />
+          </View>
         ) : null}
-        {(t.pickle_ante ?? 0) > 0 ? <Chip {...chipProps} label={`🥒 ${t.pickle_ante} ante`} tone="success" /> : null}
+        {(t.pickle_ante ?? 0) > 0 ? <Chip {...chipProps} iconName="pickle" label={`${t.pickle_ante} ante`} tone="success" /> : null}
         <Chip
           {...chipProps}
           hitBox
-          label="ⓘ How it works"
+          iconName="info"
+          label="How it works"
           variant="outline"
           tone="brand"
           onPress={onOpenInfo}
@@ -139,4 +154,5 @@ const styles = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: SPACE.sm, rowGap: SPACE.xs },
   // A long venue name truncates (Chip's label is 1 line) instead of taking a row.
   courtChip: { maxWidth: 160 },
+  a11yWrap: { alignSelf: 'center' },
 });

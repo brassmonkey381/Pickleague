@@ -7,13 +7,13 @@
 //   Lakeside Park                                                    ☆
 //   1 Lakeside Dr, Oakland
 //   1.2 mi · 6 courts
-//   [Check in] [Directions] [↗ Share]
+//   [Check in] [Directions] [Share]
 //   6 playing now · mostly 3.5–4.0
 //   [map: the court, its mapped outline drawn on it]
 //   WHO'S HERE        (PlayersHereList)
 //   ABOUT             (FactList: courts, surface, lights, hours, ...)
 //   LEAGUES HERE      (the leagues the player can see)
-//   Edit outline ›    (godmode only)
+//   Edit outline      (godmode only)
 //
 // Check in shows when there is no fix yet, or the last fix is within the
 // fence + 150 m or inside the outline (lib/courtDiscovery courtPrimaryAction);
@@ -25,20 +25,21 @@
 // on every platform (lib/maps), with the court's outline (venues.boundary) as
 // rings. It sits in an ErrorBoundary: a map that fails leaves the page whole.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { setQueryData } from '@just-messin-around/expo-foundation/cache';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import {
   Badge,
-  EmptyState,
   ErrorBoundary,
+  ErrorState,
   FactList,
   Panel,
   PlaceHeader,
   QueryState,
   SectionHeader,
+  TextLink,
   type FactRow,
 } from '@just-messin-around/expo-foundation/ui';
 import { PlaceMap } from '@just-messin-around/expo-foundation/ui/maps';
@@ -110,12 +111,12 @@ export default function CourtDetailScreen({ navigation, route }: Props) {
         query={q}
         loadingLabel="Loading the court…"
         renderError={(e, retry) => (
-          <EmptyState
-            icon="📍"
-            title="Couldn't open this court"
-            subtitle={explainRefusal(e, "Couldn't load this court. Try again.", { action: 'view' })}
-            actionLabel="Try again"
-            onAction={retry}
+          // Not 'offline': a court that is gone fails here too (refusals 'view').
+          <ErrorState
+            iconName="pin"
+            error={e}
+            message={`Couldn't open this court. ${explainRefusal(e, 'Try again.', { action: 'view' })}`}
+            onRetry={retry}
           />
         )}
       >
@@ -191,7 +192,7 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
             chips.length > 0 || court.unconfirmed ? (
               <View style={S.chips}>
                 {chips.map((label) => (
-                  <Badge key={label} label={label} />
+                  <Badge key={label} label={label} iconName={label === 'Indoor' ? 'indoor' : undefined} />
                 ))}
                 {court.unconfirmed ? <Badge label="Unconfirmed" tone="warning" /> : null}
               </View>
@@ -200,13 +201,14 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           directions={{ lat: court.lat, lng: court.lng }}
           onDirections={() => track('courts.directions', { primary })}
           actions={[
-            // With the bottom bar (plan §7.6): "▶ Play here" first, the ▶ Play
-            // sheet with this court picked; Check in, Directions and Share follow.
+            // With the bottom bar (plan §7.6): "Play here" (play glyph) first, the
+            // Play sheet with this court picked; Check in, Directions and Share follow.
             ...(PLAY_NAV_ENABLED
               ? [
                   {
                     key: 'play',
-                    label: '▶  Play here',
+                    label: 'Play here',
+                    iconName: 'play' as const,
                     variant: 'success' as const,
                     disabled: !!flow.busy,
                     onPress: () => {
@@ -217,7 +219,7 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
                 ]
               : []),
             ...(here
-              ? [{ key: 'here', label: '✓ Checked in', onPress: () => {}, disabled: true, variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('success' as const) }]
+              ? [{ key: 'here', label: 'Checked in', iconName: 'check-mark' as const, onPress: () => {}, disabled: true, variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('success' as const) }]
               : primary === 'check_in'
                 ? [
                     {
@@ -255,14 +257,13 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} openNow={openNow} />
         ) : null}
         {ROUTINES_ENABLED && starredIds.has(court.id) ? (
-          <TouchableOpacity
-            style={S.routineLink}
+          <TextLink
+            label="Make it a routine"
+            iconName="calendar-event"
+            size="sub"
             onPress={() => navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } })}
-            accessibilityRole="button"
             accessibilityHint="Plan a weekly check-in at this court"
-          >
-            <Text style={[t.sub, { color: c.primary }]}>📅 Make it a routine ›</Text>
-          </TouchableOpacity>
+          />
         ) : null}
       </Panel>
 
@@ -302,14 +303,11 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
       ) : null}
 
       {godmode ? (
-        <TouchableOpacity
-          style={S.link}
+        <TextLink
+          label="Edit outline"
+          iconName="wrench"
           onPress={() => navigation.navigate('AdminBoundaryEditor', { venueId: court.id })}
-          accessibilityRole="button"
-          accessibilityLabel="Edit outline"
-        >
-          <Text style={[t.meta, { color: c.primary }]}>🛠️ Edit outline ›</Text>
-        </TouchableOpacity>
+        />
       ) : null}
     </ScrollView>
   );
@@ -362,6 +360,4 @@ const S = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
   share: { alignSelf: 'center' },
   gapXs: { marginTop: SPACE.xs },
-  routineLink: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
-  link: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
 });

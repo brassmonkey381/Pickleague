@@ -31,7 +31,8 @@ import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/na
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { usePollWhileActive, useTicker } from '@just-messin-around/expo-foundation/hooks';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import { ActionSheetModal, SingleSelectModal, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
+import { ActionSheetModal, Panel, SectionHeader, SingleSelectModal, TextLink, TITLE_ICON_COLUMN, type ActionSheetAction } from '@just-messin-around/expo-foundation/ui';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { DayBands, FeedActionPill, dayBandDate, type DayBand } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
@@ -271,7 +272,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     if (ROUTINES_ENABLED) go('Routines', newVenue ? { newVenue } : undefined);
   };
   const openPerson = (userId: string, name: string) => go('PlayerProfile', { userId, userName: name });
-  // ▶ Play / Check in at this court (P1's start sheet and CheckinHost). With
+  // Play / Check in at this court (P1's start sheet and CheckinHost). With
   // no host mounted (the bottom bar off), the court page has the check-in.
   const playHere = (card: { venueId: string; venueName: string }, target = 'play_here') => {
     tap(target);
@@ -301,7 +302,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       const first = line.person.name.split(/\s+/)[0] || line.person.name;
       return [
         ...(line.kind === 'here' && day === 'today'
-          ? [{ label: '▶ Play here', onPress: () => playHere(card) }]
+          ? [{ label: 'Play here', iconName: 'play' as const, onPress: () => playHere(card) }]
           : []),
         { label: `See ${first}'s profile`, iconName: 'person' as const, onPress: () => openPerson(line.person.userId, line.person.name) },
       ];
@@ -311,7 +312,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       return [
         {
           label: 'Undo skip',
-          iconName: 'calendar',
+          iconName: 'calendar-event',
           onPress: () => void runRoutine(line.key, () => unskipRoutineOccurrence(s.planId), `Back on: ${card.venueName} at ${shortTime(new Date(s.at))}.`, "Couldn't undo that skip"),
         },
         { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() },
@@ -319,10 +320,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
     const soon = day === 'today' && Date.parse(s.at) - now <= 30 * 60_000;
     return [
-      ...(soon ? [{ label: '▶ Start playing', onPress: () => playHere(card, 'start_playing') }] : []),
+      ...(soon ? [{ label: 'Start playing', iconName: 'play' as const, onPress: () => playHere(card, 'start_playing') }] : []),
       {
         label: day === 'today' ? "Change today's time" : 'Change the time that day',
-        iconName: 'calendar',
+        iconName: 'calendar-event',
         onPress: () => afterSheet(() => setTimePick({ planId: s.planId, at: s.at, venueName: card.venueName, key: line.key })),
       },
       {
@@ -336,12 +337,12 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
   function courtActions(card: CourtCard, day: DayBandKey): ActionSheetAction[] {
     const routine = ROUTINES_ENABLED
-      ? [{ label: 'Make this a routine', iconName: 'calendar' as const, onPress: () => openRoutines({ venueId: card.venueId, venueName: card.venueName }) }]
+      ? [{ label: 'Make this a routine', iconName: 'calendar-event' as const, onPress: () => openRoutines({ venueId: card.venueId, venueName: card.venueName }) }]
       : [];
     if (day !== 'today') return routine;
     return [
       { label: 'Check in here', iconName: 'pin' as const, onPress: () => checkInHere(card) },
-      { label: '▶ Play here', onPress: () => playHere(card) },
+      { label: 'Play here', iconName: 'play' as const, onPress: () => playHere(card) },
       ...routine,
     ];
   }
@@ -454,9 +455,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const canStar = COURT_DISCOVERY_ENABLED && COURT_STARS_ENABLED && starred.length === 0;
   const canFindFriends = FRIENDS_AT_COURTS_ENABLED && myFriendsQ.data !== undefined && !hasFriends;
   const emptyHint = [canStar ? 'star the courts you play at' : null, canFindFriends ? "add friends to see who's playing" : null].filter(Boolean);
+  // Left-aligned like the rest of the card (glyphs-ui-plan.md 5.7).
   const emptyBlock = (
     <View style={styles.empty}>
-      <Text style={[t.sub, styles.center]}>
+      <Text style={t.sub}>
         {emptyHint.length
           ? `Nothing coming up this week. To fill this, ${emptyHint.join(', or ')}.`
           : 'Nothing coming up this week.'}
@@ -492,15 +494,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const hasTournaments = home.myTournaments.length > 0;
 
   return (
-    <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-      <View style={styles.header}>
-        <Text style={styles.headerGlyph} accessibilityElementsHidden importantForAccessibility="no">
-          🥒
-        </Text>
-        <Text style={[t.title, styles.flex]} accessibilityRole="header">
-          Pickleague Feed
-        </Text>
-      </View>
+    <Panel>
+      {/* The shared Home card header (Get started uses the same one). */}
+      <SectionHeader title="Pickleague Feed" size="title" icon="pickle" />
       {routineLine ? (
         <TouchableOpacity
           style={styles.routineLine}
@@ -508,7 +504,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           accessibilityRole="button"
           accessibilityLabel={`${routineLine}. Open My routine`}
         >
-          <Icon name="calendar" size={14} color={c.textSub} />
+          {/* In the header's 32 glyph column, centred under its pickle, so the text lines up with the title. */}
+          <View style={styles.lineGlyph}>
+            <Icon name="calendar-event" size={14} color={c.textSub} />
+          </View>
           <Text style={[t.meta, styles.flex, { color: c.textSub }]} numberOfLines={1}>
             {routineLine}
           </Text>
@@ -525,13 +524,11 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
             </View>
             {needs.shown.map((r, i) => agendaLine(r, i, true))}
             {moreLine('needs', needs.more, !!expanded.needs, 'Needs you')}
-            <TouchableOpacity
-              style={styles.more}
+            <TextLink
+              label="All requests in Notifications"
               onPress={() => { tap('see_all_notifications'); props.onSeeAllRequests(); }}
-              accessibilityRole="button"
-            >
-              <Text style={[t.meta, { color: c.primary }]}>All requests in Notifications ›</Text>
-            </TouchableOpacity>
+              style={styles.centerLink}
+            />
           </View>
         ) : null}
 
@@ -543,31 +540,17 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         <RoutineSuggestionCard onOpenRoutines={() => openRoutines()} />
 
         <View style={styles.links}>
-          {privilegedLeagues.length > 0 ? (
-            <TouchableOpacity onPress={propose} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>Propose a play day ›</Text>
-            </TouchableOpacity>
-          ) : null}
+          {privilegedLeagues.length > 0 ? <TextLink label="Propose a play day" onPress={propose} /> : null}
           {isMember ? (
-            <TouchableOpacity onPress={() => { tap('all_leagues'); openDiscover(navigation, { tab: 'leagues', mine: true }); }} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>My leagues ›</Text>
-            </TouchableOpacity>
+            <TextLink label="My leagues" onPress={() => { tap('all_leagues'); openDiscover(navigation, { tab: 'leagues', mine: true }); }} />
           ) : null}
           {hasTournaments ? (
-            <TouchableOpacity onPress={() => { tap('my_tournaments'); openDiscover(navigation, { tab: 'tournaments', mine: true }); }} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>My tournaments ›</Text>
-            </TouchableOpacity>
+            <TextLink label="My tournaments" onPress={() => { tap('my_tournaments'); openDiscover(navigation, { tab: 'tournaments', mine: true }); }} />
           ) : null}
           {COURT_DISCOVERY_ENABLED ? (
-            <TouchableOpacity onPress={() => { tap('find_courts'); openDiscover(navigation, { tab: 'places' }); }} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>Find courts ›</Text>
-            </TouchableOpacity>
+            <TextLink label="Find courts" onPress={() => { tap('find_courts'); openDiscover(navigation, { tab: 'places' }); }} />
           ) : null}
-          {ROUTINES_ENABLED ? (
-            <TouchableOpacity onPress={() => { tap('routines'); openRoutines(); }} accessibilityRole="button">
-              <Text style={[t.meta, { color: c.primary }]}>My routine ›</Text>
-            </TouchableOpacity>
-          ) : null}
+          {ROUTINES_ENABLED ? <TextLink label="My routine" onPress={() => { tap('routines'); openRoutines(); }} /> : null}
         </View>
       </View>
 
@@ -634,24 +617,34 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         onPick={(id) => { tap('propose_pick'); setPickerOpen(false); props.onProposePlayDay(id); }}
         onClose={() => setPickerOpen(false)}
       />
-    </View>
+    </Panel>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: 12, padding: 14 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerGlyph: { fontSize: 20 },
   flex: { flex: 1 },
-  routineLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  body: { marginTop: 10, gap: 16 },
-  day: { gap: 8 },
-  needsBand: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
+  // The routine line sits under the header, its calendar glyph under the pickle.
+  routineLine: { flexDirection: 'row', alignItems: 'center', gap: TITLE_ICON_COLUMN.gap, minHeight: 32 },
+  lineGlyph: { width: TITLE_ICON_COLUMN.width, alignItems: 'center' },
+  body: { marginTop: SPACE.sm, gap: SPACE.md },
+  day: { gap: SPACE.sm },
+  needsBand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.sm,
+    borderRadius: RADIUS.sm,
+    paddingVertical: SPACE.xs,
+    paddingHorizontal: SPACE.md,
+  },
   count: { marginLeft: 'auto' },
-  more: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, minHeight: 32 },
-  empty: { gap: 10, paddingVertical: 4 },
-  center: { textAlign: 'center' },
-  ctaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8 },
-  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 16, rowGap: 8 },
-  elsewhere: { gap: 4, paddingTop: 2 },
+  more: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minHeight: 32 },
+  centerLink: { alignSelf: 'center' },
+  empty: { gap: SPACE.md, paddingVertical: SPACE.xs },
+  ctaRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', gap: SPACE.sm },
+  // TextLinks carry their own 44 boxes, so the rows need no extra gap. The
+  // negative margin keeps the 44 tap boxes but takes back the 14px of empty box
+  // above and below the text: the gap to the block above reads as the body's
+  // 12, not 29, and the card no longer ends in 26px of padding.
+  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg, marginVertical: -SPACE.md },
+  elsewhere: { gap: SPACE.xs, paddingTop: SPACE.xxs },
 });

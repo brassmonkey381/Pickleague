@@ -10,6 +10,9 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { HAIRLINE, RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { RankMedal, ordinal } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { PickleAmount, picklesLabel } from './PickleAmount';
 
 export type ScopeType = 'tournament' | 'season' | 'league';
 
@@ -52,29 +55,44 @@ export default function PicklePotCard(props: PicklePotCardProps) {
   // Successes land here (the modal is gone by then); errors stay in the modal.
   const status = useStatusMessage();
 
-  const ladder = ['🥇', '🥈', '🥉', '4th', '5th'];
+  // Pickle transfers confirm with the pickle glyph beside the words.
+  const pickleDone = (msg: string) => status.success(msg, { iconName: 'pickle' });
 
   return (
     <View style={bare ? null : S.card}>
       {!bare && (
         <View style={S.header}>
-          <Text style={S.title}>🥒 {scopeLabel} Pot</Text>
+          <View style={S.titleRow}>
+            <Icon name="pickle" size={16} color={c.primary} />
+            <Text style={S.title}>{scopeLabel} Pot</Text>
+          </View>
           <View style={S.poolPill}>
-            <Text style={S.poolValue}>🥒 {pool}</Text>
+            <PickleAmount amount={pool} preset="bodySub" textStyle={S.poolValue} />
           </View>
         </View>
       )}
 
       <View style={S.metaRow}>
         {ante != null && ante > 0 && (
-          <View style={S.metaPill}>
-            <Text style={S.metaText}>Ante: <Text style={S.metaBold}>{ante} 🥒</Text></Text>
+          <View style={S.metaPill} accessible accessibilityLabel={`Ante: ${picklesLabel(ante)}`}>
+            <Text style={S.metaText}>Ante:</Text>
+            <PickleAmount amount={ante} preset="meta" color={c.text} iconColor={c.primary} textStyle={S.metaAmount} />
           </View>
         )}
-        <View style={S.metaPill}>
-          <Text style={S.metaText}>
-            Payout: <Text style={S.metaBold}>{structure.map((p, i) => `${ladder[i] ?? `#${i+1}`} ${p}%`).join(' · ')}</Text>
-          </Text>
+        <View
+          style={S.metaPill}
+          accessible
+          accessibilityLabel={`Payout: ${structure.map((p, i) => `${ordinal(i + 1)} ${p}%`).join(', ')}`}
+        >
+          <Text style={S.metaText}>Payout:</Text>
+          {structure.map((p, i) => (
+            <View key={i} style={S.payoutItem}>
+              {i > 0 ? <Text style={S.metaText}>·</Text> : null}
+              {/* 1st-3rd as medal discs; 4th+ as words. */}
+              {i < 3 ? <RankMedal place={i + 1} size={16} /> : <Text style={S.metaBold}>{ordinal(i + 1)}</Text>}
+              <Text style={S.metaBold}>{p}%</Text>
+            </View>
+          ))}
         </View>
       </View>
 
@@ -115,7 +133,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeId={scopeId}
         scopeLabel={scopeLabel}
         myBalance={myPickleBalance}
-        onDone={(msg) => { setShowContribute(false); status.success(msg); onChange(); }}
+        onDone={(msg) => { setShowContribute(false); pickleDone(msg); onChange(); }}
         S={S}
       />
 
@@ -127,7 +145,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeLabel={scopeLabel}
         members={members}
         pool={pool}
-        onDone={(msg) => { setShowAward(false); status.success(msg); onChange(); }}
+        onDone={(msg) => { setShowAward(false); pickleDone(msg); onChange(); }}
         S={S}
       />
 
@@ -138,7 +156,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
         scopeLabel={scopeLabel}
         pool={pool}
         structure={structure}
-        onDone={(msg) => { setShowDistribute(false); status.success(msg); onChange(); }}
+        onDone={(msg) => { setShowDistribute(false); pickleDone(msg); onChange(); }}
         S={S}
       />
     </View>
@@ -146,7 +164,7 @@ export default function PicklePotCard(props: PicklePotCardProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Contribute modal — admin pays X 🥒, pool gets X * 1.25
+// Contribute modal — admin pays X pickles, pool gets X * 1.25
 // ─────────────────────────────────────────────────────────────────────
 
 function ContributeModal({
@@ -157,6 +175,7 @@ function ContributeModal({
   myBalance?: number; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
+  const { colors: c } = useTheme();
   const [amount, setAmount] = useState('');
   const [busy, setBusy]     = useState(false);
   const inFlight            = useRef(false);
@@ -184,7 +203,7 @@ function ContributeModal({
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.success) { status.error(row?.message ?? 'Could not contribute.'); return; }
       setAmount('');
-      onDone(row.message ?? `Contributed ${n} 🥒 to the ${scopeLabel.toLowerCase()} pot.`);
+      onDone(row.message ?? `Contributed ${picklesLabel(n)} to the ${scopeLabel.toLowerCase()} pot.`);
     } catch (e) {
       status.error(friendlySbMessage(e, 'Could not contribute.', {
         network: 'Lost the connection — check the pot balance before contributing again, in case it went through.',
@@ -204,7 +223,10 @@ function ContributeModal({
             The house adds a <Text style={S.modalBold}>+25% bonus</Text> on top of your contribution.
           </Text>
           {myBalance != null && (
-            <Text style={S.modalSub}>Your balance: 🥒 {myBalance}</Text>
+            <View style={S.modalSubRow}>
+              <Text style={S.modalSubText}>Your balance:</Text>
+              <PickleAmount amount={myBalance} preset="meta" color={c.textSub} />
+            </View>
           )}
 
           <Text style={S.label}>Amount to contribute</Text>
@@ -218,14 +240,23 @@ function ContributeModal({
 
           {Number.isFinite(n) && n > 0 && (
             <View style={S.previewBox}>
-              <Text style={S.previewLine}>You pay:        🥒 {n}</Text>
-              <Text style={S.previewLine}>House bonus:    🥒 +{bonus}</Text>
-              <Text style={[S.previewLine, S.previewTotal]}>Pool gains:     🥒 {added}</Text>
+              <View style={S.previewRow}>
+                <Text style={S.previewLine}>You pay:</Text>
+                <PickleAmount amount={n} preset="sub" color={c.textSub} />
+              </View>
+              <View style={S.previewRow}>
+                <Text style={S.previewLine}>House bonus:</Text>
+                <PickleAmount amount={bonus} prefix="+" preset="sub" color={c.textSub} />
+              </View>
+              <View style={[S.previewRow, S.previewTotalRow]}>
+                <Text style={[S.previewLine, S.previewTotal]}>Pool gains:</Text>
+                <PickleAmount amount={added} preset="bodySub" textStyle={S.previewTotal} />
+              </View>
             </View>
           )}
 
           {myBalance != null && Number.isFinite(n) && n > myBalance && (
-            <Text style={S.errorText}>You only have {myBalance} 🥒.</Text>
+            <Text style={S.errorText}>You only have {picklesLabel(myBalance)}.</Text>
           )}
 
           <StatusBanner status={status.value} />
@@ -263,6 +294,7 @@ function AwardModal({
   pool: number; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
+  const { colors: c } = useTheme();
   const [recipientId, setRecipientId] = useState<string | null>(null);
   const [amount, setAmount]           = useState('');
   const [reason, setReason]           = useState('');
@@ -291,7 +323,7 @@ function AwardModal({
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.success) { status.error(row?.message ?? 'Could not award.'); return; }
       setRecipientId(null); setAmount(''); setReason('');
-      onDone(`${n} 🥒 sent.`);
+      onDone(`${picklesLabel(n)} sent.`);
     } catch (e) {
       status.error(friendlySbMessage(e, 'Could not award.', {
         network: 'Lost the connection — check the pot balance before awarding again, in case it went through.',
@@ -307,7 +339,10 @@ function AwardModal({
       <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <View style={[S.modalCard, { maxHeight: '85%' }]}>
           <Text style={S.modalTitle}>Award from {scopeLabel} Pot</Text>
-          <Text style={S.modalSub}>Pool balance: 🥒 {pool}</Text>
+          <View style={S.modalSubRow}>
+            <Text style={S.modalSubText}>Pool balance:</Text>
+            <PickleAmount amount={pool} preset="meta" color={c.textSub} />
+          </View>
 
           <Text style={S.label}>Recipient</Text>
           <ScrollView style={S.memberList}>
@@ -318,9 +353,12 @@ function AwardModal({
                   key={m.id}
                   style={[S.memberRow, sel && S.memberRowSelected]}
                   onPress={() => setRecipientId(m.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={m.full_name}
+                  accessibilityState={{ selected: sel }}
                 >
                   <Text style={[S.memberName, sel && S.memberNameSelected]}>{m.full_name}</Text>
-                  {sel && <Text style={S.memberCheck}>✓</Text>}
+                  {sel && <Icon name="check-mark" size={16} color={c.primary} />}
                 </TouchableOpacity>
               );
             })}
@@ -378,6 +416,7 @@ function DistributeModal({
   pool: number; structure: number[]; onDone: (message: string) => void;
   S: ReturnType<typeof makeStyles>;
 }) {
+  const { colors: c } = useTheme();
   const [busy, setBusy] = useState(false);
   const inFlight        = useRef(false);
   const status          = useStatusMessage();
@@ -395,7 +434,7 @@ function DistributeModal({
       );
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.success) { status.error(row?.message ?? 'Could not distribute.'); return; }
-      onDone(row.message ?? `${row.distributed} 🥒 paid out.`);
+      onDone(row.message ?? `${picklesLabel(Number(row.distributed ?? 0))} paid out.`);
     } catch (e) {
       status.error(friendlySbMessage(e, 'Could not distribute.', {
         network: 'Lost the connection — check the pot balance before distributing again, in case it went through.',
@@ -411,7 +450,11 @@ function DistributeModal({
       <Pressable style={S.modalBackdrop} onPress={(e) => { if (e.target === e.currentTarget) onClose(); }}>
         <View style={[S.modalCard, { maxHeight: '90%' }]}>
           <Text style={S.modalTitle}>Distribute {scopeLabel} Pot</Text>
-          <Text style={S.modalSub}>Pool: 🥒 {pool} · structure {structure.join(' / ')}%</Text>
+          <View style={S.modalSubRow}>
+            <Text style={S.modalSubText}>Pool:</Text>
+            <PickleAmount amount={pool} preset="meta" color={c.textSub} />
+            <Text style={S.modalSubText}>· structure {structure.join(' / ')}%</Text>
+          </View>
 
           <Text style={S.modalBody}>
             Will pay top finishers from the locked-in <Text style={S.modalBold}>final standings</Text>
@@ -451,14 +494,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderWidth: HAIRLINE, borderColor: c.border,
     },
     header:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACE.sm },
+    titleRow:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, flexShrink: 1 },
     title:     { fontSize: FONT.size.lg, fontWeight: FONT.weight.heavy, color: c.text },
     poolPill:  { backgroundColor: c.primaryLight, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.md, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.primary },
     poolValue: { fontSize: FONT.size.md, fontWeight: FONT.weight.black, color: c.primary },
 
     metaRow:   { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm, marginBottom: SPACE.xs },
-    metaPill:  { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border },
+    metaPill:  { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border },
     metaText:  { fontSize: FONT.size.sm, color: c.textSub },
-    metaBold:  { fontWeight: FONT.weight.bold, color: c.text },
+    metaBold:  { fontSize: FONT.size.sm, fontWeight: FONT.weight.bold, color: c.text },
+    metaAmount: { fontWeight: FONT.weight.bold, letterSpacing: 0 },
+    payoutItem: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     hint:      { fontSize: FONT.size.xs, color: c.textMuted, marginTop: SPACE.xs, lineHeight: FONT.line.tight },
 
     btnRow:    { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.sm, flexWrap: 'wrap' },
@@ -476,14 +522,17 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     modalTitle:    { fontSize: FONT.size.xl, fontWeight: FONT.weight.black, color: c.text, marginBottom: SPACE.xs },
     modalBody:     { fontSize: FONT.size.base, color: c.textSub, marginTop: SPACE.xs, lineHeight: FONT.line.tight },
     modalBold:     { fontWeight: FONT.weight.heavy, color: c.text },
-    modalSub:      { fontSize: FONT.size.sm, color: c.textMuted, marginTop: SPACE.xxs, marginBottom: SPACE.xs },
+    modalSubRow:   { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xxs, marginBottom: SPACE.xs },
+    modalSubText:  { fontSize: FONT.size.sm, color: c.textMuted },
 
     label:    { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: SPACE.md, marginBottom: SPACE.xs },
     input:    { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
 
     previewBox:    { backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
-    previewLine:   { fontSize: FONT.size.base, color: c.textSub, marginVertical: SPACE.xxs },
-    previewTotal:  { fontSize: FONT.size.md, fontWeight: FONT.weight.heavy, color: c.primary, marginTop: SPACE.xs },
+    previewRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: SPACE.xxs },
+    previewTotalRow: { marginTop: SPACE.xs },
+    previewLine:   { fontSize: FONT.size.base, color: c.textSub },
+    previewTotal:  { fontSize: FONT.size.md, fontWeight: FONT.weight.heavy, color: c.primary },
     errorText:     { fontSize: FONT.size.sm, color: c.danger, marginTop: SPACE.sm },
 
     memberList:    { maxHeight: 200, marginTop: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md },
@@ -491,7 +540,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     memberRowSelected: { backgroundColor: c.primaryLight },
     memberName:    { fontSize: FONT.size.md, color: c.text },
     memberNameSelected: { fontWeight: FONT.weight.bold, color: c.primary },
-    memberCheck:   { fontSize: FONT.size.lg, color: c.primary, fontWeight: FONT.weight.bold },
     emptyText:     { padding: SPACE.md, fontSize: FONT.size.base, color: c.textMuted, textAlign: 'center' },
 
     modalBtnRow:   { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.lg },

@@ -1,4 +1,5 @@
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import type { Theme } from '@just-messin-around/expo-foundation/theme';
 import { supabase } from './supabase';
 
 /**
@@ -49,10 +50,12 @@ export function tournamentRoleLabel(role: TournamentRole): string {
   return 'Member';
 }
 
-export function tournamentRoleBadgeColor(role: TournamentRole): string {
-  if (role === 'admin')    return '#b8860b';
-  if (role === 'co-admin') return '#2e7d32';
-  return '#888';
+/** The role badge colour, from theme tokens (light and dark come free):
+ *  admin the legendary gold, co-admin the brand, everyone else muted. */
+export function tournamentRoleBadgeColor(role: TournamentRole, c: Theme): string {
+  if (role === 'admin')    return c.rarityLegendary;
+  if (role === 'co-admin') return c.primary;
+  return c.textMuted;
 }
 
 /** Whether this tournament needs each player to lock in a fixed doubles

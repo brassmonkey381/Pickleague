@@ -4,6 +4,11 @@ import {
   ActivityIndicator, StyleSheet, Platform,
 } from 'react-native';
 import { useTheme } from '../lib/ThemeContext';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PickleAmount } from './PickleAmount';
 import {
   WagerSubject, fetchOdds, placeWager, subjectLabel,
 } from '../lib/wager';
@@ -118,7 +123,10 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
 
   const card = (
     <View style={S.card}>
-      <Text style={S.title}>🎲 Propose Wager</Text>
+      <View style={S.titleRow}>
+        <Icon name="dice" size={22} color={c.primary} />
+        <Text style={S.title}>Propose Wager</Text>
+      </View>
       <Text style={S.subject}>{subjectLabel(subject)}</Text>
 
       <View style={S.oddsRow}>
@@ -132,7 +140,8 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
 
       <Text style={S.fieldLabel}>Stake</Text>
       <TextInput
-        style={S.stakeInput}
+        style={[S.stakeInput, webInputFontFloor(S.stakeInput)]}
+        accessibilityLabel="Stake in pickles"
         value={stakeText}
         onChangeText={(t) => setStakeText(t.replace(/[^0-9]/g, ''))}
         placeholder="0"
@@ -150,6 +159,9 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
             style={[S.chip, stake === n && S.chipActive]}
             onPress={() => setStakeText(String(n))}
             disabled={placing}
+            accessibilityRole="button"
+            accessibilityLabel={`Stake ${n} pickles`}
+            accessibilityState={{ selected: stake === n }}
           >
             <Text style={[S.chipText, stake === n && S.chipTextActive]}>{n}</Text>
           </TouchableOpacity>
@@ -158,9 +170,11 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
 
       <View style={S.payoutBox}>
         <Text style={S.payoutLabel}>Potential win</Text>
-        <Text style={S.payoutValue}>
-          {projectedPayout > 0 ? `${projectedPayout.toLocaleString()} 🥒` : '— 🥒'}
-        </Text>
+        {projectedPayout > 0 ? (
+          <PickleAmount amount={projectedPayout} preset="h3" color={c.text} iconColor={c.primary} />
+        ) : (
+          <Text style={S.payoutValue} accessibilityLabel="No potential win yet">—</Text>
+        )}
       </View>
 
       {errMsg ? <Text style={S.errText}>{errMsg}</Text> : null}
@@ -171,18 +185,17 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
           style={[S.btn, S.btnGhost]}
           onPress={onClose}
           disabled={placing}
+          accessibilityRole="button"
         >
           <Text style={S.btnGhostText}>Cancel</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[S.btn, S.btnPrimary, !canPlace && S.btnDim]}
+        <Button
+          title="Place wager"
           onPress={onPlace}
           disabled={!canPlace}
-        >
-          {placing
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={S.btnPrimaryText}>Place wager</Text>}
-        </TouchableOpacity>
+          loading={placing}
+          style={S.btnFlex}
+        />
       </View>
     </View>
   );
@@ -208,36 +221,36 @@ export default function WagerProposeModal({ visible, subject, onClose, onPlaced 
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    backdrop:      { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-    card:          { width: '100%', maxWidth: 440, backgroundColor: c.surface, borderRadius: 14, padding: 22 },
-    title:         { fontSize: 20, fontWeight: '900', color: c.text, marginBottom: 6 },
-    subject:       { fontSize: 14, color: c.textSub, lineHeight: 20, marginBottom: 16 },
+    backdrop:      { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.xl },
+    card:          { width: '100%', maxWidth: 440, backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.xl },
+    titleRow:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.xs },
+    title:         t.h2,
+    subject:       { fontSize: FONT.size.md, color: c.textSub, lineHeight: FONT.line.normal, marginBottom: SPACE.lg },
     oddsRow:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                     backgroundColor: c.primaryLight, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, marginBottom: 14 },
-    oddsLabel:     { fontSize: 13, fontWeight: '700', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
-    oddsValue:     { fontSize: 22, fontWeight: '900', color: c.primary },
-    oddsError:     { fontSize: 13, color: c.danger, fontWeight: '700' },
-    fieldLabel:    { fontSize: 12, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 },
-    stakeInput:    { borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12,
-                     fontSize: 18, fontWeight: '700', color: c.text, backgroundColor: c.surfaceAlt },
-    chipsRow:      { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 14 },
-    chip:          { flex: 1, paddingVertical: 9, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: c.border, backgroundColor: c.surfaceAlt },
+                     backgroundColor: c.primaryLight, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.md, marginBottom: SPACE.md },
+    oddsLabel:     { ...t.label, fontSize: FONT.size.base },
+    oddsValue:     { fontSize: FONT.size.h2, fontWeight: FONT.weight.black, color: c.primary },
+    oddsError:     { fontSize: FONT.size.base, color: c.danger, fontWeight: FONT.weight.bold },
+    fieldLabel:    { ...t.fieldLabel, fontSize: FONT.size.sm, marginBottom: SPACE.xs },
+    stakeInput:    { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.md,
+                     fontSize: FONT.size.xl, fontWeight: FONT.weight.bold, color: c.text, backgroundColor: c.surfaceAlt },
+    chipsRow:      { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.sm, marginBottom: SPACE.md },
+    chip:          { flex: 1, minHeight: 44, justifyContent: 'center', borderRadius: RADIUS.md, alignItems: 'center', borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surfaceAlt },
     chipActive:    { backgroundColor: c.primary, borderColor: c.primary },
-    chipText:      { color: c.textSub, fontWeight: '700' },
-    chipTextActive:{ color: '#fff' },
-    payoutBox:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-                     paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: c.border, marginBottom: 10 },
-    payoutLabel:   { fontSize: 13, fontWeight: '700', color: c.textSub },
-    payoutValue:   { fontSize: 18, fontWeight: '900', color: c.text },
-    errText:       { color: c.danger, fontWeight: '700', marginTop: 6, marginBottom: 4 },
-    okText:        { color: c.primary, fontWeight: '700', marginTop: 6, marginBottom: 4 },
-    btnRow:        { flexDirection: 'row', gap: 10, marginTop: 14 },
-    btn:           { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    btnGhost:      { backgroundColor: c.surfaceAlt, borderWidth: 1, borderColor: c.border },
-    btnGhostText:  { color: c.textSub, fontWeight: '800' },
-    btnPrimary:    { backgroundColor: c.primary },
-    btnPrimaryText:{ color: '#fff', fontWeight: '800' },
-    btnDim:        { opacity: 0.5 },
+    chipText:      { color: c.textSub, fontWeight: FONT.weight.bold },
+    chipTextActive:{ color: c.textInverse },
+    payoutBox:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 48,
+                     paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, marginBottom: SPACE.sm },
+    payoutLabel:   { fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.textSub },
+    payoutValue:   { fontSize: FONT.size.xl, fontWeight: FONT.weight.black, color: c.text },
+    errText:       { color: c.danger, fontWeight: FONT.weight.bold, marginTop: SPACE.xs, marginBottom: SPACE.xs },
+    okText:        { color: c.success, fontWeight: FONT.weight.bold, marginTop: SPACE.xs, marginBottom: SPACE.xs },
+    btnRow:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.md },
+    btn:           { flex: 1, minHeight: 50, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
+    btnFlex:       { flex: 1 },
+    btnGhost:      { backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },
+    btnGhostText:  { color: c.textSub, fontWeight: FONT.weight.heavy },
   });
 }

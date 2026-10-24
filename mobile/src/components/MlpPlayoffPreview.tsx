@@ -7,6 +7,11 @@ import { useTheme } from '../lib/ThemeContext';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import StatusBanner from './StatusBanner';
 import type { RootStackParamList } from '../types';
+import { RankMedal } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 /**
  * MLP playoff view. Two render modes:
@@ -75,7 +80,9 @@ type PlayoffRound = {
 };
 
 type Slot = { teamName: string; placeholder: boolean };
-type Pairing = { left: Slot; right: Slot; label: string };
+/** `medal`: a place the pairing plays for (3: the third-place match), drawn
+ *  as a RankMedal before the label. */
+type Pairing = { left: Slot; right: Slot; label: string; medal?: number };
 
 const ROTATION_LABELS = ["Men's Doubles", "Women's Doubles", 'Mixed 1', 'Mixed 2'];
 
@@ -274,7 +281,7 @@ export default function MlpPlayoffPreview({
       });
     }
     if (thirdLeft && thirdRight) {
-      pairings.push({ left: thirdLeft, right: thirdRight, label: '🥉 Third Place Match' });
+      pairings.push({ left: thirdLeft, right: thirdRight, label: 'Third Place Match', medal: 3 });
     }
     return pairings;
   }
@@ -328,11 +335,11 @@ export default function MlpPlayoffPreview({
     if (round.round_type === 'finals')             return 'Grand Final';
     if (round.round_type === 'semifinals')         return 'Semifinal';
     if (round.round_type === 'quarterfinals')      return 'Quarterfinal';
-    if (round.round_type === 'third_place_match')  return '🥉 Third Place Match';
+    if (round.round_type === 'third_place_match')  return 'Third Place Match';
     return round.label ?? 'Playoff';
   }
 
-  if (loading) return <ActivityIndicator style={{ marginVertical: 16 }} color={c.primary} />;
+  if (loading) return <ActivityIndicator style={{ marginVertical: SPACE.lg }} color={c.primary} />;
 
   const hasLivePlayoff = playoffRounds.length > 0;
 
@@ -348,7 +355,12 @@ export default function MlpPlayoffPreview({
 
   return (
     <View style={S.root}>
-      {!bare && <Text style={S.title}>🏆 Playoff Preview</Text>}
+      {!bare && (
+        <View style={S.titleRow}>
+          <Icon name="trophy" size={16} color={c.rarityLegendary} />
+          <Text style={S.title}>Playoff Preview</Text>
+        </View>
+      )}
       <Text style={S.subtitle}>
         {hasLivePlayoff
           ? 'Playoff bracket is live. Tap any rotation to enter scores.'
@@ -359,7 +371,8 @@ export default function MlpPlayoffPreview({
 
       {errMsg && (
         <View style={S.errBox}>
-          <Text style={S.errText}>⚠ {errMsg}</Text>
+          <Icon name="warning" size={14} color={c.danger} />
+          <Text style={S.errText}>{errMsg}</Text>
         </View>
       )}
 
@@ -371,16 +384,12 @@ export default function MlpPlayoffPreview({
             The auto-advance trigger didn't fire (likely because the round-robin matches
             were completed before the trigger was installed). Tap below to generate it now.
           </Text>
-          <TouchableOpacity
-            style={[S.recoveryBtn, generating && S.recoveryBtnDisabled]}
+          <Button
+            iconName="bolt"
+            title={generating ? 'Generating…' : 'Generate Playoff Now'}
             onPress={generatePlayoff}
             disabled={generating}
-            activeOpacity={0.85}
-          >
-            <Text style={S.recoveryBtnText}>
-              {generating ? 'Generating…' : '⚡ Generate Playoff Now'}
-            </Text>
-          </TouchableOpacity>
+          />
           <StatusBanner status={genStatus.value} />
         </View>
       )}
@@ -410,7 +419,9 @@ export default function MlpPlayoffPreview({
                 <Text style={S.standGroupLabel}>{g.label}</Text>
                 {g.rows.map((r, i) => (
                   <View key={r.team_id} style={S.standRow}>
-                    <Text style={[S.standCell, S.standRank]}>{i + 1}</Text>
+                    <View style={S.standRank}>
+                      <RankMedal place={i + 1} size={16} />
+                    </View>
                     <Text style={[S.standCell, S.standName]} numberOfLines={1}>{r.team_name}</Text>
                     <Text style={[S.standCell, S.standWL]}>{r.sub_matches_won}–{r.sub_matches_lost}</Text>
                   </View>
@@ -435,9 +446,15 @@ export default function MlpPlayoffPreview({
         return (
           <View key={round.id} style={S.finalsCard}>
             <View style={S.finalsHeader}>
-              <Text style={S.finalsRoundLabel}>{roundDisplayLabel(round)}</Text>
+              <View style={S.medalLabelRow}>
+                {round.round_type === 'third_place_match' ? <RankMedal place={3} size={16} /> : null}
+                <Text style={S.finalsRoundLabel}>{roundDisplayLabel(round)}</Text>
+              </View>
               {seriesDone && seriesWinner && (
-                <Text style={S.finalsChampBadge}>🏆 {seriesWinner}</Text>
+                <View style={S.finalsChampBadge} accessible accessibilityLabel={`Winner: ${seriesWinner}`}>
+                  <Icon name="trophy" size={12} color={c.rarityLegendary} />
+                  <Text style={S.finalsChampText} numberOfLines={1}>{seriesWinner}</Text>
+                </View>
               )}
             </View>
 
@@ -470,7 +487,12 @@ export default function MlpPlayoffPreview({
                 <Row
                   key={m.id}
                   style={[S.rotationRow, completed && S.rotationRowDone]}
-                  {...(tappable ? { onPress: () => openMatchEntry(m), activeOpacity: 0.6 } : {})}
+                  {...(tappable ? {
+                    onPress: () => openMatchEntry(m),
+                    activeOpacity: 0.6,
+                    accessibilityRole: 'button',
+                    accessibilityLabel: `${rotLabel}: ${t1} versus ${t2}. Enter score`,
+                  } : {})}
                 >
                   <Text style={S.rotationLabel}>{rotLabel}</Text>
                   <View style={S.rotationBody}>
@@ -492,7 +514,7 @@ export default function MlpPlayoffPreview({
                       {t2}
                     </Text>
                   </View>
-                  {tappable && <Text style={S.rotationChevron}>›</Text>}
+                  {tappable && <Icon name="chevron-right" size={16} color={c.primary} style={S.rotationChevron} />}
                   {!tappable && !completed && <Text style={S.rotationPending}>pending</Text>}
                 </Row>
               );
@@ -504,7 +526,10 @@ export default function MlpPlayoffPreview({
       {/* ── PREVIEW: placeholder pairings until playoff matches exist ── */}
       {!hasLivePlayoff && buildPairings().map((p, i) => (
         <View key={i} style={S.pairCard}>
-          <Text style={S.pairLabel}>{p.label}</Text>
+          <View style={[S.medalLabelRow, S.pairLabelRow]}>
+            {p.medal ? <RankMedal place={p.medal} size={16} /> : null}
+            <Text style={S.pairLabel}>{p.label}</Text>
+          </View>
           <View style={S.pairRow}>
             <View style={S.slot}>
               <Text style={[S.slotText, p.left.placeholder && S.slotPlaceholder]}>
@@ -532,63 +557,66 @@ export default function MlpPlayoffPreview({
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
+  const W = FONT.weight;
   return StyleSheet.create({
-    root:        { backgroundColor: c.surface, borderRadius: 12, padding: 14, marginTop: 12, borderWidth: 1, borderColor: c.border },
-    title:       { fontSize: 16, fontWeight: '900', color: c.text, marginBottom: 4 },
-    subtitle:    { fontSize: 12, color: c.textSub, lineHeight: 17, marginBottom: 12 },
-    pairCard:    { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10, marginBottom: 8 },
-    pairLabel:   { fontSize: 11, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 },
-    pairRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    slot:        { flex: 1, paddingVertical: 8, paddingHorizontal: 10, backgroundColor: c.surface, borderRadius: 8, borderWidth: 1, borderColor: c.border },
-    slotText:    { fontSize: 13, fontWeight: '700', color: c.text },
-    slotPlaceholder: { color: c.textMuted, fontStyle: 'italic', fontWeight: '600' },
-    vs:          { fontSize: 12, color: c.textMuted, fontWeight: '700' },
-    bracketHint: { fontSize: 11, color: c.textMuted, marginTop: 4, fontStyle: 'italic' },
+    root:        { backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.md, marginTop: SPACE.md, borderWidth: HAIRLINE, borderColor: c.border },
+    titleRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, marginBottom: SPACE.xs },
+    title:       { ...t.title, fontWeight: W.black },
+    subtitle:    { ...t.sub, marginBottom: SPACE.md },
+    pairCard:    { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.sm, marginBottom: SPACE.sm },
+    medalLabelRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, flexShrink: 1 },
+    pairLabelRow: { marginBottom: SPACE.xs },
+    pairLabel:   { ...t.fieldLabel, fontWeight: W.heavy },
+    pairRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    slot:        { flex: 1, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, backgroundColor: c.surface, borderRadius: RADIUS.sm, borderWidth: HAIRLINE, borderColor: c.border },
+    slotText:    { fontSize: FONT.size.base, fontWeight: W.bold, color: c.text },
+    slotPlaceholder: { color: c.textMuted, fontStyle: 'italic', fontWeight: W.semibold },
+    vs:          { fontSize: FONT.size.sm, color: c.textMuted, fontWeight: W.bold },
+    bracketHint: { ...t.caption, marginTop: SPACE.xs, fontStyle: 'italic' },
 
-    errBox:   { backgroundColor: '#ffe5e5', borderRadius: 8, padding: 10, marginBottom: 10, borderLeftWidth: 4, borderLeftColor: '#c62828' },
-    errText:  { fontSize: 12, color: '#8a1414', fontWeight: '700' },
+    errBox:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, backgroundColor: c.dangerLight, borderRadius: RADIUS.sm, padding: SPACE.sm, marginBottom: SPACE.sm, borderLeftWidth: 4, borderLeftColor: c.danger },
+    errText:  { flex: 1, fontSize: FONT.size.sm, color: c.danger, fontWeight: W.bold },
 
-    recoveryBox:       { backgroundColor: '#fff8e1', borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#e6c875' },
-    recoveryTitle:     { fontSize: 13, fontWeight: '900', color: '#8a6d00', marginBottom: 4 },
-    recoveryBody:      { fontSize: 12, color: '#5d4a00', lineHeight: 17, marginBottom: 10 },
-    recoveryBtn:       { backgroundColor: c.primary, borderRadius: 8, paddingVertical: 11, alignItems: 'center' },
-    recoveryBtnDisabled: { opacity: 0.6 },
-    recoveryBtnText:   { color: '#fff', fontWeight: '900', fontSize: 13 },
+    recoveryBox:       { backgroundColor: c.warningLight, borderRadius: RADIUS.md, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: HAIRLINE, borderColor: c.warning },
+    recoveryTitle:     { fontSize: FONT.size.base, fontWeight: W.black, color: c.warning, marginBottom: SPACE.xs },
+    recoveryBody:      { fontSize: FONT.size.sm, color: c.text, lineHeight: 17, marginBottom: SPACE.sm },
 
-    standingsTable:    { backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10, marginBottom: 12 },
-    standingsTitle:    { fontSize: 12, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 },
-    standingsHeader:   { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: c.border, paddingBottom: 4, marginBottom: 4 },
-    standRow:          { flexDirection: 'row', paddingVertical: 4 },
-    standGroupLabel:   { fontSize: 11, fontWeight: '700', color: c.textSub, marginTop: 6, marginBottom: 2 },
-    standCell:         { fontSize: 12, color: c.text },
-    standRank:         { width: 28, fontWeight: '700' },
-    standName:         { flex: 1, fontWeight: '600' },
-    standWL:           { width: 60, textAlign: 'right', fontWeight: '700', color: c.primary },
+    standingsTable:    { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.sm, marginBottom: SPACE.md },
+    standingsTitle:    { ...t.fieldLabel, fontSize: FONT.size.sm, fontWeight: W.heavy, marginBottom: SPACE.xs },
+    standingsHeader:   { flexDirection: 'row', borderBottomWidth: HAIRLINE, borderBottomColor: c.border, paddingBottom: SPACE.xs, marginBottom: SPACE.xs },
+    standRow:          { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.xs },
+    standGroupLabel:   { fontSize: FONT.size.xs, fontWeight: W.bold, color: c.textSub, marginTop: SPACE.sm, marginBottom: SPACE.xxs },
+    standCell:         { fontSize: FONT.size.sm, color: c.text },
+    standRank:         { width: 28, fontWeight: W.bold },
+    standName:         { flex: 1, fontWeight: W.semibold },
+    standWL:           { width: 60, textAlign: 'right', fontWeight: W.bold, color: c.primary },
 
     // Finals / playoff live cards
-    finalsCard:        { backgroundColor: c.surfaceAlt, borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 2, borderColor: c.primary + '55' },
-    finalsHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    finalsRoundLabel:  { fontSize: 14, fontWeight: '900', color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8 },
-    finalsChampBadge:  { fontSize: 13, fontWeight: '900', color: '#a7740a', backgroundColor: '#fff5d6', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: '#e6c875' },
-    finalsTeamsRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingHorizontal: 4 },
+    finalsCard:        { backgroundColor: c.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.md, borderWidth: 2, borderColor: c.primary + '55' },
+    finalsHeader:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SPACE.sm, marginBottom: SPACE.sm },
+    finalsRoundLabel:  { fontSize: FONT.size.md, fontWeight: W.black, color: c.primary, textTransform: 'uppercase', letterSpacing: 0.8 },
+    finalsChampBadge:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, flexShrink: 1, backgroundColor: c.rarityLegendaryLight, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.sm, borderWidth: HAIRLINE, borderColor: c.rarityLegendary },
+    finalsChampText:   { flexShrink: 1, fontSize: FONT.size.base, fontWeight: W.black, color: c.rarityLegendary },
+    finalsTeamsRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACE.md, paddingHorizontal: SPACE.xs },
     finalsTeamCol:     { flex: 1, alignItems: 'center' },
-    finalsTeamName:    { fontSize: 14, fontWeight: '800', color: c.text, textAlign: 'center', marginBottom: 4 },
+    finalsTeamName:    { fontSize: FONT.size.md, fontWeight: W.heavy, color: c.text, textAlign: 'center', marginBottom: SPACE.xs },
     finalsTeamWinner:  { color: c.primary },
-    finalsSeriesScore: { fontSize: 28, fontWeight: '900', color: c.textSub, fontVariant: ['tabular-nums'] },
+    finalsSeriesScore: { fontSize: FONT.size.display, fontWeight: W.black, color: c.textSub, fontVariant: ['tabular-nums'] },
     finalsSeriesScoreWin: { color: c.primary },
-    finalsSeriesVs:    { fontSize: 14, fontWeight: '700', color: c.textMuted, marginHorizontal: 6 },
+    finalsSeriesVs:    { fontSize: FONT.size.md, fontWeight: W.bold, color: c.textMuted, marginHorizontal: SPACE.sm },
 
-    rotationsHeader:   { fontSize: 11, fontWeight: '800', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, marginTop: 4 },
-    rotationRow:       { backgroundColor: c.surface, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6, borderWidth: 1, borderColor: c.border, flexDirection: 'row', alignItems: 'center' },
+    rotationsHeader:   { ...t.fieldLabel, fontWeight: W.heavy, marginBottom: SPACE.xs, marginTop: SPACE.xs },
+    rotationRow:       { minHeight: 44, backgroundColor: c.surface, borderRadius: RADIUS.md, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.sm, marginBottom: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border, flexDirection: 'row', alignItems: 'center' },
     rotationRowDone:   { backgroundColor: c.surface, opacity: 0.95 },
-    rotationLabel:     { fontSize: 11, fontWeight: '800', color: c.textSub, width: 78, textTransform: 'uppercase', letterSpacing: 0.4 },
-    rotationBody:      { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-    rotationLineup:    { flex: 1, fontSize: 12, fontWeight: '600', color: c.text },
-    rotationLineupWin: { color: c.primary, fontWeight: '800' },
+    rotationLabel:     { fontSize: FONT.size.xs, fontWeight: W.heavy, color: c.textSub, width: 78, textTransform: 'uppercase', letterSpacing: 0.4 },
+    rotationBody:      { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    rotationLineup:    { flex: 1, fontSize: FONT.size.sm, fontWeight: W.semibold, color: c.text },
+    rotationLineupWin: { color: c.primary, fontWeight: W.heavy },
     rotationLineupLoss:{ color: c.textMuted },
-    rotationScore:     { fontSize: 13, fontWeight: '900', color: c.text, fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'center' },
-    rotationVs:        { fontSize: 11, fontWeight: '700', color: c.textMuted, minWidth: 44, textAlign: 'center' },
-    rotationChevron:   { fontSize: 18, color: c.primary, fontWeight: '900', marginLeft: 4 },
-    rotationPending:   { fontSize: 10, color: c.textMuted, fontStyle: 'italic', marginLeft: 4 },
+    rotationScore:     { fontSize: FONT.size.base, fontWeight: W.black, color: c.text, fontVariant: ['tabular-nums'], minWidth: 44, textAlign: 'center' },
+    rotationVs:        { fontSize: FONT.size.xs, fontWeight: W.bold, color: c.textMuted, minWidth: 44, textAlign: 'center' },
+    rotationChevron:   { marginLeft: SPACE.xs },
+    rotationPending:   { fontSize: FONT.size.xxs, color: c.textMuted, fontStyle: 'italic', marginLeft: SPACE.xs },
   });
 }

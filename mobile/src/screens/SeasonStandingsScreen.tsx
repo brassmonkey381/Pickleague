@@ -4,7 +4,7 @@
 //                       season, the pot's Contribute/Award/Distribute. Opens
 //                       itself when a period lock is due, else one 44px row.
 //   Fall · P7 of 12 · locks Oct 20          one-line header
-//   (P1)(P2)…(P7 • Live)…(Final)            period strip, opened on the live one
+//   (P1)(P2)…(dot P7 · Live)…(trophy Final) period strip, opened on the live one
 //   # · Player · W-L · PLUPR (+change)      your row tinted
 //   Pot                                     non-admins: only when it holds pickles
 //   How scoring works                       collapsed (baseline, bonuses, finals)
@@ -26,12 +26,12 @@ import {
   sbCall, classifySbError, friendlySbMessage, currentUserId,
 } from '@just-messin-around/expo-foundation/supabase';
 import {
-  CollapsibleSection, FilterChipRow, StickyActionBar, StatusBanner,
+  CollapsibleSection, ErrorState, FilterChipRow, RankMedal, StickyActionBar, StatusBanner,
   type FilterChipOption,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import {
   LeagueSeason, SeasonSnapshot, SeasonFinalStanding, RootStackParamList,
 } from '../types';
@@ -48,6 +48,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { picklesLabel } from '../components/PickleAmount';
 import { trackSectionToggle } from '../lib/analytics';
 import StandingsTable, { type StandingsTableRow } from '../components/standings/StandingsTable';
 import WagerMarketSection, { type MarketRow } from '../components/standings/WagerMarketSection';
@@ -65,7 +66,6 @@ type Props = {
 };
 
 const ANALYTICS_SCREEN = 'SeasonStandings';
-const RANK_LABELS = ['🥇 #1', '🥈 #2', '🥉 #3', '4th', '5th'];
 
 // Long-press → ActionSheet → optional WagerProposeModal. `periodNumber`
 // is null when the row comes from the Final-standings tab (season_rank).
@@ -103,12 +103,12 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
   if (error) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load these standings"
-          subtitle={friendlySbMessage(error)}
-          actionLabel="Retry"
-          onAction={() => { void resolve(); }}
+        <ErrorState
+          iconName="offline"
+          error={error}
+          message={`Couldn't load these standings. ${friendlySbMessage(error)}`}
+          retryLabel="Retry"
+          onRetry={() => { void resolve(); }}
         />
       </View>
     );
@@ -119,7 +119,7 @@ export default function SeasonStandingsScreen({ navigation, route }: Props) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
         <EmptyState
-          icon="🏆"
+          iconName="trophy"
           title={lid ? 'No season yet' : 'Season not found.'}
           subtitle={lid ? "Standings start with the league's first season." : undefined}
           actionLabel={lid ? 'Open the league' : undefined}
@@ -473,13 +473,17 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
     const missing = loadError == null || classifySbError(loadError) === 'notFound';
     return (
       <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
-        <EmptyState
-          icon={missing ? '🔍' : '📡'}
-          title={missing ? 'Season not found.' : "Couldn't load this season"}
-          subtitle={missing ? undefined : friendlySbMessage(loadError)}
-          actionLabel="Retry"
-          onAction={() => { void load(); }}
-        />
+        {missing ? (
+          <EmptyState iconName="search" title="Season not found." actionLabel="Retry" onAction={() => { void load(); }} />
+        ) : (
+          <ErrorState
+            iconName="offline"
+            error={loadError}
+            message={`Couldn't load this season. ${friendlySbMessage(loadError)}`}
+            retryLabel="Retry"
+            onRetry={() => { void load(); }}
+          />
+        )}
       </ScrollView>
     );
   }
@@ -502,11 +506,12 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
   });
 
   // ── Period strip ──
-  const tabOptions: FilterChipOption<string>[] = periods.map(p => ({
-    value: `p${p.periodNumber}`,
-    label: p.periodNumber === livePeriodNumber ? `P${p.periodNumber} • Live` : `P${p.periodNumber}`,
-  }));
-  if (finals.length > 0 || season.status === 'completed') tabOptions.push({ value: 'final', label: '🏆 Final' });
+  const tabOptions: FilterChipOption<string>[] = periods.map(p => (
+    p.periodNumber === livePeriodNumber
+      ? { value: `p${p.periodNumber}`, label: `P${p.periodNumber} · Live`, iconName: 'dot' as const }
+      : { value: `p${p.periodNumber}`, label: `P${p.periodNumber}` }
+  ));
+  if (finals.length > 0 || season.status === 'completed') tabOptions.push({ value: 'final', label: 'Final', iconName: 'trophy' });
   const tabValue = activeTab === 'final' ? 'final' : `p${activeTab ?? 1}`;
 
   // ── The table for the selected tab ──
@@ -604,7 +609,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
       ? 'Complete the season when play ends'
       : season.status !== 'completed' && nextPeriod <= totalPeriods
         ? `Period ${nextPeriod} locks ${fmtDay(computePeriodDate(season, nextPeriod))}`
-        : pool > 0 ? `Pot: 🥒 ${pool}` : 'Pot and season tools';
+        : pool > 0 ? `Pot: ${picklesLabel(pool)}` : 'Pot and season tools';
 
   return (
     <View style={S.root}>
@@ -706,9 +711,9 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             from the wrapper above) */}
         <View style={S.tableBlock} onLayout={recomputeJump}>
         {futureNote ? (
-          <EmptyState compact icon="🗓️" title={futureNote} />
+          <EmptyState compact iconName="calendar-event" title={futureNote} />
         ) : tableRows.length === 0 ? (
-          <EmptyState compact icon="🏆" title="No standings yet" subtitle="No matches recorded yet this season." />
+          <EmptyState compact iconName="trophy" title="No standings yet" subtitle="No matches recorded yet this season." />
         ) : (
           <>
             {caption ? <Text style={[t.meta, S.caption]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{caption}</Text> : null}
@@ -742,7 +747,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             <CollapsibleSection
               compact
               title="Pot"
-              summary={`🥒 ${pool.toLocaleString()} · paid to the top finishers`}
+              summary={`${picklesLabel(pool)} · paid to the top finishers`}
               onToggle={(next) => onSectionToggle('pot', next)}
             >
               <PicklePotCard
@@ -779,9 +784,12 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
               {baseline.toFixed(2)}. At each period lock everyone soft-resets to the baseline, and the top 5 keep a bonus:
             </Text>
             {RANK_BONUSES.map((b, i) => (
-              <Text key={b.rank} style={t.sub}>
-                {RANK_LABELS[i]} → {baseline.toFixed(2)} + {b.bonus.toFixed(2)} = {(baseline + b.bonus).toFixed(2)} PLUPR
-              </Text>
+              <View key={b.rank} style={S.bonusRow}>
+                <RankMedal place={i + 1} />
+                <Text style={[t.sub, S.bonusText]}>
+                  → {baseline.toFixed(2)} + {b.bonus.toFixed(2)} = {(baseline + b.bonus).toFixed(2)} PLUPR
+                </Text>
+              </View>
             ))}
             <Text style={t.hint}>
               All others reset to {baseline.toFixed(2)}. Final standings rank players by their median position across the periods.
@@ -820,7 +828,7 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         <ConfirmModal
           visible={completeConfirmOpen}
           title="Complete Season & Reset PLUPR"
-          body={'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global PLUPR to 3.25 + rank bonus\n• Mark the season as completed\n\n⚠️ This cannot be undone.'}
+          body={'This will:\n• Compute final standings from median ranks\n• Reset all participating players\' global PLUPR to 3.25 + rank bonus\n• Mark the season as completed\n\nThis cannot be undone.'}
           primaryLabel="Complete Season"
           variant="danger"
           busy={completing}
@@ -849,7 +857,8 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
             // The wager action is gated (lib/features.ts); "View profile"
             // keeps the long-press sheet useful on its own.
             ...(WAGERS_ENABLED ? [{
-              label: `🎲 Wager: ${rowContext.fullName} finishes #${rowContext.rank}`,
+              label: `Wager: ${rowContext.fullName} finishes #${rowContext.rank}`,
+              iconName: 'dice' as const,
               onPress: () => openWagerForSubject(buildRankSubject({
                 userId: rowContext.userId,
                 userName: rowContext.fullName,
@@ -893,9 +902,11 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     manageText:  { flex: 1, minWidth: 0 },
     headerLine:  { minHeight: 32, justifyContent: 'center', marginBottom: SPACE.xs },
     headerText:  { color: c.textSub },
-    headerName:  { color: c.text, fontWeight: '700' },
+    headerName:  { color: c.text, fontWeight: FONT.weight.bold },
     strip:       { marginBottom: SPACE.sm },
     caption:     { marginBottom: SPACE.sm },
+    bonusRow:    { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    bonusText:   { flex: 1, minWidth: 0 },
     // CollapsibleSection compact carries its own SPACE.md bottom margin.
     section:     {},
     tableBlock:  { marginBottom: SPACE.md },

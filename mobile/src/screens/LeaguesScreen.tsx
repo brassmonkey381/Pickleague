@@ -23,7 +23,7 @@
 // distance) and Nearest measures from the area's centre.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, FlatList, StyleSheet, TextInput, Modal, Switch, ScrollView, Pressable,
+  View, Text, FlatList, StyleSheet, TextInput, Modal, ScrollView, Pressable,
   type LayoutChangeEvent, type ListRenderItemInfo,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -33,11 +33,13 @@ import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/ex
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import {
   ActionSheetModal,
+  ErrorState,
   FilterSheet,
   SectionHeader,
   type ActionSheetAction,
   type ActiveFilterEntry,
   type FilterSheetGroup,
+  ThemedSwitch,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
@@ -646,7 +648,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
             style={split.mine.length > 0 ? S.header : S.firstHeader}
             action={sortVisible(split.discover.length)
               ? {
-                  label: `${LEAGUE_SORT_LABELS[split.sort]} ▾`,
+                  label: LEAGUE_SORT_LABELS[split.sort],
+                  trailingIconName: 'chevron-down',
                   onPress: () => setSortOpen(true),
                   a11yLabel: `Sort: ${LEAGUE_SORT_LABELS[split.sort]}. Change sort`,
                 }
@@ -657,7 +660,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         return (
           <EmptyState
             compact
-            icon="🔍"
+            iconName="search"
             title="No leagues match your filters."
             actionLabel="Clear filters"
             onAction={clearAll}
@@ -693,7 +696,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       {areaEnd && area ? (
         <EmptyState
           compact
-          icon="📍"
+          iconName="pin"
           title={split.discover.length > 0 ? `Nothing more within ${area.radiusMi} mi.` : `No other leagues within ${area.radiusMi} mi.`}
           actionLabel={widerArea ? `Widen to ${widerArea} mi` : undefined}
           onAction={widerArea ? () => setAreaRadius(widerArea) : undefined}
@@ -702,7 +705,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       {distanceEnd ? (
         <EmptyState
           compact
-          icon="📍"
+          iconName="pin"
           title={`Nothing more within ${radius} mi.`}
           actionLabel={wider ? `Widen to ${wider} mi` : undefined}
           onAction={wider ? () => filters.setSheetValue('distance', wider) : undefined}
@@ -727,21 +730,21 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
   const emptyList = loadFailed ? (
     // A failed fetch must never read as "no leagues yet".
-    <EmptyState
-      icon="📡"
-      title="Couldn't load leagues"
-      subtitle={friendlySbMessage(query.error)}
-      actionLabel="Retry"
-      onAction={() => { void reload(); }}
+    <ErrorState
+      iconName="offline"
+      error={query.error}
+      message={`Couldn't load leagues. ${friendlySbMessage(query.error)}`}
+      retryLabel="Retry"
+      onRetry={() => { void reload(); }}
     />
   ) : allLeagues.length === 0 ? (
     // The "+ New league · Enter code" footer below carries the actions.
-    <EmptyState icon="🎾" title="No leagues yet" subtitle="Create one to get started!" />
+    <EmptyState iconName="pickleball" title="No leagues yet" subtitle="Create one to get started!" />
   ) : area && !searching && !split.filtersOn ? (
     // Nothing near the search area (the area pills above change it).
     <EmptyState
       compact
-      icon="📍"
+      iconName="pin"
       title={`No leagues within ${area.radiusMi} mi.`}
       subtitle="Widen the search, or start one here."
       actionLabel={widerArea ? `Widen to ${widerArea} mi` : 'New league'}
@@ -750,7 +753,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   ) : (
     <EmptyState
       compact
-      icon="🔍"
+      iconName="search"
       title={searching ? `No leagues match "${searchQuery.trim()}".` : 'No leagues match your filters.'}
       actionLabel="Clear filters"
       onAction={clearAll}
@@ -791,7 +794,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
 
   const sortActions = useMemo<ActionSheetAction[]>(() =>
     leagueSortOptions({ coords: origin, center: split.center }).map((k) => ({
-      label: `${k === split.sort ? '✓ ' : ''}${LEAGUE_SORT_LABELS[k]}`,
+      label: LEAGUE_SORT_LABELS[k],
+      iconName: k === split.sort ? 'check-mark' : undefined,
       onPress: () => filters.setSort(k),
     })), [origin, split.center, split.sort, filters.setSort]);
 
@@ -952,12 +956,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
                 {isOpen ? 'Anyone can join this league.' : 'Players must be invited.'}
               </Text>
             </View>
-            <Switch
-              value={isOpen}
-              onValueChange={setIsOpen}
-              trackColor={{ true: c.primary }}
-              thumbColor={c.surface}
-            />
+            <ThemedSwitch value={isOpen} onValueChange={setIsOpen} />
           </View>
 
           {/* Home court */}
@@ -1023,14 +1022,14 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     createFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, marginTop: SPACE.sm, minHeight: 44 },
     footerLink: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.sm, alignItems: 'center', justifyContent: 'center' },
-    footerLinkText: { color: c.primary, fontWeight: '700' },
+    footerLinkText: { color: c.primary, fontWeight: FONT.weight.bold },
 
     // Join-with-code + create modals
     modal: { padding: SPACE.xl, flexGrow: 1, backgroundColor: c.surface },
     modalTitle: { marginBottom: SPACE.xl },
     modalHint: { marginBottom: SPACE.lg },
-    bold: { fontWeight: '700' },
-    modalLabel: { fontWeight: '600', marginBottom: SPACE.xs, marginTop: SPACE.lg },
+    bold: { fontWeight: FONT.weight.bold },
+    modalLabel: { fontWeight: FONT.weight.semibold, marginBottom: SPACE.xs, marginTop: SPACE.lg },
     input: {
       borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md,
       // Web raises this to 16 at the input (webInputFontFloor): iOS Safari
@@ -1038,15 +1037,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       padding: SPACE.md, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface,
     },
     multiline: { minHeight: 72, textAlignVertical: 'top' },
-    codeInput: { fontSize: FONT.size.h2, fontWeight: '700', textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
+    codeInput: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold, textAlign: 'center', letterSpacing: 4, textTransform: 'uppercase' },
     toggleRow: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
       marginTop: SPACE.lg, backgroundColor: c.surfaceAlt, padding: SPACE.md, borderRadius: RADIUS.md, minHeight: 56,
     },
     toggleText: { flex: 1, marginRight: SPACE.sm },
-    toggleLabel: { fontWeight: '600', color: c.textSub },
+    toggleLabel: { fontWeight: FONT.weight.semibold, color: c.textSub },
     errorBox: { backgroundColor: c.dangerLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
-    errorText: { color: c.danger, fontWeight: '600' },
+    errorText: { color: c.danger, fontWeight: FONT.weight.semibold },
     courtWarning: {
       backgroundColor: c.warningLight, borderRadius: RADIUS.md, padding: SPACE.sm,
       marginTop: SPACE.sm, borderWidth: 1, borderColor: c.warning,

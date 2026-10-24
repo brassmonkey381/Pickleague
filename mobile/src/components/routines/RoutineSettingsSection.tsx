@@ -1,15 +1,13 @@
 // Settings > Check-in automation, "At your routine courts" (Doggle's
 // FavoriteCheckinSettingsPanel section of the same name): the switch
 // "Check me in at my routine courts" (presence_settings.routine_auto_checkin,
-// default on) and "Manage my routine ›". Renders nothing without
+// default on) and the "Manage my routine" link. Renders nothing without
 // ROUTINES_ENABLED.
 import React from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
-import { Panel, SectionHeader, SettingSwitchRow } from '@just-messin-around/expo-foundation/ui';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Panel, SectionHeader, SettingSwitchRow, TextLink } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
-import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { navigateWhenReady } from '../../lib/navigationRef';
@@ -22,8 +20,6 @@ export default function RoutineSettingsSection() {
 }
 
 function Section() {
-  const { colors: c } = useTheme();
-  const t = textStyles(c);
   const toast = useToast();
   const q = useCachedQuery(COURT_ROUTINE_SETTINGS_KEY, getCourtRoutineSettings, { ttlMs: 60 * 60_000 });
   const [busy, setBusy] = React.useState(false);
@@ -45,7 +41,7 @@ function Section() {
 
   return (
     <>
-      <SectionHeader icon="calendar" title="At your routine courts" />
+      <SectionHeader icon="calendar-event" title="At your routine courts" />
       <Panel padded={false} style={S.group}>
         <SettingSwitchRow
           label="Check me in at my routine courts"
@@ -56,13 +52,7 @@ function Section() {
           footnote={Platform.OS === 'web' ? 'Applies on your phone.' : undefined}
           accessibilityLabel="Check me in when I arrive at a routine court"
         />
-        <TouchableOpacity
-          onPress={() => navigateWhenReady('Routines')}
-          accessibilityRole="button"
-          style={S.link}
-        >
-          <Text style={[t.sub, { color: c.primary }]}>Manage my routine ›</Text>
-        </TouchableOpacity>
+        <TextLink label="Manage my routine" size="sub" onPress={() => navigateWhenReady('Routines')} style={S.link} />
       </Panel>
     </>
   );
@@ -70,5 +60,5 @@ function Section() {
 
 const S = StyleSheet.create({
   group: { overflow: 'hidden' },
-  link: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md },
+  link: { paddingHorizontal: SPACE.md },
 });

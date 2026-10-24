@@ -106,6 +106,8 @@ export type AgendaItem = {
   deadline: string | null;
   /** The short state after the league name: "you haven't voted", "RSVP open". */
   status: string | null;
+  /** A glyph drawn before `status` in the success colour (a confirmed drill's check mark). */
+  statusIcon?: 'check-mark';
   /** A request without a deadline: when it was made (ISO). The "when" column
    *  then shows its age ("2d ago") instead of a time. */
   requestedAt?: string | null;
@@ -381,7 +383,9 @@ export function drillAgendaItems(drills: readonly AgendaDrillInput[], now?: numb
         title: court ? `Drill with ${first} at ${court}` : `Drill with ${first}`,
         needsYou: false,
         deadline: null,
-        status: d.myRsvp === 'on_my_way' ? '✓ Confirmed' : d.myRsvp === 'cant_make_it' ? "you can't make it" : null,
+        status: d.myRsvp === 'on_my_way' ? 'Confirmed' : d.myRsvp === 'cant_make_it' ? "you can't make it" : null,
+        // Drawn as a check-mark glyph in the success colour before the status.
+        ...(d.myRsvp === 'on_my_way' ? { statusIcon: 'check-mark' as const } : {}),
         target: sessionTarget,
       };
     }

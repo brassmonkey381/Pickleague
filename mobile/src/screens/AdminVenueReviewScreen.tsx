@@ -6,11 +6,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
+import { Chip, Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import EmptyState from '../components/EmptyState';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTheme } from '../lib/ThemeContext';
 import { useStatusMessage } from '../lib/useStatusMessage';
@@ -78,42 +82,38 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
 
   if (!authorized) {
     return (
-      <View style={S.center}>
-        <Text style={S.gatedTitle}>🚫 Godmode only</Text>
-        <Text style={S.gatedBody}>You don't have access to venue moderation.</Text>
-        <TouchableOpacity style={S.secondaryBtn} onPress={() => navigation.goBack()}>
-          <Text style={S.secondaryBtnText}>Back</Text>
-        </TouchableOpacity>
+      <View style={S.gated}>
+        <EmptyState
+          iconName="block"
+          title="Godmode only"
+          subtitle="You don't have access to venue moderation."
+          actionLabel="Back"
+          onAction={() => navigation.goBack()}
+        />
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={S.container}>
+    <ScrollView style={S.screen} contentContainerStyle={S.container}>
       <StatusBanner status={status.value} style={S.banner} />
-      <Text style={S.sectionHeader}>
-        {reviews.length} pending submission{reviews.length === 1 ? '' : 's'}
-      </Text>
+      <SectionHeader title={`${reviews.length} pending submission${reviews.length === 1 ? '' : 's'}`} />
 
       {reviews.length === 0 ? (
-        <View style={S.emptyCard}>
-          <Text style={S.emptyText}>Nothing to review — the queue is clear. 🎉</Text>
-        </View>
+        <Panel>
+          <EmptyState compact iconName="celebrate" title="Nothing to review — the queue is clear." />
+        </Panel>
       ) : (
         reviews.map((v) => {
           const acting = actingId === v.id;
           return (
-            <View key={v.id} style={S.card}>
+            <Panel key={v.id} style={S.card}>
               <Text style={S.name}>{v.name}</Text>
               <View style={S.chipRow}>
                 {(v.sport ?? []).map((s) => (
-                  <View key={s} style={S.chip}>
-                    <Text style={S.chipText}>{s}</Text>
-                  </View>
+                  <Chip key={s} size="sm" label={s} />
                 ))}
-                <View style={S.chip}>
-                  <Text style={S.chipText}>{v.kind}</Text>
-                </View>
+                <Chip size="sm" label={v.kind} />
               </View>
               <Text style={S.meta}>
                 {[v.city, v.address].filter(Boolean).join(' · ') || `${v.lat.toFixed(4)}, ${v.lng.toFixed(4)}`}
@@ -123,26 +123,23 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
                 {v.affirmation_count > 0 ? ` · ${v.affirmation_count} agreed` : ''}
               </Text>
               <View style={S.actions}>
-                <TouchableOpacity
-                  style={[S.rejectBtn, acting && S.dim]}
+                <Button
+                  title="Reject"
+                  variant="outline"
                   onPress={() => act(v, 'reject')}
                   disabled={acting}
-                >
-                  <Text style={S.rejectBtnText}>Reject</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[S.confirmBtn, acting && S.dim]}
+                  accessibilityLabel={`Reject ${v.name}`}
+                  style={S.action}
+                />
+                <Button
+                  title="Confirm"
                   onPress={() => act(v, 'confirm')}
-                  disabled={acting}
-                >
-                  {acting ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={S.confirmBtnText}>Confirm</Text>
-                  )}
-                </TouchableOpacity>
+                  loading={acting}
+                  accessibilityLabel={`Confirm ${v.name}`}
+                  style={S.action}
+                />
               </View>
-            </View>
+            </Panel>
           );
         })
       )}
@@ -151,28 +148,18 @@ export default function AdminVenueReviewScreen({ navigation }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container: { padding: 16, backgroundColor: c.bg, flexGrow: 1 },
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: c.bg },
-    banner: { marginBottom: 12 },
-    sectionHeader: { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 },
-    card: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 14, marginBottom: 12 },
-    name: { fontSize: 16, fontWeight: '800', color: c.text, marginBottom: 8 },
-    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-    chip: { borderWidth: 1, borderColor: c.border, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: c.bg },
-    chipText: { fontSize: 12, color: c.textSub, fontWeight: '600' },
-    meta: { fontSize: 13, color: c.textMuted, marginBottom: 2 },
-    actions: { flexDirection: 'row', gap: 10, marginTop: 12 },
-    rejectBtn: { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 10, paddingVertical: 11, alignItems: 'center', backgroundColor: c.surface },
-    rejectBtnText: { color: c.textSub, fontWeight: '700', fontSize: 15 },
-    confirmBtn: { flex: 1, backgroundColor: c.primary, borderRadius: 10, paddingVertical: 11, alignItems: 'center' },
-    confirmBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-    dim: { opacity: 0.5 },
-    emptyCard: { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 24, alignItems: 'center' },
-    emptyText: { color: c.textSub, fontSize: 14 },
-    gatedTitle: { fontSize: 20, fontWeight: '800', color: c.text, marginBottom: 8 },
-    gatedBody: { fontSize: 14, color: c.textSub, marginBottom: 20, textAlign: 'center' },
-    secondaryBtn: { borderWidth: 1, borderColor: c.primary, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 20 },
-    secondaryBtnText: { color: c.primary, fontWeight: '700' },
+    screen: { flex: 1, backgroundColor: c.bg },
+    container: { padding: SPACE.lg, paddingBottom: SPACE.xl * 2, flexGrow: 1 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACE.xl, backgroundColor: c.bg },
+    gated: { flex: 1, justifyContent: 'center', backgroundColor: c.bg },
+    banner: { marginBottom: SPACE.md },
+    card: { marginBottom: SPACE.md },
+    name: { ...t.title, marginBottom: SPACE.sm },
+    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.xs, marginBottom: SPACE.sm },
+    meta: { ...t.hint, marginBottom: SPACE.xxs },
+    actions: { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
+    action: { flex: 1 },
   });
 }

@@ -43,6 +43,7 @@ import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { BottomSheet, SegmentedToggle } from '@just-messin-around/expo-foundation/ui';
 import { HAIRLINE, RADIUS, SMALL_TEXT_MAX_SCALE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../lib/ThemeContext';
@@ -543,7 +544,8 @@ export function PlayStartSheet({
         {courts.map((x) => (
           <CourtRow
             key={x.id}
-            title={`📍 ${x.name}`}
+            title={x.name}
+            iconName="pin"
             note={noteFor(x)}
             selected={selected === x.id}
             onPress={() => pick(x.id)}
@@ -566,15 +568,15 @@ export function PlayStartSheet({
     const noCourtFound = !finding && !court && !choseNoCourt;
     const courtsOpen = showCourts || privateOnly || noCourtFound;
     return (
-      <BottomSheet visible={!!request} onClose={onClose} title="▶ Play" contentStyle={S.content}>
+      <BottomSheet visible={!!request} onClose={onClose} title="Play" titleIconName="play" contentStyle={S.content}>
         <ScrollView style={S.scroll} contentContainerStyle={S.scrollBody} keyboardShouldPersistTaps="handled">
           <Text style={t.sub}>Times your play and checks you in, so friends can find you.</Text>
 
           {/* The court line: the detected court, or why there's none. */}
           {privateOnly ? null : (
             <View style={S.courtLine}>
+              <Icon name="pin" size={16} color={c.textSub} />
               <Text style={[t.title, S.flex]} numberOfLines={2}>
-                {'📍 '}
                 {court ? (
                   <>
                     {court.name}
@@ -682,7 +684,8 @@ export function PlayStartSheet({
           <Button
             // No court detected and none picked: Start only times the play
             // (no check-in), so the button says so.
-            title={offerAnyway ? '▶  Start anyway' : !court && !privateOnly ? '▶  Start without a court' : '▶  Start playing'}
+            title={offerAnyway ? 'Start anyway' : !court && !privateOnly ? 'Start without a court' : 'Start playing'}
+            iconName="play"
             variant="success"
             loading={busy}
             disabled={busy || selected === null}
@@ -712,7 +715,8 @@ export function PlayStartSheet({
         {courts.map((x) => (
           <CourtRow
             key={x.id}
-            title={`📍 ${x.name}`}
+            title={x.name}
+            iconName="pin"
             note={noteFor(x)}
             selected={selected === x.id}
             onPress={() => pick(x.id)}
@@ -776,7 +780,8 @@ export function PlayStartSheet({
           />
         ) : null}
         <Button
-          title={offerAnyway ? '▶  Start anyway' : '▶  Start playing'}
+          title={offerAnyway ? 'Start anyway' : 'Start playing'}
+          iconName="play"
           variant="success"
           loading={busy}
           disabled={busy || selected === null}
@@ -789,11 +794,14 @@ export function PlayStartSheet({
 
 function CourtRow({
   title,
+  iconName,
   note,
   selected,
   onPress,
 }: {
   title: string;
+  /** A glyph before the title (the pin for a court). */
+  iconName?: IconName;
   note: string;
   selected: boolean;
   onPress: () => void;
@@ -808,11 +816,14 @@ function CourtRow({
       activeOpacity={0.8}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${title.replace('📍 ', '')}, ${note}`}
+      accessibilityLabel={`${title}, ${note}`}
     >
-      <Text style={[t.title, { color: selected ? c.primary : c.text }]} numberOfLines={1}>
-        {title}
-      </Text>
+      <View style={S.titleLine}>
+        {iconName ? <Icon name={iconName} size={14} color={selected ? c.primary : c.textSub} /> : null}
+        <Text style={[t.title, S.shrink, { color: selected ? c.primary : c.text }]} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
       <Text style={t.meta} numberOfLines={1}>
         {note}
       </Text>
@@ -835,6 +846,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       borderRadius: RADIUS.md,
       gap: SPACE.xxs,
     },
+    // A court row's glyph beside its name, centred on the line.
+    titleLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+    shrink: { flexShrink: 1 },
     finding: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
     label: { marginTop: SPACE.md },
     visibility: { marginTop: SPACE.md },

@@ -5,6 +5,7 @@ import {
   crowdLineText,
   formatLevel,
   presenceRowLabel,
+  presenceIsCloseFriend,
   ratingBand,
   sortPresenceRows,
   type PresenceRowLike,
@@ -78,7 +79,9 @@ describe('roster rows', () => {
   });
 
   it('marks close friends', () => {
-    expect(presenceRowLabel(row({ is_friend: true, is_close_friend: true }))).toBe('⭐ Alex Kim');
+    expect(presenceRowLabel(row({ is_friend: true, is_close_friend: true }))).toBe('Alex Kim');
+    expect(presenceIsCloseFriend(row({ is_friend: true, is_close_friend: true }))).toBe(true);
+    expect(presenceIsCloseFriend(row({ anonymous: true, is_close_friend: true }))).toBe(false);
     expect(presenceRowLabel(row({ is_friend: true }))).toBe('Alex Kim');
     expect(presenceRowLabel(row({ full_name: '  ' }))).toBe('Player');
   });

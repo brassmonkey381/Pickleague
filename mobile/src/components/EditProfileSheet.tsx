@@ -25,12 +25,13 @@
 // keyboardShrink keeps the header and Save above the keyboard on native.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView, Switch, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
   Platform, useWindowDimensions,
 } from 'react-native';
 import { CachedImage } from '@just-messin-around/expo-foundation/ui/CachedImage';
-import { BottomSheet, FilterChipRow, StatusBanner } from '@just-messin-around/expo-foundation/ui';
+import { BottomSheet, FilterChipRow, StatusBanner, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -312,7 +313,7 @@ export default function EditProfileSheet({
             <Text style={t.title} numberOfLines={1}>Change avatar</Text>
             <Text style={t.sub} numberOfLines={1}>{avatarName}</Text>
           </View>
-          <Text style={S.chevron}>›</Text>
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
 
         <Text style={[t.fieldLabel, S.label]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Display name</Text>
@@ -389,7 +390,7 @@ export default function EditProfileSheet({
           <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
             {draft.selectedTags.length}/{maxTagSlots}
           </Text>
-          <Text style={S.chevron}>›</Text>
+          <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
 
         {/* The whole 56 row is the control: RNW's Switch is about 40x20, under
@@ -409,10 +410,7 @@ export default function EditProfileSheet({
           {/* Visual only, so one tap toggles once (a live Switch would also
               fire its own change) and a screen reader reads the row, not both. */}
           <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
-            <Switch
-              value={draft.badgesPublic}
-              trackColor={{ true: c.primary, false: c.border }}
-            />
+            <ThemedSwitch value={draft.badgesPublic} />
           </View>
         </TouchableOpacity>
       </ScrollView>
@@ -511,8 +509,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     navRowTop:   { marginTop: SPACE.md, borderTopWidth: HAIRLINE, borderTopColor: c.border },
     switchRow:   { borderTopWidth: HAIRLINE, borderTopColor: c.border },
     navText:     { flex: 1, minWidth: 0, gap: SPACE.xxs },
-    chevron:     { fontSize: FONT.size.h2, fontWeight: '700', color: c.textMuted },
-    avatar:      { width: AVATAR, height: AVATAR, borderRadius: AVATAR / 2, alignItems: 'center', justifyContent: 'center' },
+    avatar:      { width: AVATAR, height: AVATAR, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: 34 },
 
     label:      { marginTop: SPACE.md, marginBottom: SPACE.xs },

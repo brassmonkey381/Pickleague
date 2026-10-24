@@ -7,6 +7,9 @@ import {
   StyleSheet, Pressable, ActivityIndicator,
 } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../lib/ThemeContext';
 import {
   REPORT_REASONS, ReportReason, ReportSubjectType, submitReport, SUPPORT_EMAIL,
@@ -70,7 +73,7 @@ export default function ReportPlayerModal({
         <View style={S.card}>
           {done ? (
             <View style={S.doneBox}>
-              <Text style={S.doneIcon}>✅</Text>
+              <Icon name="check" size={48} color={colors.success} style={S.doneIcon} />
               <Text style={S.title}>Report sent</Text>
               <Text style={S.doneBody}>
                 Thanks — we review every report and act within 24 hours, removing content and
@@ -78,7 +81,7 @@ export default function ReportPlayerModal({
                 seeing each other entirely.
               </Text>
               <Text style={S.support}>Questions? {SUPPORT_EMAIL}</Text>
-              <TouchableOpacity style={S.primaryBtn} onPress={onClose}>
+              <TouchableOpacity style={[S.primaryBtn, S.doneBtn]} onPress={onClose} accessibilityRole="button">
                 <Text style={S.primaryBtnText}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -96,11 +99,14 @@ export default function ReportPlayerModal({
                       style={[S.reasonRow, on && S.reasonRowOn]}
                       onPress={() => setReason(r.key)}
                       activeOpacity={0.8}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                      aria-checked={on}
                     >
                       <View style={[S.radio, on && S.radioOn]}>
                         {on && <View style={S.radioDot} />}
                       </View>
-                      <View style={{ flex: 1 }}>
+                      <View style={S.flex}>
                         <Text style={[S.reasonLabel, on && S.reasonLabelOn]}>{r.label}</Text>
                         <Text style={S.reasonHint}>{r.hint}</Text>
                       </View>
@@ -124,16 +130,18 @@ export default function ReportPlayerModal({
               {error && <Text style={S.error}>{error}</Text>}
 
               <View style={S.btnRow}>
-                <TouchableOpacity style={S.cancelBtn} onPress={onClose} disabled={busy}>
+                <TouchableOpacity style={S.cancelBtn} onPress={onClose} disabled={busy} accessibilityRole="button">
                   <Text style={S.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[S.primaryBtn, (!reason || busy) && S.primaryBtnOff]}
                   onPress={send}
                   disabled={!reason || busy}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !reason || busy, busy }}
                 >
                   {busy
-                    ? <ActivityIndicator color="#fff" />
+                    ? <ActivityIndicator color={colors.textInverse} />
                     : <Text style={S.primaryBtnText}>Send report</Text>}
                 </TouchableOpacity>
               </View>
@@ -145,33 +153,40 @@ export default function ReportPlayerModal({
   );
 }
 
+// The radio mark: a 20 ring with a 10 dot, centred on the label's first line.
+const RADIO = 20;
+
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    backdrop:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    card:       { width: '100%', maxWidth: 460, maxHeight: '86%', backgroundColor: c.surface, borderRadius: 16, padding: 20 },
-    title:      { fontSize: 19, fontWeight: '800', color: c.text, marginBottom: 4 },
-    subtitle:   { fontSize: 13, color: c.textMuted, marginBottom: 12 },
-    reasons:    { marginBottom: 4 },
-    reasonRow:  { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, marginBottom: 8 },
+    backdrop:   { flex: 1, backgroundColor: c.backdrop, justifyContent: 'center', alignItems: 'center', padding: SPACE.lg },
+    card:       { width: '100%', maxWidth: 460, maxHeight: '86%', backgroundColor: c.surface, borderRadius: RADIUS.lg, padding: SPACE.lg },
+    flex:       { flex: 1 },
+    title:      { ...t.h3, marginBottom: SPACE.xs },
+    subtitle:   { ...t.hint, marginBottom: SPACE.md },
+    reasons:    { marginBottom: SPACE.xs },
+    reasonRow:  { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, padding: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, marginBottom: SPACE.sm },
     reasonRowOn:{ borderColor: c.primary, backgroundColor: c.primaryLight },
-    radio:      { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: c.border, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+    radio:      { width: RADIO, height: RADIO, borderRadius: RADIUS.pill, borderWidth: 2, borderColor: c.border, alignItems: 'center', justifyContent: 'center', marginTop: SPACE.xxs / 2 },
     radioOn:    { borderColor: c.primary },
-    radioDot:   { width: 10, height: 10, borderRadius: 5, backgroundColor: c.primary },
-    reasonLabel:{ fontSize: 15, fontWeight: '700', color: c.text },
+    radioDot:   { width: RADIO / 2, height: RADIO / 2, borderRadius: RADIUS.pill, backgroundColor: c.primary },
+    reasonLabel:t.title,
     reasonLabelOn: { color: c.primary },
-    reasonHint: { fontSize: 12, color: c.textMuted, marginTop: 2 },
-    fieldLabel: { fontSize: 13, fontWeight: '700', color: c.textSub, marginTop: 6, marginBottom: 6 },
-    input:      { borderWidth: 1.5, borderColor: c.border, borderRadius: 12, padding: 12, minHeight: 80, color: c.text, backgroundColor: c.bg, textAlignVertical: 'top' },
-    error:      { color: c.danger, fontSize: 13, marginTop: 10 },
-    btnRow:     { flexDirection: 'row', gap: 10, marginTop: 14 },
-    cancelBtn:  { flex: 1, paddingVertical: 13, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, alignItems: 'center' },
-    cancelBtnText: { color: c.textSub, fontWeight: '700', fontSize: 15 },
-    primaryBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' },
-    primaryBtnOff: { opacity: 0.45 },
-    primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-    doneBox:    { alignItems: 'center', paddingVertical: 8 },
-    doneIcon:   { fontSize: 40, marginBottom: 8 },
-    doneBody:   { fontSize: 14, color: c.textSub, textAlign: 'center', lineHeight: 20, marginTop: 6 },
-    support:    { fontSize: 12, color: c.textMuted, marginTop: 10, marginBottom: 14 },
+    reasonHint: { ...t.hint, marginTop: SPACE.xxs },
+    fieldLabel: { ...t.fieldLabel, marginTop: SPACE.sm, marginBottom: SPACE.xs },
+    input:      { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, padding: SPACE.md, minHeight: 80, fontSize: FONT.size.md, color: c.text, backgroundColor: c.surfaceAlt, textAlignVertical: 'top' },
+    error:      { ...t.sub, color: c.danger, marginTop: SPACE.sm },
+    btnRow:     { flexDirection: 'row', gap: SPACE.sm, marginTop: SPACE.md },
+    cancelBtn:  { flex: 1, minHeight: 44, paddingVertical: SPACE.md, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
+    cancelBtnText: { ...t.title, color: c.textSub },
+    primaryBtn: { flex: 1, minHeight: 44, paddingVertical: SPACE.md, borderRadius: RADIUS.md, backgroundColor: c.danger, alignItems: 'center', justifyContent: 'center' },
+    // The done state's single button: full width of the centred box.
+    doneBtn:    { alignSelf: 'stretch', flex: 0 },
+    primaryBtnOff: { opacity: 0.5 },
+    primaryBtnText: { ...t.title, color: c.textInverse },
+    doneBox:    { alignItems: 'center', paddingVertical: SPACE.sm },
+    doneIcon:   { marginBottom: SPACE.sm },
+    doneBody:   { ...t.bodySub, textAlign: 'center', marginTop: SPACE.xs },
+    support:    { ...t.hint, marginTop: SPACE.sm, marginBottom: SPACE.md },
   });
 }

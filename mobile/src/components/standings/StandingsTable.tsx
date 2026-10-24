@@ -5,16 +5,16 @@
 // large text grows a row instead of clipping it). The viewer's own row is
 // tinted and reports its layout so the screen's "Jump to me" bar can scroll to
 // it. Presentational only: the screen owns the data and the navigation.
+// Places 1-3 are RankMedal discs; a wager total is the pickle glyph + number.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, type LayoutChangeEvent } from 'react-native';
-import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Panel, RankMedal } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { AVATARS } from '../../data/profileCustomization';
 import FlairName from '../FlairName';
-
-const MEDALS = ['🥇', '🥈', '🥉'];
+import { PickleAmount, picklesLabel } from '../PickleAmount';
 
 export type StandingsTableRow = {
   userId: string;
@@ -58,7 +58,8 @@ export default function StandingsTable({
         <Text style={[t.fieldLabel, S.colRank]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>#</Text>
         <Text style={[t.fieldLabel, S.colName]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Player</Text>
         <Text style={[t.fieldLabel, S.colMid]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{middleLabel}</Text>
-        <Text style={[t.fieldLabel, S.colPlupr]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>PLUPR</Text>
+        {/* Right-aligned like the PLUPR values under it. */}
+        <Text style={[t.fieldLabel, S.colPlupr, S.right]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>PLUPR</Text>
       </View>
       {rows.map((row, i) => {
         const mine = row.userId === myUserId;
@@ -81,9 +82,15 @@ export default function StandingsTable({
               ? (e: LayoutChangeEvent) => onMyRowLayout(e.nativeEvent.layout.y, e.nativeEvent.layout.height)
               : undefined}
           >
-            <Text style={[S.colRank, row.rank <= 3 ? S.medal : [t.meta, { color: c.textSub }]]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              {MEDALS[row.rank - 1] ?? String(row.rank)}
-            </Text>
+            {row.rank <= 3 ? (
+              <View style={S.colRank}>
+                <RankMedal place={row.rank} />
+              </View>
+            ) : (
+              <Text style={[S.colRank, t.meta, S.rankNum, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+                {String(row.rank)}
+              </Text>
+            )}
             <View style={[S.colName, S.nameCell]}>
               <View style={[S.avatar, { backgroundColor: av.bgColor }]}>
                 <Text style={S.avatarEmoji} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{av.emoji}</Text>
@@ -103,12 +110,10 @@ export default function StandingsTable({
                   style={S.wagerBox}
                   onPress={() => onWagerPress(row)}
                   accessibilityRole="button"
-                  accessibilityLabel={`View wagers on ${name}`}
+                  accessibilityLabel={`View wagers on ${name}, ${picklesLabel(row.wagered!)} wagered`}
                 >
                   <View style={S.wagerPill}>
-                    <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                      🥒 {row.wagered!.toLocaleString()}
-                    </Text>
+                    <PickleAmount amount={row.wagered!} preset="meta" />
                   </View>
                 </TouchableOpacity>
               ) : null}
@@ -144,18 +149,19 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     headRow: { minHeight: 32, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     divider: { borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     mine: { backgroundColor: c.primaryLight },
-    colRank: { width: 28, textAlign: 'center' },
+    colRank: { width: 28, alignItems: 'center', textAlign: 'center' },
+    rankNum: { fontVariant: ['tabular-nums'], letterSpacing: 0 },
     colName: { flex: 1, minWidth: 0 },
     colMid: { width: 52, textAlign: 'center' },
     colPlupr: { width: 92 },
-    medal: { fontSize: 15 },
     nameCell: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     avatar: { width: 24, height: 24, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
-    avatarEmoji: { fontSize: 13 },
-    name: { flexShrink: 1, color: c.text, fontWeight: '600' },
+    avatarEmoji: { fontSize: FONT.size.base },
+    name: { flexShrink: 1, color: c.text, fontWeight: FONT.weight.semibold },
     wagerBox: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
     wagerPill: { backgroundColor: c.primaryLight, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs },
     pluprCell: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'flex-end', gap: SPACE.xs },
-    pluprValue: { color: c.text, fontWeight: '700' },
+    pluprValue: { color: c.text, fontWeight: FONT.weight.bold },
+    right: { textAlign: 'right' },
   });
 }

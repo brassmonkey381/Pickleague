@@ -13,8 +13,8 @@
 //
 // Renders nothing while COURT_STARS_ENABLED is off.
 import React, { useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
-import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { Platform, StyleSheet, TouchableOpacity, type StyleProp, type ViewStyle } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { ConfirmModal } from '@just-messin-around/expo-foundation/ui';
 import { COURT_STARS_ENABLED } from '../../lib/features';
 import { explainRefusal } from '../../lib/refusalNotices';
@@ -122,7 +122,8 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
         accessibilityState={{ selected: starred, busy }}
         accessibilityLabel={starred ? `Remove ${name} from your courts` : `Add ${name} to your courts`}
       >
-        <Text style={[S.glyph, { color: starred ? c.warning : c.textMuted }]}>{starred ? '★' : '☆'}</Text>
+        {/* Doggle's FavoriteStarIcon: the filled star in the brand colour, the outline muted. */}
+        <Icon name={starred ? 'star' : 'star-outline'} size={22} color={starred ? c.primary : c.textMuted} />
       </TouchableOpacity>
       <ConfirmModal
         visible={offer !== null}
@@ -141,5 +142,4 @@ function CourtFavoriteStarBody({ venueId, venueName, style }: Props) {
 
 const S = StyleSheet.create({
   box: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  glyph: { fontSize: FONT.size.h2, lineHeight: FONT.size.h1 },
 });

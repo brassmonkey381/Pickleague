@@ -23,6 +23,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Panel, SectionHeader, EmptyState } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import { agendaVisible, type AgendaResult, type AgendaRow as AgendaRowData, type AgendaTarget } from '../../lib/agenda';
 import LeaguePickerModal, { type PickableLeague } from '../LeaguePickerModal';
@@ -107,7 +108,7 @@ export default function UpNextSection({
       <Panel padded={false}>
         {agenda.total === 0 ? (
           privilegedLeagues.length > 0 ? (
-            <EmptyState compact title="Nothing this week" actionLabel="Propose a play day ›" onAction={propose} />
+            <EmptyState compact title="Nothing this week" actionLabel="Propose a play day" onAction={propose} />
           ) : (
             <EmptyState compact title="Nothing this week" />
           )
@@ -157,8 +158,9 @@ export default function UpNextSection({
                 accessibilityLabel={`${beyondCap} more. See all in Notifications`}
               >
                 <Text style={[t.meta, { color: c.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-                  +{beyondCap} more · See all in Notifications ›
+                  +{beyondCap} more · See all in Notifications
                 </Text>
+                <Icon name="chevron-right" size={14} color={c.primary} />
               </TouchableOpacity>
             ) : null}
           </>
@@ -178,5 +180,5 @@ export default function UpNextSection({
 }
 
 const styles = StyleSheet.create({
-  more: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.md },
+  more: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs, paddingHorizontal: SPACE.md },
 });

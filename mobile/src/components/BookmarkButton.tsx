@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { TouchableOpacity, Text, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, StyleProp, ViewStyle, TextStyle } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { useTheme } from '../lib/ThemeContext';
 import { addBookmark, removeBookmark, isBookmarked, BookmarkTargetType } from '../lib/bookmarks';
 
 type Props = {
@@ -7,10 +9,12 @@ type Props = {
   targetId: string;
   size?: number;
   style?: StyleProp<ViewStyle>;
+  /** @deprecated The bookmark is a glyph now; kept so existing call sites compile. */
   textStyle?: StyleProp<TextStyle>;
 };
 
-export default function BookmarkButton({ targetType, targetId, size = 22, style, textStyle }: Props) {
+export default function BookmarkButton({ targetType, targetId, size = 22, style }: Props) {
+  const { colors: c } = useTheme();
   // null = we don't know yet (loading, or the read failed). Never guessed as
   // `false`: showing an un-bookmarked icon for a saved item makes the user
   // "re-add" it and wonder why nothing happens.
@@ -49,9 +53,13 @@ export default function BookmarkButton({ targetType, targetId, size = 22, style,
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       style={style}
       accessibilityRole="button"
-      accessibilityLabel={on ? 'Remove bookmark' : 'Add bookmark'}
+      accessibilityLabel={on === true ? 'Remove bookmark' : on === false ? 'Add bookmark' : 'Bookmark, checking'}
     >
-      <Text style={[{ fontSize: size, opacity: on === false ? 0.35 : 1 }, textStyle]}>🔖</Text>
+      {/* Saved: the filled ribbon in the brand colour. Not saved: the outline
+          in the muted grey. Not known yet (loading, or the read failed): the
+          filled ribbon in grey, so it never claims "not saved" for an item
+          that may be saved (the rule above). */}
+      <Icon name={on === false ? 'bookmark-outline' : 'bookmark'} size={size} color={on ? c.primary : c.textMuted} />
     </TouchableOpacity>
   );
 }

@@ -6,6 +6,8 @@ import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { HAIRLINE, RADIUS, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { RankMedal } from '@just-messin-around/expo-foundation/ui';
 import { useTheme } from '../../lib/ThemeContext';
 import { pinMyRow } from '../../lib/tournamentStandings';
 import SectionCard from './SectionCard';
@@ -43,7 +45,11 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
         ]}
         accessibilityLabel={`${position}. ${r.name}${r.isMe ? ' (you)' : ''}, ${r.wins} and ${r.losses}`}
       >
-        <Text style={[t.meta, styles.rank]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{position}</Text>
+        {/* Places 1-3 as medal discs, 4+ as the plain number in the same box
+            width (RankMedal), so the column lines up; the row label reads it. */}
+        <View style={styles.rank}>
+          <RankMedal place={position} />
+        </View>
         <Text style={[t.sub, styles.name, { color: r.isMe ? c.primary : c.text }, r.isMe && styles.strong]} numberOfLines={1}>
           {r.name}{r.isMe ? ' (you)' : ''}
         </Text>
@@ -71,7 +77,9 @@ export default function StandingsSection({ data, title }: { data: StandingsData;
               {top.map((x, i) => renderRow(x.row, x.position, i === top.length - 1 && !pinned))}
               {pinned ? (
                 <>
-                  <Text style={[t.meta, styles.gap]}>⋯</Text>
+                  <View style={styles.gap}>
+                    <Icon name="more" size={16} color={c.textMuted} />
+                  </View>
                   {renderRow(pinned.row, pinned.position, true)}
                 </>
               ) : null}

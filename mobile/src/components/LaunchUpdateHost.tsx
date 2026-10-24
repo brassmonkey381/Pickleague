@@ -10,10 +10,12 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LaunchUpdateGate } from '@just-messin-around/expo-foundation/ui';
 import { BallIcon } from './PickleIcons';
+// The still is the splash's last frame: its colours and styles come from the
+// splash itself (brand art, theme-invariant), so the two cannot drift apart.
+import { SPLASH, splashStyles } from './SplashScreen';
 import { playSession } from '../lib/playSession';
 
-// MUST MATCH components/SplashScreen (its container sits at zIndex 999).
-const SPLASH_GREEN = '#1b5e20';
+// Just under components/SplashScreen (its container sits at zIndex 999).
 const UNDER_SPLASH = 998;
 // Ball 72 + 24 gap + title ~44 + 12 gap + tagline ~18.
 const MARK_HEIGHT = 170;
@@ -23,11 +25,11 @@ const canApply = () => playSession.get().status === 'idle';
 function SplashStill() {
   return (
     <View style={styles.mark}>
-      <View style={styles.ball}>
+      <View style={splashStyles.ball}>
         <BallIcon size={72} />
       </View>
-      <Text style={styles.title}>PICKLEAGUE</Text>
-      <Text style={styles.tagline}>More fun. More frequent. More fair.</Text>
+      <Text style={splashStyles.title}>PICKLEAGUE</Text>
+      <Text style={splashStyles.tagline}>More fun. More frequent. More fair.</Text>
     </View>
   );
 }
@@ -35,11 +37,11 @@ function SplashStill() {
 export default function LaunchUpdateHost() {
   return (
     <LaunchUpdateGate
-      backgroundColor={SPLASH_GREEN}
+      backgroundColor={SPLASH.green}
       mark={<SplashStill />}
       markHeight={MARK_HEIGHT}
       zIndex={UNDER_SPLASH}
-      textColor="rgba(255,255,255,0.85)"
+      textColor={SPLASH.status}
       canApply={canApply}
     />
   );
@@ -47,7 +49,4 @@ export default function LaunchUpdateHost() {
 
 const styles = StyleSheet.create({
   mark: { alignItems: 'center' },
-  ball: { marginBottom: 24 },
-  title: { fontSize: 36, fontWeight: '900', color: '#ffffff', letterSpacing: 6, textTransform: 'uppercase' },
-  tagline: { fontSize: 14, color: 'rgba(255,255,255,0.7)', marginTop: 12, letterSpacing: 1 },
 });

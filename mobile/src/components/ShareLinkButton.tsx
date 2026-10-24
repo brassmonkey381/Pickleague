@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { Platform, Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
 import { setClipboard } from '@just-messin-around/expo-foundation/platform';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { shareInvite } from '../lib/share';
 import { useTheme } from '../lib/ThemeContext';
 
@@ -64,14 +67,24 @@ export default function ShareLinkButton({
       disabled={busy}
       accessibilityLabel="Share link"
     >
+      {busy ? null : <Icon name={Platform.OS === 'web' ? 'link' : 'share'} size={14} color={colors.textSub} />}
       <Text style={[S.text, { color: colors.textSub }]}>
-        {busy ? '…' : Platform.OS === 'web' ? '🔗 Copy link' : '↗ Share'}
+        {busy ? '…' : Platform.OS === 'web' ? 'Copy link' : 'Share'}
       </Text>
     </TouchableOpacity>
   );
 }
 
 const S = StyleSheet.create({
-  btn:  { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 16, borderWidth: 1.5, alignSelf: 'flex-start' },
-  text: { fontSize: 13, fontWeight: '700' },
+  btn:  {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACE.xs,
+    paddingHorizontal: SPACE.md,
+    paddingVertical: SPACE.sm,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1.5,
+    alignSelf: 'flex-start',
+  },
+  text: { fontSize: FONT.size.base, fontWeight: FONT.weight.bold },
 });

@@ -9,6 +9,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { hapticSuccess } from '@just-messin-around/expo-foundation/platform';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
@@ -88,9 +89,12 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
 
   return (
     <View style={[S.card, { borderColor: c.primary, backgroundColor: c.primaryLight }]}>
-      <Text style={[t.title, { color: c.primaryDark }]}>
-        📅 {formatWeekdayMask(s.days)} around {formatClockTime(s.localTime)} at {s.venueName}?
-      </Text>
+      <View style={S.titleRow}>
+        <Icon name="calendar-event" size={16} color={c.primaryDark} style={S.titleGlyph} />
+        <Text style={[t.title, S.shrink, { color: c.primaryDark }]}>
+          {formatWeekdayMask(s.days)} around {formatClockTime(s.localTime)} at {s.venueName}?
+        </Text>
+      </View>
       <Text style={[t.meta, { color: c.textSub }]}>
         You checked in there on {s.visits} days lately. Make it a routine and Pickleague checks you in when you arrive.
       </Text>
@@ -104,6 +108,10 @@ function SuggestionCard({ onOpenRoutines }: { onOpenRoutines: () => void }) {
 }
 
 const S = StyleSheet.create({
-  card: { borderWidth: 1, borderRadius: RADIUS.md, padding: 10, gap: 6 },
+  card: { borderWidth: 1, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs },
+  titleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm },
+  shrink: { flexShrink: 1 },
+  // Centred on the first line of a wrapping title.
+  titleGlyph: { marginTop: SPACE.xxs },
   actions: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
 });

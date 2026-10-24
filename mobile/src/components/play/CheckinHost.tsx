@@ -29,6 +29,7 @@ import { AppState, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, Vie
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -403,7 +404,8 @@ function Host() {
     }
     actions = [
       {
-        label: '▶  Start playing',
+        label: 'Start playing',
+        icon: <Icon name="play" size={16} color={c.textInverse} />,
         onPress: () => {
           setExpanded(false);
           openPlayStart({ venue: { id: current.venueId, name: current.venueName } });
@@ -559,9 +561,12 @@ function CourtPicker({
             accessibilityRole="button"
             accessibilityLabel={`${x.name}, ${courtNote(x.reason)}`}
           >
-            <Text style={t.title} numberOfLines={1}>
-              📍 {x.name}
-            </Text>
+            <View style={S.inline}>
+              <Icon name="pin" size={14} color={c.textSub} />
+              <Text style={[t.title, S.shrink]} numberOfLines={1}>
+                {x.name}
+              </Text>
+            </View>
             <Text style={t.meta}>{courtNote(x.reason)}</Text>
           </TouchableOpacity>
         ))}
@@ -573,6 +578,9 @@ function CourtPicker({
 
 const S = StyleSheet.create({
   hug: { alignSelf: 'flex-start' },
+  // A glyph beside its words, centred on the line.
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  shrink: { flexShrink: 1 },
   list: { gap: SPACE.sm, paddingBottom: SPACE.md },
   row: {
     minHeight: 56,

@@ -59,6 +59,7 @@ import {
 import { RadiusPlacesMap, type RadiusMapPlace } from '@just-messin-around/expo-foundation/ui/maps';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { track } from '../lib/analytics';
@@ -111,7 +112,7 @@ type Center = LatLngLike & { label: string | null; from: 'route' | 'city' | 'dev
 const RADIUS_OPTIONS = COURT_RADIUS_MILES.map((mi) => ({ value: milesToMeters(mi), label: `${mi} mi` }));
 
 const CHIP_OPTIONS: FilterChipOption[] = [
-  { value: 'starred', label: '★ My courts' },
+  { value: 'starred', label: 'My courts', iconName: 'star' },
   { value: 'leagues', label: 'With leagues' },
 ];
 
@@ -291,7 +292,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
   );
 
   const sortActions: ActionSheetAction[] = COURT_SORTS.map((k) => ({
-    label: `${k === sort ? '✓ ' : ''}${COURT_SORT_LABELS[k]}`,
+    label: COURT_SORT_LABELS[k],
+    iconName: k === sort ? 'check-mark' : undefined,
     onPress: () => {
       setSort(k);
       track('courts.filter', { kind: 'sort', sort: k });
@@ -339,9 +341,12 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
     <View style={S.headerWrap}>
       {/* In Discover the area pills above the tabs say where (and change it). */}
       {inDiscover ? null : <View style={S.line}>
-        <Text style={[t.body, S.flex]} numberOfLines={1}>
-          📍 Near {centerLabel ?? 'here'}
-        </Text>
+        <View style={[S.flex, S.inline]}>
+          <Icon name="pin" size={16} color={c.textSub} />
+          <Text style={[t.body, S.shrink]} numberOfLines={1}>
+            Near {centerLabel ?? 'here'}
+          </Text>
+        </View>
         <TouchableOpacity
           style={S.link}
           onPress={() => setChanging((v) => !v)}
@@ -356,14 +361,15 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
       {changing && !inDiscover ? locationPanel : null}
       <View style={S.line}>
         <TouchableOpacity
-          style={S.link}
+          style={[S.link, S.inline]}
           onPress={() => setSortOpen(true)}
           accessibilityRole="button"
           accessibilityLabel={`Sort: ${COURT_SORT_LABELS[sort]}. Change sort`}
         >
           <Text style={[t.meta, { color: c.textSub }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            Sort: {COURT_SORT_LABELS[sort]} ▾
+            Sort: {COURT_SORT_LABELS[sort]}
           </Text>
+          <Icon name="chevron-down" size={12} color={c.textSub} />
         </TouchableOpacity>
         <View style={S.flex} />
         {/* In Discover the header "+" adds a court. */}
@@ -431,17 +437,17 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
         loadingMore={mine && extra.loading}
         emptyProps={
           filtered
-            ? { icon: '🔍', title: 'No courts match', subtitle: 'Try another name, or clear the chips.' }
+            ? { iconName: 'search', title: 'No courts match', subtitle: 'Try another name, or clear the chips.' }
             : canWiden
               ? {
-                  icon: '📍',
+                  iconName: 'pin',
                   title: `No courts within ${radiusMi} mi`,
                   subtitle: "Widen the search, or add a court we don't know yet.",
                   actionLabel: `Widen to ${widen} mi`,
                   onAction: () => changeRadius(milesToMeters(widen ?? radiusMi)),
                 }
               : {
-                  icon: '📍',
+                  iconName: 'pin',
                   title: `No courts within ${radiusMi} mi`,
                   subtitle: "Know one we don't? Add it, and players near you will see it.",
                   actionLabel: 'Add a court',
@@ -479,6 +485,9 @@ const S = StyleSheet.create({
   headerWrap: { gap: SPACE.xxs },
   line: { flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: SPACE.xs },
   flex: { flex: 1, minWidth: 0 },
+  // A glyph beside its words, centred on the line.
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  shrink: { flexShrink: 1 },
   link: { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
   panel: { gap: SPACE.sm, paddingVertical: SPACE.xs },
   hug: { alignSelf: 'flex-start' },

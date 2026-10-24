@@ -8,15 +8,16 @@
 // A routine at a court no longer starred stays, dormant (no occurrences, no
 // arrival check-in), and says so: star the court again to turn it back on.
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import { Button } from '@just-messin-around/expo-foundation/forms';
-import { LoadingState, Panel, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
+import { LoadingState, Panel, SingleSelectModal, ThemedSwitch } from '@just-messin-around/expo-foundation/ui';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
-import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import {
   WEEKDAYS_MASK,
   clockTimes,
@@ -360,13 +361,16 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                       const busy = busyId === o.planId;
                       return (
                         <View key={o.planId} style={S.statusRow}>
-                          <Text style={[t.sub, S.statusText, { color: c.textSub }]} numberOfLines={1}>
-                            {o.status === 'completed'
-                              ? `${day} · checked in ✓`
-                              : o.status === 'cancelled'
-                                ? `${day} · skipped`
-                                : `${day} ${timeLabel(o.plannedAt, r.localTime)}`}
-                          </Text>
+                          <View style={[S.statusText, S.inline]}>
+                            <Text style={[t.sub, S.shrink, { color: c.textSub }]} numberOfLines={1}>
+                              {o.status === 'completed'
+                                ? `${day} · checked in`
+                                : o.status === 'cancelled'
+                                  ? `${day} · skipped`
+                                  : `${day} ${timeLabel(o.plannedAt, r.localTime)}`}
+                            </Text>
+                            {o.status === 'completed' ? <Icon name="check-mark" size={14} color={c.success} /> : null}
+                          </View>
                           {o.status === 'planned' ? (
                             <>
                               <TouchableOpacity
@@ -444,11 +448,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
                     asks first. Needs Location set to Always (on your phone).
                   </Text>
                 </View>
-                <Switch
+                <ThemedSwitch
                   value={autoOn}
                   onValueChange={(on) => void setAutoCheckin(on)}
                   disabled={prefBusy}
-                  trackColor={{ false: c.border, true: c.primary }}
                   accessibilityLabel="Check me in at my routine courts"
                 />
               </View>
@@ -491,22 +494,24 @@ function timeLabelClock(iso: string, tz: string): string {
 
 const S = StyleSheet.create({
   fill: { flex: 1 },
-  content: { padding: SPACE.lg, paddingBottom: 32, width: '100%', maxWidth: 720, alignSelf: 'center' },
+  content: { padding: SPACE.lg, paddingBottom: SPACE.xl + SPACE.sm, width: '100%', maxWidth: 720, alignSelf: 'center' },
   sub: { marginTop: SPACE.xs },
-  block: { marginTop: 18 },
-  label: { marginBottom: 10 },
-  card: { borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: 10 },
+  block: { marginTop: SPACE.lg },
+  label: { marginBottom: SPACE.sm },
+  card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm },
   paused: { opacity: 0.6 },
-  cardTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardTop: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   cardBody: { flex: 1, minWidth: 0 },
-  cardMeta: { marginTop: 2 },
-  cardActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: 10 },
+  cardMeta: { marginTop: SPACE.xxs },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md, marginTop: SPACE.sm },
   textBtn: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACE.xs },
   edit: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
-  status: { marginTop: 10 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: 10, flexWrap: 'wrap' },
+  status: { marginTop: SPACE.sm },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.sm, flexWrap: 'wrap' },
   statusText: { flex: 1, minWidth: 120 },
-  pill: { borderWidth: 1.5, borderRadius: 14, minHeight: 36, justifyContent: 'center', paddingHorizontal: 10 },
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  shrink: { flexShrink: 1 },
+  pill: { borderWidth: 1.5, borderRadius: RADIUS.pill, minHeight: 36, justifyContent: 'center', paddingHorizontal: SPACE.md },
   add: { marginTop: SPACE.xs },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
 });

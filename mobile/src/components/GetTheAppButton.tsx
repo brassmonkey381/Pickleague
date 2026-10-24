@@ -4,6 +4,8 @@ import { track } from '../lib/analytics';
 import { APP_STORE_URL } from '../lib/appStore';
 import { rememberDestination } from '../lib/deferredLink';
 import { useTheme } from '../lib/ThemeContext';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 /**
  * Visible "get it on the App Store" call to action for the WEB build.
@@ -79,18 +81,18 @@ export default function GetTheAppButton({
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
   return StyleSheet.create({
-    wrap:   { alignItems: 'center', marginTop: 28 },
+    wrap:   { alignItems: 'center', marginTop: SPACE.xl },
     // Two-line lockup: the shape people read as a store badge. No Apple logo
     // glyph on purpose — U+F8FF is an Apple private-use codepoint that renders
     // as a tofu box on Windows and Android, and using the real mark means
     // following Apple's badge artwork guidelines rather than drawing our own.
     btn:    {
-      borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface,
-      borderRadius: 14, paddingVertical: 10, paddingHorizontal: 22,
+      borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surface,
+      borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.xl,
       textAlign: 'center', textDecorationLine: 'none',
     },
-    kicker: { fontSize: 10, fontWeight: '700', letterSpacing: 0.9, color: c.textSub },
-    name:   { fontSize: 19, fontWeight: '800', color: c.text },
-    note:   { marginTop: 10, fontSize: 13, color: c.textMuted, textAlign: 'center' },
+    kicker: { fontSize: FONT.size.xxs, fontWeight: FONT.weight.bold, letterSpacing: 0.9, color: c.textSub },
+    name:   { fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.text },
+    note:   { ...textStyles(c).hint, marginTop: SPACE.sm, textAlign: 'center' },
   });
 }

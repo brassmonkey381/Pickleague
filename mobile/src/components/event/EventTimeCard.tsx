@@ -8,6 +8,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Panel } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -52,9 +53,16 @@ export default function EventTimeCard(p: EventTimeCardProps) {
 
       {p.rsvpOpen && (
         <View style={styles.rsvp}>
-          <Text style={[t.sub, styles.rsvpState, { color: c.text }]} numberOfLines={1}>
-            {p.iAmIn ? "✅ You're in" : p.iDeclined ? "🚫 You can't make it" : 'Are you coming?'}
-          </Text>
+          <View style={styles.rsvpState}>
+            {p.iAmIn ? (
+              <Icon name="check" size={14} color={c.success} />
+            ) : p.iDeclined ? (
+              <Icon name="block" size={14} color={c.danger} />
+            ) : null}
+            <Text style={[t.sub, styles.rsvpText, { color: c.text }]} numberOfLines={1}>
+              {p.iAmIn ? "You're in" : p.iDeclined ? "You can't make it" : 'Are you coming?'}
+            </Text>
+          </View>
           {/* Only the answers that would CHANGE something: the same guards the
               row always had (a tap on your current answer was a no-op). */}
           {!p.iAmIn && (
@@ -96,6 +104,7 @@ const styles = StyleSheet.create({
   day: { marginTop: SPACE.xxs },
   counts: { marginTop: SPACE.xxs },
   rsvp: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', columnGap: SPACE.sm, marginTop: SPACE.sm },
-  rsvpState: { flexGrow: 1, flexShrink: 1, minWidth: 120 },
+  rsvpState: { flexGrow: 1, flexShrink: 1, minWidth: 120, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  rsvpText: { flexShrink: 1 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },
 });

@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { ListCard } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../lib/ThemeContext';
 
 type Match = {
   dupr_id: string | null;
@@ -149,13 +151,41 @@ type RowProps = {
   onPressed?: (target: 'dupr_import' | 'dupr_dismiss') => void;
 };
 
+/** The leading glyph column, as wide as the starter quests' marks and EntityRow's tile. */
+function Lead({ name, color }: { name: IconName; color: string }) {
+  return (
+    <View style={styles.lead}>
+      <Icon name={name} size={18} color={color} />
+    </View>
+  );
+}
+
 /** The offer (or its outcome) as a Get started row inside a <Panel padded={false}>. */
 export function DuprImportRow({ offer, lastRow, onPressed }: RowProps) {
+  const { colors: c } = useTheme();
   if (offer.done) {
-    return <ListCard variant="row" lastRow={lastRow} title="✅ DUPR profile linked" subtitle={offer.done} subtitleLines={2} />;
+    return (
+      <ListCard
+        variant="row"
+        lastRow={lastRow}
+        leading={<Lead name="check" color={c.success} />}
+        title="DUPR profile linked"
+        subtitle={offer.done}
+        subtitleLines={2}
+      />
+    );
   }
   if (offer.failed) {
-    return <ListCard variant="row" lastRow={lastRow} title="DUPR link unavailable" subtitle={offer.failed} subtitleLines={2} />;
+    return (
+      <ListCard
+        variant="row"
+        lastRow={lastRow}
+        leading={<Lead name="info" color={c.textMuted} />}
+        title="DUPR link unavailable"
+        subtitle={offer.failed}
+        subtitleLines={2}
+      />
+    );
   }
   const match = offer.match;
   if (!match) return null;
@@ -164,7 +194,8 @@ export function DuprImportRow({ offer, lastRow, onPressed }: RowProps) {
     <ListCard
       variant="row"
       lastRow={lastRow}
-      title="🎾 We found your DUPR rating"
+      leading={<Lead name="pickleball" color={c.primary} />}
+      title="We found your DUPR rating"
       subtitle={`${Number(rating).toFixed(2)} doubles${match.club_name ? ` · ${match.club_name}` : ''}. Start your PLUPR here?`}
       subtitleLines={2}
     >
@@ -198,4 +229,6 @@ export default function DuprImportBanner({ lastRow }: { lastRow?: boolean }) {
 const styles = StyleSheet.create({
   // sm buttons hug their labels (style targets the 44 box).
   actions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, alignSelf: 'flex-start' },
+  // 32 wide: the same column as EntityRow's tile, so every Get started title lines up.
+  lead: { width: 32, alignItems: 'center' },
 });

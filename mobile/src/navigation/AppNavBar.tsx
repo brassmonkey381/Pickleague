@@ -21,7 +21,7 @@
 // AppNavigator keeps that much clear under every screen and the island sits
 // just above it.
 import React, { useEffect, useRef, useState } from 'react';
-import { Text } from 'react-native';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
 import { createSignal, useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
@@ -158,7 +158,7 @@ function Bar({ signedIn }: { signedIn: boolean }) {
     saved: {
       key: 'saved',
       label: 'Saved',
-      glyph: <Text style={{ fontSize: 18, lineHeight: 24, opacity: lit === 'saved' ? 1 : 0.7 }}>🔖</Text>,
+      glyph: <Icon name={lit === 'saved' ? 'bookmark' : 'bookmark-outline'} size={24} color={lit === 'saved' ? c.primary : c.textMuted} />,
       active: lit === 'saved',
       accessibilityLabel: 'Saved',
       onPress: tap('saved', () => go('Bookmarks', myId)),
@@ -179,7 +179,7 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   const centre: FloatingNavItem = {
     key: 'play',
     label: state.label,
-    glyph: <Text style={{ fontSize: 22, lineHeight: 26, color: c.textInverse }}>▶</Text>,
+    glyph: <Icon name="play" size={26} color={c.textInverse} />,
     active: state.active,
     accessibilityLabel: state.accessibilityLabel,
     accessibilityHint: state.accessibilityHint,

@@ -43,9 +43,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused, useRoute, type RouteProp } from '@react-navigation/native';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { useCachedQuery, setQueryData, peekQuery } from '@just-messin-around/expo-foundation/cache';
-import { AppTopBar, ConfirmModal, EmptyState, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
-import { SPACE, RADIUS, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
+import { AppTopBar, ConfirmModal, ErrorState, Panel, SkeletonList, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useCoords } from '@just-messin-around/expo-foundation/hooks';
 import { distanceMeters, getForegroundLocationStatus } from '@just-messin-around/expo-foundation/platform';
 import { supabase } from '../lib/supabase';
@@ -101,6 +102,8 @@ import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
 import StreakBonusModal from '../components/home/StreakBonusModal';
 import PickleagueFeedSection from '../components/feed/PickleagueFeedSection';
+import { PickleAmount } from '../components/PickleAmount';
+import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
@@ -528,6 +531,9 @@ export default function HomeScreen({ navigation }: Props) {
     tap('quick', target, position);
     switch (target) {
       case 'record': navigation.navigate('MatchEntry', { fromHome: true, playSessionId: liveSessionId }); break;
+      // Not in a league yet: Join takes Record's tile and opens the code sheet
+      // (the same one as JOIN A LEAGUE's [Enter code]).
+      case 'join': setCodeOpen(true); break;
       // Discover (plan §8): Play opens its Leagues tab (the old Play hub's
       // first tab), the Discover tile its Places tab (the old Courts screen).
       // With the bottom bar (P1), Play = Doggle's WALK: the ▶ Play sheet
@@ -574,7 +580,10 @@ export default function HomeScreen({ navigation }: Props) {
     />,
   );
 
-  if (nowActive) sections.push(<SectionHeader key="now-header" title="Now" style={styles.tightHeader} />);
+  // A label-height header (24, not the 32 default) so NOW sits close to its
+  // panel without a negative margin. The NOW blocks stay flat siblings: the
+  // check-in card must never be re-parented (see the file header).
+  if (nowActive) sections.push(<SectionHeader key="now-header" title="Now" style={styles.nowHeader} />);
 
   const court = (
     <CourtCheckinCard
@@ -624,16 +633,15 @@ export default function HomeScreen({ navigation }: Props) {
     // Only true once a fetch has failed with nothing cached: say so plainly
     // and offer a retry, instead of claiming you have nothing going on.
     sections.push(
-      <View key="load-failed" style={[styles.failed, { backgroundColor: c.surface, borderColor: c.border }]}>
-        <EmptyState
+      <Panel key="load-failed" padded={false}>
+        <ErrorState
           compact
-          icon="📡"
-          title="Couldn't load your leagues"
-          subtitle={friendlySbMessage(query.error)}
-          actionLabel="Retry"
-          onAction={() => { void reload(); }}
+          iconName="offline"
+          error={query.error}
+          message={`Couldn't load your leagues. ${friendlySbMessage(query.error)}`}
+          onRetry={() => { void reload(); }}
         />
-      </View>,
+      </Panel>,
     );
   } else if (firstLoad) {
     sections.push(<SkeletonList key="skeleton" rows={4} variant="row" />);
@@ -769,9 +777,14 @@ export default function HomeScreen({ navigation }: Props) {
     <View style={[styles.root, { backgroundColor: c.bg }]}>
       <AppTopBar
         title="PICKLEAGUE"
-        style={[styles.topBar, { backgroundColor: c.bg, borderBottomColor: c.border }]}
-        // The app's web column is 720 (AppNavigator's WebMaxWidth).
+        // Surface, like every stack header, with a hairline under it.
+        style={[styles.topBar, { backgroundColor: c.surface, borderBottomColor: c.border }]}
+        // The app's web column (AppNavigator's WebMaxWidth).
         contentStyle={styles.topBarContent}
+        // Every action is a captionless 24px glyph on one line (Saved and QR
+        // used to carry captions that lifted them ~8px above the bell and gear).
+        iconSize={24}
+        iconColor={c.text}
         actions={[
           // Discover (the courts near you), always one tap away like Doggle's
           // Discover tab. The magnifier reads without a caption (Doggle's icon).
@@ -787,8 +800,7 @@ export default function HomeScreen({ navigation }: Props) {
             : []),
           {
             key: 'saved',
-            icon: <Text style={styles.savedGlyph}>🔖</Text>,
-            caption: 'Saved',
+            icon: 'bookmark',
             a11yLabel: 'Saved',
             onPress: () => { tap('top_bar', 'saved'); navigation.navigate('Bookmarks'); },
           },
@@ -797,8 +809,7 @@ export default function HomeScreen({ navigation }: Props) {
             ? []
             : [{
                 key: 'wallet',
-                icon: <Text style={styles.savedGlyph}>🎟️</Text>,
-                caption: 'QR',
+                icon: 'ticket' as const,
                 a11yLabel: 'QR wallet',
                 onPress: () => { tap('top_bar', 'wallet'); navigation.navigate('QrWallet'); },
               }]),
@@ -847,18 +858,21 @@ export default function HomeScreen({ navigation }: Props) {
 
       <ConfirmModal
         visible={!!welcome}
-        title="🥒 Welcome to Pickleague!"
+        title="Welcome to Pickleague!"
         body={
           <View style={styles.welcomeBody}>
+            {/* The hero glyph (modal hero size, 48). */}
+            <Icon name="pickle" size={48} color={c.primary} style={styles.hero} />
             <Text style={[t.body, styles.center]}>
               Here's <Text style={{ color: c.primary, fontWeight: FONT.weight.bold }}>1,000 pickles</Text> to get you started.
             </Text>
             <Text style={[t.sub, styles.center]}>
               Spend them in the Pickle Shop on premium avatars, cosmetic badges, or profile flair.
             </Text>
-            <Text style={[t.title, styles.center, { color: c.primary }]}>
-              Your balance: 🥒 {(welcome?.balance ?? 0).toLocaleString()}
-            </Text>
+            <View style={styles.balanceRow}>
+              <Text style={t.title}>Your balance:</Text>
+              <PickleAmount amount={welcome?.balance ?? 0} preset="title" />
+            </View>
           </View>
         }
         primaryLabel="Visit Shop"
@@ -876,18 +890,18 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   flex: { flex: 1 },
   topBar: { borderBottomWidth: HAIRLINE },
-  topBarContent: { maxWidth: 720 },
-  savedGlyph: { fontSize: FONT.size.h2, lineHeight: FONT.size.h1 },
+  topBarContent: { maxWidth: WEB_COLUMN_MAX_WIDTH },
   content: {
     paddingHorizontal: SPACE.lg,
     paddingTop: SPACE.xs,
     paddingBottom: SPACE.xl,
     gap: SPACE.md,
   },
-  // NOW's label sits right on its panel.
-  tightHeader: { marginBottom: -SPACE.sm },
-  failed: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg },
+  // NOW's label: label height, so it sits close to its panel.
+  nowHeader: { minHeight: SPACE.xl },
   hidden: { display: 'none' },
   welcomeBody: { gap: SPACE.sm },
+  hero: { alignSelf: 'center' },
+  balanceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.sm },
   center: { textAlign: 'center' },
 });

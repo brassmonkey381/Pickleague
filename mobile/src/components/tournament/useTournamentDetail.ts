@@ -390,7 +390,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     try {
       // 1. Approve everyone.
       const approve = await tryRpc('godmode_approve_all_invitees', { p_tournament_id: tournament.id });
-      steps.push(approve.ok ? `✓ ${approve.message}` : `⚠ Approve skipped (${approve.missing ? 'RPC missing' : approve.message})`);
+      steps.push(approve.ok ? `Done: ${approve.message}` : `Skipped: approve (${approve.missing ? 'RPC missing' : approve.message})`);
 
       // 2. Create teams when relevant.
       const needsTeams = tournament.match_type === 'doubles'
@@ -403,7 +403,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
         const params: Record<string, unknown> = { p_tournament_id: tournament.id };
         if (tournament.format === 'mlp_random') params.p_mode = 'snake';
         const teams = await tryRpc(rpcName, params);
-        steps.push(teams.ok ? `✓ ${teams.message}` : `⚠ Teams skipped (${teams.missing ? 'RPC missing' : teams.message})`);
+        steps.push(teams.ok ? `Done: ${teams.message}` : `Skipped: teams (${teams.missing ? 'RPC missing' : teams.message})`);
       }
 
       // 3. Reload so generateBracket sees the newly approved/paired rows.
@@ -418,8 +418,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       if (tournament.format === 'mlp' || tournament.format === 'mlp_random') {
         const mlpBracket = await tryRpc('generate_mlp_bracket', { p_tournament_id: tournament.id });
         steps.push(mlpBracket.ok
-          ? `✓ Generated MLP schedule — live immediately (MLP has no preview step)`
-          : `✗ MLP bracket failed (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
+          ? `Done: Generated MLP schedule — live immediately (MLP has no preview step)`
+          : `Failed: MLP bracket (${mlpBracket.missing ? 'RPC missing' : mlpBracket.message})`);
         const summary = steps.join('\n');
         if (mlpBracket.ok) { status.success(`Auto-setup complete\n${summary}`); load(); }
         else               { status.error(`Auto-setup partial\n${summary}`); }
@@ -428,14 +428,14 @@ export function useTournamentDetail({ navigation, tournamentId }: {
 
       const matches = await generateBracket();
       if (!matches || matches.length === 0) {
-        steps.push('⚠ Bracket not generated (see prior alert)');
+        steps.push('Skipped: bracket not generated (see prior alert)');
         status.error(`Auto-setup partial\n${steps.join('\n')}`);
         return;
       }
-      steps.push(`✓ Generated ${matches.length}-match preview`);
-      status.success(`Preview ready\n${steps.join('\n')}\nReview the draw below, then tap 🔒 Lock in bracket.`);
+      steps.push(`Done: Generated ${matches.length}-match preview`);
+      status.success(`Preview ready\n${steps.join('\n')}\nReview the draw below, then tap Lock in bracket.`);
     } catch (e: any) {
-      steps.push(`✗ ${e?.message ?? String(e)}`);
+      steps.push(`Failed: ${e?.message ?? String(e)}`);
       status.error(`Auto-setup failed\n${steps.join('\n')}`);
     }
   }
@@ -1080,7 +1080,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       const notified = memberIds.length - notifsFailed;
       const resumed = pendingRows.length < matchRows.length;
       status.success(
-        `✓ Bracket locked! Schedule saved — ${notified}/${memberIds.length} members notified.` +
+        `Bracket locked! Schedule saved — ${notified}/${memberIds.length} members notified.` +
           (notifsFailed > 0 ? ` (${notifsFailed} notifications failed)` : '') +
           // Say so plainly when this run only finished someone else's half-write.
           (resumed ? ` (resumed a previous attempt: ${matchRows.length - pendingRows.length} matches were already saved)` : '')

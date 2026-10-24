@@ -100,12 +100,16 @@ export function RainbowName({ name, style, numberOfLines }: CommonProps) {
 // Static name + 3 twinkling ✨ glyphs positioned absolutely around it.
 // Each glyph has its own opacity loop at a different phase. Max opacity
 // 0.9 so the sparkles don't dominate the name.
-// TODO: smoke-test in browser
+// Every sparkle sits OUTSIDE the letters: before the first, after the last,
+// and above the middle. The middle one used to sit at the text's mid-height
+// (top 10), right on the gap between a first and last name, so "Jake Ellis"
+// read as "Jake✨Ellis" (glyphs-ui-plan.md, Profile). The emoji itself stays:
+// it is the look the player bought.
 type SparklePhase = { top: number; left: number | string; delay: number; size: number };
 const SPARKLE_PHASES: SparklePhase[] = [
   { top: -6, left: -10, delay: 0,   size: 10 },
   { top: -2, left: '100%', delay: 600, size: 8 },
-  { top: 10, left: '50%', delay: 1200, size: 9 },
+  { top: -9, left: '55%', delay: 1200, size: 9 },
 ];
 
 function SparkleGlyph({ phase }: { phase: SparklePhase }) {

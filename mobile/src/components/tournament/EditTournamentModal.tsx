@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, TextInput, Platform } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RADIUS, SPACE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import AppDateTimePicker from '../AppDateTimePicker';
 import { useTournamentDetailStyles } from './styles';
 import type { TournamentDetailState } from './useTournamentDetail';
@@ -74,9 +75,10 @@ export default function EditTournamentModal({
               ? editStartTime.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
               : 'Tap to set'}
           </Text>
-          <View style={{ paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, backgroundColor: c.primaryLight }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xs, borderRadius: RADIUS.sm, backgroundColor: c.primaryLight }}>
+            <Icon name="calendar-event" size={14} color={c.primary} />
             <Text style={S.editInlineActionText}>
-              📅 {editStartTime ? 'Change' : 'Pick'}
+              {editStartTime ? 'Change' : 'Pick'}
             </Text>
           </View>
         </TouchableOpacity>
@@ -129,7 +131,7 @@ export default function EditTournamentModal({
           maxLength={4}
         />
 
-        <Text style={S.editFieldLabel}>Entry ante (🥒)</Text>
+        <Text style={S.editFieldLabel}>Entry ante (pickles)</Text>
         <TextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editAnte}
@@ -150,7 +152,7 @@ export default function EditTournamentModal({
           maxLength={40}
         />
 
-        <Text style={S.editFieldLabel}>Prize pool override (🥒)</Text>
+        <Text style={S.editFieldLabel}>Prize pool override (pickles)</Text>
         <TextInput
           style={[S.editInput, webInputFontFloor(S.editInput)]}
           value={editPrizePool}
@@ -164,16 +166,24 @@ export default function EditTournamentModal({
         <Text style={S.editFieldLabel}>Seeding mode</Text>
         <View style={{ flexDirection: 'row', gap: SPACE.sm }}>
           <TouchableOpacity
-            style={[S.editInput, { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: editSeeding === 'random' ? c.primaryLight : c.surface }]}
+            style={[S.editInput, { flex: 1, flexDirection: 'row', gap: SPACE.xs, alignItems: 'center', justifyContent: 'center', backgroundColor: editSeeding === 'random' ? c.primaryLight : c.surface }]}
             onPress={() => setEditSeeding('random')}
+            accessibilityRole="button"
+            accessibilityLabel="Random seeding"
+            accessibilityState={{ selected: editSeeding === 'random' }}
           >
-            <Text style={{ color: editSeeding === 'random' ? c.primary : c.textSub, fontWeight: FONT.weight.bold }}>🎲 Random</Text>
+            <Icon name="dice" size={16} color={editSeeding === 'random' ? c.primary : c.textSub} />
+            <Text style={{ color: editSeeding === 'random' ? c.primary : c.textSub, fontWeight: FONT.weight.bold }}>Random</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[S.editInput, { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: editSeeding === 'elo' ? c.primaryLight : c.surface }]}
+            style={[S.editInput, { flex: 1, flexDirection: 'row', gap: SPACE.xs, alignItems: 'center', justifyContent: 'center', backgroundColor: editSeeding === 'elo' ? c.primaryLight : c.surface }]}
             onPress={() => setEditSeeding('elo')}
+            accessibilityRole="button"
+            accessibilityLabel="PLUPR-based seeding"
+            accessibilityState={{ selected: editSeeding === 'elo' }}
           >
-            <Text style={{ color: editSeeding === 'elo' ? c.primary : c.textSub, fontWeight: FONT.weight.bold }}>📊 PLUPR-based</Text>
+            <Icon name="chart" size={16} color={editSeeding === 'elo' ? c.primary : c.textSub} />
+            <Text style={{ color: editSeeding === 'elo' ? c.primary : c.textSub, fontWeight: FONT.weight.bold }}>PLUPR-based</Text>
           </TouchableOpacity>
         </View>
 

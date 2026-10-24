@@ -75,7 +75,7 @@ function SavedPass({ navigation, route }: Props) {
     return (
       <View style={styles.missing}>
         <EmptyState
-          icon="🎟️"
+          iconName="ticket"
           title="This QR code isn't on this phone"
           subtitle="It was removed, or saved while signed in to another account."
           actionLabel="Open QR wallet"
@@ -95,9 +95,11 @@ function SavedPass({ navigation, route }: Props) {
   );
 }
 
+// A scan surface: white in both themes so the code reads black on white at
+// the door (a printed surface, not themed chrome).
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', padding: SPACE.lg, gap: SPACE.lg },
   missing: { flex: 1, justifyContent: 'center', padding: SPACE.lg },
-  label: { fontSize: 16, fontWeight: FONT.weight.semibold, color: '#111', textAlign: 'center' },
+  label: { fontSize: FONT.size.lg, fontWeight: FONT.weight.semibold, color: '#111', textAlign: 'center' },
   all: { alignSelf: 'center' },
 });

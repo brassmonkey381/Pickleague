@@ -5,7 +5,7 @@
 // Rows come from court_presence, which applies each player's own privacy
 // setting on the server: someone this viewer may not name arrives anonymous
 // (no ids, no name) and renders as a neutral dot, "Player · 3.5–4.0" (a band,
-// never the exact rating). Close friends are marked ⭐ and listed first, then
+// never the exact rating). Close friends get a star glyph and are listed first, then
 // friends, then other named players, then the anonymous rows.
 //
 // Three looks:
@@ -29,7 +29,8 @@ import { AvatarPile, PresenceCard } from '@just-messin-around/expo-foundation/ui
 import { SPACE, RADIUS, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../lib/ThemeContext';
 import { formatPluprShort } from '../lib/plupr';
-import { presenceRowLabel, sortPresenceRows } from '../lib/courtCrowd';
+import { presenceIsCloseFriend, presenceRowLabel, sortPresenceRows } from '../lib/courtCrowd';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { getCourtPresence, type CourtPresenceRow } from '../data/courtPresence';
 import { courtPresenceTouched } from '../lib/courtCheckin';
 import { ROUTINES_ENABLED } from '../lib/features';
@@ -97,8 +98,9 @@ export function usePlayersHere(venueId: string): { players: PlayerHere[] | null;
   return { players, failed };
 }
 
-/** A named row's emoji avatar; an anonymous row is a neutral dot (no emoji,
- *  nothing to tell one player from another). */
+/** A named row's emoji avatar (the player's own pick; a person glyph when
+ *  they have none), with a star badge for a close friend; an anonymous row is
+ *  a neutral dot (nothing to tell one player from another). */
 function RowAvatar({ p, fill }: { p: PlayerHere; fill?: boolean }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -111,7 +113,12 @@ function RowAvatar({ p, fill }: { p: PlayerHere; fill?: boolean }) {
   }
   return (
     <View style={[fill ? S.pileFill : S.avatar, { backgroundColor: c.surfaceAlt }]}>
-      <Text style={t.sub}>{p.avatar_emoji || '🙂'}</Text>
+      {p.avatar_emoji ? <Text style={t.sub}>{p.avatar_emoji}</Text> : <Icon name="person" size={16} color={c.textMuted} />}
+      {!fill && presenceIsCloseFriend(p) ? (
+        <View style={[S.starBadge, { backgroundColor: c.surface }]}>
+          <Icon name="star" size={10} color={c.primary} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -226,7 +233,14 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
   const where = venueName ? ` at ${venueName}` : ' here';
   const summary = n === 0 ? `No one checked in${where} right now` : `${n} player${n === 1 ? '' : 's'}${where} now`;
 
-  if (compact) return <Text style={[t.bodySub, S.top]}>🟢 {summary}</Text>;
+  if (compact) {
+    return (
+      <View style={[S.top, S.inline]}>
+        <Icon name="dot" size={14} color={c.success} />
+        <Text style={[t.bodySub, S.shrink]}>{summary}</Text>
+      </View>
+    );
+  }
 
   if (presenceMaxRows != null) return <PlayersHereRoster players={players} maxRows={presenceMaxRows} />;
 
@@ -235,10 +249,13 @@ export default function PlayersHereList({ venueId, compact, venueName, presenceM
       <Text style={t.bodySub}>{summary}</Text>
       {players.slice(0, 12).map((p) => (
         <View key={p.checkin_id} style={S.row}>
-          <Text style={[t.body, S.name]} numberOfLines={1}>
-            {p.anonymous ? '· ' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
-            {presenceRowLabel(p)}
-          </Text>
+          <View style={[S.name, S.inline]}>
+            <Text style={[t.body, S.shrink]} numberOfLines={1}>
+              {p.anonymous ? '· ' : p.avatar_emoji ? `${p.avatar_emoji} ` : ''}
+              {presenceRowLabel(p)}
+            </Text>
+            {presenceIsCloseFriend(p) ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+          </View>
           {p.anonymous ? null : <Text style={t.sub}>PLUPR {formatPluprShort(p.doubles_rating, undefined)}</Text>}
           {p.modeLine ? <Text style={t.sub}>{p.modeLine}</Text> : null}
         </View>
@@ -264,5 +281,16 @@ const S = StyleSheet.create({
   // Fills the pile's ringed circle (it clips to round), centring the emoji.
   pileFill: { flex: 1, alignSelf: 'stretch', alignItems: 'center', justifyContent: 'center' },
   shrink: { flexShrink: 1 },
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
   dot: { width: AVATAR / 3, height: AVATAR / 3, borderRadius: RADIUS.pill },
+  starBadge: {
+    position: 'absolute',
+    right: -SPACE.xxs,
+    bottom: -SPACE.xxs,
+    width: 14,
+    height: 14,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

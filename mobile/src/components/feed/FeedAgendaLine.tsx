@@ -4,8 +4,9 @@
 // RSVP, Next match: never an inline write, Home's decision 1), except a
 // locked-in drill's Confirm (an RSVP), which answers in place.
 import React from 'react';
-import { Text } from 'react-native';
-import type { IconName } from '@just-messin-around/expo-foundation/icons';
+import { StyleSheet, Text, View } from 'react-native';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FeedActionPill, FeedRowShell } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -14,9 +15,9 @@ import { agendaWhen, type AgendaKind, type AgendaRow } from '../../lib/agenda';
 
 const KIND_ICON: Record<AgendaKind, IconName> = {
   vote: 'check',
-  event: 'calendar',
+  event: 'calendar-event',
   tournament: 'trophy',
-  drill: 'ball',
+  drill: 'paddle',
   match: 'medal',
   match_confirm: 'check-mark',
   drill_request: 'mail',
@@ -61,10 +62,17 @@ export default function FeedAgendaLine({
   const when = [top, w.bottom].filter(Boolean).join(' ');
   const live = row.bucket === 'live';
   const facts = joinFacts([row.leagueName, place, row.status]);
+  // Without the status when it is drawn with its glyph ("(check) Confirmed").
+  const lead = row.statusIcon ? joinFacts([row.leagueName, place]) : facts;
 
   let actions: React.ReactNode = null;
   if (row.confirmDrillId && confirmed) {
-    actions = <Text style={[t.meta, { color: c.success }]}>✓ Confirmed</Text>;
+    actions = (
+      <View style={styles.inline}>
+        <Icon name="check-mark" size={12} color={c.success} />
+        <Text style={[t.meta, { color: c.success }]}>Confirmed</Text>
+      </View>
+    );
   } else if (row.confirmDrillId && onConfirm) {
     actions = <FeedActionPill label="Confirm" iconName="check-mark" filled onPress={onConfirm} />;
   } else if (row.action && onAction) {
@@ -75,7 +83,7 @@ export default function FeedAgendaLine({
 
   return (
     <FeedRowShell
-      iconName={KIND_ICON[row.kind] ?? 'calendar'}
+      iconName={KIND_ICON[row.kind] ?? 'calendar-event'}
       iconColor={live ? c.danger : c.primary}
       when={when}
       whenColor={live ? c.danger : row.bucket === 'needsYou' ? c.primary : c.textSub}
@@ -85,7 +93,19 @@ export default function FeedAgendaLine({
       highlight={highlight}
       actions={actions}
     >
-      {facts ? (
+      {row.statusIcon && row.status ? (
+        <View style={styles.inline}>
+          {lead ? (
+            <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
+              {`${lead} · `}
+            </Text>
+          ) : null}
+          <Icon name={row.statusIcon} size={12} color={c.success} />
+          <Text style={[t.meta, { color: c.success }]} numberOfLines={1}>
+            {row.status}
+          </Text>
+        </View>
+      ) : facts ? (
         <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
           {facts}
         </Text>
@@ -93,3 +113,8 @@ export default function FeedAgendaLine({
     </FeedRowShell>
   );
 }
+
+const styles = StyleSheet.create({
+  inline: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  shrink: { flexShrink: 1 },
+});

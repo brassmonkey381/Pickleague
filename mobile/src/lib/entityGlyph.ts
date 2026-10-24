@@ -2,20 +2,16 @@
 // the small text helpers the compact rows (LeagueRow / TournamentRow) share.
 //
 // PURE (no react-native import): rows, tiles, section labels and tests all read
-// it. A screen that can render a component may still prefer the drawn
-// BallIcon / DumbbellIcon (components/PickleIcons) for league / drill; the
-// emoji here is the text fallback and must agree with those drawings.
+// it.
 //
-// The trophy / ball swap (fixed here, adopted screen by screen):
-//   - A TOURNAMENT is the trophy 🏆. That is what HomeScreen's tournament rows,
-//     BookmarksScreen and NotificationsScreen already use.
-//   - A LEAGUE is the ball 🎾 (BookmarksScreen; NotificationsScreen draws the
-//     BallIcon). PlayScreen's toggle had them swapped ('🏆 Leagues',
-//     '🎾 Tournaments'), and LeaguesScreen's empty state uses 🏆 for "No
-//     leagues yet". The Play / Leagues rework (P2) switches both to this map.
-//   - 🏓 (the paddle) stays the DRILL glyph (Home's drill rows, Bookmarks'
-//     drill sessions), so it can't also be the league.
+// Glyphs (2026-10-24, glyphs-ui-plan.md): ENTITY_ICON / entityIcon() name the
+// drawn glyph for each kind (lib/glyphs.tsx registers the Pickleague art), and
+// rows draw it with <Icon>. A TOURNAMENT is the trophy, a LEAGUE the
+// pickleball, a DRILL the paddle (so the paddle can't also be the league).
+// The emoji table that stood beside it went once every screen drew glyphs;
+// text that leaves the app (push, share) writes its emoji where it is built.
 import type { Theme } from '@just-messin-around/expo-foundation/theme';
+import type { IconName } from '@just-messin-around/expo-foundation/icons';
 
 export type EntityKind =
   | 'league'
@@ -30,23 +26,26 @@ export type EntityKind =
   | 'shop'
   | 'pickles';
 
-export const ENTITY_GLYPH: Readonly<Record<EntityKind, string>> = {
-  league: '🎾',
-  tournament: '🏆',
-  event: '📅',
-  vote: '🗳️',
-  drill: '🏓',
-  court: '📍',
-  match: '🏅',
-  season: '🗓️',
-  player: '😎',
-  shop: '🛒',
-  pickles: '🥒',
+/** The drawn glyph per kind. Event and season share the calendar (the filled
+ *  `calendar-event`, so it sits with the other filled glyphs; the outline
+ *  `calendar` read as the odd one out beside trophy and group). */
+export const ENTITY_ICON: Readonly<Record<EntityKind, IconName>> = {
+  league: 'pickleball',
+  tournament: 'trophy',
+  event: 'calendar-event',
+  vote: 'ballot',
+  drill: 'paddle',
+  court: 'pin',
+  match: 'medal',
+  season: 'calendar-event',
+  player: 'person',
+  shop: 'cart',
+  pickles: 'pickle',
 };
 
-/** The glyph for an entity kind. */
-export function entityGlyph(kind: EntityKind): string {
-  return ENTITY_GLYPH[kind];
+/** The glyph name for an entity kind: <Icon name={entityIcon(kind)} />. */
+export function entityIcon(kind: EntityKind): IconName {
+  return ENTITY_ICON[kind];
 }
 
 /** Background + border for a row's glyph tile, from theme tokens only (no
@@ -65,8 +64,33 @@ export function entityTileColors(kind: EntityKind, c: Theme): { bg: string; bord
     case 'drill':
     case 'match':
       return { bg: c.successLight, border: c.success };
+    case 'pickles':
+      return { bg: c.primaryLight, border: c.primary };
     default:
       return { bg: c.surfaceAlt, border: c.border };
+  }
+}
+
+/** A glyph's own tile colours, for a glyph that stands for itself rather than
+ *  an entity (a notification title's 🔥 or 🏆): fire is warning orange, the
+ *  trophy, medal and crown gold, the pickle the brand green, a tick success.
+ *  Null for a glyph with no colour of its own (the row then uses its kind's). */
+export function glyphTileColors(icon: IconName, c: Theme): { bg: string; border: string } | null {
+  switch (icon) {
+    case 'fire':
+    case 'warning':
+      return { bg: c.warningLight, border: c.warning };
+    case 'trophy':
+    case 'medal':
+    case 'crown':
+      return { bg: c.rarityLegendaryLight, border: c.rarityLegendary };
+    case 'pickle':
+      return { bg: c.primaryLight, border: c.primary };
+    case 'check':
+    case 'check-mark':
+      return { bg: c.successLight, border: c.success };
+    default:
+      return null;
   }
 }
 

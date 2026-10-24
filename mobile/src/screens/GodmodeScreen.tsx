@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, TextInput, StyleSheet,
   ActivityIndicator, ScrollView,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,8 +18,13 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { setClipboard } from '../lib/clipboard';
 import UserPickerModal, { PickedUser } from '../components/UserPickerModal';
 import { verifyTournament, CheckResult } from '../lib/bracketVerification';
-import { BallIcon } from '../components/PickleIcons';
 import { HideTestAccountsSwitch } from '../components/TestAccountSwitches';
+import { entityIcon } from '../lib/entityGlyph';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { Chip, FilterPill, Panel, SectionHeader } from '@just-messin-around/expo-foundation/ui';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Godmode'> };
 
@@ -69,7 +74,7 @@ export default function GodmodeScreen({ navigation }: Props) {
 
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const [fullName, setFullName] = useState('');
-  const [genderChoice, setGenderChoice] = useState<'random' | 'male' | 'female' | 'other' | 'prefer-not-to-say'>('random');
+  const [genderChoice, setGenderChoice] = useState<GenderChoice>('random');
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedAccount[]>([]);
   const [invites, setInvites] = useState<ActiveInvite[] | null>(null);
@@ -189,7 +194,7 @@ export default function GodmodeScreen({ navigation }: Props) {
     const r = await forceAcceptInvitee(invite, invitee);
     setAcceptingInviteeKey(null);
     if (r.ok) {
-      status.success(`${invitee.user_name} → ${invite.scope_name ?? invite.scope_type}`);
+      status.success(`Added ${invitee.user_name} to ${invite.scope_name ?? invite.scope_type}`);
       loadInvites();
     } else {
       status.error(`${invitee.user_name}: ${r.message}`);
@@ -297,15 +302,16 @@ export default function GodmodeScreen({ navigation }: Props) {
   if (authorized === false) {
     return (
       <View style={S.gated}>
-        <Text style={S.gatedTitle}>🚫 Godmode only</Text>
-        <Text style={S.gatedBody}>This area is restricted.</Text>
+        <EmptyState iconName="block" title="Godmode only" subtitle="This area is restricted." />
       </View>
     );
   }
   if (authorized === null) return null;
 
+  const eligibleCount = (invites ?? []).filter(i => !i.already_member).length;
+
   return (
-    <ScrollView contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
+    <ScrollView style={S.screen} contentContainerStyle={S.container} refreshControl={<AppRefreshControl {...refresh} />}>
       <Text style={S.hint}>
         Admin-only utilities. Anything risky should go behind a confirm. Feel free
         to keep stacking sections here as needs come up.
@@ -313,17 +319,17 @@ export default function GodmodeScreen({ navigation }: Props) {
 
       <StatusBanner status={status.value} style={S.banner} />
 
-      <Text style={S.sectionHeader}>Test accounts</Text>
-      <View style={S.card}>
+      <SectionHeader title="Test accounts" />
+      <Panel style={S.card}>
         <HideTestAccountsSwitch />
         <Text style={S.previewNote}>
           Seeded, SIM, QA and review accounts are test accounts, and so is every account made
           below. Mark or unmark anyone else from their profile.
         </Text>
-      </View>
+      </Panel>
 
-      <Text style={S.sectionHeader}>Quick-create test account</Text>
-      <View style={S.card}>
+      <SectionHeader title="Quick-create test account" />
+      <Panel style={S.card}>
         <Text style={S.label}>Full name</Text>
         <TextInput
           style={S.input}
@@ -335,109 +341,100 @@ export default function GodmodeScreen({ navigation }: Props) {
           autoCorrect={false}
         />
 
-        <Text style={[S.label, { marginTop: 12 }]}>Gender</Text>
+        <Text style={[S.label, S.labelGap]}>Gender</Text>
         <View style={S.genderRow}>
-          {(['random','female','male','other','prefer-not-to-say'] as const).map(g => (
-            <TouchableOpacity
-              key={g}
-              style={[S.genderChip, genderChoice === g && S.genderChipActive]}
-              onPress={() => setGenderChoice(g)}
-            >
-              <Text style={[S.genderChipText, genderChoice === g && S.genderChipTextActive]}>
-                {g === 'prefer-not-to-say' ? 'N/A' : g === 'random' ? '🎲 random' : g}
-              </Text>
-            </TouchableOpacity>
+          {GENDER_CHOICES.map(g => (
+            <FilterPill
+              key={g.value}
+              label={g.label}
+              iconName={g.value === 'random' ? 'dice' : undefined}
+              active={genderChoice === g.value}
+              onPress={() => setGenderChoice(g.value)}
+            />
           ))}
         </View>
 
         {previewEmail ? (
           <View style={S.previewBox}>
-            <PreviewRow label="Email"    value={previewEmail}    colors={c} />
-            <PreviewRow label="Username" value={previewUsername} colors={c} />
-            <PreviewRow label="Password" value="Pickle123!"      colors={c} />
-            <PreviewRow label="Gender"   value={genderChoice === 'random' ? '🎲 random' : genderChoice} colors={c} />
+            <PreviewRow label="Email"    value={previewEmail}    S={S} />
+            <PreviewRow label="Username" value={previewUsername} S={S} />
+            <PreviewRow label="Password" value="Pickle123!"      S={S} />
+            <PreviewRow label="Gender"   value={genderLabel(genderChoice)} S={S} />
             <Text style={S.previewNote}>Email is pre-confirmed — usable on first sign-in.</Text>
           </View>
         ) : (
           <Text style={S.placeholderHint}>Enter a first and last name to preview.</Text>
         )}
 
-        <TouchableOpacity
-          style={[S.primaryBtn, !canSubmit && S.primaryBtnDim]}
+        <Button
+          title="Create account"
           onPress={createAccount}
+          loading={creating}
           disabled={!canSubmit}
-        >
-          {creating
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={S.primaryBtnText}>Create account</Text>}
-        </TouchableOpacity>
-      </View>
+          style={S.primaryBtn}
+        />
+      </Panel>
 
       {created.length > 0 && (
         <>
-          <Text style={S.sectionHeader}>Recently created (this session)</Text>
-          <View style={S.card}>
+          <SectionHeader title="Recently created (this session)" />
+          <Panel padded={false} style={S.card}>
             {created.map((acct, i) => (
               <View key={acct.user_id} style={[S.acctRow, i === created.length - 1 && S.acctRowLast]}>
                 <Text style={S.acctName}>{acct.full_name}</Text>
                 <View style={S.acctMetaRow}>
                   <Text style={S.acctMeta} numberOfLines={1}>{acct.email}</Text>
-                  <TouchableOpacity onPress={() => copy(acct.email, 'Email')} style={S.copyBtn}>
-                    <Text style={S.copyBtnText}>Copy</Text>
-                  </TouchableOpacity>
+                  <Button
+                    title="Copy"
+                    size="sm"
+                    variant="outline"
+                    onPress={() => copy(acct.email, 'Email')}
+                    accessibilityLabel={`Copy email ${acct.email}`}
+                  />
                 </View>
                 <View style={S.acctMetaRow}>
                   <Text style={S.acctMeta} numberOfLines={1}>Password: {acct.password}</Text>
-                  <TouchableOpacity onPress={() => copy(acct.password, 'Password')} style={S.copyBtn}>
-                    <Text style={S.copyBtnText}>Copy</Text>
-                  </TouchableOpacity>
+                  <Button
+                    title="Copy"
+                    size="sm"
+                    variant="outline"
+                    onPress={() => copy(acct.password, 'Password')}
+                    accessibilityLabel={`Copy password for ${acct.full_name}`}
+                  />
                 </View>
               </View>
             ))}
-          </View>
+          </Panel>
         </>
       )}
 
-      <View style={S.inviteHeaderRow}>
-        <Text style={S.sectionHeader}>Active invites</Text>
-        <TouchableOpacity onPress={loadInvites} disabled={loadingInvites}>
-          <Text style={S.refreshLink}>{loadingInvites ? 'Refreshing…' : 'Refresh'}</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={S.card}>
+      <SectionHeader
+        title="Active invites"
+        action={{
+          label: loadingInvites ? 'Refreshing…' : 'Refresh',
+          onPress: () => { if (!loadingInvites) void loadInvites(); },
+        }}
+      />
+      <Panel style={S.card}>
         {invites === null || loadingInvites ? (
           <ActivityIndicator color={c.primary} />
         ) : invites.length === 0 ? (
-          <EmptyState icon="📨" title="No active invites" subtitle="No active invite codes in the system." />
+          <EmptyState compact iconName="mail" title="No active invites" subtitle="No active invite codes in the system." />
         ) : (
           <>
-            {(() => {
-              const eligible = invites.filter(i => !i.already_member);
-              return (
-                <TouchableOpacity
-                  style={[S.primaryBtn, (eligible.length === 0 || acceptingAll) && S.primaryBtnDim, { marginBottom: 12, marginTop: 0 }]}
-                  onPress={acceptAllEligible}
-                  disabled={eligible.length === 0 || acceptingAll}
-                >
-                  {acceptingAll
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={S.primaryBtnText}>
-                        Force-accept all eligible{eligible.length > 0 ? ` (${eligible.length})` : ''}
-                      </Text>}
-                </TouchableOpacity>
-              );
-            })()}
+            <Button
+              title={`Force-accept all eligible${eligibleCount > 0 ? ` (${eligibleCount})` : ''}`}
+              onPress={acceptAllEligible}
+              loading={acceptingAll}
+              disabled={eligibleCount === 0}
+              style={S.acceptAllBtn}
+            />
             {invites.map((inv, i) => (
               <View key={inv.code_id} style={[S.inviteRow, i === invites.length - 1 && S.inviteRowLast]}>
                 <View style={S.inviteHeaderInline}>
-                  <View style={[S.scopeBadge, inv.scope_type === 'tournament' ? S.scopeBadgeTournament : S.scopeBadgeLeague]}>
-                    {inv.scope_type === 'tournament'
-                      ? <Text style={S.scopeBadgeText}>🏆 tournament</Text>
-                      : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <BallIcon size={14} />
-                          <Text style={S.scopeBadgeText}>league</Text>
-                        </View>}
-                  </View>
+                  {inv.scope_type === 'tournament'
+                    ? <Chip size="sm" tone="warning" iconName={entityIcon('tournament')} label="tournament" align="center" />
+                    : <Chip size="sm" tone="brand" iconName={entityIcon('league')} label="league" align="center" />}
                   <Text style={S.inviteScopeName} numberOfLines={1}>
                     {inv.scope_name ?? '(unknown scope)'}
                   </Text>
@@ -450,17 +447,19 @@ export default function GodmodeScreen({ navigation }: Props) {
                   </Text>
                 </View>
                 {inv.already_member ? (
-                  <Text style={S.alreadyJoined}>✓ You're a member</Text>
+                  <View style={S.alreadyJoined}>
+                    <Icon name="check-mark" size={14} color={c.success} />
+                    <Text style={S.alreadyJoinedText}>You're a member</Text>
+                  </View>
                 ) : (
-                  <TouchableOpacity
-                    style={[S.acceptBtn, acceptingCodeId === inv.code_id && S.primaryBtnDim]}
+                  <Button
+                    title="Join me"
+                    size="sm"
+                    variant="outline"
                     onPress={() => forceAccept(inv)}
-                    disabled={acceptingCodeId === inv.code_id}
-                  >
-                    {acceptingCodeId === inv.code_id
-                      ? <ActivityIndicator color={c.primary} size="small" />
-                      : <Text style={S.acceptBtnText}>Join me</Text>}
-                  </TouchableOpacity>
+                    loading={acceptingCodeId === inv.code_id}
+                    style={S.hug}
+                  />
                 )}
 
                 {inv.pending_invitees.length > 0 && (
@@ -470,15 +469,13 @@ export default function GodmodeScreen({ navigation }: Props) {
                         {inv.pending_invitees.length} pending invitee{inv.pending_invitees.length === 1 ? '' : 's'}
                       </Text>
                       {inv.pending_invitees.length > 1 && (
-                        <TouchableOpacity
-                          style={[S.acceptBtn, bulkAcceptingCodeId === inv.code_id && S.primaryBtnDim]}
+                        <Button
+                          title="Accept all"
+                          size="sm"
+                          variant="outline"
                           onPress={() => forceAcceptAllInvitees(inv)}
-                          disabled={bulkAcceptingCodeId === inv.code_id}
-                        >
-                          {bulkAcceptingCodeId === inv.code_id
-                            ? <ActivityIndicator color={c.primary} size="small" />
-                            : <Text style={S.acceptBtnText}>Accept all</Text>}
-                        </TouchableOpacity>
+                          loading={bulkAcceptingCodeId === inv.code_id}
+                        />
                       )}
                     </View>
                     {inv.pending_invitees.map(invitee => {
@@ -487,15 +484,15 @@ export default function GodmodeScreen({ navigation }: Props) {
                       return (
                         <View key={invitee.user_id} style={S.inviteeRow}>
                           <Text style={S.inviteeName} numberOfLines={1}>{invitee.user_name}</Text>
-                          <TouchableOpacity
-                            style={[S.inviteeAcceptBtn, busy && S.primaryBtnDim]}
+                          <Button
+                            title="Force accept"
+                            size="sm"
+                            variant="outline"
                             onPress={() => forceAcceptOneInvitee(inv, invitee)}
+                            loading={acceptingInviteeKey === key}
                             disabled={busy}
-                          >
-                            {acceptingInviteeKey === key
-                              ? <ActivityIndicator color={c.primary} size="small" />
-                              : <Text style={S.acceptBtnText}>Force accept</Text>}
-                          </TouchableOpacity>
+                            accessibilityLabel={`Force accept ${invitee.user_name}`}
+                          />
                         </View>
                       );
                     })}
@@ -505,91 +502,62 @@ export default function GodmodeScreen({ navigation }: Props) {
             ))}
           </>
         )}
-      </View>
+      </Panel>
 
-      <Text style={S.sectionHeader}>Player PLUPR</Text>
-      <View style={S.card}>
+      <SectionHeader title="Player PLUPR" />
+      <Panel style={S.card}>
         <Text style={S.tbdText}>
           Manually set any player's PLUPR values. Match history is left
           untouched — values here will be re-affected on the next match insert.
         </Text>
-        <TouchableOpacity style={[S.acceptBtn, { marginTop: 12 }]} onPress={() => setPluprPickerOpen(true)}>
-          <Text style={S.acceptBtnText}>{pluprTarget ? `Picked: ${pluprTarget.full_name} — change` : 'Pick a player'}</Text>
-        </TouchableOpacity>
+        <Button
+          title={pluprTarget ? `Picked: ${pluprTarget.full_name} — change` : 'Pick a player'}
+          size="sm"
+          variant="outline"
+          onPress={() => setPluprPickerOpen(true)}
+          style={[S.hug, S.gapTop]}
+        />
 
         {pluprTarget && (
           pluprLoading ? (
-            <ActivityIndicator color={c.primary} style={{ marginTop: 12 }} />
+            <ActivityIndicator color={c.primary} style={S.gapTop} />
           ) : (
             <>
-              <View style={S.pluprRow}>
-                <Text style={S.pluprLabel}>Overall</Text>
-                <TextInput
-                  style={S.pluprInput}
-                  keyboardType="decimal-pad"
-                  value={pluprOverall}
-                  onChangeText={setPluprOverall}
-                  placeholder="—"
-                  placeholderTextColor={c.textMuted}
-                />
-              </View>
-              <View style={S.pluprRow}>
-                <Text style={S.pluprLabel}>Singles</Text>
-                <TextInput
-                  style={S.pluprInput}
-                  keyboardType="decimal-pad"
-                  value={pluprSingles}
-                  onChangeText={setPluprSingles}
-                  placeholder="—"
-                  placeholderTextColor={c.textMuted}
-                />
-              </View>
-              <View style={S.pluprRow}>
-                <Text style={S.pluprLabel}>Doubles</Text>
-                <TextInput
-                  style={S.pluprInput}
-                  keyboardType="decimal-pad"
-                  value={pluprDoubles}
-                  onChangeText={setPluprDoubles}
-                  placeholder="—"
-                  placeholderTextColor={c.textMuted}
-                />
-              </View>
-              <View style={S.pluprRow}>
-                <Text style={S.pluprLabel}>Mixed</Text>
-                <TextInput
-                  style={S.pluprInput}
-                  keyboardType="decimal-pad"
-                  value={pluprMixed}
-                  onChangeText={setPluprMixed}
-                  placeholder="—"
-                  placeholderTextColor={c.textMuted}
-                />
-              </View>
+              {([
+                ['Overall', pluprOverall, setPluprOverall],
+                ['Singles', pluprSingles, setPluprSingles],
+                ['Doubles', pluprDoubles, setPluprDoubles],
+                ['Mixed',   pluprMixed,   setPluprMixed],
+              ] as const).map(([label, value, set]) => (
+                <View key={label} style={S.pluprRow}>
+                  <Text style={S.pluprLabel}>{label}</Text>
+                  <TextInput
+                    style={S.pluprInput}
+                    keyboardType="decimal-pad"
+                    value={value}
+                    onChangeText={set}
+                    placeholder="—"
+                    placeholderTextColor={c.textMuted}
+                    accessibilityLabel={`${label} PLUPR`}
+                  />
+                </View>
+              ))}
               <Text style={S.previewNote}>Leave a field blank to keep its current value.</Text>
-              <TouchableOpacity
-                style={[S.primaryBtn, pluprSaving && S.primaryBtnDim]}
-                onPress={savePlupr}
-                disabled={pluprSaving}
-              >
-                {pluprSaving
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={S.primaryBtnText}>Save PLUPR</Text>}
-              </TouchableOpacity>
+              <Button title="Save PLUPR" onPress={savePlupr} loading={pluprSaving} style={S.primaryBtn} />
             </>
           )
         )}
-      </View>
+      </Panel>
 
-      <Text style={S.sectionHeader}>Verify bracket structure</Text>
-      <View style={S.card}>
+      <SectionHeader title="Verify bracket structure" />
+      <Panel style={S.card}>
         <Text style={S.tbdText}>
           Read-only check: loads a tournament's rounds and matches, then compares
           against the expected formulas for its format (RR, SE, Pool Play). Does
           not modify any data.
         </Text>
         <TextInput
-          style={[S.input, { marginTop: 8 }]}
+          style={[S.input, S.inputGap]}
           placeholder="Tournament ID (uuid)"
           placeholderTextColor={c.textMuted}
           value={verifyId}
@@ -597,39 +565,43 @@ export default function GodmodeScreen({ navigation }: Props) {
           autoCapitalize="none"
           autoCorrect={false}
         />
-        <TouchableOpacity
-          style={[S.primaryBtn, (!verifyId.trim() || verifyRunning) && S.primaryBtnDim]}
+        <Button
+          title="Verify"
           onPress={runVerify}
-          disabled={!verifyId.trim() || verifyRunning}
-        >
-          {verifyRunning
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={S.primaryBtnText}>Verify</Text>}
-        </TouchableOpacity>
+          loading={verifyRunning}
+          disabled={!verifyId.trim()}
+          style={S.primaryBtn}
+        />
 
         {verifyResults && verifyResults.length > 0 && (
-          <View style={{ marginTop: 12 }}>
+          <View style={S.gapTop}>
             {verifyResults.map((r, i) => {
-              const icon = r.ok === 'info' ? 'ℹ️' : r.ok ? '✅' : '❌';
-              const color = r.ok === 'info' ? c.textMuted : r.ok ? '#16a34a' : '#dc2626';
+              const mark = r.ok === 'info'
+                ? { icon: 'info' as const, color: c.textMuted, label: 'Info' }
+                : r.ok
+                  ? { icon: 'check-mark' as const, color: c.success, label: 'Passed' }
+                  : { icon: 'close' as const, color: c.danger, label: 'Failed' };
               return (
-                <View key={i} style={{ paddingVertical: 6 }}>
-                  <Text style={{ color, fontWeight: '600' }}>{icon} {r.label}</Text>
-                  {r.detail && <Text style={{ color: c.textMuted, marginTop: 2, fontSize: 13 }}>{r.detail}</Text>}
+                <View key={i} style={S.verifyRow}>
+                  <Icon name={mark.icon} size={16} color={mark.color} accessibilityLabel={mark.label} style={S.verifyMark} />
+                  <View style={S.verifyText}>
+                    <Text style={[S.verifyLabel, { color: mark.color }]}>{r.label}</Text>
+                    {r.detail ? <Text style={S.verifyDetail}>{r.detail}</Text> : null}
+                  </View>
                 </View>
               );
             })}
           </View>
         )}
-      </View>
+      </Panel>
 
-      <Text style={S.sectionHeader}>Coming soon</Text>
-      <View style={[S.card, S.tbdCard]}>
+      <SectionHeader title="Coming soon" />
+      <Panel style={[S.card, S.tbdCard]}>
         <Text style={S.tbdText}>
           More admin utilities can land here. Suggestions: bulk-create accounts,
           impersonate user, force-close a tournament, dump DB stats.
         </Text>
-      </View>
+      </Panel>
 
       <UserPickerModal
         visible={pluprPickerOpen}
@@ -637,82 +609,88 @@ export default function GodmodeScreen({ navigation }: Props) {
         onPick={pickPluprTarget}
         onClose={() => setPluprPickerOpen(false)}
       />
-
-      <View style={{ height: 48 }} />
     </ScrollView>
   );
 }
 
-function PreviewRow({
-  label, value, colors,
-}: { label: string; value: string; colors: ReturnType<typeof useTheme>['colors'] }) {
+type GenderChoice = 'random' | 'male' | 'female' | 'other' | 'prefer-not-to-say';
+
+const GENDER_CHOICES: { value: GenderChoice; label: string }[] = [
+  { value: 'random', label: 'random' },
+  { value: 'female', label: 'female' },
+  { value: 'male', label: 'male' },
+  { value: 'other', label: 'other' },
+  { value: 'prefer-not-to-say', label: 'N/A' },
+];
+
+const genderLabel = (g: GenderChoice) => GENDER_CHOICES.find(x => x.value === g)?.label ?? g;
+
+function PreviewRow({ label, value, S }: { label: string; value: string; S: ReturnType<typeof makeStyles> }) {
   return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 }}>
-      <Text style={{ color: colors.textSub, fontSize: 13, fontWeight: '600', width: 88 }}>{label}</Text>
-      <Text style={{ flex: 1, color: colors.text, fontSize: 13, fontFamily: 'monospace' }} numberOfLines={1}>{value}</Text>
+    <View style={S.previewRow}>
+      <Text style={S.previewLabel}>{label}</Text>
+      <Text style={S.previewValue} numberOfLines={1}>{value}</Text>
     </View>
   );
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
-    container:        { padding: 16, backgroundColor: c.bg, flexGrow: 1 },
-    hint:             { color: c.textMuted, fontSize: 13, marginBottom: 12, lineHeight: 18 },
-    banner:           { marginBottom: 12 },
-    sectionHeader:    { fontSize: 13, fontWeight: '800', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 8, marginBottom: 8 },
-    card:             { backgroundColor: c.surface, borderWidth: 1, borderColor: c.border, borderRadius: 12, padding: 16, marginBottom: 16 },
-    label:            { fontSize: 13, fontWeight: '700', color: c.textSub, marginBottom: 6 },
-    input:            { borderWidth: 1, borderColor: c.border, borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: c.bg, color: c.text },
-    previewBox:       { marginTop: 12, padding: 12, backgroundColor: c.bg, borderRadius: 10, borderWidth: 1, borderColor: c.border },
-    previewNote:      { color: c.textMuted, fontSize: 12, marginTop: 8, fontStyle: 'italic' },
-    placeholderHint:  { color: c.textMuted, fontSize: 13, marginTop: 12, fontStyle: 'italic' },
-    primaryBtn:       { marginTop: 14, backgroundColor: c.primary, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
-    primaryBtnDim:    { opacity: 0.5 },
-    primaryBtnText:   { color: '#fff', fontSize: 15, fontWeight: '700' },
-    genderRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 4 },
-    genderChip:       { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.bg },
-    genderChipActive: { backgroundColor: c.primary, borderColor: c.primary },
-    genderChipText:   { fontSize: 12, fontWeight: '600', color: c.textSub },
-    genderChipTextActive: { color: '#fff' },
-    acctRow:          { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border },
+    screen:           { flex: 1, backgroundColor: c.bg },
+    container:        { padding: SPACE.lg, paddingBottom: SPACE.xl * 2, flexGrow: 1 },
+    hint:             { ...t.hint, marginBottom: SPACE.md },
+    banner:           { marginBottom: SPACE.md },
+    card:             { marginBottom: SPACE.lg },
+    label:            { ...t.fieldLabel, marginBottom: SPACE.xs },
+    labelGap:         { marginTop: SPACE.md },
+    input:            { borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, backgroundColor: c.surfaceAlt, color: c.text },
+    inputGap:         { marginTop: SPACE.sm },
+    previewBox:       { marginTop: SPACE.md, padding: SPACE.md, backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border },
+    previewRow:       { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACE.xs },
+    previewLabel:     { ...t.sub, fontWeight: FONT.weight.semibold, width: 88 },
+    previewValue:     { ...t.sub, flex: 1, color: c.text, fontFamily: 'monospace' },
+    previewNote:      { ...t.hint, marginTop: SPACE.sm, fontStyle: 'italic' },
+    placeholderHint:  { ...t.hint, marginTop: SPACE.md, fontStyle: 'italic' },
+    primaryBtn:       { marginTop: SPACE.md },
+    acceptAllBtn:     { marginBottom: SPACE.md },
+    hug:              { alignSelf: 'flex-start' },
+    gapTop:           { marginTop: SPACE.md },
+    genderRow:        { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.xs },
+    acctRow:          { paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     acctRowLast:      { borderBottomWidth: 0 },
-    acctName:         { fontSize: 15, fontWeight: '700', color: c.text, marginBottom: 4 },
-    acctMetaRow:      { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
-    acctMeta:         { flex: 1, fontSize: 13, color: c.textSub, fontFamily: 'monospace' },
-    copyBtn:          { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: c.border, backgroundColor: c.bg },
-    copyBtnText:      { fontSize: 12, fontWeight: '700', color: c.primary },
+    acctName:         { ...t.title, marginBottom: SPACE.xxs },
+    acctMetaRow:      { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    acctMeta:         { ...t.sub, flex: 1, fontFamily: 'monospace' },
     tbdCard:          { borderStyle: 'dashed' },
-    tbdText:          { color: c.textMuted, fontSize: 13, lineHeight: 18 },
-    gated:            { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: c.bg },
-    gatedTitle:       { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 8 },
-    gatedBody:        { color: c.textMuted, fontSize: 14 },
+    tbdText:          t.hint,
+    gated:            { flex: 1, justifyContent: 'center', backgroundColor: c.bg },
 
-    inviteHeaderRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8, marginBottom: 8 },
-    refreshLink:          { color: c.primary, fontSize: 13, fontWeight: '700' },
-    inviteRow:            { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border, gap: 4 },
+    inviteRow:            { paddingVertical: SPACE.sm, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, gap: SPACE.xs },
     inviteRowLast:        { borderBottomWidth: 0 },
-    inviteHeaderInline:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    scopeBadge:           { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
-    scopeBadgeLeague:     { backgroundColor: c.primaryLight },
-    scopeBadgeTournament: { backgroundColor: '#fff1d6' },
-    scopeBadgeText:       { fontSize: 11, fontWeight: '700', color: c.text },
-    inviteScopeName:      { flex: 1, fontSize: 15, fontWeight: '700', color: c.text },
-    inviteMetaRow:        { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-    inviteToken:          { fontSize: 13, fontFamily: 'monospace', color: c.textSub, fontWeight: '700' },
-    inviteMeta:           { fontSize: 12, color: c.textMuted },
-    alreadyJoined:        { fontSize: 13, fontWeight: '700', color: c.primary, marginTop: 4 },
-    acceptBtn:            { alignSelf: 'flex-start', marginTop: 6, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
-    acceptBtnText:        { color: c.primary, fontSize: 13, fontWeight: '700' },
+    inviteHeaderInline:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+    inviteScopeName:      { ...t.title, flex: 1 },
+    inviteMetaRow:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, flexWrap: 'wrap' },
+    inviteToken:          { ...t.sub, fontFamily: 'monospace', fontWeight: FONT.weight.bold },
+    inviteMeta:           t.hint,
+    alreadyJoined:        { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minHeight: 44 },
+    alreadyJoinedText:    { ...t.sub, fontWeight: FONT.weight.bold, color: c.success },
 
-    inviteeBlock:         { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: c.border },
-    inviteeHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-    inviteeHeaderText:    { fontSize: 12, fontWeight: '700', color: c.textSub, textTransform: 'uppercase', letterSpacing: 0.6 },
-    inviteeRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, gap: 8 },
-    inviteeName:          { flex: 1, fontSize: 14, color: c.text },
-    inviteeAcceptBtn:     { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: c.primary, backgroundColor: c.surface },
+    inviteeBlock:         { marginTop: SPACE.sm, paddingTop: SPACE.sm, borderTopWidth: HAIRLINE, borderTopColor: c.border },
+    inviteeHeader:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    inviteeHeaderText:    t.fieldLabel,
+    inviteeRow:           { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.sm },
+    inviteeName:          { ...t.bodySub, flex: 1, color: c.text },
 
-    pluprRow:             { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 12 },
-    pluprLabel:           { width: 80, fontSize: 13, fontWeight: '700', color: c.textSub },
-    pluprInput:           { flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 15, color: c.text, backgroundColor: c.bg },
+    pluprRow:             { flexDirection: 'row', alignItems: 'center', marginTop: SPACE.sm, gap: SPACE.md },
+    pluprLabel:           { ...t.sub, width: 80, fontWeight: FONT.weight.bold },
+    pluprInput:           { flex: 1, minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surfaceAlt },
+
+    verifyRow:            { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, paddingVertical: SPACE.xs },
+    // Centres the 16 glyph on the label's first line.
+    verifyMark:           { marginTop: SPACE.xxs },
+    verifyText:           { flex: 1, minWidth: 0 },
+    verifyLabel:          { ...t.bodySub, fontWeight: FONT.weight.semibold },
+    verifyDetail:         { ...t.hint, marginTop: SPACE.xxs },
   });
 }
