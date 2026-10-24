@@ -31,9 +31,7 @@ export function makeTournamentDetailStyles(c: ReturnType<typeof useTheme>['color
     queueActions: { flexDirection: 'row' },
     queueBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
     approveDot: { width: 32, height: 32, borderRadius: RADIUS.pill, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
-    approveDotText: { color: c.textInverse, fontSize: FONT.size.md, fontWeight: FONT.weight.heavy },
     rejectDot: { width: 32, height: 32, borderRadius: RADIUS.pill, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
-    rejectDotText: { color: c.textMuted, fontSize: FONT.size.md, fontWeight: FONT.weight.heavy },
 
     // ── Pools & bracket ──
     poolsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
@@ -65,8 +63,6 @@ export function makeTournamentDetailStyles(c: ReturnType<typeof useTheme>['color
     matchScore: { fontSize: FONT.size.base, fontWeight: FONT.weight.heavy, color: c.textSub, paddingHorizontal: SPACE.xs },
     vs: { fontSize: FONT.size.xs, color: c.textMuted, fontWeight: FONT.weight.bold },
     youTag: { fontSize: FONT.size.xxs, fontWeight: FONT.weight.heavy, color: c.primary, backgroundColor: c.primaryLight, paddingHorizontal: SPACE.xs, paddingVertical: SPACE.xxs, borderRadius: RADIUS.sm, overflow: 'hidden' },
-    recordChevron: { fontSize: FONT.size.xl, color: c.textMuted, fontWeight: FONT.weight.bold },
-    dreambreakerBadge: { fontSize: FONT.size.xs, fontWeight: FONT.weight.heavy, color: c.warning, backgroundColor: c.warningLight, alignSelf: 'flex-start', paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs, borderRadius: RADIUS.sm, marginTop: SPACE.xs, overflow: 'hidden' },
     previewBanner: { backgroundColor: c.warningLight, borderRadius: RADIUS.sm, padding: SPACE.sm, marginBottom: SPACE.sm },
     previewBannerText: { fontSize: FONT.size.sm, color: c.warning, fontWeight: FONT.weight.semibold },
 

@@ -13,16 +13,17 @@
 //
 // Each opens a sheet: the level list (saved on tap), or the hide-from list with
 // a Show button per player (people are added from the "⋯" menu on a profile).
-// The rows copy SettingsScreen's ActionRow metrics so the section reads as one
-// list. The server holds every value (presence_settings, presence_hidden_from);
+// The rows are the foundation SettingActionRow, as Settings' own rows, so the
+// section reads as one list (same padding, same chevron column). The server
+// holds every value (presence_settings, presence_hidden_from);
 // a read that failed says so and retries on tap instead of showing defaults.
 //
 // Not behind FRIENDS_AT_COURTS_ENABLED: check-ins name players from the day
 // the presence SQL is live, so these controls (and the consent sheet that
 // points here) ship with them.
 import React, { useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BottomSheet, SettingActionRow } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -75,8 +76,7 @@ export default function PresencePrivacyRows() {
   return (
     <>
       <View style={S.divider} />
-      <Row
-        S={S}
+      <SettingActionRow
         label="Who sees me at the courts"
         desc={s ? checkinsLevelLabel(s.checkins_level) : settingsFailed ? "Couldn't load. Tap to retry" : 'Loading…'}
         onPress={open('checkins')}
@@ -84,8 +84,7 @@ export default function PresencePrivacyRows() {
       {ROUTINES_ENABLED ? (
         <>
           <View style={S.divider} />
-          <Row
-            S={S}
+          <SettingActionRow
             label="Who sees my planned check-ins"
             desc={s ? plansLevelLabel(s.plans_level) : settingsFailed ? "Couldn't load. Tap to retry" : 'Loading…'}
             onPress={open('plans')}
@@ -93,8 +92,7 @@ export default function PresencePrivacyRows() {
         </>
       ) : null}
       <View style={S.divider} />
-      <Row
-        S={S}
+      <SettingActionRow
         label="Hidden from"
         desc={
           hiddenCount == null
@@ -130,19 +128,6 @@ export default function PresencePrivacyRows() {
       ) : null}
       <HiddenFromSheet visible={sheet === 'hidden'} query={hidden} onClose={() => setSheet(null)} />
     </>
-  );
-}
-
-function Row({ S, label, desc, onPress }: { S: Styles; label: string; desc: string; onPress: () => void }) {
-  const { colors: c } = useTheme();
-  return (
-    <TouchableOpacity style={S.row} onPress={onPress} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel={`${label}: ${desc}`}>
-      <View style={S.rowText}>
-        <Text style={S.rowLabel} numberOfLines={1}>{label}</Text>
-        <Text style={S.rowDesc} numberOfLines={1}>{desc}</Text>
-      </View>
-      <Icon name="chevron-right" size={16} color={c.textMuted} />
-    </TouchableOpacity>
   );
 }
 
@@ -266,17 +251,9 @@ function HiddenFromSheet({
   );
 }
 
-type Styles = ReturnType<typeof makeStyles>;
-
-// SettingsScreen's row metrics (its `row`, `rowLabel`, `rowDesc` and
-// `divider`; the chevron is a 16px glyph), so these rows match the ones above them.
+// SettingsScreen's divider, so these rows match the ones above them.
 function makeStyles(c: Colors) {
-  const t = textStyles(c);
   return StyleSheet.create({
-    row: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 44 },
-    rowText: { flex: 1, minWidth: 0 },
-    rowLabel: t.title,
-    rowDesc: { ...t.sub, marginTop: SPACE.xxs },
     divider: { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
   });
 }

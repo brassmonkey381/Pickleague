@@ -282,8 +282,8 @@ export default function MatchScheduleSection({
   );
 }
 
-// The dreambreaker label: trophy glyph + words on the warning tint (the shared
-// styles.ts `dreambreakerBadge` was a Text pill; a glyph needs a row).
+// The dreambreaker label: trophy glyph + words on the warning tint (a glyph
+// needs a row, which the old shared Text pill could not be).
 const local = StyleSheet.create({
   dreamBadge: {
     flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, alignSelf: 'flex-start',

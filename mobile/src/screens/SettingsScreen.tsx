@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet,
-  TextInput, TouchableOpacity, Linking,
+  TextInput, Linking,
 } from 'react-native';
 import Constants from 'expo-constants';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,9 +15,9 @@ import {
   Panel,
   SectionHeader,
   SegmentedToggle,
+  SettingActionRow,
   SettingSwitchRow,
 } from '@just-messin-around/expo-foundation/ui';
-import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -118,38 +118,6 @@ function traceLine(e: ArrivalTraceEvent): string {
         .join(' ')
     : '';
   return `${when}  ${e.kind}${detail ? `  ${detail}` : ''}`;
-}
-
-/** A tappable settings row: optional leading glyph (16, beside the 15px
- *  label), label, one-line description, optional detail, then a chevron. With
- *  `expanded` set it is a disclosure row instead: the chevron points down while
- *  open and the row announces its state. */
-function ActionRow({ S, c, label, desc, onPress, danger, detail, iconName, iconColor, expanded }: {
-  S: Styles;
-  c: Colors;
-  label: string; desc?: string; onPress: () => void; danger?: boolean; detail?: string;
-  iconName?: IconName; iconColor?: string; expanded?: boolean;
-}) {
-  const disclosure = expanded !== undefined;
-  return (
-    <TouchableOpacity
-      style={S.row}
-      onPress={onPress}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityState={disclosure ? { expanded } : undefined}
-      // RNW drops accessibilityState; aria-expanded reaches the DOM.
-      aria-expanded={disclosure ? expanded : undefined}
-    >
-      {iconName ? <Icon name={iconName} size={16} color={iconColor ?? (danger ? c.danger : c.primary)} /> : null}
-      <View style={S.rowText}>
-        <Text style={[S.rowLabel, danger && S.dangerText]} numberOfLines={1}>{label}</Text>
-        {desc ? <Text style={S.rowDesc} numberOfLines={1}>{desc}</Text> : null}
-      </View>
-      {detail ? <Text style={S.rowDetail} numberOfLines={1}>{detail}</Text> : null}
-      <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={16} color={c.textMuted} />
-    </TouchableOpacity>
-  );
 }
 
 // TODO: smoke-test in browser — toggle Theme (System/Light/Dark) and confirm
@@ -437,9 +405,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
       <Panel padded={false} style={S.card}>
         {isGuest && (
           <>
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               iconName="sparkle"
               label="Create your account"
               desc="Add an email & password so you don't lose access"
@@ -450,9 +416,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         )}
         {/* The display name is edited on Profile now (its Edit sheet saves
             name, username, tagline and avatar together); this is the pointer. */}
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Edit your name on your profile"
           onPress={() => navigation.navigate('Profile', {})}
         />
@@ -464,9 +428,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         </View>
         <Divider S={S} />
         {/* Password reset */}
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           iconName={resetSent ? 'check-mark' : undefined}
           iconColor={colors.success}
           label={resetSent ? 'Reset email sent' : 'Reset password'}
@@ -476,9 +438,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
         {WAGERS_ENABLED && (
           <>
             <Divider S={S} />
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               iconName="dice"
               label="My Wagers"
               desc="View open, won, and lost pickle wagers"
@@ -506,9 +466,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             <>
               {/* Without a successful read these switches would show defaults, and
                   saving one would overwrite every other setting with them. */}
-              <ActionRow
-                S={S}
-                c={colors}
+              <SettingActionRow
                 label="Settings not loaded"
                 desc="Tap to retry; switches stay locked"
                 onPress={loadPrefs}
@@ -525,9 +483,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
             disabled={!prefsReady || pushBusy}
           />
           <Divider S={S} />
-          <ActionRow
-            S={S}
-            c={colors}
+          <SettingActionRow
             label="Notification types"
             desc={pushTypesSummary}
             expanded={typesOpen}
@@ -565,9 +521,7 @@ export default function SettingsScreen({ navigation, route }: Props) {
               onCheckinsLayout();
             }}
           >
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Check-in automation"
               desc="Starred courts, arrival check-ins and prompts"
               expanded={checkinsOpen}
@@ -591,17 +545,13 @@ export default function SettingsScreen({ navigation, route }: Props) {
       <Panel padded={false} style={S.card}>
         {/* Badge visibility lives in Profile's Edit sheet (one Save for every
             profile field), like the display name. */}
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Manage profile visibility"
           desc="Badge visibility and what other players can see"
           onPress={() => navigation.navigate('Profile', {})}
         />
         <Divider S={S} />
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Blocked players"
           desc="Review or undo the players you've blocked"
           onPress={() => navigation.navigate('BlockedPlayers')}
@@ -614,25 +564,19 @@ export default function SettingsScreen({ navigation, route }: Props) {
       {/* ── About ────────────────────────────── */}
       <SectionHeader title="App" />
       <Panel padded={false} style={S.card}>
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="About Pickleague"
           desc="Our mission and story"
           onPress={() => navigation.navigate('About')}
         />
         <Divider S={S} />
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Scoring Algo"
           desc="How PLUPR is calculated"
           onPress={() => navigation.navigate('ScoringAlgo')}
         />
         <Divider S={S} />
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Privacy Policy"
           desc="What we collect, and what we don't"
           onPress={() => Linking.openURL('https://www.pickleague.club/privacy')}
@@ -649,50 +593,38 @@ export default function SettingsScreen({ navigation, route }: Props) {
         <>
           <SectionHeader title="Godmode" icon="wrench" />
           <Panel padded={false} style={S.card}>
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Godmode Console"
               desc="Admin utilities (create test accounts, etc.)"
               onPress={() => navigation.navigate('Godmode')}
             />
             <Divider S={S} />
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Gift Pickles"
               desc="Send pickles to any user"
               onPress={() => navigation.navigate('GiftPickles')}
             />
             <Divider S={S} />
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Review Submitted Venues"
               desc="Confirm or reject user-added courts"
               onPress={() => navigation.navigate('AdminVenueReview')}
             />
             <Divider S={S} />
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Court Outlines"
               desc="Draw a building outline so check-ins pass anywhere inside"
               onPress={() => navigation.navigate('AdminBoundaries')}
             />
             <Divider S={S} />
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Reported Content"
               desc="Act on player reports within 24 hours"
               onPress={() => navigation.navigate('ModerationQueue')}
             />
             <Divider S={S} />
             {/* Device-only: read from this phone, never uploaded. */}
-            <ActionRow
-              S={S}
-              c={colors}
+            <SettingActionRow
               label="Court arrival trace"
               desc="This phone's last 200 arrival events"
               detail={trace !== null ? 'Hide' : undefined}
@@ -729,11 +661,9 @@ export default function SettingsScreen({ navigation, route }: Props) {
       {/* ── Danger zone ──────────────────────── */}
       <SectionHeader title="Account actions" />
       <Panel padded={false} style={S.card}>
-        <ActionRow S={S} c={colors} label="Sign out" onPress={openSignOut} />
+        <SettingActionRow label="Sign out" onPress={openSignOut} />
         <Divider S={S} />
-        <ActionRow
-          S={S}
-          c={colors}
+        <SettingActionRow
           label="Delete account"
           desc="Permanently remove your account and all data"
           onPress={openDeleteAccount}
@@ -793,14 +723,12 @@ function makeStyles(c: Colors) {
     // reads as belonging to it. Switch rows bring their own 12 side padding.
     nested:        { backgroundColor: c.surfaceAlt, borderTopWidth: HAIRLINE, borderTopColor: c.border },
     nestedPadded:  { padding: SPACE.md },
-    // A one-line row is 44; a row with a description lands at 56 on its own.
+    // The static Email / Version rows, on SettingActionRow's metrics.
     row:           { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md, minHeight: 44 },
     rowText:       { flex: 1, minWidth: 0 },
     rowLabel:      t.title,
-    rowDesc:       { ...t.sub, marginTop: SPACE.xxs },
     rowDetail:     { ...t.sub, color: c.textMuted, flexShrink: 1 },
     divider:       { height: HAIRLINE, backgroundColor: c.border, marginHorizontal: SPACE.md },
-    dangerText:    { color: c.danger },
     themeTabs:     { borderBottomWidth: 0 },
     hug:           { alignSelf: 'flex-start' },
     traceBox:      { paddingHorizontal: SPACE.md, paddingBottom: SPACE.sm, gap: SPACE.xs },

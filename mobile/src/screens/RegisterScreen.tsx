@@ -178,13 +178,14 @@ export default function RegisterScreen({ navigation }: Props) {
 
         <Text style={S.fieldLabel}>Gender</Text>
         <Text style={S.fieldHint}>Used to classify doubles matches as Gendered (M+M+M+M / F+F+F+F) or Mixed.</Text>
-        <View style={S.genderRow}>
+        <View style={S.genderRow} accessibilityRole="radiogroup" accessibilityLabel="Gender">
           {GENDER_OPTIONS.map((opt) => (
             <FilterPill
               key={opt.value}
               label={opt.label}
               active={gender === opt.value}
               onPress={() => setGender(opt.value)}
+              accessibilityRole="radio"
             />
           ))}
         </View>

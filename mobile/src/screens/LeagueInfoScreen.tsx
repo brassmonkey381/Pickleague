@@ -18,7 +18,7 @@ import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { CollapsibleSection, ErrorState, LoadingState, Panel } from '@just-messin-around/expo-foundation/ui';
-import { Icon, glyphForEmoji, type IconName } from '@just-messin-around/expo-foundation/icons';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SMALL_TEXT_MAX_SCALE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -240,10 +240,10 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
           </Text>
           <View style={styles.formats}>
             {[...tFormats.entries()].map(([fmt, count]) => {
-              const meta = (FORMAT_META as any)[fmt];
+              const meta = (FORMAT_META as Partial<Record<string, (typeof FORMAT_META)[keyof typeof FORMAT_META]>>)[fmt];
               return (
                 <View key={fmt} style={styles.iconRow}>
-                  <Icon name={formatIcon(meta)} size={14} color={c.textSub} />
+                  <Icon name={meta?.iconName ?? 'pickleball'} size={14} color={c.textSub} />
                   <Text style={[t.sub, styles.flex, { fontWeight: FONT.weight.semibold }]}>
                     {meta?.label ?? fmt}: {count}
                   </Text>
@@ -264,12 +264,6 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
 
 function fmtDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-/** A tournament format's glyph. Reads FORMAT_META's `iconName` (the glyph) and
- *  falls back to its emoji `icon` through the emoji table, then the ball. */
-function formatIcon(meta: { iconName?: IconName; icon?: string } | undefined): IconName {
-  return meta?.iconName ?? (meta?.icon ? glyphForEmoji(meta.icon) : undefined) ?? 'pickleball';
 }
 
 function Row({ label, value, iconName }: { label: string; value: string; iconName?: IconName }) {

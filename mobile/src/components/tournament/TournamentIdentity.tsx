@@ -85,6 +85,7 @@ export default function TournamentIdentity({
             hitBox
             iconName="calendar"
             label="No date"
+            trailingIconName="chevron-right"
             tone="warning"
             variant="outline"
             onPress={onEdit}
@@ -101,6 +102,7 @@ export default function TournamentIdentity({
             hitBox
             iconName="pin"
             label="No location"
+            trailingIconName="chevron-right"
             tone="warning"
             variant="outline"
             onPress={onEdit}

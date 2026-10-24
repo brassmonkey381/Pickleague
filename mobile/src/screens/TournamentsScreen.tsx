@@ -544,7 +544,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         action={showSort
           ? {
               label: TOURNAMENT_SORT_LABELS[split.sort],
-              chevron: true,
+              trailingIconName: 'chevron-down',
               onPress: () => setSortOpen(true),
               a11yLabel: `Sort: ${TOURNAMENT_SORT_LABELS[split.sort]}. Change sort`,
             }

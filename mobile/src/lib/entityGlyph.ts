@@ -2,24 +2,14 @@
 // the small text helpers the compact rows (LeagueRow / TournamentRow) share.
 //
 // PURE (no react-native import): rows, tiles, section labels and tests all read
-// it. A screen that can render a component may still prefer the drawn
-// BallIcon / DumbbellIcon (components/PickleIcons) for league / drill; the
-// emoji here is the text fallback and must agree with those drawings.
-//
-// The trophy / ball swap (fixed here, adopted screen by screen):
-//   - A TOURNAMENT is the trophy 🏆. That is what HomeScreen's tournament rows,
-//     BookmarksScreen and NotificationsScreen already use.
-//   - A LEAGUE is the ball 🎾 (BookmarksScreen; NotificationsScreen draws the
-//     BallIcon). PlayScreen's toggle had them swapped ('🏆 Leagues',
-//     '🎾 Tournaments'), and LeaguesScreen's empty state uses 🏆 for "No
-//     leagues yet". The Play / Leagues rework (P2) switches both to this map.
-//   - 🏓 (the paddle) stays the DRILL glyph (Home's drill rows, Bookmarks'
-//     drill sessions), so it can't also be the league.
+// it.
 //
 // Glyphs (2026-10-24, glyphs-ui-plan.md): ENTITY_ICON / entityIcon() name the
 // drawn glyph for each kind (lib/glyphs.tsx registers the Pickleague art), and
-// rows draw it with <Icon>. ENTITY_GLYPH / entityGlyph() keep the emoji for
-// text that leaves the app (push, share) and for screens not converted yet.
+// rows draw it with <Icon>. A TOURNAMENT is the trophy, a LEAGUE the
+// pickleball, a DRILL the paddle (so the paddle can't also be the league).
+// The emoji table that stood beside it went once every screen drew glyphs;
+// text that leaves the app (push, share) writes its emoji where it is built.
 import type { Theme } from '@just-messin-around/expo-foundation/theme';
 import type { IconName } from '@just-messin-around/expo-foundation/icons';
 
@@ -35,25 +25,6 @@ export type EntityKind =
   | 'player'
   | 'shop'
   | 'pickles';
-
-export const ENTITY_GLYPH: Readonly<Record<EntityKind, string>> = {
-  league: '🎾',
-  tournament: '🏆',
-  event: '📅',
-  vote: '🗳️',
-  drill: '🏓',
-  court: '📍',
-  match: '🏅',
-  season: '🗓️',
-  player: '😎',
-  shop: '🛒',
-  pickles: '🥒',
-};
-
-/** The glyph for an entity kind (the emoji; for UI prefer entityIcon). */
-export function entityGlyph(kind: EntityKind): string {
-  return ENTITY_GLYPH[kind];
-}
 
 /** The drawn glyph per kind. Event and season share the calendar. */
 export const ENTITY_ICON: Readonly<Record<EntityKind, IconName>> = {

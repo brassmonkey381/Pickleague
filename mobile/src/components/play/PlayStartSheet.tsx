@@ -565,7 +565,7 @@ export function PlayStartSheet({
     const noCourtFound = !finding && !court && !choseNoCourt;
     const courtsOpen = showCourts || privateOnly || noCourtFound;
     return (
-      <BottomSheet visible={!!request} onClose={onClose} title="Play" contentStyle={S.content}>
+      <BottomSheet visible={!!request} onClose={onClose} title="Play" titleIconName="play" contentStyle={S.content}>
         <ScrollView style={S.scroll} contentContainerStyle={S.scrollBody} keyboardShouldPersistTaps="handled">
           <Text style={t.sub}>Times your play and checks you in, so friends can find you.</Text>
 

@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ENTITY_GLYPH,
   ENTITY_ICON,
-  entityGlyph,
   entityIcon,
   entityTileColors,
   joinFacts,
@@ -14,17 +12,6 @@ import {
 import { LIGHT } from '../theme';
 
 describe('entity glyphs', () => {
-  it('tournaments are the trophy, leagues the ball, drills the paddle', () => {
-    expect(entityGlyph('tournament')).toBe('🏆');
-    expect(entityGlyph('league')).toBe('🎾');
-    expect(entityGlyph('drill')).toBe('🏓');
-  });
-
-  it('no two kinds share a glyph', () => {
-    const glyphs = Object.values(ENTITY_GLYPH);
-    expect(new Set(glyphs).size).toBe(glyphs.length);
-  });
-
   it('drawn glyphs: pickleball league, trophy tournament, paddle drill, pickle pickles', () => {
     expect(entityIcon('league')).toBe('pickleball');
     expect(entityIcon('tournament')).toBe('trophy');
@@ -40,8 +27,10 @@ describe('entity glyphs', () => {
     expect(shared).toEqual([['event', 'season']]);
   });
 
-  it('every kind has both an emoji and a glyph', () => {
-    expect(Object.keys(ENTITY_ICON).sort()).toEqual(Object.keys(ENTITY_GLYPH).sort());
+  it('every kind has a glyph', () => {
+    expect(Object.keys(ENTITY_ICON).sort()).toEqual(
+      ['court', 'drill', 'event', 'league', 'match', 'pickles', 'player', 'season', 'shop', 'tournament', 'vote'],
+    );
   });
 
   it('tile colours come from the theme', () => {

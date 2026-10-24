@@ -29,7 +29,8 @@ type DayRecord = {
 };
 
 export default function CalendarAnalyticsScreen({ route }: Props) {
-  const { userId, leagueId } = route.params;
+  // A cold /analytics/calendar link carries no params: the signed-in player's own calendar.
+  const { userId, leagueId } = route.params ?? ({} as Partial<RootStackParamList['CalendarAnalytics']>);
   const { colors } = useTheme();
   const S = makeStyles(colors);
   const [dateMap, setDateMap]       = useState<Record<string, DayRecord>>({});

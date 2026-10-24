@@ -648,7 +648,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
             action={sortVisible(split.discover.length)
               ? {
                   label: LEAGUE_SORT_LABELS[split.sort],
-                  chevron: true,
+                  trailingIconName: 'chevron-down',
                   onPress: () => setSortOpen(true),
                   a11yLabel: `Sort: ${LEAGUE_SORT_LABELS[split.sort]}. Change sort`,
                 }
