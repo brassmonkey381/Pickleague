@@ -7,7 +7,7 @@
 //   Lakeside Park                                                    ☆
 //   1 Lakeside Dr, Oakland
 //   1.2 mi · 6 courts
-//   [Check in] [On my way] [Directions] [Share]
+//   [Check in ▾] [Directions] [Share]        ([Check out] once checked in here)
 //   6 playing now · mostly 3.5–4.0
 //   [map: the court, its mapped outline drawn on it]
 //   WHO'S HERE        (PlayersHereList)
@@ -15,14 +15,19 @@
 //   LEAGUES HERE      (the leagues the player can see)
 //   Edit outline      (godmode only)
 //
-// Check in shows when there is no fix yet, or the last fix is within the
-// fence + 150 m or inside the outline (lib/courtDiscovery courtPrimaryAction);
-// otherwise Directions is the way there. It is the same flow as Home's card
-// (lib/useCourtCheckIn). An alias id opens its facility, and the URL moves to
-// the facility's id. A court that is gone says so (refusals 'view').
-// On my way (not checked in here, with friends to tell) tells friends I'm
-// heading there, about 15 min out (components/OnMyWaySheet; every friend
-// starts ticked).
+// "Check in ▾" is the feed court card's one control (the user, 2026-10-24:
+// "A simple 'Check In' button covers all the bases"; components/feed/
+// useCheckinOptions): Check in now, On my way (friends to tell; every
+// friend starts ticked), Make this a routine (a starred court). It shows
+// even far from the court, as Doggle's does: a check-in from too far says
+// why, and the note under the buttons says to check in once there (no fix
+// within the fence + 150 m or the outline: lib/courtDiscovery
+// courtPrimaryAction). Check in now is this page's own flow
+// (lib/useCourtCheckIn), so its notes show here. Every check-in starts the
+// play session; the island switches its mode. Checked in here, the page
+// offers Check out (it ends the session too) and the plan line. An alias id
+// opens its facility, and the URL moves to the facility's id. A court that
+// is gone says so (refusals 'view').
 //
 // The map (Phase 2) is Doggle's place map: the foundation PlaceMap, interactive
 // on every platform (lib/maps), with the court's outline (venues.boundary) as
@@ -33,6 +38,8 @@ import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { setQueryData } from '@just-messin-around/expo-foundation/cache';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
+import { Button } from '@just-messin-around/expo-foundation/forms';
+import { openDirections } from '@just-messin-around/expo-foundation/platform/location';
 import {
   Badge,
   ErrorBoundary,
@@ -55,8 +62,7 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { googleMapsKey, hasGoogleMaps, placeMapMode } from '../lib/maps';
-import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAY_NAV_ENABLED, ROUTINES_ENABLED } from '../lib/features';
-import { openPlayStart } from '../lib/playSession';
+import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
 import {
   courtCrowdText,
   courtDistanceLabel,
@@ -76,8 +82,7 @@ import { useCourtFavoriteIds } from '../data/courtFavorites';
 import CourtCheckInNotes from '../components/court/CourtCheckInNotes';
 import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
-import OnMyWaySheet, { type OnMyWayTarget } from '../components/OnMyWaySheet';
-import { useMyFriends } from '../lib/useFriends';
+import { useCheckinOptions } from '../components/feed/useCheckinOptions';
 import EntityRow from '../components/EntityRow';
 import type { RootStackParamList } from '../types';
 
@@ -163,19 +168,21 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
   const primary = courtPrimaryAction(court, fix);
   const distance = fix ? courtDistanceLabel(metersBetween(fix, court)) : null;
 
-  // On my way: only with friends to tell, and not once checked in here.
-  const friendsQ = useMyFriends(FRIENDS_AT_COURTS_ENABLED);
-  const canOnMyWay = FRIENDS_AT_COURTS_ENABLED && !here && (friendsQ.data?.length ?? 0) > 0;
-  const [omwTarget, setOmwTarget] = useState<OnMyWayTarget | null>(null);
-  const onMyWay = () => {
-    track('courts.on_my_way', { primary });
-    setOmwTarget({ venueId: court.id, venueName: court.name, from: 'court' });
-  };
-
   const checkIn = useCallback(() => {
     track('courts.checkin_tap', { primary });
     void flow.checkIn({ id: court.id, name: court.name });
   }, [flow, court.id, court.name, primary]);
+
+  // The one "Check in ▾" (the feed court card's): Check in now, On my way,
+  // Make this a routine; Check out once checked in here.
+  const options = useCheckinOptions({
+    from: 'court',
+    checkIn,
+    openRoutines: (ct) => navigation.navigate('Routines', { newVenue: { venueId: ct.venueId, venueName: ct.venueName } }),
+    onTap: (option) => track('courts.checkin_option', { option, primary }),
+  });
+  const starred = starredIds.has(court.id);
+  const directionsTo = Number.isFinite(court.lat) && Number.isFinite(court.lng) ? { lat: court.lat, lng: court.lng } : null;
 
   const facts: FactRow[] = [
     { key: 'courts', label: 'Courts', value: court.court_count },
@@ -212,63 +219,61 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
               </View>
             ) : undefined
           }
-          directions={{ lat: court.lat, lng: court.lng }}
-          onDirections={() => track('courts.directions', { primary })}
-          actions={[
-            // With the bottom bar (plan §7.6): "Play here" (play glyph) first, the
-            // Play sheet with this court picked; Check in, Directions and Share follow.
-            ...(PLAY_NAV_ENABLED
-              ? [
-                  {
-                    key: 'play',
-                    label: 'Play here',
-                    iconName: 'play' as const,
-                    variant: 'success' as const,
-                    disabled: !!flow.busy,
-                    onPress: () => {
-                      track('courts.play_here', { primary, here });
-                      openPlayStart({ venue: { id: court.id, name: court.name } });
-                    },
-                  },
-                ]
-              : []),
-            ...(here
-              ? [{ key: 'here', label: 'Checked in', iconName: 'check-mark' as const, onPress: () => {}, disabled: true, variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('success' as const) }]
-              : primary === 'check_in'
-                ? [
-                    {
-                      key: 'checkin',
-                      label: 'Check in',
-                      iconName: 'pin' as const,
-                      variant: PLAY_NAV_ENABLED ? ('outline' as const) : ('primary' as const),
-                      loading: flow.busy === 'checkin',
-                      disabled: !!flow.busy,
-                      onPress: checkIn,
-                    },
-                  ]
-                : []),
-            ...(canOnMyWay
-              ? [
-                  {
-                    key: 'omw',
-                    label: 'On my way',
-                    iconName: 'arrow-right' as const,
-                    variant: 'outline' as const,
-                    disabled: !!flow.busy,
-                    onPress: onMyWay,
-                  },
-                ]
-              : []),
-          ]}
+          // The page's main control first, then Directions and Share, all
+          // in the slot: PlaceHeader puts its own Directions first and its
+          // actions have no options chevron yet (FOUNDATION FOLLOW-UP:
+          // PlaceHeaderAction `options` and a primary action before
+          // Directions; then these go back to `actions` + `directions`).
           actionsSlot={
-            <ShareLinkButton
-              url={courtShareUrl(court.id)}
-              title={court.name}
-              message={`${court.name} on Pickleague`}
-              onCopied={() => setCopied(true)}
-              onShare={() => track('courts.share', { aliases: court.aliases.length })}
-              style={S.share}
-            />
+            <>
+              {here ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  iconName="logout"
+                  title="Check out"
+                  loading={options.busy === 'out'}
+                  disabled={options.busy != null}
+                  onPress={() => void options.checkOut(current)}
+                  accessibilityLabel={`Check out of ${court.name}`}
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  iconName="chevron-down"
+                  iconPosition="trailing"
+                  title="Check in"
+                  loading={flow.busy === 'checkin'}
+                  disabled={!!flow.busy}
+                  onPress={() => {
+                    track('courts.checkin_options', { primary });
+                    options.openCheckin({ venueId: court.id, venueName: court.name, starred });
+                  }}
+                  accessibilityLabel={`Check in at ${court.name}: options`}
+                />
+              )}
+              {directionsTo ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  iconName="map"
+                  title="Directions"
+                  onPress={() => {
+                    track('courts.directions', { primary });
+                    void openDirections(directionsTo.lat, directionsTo.lng);
+                  }}
+                />
+              ) : null}
+              <ShareLinkButton
+                url={courtShareUrl(court.id)}
+                title={court.name}
+                message={`${court.name} on Pickleague`}
+                onCopied={() => setCopied(true)}
+                onShare={() => track('courts.share', { aliases: court.aliases.length })}
+                style={S.share}
+              />
+            </>
           }
         />
         {copied ? <Text style={[t.sub, S.gapXs]}>Link copied.</Text> : null}
@@ -281,15 +286,6 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         ) : null}
         {courtCrowdText(crowdNow, { friendsEnabled: FRIENDS_AT_COURTS_ENABLED }) ? (
           <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} openNow={openNow} />
-        ) : null}
-        {ROUTINES_ENABLED && starredIds.has(court.id) ? (
-          <TextLink
-            label="Make it a routine"
-            iconName="calendar-event"
-            size="sub"
-            onPress={() => navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } })}
-            accessibilityHint="Plan a weekly check-in at this court"
-          />
         ) : null}
       </Panel>
 
@@ -335,7 +331,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
           onPress={() => navigation.navigate('AdminBoundaryEditor', { venueId: court.id })}
         />
       ) : null}
-      <OnMyWaySheet target={omwTarget} onClose={() => setOmwTarget(null)} />
+      {/* Check in ▾'s sheet and On my way. */}
+      {options.elements}
     </ScrollView>
   );
 }

@@ -1,19 +1,21 @@
 // One court in one day of the Pickleague Feed: the feed's top layer (Doggle's
 // FeedParkCard, with the player's avatar and PLUPR where Doggle shows the
-// dog). The header is the court (a star glyph for a starred court, a pin otherwise; tap
-// opens its page) with its crowd line and, today, [On my way] (tell friends
-// I'm about 15 min out: components/OnMyWaySheet), one-tap [Check in] and
-// [(play) Play] at this court; tomorrow "Plan v". Its lines run in time order:
-// friends who came and went today (faded), friends here now (with their play
-// mode), then what is coming there (league events, booked matches,
-// tournaments, drills, votes, my routine stops). Each person / stop line's
-// time chip opens what I can do with it; a league line opens its screen. Over
-// 6 lines the oldest finished visits give way first.
+// dog). The header is the court (a star glyph for a starred court, a pin
+// otherwise; tap opens its page) and, as on Doggle's park card, one
+// "Check in ▾" (lib/checkinOptions): today [On my way ▾] while a friend is
+// here (or "On the way" once told) and [Check in ▾], nothing once I'm
+// checked in here (my own line has it); tomorrow [Plan ▾]. The crowd line
+// sits under it. Its lines run in time order: friends who came and went
+// today (faded), me and friends here now (with their play mode), then what
+// is coming there (league events, booked matches, tournaments, drills, votes,
+// my routine stops). Each person / stop line's time chip opens what I can do
+// with it; a league line opens its screen. Over 6 lines the oldest finished
+// visits give way first.
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Avatar, type ChipTone } from '@just-messin-around/expo-foundation/ui';
-import { FeedActionPill, FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
+import { FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useTheme } from '../../lib/ThemeContext';
@@ -21,23 +23,23 @@ import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { formatPluprShort } from '../../lib/plupr';
 import { playerModeLine, playModeNowLine, type PlayModeRow } from '../../lib/courtRoutineRules';
+import { courtHeaderActions } from '../../lib/checkinOptions';
 import { capCourtLines, type DayBandKey, type FeedCourtCard as Card, type FeedCourtLine, type FeedSheetLine } from '../../lib/pickleagueFeed';
+import FeedHeaderAction from './FeedHeaderAction';
 
 const AVATAR = 36;
 
 export type FeedCourtCardActions = {
   openCourt: (card: Card) => void;
-  /** "Plan" + chevron (tomorrow): the court's options sheet. */
-  courtOptions: (card: Card, day: DayBandKey) => void;
-  /** Today's [Check in]: one tap, at this court. */
-  checkIn: (card: Card) => void;
-  /** Today's Play pill (and the empty card's "Start playing"): the start sheet at this court. */
-  play: (card: Card) => void;
-  /** Today's [On my way]: the sheet that tells friends I'm heading there. */
+  /** Today's "Check in ▾": the court's options sheet. */
+  checkInOptions: (card: Card) => void;
+  /** Tomorrow's "Plan ▾". */
+  plan: (card: Card) => void;
+  /** Today's "On my way ▾": the sheet that tells friends I'm heading there. */
   onMyWay: (card: Card) => void;
-  /** 'hidden' (no friends, or friends at the courts off), 'ready', or 'sent'
-   *  (this device told friends about this court in the last 30 minutes). */
-  onMyWayState: (card: Card) => 'hidden' | 'ready' | 'sent';
+  /** What the header can offer: friends to tell, told them in the last 30
+   *  minutes from this device, anything to plan tomorrow. */
+  headerFacts: (card: Card) => { canOnMyWay: boolean; onMyWaySent: boolean; canPlan: boolean };
   /** A league-side line (event, match, tournament, drill, vote) on this card. */
   renderAgenda: (line: Extract<FeedCourtLine, { kind: 'agenda' }>, card: Card, day: DayBandKey) => React.ReactNode;
   /** A line's time chip: its action sheet. */
@@ -87,15 +89,15 @@ export default function FeedCourtCard({
       : crowdLineText(card.crowd, null, { openNow, showFriends: false }) ??
         (card.othersHere > 0 ? `+${card.othersHere} other${card.othersHere === 1 ? '' : 's'} here` : null);
 
-  function chip(l: Exclude<FeedCourtLine, { kind: 'agenda' }>): { label: string; tone: ChipTone } {
-    if (l.kind === 'here') return { label: l.viaSession ? 'Playing now' : 'Here now', tone: 'success' };
+  function chip(l: FeedSheetLine): { label: string; tone: ChipTone } {
+    if (l.kind === 'mine' || l.kind === 'here') return { label: l.kind === 'here' && l.viaSession ? 'Playing now' : 'Here now', tone: 'success' };
     if (l.kind === 'left') return { label: 'Left', tone: 'neutral' };
     if (l.stop.status === 'cancelled') return { label: 'Skipped', tone: 'neutral' };
     const started = Date.parse(l.stop.at) <= now;
     return { label: `At ${stopClock(l.stop.at)}`, tone: started ? 'neutral' : 'warning' };
   }
 
-  function trailing(l: Exclude<FeedCourtLine, { kind: 'agenda' }>, who: string) {
+  function trailing(l: FeedSheetLine, who: string) {
     const ch = chip(l);
     const { busy, disabled } = actions.lineState(l.key);
     return (
@@ -152,6 +154,28 @@ export default function FeedCourtCard({
     );
   }
 
+  /** My own check-in here (Doggle's own "Here now" line). */
+  function mineLine(l: Extract<FeedCourtLine, { kind: 'mine' }>) {
+    const m = l.checkin;
+    const facts = [m.queued ? 'Saved with no signal' : m.playing ? 'Playing now' : 'Checked in', `until ${clock(m.expiresAt)}`];
+    return (
+      <View style={styles.line}>
+        <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
+          <Icon name={m.playing ? 'play' : 'pin'} size={18} color={c.primary} />
+        </View>
+        <View style={styles.body}>
+          <Text style={t.title} numberOfLines={1}>
+            You
+          </Text>
+          <Text style={[t.meta, { color: c.success }]} numberOfLines={1}>
+            {facts.join(' · ')}
+          </Text>
+        </View>
+        {trailing(l, 'your check-in')}
+      </View>
+    );
+  }
+
   function stopLine(l: Extract<FeedCourtLine, { kind: 'stop' }>) {
     const s = l.stop;
     const plan = s.status === 'planned' ? playModeNowLine(s.windows, new Date(Math.max(now, Date.parse(s.at)))) : '';
@@ -173,10 +197,14 @@ export default function FeedCourtCard({
     );
   }
 
-  const omw = day === 'today' ? actions.onMyWayState(card) : 'hidden';
-
-  // Today: check in / play right here. Tomorrow: plan (a routine).
-  const optionsLabel = day === 'tomorrow' ? 'Plan' : null;
+  const header = courtHeaderActions({
+    day,
+    hereMine: card.hereMine,
+    friendHere: card.lines.some((l) => l.kind === 'here'),
+    ...actions.headerFacts(card),
+  });
+  // Two actions leave the name little room: let it wrap rather than cut (Doggle).
+  const twoActions = header.length > 1;
 
   return (
     <View style={[styles.card, { borderColor: c.border }]}>
@@ -188,62 +216,63 @@ export default function FeedCourtCard({
           accessibilityLabel={`${card.venueName}. Open the court`}
         >
           <Icon name={card.starred ? 'star' : 'pin'} size={16} color={c.primary} />
-          <Text style={[t.title, styles.shrink]} numberOfLines={1}>
+          <Text style={[t.title, styles.shrink]} numberOfLines={twoActions ? 2 : 1}>
             {card.venueName}
           </Text>
           <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
-        {optionsLabel ? (
-          <TouchableOpacity
-            onPress={() => actions.courtOptions(card, day)}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel={`${optionsLabel} at ${card.venueName}: options`}
-            style={styles.headerAction}
-          >
-            <Text style={[t.title, { color: c.primary }]}>{optionsLabel}</Text>
-            <Icon name="chevron-down" size={14} color={c.primary} />
-          </TouchableOpacity>
+        {header.length > 0 ? (
+          <View style={styles.headerActions}>
+            {header.map((a) => {
+              switch (a) {
+                case 'onMyWaySent':
+                  return (
+                    <View
+                      key={a}
+                      style={styles.sent}
+                      accessible
+                      accessibilityLabel={`You told your friends at ${card.venueName} you're on the way`}
+                    >
+                      <Text style={[t.meta, { color: c.textSub }]}>On the way</Text>
+                      <Icon name="check-mark" size={12} color={c.textSub} />
+                    </View>
+                  );
+                case 'onMyWay':
+                  return (
+                    <FeedHeaderAction
+                      key={a}
+                      label="On my way"
+                      options
+                      onPress={() => actions.onMyWay(card)}
+                      accessibilityLabel={`Tell friends at ${card.venueName} you're on the way`}
+                    />
+                  );
+                case 'checkIn':
+                  return (
+                    <FeedHeaderAction
+                      key={a}
+                      label="Check in"
+                      options
+                      onPress={() => actions.checkInOptions(card)}
+                      accessibilityLabel={`Check in at ${card.venueName}: options`}
+                    />
+                  );
+                case 'plan':
+                  return (
+                    <FeedHeaderAction
+                      key={a}
+                      label="Plan"
+                      options
+                      onPress={() => actions.plan(card)}
+                      accessibilityLabel={`Plan at ${card.venueName} tomorrow: options`}
+                    />
+                  );
+              }
+            })}
+          </View>
         ) : null}
       </View>
-      {/* Today: the crowd line beside one-tap Check in / Play (the name
-          keeps the whole first line, a long court name stays readable). */}
-      {day === 'today' ? (
-        <View style={styles.subHeader}>
-          {/* With three pills the crowd line keeps at least ~120 px; on a
-              narrow phone the pills wrap under it as one group. */}
-          <Text style={[t.meta, omw === 'hidden' ? styles.subText : styles.subTextWrap, { color: c.textSub }]} numberOfLines={1}>
-            {crowd ?? ''}
-          </Text>
-          <View style={styles.pills}>
-            {omw !== 'hidden' ? (
-              <FeedActionPill
-                label={omw === 'sent' ? 'Told friends' : 'On my way'}
-                iconName={omw === 'sent' ? 'check-mark' : 'arrow-right'}
-                onPress={() => actions.onMyWay(card)}
-                accessibilityLabel={
-                  omw === 'sent'
-                    ? `You told friends you're on the way to ${card.venueName}. Open On my way`
-                    : `On my way to ${card.venueName}: tell friends`
-                }
-              />
-            ) : null}
-            <FeedActionPill
-              label="Check in"
-              iconName="pin"
-              onPress={() => actions.checkIn(card)}
-              accessibilityLabel={`Check in at ${card.venueName}`}
-            />
-            <FeedActionPill
-              label="Play"
-              iconName="play"
-              filled
-              onPress={() => actions.play(card)}
-              accessibilityLabel={`Start playing at ${card.venueName}`}
-            />
-          </View>
-        </View>
-      ) : crowd ? (
+      {crowd ? (
         <Text style={[t.meta, styles.crowd, { color: c.textSub }]} numberOfLines={1}>
           {crowd}
         </Text>
@@ -267,14 +296,14 @@ export default function FeedCourtCard({
               </View>
             );
           }
-          const own = l.kind === 'stop';
+          const own = l.kind === 'stop' || l.kind === 'mine';
           const past = l.kind === 'left' || (l.kind === 'stop' && l.stop.status === 'cancelled');
           return (
             <View
               key={l.key}
               style={[styles.row, own && [styles.ownRow, { backgroundColor: c.successLight }], past && styles.past]}
             >
-              {l.kind === 'stop' ? stopLine(l) : personLine(l)}
+              {l.kind === 'stop' ? stopLine(l) : l.kind === 'mine' ? mineLine(l) : personLine(l)}
             </View>
           );
         })}
@@ -299,11 +328,8 @@ const styles = StyleSheet.create({
   card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
-  headerAction: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
-  subHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.xs },
-  subText: { flex: 1, minWidth: 0 },
-  subTextWrap: { flexGrow: 1, flexShrink: 1, flexBasis: 120, minWidth: 0 },
-  pills: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+  sent: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
   agendaRow: { marginHorizontal: -SPACE.xs },
   crowd: { marginTop: SPACE.xxs },
   shrink: { flexShrink: 1 },

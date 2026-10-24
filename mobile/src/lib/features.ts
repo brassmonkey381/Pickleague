@@ -143,7 +143,8 @@ export const REFERRALS_ENABLED = true;
  * the court I'm at in one tap (components/play/CheckinHost, which owns the
  * check-in listeners and drives the island's checked-in state). The bell and
  * the gear stay in Home's top bar; Me gets a gear too. CourtDetail's primary
- * button is "▶ Play here", the end sheet says how long and where, and
+ * button is "Check in ▾" (2026-10-24, the feed card's one control; every
+ * check-in starts the session), the end sheet says how long and where, and
  * /play/start opens the sheet.
  *
  * ON since 2026-10-22: the user asked for changes straight in production, no

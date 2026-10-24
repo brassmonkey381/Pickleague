@@ -1,7 +1,8 @@
 // "On my way to Lakeside": tell friends you're heading to a court, about N
 // minutes out (supabase/migration_on_my_way.sql; Doggle's OnMyWayFriendsModal
-// with an ETA). Opened from the feed's court card (the On my way pill and the
-// court's options) and from the court's page.
+// with an ETA). Opened from the feed's court card (its "On my way ▾", the
+// Check in ▾ sheet, a line's sheet) and from the court page's Check in ▾
+// (components/feed/useCheckinOptions).
 //
 //   On my way to Lakeside                                       ✕
 //   About how long?
