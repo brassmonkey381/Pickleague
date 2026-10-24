@@ -641,6 +641,12 @@ begin
   perform pg_temp.ok('V6 a check-in extended a minute after its arrival fix proves no stay',
     r.arrival_fix_at = now() - interval '1 minute' and r.fix_at = now() and not r.stay_confirmed, r::text);
   perform public.checkout_venue(null, null, now());
+  -- That check-in started a session (migration_checkin_starts_session.sql),
+  -- ended at its check-out, now(): the no-overlap rule would move the
+  -- backdated Start below up to it. Gone, so this checks the Start alone.
+  perform pg_temp.as_admin();
+  delete from public.play_sessions where user_id = pg_temp.p('VT') and checkin_id = id;
+  perform pg_temp.as_user(pg_temp.p('VT'));
 
   -- A session started "10 minutes ago" at the court with a fix from now:
   -- the session is stored, its check-in is not (the fix isn't the tap's).
