@@ -144,8 +144,9 @@ No CI runner is wired up yet — these are **human-runnable** today.
     ```
 
 - `check-replaced-functions.mjs`
-  - Run against live right before the court arrival files or
-    `migration_hide_test_accounts.sql` are applied. Those
+  - Run against live right before the court arrival files,
+    `migration_hide_test_accounts.sql` or `migration_auto_complete_seasons.sql`
+    are applied. Those
     files rewrite live functions from the repo files that last defined
     them; this builds one read-only SQL file that compares each live body
     with that file's and with the replacing file's (whitespace ignored)
@@ -315,4 +316,28 @@ touches playoff bracket generation or advancement.
     ```sh
     node supabase/tests/build-on-my-way-test.mjs /tmp/on_my_way_test.sql
     supabase db query --linked -f /tmp/on_my_way_test.sql -o csv
+    ```
+
+- `auto_complete_seasons_personas.sql` (+ `build-auto-complete-seasons-test.mjs`)
+  - Seasons complete themselves (`migration_auto_complete_seasons.sql`):
+    applies the migration twice inside one rolled-back transaction (it does
+    NOT re-run `migration_rls_hardening_2026q3.sql`; the builder refuses unless
+    that file's allowlist still names `complete_season`), then checks: grants
+    and attributes (complete_season keeps its ACL; the helper and the job are
+    internal, security definer, search_path ''); one cron job at :08; clients
+    and anon cannot run the internals; complete_season's refusals, including
+    signed-out and anon callers (both were let through before); the job
+    completes a season the day after its end date in the league creator's zone
+    (Kiritimati vs Pago Pago), leaves one ending today, one not ended, one with
+    a due period unlocked (completed once it locks), an upcoming and a
+    completed one; one season failing is rolled back alone and retried; final
+    standings, the league rating reset, the Season Crown / Silver / Bronze and
+    Period Sweeper badges, +150 pickles and the badge notification + push; a
+    second run does nothing; the admin's button still works and the job never
+    completes a season twice. INFO rows list the REAL seasons the run would
+    complete (rolled back).
+
+    ```sh
+    node supabase/tests/build-auto-complete-seasons-test.mjs /tmp/auto_complete_seasons_test.sql
+    supabase db query --linked -f /tmp/auto_complete_seasons_test.sql -o csv
     ```

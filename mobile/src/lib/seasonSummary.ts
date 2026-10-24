@@ -369,41 +369,67 @@ type StatusDateOpts = {
   /** A list row's short form (LeaguesScreen, a 1-line subtitle): "P7 locks
    *  Oct 20", "Ends Dec 1", "P7 locking soon", no weekday or "tomorrow". */
   compact?: boolean;
+  /** Also say the season's end when the line doesn't already ("Period 7 locks
+   *  Oct 20 · Ends Dec 1"): LeagueDetail's Standings header, which has room
+   *  for a second line. Not in the compact form. */
+  withEnd?: boolean;
 };
 
 /**
  * The status line's date part: the next date that matters. Upcoming: "Starts
- * Nov 3". Mid-season: "Period 7 locks Oct 20"; when that lock is the last
- * period's and falls on end_date, it IS the season end: "Season ends Dec 1"
- * (a season whose weeks don't divide evenly reads "Final lock Nov 17", since
- * it still runs to end_date). A lock that is due (its date has arrived,
- * local) is admin information, so admins read "Lock due" (it drives Manage)
- * and members the date-free "Period 7 locking soon" / "Season ending soon" /
- * "Final lock soon". Every period locked but the season not completed yet:
- * "Final standings soon". Due is re-checked against `now`, so a cached
+ * Nov 3". Mid-season: "Period 7 locks Oct 20" (+ " · Ends Dec 1" with
+ * `withEnd`); when that lock is the last period's and falls on end_date, it
+ * IS the season end: "Season ends Dec 1" (a season whose weeks don't divide
+ * evenly reads "Final lock Nov 17", since it still runs to end_date). A lock
+ * that is due (its date has arrived, local) is admin information, so admins
+ * read "Lock due" (it drives Manage) and members the date-free "Period 7
+ * locking soon" / "Season ending soon" / "Final lock soon". Every period
+ * locked: "Season ends Dec 1" until end_date has passed. Past end_date and
+ * not completed yet (the hourly job completes it from 00:00 local the day
+ * after, migration_auto_complete_seasons.sql): "Ended Aug 19 · Final
+ * standings soon", admins "Ended Aug 19 · Completion due" (or "· Lock due"
+ * while a due lock is missing), compact "Ended Aug 19". With no end_date at
+ * all: "Final standings soon". Due is re-checked against `now`, so a cached
  * summary never says "locks today" for a lock that is already due.
  * `compact` gives the short forms ("P7 locks Oct 20", "Ends Dec 1").
  */
-export function seasonDatePart(s: SeasonStatusFacts, { isAdmin = false, now, locale, compact = false }: StatusDateOpts): string {
+export function seasonDatePart(
+  s: SeasonStatusFacts,
+  { isAdmin = false, now, locale, compact = false, withEnd = false }: StatusDateOpts,
+): string {
   const today = localIsoDate(now);
   const fmt = (iso: string) => (compact ? shortDate(iso, locale) : relativeShortDate(iso, today, locale));
   const period = compact ? `P${s.nextPeriod}` : `Period ${s.nextPeriod}`;
   if (s.phase === 'upcoming') {
     return s.startsOn ? `Starts ${fmt(s.startsOn)}` : 'Starts soon';
   }
-  if (s.nextPeriod == null || s.nextLockOn == null) return compact ? 'Final soon' : 'Final standings soon';
+  // Over (the whole end day has passed) but not completed yet.
+  if (s.endsOn != null && s.endsOn < today) {
+    const ended = `Ended ${shortDate(s.endsOn, locale)}`;
+    if (compact) return ended;
+    if (!isAdmin) return `${ended} · Final standings soon`;
+    const lockLeft = s.nextLockOn != null && s.nextLockOn <= today;
+    return `${ended} · ${lockLeft ? 'Lock due' : 'Completion due'}`;
+  }
+  if (s.nextPeriod == null || s.nextLockOn == null) {
+    // Every period locked; the season still runs to its end_date.
+    if (s.endsOn == null) return compact ? 'Final soon' : 'Final standings soon';
+    return compact ? `Ends ${fmt(s.endsOn)}` : `Season ends ${fmt(s.endsOn)}`;
+  }
   const last = s.nextPeriod >= s.totalPeriods;
   // The last lock is the season's end only when the weeks divide evenly
   // (total_periods is total_weeks / lock_frequency_weeks, integer division).
   const endsWithLock = last && (s.endsOn == null || s.endsOn === s.nextLockOn);
+  // The season's end, when this line doesn't already say it.
+  const end = withEnd && !compact && !endsWithLock && s.endsOn ? ` · Ends ${shortDate(s.endsOn, locale)}` : '';
   if (s.lockDue || s.nextLockOn <= today) {
-    if (isAdmin) return 'Lock due';
+    if (isAdmin) return `Lock due${end}`;
     if (endsWithLock) return compact ? 'Ending soon' : 'Season ending soon';
-    return last ? 'Final lock soon' : `${period} locking soon`;
+    return `${last ? 'Final lock soon' : `${period} locking soon`}${end}`;
   }
   const when = fmt(s.nextLockOn);
   if (endsWithLock) return compact ? `Ends ${when}` : `Season ends ${when}`;
-  return last ? `Final lock ${when}` : `${period} locks ${when}`;
+  return `${last ? `Final lock ${when}` : `${period} locks ${when}`}${end}`;
 }
 
 export type SeasonStatusArgs = StatusDateOpts & {
@@ -421,6 +447,7 @@ export type SeasonStatusArgs = StatusDateOpts & {
  *   "You #2 of 14 · Period 7 locks Oct 20"     mid-season
  *   "You #2 of 14 · Season ends Dec 1"         last period (on end_date)
  *   "You #2 of 14 · Final lock Nov 17"         last period, before end_date
+ *   "You #2 of 14 · Ended Aug 19 · Final standings soon"   past end_date, not completed yet
  *   "14 players · Period 7 locks Oct 20"       not ranked (no matches / not in the table)
  *   "Starts Nov 3"                             upcoming
  *   "Final · You #3 of 14" / "Final · 14 players"   completed

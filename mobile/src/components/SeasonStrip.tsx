@@ -4,7 +4,7 @@
 // open by default.
 //
 //   STANDINGS  Fall                                    Full table >   44
-//   You #2 of 14 · Period 7 locks Oct 20                              one line
+//   You #2 of 14 · Period 7 locks Oct 20 · Ends Dec 1                 1-2 lines
 //   ┌ #   Player                        W-L     PLUPR ┐
 //   │ (1) (av) Alice                    5-1     3.82 +0.32 │          56 each
 //   │ ...top 10, your row pinned under a heavier rule  │
@@ -13,7 +13,8 @@
 // What it ranks (live period, locked period, upcoming preview, last season's
 // final standings, or a members-by-PLUPR leaderboard) is decided by
 // components/league/useLeagueStandings.ts; the header line is its
-// leagueStandingsHeader (Home's spotlight shows the same status line), so
+// leagueStandingsHeader (Home's spotlight shows the same status line, minus
+// the season's end date), so
 // the season's facts (You #N of M, the next lock or the season end) are each
 // said once. It never renders an empty section: loading is a row
 // skeleton, a failed first load is a compact ErrorState (offline glyph, the
@@ -89,7 +90,9 @@ export default function SeasonStrip({
   }
   if (data.rows.length === 0) return null;
 
-  const head = leagueStandingsHeader(data, { privileged });
+  // withEnd: the line also names the season's end ("Period 7 locks Oct 20 ·
+  // Ends Dec 1"), so it may wrap to a second line on a narrow phone.
+  const head = leagueStandingsHeader(data, { privileged, withEnd: true });
   const ranked = data.kind === 'live' || data.kind === 'locked' || data.kind === 'final';
   const seasonId = data.seasonId;
   const action = seasonId
@@ -108,7 +111,7 @@ export default function SeasonStrip({
     <View style={styles.section}>
       <SectionHeader title={head.title} count={head.label ?? undefined} action={action} />
       {head.subtitle ? (
-        <Text style={[t.meta, styles.subtitle]} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+        <Text style={[t.meta, styles.subtitle]} numberOfLines={2} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
           {head.subtitle}
         </Text>
       ) : null}

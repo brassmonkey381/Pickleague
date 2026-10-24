@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Before the court arrival files (and migration_hide_test_accounts.sql) go
-// live: are the live functions they replace still what the repo says they
+// Before the court arrival files (and migration_hide_test_accounts.sql,
+// migration_checkin_starts_session.sql, migration_auto_complete_seasons.sql)
+// go live: are the live functions they replace still what the repo says they
 // are? Each of those files rewrites a function from the last repo file that
 // defined it (the live definitions could not be
 // read when they were written), so a body changed on live by hand would be
@@ -60,6 +61,11 @@ const REPLACED = [
   ['public.court_play_modes(text)', 'migration_court_routines.sql', 'migration_checkin_starts_session.sql'],
   ['public._pl_take_back_arrival(uuid,uuid[],timestamptz)', 'migration_court_routines.sql',
     'migration_checkin_starts_session.sql'],
+  // Seasons complete themselves (migration_auto_complete_seasons.sql): the
+  // body moves into _complete_season_unchecked, complete_season keeps the
+  // admin check (now null-safe for signed-out callers).
+  ['public.complete_season(uuid)', 'migration_fix_complete_season_league_scoped.sql',
+    'migration_auto_complete_seasons.sql'],
 ];
 const TAG = '$pl_expect$';
 

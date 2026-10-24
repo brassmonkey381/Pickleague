@@ -360,13 +360,17 @@ export type LeagueStandingsHeader = {
  * The section's header facts: the season's name in the header, and under it
  * your rank out of THESE rows plus the next date that matters (lib/
  * seasonSummary's seasonStatusLine). "Lock due" is admin information: pass
- * `privileged: false` for members.
+ * `privileged: false` for members. `withEnd` also names the season's end
+ * ("Period 7 locks Oct 20 · Ends Dec 1"): LeagueDetail passes it, Home's
+ * one-line spotlight does not.
  */
 export function leagueStandingsHeader(
   d: LeagueStandings,
-  opts: { privileged?: boolean; now?: Date; locale?: string } = {},
+  opts: { privileged?: boolean; now?: Date; locale?: string; withEnd?: boolean } = {},
 ): LeagueStandingsHeader {
-  const dateOpts = { isAdmin: !!opts.privileged, now: opts.now ?? new Date(), locale: opts.locale };
+  const dateOpts = {
+    isAdmin: !!opts.privileged, now: opts.now ?? new Date(), locale: opts.locale, withEnd: !!opts.withEnd,
+  };
   const status = (summary: SeasonSummary | null) => seasonStatusLine({
     summary,
     myRank: d.myRank,
