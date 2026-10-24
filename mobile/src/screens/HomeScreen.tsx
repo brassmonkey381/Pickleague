@@ -17,6 +17,8 @@
 //   FRIENDS AT THE COURTS  friends playing now + YOUR COURTS with their crowd
 //                  (components/home/FriendsAtCourtsSection.tsx)
 //   OPEN NEAR YOU  open tournaments / joinable leagues (members)
+//   (JOIN A LEAGUE and OPEN NEAR YOU are limited to Discover's search area,
+//   lib/useSearchArea, so "See all" / "Browse" land on the same rows.)
 //   unlock ....... next badge on a progress bar (once Get started is gone)
 //
 // With HOME_FEED_ENABLED (P3, on): UP NEXT, YOUR LEAGUES, FRIENDS AT THE
@@ -53,6 +55,8 @@ import { COURT_DISCOVERY_ENABLED, HOME_FEED_ENABLED, PLAY_NAV_ENABLED } from '..
 import { setAlertBadge, useAlertBadge } from '../lib/useAlertBadge';
 import { requestCheckinIsland } from '../lib/checkinHost';
 import { openDiscover } from '../lib/discoverNav';
+import { useSearchArea } from '../lib/useSearchArea';
+import { filterBySearchArea, pointOf } from '../lib/searchArea';
 import { RootStackParamList } from '../types';
 import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
@@ -416,10 +420,26 @@ export default function HomeScreen({ navigation }: Props) {
     return distanceMeters({ lat: coords.lat, lng: coords.lng }, { lat, lng });
   }, [coords]);
 
+  // Discover's search area limits JOIN A LEAGUE and OPEN NEAR YOU the way it
+  // limits Discover (a tournament with no venue sits at its league's court;
+  // a row with no location can't be placed and is left out). Until the area
+  // is known neither list shows, so nothing outside it flashes first.
+  const { area: searchArea, ready: areaReady } = useSearchArea();
+  const openLeagues = useMemo(
+    () => (areaReady ? filterBySearchArea(data.openLeagues, searchArea, l => pointOf(l.lat, l.lng)) : []),
+    [areaReady, searchArea, data.openLeagues],
+  );
+  const openTournaments = useMemo(
+    () => (areaReady
+      ? filterBySearchArea(data.openTournaments, searchArea, t => pointOf(t.lat, t.lng) ?? pointOf(t.leagueLat, t.leagueLng))
+      : []),
+    [areaReady, searchArea, data.openTournaments],
+  );
+
   // JOIN A LEAGUE: nearest first when we may know where you are; otherwise
   // open leagues before private ones, the busiest first.
   const joinLeagues = useMemo(() => {
-    const rows = data.openLeagues.map(l => ({ l, d: distanceTo(l.lat, l.lng) }));
+    const rows = openLeagues.map(l => ({ l, d: distanceTo(l.lat, l.lng) }));
     rows.sort((a, b) => {
       if (a.d != null || b.d != null) return (a.d ?? Infinity) - (b.d ?? Infinity);
       const ao = a.l.is_open === false ? 1 : 0;
@@ -427,7 +447,7 @@ export default function HomeScreen({ navigation }: Props) {
       return ao - bo || b.l.memberCount - a.l.memberCount;
     });
     return rows.slice(0, JOIN_ROWS);
-  }, [data.openLeagues, distanceTo]);
+  }, [openLeagues, distanceTo]);
   const joinDistances = useMemo(
     () => new Map(joinLeagues.filter(r => r.d != null).map(r => [r.l.id, milesLabel(r.d!)])),
     [joinLeagues],
@@ -437,18 +457,18 @@ export default function HomeScreen({ navigation }: Props) {
   // first when location is granted. Keeps the uncapped total for "See all (N)".
   const openItems: { rows: OpenItem[]; total: number } = useMemo(() => {
     const items: (OpenItem & { d: number | null })[] = [
-      ...data.openTournaments.map(tr => {
+      ...openTournaments.map(tr => {
         const d = distanceTo(tr.lat, tr.lng);
         return { kind: 'tournament' as const, key: `t-${tr.id}`, tournament: tr, distance: d != null ? milesLabel(d) : null, d };
       }),
-      ...data.openLeagues.map(l => {
+      ...openLeagues.map(l => {
         const d = distanceTo(l.lat, l.lng);
         return { kind: 'league' as const, key: `l-${l.id}`, league: l, distance: d != null ? milesLabel(d) : null, d };
       }),
     ];
     if (coords) items.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
     return { rows: items.slice(0, OPEN_ROWS), total: items.length };
-  }, [data.openTournaments, data.openLeagues, distanceTo, coords]);
+  }, [openTournaments, openLeagues, distanceTo, coords]);
 
   // ── Navigation helpers ──
   const go = useCallback((target: AgendaTarget) => {
@@ -720,7 +740,7 @@ export default function HomeScreen({ navigation }: Props) {
         total={openItems.total}
         totalIsFloor={data.openCapped}
         onSeeAll={() => { tap('open_near_you', 'see_all'); openDiscover(navigation, { tab: 'leagues' }); }}
-        nearby={!!coords}
+        nearby={!!coords || !!searchArea}
         now={now}
         onPress={(item, i) => {
           tap('open_near_you', item.kind, i);

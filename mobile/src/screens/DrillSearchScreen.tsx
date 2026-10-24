@@ -2,7 +2,11 @@
 // shared with every Discover tab): drillers who PLAY there, by their leagues'
 // home courts and, when their presence privacy names them to you, their
 // starred and frequent courts (data/playersNear; never where they are now).
-// Without an area yet: the 100 drillers nearest your level, as before.
+// The list waits until the area is known (lib/useSearchArea's `ready`).
+// Without any area (no location, no city, no located league court): the 100
+// drillers nearest your level, as before.
+// "Find a new time" (a push, `partnerId`) opens the request form for that
+// partner even when they don't play inside the area: they are fetched alone.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
@@ -61,6 +65,47 @@ type SortMode = 'overlap' | 'shots' | 'elo';
 
 type Me = { id: string; rating: number; avail: boolean[]; shots: string[]; partner: string[] };
 
+const DRILLER_COLUMNS =
+  'id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags';
+
+/** A driller row scored against me (shared slots, shots, partner prefs). */
+function toCandidate(p: any, me: Me, withPlace: boolean): Candidate {
+  const dates   = rollingDates();
+  const myDated = expandWeeklyToDates(me.avail, dates);
+  const theirWeekly = toWeeklyTemplate(p.drill_availability ?? []);
+  const overlap     = overlapSlots(myDated, expandWeeklyToDates(theirWeekly, dates), dates);
+  const sharedShots   = (p.drill_shot_prefs ?? []).filter((s: string) => me.shots.includes(s)).length;
+  const sharedPartner = (p.drill_partner_prefs ?? []).filter((s: string) => me.partner.includes(s)).length;
+  return {
+    id: p.id,
+    full_name: p.full_name ?? 'Unknown',
+    username: p.username ?? '',
+    rating: p.rating ?? 3.25,
+    total_matches_played: p.total_matches_played ?? 0,
+    avatar_id: p.avatar_id ?? 1,
+    avatar_url: p.avatar_url,
+    drill_availability: theirWeekly,
+    drill_shot_prefs: p.drill_shot_prefs ?? [],
+    drill_partner_prefs: p.drill_partner_prefs ?? [],
+    drill_custom_tags: p.drill_custom_tags ?? [],
+    overlap,
+    sharedShots,
+    sharedPartner,
+    playsAt: withPlace && p.distance_m != null ? playsAtLabel(p) : null,
+  };
+}
+
+/** One driller by id (a push's partner), or null when they can't be offered:
+ *  a deleted account, or drilling turned off since. */
+async function fetchDriller(id: string): Promise<any | null> {
+  const p = await sbCall(() => supabase
+    .from('profiles')
+    .select(`${DRILLER_COLUMNS}, drilling_enabled, deleted_at`)
+    .eq('id', id)
+    .maybeSingle()) as any;
+  return p && !p.deleted_at && p.drilling_enabled ? p : null;
+}
+
 export default function DrillSearchScreen({ route }: Props) {
   const { colors } = useTheme();
   const S = makeStyles(colors);
@@ -68,7 +113,7 @@ export default function DrillSearchScreen({ route }: Props) {
   const [search, setSearch]   = useState('');
   const [sort, setSort]       = useState<SortMode>('overlap');
   const [requestTarget, setRequestTarget] = useState<Candidate | null>(null);
-  const { area } = useSearchArea();
+  const { area, ready: areaReady } = useSearchArea();
   const areaKey = searchAreaKey(area);
   const areaRef = useRef<SearchArea | null>(area);
   areaRef.current = area;
@@ -106,41 +151,19 @@ export default function DrillSearchScreen({ route }: Props) {
       ? await listPlayersNear(near, { drillingOnly: true, exclude: [uid], limit: 200 }) as any[]
       : await sbCall(() => supabase
         .rpc('discover_players', { p_drilling_only: true, p_exclude: [uid], p_limit: 100, p_near_rating: myRating })
-        .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_url, drill_availability, drill_shot_prefs, drill_partner_prefs, drill_custom_tags')) as any[];
+        .select(DRILLER_COLUMNS)) as any[];
 
-    const dates   = rollingDates();
-    const myDated = expandWeeklyToDates(myWeekly, dates);
-    const list: Candidate[] = (others ?? []).map((p: any) => {
-      const theirWeekly = toWeeklyTemplate(p.drill_availability ?? []);
-      const overlap     = overlapSlots(myDated, expandWeeklyToDates(theirWeekly, dates), dates);
-      const sharedShots   = (p.drill_shot_prefs ?? []).filter((s: string) => myShots.includes(s)).length;
-      const sharedPartner = (p.drill_partner_prefs ?? []).filter((s: string) => myPartner.includes(s)).length;
-      return {
-        id: p.id,
-        full_name: p.full_name ?? 'Unknown',
-        username: p.username ?? '',
-        rating: p.rating ?? 3.25,
-        total_matches_played: p.total_matches_played ?? 0,
-        avatar_id: p.avatar_id ?? 1,
-        avatar_url: p.avatar_url,
-        drill_availability: theirWeekly,
-        drill_shot_prefs: p.drill_shot_prefs ?? [],
-        drill_partner_prefs: p.drill_partner_prefs ?? [],
-        drill_custom_tags: p.drill_custom_tags ?? [],
-        overlap,
-        sharedShots,
-        sharedPartner,
-        playsAt: near && p.distance_m != null ? playsAtLabel(p) : null,
-      };
-    });
+    const list: Candidate[] = (others ?? []).map((p: any) => toCandidate(p, me, !!near));
 
     return { me, candidates: list };
   }, []);
 
-  // Keyed by the area: a new area is a new list.
+  // Keyed by the area: a new area is a new list. Not fetched (and nothing
+  // cached as "anywhere") until the area is known.
   const query = useCachedQuery(`drill:search:${areaKey}`, load, {
     ttlMs: 60_000,
     persistMs: 12 * 60 * 60 * 1000,
+    enabled: areaReady,
   });
   const me         = query.data?.me ?? null;
   const candidates = query.data?.candidates ?? [];
@@ -148,19 +171,34 @@ export default function DrillSearchScreen({ route }: Props) {
 
   const reload = useCallback(() => query.refresh(), [query.refresh]);
 
-  useEffect(() => {
-    if (!partnerId || prefilledFor.current === partnerId) return;
-    const match = candidates.find(c => c.id === partnerId);
-    if (!match) return;
-    prefilledFor.current = partnerId;
-    setRequestTarget(match);
-  }, [partnerId, candidates]);
   const refresh = useRefresh(reload);
 
   // A blocked player must not come back as a drilling suggestion. The database
   // already refuses the request itself; this keeps them out of the list that
   // offers to send one.
   const blockedIds = useBlockedIds();
+
+  // "Find a new time": the partner from the list, else (they don't play inside
+  // the area, or are past the list's cap) fetched alone. Once per partner.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const listReady = query.data !== undefined;
+  useEffect(() => {
+    if (!partnerId || prefilledFor.current === partnerId || !me || !listReady) return;
+    if (blockedIds.has(partnerId) || partnerId === me.id) return;
+    prefilledFor.current = partnerId;
+    const match = candidates.find(c => c.id === partnerId);
+    if (match) {
+      setRequestTarget(match);
+      return;
+    }
+    void fetchDriller(partnerId)
+      .then((p) => { if (mounted.current && p) setRequestTarget(toCandidate(p, me, false)); })
+      .catch(() => { /* the list is still there to pick from */ });
+  }, [partnerId, candidates, me, listReady, blockedIds]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -185,7 +223,7 @@ export default function DrillSearchScreen({ route }: Props) {
   // Only gate on the very first load, and never when it failed — the failure
   // path has to fall through to the list so its pull-to-refresh stays mounted.
   const areaBar = <SearchAreaBar surface="drill" style={S.areaBar} />;
-  if (query.loading && !loadFailed) {
+  if ((query.loading || !areaReady) && !loadFailed) {
     return <View style={{ flex: 1, backgroundColor: colors.bg }}>{areaBar}<SkeletonList rows={6} /></View>;
   }
 

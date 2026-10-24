@@ -2,8 +2,10 @@
 // (Doggle's Discover "Search near" / "Within 5 mi" pills):
 //
 //   [📍 Alameda, CA ▾] [Within 5 mi ▾]
-//   (no area yet)  [📍 Choose an area ▾] [Within 5 mi ▾]
+//   (no location, no city, no league court)  [📍 Choose an area ▾] [Within 5 mi ▾]
 //                  Pick your location or a city, and every search here stays near it.
+// The place is the city, else the nearest city to the device or to my
+// leagues' courts (lib/useSearchArea's fallbacks).
 //
 // The place pill opens "Search near": Use my location (asks for location
 // here, the same confirm as Play's Distance filter) and Search a city
@@ -35,23 +37,26 @@ type Props = {
 
 const RADIUS_ITEMS = SEARCH_RADIUS_MILES.map((mi) => ({ id: String(mi), name: `Within ${mi} mi` }));
 
-/** The place the area is centred on, for the pill: the city, else the nearest city to the device. */
+/** The place the area is centred on, for the pill: the city, else the nearest
+ *  city to the device or to my leagues' courts. */
 export function useSearchAreaPlace(): string | null {
   const { area } = useSearchArea();
-  const near = useNearestCityLabel(area && area.source === 'device' ? area.center : null);
+  const near = useNearestCityLabel(area && !area.label ? area.center : null);
   if (!area) return null;
-  return area.label ?? near.data ?? (area.source === 'device' ? 'Your location' : null);
+  return area.label ?? near.data
+    ?? (area.source === 'device' ? 'Your location' : area.source === 'courts' ? 'Your courts' : null);
 }
 
 export default function SearchAreaBar({ surface, style }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
-  const { area, saved, setRadius, centerOnDevice, pickCity } = useSearchArea();
+  const { area, ready, saved, setRadius, centerOnDevice, pickCity } = useSearchArea();
   const place = useSearchAreaPlace();
   const [areaOpen, setAreaOpen] = useState(false);
   const [radiusOpen, setRadiusOpen] = useState(false);
 
-  const placeLabel = area ? place ?? 'Here' : 'Choose an area';
+  // Until the area is known (the saved value, the courts lookup): a quiet "…".
+  const placeLabel = area ? place ?? 'Here' : ready ? 'Choose an area' : '…';
 
   return (
     <View style={style}>
@@ -62,7 +67,7 @@ export default function SearchAreaBar({ surface, style }: Props) {
           label={placeLabel}
           active
           onPress={() => setAreaOpen(true)}
-          accessibilityLabel={area ? `Search near ${placeLabel}. Change` : 'Choose an area to search near'}
+          accessibilityLabel={area ? `Search near ${placeLabel}. Change` : ready ? 'Choose an area to search near' : 'Search area. Change'}
           style={S.place}
         />
         <FilterPill
@@ -73,7 +78,7 @@ export default function SearchAreaBar({ surface, style }: Props) {
           accessibilityLabel={`Search radius ${saved.radiusMi} miles. Change`}
         />
       </View>
-      {area ? null : (
+      {area || !ready ? null : (
         <Text style={[t.hint, S.hint]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
           Pick your location or a city, and every search here stays near it.
         </Text>

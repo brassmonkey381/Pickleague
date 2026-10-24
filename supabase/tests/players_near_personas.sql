@@ -24,6 +24,10 @@
 --       NV's friend                                              -> no, then yes
 --   F1  checked in twice at a court ~4 km away in 90 days, "everyone" -> found
 --   F2  checked in there once, "everyone"                        -> not found
+--   F3  checked in there twice, "everyone", neither check-in location
+--       confirmed (an unconfirmed check-in is shown to nobody)   -> not found
+--   E1  in an open league ~8,040 m due north (just inside 5 mi, outside
+--       the old bounding box)                                    -> found
 --   FR  in an open league ~200 km away                           -> never (cap)
 --   B1  in the open league, NV blocked them                      -> not found
 --   B2  in the open league, they blocked NV                      -> not found
@@ -49,7 +53,8 @@ insert into _p values
   ('F1', 'a7000000-0000-4000-8000-000000000009'), ('F2', 'a7000000-0000-4000-8000-00000000000a'),
   ('FR', 'a7000000-0000-4000-8000-00000000000b'), ('B1', 'a7000000-0000-4000-8000-00000000000c'),
   ('B2', 'a7000000-0000-4000-8000-00000000000d'), ('TA', 'a7000000-0000-4000-8000-00000000000e'),
-  ('DL', 'a7000000-0000-4000-8000-00000000000f'), ('DR', 'a7000000-0000-4000-8000-000000000010');
+  ('DL', 'a7000000-0000-4000-8000-00000000000f'), ('DR', 'a7000000-0000-4000-8000-000000000010'),
+  ('F3', 'a7000000-0000-4000-8000-000000000011'), ('E1', 'a7000000-0000-4000-8000-000000000012');
 grant select on _p to authenticated;
 
 create temp table _lg (k text primary key, id uuid not null);
@@ -57,7 +62,8 @@ insert into _lg values
   ('OPEN',   'a7100000-0000-4000-8000-000000000001'),
   ('CLOSED', 'a7100000-0000-4000-8000-000000000002'),
   ('SHARED', 'a7100000-0000-4000-8000-000000000003'),
-  ('FAR',    'a7100000-0000-4000-8000-000000000004');
+  ('FAR',    'a7100000-0000-4000-8000-000000000004'),
+  ('EDGE',   'a7100000-0000-4000-8000-000000000005');
 grant select on _lg to authenticated;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -132,14 +138,17 @@ insert into public.leagues (id, name, is_open, is_active, home_court, home_court
   (pg_temp.lg('OPEN'),   'Near Test Open',   true,  true, 'Near Test Park',   43.2180, -104.2000),
   (pg_temp.lg('CLOSED'), 'Near Test Closed', false, true, 'Near Test Club',   43.2180, -104.2010),
   (pg_temp.lg('SHARED'), 'Near Test Shared', false, true, 'Near Test Shared', 43.2180, -104.2020),
-  (pg_temp.lg('FAR'),    'Near Test Far',    true,  true, 'Near Test Far',    45.0000, -104.2000);
+  (pg_temp.lg('FAR'),    'Near Test Far',    true,  true, 'Near Test Far',    45.0000, -104.2000),
+  -- 0.0723 degrees north = ~8,039 m: inside 8,047 m, outside a 111,320 m-a-degree box.
+  (pg_temp.lg('EDGE'),   'Near Test Edge',   true,  true, 'Near Test Edge',   43.2723, -104.2000);
 
 insert into public.league_members (league_id, user_id, expires_at)
 select pg_temp.lg(m.lg), pg_temp.p(m.k), m.exp
   from (values
     ('OPEN', 'L1', null::timestamptz), ('CLOSED', 'L2', null), ('SHARED', 'L3', null), ('SHARED', 'NV', null),
     ('OPEN', 'LX', now() - interval '1 day'), ('FAR', 'FR', null),
-    ('OPEN', 'B1', null), ('OPEN', 'B2', null), ('OPEN', 'TA', null), ('OPEN', 'DL', null), ('OPEN', 'DR', null)
+    ('OPEN', 'B1', null), ('OPEN', 'B2', null), ('OPEN', 'TA', null), ('OPEN', 'DL', null), ('OPEN', 'DR', null),
+    ('EDGE', 'E1', null)
   ) m(lg, k, exp);
 
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m) values
@@ -150,12 +159,17 @@ insert into public.court_favorites (user_id, venue_id)
 select id, 'test:pn-star' from _p where k in ('S1', 'S2', 'S3');
 
 insert into public.presence_settings (user_id, checkins_level)
-select id, case when k = 'S2' then 'hidden' else 'everyone' end from _p where k in ('S1', 'S2', 'F1', 'F2');
+select id, case when k = 'S2' then 'hidden' else 'everyone' end from _p where k in ('S1', 'S2', 'F1', 'F2', 'F3');
 
 -- Past check-ins (checked out), so no live check-in is involved.
 insert into public.venue_checkins (user_id, venue_id, checked_in_at, expires_at, checked_out_at, location_confirmed)
 select pg_temp.p(c.k), 'test:pn-freq', now() - c.ago, now() - c.ago + interval '1 hour', now() - c.ago + interval '1 hour', true
   from (values ('F1', interval '10 days'), ('F1', interval '20 days'), ('F2', interval '10 days')) c(k, ago);
+
+-- F3: two past check-ins there, neither location confirmed.
+insert into public.venue_checkins (user_id, venue_id, checked_in_at, expires_at, checked_out_at, location_confirmed)
+select pg_temp.p('F3'), 'test:pn-freq', now() - c.ago, now() - c.ago + interval '1 hour', now() - c.ago + interval '1 hour', false
+  from (values (interval '5 days'), (interval '15 days')) c(ago);
 
 insert into public.user_blocks (blocker_id, blocked_id) values
   (pg_temp.p('NV'), pg_temp.p('B1')),
@@ -215,6 +229,8 @@ begin
   perform pg_temp.ok('N3 starred court, league-mates level, a stranger: not found (S3)', not pg_temp.has(v, 'S3'), v);
   perform pg_temp.ok('N3 two check-ins in 90 days: found (F1)', pg_temp.has(v, 'F1'), v);
   perform pg_temp.ok('N3 one check-in: not found (F2)', not pg_temp.has(v, 'F2'), v);
+  perform pg_temp.ok('N3 two check-ins, neither location confirmed: not found (F3)', not pg_temp.has(v, 'F3'), v);
+  perform pg_temp.ok('N3 just inside the radius (~8,039 m due north): found (E1)', pg_temp.has(v, 'E1'), v);
   perform pg_temp.ok('N3 ~200 km away: not found (FR)', not pg_temp.has(v, 'FR'), v);
   perform pg_temp.ok('N3 blocked by the viewer: not found (B1)', not pg_temp.has(v, 'B1'), v);
   perform pg_temp.ok('N3 blocked the viewer: not found (B2)', not pg_temp.has(v, 'B2'), v);

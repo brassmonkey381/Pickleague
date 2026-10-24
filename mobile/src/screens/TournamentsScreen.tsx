@@ -166,8 +166,10 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
   const S = makeStyles(c);
   const uid = usePlayUserId();
   const { coords, setCoords } = usePlayLocation();
-  const { area: searchArea, setRadius: setAreaRadius } = useSearchArea();
+  const { area: searchArea, ready: areaReady, setRadius: setAreaRadius } = useSearchArea();
   const area = areaLimited ? searchArea : null;
+  // Until the area is known the list waits (no unlimited flash first).
+  const areaPending = areaLimited && !areaReady;
   const origin = areaLimited ? area?.center ?? null : coords;
   const fixtureOn = usePlayFixtureOn();
   const isFocused = useIsFocused();
@@ -699,7 +701,7 @@ export default function TournamentsScreen({ navigation, route, active = true, ro
         onOpenFilters={() => setSheetOpen(true)}
       />
 
-      {query.loading && !loadFailed ? (
+      {(query.loading || areaPending) && !loadFailed ? (
         <View style={S.skeleton}><SkeletonList rows={4} variant="row" /></View>
       ) : (
         <FlatList

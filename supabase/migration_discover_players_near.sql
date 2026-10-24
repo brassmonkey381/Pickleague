@@ -12,7 +12,9 @@
 --             public.
 --   starred   a court they starred (court_favorites)
 --   frequent  a court they checked in at twice or more in the last 90 days
---             (taken-back check-ins don't count)
+--             (only location_confirmed check-ins, the rule every presence read
+--             keeps: an unconfirmed one is shown to nobody but its owner;
+--             taken-back check-ins don't count)
 -- starred and frequent say where someone tends to be, so they count only
 -- when the player's presence privacy would show the viewer their name at a
 -- court (_pl_can_see_presence(viewer, player, 'checkins') = 'named': their
@@ -98,8 +100,10 @@ begin
 
   v_r    := least(greatest(coalesce(p_radius_m, 8047), 100), 80468);
   -- A box around the circle first (cheap), then the great-circle distance.
-  v_dlat := v_r / 111320.0;
-  v_dlng := v_r / (111320.0 * greatest(cos(radians(p_lat)), 0.01));
+  -- 1% wider than the circle, so the box never clips its edge (111,320 m a
+  -- degree vs the ~111,195 m the distance below implies).
+  v_dlat := v_r * 1.01 / 111320.0;
+  v_dlng := v_r * 1.01 / (111320.0 * greatest(cos(radians(p_lat)), 0.01));
   v_hide := public._pl_hide_test_accounts_for(v_me);
   v_q    := nullif(btrim(regexp_replace(coalesce(p_query, ''), '^\s*@', '')), '');
   if v_q is not null then
@@ -133,6 +137,7 @@ begin
       from public.venue_checkins vc
       join public.venues v on v.id = vc.venue_id
      where vc.checked_in_at > now() - interval '90 days'
+       and vc.location_confirmed
        and vc.taken_back_at is null
        and v.lat between p_lat - v_dlat and p_lat + v_dlat
        and v.lng between p_lng - v_dlng and p_lng + v_dlng

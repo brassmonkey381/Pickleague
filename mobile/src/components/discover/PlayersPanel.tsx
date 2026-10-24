@@ -30,8 +30,9 @@
 //   Nearby to the players who PLAY there (data/playersNear: their leagues'
 //   home courts, and their starred and frequent courts when their presence
 //   privacy names them to you; never where they are now). Friends, Requests
-//   and Played with are yours and are not limited. Without an area yet the
-//   search covers everyone, as before.
+//   and Played with are yours and are not limited. Until the area is known
+//   neither lists anyone; only with no area at all (no location, no city, no
+//   located league court) does the search cover everyone, as before.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -235,14 +236,14 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   const friends = useMemo(() => sortFriends(friendsQ.data), [friendsQ.data]);
 
   // ── The search area: Nearby and the search ──
-  const { area } = useSearchArea();
+  const { area, ready: areaReady } = useSearchArea();
   const areaKey = searchAreaKey(area);
   const areaPlace = useSearchAreaPlace();
   const blockedIds = useBlockedIds();
   const nearQ = useCachedQuery<NearPlayer[]>(
     `players:near:${areaKey}`,
     () => listPlayersNear(area, { realPeopleOnly: true, limit: 200 }),
-    { ttlMs: 60_000, persistMs: 6 * 60 * 60 * 1000, enabled: view === 'near' && active && area != null },
+    { ttlMs: 60_000, persistMs: 6 * 60 * 60 * 1000, enabled: view === 'near' && active && areaReady && area != null },
   );
   const nearby = useMemo(
     () => (nearQ.data ?? []).filter((p) => p.id !== meId && !blockedIds.has(p.id)),
@@ -308,9 +309,10 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   // ── Search: a player's profile ──
   const [pickerOpen, setPickerOpen] = useState(false);
   const notMe = useMemo(() => [...(meId ? [meId] : []), ...blockedIds], [meId, blockedIds]);
-  // The search lists the players near the search area (everyone without one).
+  // The search lists the players near the search area (everyone only when
+  // there is no area at all); nobody until the area is known.
   const loadNear = useCallback(
-    async () => (await listPlayersNear(area, { realPeopleOnly: true, limit: 500 })).map(toPicked),
+    async () => (area ? (await listPlayersNear(area, { realPeopleOnly: true, limit: 500 })).map(toPicked) : []),
     [area],
   );
   function onPick(u: PickedUser) {
@@ -567,6 +569,13 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   }
 
   function nearView() {
+    if (!areaReady) {
+      return (
+        <View style={S.block}>
+          <SkeletonList rows={4} variant="row" />
+        </View>
+      );
+    }
     if (!area) {
       return (
         <Panel>
@@ -766,7 +775,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         title="Find a player"
         excludeUserIds={notMe}
         realPeopleOnly
-        load={area ? loadNear : undefined}
+        load={area || !areaReady ? loadNear : undefined}
         loadKey={areaKey}
         subtitle={area ? `Players near ${areaPlace ?? 'your area'} · ${area.radiusMi} mi` : null}
         onPick={onPick}

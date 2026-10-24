@@ -323,8 +323,10 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
   const courtName = useCourtName();
   const uid = usePlayUserId();
   const { coords, setCoords } = usePlayLocation();
-  const { area: searchArea, setRadius: setAreaRadius } = useSearchArea();
+  const { area: searchArea, ready: areaReady, setRadius: setAreaRadius } = useSearchArea();
   const area = areaLimited ? searchArea : null;
+  // Until the area is known the list waits (no unlimited flash first).
+  const areaPending = areaLimited && !areaReady;
   // Under a search area, distance (Nearest) is measured from its centre.
   const origin = areaLimited ? area?.center ?? null : coords;
   const fixtureOn = usePlayFixtureOn();
@@ -826,7 +828,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
         onOpenFilters={() => setSheetOpen(true)}
       />
 
-      {query.loading && !loadFailed ? (
+      {(query.loading || areaPending) && !loadFailed ? (
         <View style={S.skeleton}><SkeletonList rows={6} variant="row" /></View>
       ) : (
         <FlatList

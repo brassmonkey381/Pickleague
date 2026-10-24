@@ -115,6 +115,11 @@ export type HomeOpenTournament = {
   location_name: string | null;
   lat: number | null;
   lng: number | null;
+  /** Its league's home court: where it is when it has no venue (Discover's
+   *  search area places it the same way). Absent in a payload cached before
+   *  it existed: the venue only. */
+  leagueLat?: number | null;
+  leagueLng?: number | null;
   leagueName: string | null;
   formatLabel: string | null;
 };
@@ -585,6 +590,18 @@ export async function loadHome(): Promise<HomeData> {
   const knownNames = new Map<string, string>();
   for (const l of myLeagues) knownNames.set(l.id, l.name);
   for (const l of (leagueRows ?? []) as any[]) knownNames.set(l.id, l.name);
+  // Each known league's home court point, to place a tournament with no venue.
+  const leaguePoint = new Map<string, { lat: number; lng: number }>();
+  const notePoint = (l: { id: string; home_court_lat?: unknown; home_court_lng?: unknown }) => {
+    if (typeof l.home_court_lat === 'number' && typeof l.home_court_lng === 'number') {
+      leaguePoint.set(l.id, { lat: l.home_court_lat, lng: l.home_court_lng });
+    }
+  };
+  for (const m of members) {
+    const l = Array.isArray(m.league) ? m.league[0] : m.league;
+    if (l) notePoint(l);
+  }
+  for (const l of (leagueRows ?? []) as any[]) notePoint(l);
   const missingLeagueIds = Array.from(new Set(
     [...regs.map(x => x.t.league_id), ...openTours.map(t => t.league_id)]
       .filter((id): id is string => !!id && !knownNames.has(id)),
@@ -628,7 +645,7 @@ export async function loadHome(): Promise<HomeData> {
           .in('league_id', candidateIds))
       : Promise.resolve([]),
     missingLeagueIds.length
-      ? sbCall(() => supabase.from('leagues').select('id, name').in('id', missingLeagueIds))
+      ? sbCall(() => supabase.from('leagues').select('id, name, home_court_lat, home_court_lng').in('id', missingLeagueIds))
       : Promise.resolve([]),
     // Candidates in an active season ("In season"). Seasons are readable by
     // everyone (migration_add_seasons.sql).
@@ -644,7 +661,10 @@ export async function loadHome(): Promise<HomeData> {
       ? findMissingTargets(db, unreadProbe).catch(() => new Set<string>())
       : Promise.resolve(new Set<string>()),
   ]);
-  for (const l of (extraLeagueRows ?? []) as { id: string; name: string }[]) knownNames.set(l.id, l.name);
+  for (const l of (extraLeagueRows ?? []) as { id: string; name: string; home_court_lat?: number | null; home_court_lng?: number | null }[]) {
+    knownNames.set(l.id, l.name);
+    notePoint(l);
+  }
 
   // Seasons: active wins over upcoming (the earliest upcoming otherwise).
   for (const s of (seasonRows ?? []) as SeasonRow[]) {
@@ -787,6 +807,8 @@ export async function loadHome(): Promise<HomeData> {
     location_name: t.location_name ?? null,
     lat: typeof t.location_lat === 'number' ? t.location_lat : null,
     lng: typeof t.location_lng === 'number' ? t.location_lng : null,
+    leagueLat: t.league_id ? leaguePoint.get(t.league_id)?.lat ?? null : null,
+    leagueLng: t.league_id ? leaguePoint.get(t.league_id)?.lng ?? null : null,
     leagueName: t.league_id ? knownNames.get(t.league_id) ?? null : null,
     formatLabel: formatLabelOf(t.format, t.match_type),
   }));

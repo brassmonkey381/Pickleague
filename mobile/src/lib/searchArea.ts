@@ -4,15 +4,20 @@
 // my friends, requests, people I've played with) are not.
 //
 //   centre  the device location while the player chose "Use my location" and
-//           it is known; else a city they searched (also the fallback while
-//           location is off or denied); else none yet
+//           it is known; else the saved city: one they searched, or the
+//           nearest city to where the device last was (the fallback while
+//           location is off, denied or not read yet this run, e.g. every
+//           fresh web visit); else the centre of my leagues' home courts;
+//           else none
 //   radius  5 / 10 / 25 / 50 mi (default 5, Places' old default)
 //
 // Kept per device (AsyncStorage, via the store below): the radius, the mode
-// and the searched city. Device coordinates are NEVER saved; they come only
-// from a location grant this run (components/play/usePlayLocation).
+// and the city (a city's own centre, from us_cities). Device coordinates are
+// NEVER saved; they come only from a location grant this run
+// (components/play/usePlayLocation).
 //
-// With no centre yet nothing is limited (a first open must not be a dead end)
+// Only with none of those (no location ever, no city, in no league with a
+// located court) is nothing limited (a first open must not be a dead end),
 // and the control asks for an area.
 //
 // PURE: no React, no react-native, no Supabase. lib/useSearchArea wires it to
@@ -50,9 +55,9 @@ export type SearchArea = {
   center: LatLng;
   radiusMi: number;
   radiusM: number;
-  /** Where the centre came from. */
-  source: 'device' | 'city';
-  /** The city's label; null for the device (the control looks one up). */
+  /** Where the centre came from ('courts': my leagues' home courts). */
+  source: 'device' | 'city' | 'courts';
+  /** The city's label; null for the device and the courts (the control looks one up). */
   label: string | null;
 };
 
@@ -95,10 +100,15 @@ export function parseSearchAreaSaved(raw: unknown): SearchAreaSaved {
 
 /**
  * The area in effect: the city when the player chose it; else the device
- * location when known; else the saved city (location off or denied); else
- * null (nothing is limited yet).
+ * location when known; else the saved city (location off, denied or not read
+ * yet); else the centre of my leagues' home courts (`courts`); else null
+ * (nothing is limited).
  */
-export function resolveSearchArea(saved: SearchAreaSaved, device: LatLng | null): SearchArea | null {
+export function resolveSearchArea(
+  saved: SearchAreaSaved,
+  device: LatLng | null,
+  courts: LatLng | null = null,
+): SearchArea | null {
   const radiusMi = asSearchRadius(saved.radiusMi);
   const radiusM = Math.round(radiusMi * METERS_PER_MILE);
   const dev = device ? finitePoint(device.lat, device.lng) : null;
@@ -109,7 +119,35 @@ export function resolveSearchArea(saved: SearchAreaSaved, device: LatLng | null)
   if (saved.city) {
     return { center: { lat: saved.city.lat, lng: saved.city.lng }, radiusMi, radiusM, source: 'city', label: saved.city.label };
   }
+  const home = courts ? finitePoint(courts.lat, courts.lng) : null;
+  if (home) return { center: home, radiusMi, radiusM, source: 'courts', label: null };
   return null;
+}
+
+/** How close two of my courts must be to count as one place I play. */
+const HOME_CLUSTER_MILES = 25;
+
+/**
+ * Where I play, from my leagues' home courts: the court with the most of my
+ * other courts within 25 mi (the first on a tie), averaged with those. A plain
+ * average of a Bay Area league and a New York one would land in Kansas; this
+ * lands in the Bay Area. Null with no located court.
+ */
+export function homeCourtsCenter(points: ReadonlyArray<LatLng | null | undefined>): LatLng | null {
+  const pts = points.flatMap((p) => {
+    const q = p ? finitePoint(p.lat, p.lng) : null;
+    return q ? [q] : [];
+  });
+  if (pts.length === 0) return null;
+  let best: LatLng[] = [];
+  for (const p of pts) {
+    const near = pts.filter((q) => milesBetween(p, q) <= HOME_CLUSTER_MILES);
+    if (near.length > best.length) best = near;
+  }
+  return {
+    lat: best.reduce((s, p) => s + p.lat, 0) / best.length,
+    lng: best.reduce((s, p) => s + p.lng, 0) / best.length,
+  };
 }
 
 /** A stable key for caches and "start over at page 1" (centre to ~100 m). */
@@ -121,7 +159,8 @@ export function searchAreaKey(area: SearchArea | null): string {
 /** "Near Alameda, CA · 5 mi" (the control's spoken label). */
 export function searchAreaLabel(area: SearchArea | null, placeLabel: string | null): string {
   if (!area) return 'Choose an area';
-  const where = area.label ?? placeLabel ?? (area.source === 'device' ? 'your location' : 'here');
+  const where = area.label ?? placeLabel
+    ?? (area.source === 'device' ? 'your location' : area.source === 'courts' ? 'your courts' : 'here');
   return `Near ${where} · ${area.radiusMi} mi`;
 }
 
@@ -201,6 +240,13 @@ export type SearchAreaStore = {
   preferDevice: () => void;
   /** "Search near <city>". */
   pickCity: (city: SearchCity) => void;
+  /**
+   * The nearest city to the device, kept as the fallback for a run without
+   * a location (a fresh web visit, location turned off). Only while the
+   * device is the centre: a city the player chose stays. After `load`, so it
+   * never hides what storage held.
+   */
+  rememberCity: (city: SearchCity) => Promise<void>;
 };
 
 /**
@@ -244,27 +290,29 @@ export function createSearchAreaStore(storage: SearchAreaStorage | null, key = S
     emit();
   };
 
+  const load = (): Promise<void> => {
+    if (loading) return loading;
+    if (!storage) {
+      isReady = true;
+      return (loading = Promise.resolve());
+    }
+    loading = (async () => {
+      try {
+        const raw = await storage.getItem(key);
+        if (!touched && raw != null) value = parseSearchAreaSaved(raw);
+      } catch {
+        // Unreadable: the defaults stand.
+      }
+      isReady = true;
+      emit();
+    })();
+    return loading;
+  };
+
   return {
     get: () => value,
     ready: () => isReady,
-    load() {
-      if (loading) return loading;
-      if (!storage) {
-        isReady = true;
-        return (loading = Promise.resolve());
-      }
-      loading = (async () => {
-        try {
-          const raw = await storage.getItem(key);
-          if (!touched && raw != null) value = parseSearchAreaSaved(raw);
-        } catch {
-          // Unreadable: the defaults stand.
-        }
-        isReady = true;
-        emit();
-      })();
-      return loading;
-    },
+    load,
     subscribe(fn) {
       listeners.add(fn);
       return () => {
@@ -281,6 +329,12 @@ export function createSearchAreaStore(storage: SearchAreaStorage | null, key = S
       const p = finitePoint(city.lat, city.lng);
       if (!p || !city.label?.trim()) return;
       set({ ...value, mode: 'city', city: { label: city.label.trim(), ...p } });
+    },
+    async rememberCity(city) {
+      await load();
+      const p = finitePoint(city.lat, city.lng);
+      if (!p || !city.label?.trim() || value.mode !== 'device') return;
+      set({ ...value, city: { label: city.label.trim(), ...p } });
     },
   };
 }

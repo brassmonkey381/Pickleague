@@ -7,6 +7,7 @@ import {
   createSearchAreaStore,
   filterBySearchArea,
   formatMiles,
+  homeCourtsCenter,
   parseSearchAreaSaved,
   resolveSearchArea,
   searchAreaKey,
@@ -113,18 +114,57 @@ describe('resolveSearchArea', () => {
     expect(resolveSearchArea({ radiusMi: 5, mode: 'city', city: CITY }, SF)).toMatchObject({ center: OAKLAND, source: 'city' });
   });
 
-  it('is null with neither (nothing is limited)', () => {
+  it('is null with none of them (nothing is limited)', () => {
     expect(resolveSearchArea(DEFAULT_SEARCH_AREA, null)).toBeNull();
     expect(resolveSearchArea(DEFAULT_SEARCH_AREA, { lat: 0, lng: 0 })).toBeNull();
+    expect(resolveSearchArea(DEFAULT_SEARCH_AREA, null, null)).toBeNull();
+    expect(resolveSearchArea(DEFAULT_SEARCH_AREA, null, { lat: 0, lng: 0 })).toBeNull();
+  });
+
+  it("falls back to my leagues' courts with no location and no city", () => {
+    expect(resolveSearchArea({ ...DEFAULT_SEARCH_AREA, radiusMi: 10 }, null, BERKELEY))
+      .toMatchObject({ center: BERKELEY, source: 'courts', label: null, radiusMi: 10 });
+  });
+
+  it('the courts are the LAST fallback: the device and any city win', () => {
+    expect(resolveSearchArea(DEFAULT_SEARCH_AREA, SF, BERKELEY)!.source).toBe('device');
+    expect(resolveSearchArea({ radiusMi: 5, mode: 'device', city: CITY }, null, BERKELEY))
+      .toMatchObject({ center: OAKLAND, source: 'city' });
+    expect(resolveSearchArea({ radiusMi: 5, mode: 'city', city: CITY }, SF, BERKELEY)!.source).toBe('city');
   });
 
   it('labels and keys', () => {
     expect(searchAreaLabel(null, null)).toBe('Choose an area');
     expect(searchAreaLabel(area(5), null)).toBe('Near Oakland, CA · 5 mi');
     expect(searchAreaLabel({ ...area(10), source: 'device', label: null }, 'Alameda, CA')).toBe('Near Alameda, CA · 10 mi');
+    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, null)).toBe('Near your courts · 5 mi');
+    expect(searchAreaLabel({ ...area(5), source: 'courts', label: null }, 'Berkeley, CA')).toBe('Near Berkeley, CA · 5 mi');
     expect(searchAreaKey(null)).toBe('anywhere');
     expect(searchAreaKey(area(5))).toBe(searchAreaKey({ ...area(5), center: { lat: 37.80441, lng: -122.27121 } }));
     expect(searchAreaKey(area(5))).not.toBe(searchAreaKey(area(10)));
+  });
+});
+
+describe('homeCourtsCenter', () => {
+  const NYC = { lat: 40.7128, lng: -74.006 };
+
+  it('is null with no located court', () => {
+    expect(homeCourtsCenter([])).toBeNull();
+    expect(homeCourtsCenter([null, undefined, { lat: 0, lng: 0 }])).toBeNull();
+  });
+
+  it('is the court itself with one', () => {
+    expect(homeCourtsCenter([BERKELEY])).toEqual(BERKELEY);
+  });
+
+  it('averages the biggest cluster, not every court (no Kansas between SF and New York)', () => {
+    const c = homeCourtsCenter([NYC, OAKLAND, BERKELEY])!;
+    expect(c.lat).toBeCloseTo((OAKLAND.lat + BERKELEY.lat) / 2, 6);
+    expect(c.lng).toBeCloseTo((OAKLAND.lng + BERKELEY.lng) / 2, 6);
+  });
+
+  it('takes the first court on a tie', () => {
+    expect(homeCourtsCenter([NYC, OAKLAND])).toEqual(NYC);
   });
 });
 
@@ -239,6 +279,35 @@ describe('createSearchAreaStore', () => {
     expect(store.get()).toEqual(DEFAULT_SEARCH_AREA);
     store.setRadius(25);
     expect(store.get().radiusMi).toBe(25);
+  });
+
+  it('remembers the device\'s nearest city as the fallback, keeping my location the centre', async () => {
+    const { storage, data } = fakeStorage();
+    const store = createSearchAreaStore(storage);
+    await store.rememberCity(CITY);
+    expect(store.get()).toMatchObject({ mode: 'device', city: CITY });
+    expect(resolveSearchArea(store.get(), SF)!.source).toBe('device');
+    // The next run without a location (a fresh web visit) still has an area.
+    await Promise.resolve();
+    const next = createSearchAreaStore(fakeStorage({ [SEARCH_AREA_STORAGE_KEY]: data.get(SEARCH_AREA_STORAGE_KEY)! }).storage);
+    await next.load();
+    expect(resolveSearchArea(next.get(), null)).toMatchObject({ center: OAKLAND, source: 'city', label: 'Oakland, CA' });
+  });
+
+  it('never replaces a city the player chose, nor what storage held', async () => {
+    const chosen = { label: 'Berkeley, CA', ...BERKELEY };
+    const saved = { radiusMi: 25, mode: 'city', city: chosen };
+    const store = createSearchAreaStore(fakeStorage({ [SEARCH_AREA_STORAGE_KEY]: JSON.stringify(saved) }).storage);
+    // Before the read finishes: it waits for it, then sees the chosen city.
+    await store.rememberCity(CITY);
+    expect(store.get()).toEqual(saved);
+  });
+
+  it('ignores a remembered city with no usable point or label', async () => {
+    const store = createSearchAreaStore(fakeStorage().storage);
+    await store.rememberCity({ label: 'Nowhere', lat: 0, lng: 0 });
+    await store.rememberCity({ label: ' ', lat: 1, lng: 1 });
+    expect(store.get()).toEqual(DEFAULT_SEARCH_AREA);
   });
 
   it('load runs once', async () => {

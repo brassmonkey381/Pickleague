@@ -106,7 +106,7 @@ type Props = {
   inDiscover?: boolean;
 };
 
-type Center = LatLngLike & { label: string | null; from: 'route' | 'city' | 'device' };
+type Center = LatLngLike & { label: string | null; from: 'route' | 'city' | 'device' | 'courts' };
 
 const RADIUS_OPTIONS = COURT_RADIUS_MILES.map((mi) => ({ value: milesToMeters(mi), label: `${mi} mi` }));
 
@@ -143,7 +143,8 @@ export default function CourtsScreen({ navigation, route, active = true, inDisco
   }, [routeLat, routeLng, area]);
 
   const nearLabel = useNearestCityLabel(center && !center.label ? center : null);
-  const centerLabel = center?.label ?? nearLabel.data ?? (center?.from === 'device' ? 'your location' : null);
+  const centerLabel = center?.label ?? nearLabel.data
+    ?? (center?.from === 'device' ? 'your location' : center?.from === 'courts' ? 'your courts' : null);
 
   // Filter, chips, sort.
   const [query, setQuery] = useState('');

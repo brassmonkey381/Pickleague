@@ -21,10 +21,10 @@
 //     home_court_lat/lng; venue_checkins is empty and home_court is free
 //     text); everyone else gets Most active.
 //   - Discover's search area (lib/searchArea, `area` + `areaLimited`): with
-//     an area, Discover rows outside it are left out, a row with no location
-//     included (it can't be placed); Mine never is. The area replaces the
+//     an area, Discover rows outside it are left out, and so is a row with
+//     no location (it can't be placed); Mine never is. The area replaces the
 //     sheet's Distance (ignored then) and Nearest measures from its centre.
-//     Without an area yet nothing is limited.
+//     Without any area (lib/useSearchArea found none) nothing is limited.
 import { isAvailableAt } from '@just-messin-around/expo-foundation/scheduling/availability';
 import { withinSearchArea, type SearchArea } from './searchArea';
 
