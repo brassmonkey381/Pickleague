@@ -16,10 +16,18 @@
 // here may truncate: the label shrinks a little on native rather than ellipsize
 // at the 1.3x cap ("Standi…"), and the "No season yet" note is its own line
 // that wraps to two. The tiles are minHeight 64, so the row grows instead.
+//
+// Glyphs (2026-10-24): each tile draws its glyph (plus, trophy, calendar,
+// group) at 24 in the brand colour over the label, with the radius and caption
+// of the foundation ShortcutGrid that draws Home's quick tiles, so the two rows
+// read as one set. The tiles stay hand-built here because ShortcutGrid has no
+// filled (primary) tile, no disabled tile with a note, and no per-tile onLayout
+// for the tour anchor yet.
 import React, { type Ref } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { RADIUS, SPACE, SMALL_TEXT_MAX_SCALE, HAIRLINE } from '@just-messin-around/expo-foundation/styles';
-import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 
 export type LeagueQuickRowProps = {
@@ -38,7 +46,7 @@ export type LeagueQuickRowProps = {
 
 type Tile = {
   key: string;
-  glyph: string;
+  iconName: IconName;
   label: string;
   sub?: string;
   onPress: (() => void) | null;
@@ -60,18 +68,18 @@ export default function LeagueQuickRow({
 
   const tiles: Tile[] = [
     ...(showRecord
-      ? [{ key: 'record', glyph: '＋', label: 'Record', onPress: onRecord, primary: true, a11y: 'Record a match' }]
+      ? [{ key: 'record', iconName: 'plus' as const, label: 'Record', onPress: onRecord, primary: true, a11y: 'Record a match' }]
       : []),
     {
       key: 'standings',
-      glyph: '🏆',
+      iconName: 'trophy',
       label: 'Standings',
       sub: onStandings ? undefined : 'No season yet',
       onPress: onStandings,
       a11y: onStandings ? 'Season standings' : 'Standings, no season yet',
     },
-    { key: 'events', glyph: '📅', label: 'Events', onPress: onEvents, a11y: 'Events' },
-    { key: 'members', glyph: '👥', label: 'Members', onPress: onMembers, a11y: 'Members' },
+    { key: 'events', iconName: 'calendar', label: 'Events', onPress: onEvents, a11y: 'Events' },
+    { key: 'members', iconName: 'group', label: 'Members', onPress: onMembers, a11y: 'Members' },
   ];
 
   return (
@@ -79,6 +87,7 @@ export default function LeagueQuickRow({
       {tiles.map((tile) => {
         const disabled = !tile.onPress;
         const fg = tile.primary ? c.textInverse : disabled ? c.textMuted : c.text;
+        const glyphColor = tile.primary ? c.textInverse : disabled ? c.textMuted : c.primary;
         return (
           <TouchableOpacity
             key={tile.key}
@@ -98,9 +107,9 @@ export default function LeagueQuickRow({
               disabled && styles.dim,
             ]}
           >
-            <Text style={[styles.glyph, { color: fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{tile.glyph}</Text>
+            <Icon name={tile.iconName} size={24} color={glyphColor} />
             <Text
-              style={[t.meta, styles.center, { color: fg }]}
+              style={[t.caption, styles.center, { color: fg }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.8}
@@ -110,7 +119,7 @@ export default function LeagueQuickRow({
             </Text>
             {tile.sub ? (
               <Text
-                style={[t.meta, styles.center, styles.sub, { color: fg }]}
+                style={[t.caption, styles.center, { color: fg }]}
                 numberOfLines={2}
                 maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
               >
@@ -127,21 +136,19 @@ export default function LeagueQuickRow({
 const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: SPACE.sm },
   // 64 tile row (plan section 6: chip or tile row = 64), minHeight so large text grows it.
+  // Radius and gap as ShortcutGrid's tiles on Home (RADIUS.lg, like the Panels).
   tile: {
     flex: 1,
     minWidth: 0,
     minHeight: 64,
-    borderRadius: RADIUS.md,
+    borderRadius: RADIUS.lg,
     borderWidth: HAIRLINE,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: SPACE.xs,
     paddingVertical: SPACE.sm,
-    gap: SPACE.xxs,
+    gap: SPACE.xs,
   },
-  glyph: { fontSize: FONT.size.h2, lineHeight: FONT.size.h2 + SPACE.xs, fontWeight: '700' },
   dim: { opacity: 0.6 },
   center: { textAlign: 'center' },
-  // No caps tracking on the note: it is sentence copy and needs the width.
-  sub: { letterSpacing: 0 },
 });

@@ -8,6 +8,9 @@ import {
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
 import { isoDate } from '@just-messin-around/expo-foundation/scheduling/drillTime';
+import { ErrorState } from '@just-messin-around/expo-foundation/ui';
+import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useRefresh } from '../lib/useRefresh';
@@ -130,7 +133,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
       selected: isSelected,
       selectedColor: colors.primary,
       marked: true,
-      dotColor: isSelected ? '#fff' : dotColor,
+      dotColor: isSelected ? colors.textInverse : dotColor,
     };
   }
 
@@ -141,12 +144,11 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
   if (loadError && Object.keys(dateMap).length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load your calendar"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void loadMatches(currentUserId); }}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load your calendar. ${loadError}`}
+          onRetry={() => { setLoading(true); void loadMatches(currentUserId); }}
         />
       </View>
     );
@@ -214,7 +216,7 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
       />
 
       {Object.keys(dateMap).length === 0 && (
-        <EmptyState icon="📅" title="No matches yet" subtitle="No match data found for this view." />
+        <EmptyState iconName="calendar" title="No matches yet" subtitle="No match data found for this view." />
       )}
 
       {selectedDayRecord ? (
@@ -306,32 +308,41 @@ export default function CalendarAnalyticsScreen({ route }: Props) {
 }
 
 function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
+  const t = textStyles(c);
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg },
-    dayCell: { width: 44, height: 52, alignItems: 'center', justifyContent: 'flex-start', paddingTop: 4, borderRadius: 6 },
+    dayCell: { width: 44, height: 52, alignItems: 'center', justifyContent: 'flex-start', paddingTop: SPACE.xs, borderRadius: RADIUS.sm },
     dayCellSelected: { backgroundColor: c.primary },
     dayCellPressed: { opacity: 0.6 },
-    dayNum: { fontSize: 14, color: c.text, fontWeight: '500' },
-    dayNumSelected: { color: '#fff' },
+    dayNum: { fontSize: FONT.size.md, color: c.text, fontWeight: FONT.weight.medium },
+    dayNumSelected: { color: c.textInverse },
     dayDisabled: { color: c.textMuted },
-    dayRecord: { fontSize: 8, color: c.primary, fontWeight: '700', marginTop: 1 },
-    dayElo: { fontSize: 8, fontWeight: '700', marginTop: 0 },
-    dayTextSelected: { color: '#fff' },
+    // The smallest step on the type scale (was 8px): fixed line height so the
+    // record and the change still fit the 52 cell under the day number.
+    dayRecord: { fontSize: FONT.size.xxs, lineHeight: 12, color: c.primary, fontWeight: FONT.weight.bold, marginTop: 1 },
+    dayElo: { fontSize: FONT.size.xxs, lineHeight: 12, fontWeight: FONT.weight.bold },
+    dayTextSelected: { color: c.textInverse },
     eloUp:   { color: c.primary },
     eloDown: { color: c.danger },
-    dayDetail: { backgroundColor: c.surface, margin: 12, borderRadius: 14, padding: 16, shadowColor: '#000', shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
-    detailDate: { fontSize: 18, fontWeight: '800', color: c.text, marginBottom: 12 },
-    summaryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-    summaryBadge: { flex: 1, alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: 10, padding: 10 },
-    summaryNum: { fontSize: 20, fontWeight: '800', color: c.text },
-    summaryLabel: { fontSize: 10, color: c.textMuted, marginTop: 2, textTransform: 'uppercase', fontWeight: '700', letterSpacing: 0.6 },
-    matchRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: c.border, gap: 8 },
-    matchResult: { fontSize: 15, fontWeight: '800', width: 20 },
+    dayDetail: {
+      backgroundColor: c.surface, margin: SPACE.md, borderRadius: RADIUS.lg, padding: SPACE.lg,
+      shadowColor: c.shadow, shadowOpacity: 0.07, shadowRadius: SPACE.sm, shadowOffset: { width: 0, height: 2 }, elevation: 3,
+    },
+    detailDate: { ...t.h3, marginBottom: SPACE.md },
+    summaryRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.lg },
+    summaryBadge: { flex: 1, alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.sm },
+    summaryNum: { ...t.h2, fontVariant: ['tabular-nums'] },
+    summaryLabel: { ...t.fieldLabel, marginTop: SPACE.xxs },
+    matchRow: {
+      flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingVertical: SPACE.sm,
+      borderBottomWidth: HAIRLINE, borderBottomColor: c.border, gap: SPACE.sm,
+    },
+    matchResult: { ...t.title, fontWeight: FONT.weight.heavy, width: 20 },
     winText:  { color: c.primary },
     lossText: { color: c.danger },
-    matchOpponent: { flex: 1, fontSize: 14, fontWeight: '600', color: c.text },
-    matchScore: { fontSize: 14, fontWeight: '700', color: c.textSub },
-    matchTime: { fontSize: 11, color: c.textMuted },
-    hint: { textAlign: 'center', color: c.textMuted, marginTop: 24, fontSize: 14, padding: 16 },
+    matchOpponent: { ...t.bodySub, flex: 1, color: c.text, fontWeight: FONT.weight.semibold },
+    matchScore: { fontSize: FONT.size.md, fontWeight: FONT.weight.bold, color: c.textSub, fontVariant: ['tabular-nums'] },
+    matchTime: { ...t.caption },
+    hint: { ...t.hint, textAlign: 'center', marginTop: SPACE.xl, padding: SPACE.lg },
   });
 }

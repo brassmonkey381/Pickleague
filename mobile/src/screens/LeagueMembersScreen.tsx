@@ -4,7 +4,7 @@
 //     Sam wants to join  [Approve] [Deny]       league_members/ push lands here
 //   MEMBERS 14 · avg 3.62      Suggest
 //   [Q search]  (Role)(PLUPR)(Name)   only once the league has > 10 members
-//   56px rows: avatar · name · PLUPR · role chip · ⋮ (admin tools)
+//   56px rows: avatar · name · PLUPR · role chip · more (admin tools)
 import { useScreenBottomInset } from '../lib/appChrome';
 import React, { useState, useCallback, useMemo } from 'react';
 import {
@@ -19,9 +19,10 @@ import {
   friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
 import {
-  Badge, FilterChipRow, FilterSearchField, ListCard, Panel, SectionHeader, StatusBanner,
+  Badge, ErrorState, FilterChipRow, FilterSearchField, ListCard, Panel, SectionHeader, StatusBanner,
   type FilterChipOption,
 } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -43,6 +44,7 @@ import { dropJoinedRequests } from '../lib/inboxRequests';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
+import { PickleAmount, picklesLabel } from '../components/PickleAmount';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'LeagueMembers'>;
@@ -365,12 +367,11 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   if (loadError && members.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <EmptyState
-          icon="📡"
-          title="Couldn't load the roster"
-          subtitle={loadError}
-          actionLabel="Try again"
-          onAction={() => { setLoading(true); void load(); }}
+        <ErrorState
+          iconName="offline"
+          error={loadError}
+          message={`Couldn't load the roster. ${loadError}`}
+          onRetry={() => { setLoading(true); void load(); }}
         />
       </View>
     );
@@ -456,7 +457,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           <SectionHeader
             title="Members"
             count={members.length > 0 ? `${members.length} · avg ${avgLeagueElo.toFixed(2)} PLUPR` : undefined}
-            action={privileged ? { label: '✨ Suggest', onPress: openSuggest, a11yLabel: 'Suggest players to invite' } : undefined}
+            action={privileged ? { label: 'Suggest', onPress: openSuggest, a11yLabel: 'Suggest players to invite' } : undefined}
           />
 
           {showSearch && (
@@ -522,10 +523,10 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                       scopeName: leagueName,
                     })}
                     accessibilityRole="button"
-                    accessibilityLabel={`View wagers on ${name}`}
+                    accessibilityLabel={`View wagers on ${name}, ${picklesLabel(wagered)} wagered`}
                   >
                     <View style={S.wagerPill}>
-                      <Text style={[t.meta, { color: colors.primary }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>🥒 {wagered.toLocaleString()}</Text>
+                      <PickleAmount amount={wagered} preset="meta" />
                     </View>
                   </TouchableOpacity>
                 )}
@@ -536,7 +537,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
                     accessibilityRole="button"
                     accessibilityLabel={`Manage ${name}`}
                   >
-                    <Text style={[t.title, { color: colors.textMuted }]}>⋮</Text>
+                    <Icon name="more-vertical" size={20} color={colors.textMuted} />
                   </TouchableOpacity>
                 )}
               </View>
@@ -547,8 +548,8 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       }}
       ListEmptyComponent={
         members.length === 0
-          ? <EmptyState icon="👥" title="No members yet" />
-          : <EmptyState compact icon="🔍" title="No members match" actionLabel="Clear" onAction={() => setSearch('')} />
+          ? <EmptyState iconName="group" title="No members yet" />
+          : <EmptyState compact iconName="search" title="No members match" actionLabel="Clear" onAction={() => setSearch('')} />
       }
     />
 
@@ -561,7 +562,10 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       <View style={S.modalRoot}>
         <View style={S.modalHeader}>
           <View style={S.rowText}>
-            <Text style={t.h3}>✨ Suggested Players</Text>
+            <View style={S.headerTitle}>
+              <Icon name="sparkle" size={18} color={colors.primary} />
+              <Text style={[t.h3, S.rowText]} accessibilityRole="header">Suggested Players</Text>
+            </View>
             <Text style={t.sub} numberOfLines={2}>
               Similar PLUPR to {leagueName || 'this league'} · sorted by schedule overlap
             </Text>
@@ -575,7 +579,7 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
           <ActivityIndicator style={{ marginTop: SPACE.xl }} size="large" color={colors.primary} />
         ) : suggestions.length === 0 ? (
           <EmptyState
-            icon="🔎"
+            iconName="search"
             title="No suggestions found nearby."
             subtitle="Try setting your availability on your profile so we can find good matches!"
           />
@@ -667,6 +671,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     wagerPill:    { backgroundColor: c.primaryLight, borderRadius: RADIUS.pill, paddingHorizontal: SPACE.sm, paddingVertical: SPACE.xxs },
 
     modalRoot:    { flex: 1, backgroundColor: c.surface },
+    headerTitle:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     modalHeader:  { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.md, paddingHorizontal: SPACE.lg, paddingTop: SPACE.xl, paddingBottom: SPACE.md, borderBottomWidth: HAIRLINE, borderBottomColor: c.border },
     modalList:    { padding: SPACE.lg, paddingBottom: SPACE.xl },
     suggestHint:  { marginBottom: SPACE.md },

@@ -1,4 +1,5 @@
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
+import type { Theme } from '@just-messin-around/expo-foundation/theme';
 import { supabase } from './supabase';
 
 /**
@@ -48,10 +49,12 @@ export function isPrivileged(role: LeagueRole): boolean {
   return role === 'admin' || role === 'co-admin';
 }
 
-export function roleBadgeColor(role: LeagueRole): string {
-  if (role === 'admin')    return '#b8860b';
-  if (role === 'co-admin') return '#2e7d32';
-  return '#888';
+/** A role's accent, from the theme (light and dark): admin gold, co-admin the
+ *  brand, everyone else muted. */
+export function roleBadgeColor(role: LeagueRole, c: Theme): string {
+  if (role === 'admin')    return c.rarityLegendary;
+  if (role === 'co-admin') return c.primary;
+  return c.textMuted;
 }
 
 export function roleLabel(role: LeagueRole): string {

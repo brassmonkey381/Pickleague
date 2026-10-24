@@ -9,6 +9,7 @@ import { sbCall, currentUserId as readCurrentUserId, friendlySbMessage } from '@
 import {
   ListCard,
   Badge,
+  ErrorState,
   SectionHeader,
   FilterSheet,
   FilterChipRow,
@@ -22,6 +23,7 @@ import {
   type FilterValues,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { Match, RootStackParamList } from '../types';
@@ -44,7 +46,7 @@ import type { Profile } from '../types';
 import { noteGoodMoment } from '../lib/ratingPrompt';
 import { explainRefusal } from '../lib/refusalNotices';
 import { confirmResultMessage } from '../lib/refusals';
-import { entityGlyph, joinFacts } from '../lib/entityGlyph';
+import { entityIcon, joinFacts } from '../lib/entityGlyph';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchHistory'>;
@@ -332,10 +334,10 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   // name ellipsizes inside the chip's slot (metaChip) instead of overflowing it.
   function scopeChip(item: HistoryMatch) {
     if (item.tournament?.name) {
-      return <Badge shrink label={`${entityGlyph('tournament')} ${item.tournament.name}`} tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
+      return <Badge shrink iconName={entityIcon('tournament')} label={item.tournament.name} tone="warning" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
     }
     if (!leagueId && item.league?.name) {
-      return <Badge shrink label={`${entityGlyph('league')} ${item.league.name}`} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
+      return <Badge shrink iconName={entityIcon('league')} label={item.league.name} tone="brand" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />;
     }
     return null;
   }
@@ -355,11 +357,13 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
 
   // The descriptive tags that used to be three stacked badges, now facts on the
   // meta line. Unknown / unspecified values are left out (content rule 3); the
-  // filter sheet can still find them.
+  // filter sheet can still find them. Words, not glyphs: the line is one
+  // ellipsized sentence (the sheet's Home / Away / Indoor / Outdoor pills
+  // carry the glyphs).
   function tagFacts(item: Match): (string | null)[] {
     return [
-      item.is_home_court == null ? null : item.is_home_court ? '🏠 Home' : '✈️ Away',
-      item.is_outdoor === true ? '☀️ Outdoor' : item.is_outdoor === false ? '🏢 Indoor' : null,
+      item.is_home_court == null ? null : item.is_home_court ? 'Home' : 'Away',
+      item.is_outdoor === true ? 'Outdoor' : item.is_outdoor === false ? 'Indoor' : null,
       item.match_type === 'doubles' && item.doubles_category === 'mixed' ? 'Mixed' : null,
       item.match_type === 'doubles' && item.doubles_category === 'gendered' ? 'Gendered' : null,
     ];
@@ -377,17 +381,20 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         accessibilityLabel="Wager options"
         onPress={() => openWagerSheet({ matchId: item.id, team1Label: names.team1, team2Label: names.team2 })}
       >
-        <Text style={S.menuGlyph}>⋯</Text>
+        <Icon name="more" size={20} color={colors.textSub} />
       </Pressable>
     );
   }
 
-  function tile(label: string, tone: 'win' | 'loss' | 'pending' | 'upcoming', a11yLabel?: string) {
+  /** The card's leading tile: W / L as a letter, pending / upcoming as a glyph. */
+  function tile(label: string | { iconName: IconName }, tone: 'win' | 'loss' | 'pending' | 'upcoming', a11yLabel?: string) {
     const bg = tone === 'win' ? colors.primary
       : tone === 'loss' ? colors.danger
       : tone === 'pending' ? colors.warningLight
       : colors.infoLight;
-    const fg = tone === 'win' || tone === 'loss' ? colors.textInverse : colors.text;
+    const fg = tone === 'win' || tone === 'loss' ? colors.textInverse
+      : tone === 'pending' ? colors.warning
+      : colors.info;
     // W/L is the card's only result cue for screen readers (the card isn't
     // pressable, so nothing else announces it). Glyph tiles stay decorative:
     // the pending state is spelled out on the meta line.
@@ -396,7 +403,11 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       : { accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' as const };
     return (
       <View style={[S.tile, { backgroundColor: bg }]} {...a11y}>
-        <Text style={[S.tileText, { color: fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{label}</Text>
+        {typeof label === 'string' ? (
+          <Text style={[S.tileText, { color: fg }]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{label}</Text>
+        ) : (
+          <Icon name={label.iconName} size={16} color={fg} />
+        )}
       </View>
     );
   }
@@ -412,7 +423,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
       <ListCard
         key={item.id}
         density="compact"
-        leading={tile(entityGlyph('season'), 'upcoming')}
+        leading={tile({ iconName: entityIcon('season') }, 'upcoming')}
         title={
           <Text style={t.title} numberOfLines={1}>
             <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
@@ -468,7 +479,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         ? 'Confirm needed'
         : myTeamConfirmed
           ? 'Waiting on other team'
-          : `Team 1 ${team1Done ? '✓' : 'waiting'} · Team 2 ${team2Done ? '✓' : 'waiting'}`;
+          : `Team 1 ${team1Done ? 'confirmed' : 'waiting'} · Team 2 ${team2Done ? 'confirmed' : 'waiting'}`;
       // An unconfirmed match is dropped after an hour, so the countdown leads
       // the line and survives truncation.
       const deadlineFact = deadlineLabel === 'expired' ? 'Expired' : deadlineLabel;
@@ -477,7 +488,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         <ListCard
           density="compact"
           highlighted={isHighlighted}
-          leading={tile('⏳', 'pending')}
+          leading={tile({ iconName: 'hourglass' }, 'pending')}
           title={
             <Text style={t.title} numberOfLines={1}>
               <TeamFlair player={item.player1} partner={isDoubles ? item.partner1 : null} textStyle={t.title} />
@@ -557,7 +568,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }
         subtitle={metaLine(item, joinFacts([
           shortDate(item.played_at),
-          isDoubles && myPartner?.full_name ? `🤝 ${myPartner.full_name}` : null,
+          isDoubles && myPartner?.full_name ? `with ${myPartner.full_name}` : null,
           court,
           ...tagFacts(item),
         ]))}
@@ -639,12 +650,12 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         { value: 'unspecified', label: 'Uncategorized' },
       ] },
       { key: 'homeAway', title: 'Home / away', kind: 'single', options: [
-        { value: 'home', label: '🏠 Home' },
-        { value: 'away', label: '✈️ Away' },
+        { value: 'home', label: 'Home', iconName: 'home' },
+        { value: 'away', label: 'Away', iconName: 'plane' },
       ] },
       { key: 'indoorOutdoor', title: 'Indoor / outdoor', kind: 'single', options: [
-        { value: 'outdoor', label: '☀️ Outdoor' },
-        { value: 'indoor', label: '🏢 Indoor' },
+        { value: 'outdoor', label: 'Outdoor', iconName: 'sun' },
+        { value: 'indoor', label: 'Indoor', iconName: 'indoor' },
         { value: 'unknown', label: 'Not set' },
       ] },
     ];
@@ -752,7 +763,8 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
   // entry point above the empty state.
   const showHistoryHeader = matches.length > 0 && (filtered.length > 0 || upcoming.length === 0);
   const calendarAction = {
-    label: '📅 Calendar',
+    label: 'Calendar',
+    chevron: true,
     a11yLabel: 'View calendar analytics',
     onPress: () => navigation.navigate('CalendarAnalytics', {
       userId,
@@ -835,19 +847,19 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         }}
         ListEmptyComponent={
           loadFailed
-            ? <EmptyState
-                icon="📡"
-                title="Couldn't load match history"
-                subtitle={friendlySbMessage(loadError)}
-                actionLabel="Retry"
-                onAction={() => { setLoading(true); void loadMatches(); }}
+            ? <ErrorState
+                iconName="offline"
+                error={loadError}
+                message={`Couldn't load match history. ${friendlySbMessage(loadError)}`}
+                retryLabel="Retry"
+                onRetry={() => { setLoading(true); void loadMatches(); }}
               />
             : upcoming.length > 0
             ? null
             : matches.length > 0 && anyFilterOn
             // Every empty state caused by filters offers the way out.
-            ? <EmptyState icon="🔍" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
-            : <EmptyState icon={entityGlyph('match')} title="No matches yet" subtitle="No matches recorded yet." />
+            ? <EmptyState iconName="search" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
+            : <EmptyState iconName={entityIcon('match')} title="No matches yet" subtitle="No matches recorded yet." />
         }
         ListHeaderComponent={
           (matches.length > 0 || upcoming.length > 0) ? (
@@ -867,7 +879,7 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
               {upcoming.length > 0 && filtered.length === 0 && anyFilterOn && (
                 // ListEmptyComponent stands down while Upcoming has rows, so
                 // the filtered-empty way out renders inline here instead.
-                <EmptyState compact icon="🔍" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
+                <EmptyState compact iconName="search" title="No matches fit these filters" actionLabel="Clear filters" onAction={clearAllFilters} />
               )}
               {showHistoryHeader && (
                 // The old full-width Calendar Analytics button is this header's
@@ -900,9 +912,9 @@ export default function MatchHistoryScreen({ navigation, route }: Props) {
         subtitle={wagerCtx ? `${wagerCtx.team1Label} vs ${wagerCtx.team2Label}` : undefined}
         onClose={() => setWagerSheetOpen(false)}
         actions={wagerCtx ? [
-          { label: `🎲 Wager: ${wagerCtx.team1Label} wins`, onPress: () => startWinnerWager('team1') },
-          { label: `🎲 Wager: ${wagerCtx.team2Label} wins`, onPress: () => startWinnerWager('team2') },
-          { label: '🎲 Wager: exact score',                 onPress: () => setScoreInput({ t1: '', t2: '' }) },
+          { label: `Wager: ${wagerCtx.team1Label} wins`, iconName: 'dice', onPress: () => startWinnerWager('team1') },
+          { label: `Wager: ${wagerCtx.team2Label} wins`, iconName: 'dice', onPress: () => startWinnerWager('team2') },
+          { label: 'Wager: exact score', iconName: 'target', onPress: () => setScoreInput({ t1: '', t2: '' }) },
         ] : []}
       />
 
@@ -967,7 +979,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     section: { marginBottom: SPACE.xs },
 
     tile: { width: TILE, height: TILE, borderRadius: TILE / 2, alignItems: 'center', justifyContent: 'center' },
-    tileText: { fontSize: FONT.size.base, fontWeight: '800' },
+    tileText: { fontSize: FONT.size.base, fontWeight: FONT.weight.heavy },
 
     // Line 2: [scope chip] facts — one line; the facts give way first.
     metaLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginTop: SPACE.xxs, minWidth: 0 },
@@ -986,16 +998,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     actionCard: { paddingVertical: SPACE.xs },
     trailingRow: { flexDirection: 'row', alignItems: 'center' },
     menuBox: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    menuGlyph: { fontSize: FONT.size.xl, fontWeight: '900', color: c.textSub },
     pressed: { opacity: 0.6 },
 
     scoreInputRow: { flexDirection: 'row', gap: SPACE.sm, alignItems: 'center', marginTop: SPACE.sm, marginBottom: SPACE.xs },
     scoreInput: {
-      flex: 1, borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44,
-      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.xl, fontWeight: '700',
+      flex: 1, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 44,
+      paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.xl, fontWeight: FONT.weight.bold,
       backgroundColor: c.surface, color: c.text, textAlign: 'center',
     },
-    scoreInputDash: { fontSize: FONT.size.xl, fontWeight: '800', color: c.textMuted },
+    scoreInputDash: { fontSize: FONT.size.xl, fontWeight: FONT.weight.heavy, color: c.textMuted },
     scoreInputLabel: { marginTop: SPACE.sm },
   });
 }

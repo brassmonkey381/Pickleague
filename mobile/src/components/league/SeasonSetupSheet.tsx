@@ -11,8 +11,9 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
 import { Chip, StatusBanner } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { useStatusMessage } from '../../lib/useStatusMessage';
 import { addDaysIso, localIsoDate } from '../../lib/seasonSummary';
@@ -150,7 +151,10 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <ScrollView contentContainerStyle={[styles.sheet, { backgroundColor: c.surface }]} keyboardShouldPersistTaps="handled">
-        <Text style={[t.h2, styles.title]} accessibilityRole="header">🏆 Start a New Season</Text>
+        <View style={[styles.iconRow, styles.title]}>
+          <Icon name="trophy" size={22} color={c.rarityLegendary} />
+          <Text style={[t.h2, styles.flex]} accessibilityRole="header">Start a New Season</Text>
+        </View>
         <StatusBanner status={status.value} />
 
         <TextField label="Season Name" value={seasonName} onChangeText={setSeasonName} placeholder="e.g. Season 1, Spring 2025" />
@@ -161,9 +165,12 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
           onPress={() => setShowDatePicker(true)}
           accessibilityRole="button"
         >
-          <Text style={[t.body, { color: c.text }]}>
-            📅 {start.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
-          </Text>
+          <View style={styles.iconRow}>
+            <Icon name="calendar" size={16} color={c.textSub} />
+            <Text style={[t.body, styles.flex, { color: c.text }]}>
+              {start.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+            </Text>
+          </View>
         </TouchableOpacity>
 
         <Text style={[t.fieldLabel, styles.label]}>Season Length</Text>
@@ -194,13 +201,13 @@ export default function SeasonSetupSheet({ visible, leagueId, leagueName, onClos
 
         {dates.length > 0 ? (
           <View style={[styles.preview, { backgroundColor: c.primaryLight, borderColor: c.primary }]}>
-            <Text style={[t.sub, { color: c.primary, fontWeight: '700' }]}>
+            <Text style={[t.sub, { color: c.primary, fontWeight: FONT.weight.bold }]}>
               {dates.length} lock-in period{dates.length !== 1 ? 's' : ''} · final standings = median rank
             </Text>
             {dates.map((d, i) => (
               <Text key={i} style={[t.sub, { color: c.text }]}>
                 Period {i + 1}: {d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-                {i === dates.length - 1 ? '  ← season ends' : ''}
+                {i === dates.length - 1 ? ' · season ends' : ''}
               </Text>
             ))}
             <Text style={t.meta}>
@@ -231,6 +238,8 @@ const styles = StyleSheet.create({
   // Plan section 6: the lg gutter on the sides, xl only at the top and bottom.
   sheet: { paddingHorizontal: SPACE.lg, paddingVertical: SPACE.xl, flexGrow: 1, gap: SPACE.sm },
   title: { marginBottom: SPACE.xs },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  flex: { flex: 1, minWidth: 0 },
   label: { marginTop: SPACE.md },
   dateBtn: { minHeight: 44, borderWidth: HAIRLINE, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, justifyContent: 'center' },
   presetRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.sm },

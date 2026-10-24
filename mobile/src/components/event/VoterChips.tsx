@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, type GestureResponderEvent } from 'react-native';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
-import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import type { SlotVoter } from '../../types';
 
@@ -71,7 +71,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
       width: 18, height: 18, borderRadius: RADIUS.pill,
       alignItems: 'center', justifyContent: 'center', backgroundColor: c.primaryLight,
     },
-    avatarText: { color: c.primary, fontWeight: '700' },
+    avatarText: { color: c.primary, fontWeight: FONT.weight.bold },
     moreBox: { minHeight: 44, justifyContent: 'center' },
   });
 }

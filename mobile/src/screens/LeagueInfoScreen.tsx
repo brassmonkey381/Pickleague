@@ -1,5 +1,5 @@
 // "How <league> works": the league's reference page, opened from the identity
-// row's "ⓘ How it works" chip on LeagueDetail.
+// row's "How it works" chip (info glyph) on LeagueDetail.
 //
 // Layout (plan section 5, LeagueInfo): the facts stay open at the top ("At a
 // glance"), and every explainer is a collapsed section with a one-line summary,
@@ -17,7 +17,8 @@ import { ScrollView, View, Text, StyleSheet } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { CollapsibleSection, LoadingState, Panel } from '@just-messin-around/expo-foundation/ui';
+import { CollapsibleSection, ErrorState, LoadingState, Panel } from '@just-messin-around/expo-foundation/ui';
+import { Icon, glyphForEmoji, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SMALL_TEXT_MAX_SCALE, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -85,12 +86,11 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
   if (loading) return <LoadingState label="Loading…" />;
   if (loadError && !league) {
     return (
-      <EmptyState
-        icon="📡"
-        title="Couldn't load this league"
-        subtitle={loadError}
-        actionLabel="Try again"
-        onAction={() => { setLoading(true); void load(); }}
+      <ErrorState
+        iconName="offline"
+        error={loadError}
+        message={`Couldn't load this league. ${loadError}`}
+        onRetry={() => { setLoading(true); void load(); }}
       />
     );
   }
@@ -117,7 +117,11 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
       {/* ── At a glance (facts, always open) ──────────────────── */}
       <Panel style={styles.glance}>
         <Text style={[t.label, styles.panelLabel]} accessibilityRole="header" maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>At a glance</Text>
-        <Row label="Privacy" value={league.is_open ? '🌐 Public: anyone can join' : '🔒 Private: invite or request only'} />
+        <Row
+          label="Privacy"
+          iconName={league.is_open ? 'globe' : 'lock'}
+          value={league.is_open ? 'Public: anyone can join' : 'Private: invite or request only'}
+        />
         {memberCount != null ? <Row label="Members" value={`${memberCount}`} /> : null}
         {matchCount != null ? <Row label="Matches played" value={`${matchCount}`} /> : null}
         {court ? <Row label="Home court" value={court} /> : null}
@@ -238,9 +242,12 @@ export default function LeagueInfoScreen({ navigation, route }: Props) {
             {[...tFormats.entries()].map(([fmt, count]) => {
               const meta = (FORMAT_META as any)[fmt];
               return (
-                <Text key={fmt} style={[t.sub, { fontWeight: FONT.weight.semibold }]}>
-                  {meta?.icon ?? '🥎'}  {meta?.label ?? fmt}: {count}
-                </Text>
+                <View key={fmt} style={styles.iconRow}>
+                  <Icon name={formatIcon(meta)} size={14} color={c.textSub} />
+                  <Text style={[t.sub, styles.flex, { fontWeight: FONT.weight.semibold }]}>
+                    {meta?.label ?? fmt}: {count}
+                  </Text>
+                </View>
               );
             })}
           </View>
@@ -259,13 +266,22 @@ function fmtDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/** A tournament format's glyph. Reads FORMAT_META's `iconName` (the glyph) and
+ *  falls back to its emoji `icon` through the emoji table, then the ball. */
+function formatIcon(meta: { iconName?: IconName; icon?: string } | undefined): IconName {
+  return meta?.iconName ?? (meta?.icon ? glyphForEmoji(meta.icon) : undefined) ?? 'pickleball';
+}
+
+function Row({ label, value, iconName }: { label: string; value: string; iconName?: IconName }) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   return (
     <View style={[styles.row, { borderTopColor: c.border }]}>
       <Text style={t.meta} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{label}</Text>
-      <Text style={[t.sub, styles.rowValue, { color: c.text }]}>{value}</Text>
+      <View style={styles.rowValueBox}>
+        {iconName ? <Icon name={iconName} size={14} color={c.textSub} /> : null}
+        <Text style={[t.sub, styles.rowValue, { color: c.text }]}>{value}</Text>
+      </View>
     </View>
   );
 }
@@ -284,7 +300,10 @@ const styles = StyleSheet.create({
     gap: SPACE.md,
     borderTopWidth: HAIRLINE,
   },
-  rowValue: { flex: 1, textAlign: 'right', fontWeight: FONT.weight.semibold },
+  rowValueBox: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: SPACE.xs },
+  rowValue: { flexShrink: 1, textAlign: 'right', fontWeight: FONT.weight.semibold },
+  iconRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  flex: { flex: 1, minWidth: 0 },
   bold: { fontWeight: FONT.weight.heavy },
   mono: { fontFamily: 'monospace', fontSize: FONT.size.base },
   callout: { borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xs, borderWidth: HAIRLINE },

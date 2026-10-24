@@ -1,7 +1,7 @@
 // LeagueDetail's identity block (plan section 5, slot 1): one chip row plus the
 // description clamped to 2 lines with "more".
 //
-//   (Public) (📍 Lake Merritt · 2 here ›) (3 members) (You: Admin) (ⓘ How it works)
+//   (globe Public) (pin Lake Merritt · 2 here >) (3 members) (You: Admin) (info How it works)
 //
 // It replaces three cards the screen used to stack (about 250-350px): the
 // home-court banner, the description/privacy card and the "Your role" banner.
@@ -9,7 +9,7 @@
 // names the actual court (lib/regions.ts was retired, plan section 4).
 //
 // Tapping the court chip opens who's here: the crowd line ("6 playing now ·
-// mostly 3.5–4.0 · 2 friends") with the ☆ "my courts" star, then the roster.
+// mostly 3.5–4.0 · 2 friends") with the "my courts" star, then the roster.
 // With COURT_DISCOVERY_ENABLED it opens the court's page instead (CourtDetail,
 // which has the same crowd, star and roster, plus the facts and Check in).
 //
@@ -21,12 +21,17 @@
 // since react-native-web ignores hitSlop) and opt in to being announced as
 // buttons, named without their glyphs (none sits inside another button, so
 // the <button> RNW renders for them on web nests nothing); plain chips are
-// just pills.
+// just pills. Every pill is centred in the row (Chip align="center"), so a
+// plain pill no longer rides 8px above a 44 tap box beside it.
+//
+// The court chip is the foundation FilterPill: the same 28px neutral pill in a
+// 44 box, and the one pill with a trailing glyph (the chevron that says it
+// opens: right when closed, down while the roster shows).
 import React, { useState } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Chip, ClampText } from '@just-messin-around/expo-foundation/ui';
+import { Chip, ClampText, FilterPill } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -56,15 +61,15 @@ export type LeagueIdentityProps = {
   memberCount: number | null;
   /** Admin/co-admin: sees the "No home court" prompt. */
   privileged: boolean;
-  /** "ⓘ How it works" -> LeagueInfo. */
+  /** "How it works" (info glyph) -> LeagueInfo. */
   onOpenInfo: () => void;
   /** Admin's "No home court" chip -> the Edit league sheet. */
   onSetCourt?: () => void;
 };
 
 /** A raw Places name (no nickname, or the nickname cache isn't loaded yet) can
- *  pass a phone's width; Chip's one-line label then overflows the gutter on web
- *  and ellipsizes away the "· N here ›" cue on native. Cap the court part. */
+ *  pass a phone's width; the pill's one-line label then overflows the gutter on
+ *  web and ellipsizes away the "· N here" cue on native. Cap the court part. */
 const COURT_LABEL_MAX = 24;
 
 export default function LeagueIdentity({
@@ -89,38 +94,46 @@ export default function LeagueIdentity({
   const roleChip = myRole && myRole !== 'unknown' ? leagueRoleChip(myRole) : null;
   const desc = league.description?.trim() ?? '';
 
-  const chipProps = { size: 'sm' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE };
+  const chipProps = { size: 'sm' as const, align: 'center' as const, maxFontSizeMultiplier: SMALL_TEXT_MAX_SCALE };
 
   return (
     <View style={styles.wrap}>
       <View style={styles.chips}>
-        <Chip {...chipProps} label={league.is_open ? '🌐 Public' : '🔒 Private'} tone={league.is_open ? 'brand' : 'warning'} />
+        <Chip
+          {...chipProps}
+          iconName={league.is_open ? 'globe' : 'lock'}
+          label={league.is_open ? 'Public' : 'Private'}
+          tone={league.is_open ? 'brand' : 'warning'}
+        />
         {!league.is_active ? <Chip {...chipProps} label="Closed" tone="danger" /> : null}
         {court ? (
           presence.venueId ? (
-            <Chip
-              {...chipProps}
-              hitBox
-              label={`📍 ${courtShort}${hereCount ? ` · ${hereCount} here` : ''} ${rosterOpen ? '▾' : '›'}`}
+            <FilterPill
+              iconName="pin"
+              label={`${courtShort}${hereCount ? ` · ${hereCount} here` : ''}`}
+              trailingIconName={rosterOpen ? 'chevron-down' : 'chevron-right'}
+              active={rosterOpen}
+              maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
               onPress={() => {
                 const venueId = presence.venueId;
                 if (COURT_DISCOVERY_ENABLED && venueId) navigation.navigate('CourtDetail', { venueId });
                 else setRosterOpen((v) => !v);
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Home court: ${court}${hereCount ? `, ${hereCount} here` : ''}`}
-              accessibilityHint={
+              accessibilityLabel={`Home court: ${court}${hereCount ? `, ${hereCount} here` : ''}. ${
                 COURT_DISCOVERY_ENABLED ? "Opens the court's page" : rosterOpen ? "Hides who's here" : "Shows who's here"
-              }
+              }`}
+              accessibilityState={COURT_DISCOVERY_ENABLED ? {} : { selected: rosterOpen }}
             />
           ) : (
-            <Chip {...chipProps} label={`📍 ${courtShort}`} />
+            <Chip {...chipProps} iconName="pin" label={courtShort} />
           )
         ) : privileged && onSetCourt ? (
           <Chip
             {...chipProps}
             hitBox
-            label="📍 No home court ›"
+            iconName="pin"
+            label="No home court"
             tone="warning"
             variant="outline"
             onPress={onSetCourt}
@@ -136,7 +149,8 @@ export default function LeagueIdentity({
         <Chip
           {...chipProps}
           hitBox
-          label="ⓘ How it works"
+          iconName="info"
+          label="How it works"
           variant="outline"
           tone="brand"
           onPress={onOpenInfo}

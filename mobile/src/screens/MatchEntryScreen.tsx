@@ -11,6 +11,7 @@ import { RouteProp } from '@react-navigation/native';
 // longer imports it.
 import { Panel, Badge, FilterPill, SectionHeader, SegmentedToggle, SingleSelectModal } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
@@ -42,6 +43,9 @@ type Props = {
 
 type MatchType = 'singles' | 'doubles';
 
+/** The court-type hint under "Court type": the kind's glyph(s) and the words. */
+type CourtHint = { icons: IconName[]; text: string };
+
 /** The four player slots, in the order the form shows them. */
 type PlayerSlot = 'p1' | 'partner1' | 'p2' | 'partner2';
 
@@ -63,6 +67,7 @@ function PlayerField({ slot, name, onPress, S }: {
   onPress: () => void;
   S: ReturnType<typeof makeStyles>;
 }) {
+  const { colors } = useTheme();
   return (
     <TouchableOpacity
       style={S.field}
@@ -74,7 +79,7 @@ function PlayerField({ slot, name, onPress, S }: {
       <Text style={[S.fieldText, !name && S.fieldPlaceholder]} numberOfLines={1}>
         {name ?? SLOT_LABEL[slot]}
       </Text>
-      <Text style={S.fieldChevron}>▾</Text>
+      <Icon name="chevron-down" size={14} color={colors.textMuted} style={S.fieldChevron} />
     </TouchableOpacity>
   );
 }
@@ -140,7 +145,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
   const [location, setLocation]     = useState<CourtResult | null>(null);
   // Default outdoor — overridden by learnCourtDefault when we have a signal.
   const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(true);
-  const [courtHint, setCourtHint]   = useState<string | null>(null);
+  const [courtHint, setCourtHint]   = useState<CourtHint | null>(null);
   // When a location only has one type of court, lock the toggle to that type.
   const [courtTypeLocked, setCourtTypeLocked] = useState<'outdoor' | 'indoor' | null>(null);
   const [myDefaultPaddleId, setMyDefaultPaddleId] = useState<string | null>(null);
@@ -442,7 +447,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       .maybeSingle();
 
     if (court) {
-      const source = court.verified       ? '✓ verified'
+      const source = court.verified       ? 'verified'
                    : court.auto_classified ? 'auto-detected'
                    :                          'learned from past matches';
       const onlyOutdoor = court.has_outdoor && !court.has_indoor;
@@ -452,20 +457,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       if (onlyOutdoor) {
         setIsOutdoor(true);
         setCourtTypeLocked('outdoor');
-        setCourtHint(`☀️ Outdoor only · ${source}`);
+        setCourtHint({ icons: ['sun'], text: `Outdoor only · ${source}` });
         return;
       }
       if (onlyIndoor) {
         setIsOutdoor(false);
         setCourtTypeLocked('indoor');
-        setCourtHint(`🏠 Indoor only · ${source}`);
+        setCourtHint({ icons: ['indoor'], text: `Indoor only · ${source}` });
         return;
       }
       if (hasBoth) {
         // Has both — prefer the location's stored default, else fall back to outdoor.
         if (court.default_outdoor === false) setIsOutdoor(false);
         else                                  setIsOutdoor(true);
-        setCourtHint(`🏠 / ☀️ Has both indoor and outdoor courts · ${source}`);
+        setCourtHint({ icons: ['indoor', 'sun'], text: `Has both indoor and outdoor courts · ${source}` });
         return;
       }
       // Row exists but unclassified (has_indoor=false, has_outdoor=false). Fall
@@ -487,12 +492,12 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
 
     if (pct >= 0.80) {
       setIsOutdoor(true);
-      setCourtHint(`☀️ Outdoor — based on ${history.length} past matches here`);
+      setCourtHint({ icons: ['sun'], text: `Outdoor — based on ${history.length} past matches here` });
     } else if (pct <= 0.20) {
       setIsOutdoor(false);
-      setCourtHint(`🏠 Indoor — based on ${history.length} past matches here`);
+      setCourtHint({ icons: ['indoor'], text: `Indoor — based on ${history.length} past matches here` });
     } else {
-      setCourtHint(`🏠 / ☀️ Mixed (${Math.round(pct * 100)}% outdoor across ${history.length} matches)`);
+      setCourtHint({ icons: ['indoor', 'sun'], text: `Mixed (${Math.round(pct * 100)}% outdoor across ${history.length} matches)` });
     }
   }
 
@@ -778,7 +783,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       computeBadgeProgress(enteringUid)
         .then(progress => {
           const close = progress.find(p => !p.earned && !p.perLeague && p.pct >= 0.5 && p.pct < 1);
-          if (close) status.success(`${baseMsg}\n\n🔥 ${close.label}: keep going to unlock ${close.badge}!`);
+          if (close) status.success(`${baseMsg}\n\nAlmost there on ${close.label}: keep going to unlock ${close.badge}!`);
         })
         .catch(() => { /* nudge is best-effort */ });
     } catch (e) {
@@ -902,7 +907,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       {isTournamentMatch && (
         // The screen's one Emphasis card: Panel + 3px accent edge.
         <Panel emphasis style={S.tournamentBanner}>
-          <Text style={S.tournamentBannerTitle}>🏆 Recording a tournament match</Text>
+          <View style={S.iconRow}>
+            <Icon name="trophy" size={16} color={colors.rarityLegendary} />
+            <Text style={S.tournamentBannerTitle}>Recording a tournament match</Text>
+          </View>
           <Text style={S.tournamentBannerBody} numberOfLines={3}>
             {tournamentName ? `From ${tournamentName}. ` : ''}Players and match type are locked from the bracket. PLUPR updates as soon as you submit — no separate confirmation step.
           </Text>
@@ -974,7 +982,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                   : (selectedLeagueName
                       ?? (leagueCandidates.length === 0 ? 'No shared league for these players' : 'Select a league…'))}
               </Text>
-              <Text style={S.fieldChevron}>▾</Text>
+              <Icon name="chevron-down" size={14} color={colors.textMuted} style={S.fieldChevron} />
             </TouchableOpacity>
           </View>
 
@@ -993,7 +1001,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                     ? (visibleTournaments.find(t => t.id === selectedTournamentId)?.name ?? 'Optional')
                     : 'Optional'}
                 </Text>
-                <Text style={S.fieldChevron}>▾</Text>
+                <Icon name="chevron-down" size={14} color={colors.textMuted} style={S.fieldChevron} />
               </TouchableOpacity>
             </View>
           )}
@@ -1015,7 +1023,8 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                 return (
                   <FilterPill
                     key={g}
-                    label={g === 'male' ? '♂ Male' : '♀ Female'}
+                    iconName={g}
+                    label={g === 'male' ? 'Male' : 'Female'}
                     active={active}
                     onPress={() => setGenderOverrides(prev => ({ ...prev, [s.slot]: g }))}
                     accessibilityRole="radio"
@@ -1045,7 +1054,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       <Panel padded={false} style={S.block}>
         <SectionHeader
           title="Score"
-          action={{ label: '+ Add game', a11yLabel: 'Add another game', onPress: addGame }}
+          action={{ label: 'Add game', a11yLabel: 'Add another game', onPress: addGame }}
           style={S.panelHeader}
         />
         <View style={S.scoreBody}>
@@ -1088,7 +1097,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                   accessibilityRole="button"
                   accessibilityLabel={`Remove game ${i + 1}`}
                 >
-                  <Text style={S.removeGlyph}>✕</Text>
+                  <Icon name="close" size={16} color={colors.textMuted} />
                 </Pressable>
               )}
             </View>
@@ -1122,7 +1131,10 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
       <View style={S.block}>
         <SectionHeader title="Court type" />
         {courtHint && (
-          <Text style={S.courtHint} numberOfLines={1}>📍 {courtHint}</Text>
+          <View style={[S.iconRow, S.courtHintRow]}>
+            {courtHint.icons.map((name) => <Icon key={name} name={name} size={14} color={colors.textMuted} />)}
+            <Text style={S.courtHint} numberOfLines={1}>{courtHint.text}</Text>
+          </View>
         )}
         <View style={S.courtTypeRow}>
           {([false, true] as const).map(outdoor => {
@@ -1142,7 +1154,7 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
                 accessibilityRole="button"
                 accessibilityState={{ selected: isActive, disabled: isDisabled }}
               >
-                <Text style={S.courtTypeIcon}>{outdoor ? '☀️' : '🏠'}</Text>
+                <Icon name={outdoor ? 'sun' : 'indoor'} size={18} color={isActive ? colors.primary : colors.textSub} />
                 <Text style={[
                   S.courtTypeText,
                   isActive && S.courtTypeTextActive,
@@ -1222,13 +1234,15 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     screen:    { flex: 1, backgroundColor: c.bg },
     container: { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xl, flexGrow: 1 },
     block:     { marginBottom: SPACE.md },
-    dim:       { opacity: 0.4 },
+    // Disabled reads lighter, never below 0.5 (glyphs-ui-plan.md 1.3).
+    dim:       { opacity: 0.5 },
+    iconRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
     pressed:   { opacity: 0.6 },
 
     // Panel supplies the hairline border, surface fill, 12 padding and radius 14.
     tournamentBanner:      { marginBottom: SPACE.md },
-    tournamentBannerTitle: { ...t.title, marginBottom: SPACE.xxs },
-    tournamentBannerBody:  t.sub,
+    tournamentBannerTitle: { ...t.title, flexShrink: 1 },
+    tournamentBannerBody:  { ...t.sub, marginTop: SPACE.xxs },
 
     typeToggle:       { marginBottom: SPACE.md },
 
@@ -1237,7 +1251,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     field:            { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, backgroundColor: c.surface },
     fieldText:        { flex: 1, fontSize: FONT.size.lg, color: c.text },
     fieldPlaceholder: { color: c.textMuted },
-    fieldChevron:     { fontSize: FONT.size.md, color: c.textMuted, marginLeft: SPACE.sm },
+    fieldChevron:     { marginLeft: SPACE.sm },
     vsRow:            { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, marginVertical: SPACE.xs },
     vsRule:           { flex: 1, height: HAIRLINE, backgroundColor: c.border },
     vsText:           t.meta,
@@ -1251,7 +1265,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     genderDeclareTitle: { ...t.title, fontSize: FONT.size.md },
     genderDeclareBody:  { ...t.sub, marginTop: SPACE.xxs, marginBottom: SPACE.xs },
     genderDeclareRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-    genderDeclareName:  { flex: 1, fontSize: FONT.size.base, fontWeight: '700', color: c.text },
+    genderDeclareName:  { flex: 1, fontSize: FONT.size.base, fontWeight: FONT.weight.bold, color: c.text },
 
     categoryLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 24 },
     categorySub:  { ...t.sub, flex: 1 },
@@ -1261,19 +1275,18 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     scoreRow:    { flexDirection: 'row', alignItems: 'flex-end', gap: SPACE.md },
     scoreCol:    { flex: 1, alignItems: 'center' },
     scoreName:   { ...t.meta, color: c.textSub, marginBottom: SPACE.xs, textAlign: 'center' },
-    scoreInput:  { borderWidth: 2, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 48, paddingVertical: SPACE.xs, fontSize: FONT.size.h1, textAlign: 'center', fontWeight: '800', color: c.text, width: 72, backgroundColor: c.surface },
-    vs:          { fontSize: FONT.size.xl, fontWeight: '700', color: c.textMuted, paddingBottom: SPACE.md },
+    scoreInput:  { borderWidth: 2, borderColor: c.border, borderRadius: RADIUS.md, minHeight: 48, paddingVertical: SPACE.xs, fontSize: FONT.size.h1, textAlign: 'center', fontWeight: FONT.weight.heavy, color: c.text, width: 72, backgroundColor: c.surface },
+    vs:          { fontSize: FONT.size.xl, fontWeight: FONT.weight.bold, color: c.textMuted, paddingBottom: SPACE.md },
     gameLabel:   { ...t.meta, width: 24, paddingBottom: SPACE.md + SPACE.xxs },
     removeBox:   { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-    removeGlyph: { fontSize: FONT.size.lg, fontWeight: '700', color: c.textMuted },
 
-    courtHint:            { ...t.sub, color: c.textMuted, fontStyle: 'italic', marginBottom: SPACE.xs },
+    courtHintRow:         { marginBottom: SPACE.xs },
+    courtHint:            { ...t.sub, color: c.textMuted, fontStyle: 'italic', flexShrink: 1 },
     courtTypeRow:         { flexDirection: 'row', gap: SPACE.sm },
     courtTypeBtn:         { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minHeight: 44, borderRadius: RADIUS.md, borderWidth: HAIRLINE, borderColor: c.border, backgroundColor: c.surface },
     courtTypeBtnActive:   { borderColor: c.primary, backgroundColor: c.primaryLight },
-    courtTypeBtnDisabled: { opacity: 0.4, backgroundColor: c.bg },
-    courtTypeIcon:        { fontSize: FONT.size.xl },
-    courtTypeText:        { fontSize: FONT.size.md, fontWeight: '600', color: c.textSub },
+    courtTypeBtnDisabled: { opacity: 0.5, backgroundColor: c.bg },
+    courtTypeText:        { fontSize: FONT.size.md, fontWeight: FONT.weight.semibold, color: c.textSub },
     courtTypeTextActive:  { color: c.primary },
 
     status: { marginBottom: SPACE.sm },

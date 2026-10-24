@@ -2,13 +2,13 @@
 // screen uses (plan section 5):
 //
 //   0 header ...... league name as the native title; [Share] [Bookmark] on the right
-//   1 identity .... (Public) (📍 court · N here ›) (N members) (You: Admin) (ⓘ How it works)
+//   1 identity .... (Public) (pin court · N here >) (N members) (You: Admin) (info How it works)
 //                   + the description, clamped to 2 lines with "more"
 //   2 you ......... quick row [+Record] [Standings] [Events] [Members]
 //                   (non-members: the shared LeagueJoinCard + [Standings] [Events] [Members])
 //   3 standings ... SeasonStrip, the one expanded section (open, not a row):
-//                   STANDINGS Fall [Full table ›], "You #2 of 14 · Period 7 locks Oct 20",
-//                   then the top 10 (+ your row pinned) and "See all N ›"
+//                   STANDINGS Fall [Full table >], "You #2 of 14 · Period 7 locks Oct 20",
+//                   then the top 10 (+ your row pinned) and "See all N >"
 //   4 coming up ... votes (needs-you) first, then events and tournaments by date,
 //                   max 3, then "Show N more"
 //   5 more ........ History · Calendar · Tournaments · Past (n)
@@ -37,7 +37,7 @@ import { RouteProp, useFocusEffect, useIsFocused } from '@react-navigation/nativ
 import {
   sbCall, currentUserId, classifySbError, friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
-import { StickyActionBar } from '@just-messin-around/expo-foundation/ui';
+import { ErrorState, StickyActionBar } from '@just-messin-around/expo-foundation/ui';
 import { TextField } from '@just-messin-around/expo-foundation/forms';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
@@ -602,13 +602,17 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
     const missing = loadError == null || classifySbError(loadError) === 'notFound';
     return (
       <ScrollView contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-        <EmptyState
-          icon={missing ? '🔍' : '📡'}
-          title={missing ? 'League not found.' : "Couldn't load this league"}
-          subtitle={missing ? undefined : friendlySbMessage(loadError)}
-          actionLabel="Retry"
-          onAction={() => { void load(); }}
-        />
+        {missing ? (
+          <EmptyState iconName="search" title="League not found." actionLabel="Retry" onAction={() => { void load(); }} />
+        ) : (
+          <ErrorState
+            iconName="offline"
+            error={loadError}
+            message={`Couldn't load this league. ${friendlySbMessage(loadError)}`}
+            retryLabel="Retry"
+            onRetry={() => { void load(); }}
+          />
+        )}
       </ScrollView>
     );
   }

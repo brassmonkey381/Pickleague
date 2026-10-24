@@ -8,6 +8,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { CollapsibleSection } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -77,7 +78,7 @@ export default function LeagueManageSection({ open, onToggle, summary, rows, not
                 {r.meta}
               </Text>
             ) : null}
-            <Text style={[styles.chevron, { color: r.danger ? c.danger : c.textMuted }]}>›</Text>
+            <Icon name="chevron-right" size={16} color={r.danger ? c.danger : c.textMuted} />
           </TouchableOpacity>
         ))}
       </View>
@@ -91,5 +92,4 @@ const styles = StyleSheet.create({
   row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   label: { flex: 1, minWidth: 0 },
   strong: { fontWeight: FONT.weight.bold },
-  chevron: { fontSize: FONT.size.h2, fontWeight: FONT.weight.bold },
 });

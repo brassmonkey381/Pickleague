@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, Modal, StyleSheet } from 'react-native';
 import { Button, TextField } from '@just-messin-around/expo-foundation/forms';
 import { StatusBanner } from '@just-messin-around/expo-foundation/ui';
+import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { HAIRLINE, RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useStatusMessage } from '../../lib/useStatusMessage';
@@ -93,8 +94,9 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
     onSaved((data as League) ?? null);
   }
 
-  const option = (open: boolean, title: string, sub: string) => {
+  const option = (open: boolean, iconName: IconName, title: string, sub: string) => {
     const active = isOpen === open;
+    const tint = active ? c.primary : c.textSub;
     return (
       <TouchableOpacity
         style={[
@@ -105,8 +107,12 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
         activeOpacity={0.8}
         accessibilityRole="radio"
         accessibilityState={{ selected: active }}
+        accessibilityLabel={`${title}: ${sub}`}
       >
-        <Text style={[t.title, { color: active ? c.primary : c.textSub }]}>{title}</Text>
+        <View style={styles.optionTitle}>
+          <Icon name={iconName} size={16} color={tint} />
+          <Text style={[t.title, { color: tint }]}>{title}</Text>
+        </View>
         <Text style={t.meta}>{sub}</Text>
       </TouchableOpacity>
     );
@@ -135,8 +141,8 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
 
         <Text style={[t.fieldLabel, styles.label]}>Privacy</Text>
         <View style={styles.optionRow}>
-          {option(true, '🌐 Public', 'Anyone can join freely')}
-          {option(false, '🔒 Private', 'Invite or request only')}
+          {option(true, 'globe', 'Public', 'Anyone can join freely')}
+          {option(false, 'lock', 'Private', 'Invite or request only')}
         </View>
 
         <Text style={[t.fieldLabel, styles.label]}>Home Court</Text>
@@ -146,7 +152,8 @@ export default function LeagueEditSheet({ visible, league, onClose, onSaved }: L
         <CourtPicker value={court} onSelect={setCourt} active={visible} showNoneOption placeholder="Search for the home court…" />
         {!court ? (
           <View style={[styles.warning, { backgroundColor: c.warningLight, borderColor: c.warning }]}>
-            <Text style={[t.sub, { color: c.warning }]}>⚠️ Without a home court every match entry requires a location.</Text>
+            <Icon name="warning" size={14} color={c.warning} style={styles.warningGlyph} />
+            <Text style={[t.sub, styles.warningText, { color: c.warning }]}>Without a home court every match entry requires a location.</Text>
           </View>
         ) : null}
 
@@ -168,7 +175,11 @@ const styles = StyleSheet.create({
   multiline: { minHeight: 96, textAlignVertical: 'top' },
   optionRow: { flexDirection: 'row', gap: SPACE.sm },
   option: { flex: 1, minHeight: 44, borderWidth: HAIRLINE * 1.5, borderRadius: RADIUS.md, padding: SPACE.md, gap: SPACE.xxs },
-  warning: { borderRadius: RADIUS.md, padding: SPACE.md, borderWidth: HAIRLINE },
+  optionTitle: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  warning: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACE.sm, borderRadius: RADIUS.md, padding: SPACE.md, borderWidth: HAIRLINE },
+  // t.sub is 13/18: nudge the 14 glyph onto the first line's centre.
+  warningGlyph: { marginTop: SPACE.xxs },
+  warningText: { flex: 1 },
   save: { marginTop: SPACE.xl },
   cancel: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 });

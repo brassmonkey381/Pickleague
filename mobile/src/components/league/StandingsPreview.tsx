@@ -2,12 +2,12 @@
 // Home league card:
 //
 //   #    Player                         W-L     PLUPR
-//   🥇   (av) Alice                     5-1     3.82 +0.32       56 (44 compact)
-//   🥈   (av) You                       4-2     3.71 +0.21
-//   ...  top `maxRows`
-//   ━━━━ (heavier rule: the next row isn't adjacent in rank)
-//   12   (av) You                       1-4     3.31 −0.19      your row, pinned
-//   See all 18 ›                                                 44
+//   (1)  (av) Alice                     5-1     3.82 +0.32       56 (44 compact)
+//   (2)  (av) You                       4-2     3.71 +0.21
+//   ...  top `maxRows`; (1)-(3) are RankMedal discs
+//   ---- (heavier rule: the next row isn't adjacent in rank)
+//   12   (av) You                       1-4     3.31 -0.19      your row, pinned
+//   See all 18 >                                                 44 (TextLink)
 //
 // The columns mean what SeasonStandings' StandingsTable columns mean (the
 // caller builds the rows from the same numbers, see useLeagueStandings), so a
@@ -18,15 +18,13 @@
 // never height, so large text grows a row instead of clipping it.
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Panel, ROW_MIN_HEIGHT } from '@just-messin-around/expo-foundation/ui';
+import { Panel, RankMedal, ROW_MIN_HEIGHT, TextLink } from '@just-messin-around/expo-foundation/ui';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { AVATARS } from '../../data/profileCustomization';
 import { formatPluprChange } from '../standings/standingsModel';
 import FlairName from '../FlairName';
-
-const MEDALS = ['🥇', '🥈', '🥉'];
 
 export type StandingsPreviewRow = {
   userId: string;
@@ -57,13 +55,13 @@ export type StandingsPreviewProps = {
   /** Pin the viewer's row under a heavier rule when it's below `maxRows`. Default true. */
   pinMe?: boolean;
   onPressRow: (row: StandingsPreviewRow) => void;
-  /** "See all N ›" footer, shown only when rows are hidden. */
+  /** "See all N" footer link, shown only when rows are hidden. */
   onSeeAll?: () => void;
   /** N in "See all N" when `rows` is not the whole list. Default rows.length. */
   totalCount?: number;
   /** Third column's header ("W-L", "Median"); null hides the column. Default "W-L". */
   middleLabel?: string | null;
-  /** 🥇🥈🥉 for the top 3 (real standings). False for a by-PLUPR preview. Default true. */
+  /** RankMedal discs for the top 3 (real standings). False for a by-PLUPR preview. Default true. */
   medals?: boolean;
   /** Home card: 44 rows, no avatar, no column header. */
   compact?: boolean;
@@ -141,12 +139,18 @@ export default function StandingsPreview({
           last && S.lastRow,
         ]}
       >
-        <Text
-          style={[S.colRank, medals && row.rank <= 3 ? S.medal : [t.meta, { color: row.isMe ? c.primary : c.textSub }]]}
-          maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
-        >
-          {medals ? MEDALS[row.rank - 1] ?? String(row.rank) : String(row.rank)}
-        </Text>
+        {medals && row.rank <= 3 ? (
+          <View style={S.colRank}>
+            <RankMedal place={row.rank} />
+          </View>
+        ) : (
+          <Text
+            style={[S.colRank, t.meta, S.rankNum, { color: row.isMe ? c.primary : c.textSub }]}
+            maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}
+          >
+            {String(row.rank)}
+          </Text>
+        )}
         <View style={[S.colName, S.nameCell]}>
           {compact ? null : (
             <View style={[S.avatar, { backgroundColor: av.bgColor }]}>
@@ -192,18 +196,15 @@ export default function StandingsPreview({
         </View>
       ) : null}
       {drawn.map(renderRow)}
-      {showSeeAll ? (
-        <TouchableOpacity
-          onPress={onSeeAll}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel={`See all ${total} players`}
-          style={[S.seeAll, S.divider]}
-        >
-          <Text style={[t.meta, S.seeAllText]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-            See all {total} ›
-          </Text>
-        </TouchableOpacity>
+      {showSeeAll && onSeeAll ? (
+        <View style={S.divider}>
+          <TextLink
+            label={`See all ${total}`}
+            onPress={onSeeAll}
+            accessibilityLabel={`See all ${total} players`}
+            style={S.seeAll}
+          />
+        </View>
       ) : null}
       {footer != null ? <View style={S.divider}>{footer}</View> : null}
     </Panel>
@@ -227,12 +228,12 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], compact: boolean) 
     // The Panel's radius clips nothing on its own; round an edge row's tint to match.
     firstRow: { borderTopLeftRadius: RADIUS.lg, borderTopRightRadius: RADIUS.lg },
     lastRow: { borderBottomLeftRadius: RADIUS.lg, borderBottomRightRadius: RADIUS.lg },
-    colRank: { width: 28, textAlign: 'center' },
+    colRank: { width: 28, alignItems: 'center', textAlign: 'center' },
+    rankNum: { fontVariant: ['tabular-nums'], letterSpacing: 0 },
     colName: { flex: 1, minWidth: 0 },
     colMid: { width: 52, textAlign: 'center' },
     colPlupr: { width: 92 },
     right: { textAlign: 'right' },
-    medal: { fontSize: FONT.size.lg },
     nameCell: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     avatar: { width: 32, height: 32, borderRadius: RADIUS.pill, alignItems: 'center', justifyContent: 'center' },
     avatarEmoji: { fontSize: FONT.size.lg },
@@ -240,7 +241,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors'], compact: boolean) 
     meName: { fontWeight: FONT.weight.bold },
     pluprCell: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'flex-end', gap: SPACE.xs },
     pluprValue: { color: c.text, fontWeight: FONT.weight.bold },
-    seeAll: { minHeight: ROW_MIN_HEIGHT.single, paddingHorizontal: SPACE.md, justifyContent: 'center' },
-    seeAllText: { color: c.primary, fontWeight: FONT.weight.bold },
+    // The link's 44 box spans the row, so the whole footer is the tap target.
+    seeAll: { alignSelf: 'stretch', minHeight: ROW_MIN_HEIGHT.single, paddingHorizontal: SPACE.md },
   });
 }
