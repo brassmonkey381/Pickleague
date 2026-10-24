@@ -3,38 +3,37 @@
 --
 -- Discover's one search area (centre = your location or a searched city,
 -- radius = your setting) now limits every search, players and drill partners
--- included. discover_players has no location, so this NEW read finds the
--- players who PLAY within p_radius_m of (p_lat, p_lng). Where someone plays,
--- never where they are:
+-- included; the invite pickers suggest the players near a league's home court
+-- or a tournament's venue the same way. discover_players has no location, so
+-- this NEW read finds the players who PLAY within p_radius_m of (p_lat,
+-- p_lng), by ONE source only (the user, 2026-10-24: "League courts only"):
 --   league    the home court of an active league they belong to (a guest pass
 --             that has run out doesn't count). Open leagues only, or a closed
 --             league the viewer is in too: a closed league's roster is not
 --             public.
---   starred   a court they starred (court_favorites)
---   frequent  a court they checked in at twice or more in the last 90 days
---             (only location_confirmed check-ins, the rule every presence read
---             keeps: an unconfirmed one is shown to nobody but its owner;
---             taken-back check-ins don't count)
--- starred and frequent say where someone tends to be, so they count only
--- when the player's presence privacy would show the viewer their name at a
--- court (_pl_can_see_presence(viewer, player, 'checkins') = 'named': their
--- "Who sees me at the courts" level, a pause, "hide from" and blocks all
--- apply). Live check-ins and fixes (venue_checkins.fix_*) are never read.
+-- Nothing else places a player: not the courts they starred (court_favorites
+-- stays owner-only), not the courts they check in at (venue_checkins, past or
+-- live), not fixes. So presence privacy ("Who sees me at the courts", a
+-- pause, "hide from") is never read here and can never be bypassed: no
+-- check-in is used, so none is revealed.
 --
 -- Left out, as in discover_players: deleted accounts, test accounts while God
 -- mode hides them (_pl_hide_test_accounts_for), and (p_real_people_only)
 -- unclaimed DUPR placeholders and guest passes. Also left out here: the
 -- viewer, p_exclude, and anyone blocked either way (_pl_blocked_pair).
 --
--- One row per player, at their nearest qualifying place: place_name /
--- place_kind / distance_m say which ("Plays at Lakeside Park, 1.2 mi"). The
+-- One row per player, at their nearest league court in the area: place_name /
+-- distance_m say which ("Plays at Lakeside Park, 1.2 mi"); place_kind is
+-- always 'league' (kept so the columns stay those the app reads). The
 -- columns are the ones the people lists and Find Drillers read; phone, email
 -- and the rest of profiles are not returned. Nearest first, then by name.
 -- p_query narrows by name or @username (a leading @ is ignored; % and _ are
 -- literal). Radius 100 m .. 50 mi (80,468 m); at most 500 rows.
 --
 -- New function only: nothing existing is replaced, so there is no drift
--- check. Client-callable: granted to authenticated here AND listed in
+-- check. The first draft (which also placed players by their starred and
+-- frequent courts) was never applied, so this file was edited in place.
+-- Client-callable: granted to authenticated here AND listed in
 -- migration_rls_hardening_2026q3.sql's allowlist (a re-run of that file keeps
 -- it online). Apply this file on its own; do not re-run the hardening file to
 -- "install" the grant.
@@ -126,23 +125,6 @@ begin
             or exists (select 1 from public.league_members mine
                         where mine.league_id = l.id and mine.user_id = v_me
                           and (mine.expires_at is null or mine.expires_at > now())))
-    union all
-    select cf.user_id, v.name, 'starred'::text, v.lat, v.lng
-      from public.court_favorites cf
-      join public.venues v on v.id = cf.venue_id
-     where v.lat between p_lat - v_dlat and p_lat + v_dlat
-       and v.lng between p_lng - v_dlng and p_lng + v_dlng
-    union all
-    select vc.user_id, v.name, 'frequent'::text, v.lat, v.lng
-      from public.venue_checkins vc
-      join public.venues v on v.id = vc.venue_id
-     where vc.checked_in_at > now() - interval '90 days'
-       and vc.location_confirmed
-       and vc.taken_back_at is null
-       and v.lat between p_lat - v_dlat and p_lat + v_dlat
-       and v.lng between p_lng - v_dlng and p_lng + v_dlng
-     group by vc.user_id, v.id, v.name, v.lat, v.lng
-    having count(*) >= 2
   ),
   measured as (
     select a.a_user, a.a_place, a.a_kind,
@@ -157,8 +139,7 @@ begin
     select distinct on (m.a_user) m.a_user, m.a_place, m.a_kind, m.a_dist
       from measured m
      where m.a_dist <= v_r
-       and (m.a_kind = 'league' or public._pl_can_see_presence(v_me, m.a_user, 'checkins') = 'named')
-     order by m.a_user, m.a_dist, m.a_kind
+     order by m.a_user, m.a_dist, m.a_place
   )
   select p.id, p.username, p.full_name, p.avatar_url, p.avatar_id, p.avatar_emoji, p.avatar_bg_color,
          p.rating, p.doubles_rating, p.total_matches_played,
@@ -178,8 +159,8 @@ begin
 end $$;
 
 comment on function public.discover_players_near(double precision, double precision, double precision, text, boolean, boolean, uuid[], int) is
-  'Players who play within p_radius_m of a point: league home courts, and (when their presence privacy names them '
-  'to the viewer) starred and frequent courts. Never live location. migration_discover_players_near.sql';
+  'Players who play within p_radius_m of a point, by the home courts of their leagues only (open leagues, or closed '
+  'leagues the viewer is in too). Never starred courts, check-ins or live location. migration_discover_players_near.sql';
 
 revoke all on function public.discover_players_near(double precision, double precision, double precision, text, boolean, boolean, uuid[], int) from public, anon;
 grant execute on function public.discover_players_near(double precision, double precision, double precision, text, boolean, boolean, uuid[], int) to authenticated;

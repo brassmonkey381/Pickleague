@@ -1,3 +1,14 @@
+// A tournament's "Invite players" (the user, 2026-10-24: "Suggest nearby,
+// search all"):
+//   suggestions   the players who play near the tournament's venue (else its
+//                 league's home court) at the search area's radius, by their
+//                 leagues' home courts only (lib/inviteSuggestions); no place
+//                 or no one there: near the shared search area; neither: the
+//                 old list (anywhere). Always within ±1.5 PLUPR of the
+//                 tournament average, closest level first.
+//   search        typing a name searches everyone (every page of
+//                 discover_players), not just the suggestions.
+// Registered or pending players are never offered.
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
@@ -12,6 +23,14 @@ import { RootStackParamList } from '../types';
 import { AVATARS } from '../data/profileCustomization';
 import { formatPlupr } from '../lib/plupr';
 import { useRefresh } from '../lib/useRefresh';
+import { useSearchArea } from '../lib/useSearchArea';
+import { searchAreaKey } from '../lib/searchArea';
+import { playerMatchesQuery, playsAtLabel } from '../lib/playersNear';
+import {
+  firstWithAnyone, suggestedFirst, suggestionSteps, suggestionsHeading, withinLevel,
+  type SuggestionSource,
+} from '../lib/inviteSuggestions';
+import { getInvitePlace, listEveryone, nearForInvite } from '../data/inviteSuggestions';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import EmptyState from '../components/EmptyState';
@@ -36,14 +55,39 @@ type Candidate = {
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
   ratingDiff: number;       // |rating - tournament avg|
-  invitedNow: boolean;      // local optimistic flag
-  inviteError: string | null;
+  /** Suggested nearby only: "Plays at Lakeside Park · 2 mi". */
+  playsAt: string | null;
 };
+
+/** One row's invite: done (optimistic) or the reason it failed. */
+type InviteState = { invited: boolean; error: string | null };
+
+/** The suggestions' level band around the tournament average. */
+const LEVEL_BAND = 1.5;
+const CANDIDATE_COLUMNS = 'id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color';
+
+function toCandidate(p: any, avg: number, playsAt: string | null = null): Candidate {
+  const rating = typeof p.rating === 'number' ? p.rating : avg;
+  return {
+    id: p.id,
+    full_name: p.full_name ?? 'Player',
+    username: p.username ?? '',
+    rating,
+    total_matches_played: p.total_matches_played ?? 0,
+    avatar_id: p.avatar_id ?? null,
+    avatar_emoji: p.avatar_emoji ?? null,
+    avatar_bg_color: p.avatar_bg_color ?? null,
+    ratingDiff: Math.abs(rating - avg),
+    playsAt,
+  };
+}
 
 export default function TournamentInvitePlayersScreen({ navigation, route }: Props) {
   const { tournamentId, tournamentName } = route.params;
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const { area, saved, ready } = useSearchArea();
+  const areaKey = searchAreaKey(area);
 
   const [loading, setLoading]       = useState(true);
   // A failed read must not render as "no eligible players".
@@ -51,12 +95,22 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
   const [busy, setBusy]             = useState<string | null>(null);
   const [query, setQuery]           = useState('');
   const [tournamentAvg, setTournamentAvg] = useState<number>(3.25);
+  // The suggestions (no search), and everyone (what a search searches).
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [everyone, setEveryone]     = useState<Candidate[]>([]);
+  const [source, setSource]         = useState<SuggestionSource>('anywhere');
+  const [heading, setHeading]       = useState<string | null>(null);
   const [excluded, setExcluded]     = useState<Set<string>>(new Set());
+  const [invites, setInvites]       = useState<Record<string, InviteState>>({});
 
   const refresh = useRefresh(load);
 
-  useFocusEffect(useCallback(() => { load(); }, [tournamentId]));
+  // Waits for the search area (lib/useSearchArea's `ready`): the radius and
+  // the fallback centre come from it.
+  useFocusEffect(useCallback(() => {
+    if (ready) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournamentId, ready, areaKey, saved.radiusMi]));
 
   async function load() {
     setLoading(true);
@@ -79,7 +133,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       .select('user_id, status, profile:profiles!tournament_registrations_user_id_fkey(rating)')
       .eq('tournament_id', tournamentId))) ?? []) as any[];
     const excludeIds = new Set<string>(regs.map(r => r.user_id));
-    setExcluded(excludeIds);
+    const exclude = [...excludeIds];
 
     // 2. Tournament average rating (use approved registrants only; fall back to overall).
     const approvedRatings = regs
@@ -88,41 +142,47 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     const avg = approvedRatings.length
       ? approvedRatings.reduce((a, b) => a + b, 0) / approvedRatings.length
       : 3.25;
+
+    // 3. Everyone (the search; discover_players never offers a deleted
+    //    account, nor a test account while God mode hides them) and where the
+    //    tournament is.
+    const [all, place] = await Promise.all([
+      listEveryone<any>(CANDIDATE_COLUMNS, { exclude }),
+      getInvitePlace({ type: 'tournament', id: tournamentId }),
+    ]);
+
+    // 4. Suggestions: near the venue, else near the search area, within the
+    //    level band; else the old list (the 500 nearest the average, ±1.5).
+    const hit = await firstWithAnyone(
+      suggestionSteps(place, area, saved.radiusMi),
+      (step) => nearForInvite(step.circle, exclude),
+      (rows) => withinLevel(rows, avg, LEVEL_BAND),
+    );
+    let suggested: Candidate[];
+    if (hit) {
+      suggested = hit.rows.map(p => toCandidate(p, avg, playsAtLabel(p)));
+      setSource(hit.step.source);
+      setHeading(suggestionsHeading(hit.step.source, hit.step.label, hit.step.circle.radiusMi));
+    } else {
+      const profs = await sbCall(() => supabase
+        .rpc('discover_players', { p_min_rating: avg - LEVEL_BAND, p_max_rating: avg + LEVEL_BAND, p_limit: 500, p_near_rating: avg })
+        .select(CANDIDATE_COLUMNS));
+      suggested = ((profs ?? []) as any[]).filter(p => !excludeIds.has(p.id)).map(p => toCandidate(p, avg));
+      setSource('anywhere');
+      setHeading(null);
+    }
+    suggested.sort((a, b) => a.ratingDiff - b.ratingDiff);
+
+    setExcluded(excludeIds);
     setTournamentAvg(avg);
-
-    // 3. Pull all profiles in a wide rating band around the tournament avg
-    //    (+/- 1.5 PLUPR) so the recommendation list isn't huge.
-    //    discover_players (migration_hide_test_accounts.sql) never offers a
-    //    deleted account, nor a test account while God mode hides them; the
-    //    500 nearest the average.
-    const profs = await sbCall(() => supabase
-      .rpc('discover_players', { p_min_rating: avg - 1.5, p_max_rating: avg + 1.5, p_limit: 500, p_near_rating: avg })
-      .select('id, full_name, username, rating, total_matches_played, avatar_id, avatar_emoji, avatar_bg_color'));
-
-    const list: Candidate[] = ((profs ?? []) as any[])
-      .filter(p => !excludeIds.has(p.id))
-      .map(p => ({
-        id: p.id,
-        full_name: p.full_name,
-        username: p.username,
-        rating: p.rating,
-        total_matches_played: p.total_matches_played ?? 0,
-        avatar_id: p.avatar_id,
-        avatar_emoji: p.avatar_emoji,
-        avatar_bg_color: p.avatar_bg_color,
-        ratingDiff: Math.abs(p.rating - avg),
-        invitedNow: false,
-        inviteError: null,
-      }))
-      .sort((a, b) => a.ratingDiff - b.ratingDiff);
-
-    setCandidates(list);
+    setCandidates(suggested);
+    setEveryone(all.filter(p => !excludeIds.has(p.id)).map(p => toCandidate(p, avg)));
   }
 
   async function invite(c: Candidate) {
     setBusy(c.id);
     // Clear any prior error on this row before retrying.
-    setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: null } : p));
+    setInvites(prev => ({ ...prev, [c.id]: { invited: false, error: null } }));
 
     let data: unknown;
     try {
@@ -145,26 +205,27 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       const friendlier = /only.*has.*🥒|ante is/i.test(msg)
         ? 'They don\'t have enough pickles for the entry ante.'
         : friendlySbMessage(e, 'Could not invite.');
-      setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: friendlier } : p));
+      setInvites(prev => ({ ...prev, [c.id]: { invited: false, error: friendlier } }));
       return;
     } finally {
       setBusy(null);
     }
     const row = Array.isArray(data) ? data[0] : (data as any);
     if (!row?.success) {
-      setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, inviteError: row?.message ?? 'Could not invite.' } : p));
+      setInvites(prev => ({ ...prev, [c.id]: { invited: false, error: row?.message ?? 'Could not invite.' } }));
       return;
     }
-    setCandidates(prev => prev.map(p => p.id === c.id ? { ...p, invitedNow: true, inviteError: null } : p));
+    setInvites(prev => ({ ...prev, [c.id]: { invited: true, error: null } }));
   }
 
+  // No search: the suggestions. A search: everyone whose name or @username
+  // matches, the suggested ones first (closest level), then by name.
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return candidates;
-    return candidates.filter(c =>
-      c.full_name.toLowerCase().includes(q) || c.username.toLowerCase().includes(q),
-    );
-  }, [candidates, query]);
+    const match = (p: Candidate) => playerMatchesQuery(p, q);
+    return suggestedFirst(candidates.filter(match), everyone.filter(match));
+  }, [candidates, everyone, query]);
 
   if (loading) {
     return (
@@ -174,7 +235,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
     );
   }
 
-  if (loadError && candidates.length === 0) {
+  if (loadError && candidates.length === 0 && everyone.length === 0) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
         <ErrorState
@@ -186,6 +247,10 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       </View>
     );
   }
+
+  const hint = source === 'anywhere'
+    ? 'Sorted by closest PLUPR to the tournament average. Search finds anyone. Players already registered or pending are filtered out.'
+    : `${heading ?? 'Players near the tournament'}, closest PLUPR to the tournament average first. Search finds anyone. Players already registered or pending are filtered out.`;
 
   return (
     <View style={S.root}>
@@ -202,7 +267,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
             <Text style={S.infoPillValue}>{excluded.size}</Text>
           </View>
           <View style={S.infoPill}>
-            <Text style={S.infoPillLabel}>Eligible</Text>
+            <Text style={S.infoPillLabel}>{source === 'anywhere' ? 'Eligible' : 'Nearby'}</Text>
             <Text style={S.infoPillValue}>{candidates.length}</Text>
           </View>
         </View>
@@ -211,7 +276,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
       <View style={S.searchRow}>
         <TextInput
           style={S.searchInput}
-          placeholder="Search by name or @username…"
+          placeholder="Search everyone by name or @username…"
           placeholderTextColor={c.textMuted}
           value={query}
           onChangeText={setQuery}
@@ -231,9 +296,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
         )}
       </View>
 
-      <Text style={S.hint}>
-        Sorted by closest PLUPR to the tournament average. Players already registered or pending are filtered out.
-      </Text>
+      <Text style={S.hint}>{hint}</Text>
 
       <FlatList
         data={filtered}
@@ -245,6 +308,7 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
           const ratingDeltaTxt = item.ratingDiff < 0.005
             ? 'same PLUPR'
             : (item.rating - tournamentAvg > 0 ? '+' : '') + (item.rating - tournamentAvg).toFixed(2) + ' vs avg';
+          const state = invites[item.id];
 
           return (
             <View style={S.rowWrap}>
@@ -257,8 +321,9 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
                   <Text style={S.sub} numberOfLines={1}>
                     @{item.username} · {formatPlupr(item.rating, item.total_matches_played)} PLUPR · {ratingDeltaTxt}
                   </Text>
+                  {item.playsAt ? <Text style={S.playsAt} numberOfLines={1}>{item.playsAt}</Text> : null}
                 </View>
-                {item.invitedNow ? (
+                {state?.invited ? (
                   <View style={S.btnDone} accessible accessibilityLabel={`${item.full_name} invited`}>
                     <Icon name="check-mark" size={14} color={c.success} />
                     <Text style={S.btnDoneText}>Invited</Text>
@@ -274,22 +339,23 @@ export default function TournamentInvitePlayersScreen({ navigation, route }: Pro
                   />
                 )}
               </View>
-              {item.inviteError && (
+              {state?.error ? (
                 <View style={S.rowError}>
                   <Icon name="warning" size={12} color={c.danger} />
-                  <Text style={S.rowErrorText}>{item.inviteError}</Text>
+                  <Text style={S.rowErrorText}>{state.error}</Text>
                 </View>
-              )}
+              ) : null}
             </View>
           );
         }}
         ListEmptyComponent={
           query
             ? <EmptyState iconName="search" title="No matches" subtitle="No players match that search." />
-            : <EmptyState iconName="group" title="No eligible players" subtitle="No eligible players found in the PLUPR band ±1.5 of the tournament average." />
+            : <EmptyState iconName="group" title="No eligible players" subtitle="No eligible players found in the PLUPR band ±1.5 of the tournament average. Search to invite anyone." />
         }
         contentContainerStyle={{ paddingBottom: SPACE.xl * 2 }}
         refreshControl={<AppRefreshControl {...refresh} />}
+        keyboardShouldPersistTaps="handled"
       />
     </View>
   );
@@ -323,6 +389,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     avatarEmoji: { fontSize: FONT.size.h2 },
     name:        t.title,
     sub:         { ...t.hint, fontSize: FONT.size.sm, marginTop: SPACE.xxs },
+    playsAt:     { ...t.caption, marginTop: SPACE.xxs },
 
     btn:         { minWidth: 80 },
     btnDone:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACE.xs, minWidth: 80, minHeight: 32, paddingHorizontal: SPACE.md, borderRadius: RADIUS.md, backgroundColor: c.surfaceAlt, borderWidth: HAIRLINE, borderColor: c.border },

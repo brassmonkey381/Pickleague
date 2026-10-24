@@ -438,6 +438,7 @@ export default function InviteCodeManager({ scopeType, scopeId, scopeName, tourn
         visible={showBroadcast}
         title={`Invite players to ${scopeName}`}
         excludeUserIds={existingMemberIds}
+        nearScope={{ type: scopeType, id: scopeId }}
         busy={broadcasting}
         onConfirm={sendBroadcast}
         onClose={() => setShowBroadcast(false)}

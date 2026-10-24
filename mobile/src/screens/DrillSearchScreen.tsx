@@ -1,7 +1,7 @@
 // Find Drillers. Limited to Discover's one search area (the pills at the top,
 // shared with every Discover tab): drillers who PLAY there, by their leagues'
-// home courts and, when their presence privacy names them to you, their
-// starred and frequent courts (data/playersNear; never where they are now).
+// home courts only (data/playersNear; never a starred court, a check-in or
+// where they are now).
 // The list waits until the area is known (lib/useSearchArea's `ready`).
 // Without any area (no location, no city, no located league court): the 100
 // drillers nearest your level, as before.
@@ -293,7 +293,7 @@ export default function DrillSearchScreen({ route }: Props) {
               ? <EmptyState
                   iconName="pin"
                   title={`No drillers within ${area.radiusMi} mi`}
-                  subtitle="Drillers show up here by their leagues' courts and the courts they star. Try a wider radius above."
+                  subtitle="Drillers show up here by their leagues' home courts. Try a wider radius above."
                 />
               : <EmptyState
                   iconName="search"

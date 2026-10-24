@@ -1,10 +1,24 @@
+// Pick app users to invite (the invite code's "Send in app"). The user,
+// 2026-10-24: "Suggest nearby, search all":
+//   - with `nearScope`, the players who play near the league's home court /
+//     the tournament's venue come first ("Plays at Lakeside Park · 2 mi"),
+//     else those near the shared search area (lib/inviteSuggestions; league
+//     courts only, the same rule as Discover);
+//   - then everyone else by name, every page of discover_players, so typing a
+//     name still finds anyone.
+// A failed suggestions read only drops the suggestions; a failed everyone
+// read shows the error (never an empty "No matches.").
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { supabase } from '../lib/supabase';
 import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
+import { useSearchArea } from '../lib/useSearchArea';
+import { searchAreaKey } from '../lib/searchArea';
+import { playsAtLabel } from '../lib/playersNear';
+import { firstWithAnyone, suggestedFirst, suggestionSteps } from '../lib/inviteSuggestions';
+import { getInvitePlace, listEveryone, nearForInvite, type InviteScope } from '../data/inviteSuggestions';
 import MultiSelectModal from './MultiSelectModal';
 import { ErrorState } from '@just-messin-around/expo-foundation/ui';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -16,6 +30,8 @@ export type MultiPickedUser = {
   avatar_id: number | null;
   avatar_emoji: string | null;
   avatar_bg_color: string | null;
+  /** Suggested players only: "Plays at Lakeside Park · 2 mi". */
+  detail?: string | null;
 };
 
 type Props = {
@@ -23,10 +39,14 @@ type Props = {
   title:           string;
   ctaLabel?:       string;            // defaults to "Send {N} Invites"
   excludeUserIds?: string[];          // hide self / existing members
+  /** The league or tournament the invite is for: its nearby players are suggested first. */
+  nearScope?:      InviteScope;
   busy?:           boolean;
   onConfirm:       (users: MultiPickedUser[]) => void;
   onClose:         () => void;
 };
+
+const USER_COLUMNS = 'id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color';
 
 /** Pick app users (profiles). Chrome is provided by MultiSelectModal. */
 /** Why the player list didn't load, and what to do. A server refusal already
@@ -37,10 +57,12 @@ function loadProblem(e: unknown): string {
 }
 
 export default function MultiUserPickerModal({
-  visible, title, ctaLabel, excludeUserIds, busy = false, onConfirm, onClose,
+  visible, title, ctaLabel, excludeUserIds, nearScope, busy = false, onConfirm, onClose,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
+  const { area, saved } = useSearchArea();
+  const areaKey = searchAreaKey(area);
 
   const [users, setUsers]     = useState<MultiPickedUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,28 +76,46 @@ export default function MultiUserPickerModal({
     let live = true;
     setLoading(true);
     setLoadError(null);
+    const exclude = excludeUserIds ?? [];
+    // Nearby first; a failure here only drops the suggestions.
+    const suggested = (async (): Promise<MultiPickedUser[]> => {
+      if (!nearScope) return [];
+      try {
+        const place = await getInvitePlace(nearScope);
+        const hit = await firstWithAnyone(
+          suggestionSteps(place, area, saved.radiusMi),
+          (step) => nearForInvite(step.circle, exclude),
+        );
+        return (hit?.rows ?? []).map((p) => ({
+          id: p.id,
+          full_name: p.full_name ?? 'Player',
+          username: p.username ?? '',
+          avatar_id: p.avatar_id,
+          avatar_emoji: p.avatar_emoji,
+          avatar_bg_color: p.avatar_bg_color,
+          detail: playsAtLabel(p),
+        }));
+      } catch {
+        return [];
+      }
+    })();
     // See UserPickerModal: discover_players leaves out tombstoned accounts
-    // (and test accounts while God mode hides them), by name, at most 500.
-    supabase
-      .rpc('discover_players')
-      .select('id, full_name, username, avatar_id, avatar_emoji, avatar_bg_color')
-      .then(({ data, error }) => {
-        if (!live) return;
-        if (error) {
-          setUsers([]);
-          setLoadError(loadProblem(error));
-        } else {
-          setUsers((data ?? []) as MultiPickedUser[]);
-        }
-        setLoading(false);
-      }, (e: unknown) => {
-        if (!live) return;
-        setUsers([]);
-        setLoadError(loadProblem(e));
-        setLoading(false);
-      });
+    // (and test accounts while God mode hides them); every page, so a name
+    // past its 500-row cap is still found.
+    Promise.all([listEveryone<MultiPickedUser>(USER_COLUMNS), suggested]).then(([everyone, near]) => {
+      if (!live) return;
+      setUsers(suggestedFirst(near, everyone));
+      setLoading(false);
+    }, (e: unknown) => {
+      if (!live) return;
+      setUsers([]);
+      setLoadError(loadProblem(e));
+      setLoading(false);
+    });
     return () => { live = false; };
-  }, [visible, attempt]);
+    // The area is read by its key; the exclusions are set before it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, attempt, nearScope?.type, nearScope?.id, areaKey, saved.radiusMi]);
 
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
   const items = useMemo(() => users.filter(u => !exclude.has(u.id)), [users, exclude]);
@@ -96,8 +136,8 @@ export default function MultiUserPickerModal({
           onRetry={() => setAttempt(n => n + 1)}
         />
       ) : null}
-      searchPlaceholder="Search by name or @username…"
-      searchText={u => `${u.full_name} ${u.username}`}
+      searchPlaceholder={nearScope ? 'Search everyone by name or @username…' : 'Search by name or @username…'}
+      searchText={u => `${u.full_name} ${u.username} @${u.username}`}
       toRow={u => {
         const cartoon = AVATARS.find(a => a.id === (u.avatar_id ?? 1)) ?? AVATARS[0];
         const emoji   = u.avatar_emoji ?? cartoon.emoji;
@@ -105,7 +145,7 @@ export default function MultiUserPickerModal({
         return {
           id: u.id,
           primary: u.full_name,
-          secondary: `@${u.username}`,
+          secondary: u.detail ? `@${u.username} · ${u.detail}` : `@${u.username}`,
           left: (
             <View style={[S.avatar, { backgroundColor: bg }]}>
               <Text style={S.avatarEmoji}>{emoji}</Text>

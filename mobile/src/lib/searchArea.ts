@@ -61,6 +61,19 @@ export type SearchArea = {
   label: string | null;
 };
 
+/**
+ * A circle to look for players in: the shared area, or one around a place a
+ * screen picked (a league's home court, a tournament's venue) at the area's
+ * radius. Only the centre and the radius: where it came from doesn't matter.
+ */
+export type NearCircle = Pick<SearchArea, 'center' | 'radiusMi' | 'radiusM'>;
+
+/** A circle of `radiusMi` (any positive radius; NaN or less reads as the default) around a point. */
+export function circleAround(center: LatLng, radiusMi: number): NearCircle {
+  const r = Number.isFinite(radiusMi) && radiusMi > 0 ? radiusMi : DEFAULT_SEARCH_RADIUS_MILES;
+  return { center: { lat: center.lat, lng: center.lng }, radiusMi: r, radiusM: Math.round(r * METERS_PER_MILE) };
+}
+
 function finitePoint(lat: unknown, lng: unknown): LatLng | null {
   if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
@@ -151,7 +164,7 @@ export function homeCourtsCenter(points: ReadonlyArray<LatLng | null | undefined
 }
 
 /** A stable key for caches and "start over at page 1" (centre to ~100 m). */
-export function searchAreaKey(area: SearchArea | null): string {
+export function searchAreaKey(area: NearCircle | null): string {
   if (!area) return 'anywhere';
   return `${area.center.lat.toFixed(3)},${area.center.lng.toFixed(3)}:${area.radiusMi}`;
 }
@@ -186,7 +199,7 @@ export function pointOf(lat: number | null | undefined, lng: number | null | und
  * limited yet). A row with no point is never inside an area: it can't be
  * placed, so a search near somewhere leaves it out.
  */
-export function withinSearchArea(point: LatLng | null, area: SearchArea | null): boolean {
+export function withinSearchArea(point: LatLng | null, area: NearCircle | null): boolean {
   if (!area) return true;
   if (!point) return false;
   return milesBetween(area.center, point) <= area.radiusMi;

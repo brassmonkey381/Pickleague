@@ -11,29 +11,35 @@
 -- Every row should read ok = true; the first row is the summary.
 --
 -- The search centre is 43.2 N, 104.2 W (far from every real venue); radius
--- 8,047 m (5 mi) unless a test says otherwise. Personas (temporary accounts,
--- example.invalid emails unless noted):
+-- 8,047 m (5 mi) unless a test says otherwise. Players are placed ONLY by the
+-- home courts of their leagues (the user, 2026-10-24: "League courts only"):
+-- a starred court, a check-in (past or live) and presence settings never
+-- place anyone. Personas (temporary accounts, example.invalid emails unless
+-- noted):
 --   NV  the viewer (an ordinary player)
---   L1  in an OPEN league whose home court is ~2 km away
---   L2  in a CLOSED league ~2 km away that NV is not in        -> not found
---   L3  in a CLOSED league ~2 km away that NV is in too         -> found
---   LX  in the open league on a guest pass that has run out    -> not found
---   S1  starred a court ~3 km away, presence "everyone"         -> found
---   S2  starred it too, presence "hidden"                        -> not found
---   S3  starred it too, presence default (league-mates), a stranger, then
---       NV's friend                                              -> no, then yes
---   F1  checked in twice at a court ~4 km away in 90 days, "everyone" -> found
---   F2  checked in there once, "everyone"                        -> not found
---   F3  checked in there twice, "everyone", neither check-in location
---       confirmed (an unconfirmed check-in is shown to nobody)   -> not found
---   E1  in an open league ~8,040 m due north (just inside 5 mi, outside
---       the old bounding box)                                    -> found
---   FR  in an open league ~200 km away                           -> never (cap)
---   B1  in the open league, NV blocked them                      -> not found
---   B2  in the open league, they blocked NV                      -> not found
---   TA  in the open league, a test account (@pickleague.test)   -> hidden while
+--   L1  in an OPEN league whose home court is ~2 km away          -> found
+--   L2  in a CLOSED league ~2 km away that NV is not in           -> not found
+--   L3  in a CLOSED league ~2 km away that NV is in too            -> found
+--   LX  in the open league on a guest pass that has run out       -> not found
+--   S1  starred a court ~3 km away, presence "everyone", no league -> not found
+--   S3  starred it too, presence default, then NV's friend         -> never found
+--   F1  checked in twice (location confirmed) at a court ~4 km away in 90
+--       days, presence "everyone", no league                       -> not found
+--   LV  checked in there NOW (confirmed), presence "everyone", no league
+--                                                                  -> not found
+--   LP  in a league ~8,039 m due north; ALSO starred the ~3 km court,
+--       checked in twice and now at the ~4 km court; sharing PAUSED
+--                                      -> found, at the league court only
+--   LH  in the open league, presence "hidden" (league placement reads no
+--       presence)                                                  -> found
+--   E1  in that league ~8,039 m due north (just inside 5 mi, outside the old
+--       bounding box)                                              -> found
+--   FR  in an open league ~200 km away                            -> never (cap)
+--   B1  in the open league, NV blocked them                        -> not found
+--   B2  in the open league, they blocked NV                        -> not found
+--   TA  in the open league, a test account (@pickleague.test)     -> hidden while
 --       the God mode switch is on
---   DL  in the open league, account deleted                      -> not found
+--   DL  in the open league, account deleted                        -> not found
 --   DR  in the open league, drilling on (the only driller)
 -- ============================================================
 
@@ -49,12 +55,12 @@ insert into _p values
   ('NV', 'a7000000-0000-4000-8000-000000000001'), ('L1', 'a7000000-0000-4000-8000-000000000002'),
   ('L2', 'a7000000-0000-4000-8000-000000000003'), ('L3', 'a7000000-0000-4000-8000-000000000004'),
   ('LX', 'a7000000-0000-4000-8000-000000000005'), ('S1', 'a7000000-0000-4000-8000-000000000006'),
-  ('S2', 'a7000000-0000-4000-8000-000000000007'), ('S3', 'a7000000-0000-4000-8000-000000000008'),
-  ('F1', 'a7000000-0000-4000-8000-000000000009'), ('F2', 'a7000000-0000-4000-8000-00000000000a'),
+  ('LV', 'a7000000-0000-4000-8000-000000000007'), ('S3', 'a7000000-0000-4000-8000-000000000008'),
+  ('F1', 'a7000000-0000-4000-8000-000000000009'), ('LP', 'a7000000-0000-4000-8000-00000000000a'),
   ('FR', 'a7000000-0000-4000-8000-00000000000b'), ('B1', 'a7000000-0000-4000-8000-00000000000c'),
   ('B2', 'a7000000-0000-4000-8000-00000000000d'), ('TA', 'a7000000-0000-4000-8000-00000000000e'),
   ('DL', 'a7000000-0000-4000-8000-00000000000f'), ('DR', 'a7000000-0000-4000-8000-000000000010'),
-  ('F3', 'a7000000-0000-4000-8000-000000000011'), ('E1', 'a7000000-0000-4000-8000-000000000012');
+  ('LH', 'a7000000-0000-4000-8000-000000000011'), ('E1', 'a7000000-0000-4000-8000-000000000012');
 grant select on _p to authenticated;
 
 create temp table _lg (k text primary key, id uuid not null);
@@ -148,7 +154,7 @@ select pg_temp.lg(m.lg), pg_temp.p(m.k), m.exp
     ('OPEN', 'L1', null::timestamptz), ('CLOSED', 'L2', null), ('SHARED', 'L3', null), ('SHARED', 'NV', null),
     ('OPEN', 'LX', now() - interval '1 day'), ('FAR', 'FR', null),
     ('OPEN', 'B1', null), ('OPEN', 'B2', null), ('OPEN', 'TA', null), ('OPEN', 'DL', null), ('OPEN', 'DR', null),
-    ('EDGE', 'E1', null)
+    ('OPEN', 'LH', null), ('EDGE', 'E1', null), ('EDGE', 'LP', null)
   ) m(lg, k, exp);
 
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m) values
@@ -156,20 +162,26 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:pn-freq', array['pickleball'], 'Near Test Busy Courts', 'court', 43.2360, -104.2000, 'google', 100);
 
 insert into public.court_favorites (user_id, venue_id)
-select id, 'test:pn-star' from _p where k in ('S1', 'S2', 'S3');
+select id, 'test:pn-star' from _p where k in ('S1', 'S3', 'LP');
 
-insert into public.presence_settings (user_id, checkins_level)
-select id, case when k = 'S2' then 'hidden' else 'everyone' end from _p where k in ('S1', 'S2', 'F1', 'F2', 'F3');
+-- "everyone" would name them at a court to anyone: still no court places them.
+-- LP's sharing is paused; LH is hidden.
+insert into public.presence_settings (user_id, checkins_level, paused_until)
+select id,
+       case when k = 'LH' then 'hidden' else 'everyone' end,
+       case when k = 'LP' then now() + interval '1 day' end
+  from _p where k in ('S1', 'F1', 'LV', 'LP', 'LH');
 
--- Past check-ins (checked out), so no live check-in is involved.
+-- Past check-ins (checked out, location confirmed): the old "frequent" rule.
 insert into public.venue_checkins (user_id, venue_id, checked_in_at, expires_at, checked_out_at, location_confirmed)
 select pg_temp.p(c.k), 'test:pn-freq', now() - c.ago, now() - c.ago + interval '1 hour', now() - c.ago + interval '1 hour', true
-  from (values ('F1', interval '10 days'), ('F1', interval '20 days'), ('F2', interval '10 days')) c(k, ago);
+  from (values ('F1', interval '10 days'), ('F1', interval '20 days'),
+               ('LP', interval '10 days'), ('LP', interval '20 days')) c(k, ago);
 
--- F3: two past check-ins there, neither location confirmed.
-insert into public.venue_checkins (user_id, venue_id, checked_in_at, expires_at, checked_out_at, location_confirmed)
-select pg_temp.p('F3'), 'test:pn-freq', now() - c.ago, now() - c.ago + interval '1 hour', now() - c.ago + interval '1 hour', false
-  from (values (interval '5 days'), (interval '15 days')) c(ago);
+-- Live check-ins (confirmed, open) at the ~4 km court right now.
+insert into public.venue_checkins (user_id, venue_id, checked_in_at, expires_at, location_confirmed)
+select pg_temp.p(c.k), 'test:pn-freq', now() - interval '10 minutes', now() + interval '1 hour', true
+  from (values ('LV'), ('LP')) c(k);
 
 insert into public.user_blocks (blocker_id, blocked_id) values
   (pg_temp.p('NV'), pg_temp.p('B1')),
@@ -190,6 +202,9 @@ begin
     (select prosecdef and proconfig = array['search_path=""'] from pg_proc where oid = f::regprocedure));
   perform pg_temp.ok('N1 returns no phone or email column',
     (select not (pg_get_function_result(f::regprocedure) ~* '\m(phone|email)\M')));
+  perform pg_temp.ok('N1 the body reads no starred court, check-in or presence setting',
+    (select prosrc !~* '(court_favorites|venue_checkins|presence_settings|presence_hidden_from|_pl_can_see_presence|fix_lat|fix_lng)'
+       from pg_proc where oid = f::regprocedure));
   perform pg_temp.ok('N1 one definition (no overload for PostgREST to choose between)',
     (select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = 'discover_players_near'));
@@ -224,12 +239,12 @@ begin
   perform pg_temp.ok('N3 closed league the viewer is not in: not found (L2)', not pg_temp.has(v, 'L2'), v);
   perform pg_temp.ok('N3 closed league the viewer is in too: found (L3)', pg_temp.has(v, 'L3'), v);
   perform pg_temp.ok('N3 expired guest pass: not found (LX)', not pg_temp.has(v, 'LX'), v);
-  perform pg_temp.ok('N3 starred court, presence everyone: found (S1)', pg_temp.has(v, 'S1'), v);
-  perform pg_temp.ok('N3 starred court, presence hidden: not found (S2)', not pg_temp.has(v, 'S2'), v);
-  perform pg_temp.ok('N3 starred court, league-mates level, a stranger: not found (S3)', not pg_temp.has(v, 'S3'), v);
-  perform pg_temp.ok('N3 two check-ins in 90 days: found (F1)', pg_temp.has(v, 'F1'), v);
-  perform pg_temp.ok('N3 one check-in: not found (F2)', not pg_temp.has(v, 'F2'), v);
-  perform pg_temp.ok('N3 two check-ins, neither location confirmed: not found (F3)', not pg_temp.has(v, 'F3'), v);
+  perform pg_temp.ok('N3 starred court only, presence everyone: not found (S1)', not pg_temp.has(v, 'S1'), v);
+  perform pg_temp.ok('N3 starred court only, presence default: not found (S3)', not pg_temp.has(v, 'S3'), v);
+  perform pg_temp.ok('N3 two confirmed check-ins only, presence everyone: not found (F1)', not pg_temp.has(v, 'F1'), v);
+  perform pg_temp.ok('N3 checked in there now, presence everyone: not found (LV)', not pg_temp.has(v, 'LV'), v);
+  perform pg_temp.ok('N3 in a league in the area, sharing paused: found by the league court (LP)', pg_temp.has(v, 'LP'), v);
+  perform pg_temp.ok('N3 in the open league, presence hidden: found by the league court (LH)', pg_temp.has(v, 'LH'), v);
   perform pg_temp.ok('N3 just inside the radius (~8,039 m due north): found (E1)', pg_temp.has(v, 'E1'), v);
   perform pg_temp.ok('N3 ~200 km away: not found (FR)', not pg_temp.has(v, 'FR'), v);
   perform pg_temp.ok('N3 blocked by the viewer: not found (B1)', not pg_temp.has(v, 'B1'), v);
@@ -237,13 +252,16 @@ begin
   perform pg_temp.ok('N3 switch off: a test account is found (TA)', pg_temp.has(v, 'TA'), v);
   perform pg_temp.ok('N3 deleted account: not found (DL)', not pg_temp.has(v, 'DL'), v);
   perform pg_temp.ok('N3 never the viewer', not pg_temp.has(v, 'NV'), v);
-  perform pg_temp.ok('N3 nearest first: L1 (2 km) before S1 (3 km) before F1 (4 km)',
-    array_position(string_to_array(v, ','), 'L1') < array_position(string_to_array(v, ','), 'S1')
-    and array_position(string_to_array(v, ','), 'S1') < array_position(string_to_array(v, ','), 'F1'), v);
+  perform pg_temp.ok('N3 nearest first: L1 (2.00 km) before L3 (2.01 km) before E1 (8 km)',
+    array_position(string_to_array(v, ','), 'L1') < array_position(string_to_array(v, ','), 'L3')
+    and array_position(string_to_array(v, ','), 'L3') < array_position(string_to_array(v, ','), 'E1'), v);
 
   v := pg_temp.found(2500);
-  perform pg_temp.ok('N3 radius 2.5 km: the league court (2 km) yes, the starred court (3 km) no',
-    pg_temp.has(v, 'L1') and not pg_temp.has(v, 'S1'), v);
+  perform pg_temp.ok('N3 radius 2.5 km: the league court (2 km) yes; the ~8 km league court no (E1, LP)',
+    pg_temp.has(v, 'L1') and not pg_temp.has(v, 'E1') and not pg_temp.has(v, 'LP'), v);
+  v := pg_temp.found(5000);
+  perform pg_temp.ok('N3 radius 5 km: LP''s starred (3 km) and check-in (4 km) courts don''t bring anyone in',
+    not pg_temp.has(v, 'LP') and not pg_temp.has(v, 'S1') and not pg_temp.has(v, 'F1') and not pg_temp.has(v, 'LV'), v);
   v := pg_temp.found(1e9);
   perform pg_temp.ok('N3 a huge radius is capped at 50 mi: ~200 km still not found', not pg_temp.has(v, 'FR'), v);
 end $$;
@@ -258,27 +276,37 @@ begin
   perform pg_temp.ok('N4 L1: plays at the league court, ~2 km',
     r.place_name = 'Near Test Park' and r.place_kind = 'league' and r.distance_m between 1900 and 2100,
     format('%s %s %s', r.place_name, r.place_kind, r.distance_m));
-  select * into r from public.discover_players_near(43.2, -104.2, 8047) d where d.id = pg_temp.p('S1');
-  perform pg_temp.ok('N4 S1: starred', r.place_kind = 'starred' and r.place_name = 'Near Test Star Courts', r.place_kind);
-  select * into r from public.discover_players_near(43.2, -104.2, 8047) d where d.id = pg_temp.p('F1');
-  perform pg_temp.ok('N4 F1: frequent', r.place_kind = 'frequent', r.place_kind);
+  select * into r from public.discover_players_near(43.2, -104.2, 8047) d where d.id = pg_temp.p('LP');
+  perform pg_temp.ok('N4 LP: at the ~8 km league court, never the nearer starred / check-in courts',
+    r.place_name = 'Near Test Edge' and r.place_kind = 'league' and r.distance_m between 7900 and 8100,
+    format('%s %s %s', r.place_name, r.place_kind, r.distance_m));
+  perform pg_temp.ok('N4 every row is placed by a league court',
+    (select bool_and(d.place_kind = 'league') and count(*) > 0
+       from public.discover_players_near(43.2, -104.2, 80468) d));
   perform pg_temp.as_admin();
 end $$;
 
 
--- ════ N5 privacy follows the player's settings ══════════════════════════
+-- ════ N5 presence settings never place anyone ═══════════════════════════
 do $$
-declare v text;
+declare
+  v text;
+  r record;
 begin
   perform pg_temp.as_admin();
   insert into public.friendships (requester_id, addressee_id, status, responded_at) values
     (pg_temp.p('NV'), pg_temp.p('S3'), 'accepted', now());
   v := pg_temp.found();
-  perform pg_temp.ok('N5 S3 becomes the viewer''s friend: found by the starred court', pg_temp.has(v, 'S3'), v);
+  perform pg_temp.ok('N5 S3 becomes the viewer''s friend: still not found (a star places no one)', not pg_temp.has(v, 'S3'), v);
+  perform pg_temp.ok('N5 LP''s pause is kept: none of their check-ins or stars shows, only the league court',
+    pg_temp.has(v, 'LP'), v);
   perform pg_temp.as_admin();
-  update public.presence_settings set paused_until = now() + interval '1 day' where user_id = pg_temp.p('S1');
-  v := pg_temp.found();
-  perform pg_temp.ok('N5 S1 pauses: no longer found by the starred court', not pg_temp.has(v, 'S1'), v);
+  update public.presence_settings set paused_until = null where user_id = pg_temp.p('LP');
+  perform pg_temp.as_user(pg_temp.p('NV'));
+  select * into r from public.discover_players_near(43.2, -104.2, 8047) d where d.id = pg_temp.p('LP');
+  perform pg_temp.ok('N5 LP resumes sharing: still the league court (~8 km), never where they are now',
+    r.place_name = 'Near Test Edge' and r.distance_m between 7900 and 8100,
+    format('%s %s', r.place_name, r.distance_m));
   perform pg_temp.as_admin();
 end $$;
 

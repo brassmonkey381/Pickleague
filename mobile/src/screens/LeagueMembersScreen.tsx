@@ -5,6 +5,12 @@
 //   MEMBERS 14 · avg 3.62      Suggest
 //   [Q search]  (Role)(PLUPR)(Name)   only once the league has > 10 members
 //   56px rows: avatar · name · PLUPR · role chip · more (admin tools)
+// Suggest (the user, 2026-10-24: "Suggest nearby, search all"): the players
+// who play near the league's home court (their leagues' home courts only,
+// lib/inviteSuggestions) at the search area's radius, else near the shared
+// search area, else the old suggestions (anywhere); always within ±1.75 of
+// the league's average PLUPR, ranked by schedule overlap. [Invite] opens the
+// invite code, whose picker searches everyone.
 import { useScreenBottomInset } from '../lib/appChrome';
 import React, { useState, useCallback, useMemo } from 'react';
 import {
@@ -40,6 +46,9 @@ import FlairName from '../components/FlairName';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
+import { useSearchArea } from '../lib/useSearchArea';
+import { firstWithAnyone, suggestionSteps, suggestionsHeading, withinLevel } from '../lib/inviteSuggestions';
+import { getInvitePlace, nearForInvite } from '../data/inviteSuggestions';
 import { dropJoinedRequests } from '../lib/inboxRequests';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
@@ -74,6 +83,9 @@ const SORT_OPTIONS: FilterChipOption<MemberSort>[] = [
   { value: 'name', label: 'Name' },
 ];
 const ROLE_ORDER: Record<string, number> = { admin: 0, 'co-admin': 1, member: 2 };
+/** Suggestions stay within this much of the league's average PLUPR. */
+const SUGGEST_LEVEL_BAND = 1.75;
+const SUGGEST_COLUMNS = 'id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id';
 /** Search + sort earn their room only past this many members (plan section 5). */
 const SEARCH_THRESHOLD = 10;
 
@@ -104,6 +116,9 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
   const [showSuggest, setShowSuggest]       = useState(false);
   const [suggestions, setSuggestions]       = useState<SuggestedPlayer[]>([]);
   const [loadingSuggest, setLoadingSuggest] = useState(false);
+  // "Players near Lakeside Park · 5 mi" when the suggestions are nearby; null: the old ones.
+  const [suggestHeading, setSuggestHeading] = useState<string | null>(null);
+  const { area, saved: savedArea } = useSearchArea();
   const [actionTarget, setActionTarget]     = useState<LeagueMember | null>(null);
   const [wagerTotals, setWagerTotals]       = useState<Record<string, number>>({});
   const [search, setSearch] = useState('');
@@ -229,19 +244,42 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
       ? memberRatings.reduce((a, b) => a + b, 0) / memberRatings.length
       : myRating;
 
-    // Suggested players to invite: discover_players (migration_hide_test_accounts.sql)
-    // never offers a tombstoned account, nor a test account while God mode
-    // hides them.
-    const candidates = await sbCall(() => supabase
-      .rpc('discover_players', {
-        p_exclude: memberIds,
-        p_min_rating: avgElo - 1.75,
-        p_max_rating: avgElo + 1.75,
-        p_limit: 50,
-        // The 50 nearest the league's level, not the first 50 names.
-        p_near_rating: avgElo,
-      })
-      .select('id, full_name, username, rating, singles_rating, doubles_rating, availability, avatar_id, avatar_url, name_color, list_name_style_id')) as any[] | null;
+    // Nearby first: the real people who play near the league's home court,
+    // else near the search area (league courts only; discover_players_near
+    // leaves out deleted, blocked and, while God mode hides them, test
+    // accounts), within the level band. The 100 nearest, so the id list below
+    // stays a short URL.
+    const place = await getInvitePlace({ type: 'league', id: leagueId });
+    const hit = await firstWithAnyone(
+      suggestionSteps(place, area, savedArea.radiusMi),
+      (step) => nearForInvite(step.circle, memberIds, 100),
+      (rows) => withinLevel(rows, avgElo, SUGGEST_LEVEL_BAND),
+    );
+
+    let candidates: any[] | null;
+    if (hit) {
+      // The columns the ranking and rows need that the nearby read doesn't return.
+      candidates = await sbCall(() => supabase
+        .from('profiles')
+        .select(SUGGEST_COLUMNS)
+        .in('id', hit.rows.map(p => p.id))) as any[] | null;
+      setSuggestHeading(suggestionsHeading(hit.step.source, hit.step.label, hit.step.circle.radiusMi));
+    } else {
+      // The old suggestions: discover_players (migration_hide_test_accounts.sql)
+      // never offers a tombstoned account, nor a test account while God mode
+      // hides them.
+      candidates = await sbCall(() => supabase
+        .rpc('discover_players', {
+          p_exclude: memberIds,
+          p_min_rating: avgElo - SUGGEST_LEVEL_BAND,
+          p_max_rating: avgElo + SUGGEST_LEVEL_BAND,
+          p_limit: 50,
+          // The 50 nearest the league's level, not the first 50 names.
+          p_near_rating: avgElo,
+        })
+        .select(SUGGEST_COLUMNS)) as any[] | null;
+      setSuggestHeading(null);
+    }
 
     const scored: SuggestedPlayer[] = (candidates ?? []).map((p: any) => {
       const av: boolean[] = Array.isArray(p.availability) && p.availability.length === TOTAL_CELLS
@@ -567,7 +605,9 @@ export default function LeagueMembersScreen({ navigation, route }: Props) {
               <Text style={[t.h3, S.rowText]} accessibilityRole="header">Suggested Players</Text>
             </View>
             <Text style={t.sub} numberOfLines={2}>
-              Similar PLUPR to {leagueName || 'this league'} · sorted by schedule overlap
+              {suggestHeading
+                ? `${suggestHeading} · similar PLUPR · sorted by schedule overlap`
+                : `Similar PLUPR to ${leagueName || 'this league'} · sorted by schedule overlap`}
             </Text>
           </View>
           <Pressable onPress={() => setShowSuggest(false)} style={S.box44} accessibilityRole="button">

@@ -1,12 +1,13 @@
 // Players near the search area: the pure half (data/playersNear has the reads).
 //
 // The server answers this with discover_players_near
-// (supabase/migration_discover_players_near.sql): where a player PLAYS (their
-// leagues' home courts, and, when their presence privacy names them to you,
-// their starred and frequent courts), never where they are. Until that file
-// is applied on a server, the app places players by what it can read itself:
-// the home courts of the leagues they are in. That fallback is narrower (no
-// starred or frequent courts) but never wider, and it reads no location.
+// (supabase/migration_discover_players_near.sql): where a player PLAYS, by
+// ONE source only, the home courts of their leagues (open leagues, or closed
+// leagues I am in too; the user, 2026-10-24: "League courts only"). Never a
+// court they starred (stars stay owner-only), never a check-in, never where
+// they are now. Until that file is applied on a server, the app places players
+// the same way from what it can read itself (leagueAnchorsInArea below), so
+// the two halves agree.
 //
 // PURE: no React, no Supabase.
 import {
@@ -14,10 +15,11 @@ import {
   milesBetween,
   pointOf,
   withinSearchArea,
-  type SearchArea,
+  type NearCircle,
 } from './searchArea';
 
-export type PlaceKind = 'league' | 'starred' | 'frequent';
+/** How a player was placed: always their league's home court. */
+export type PlaceKind = 'league';
 
 /** A player in a people list (the columns discover_players_near returns). */
 export type NearPlayer = {
@@ -63,12 +65,12 @@ export type PlayerAnchor = { place: string | null; distanceM: number };
  * The fallback's "where they play": for each player, the nearest home court
  * of a league they are in that lies inside the area. Open leagues only, or a
  * closed league I am in too (a closed league's roster is not public); a guest
- * pass that has run out doesn't count. Same rules as the server's league part.
+ * pass that has run out doesn't count. The server's rule, exactly.
  */
 export function leagueAnchorsInArea(
   leagues: readonly AnchorLeague[],
   members: readonly AnchorMember[],
-  area: SearchArea,
+  area: NearCircle,
   ctx: { meId: string | null; now: number },
 ): Map<string, PlayerAnchor> {
   const live = (m: AnchorMember) => !m.expires_at || new Date(m.expires_at).getTime() > ctx.now;

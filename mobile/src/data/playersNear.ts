@@ -1,13 +1,14 @@
-// Players near the search area (lib/playersNear has the rules).
+// Players near the search area, or near a place (a league's home court, a
+// tournament's venue: data/inviteSuggestions). lib/playersNear has the rules.
 //
-//   area set   discover_players_near (the server: leagues, starred and
-//              frequent courts, presence privacy, blocks, test accounts);
-//              before that SQL is applied, the fallback: discover_players
-//              placed by their leagues' home courts (lib/playersNear)
+//   area set   discover_players_near (the server: league home courts only,
+//              blocks, test accounts); before that SQL is applied, the
+//              fallback: discover_players placed by their leagues' home
+//              courts (lib/playersNear, the same rule)
 //   no area    discover_players, unlimited (nothing to limit by yet)
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
-import type { SearchArea } from '../lib/searchArea';
+import type { NearCircle } from '../lib/searchArea';
 import {
   NEAR_PLAYER_COLUMNS,
   isMissingRpcError,
@@ -54,7 +55,7 @@ async function discoverPlayers(opts: PlayersNearOptions, limit: number): Promise
 }
 
 /** Before the SQL is applied: players placed by their leagues' home courts. */
-async function fallbackNear(area: SearchArea, opts: PlayersNearOptions, limit: number): Promise<NearPlayer[]> {
+async function fallbackNear(area: NearCircle, opts: PlayersNearOptions, limit: number): Promise<NearPlayer[]> {
   const meId = await currentUserId(supabase);
   const leagues = ((await sbCall(() =>
     supabase
@@ -75,7 +76,7 @@ async function fallbackNear(area: SearchArea, opts: PlayersNearOptions, limit: n
   return placePlayers(everyone, anchors).slice(0, limit);
 }
 
-export async function listPlayersNear(area: SearchArea | null, opts: PlayersNearOptions = {}): Promise<NearPlayer[]> {
+export async function listPlayersNear(area: NearCircle | null, opts: PlayersNearOptions = {}): Promise<NearPlayer[]> {
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_LIMIT, 500));
   if (!area) return discoverPlayers(opts, Math.max(limit, 500));
   if (!rpcMissing) {

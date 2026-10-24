@@ -284,10 +284,12 @@ touches playoff bracket generation or advancement.
     `migration_rls_hardening_2026q3.sql`; the builder refuses unless that
     file's allowlist names `discover_players_near`), then checks: grants and
     attributes, no phone / email column, the signed-out and bad-centre
-    refusals; who is found by where they play (open-league home courts; a
-    closed league only when the viewer is in it; starred and frequent courts
-    only when presence privacy names them; expired guest passes, blocks both
-    ways, deleted accounts and the viewer left out); the radius and its 50 mi
-    cap; nearest first with the place columns; a pause and a new friendship
-    changing what the starred court reveals; drilling only, name / @username
-    search with literal `%`; and the God mode test-account switch.
+    refusals; the body reads no starred court, check-in or presence setting;
+    who is found by where they play, league home courts ONLY (open leagues; a
+    closed league only when the viewer is in it; starred-only, check-in-only
+    and checked-in-now players are not found, whatever their presence level;
+    expired guest passes, blocks both ways, deleted accounts and the viewer
+    left out); the radius and its 50 mi cap; nearest first with the place
+    columns (a paused player with nearer stars and check-ins shows only at
+    their league court, before and after the pause); drilling only, name /
+    @username search with literal `%`; and the God mode test-account switch.

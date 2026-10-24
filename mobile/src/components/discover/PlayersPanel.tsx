@@ -27,9 +27,9 @@
 //   placeholders, guest passes or deleted accounts). Picking a player opens
 //   their profile, where Add friend is one tap.
 // - Discover's search area (the pills above the tabs) limits the search and
-//   Nearby to the players who PLAY there (data/playersNear: their leagues'
-//   home courts, and their starred and frequent courts when their presence
-//   privacy names them to you; never where they are now). Friends, Requests
+//   Nearby to the players who PLAY there (data/playersNear: by their leagues'
+//   home courts only; never a starred court, a check-in or where they are
+//   now). Friends, Requests
 //   and Played with are yours and are not limited. Until the area is known
 //   neither lists anyone; only with no area at all (no location, no city, no
 //   located league court) does the search cover everyone, as before.
@@ -609,7 +609,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
                 compact
                 iconName="paddle"
                 title={`No one plays within ${area.radiusMi} mi yet`}
-                subtitle="Players show up here by their leagues' courts and the courts they star. Try a wider radius above."
+                subtitle="Players show up here by their leagues' home courts. Try a wider radius above."
               />
             </Panel>
           )}

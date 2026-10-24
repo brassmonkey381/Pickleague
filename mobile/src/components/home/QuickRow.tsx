@@ -38,7 +38,8 @@ export default function QuickRow({ showRecord, onPress }: Props) {
     showRecord
       ? { key: 'record', label: 'Record', a11y: 'Record a match', iconName: 'edit' }
       : { key: 'join', label: 'Join', a11y: 'Join with a code', iconName: 'key' },
-    { key: 'play', label: 'Play', iconName: 'pickleball' },
+    // The bottom bar's centre Play glyph (2026-10-24); pickleball stays for leagues.
+    { key: 'play', label: 'Play', iconName: 'play' },
     { key: 'drill', label: 'Drill', iconName: 'paddle' },
     { key: 'shop', label: 'Shop', a11y: 'Pickle Shop', iconName: 'cart' },
     ...(WAGERS_ENABLED ? [{ key: 'wagers' as const, label: 'Wagers', iconName: 'dice' as const }] : []),
