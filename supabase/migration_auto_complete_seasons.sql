@@ -17,13 +17,22 @@
 -- League, Season 1 (May 27 - Aug 19, all 12 periods locked) was still active
 -- two months after its end.
 --
---   1. _complete_season_unchecked(uuid): complete_season's body without the
---      admin check (the lock_season_period / _lock_season_period_unchecked
---      split). One change: the season row is read FOR UPDATE, so an admin's
---      press and the job can never both complete (and reset) one season; the
---      second waits, then gets "ELO reset has already been applied".
+--   1. _complete_season_unchecked(p_season_id uuid, p_apply_reset boolean
+--      default true): complete_season's body without the admin check (the
+--      lock_season_period / _lock_season_period_unchecked split). Two
+--      changes: the season row is read FOR UPDATE, so an admin's press and
+--      the job can never both complete (and reset) one season; the second
+--      waits, then gets "ELO reset has already been applied". And with
+--      p_apply_reset = false it skips the league ratings reset, and only that:
+--      the final standings are still saved with the same rank / median /
+--      bonus / new PLUPR (the app shows them as the final standings), the
+--      badges are still awarded, and the season is still marked completed
+--      with elo_reset_applied = true (that column is the "already completed"
+--      guard: true once completed, reset or not).
 --   2. complete_season(uuid): the same auth check and errors in the same
---      order, then the helper. Grants untouched (create or replace keeps them).
+--      order, then the helper with its default (p_apply_reset = true): the
+--      admin's button resets the league ratings however late it is pressed,
+--      as it always has. Grants untouched (create or replace keeps them).
 --      One security fix: a signed-out / anon caller is now refused. The old
 --      check went NULL for them (is_godmode_user() is NULL without a user) and
 --      let them complete any season; see section 2.
@@ -40,6 +49,13 @@
 --      longer parses (a retired tzdata name) falls back to the default zone
 --      instead of failing. (auto_lock_due_periods has no per-season guard, so
 --      one bad season stops that whole run; this one does not copy that.)
+--      The PLUPR reset: the job applies it only to a season it completes 7 or
+--      fewer days after its end_date (p_apply_reset := today - end_date <= 7,
+--      in the league's day). Normally the job completes a season the day
+--      after it ends (1), so the reset applies. A season it completes later
+--      than that keeps its league ratings: a reset weeks late would overwrite
+--      the league matches played since the season's last lock. The League,
+--      Season 1 (ended 2026-08-19) closes without one, per the user.
 --   4. Its own cron job, pickleague-auto-complete-seasons, hourly at :08.
 --      Separate from the auto-lock job, as every scheduled job here is (one
 --      job per function, unscheduled then scheduled): a failing lock run then
@@ -50,17 +66,20 @@
 --
 -- Everything complete_season does still happens, through the same code: the
 -- median-rank final standings (season_final_standings), the league-scoped
--- PLUPR reset (baseline + 0.20 / 0.15 / 0.10 / 0.05 / 0.02), the Season Crown
+-- PLUPR reset (baseline + 0.20 / 0.15 / 0.10 / 0.05 / 0.02; from the job only
+-- within 7 days of end_date, see 3), the Season Crown
 -- / Silver / Bronze and Period Sweeper badges, and through the player_badges
 -- triggers the +150 pickles, the "+150 pickles" notification (and its push)
 -- and badge-unlocked shop items. Not automatic (unchanged): handing out a
 -- season pot (distribute_season_pool stays an admin action).
 --
 -- Cutover: the first run after this is applied completes every active season
--- already past its end (live 2026-10-24: The League, Season 1 only), with its
--- reset applied late: league ratings (league_player_ratings) for that league
--- go to baseline + final-rank bonus, replacing whatever league matches since
--- its last lock moved them to. Global PLUPR (profiles) is never touched.
+-- already past its end (live 2026-10-24: The League, Season 1 only, ended
+-- 2026-08-19). That is more than 7 days late, so it closes WITHOUT the reset
+-- (the user's decision, 2026-10-24: "skip the reset"): its final standings,
+-- badges and pickles land, and league_player_ratings for that league stay
+-- where the league matches since its last lock moved them. Global PLUPR
+-- (profiles) is never touched either way.
 --
 -- Grants: both new functions are internal (no client EXECUTE; service_role
 -- keeps it, as the hardening sweep gives every SECURITY DEFINER function).
@@ -78,8 +97,16 @@
 -- season row. search_path '': every name below is schema-qualified, and so
 -- are the ones in award_league_badge and the player_badges triggers it fires
 -- (_grant_pickles_on_badge, _notify_user, _grant_unlock_items_on_badge),
--- which inherit it.
-create or replace function public._complete_season_unchecked(p_season_id uuid)
+-- which inherit it. p_apply_reset = false (the job, more than 7 days after
+-- end_date; see 3) skips the league_player_ratings update and nothing else.
+-- A one-arg version (uuid) never existed on live, but is dropped first all
+-- the same: next to this one a one-arg call would be ambiguous. A re-run of
+-- this file then replaces the two-arg version in place (one definition).
+drop function if exists public._complete_season_unchecked(uuid);
+create or replace function public._complete_season_unchecked(
+  p_season_id   uuid,
+  p_apply_reset boolean default true
+)
 returns void
 language plpgsql
 security definer
@@ -158,13 +185,18 @@ begin
 
     -- LEAGUE-scoped end-of-season soft reset. Mirrors the period-lock reset
     -- across every rating facet; global profiles.rating is untouched.
-    update public.league_player_ratings
-       set rating               = v_new_plupr,
-           singles_rating       = v_new_plupr,
-           doubles_rating       = v_new_plupr,
-           mixed_doubles_rating = v_new_plupr,
-           updated_at           = now()
-     where league_id = v_league_id and user_id = v_player.user_id;
+    -- Skipped when p_apply_reset is false: the league ratings stay where the
+    -- league's matches left them (new_elo above is still the PLUPR the final
+    -- standings show).
+    if p_apply_reset then
+      update public.league_player_ratings
+         set rating               = v_new_plupr,
+             singles_rating       = v_new_plupr,
+             doubles_rating       = v_new_plupr,
+             mixed_doubles_rating = v_new_plupr,
+             updated_at           = now()
+       where league_id = v_league_id and user_id = v_player.user_id;
+    end if;
 
     v_badge := case v_rank
       when 1 then 'Season Crown'
@@ -192,13 +224,15 @@ begin
     end if;
   end loop;
 
+  -- elo_reset_applied is the "already completed" guard (checked above; the
+  -- app hides the Complete button on it): true whether or not the reset ran.
   update public.league_seasons
   set status = 'completed', elo_reset_applied = true
   where id = p_season_id;
 end;
 $$;
-revoke execute on function public._complete_season_unchecked(uuid) from public, anon, authenticated;
-grant execute on function public._complete_season_unchecked(uuid) to service_role;
+revoke execute on function public._complete_season_unchecked(uuid, boolean) from public, anon, authenticated;
+grant execute on function public._complete_season_unchecked(uuid, boolean) to service_role;
 
 
 -- ── 2. complete_season: the admin check, then the body ─────────────────────
@@ -207,9 +241,12 @@ grant execute on function public._complete_season_unchecked(uuid) to service_rol
 -- One fix (found by this file's test, G3): the check was
 --   not exists (admin row) and not public.is_godmode_user() and role <> 'service_role'
 -- and is_godmode_user() is NULL when auth.uid() is null (signed out, or the
--- anon key, which has EXECUTE here). NULL made the whole condition NULL, so
--- the raise was skipped and ANY signed-out caller could complete ANY season
--- (and reset its league's ratings). Now a NULL counts as "not God mode".
+-- anon key, which had EXECUTE here until migration_godmode_anon_revoke.sql).
+-- NULL made the whole condition NULL, so the raise was skipped and ANY
+-- signed-out caller could complete ANY season (and reset its league's
+-- ratings). Now a NULL counts as "not God mode".
+-- The helper is called with its default, p_apply_reset = true: the button
+-- applies the reset however long after end_date it is pressed (unchanged).
 create or replace function public.complete_season(p_season_id uuid)
 returns void language plpgsql security definer as $$
 declare
@@ -241,6 +278,13 @@ $$;
 -- Returns how many seasons it completed. "Due": active, reset not applied,
 -- end_date before today in the league's zone, every period whose lock date
 -- has arrived locked, and at least one period locked.
+-- The reset: applied when the job completes the season c_reset_days (7) or
+-- fewer days after its end_date, in the league's day. Normally that is the
+-- day after (1), so the reset applies. Later than that (a due period left
+-- unlocked for weeks; seasons already overdue when this is applied, i.e. The
+-- League, Season 1, ended 2026-08-19, per the user) the league ratings are
+-- kept: a reset weeks late would overwrite the league matches played since
+-- the season's last lock. The final standings and badges are saved either way.
 create or replace function public.auto_complete_due_seasons()
 returns integer
 language plpgsql
@@ -248,9 +292,10 @@ security definer
 set search_path = ''
 as $$
 declare
-  v_season    record;
-  v_today     date;
-  v_completed integer := 0;
+  c_reset_days constant integer := 7;
+  v_season     record;
+  v_today      date;
+  v_completed  integer := 0;
 begin
   for v_season in (
     select s.id, s.name, s.start_date, s.end_date, s.total_periods, s.lock_frequency_weeks,
@@ -297,7 +342,8 @@ begin
         where id = v_season.id and status = 'active' and not elo_reset_applied
         for update skip locked;
       if found then
-        perform public._complete_season_unchecked(v_season.id);
+        perform public._complete_season_unchecked(
+          v_season.id, p_apply_reset := (v_today - v_season.end_date) <= c_reset_days);
         v_completed := v_completed + 1;
       end if;
     exception when others then
