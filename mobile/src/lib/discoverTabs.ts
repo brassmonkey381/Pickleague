@@ -17,8 +17,9 @@ export const DISCOVER_TABS = ['leagues', 'tournaments', 'places', 'players'] as 
 export type DiscoverTab = (typeof DISCOVER_TABS)[number];
 
 /** Players' own views: the friend-request push opens Requests, "Find" opens
- *  the people you've played with (the old Friends > Find tab). */
-export const PLAYERS_VIEWS = ['friends', 'requests', 'find'] as const;
+ *  the people you've played with (the old Friends > Find tab), "near" the
+ *  players who play in Discover's search area. */
+export const PLAYERS_VIEWS = ['friends', 'requests', 'find', 'near'] as const;
 export type PlayersView = (typeof PLAYERS_VIEWS)[number];
 
 /** Discover's route params (types/index.ts RootStackParamList['Discover']). */
