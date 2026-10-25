@@ -128,11 +128,8 @@ export const ROUTINES_ENABLED = true;
  * state/checkin-plans-apply.ps1 applies it after its rolled-back persona
  * suite passes. Off, those items never show, no plan is read, and every
  * send_on_my_way call is the three-argument one.
- *
- * OFF until that script prints DONE (2026-10-24): the Home request-loop fix
- * had to ship before the server half was applied.
  */
-export const CHECKIN_PLANS_ENABLED = false;
+export const CHECKIN_PLANS_ENABLED = true;
 
 /**
  * Referrals, Doggle parity (state/referrals-plan.md): invite links
