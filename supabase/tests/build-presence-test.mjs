@@ -221,6 +221,12 @@ for (const m of [VALIDITY_MARKER, REFUSALS_MARKER, TAPTIME_MARKER, ARRIVALS_MARK
 
 const parts = [
   'begin;',
+  [
+    '-- The pg_temp helpers run as anon / authenticated. Since migration_anon_audit_rest.sql,',
+    '-- functions postgres creates are not EXECUTE-able by PUBLIC by default, so this test',
+    '-- transaction (rolled back) gives the helpers the old default back.',
+    'alter default privileges for role postgres grant execute on functions to public;',
+  ].join('\n'),
   body.slice(0, at),
   ...MIGRATIONS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),
   ...ARRIVALS.map((f) => `-- ════ ${f} ════\n${read(path.join(supa, f))}`),

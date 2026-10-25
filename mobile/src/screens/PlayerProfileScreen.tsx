@@ -20,6 +20,7 @@ import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { withGiftNotes } from '../data/giftMessages';
 import {
   sbCall, currentUserId, classifySbError, friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
@@ -121,10 +122,12 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       setBadges((badgeRows ?? []) as BadgeItem[]);
       setLocationRatings((locRows ?? []) as PlayerLocationRating[]);
       setMatchCount(matchCountRes.count ?? 0);
-      setCosmeticPurchases(
-        ((purchaseRows ?? []) as any[])
-          .filter(r => r.item && r.item.category === 'cosmetic_badge')
-      );
+      const cosmetic = ((purchaseRows ?? []) as any[])
+        .filter(r => r.item && r.item.category === 'cosmetic_badge');
+      setCosmeticPurchases(cosmetic);
+      // A gift's note shows only to its sender and recipient (its own table);
+      // everyone else sees "A gift". Filled in after the badges show.
+      void withGiftNotes(cosmetic).then(rows => { if (rows !== cosmetic) setCosmeticPurchases(rows); });
       setLoadError(null);
 
       // Best-effort enrichment in the background.

@@ -24,6 +24,12 @@
 
 begin;
 
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
+
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
 grant select, insert on _results to authenticated, anon, service_role;
@@ -166,7 +172,10 @@ begin
     from _p where k <> 'GM';
 
   -- OW's phone (a reserved fake number).
-  insert into public.profile_private (id, phone) values (pg_temp.p('OW'), '+15550100009');
+  -- An upsert: since migration_anon_audit_rest.sql every profile gets its
+  -- private row (with a referral code) at sign-up.
+  insert into public.profile_private (id, phone) values (pg_temp.p('OW'), '+15550100009')
+  on conflict (id) do update set phone = excluded.phone;
 
   -- Closed league CL (AD admin, MB member) and open league PB (TA admin).
   insert into public.leagues (id, name, is_open, created_by)
@@ -326,8 +335,8 @@ end $$;
 do $$
 declare v text;
 begin
-  perform pg_temp.ok('P4 the stranger reads no profile_private row',
-    pg_temp.cnt('NM', 'select 1 from public.profile_private') = 0, pg_temp.err());
+  perform pg_temp.ok('P4 the stranger reads nobody else''s profile_private row',
+    pg_temp.cnt('NM', format('select 1 from public.profile_private where id <> %L', pg_temp.p('NM'))) = 0, pg_temp.err());
   v := pg_temp.run_as('NM', format('update public.profile_private set phone = ''+15550100666'' where id = %L', pg_temp.p('OW')));
   perform pg_temp.ok('P4 the stranger can''t change the owner''s phone',
     (select phone from public.profile_private where id = pg_temp.p('OW')) = '+15550100009', v);
@@ -381,7 +390,7 @@ begin
   perform pg_temp.ok('P6 signed out: redeem_guest_invite refused', v like 'err:%', v);
   perform pg_temp.ok('P6 a non-guest upgrade writes nothing',
     pg_temp.run_as('NM', 'select public.complete_guest_upgrade(''x'', ''other'', ''+15550100004'')') = 'ok'
-    and not exists (select 1 from public.profile_private where id = pg_temp.p('NM')));
+    and not exists (select 1 from public.profile_private where id = pg_temp.p('NM') and phone is not null));
 end $$;
 
 

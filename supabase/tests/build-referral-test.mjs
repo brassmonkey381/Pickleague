@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Build the referral persona test: referral_personas.sql with
-// migration_referrals.sql (twice: it must be re-runnable) and then
-// migration_rls_hardening_2026q3.sql (a re-run must keep the referral RPCs
-// online) in place of its -- @@MIGRATION@@ line. The test file holds the
+// migration_referrals.sql (twice: it must be re-runnable), then
+// migration_anon_audit_rest.sql (referral_code / invited_by live in
+// profile_private since; it also puts back what a migration_referrals.sql
+// re-run undoes) and then migration_rls_hardening_2026q3.sql (a re-run must
+// keep the referral RPCs online) in place of its -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.
 //
 //   node supabase/tests/build-referral-test.mjs [out.sql]
@@ -20,6 +22,7 @@ const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'referral_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const MIGRATION = 'migration_referrals.sql';
+const REST = 'migration_anon_audit_rest.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
@@ -77,6 +80,7 @@ if (!body.includes(MARKER)) {
 const spliced = [
   `-- ════ ${MIGRATION} ════\n${read(MIGRATION)}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${read(MIGRATION)}`,
+  `-- ════ ${REST} ════\n${read(REST)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,
 ].join('\n');
 

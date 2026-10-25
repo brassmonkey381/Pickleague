@@ -29,6 +29,12 @@
 
 begin;
 
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
+
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
 grant select, insert on _results to authenticated;

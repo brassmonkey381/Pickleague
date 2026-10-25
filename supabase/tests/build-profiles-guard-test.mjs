@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Build the profiles column guard persona test: profiles_guard_personas.sql
-// with migration_referrals.sql (a no-op re-run once referrals is live; it
-// installs trg_profiles_referral_guard, which the guard must stay compatible
-// with) and then migration_profiles_column_guard.sql twice (it must be
-// re-runnable) in place of its -- @@MIGRATION@@ line. The test file holds the
+// with migration_referrals.sql (a re-run; it puts profiles.referral_code /
+// invited_by and trg_profiles_referral_guard back), then
+// migration_profiles_column_guard.sql twice (it must be re-runnable) and then
+// migration_anon_audit_rest.sql (which moves those two columns to the
+// owner-only profile_private again, as on live) in place of its
+// -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.
 //
 //   node supabase/tests/build-profiles-guard-test.mjs [out.sql]
@@ -22,6 +24,7 @@ const BODY = path.join(here, 'profiles_guard_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const REFERRALS = 'migration_referrals.sql';
 const GUARD = 'migration_profiles_column_guard.sql';
+const REST = 'migration_anon_audit_rest.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
 function topLevel(sql) {
@@ -79,6 +82,7 @@ const spliced = [
   `-- ==== ${REFERRALS} ====\n${read(REFERRALS)}`,
   `-- ==== ${GUARD} ====\n${read(GUARD)}`,
   `-- ==== ${GUARD} (re-run) ====\n${read(GUARD)}`,
+  `-- ==== ${REST} ====\n${read(REST)}`,
 ].join('\n');
 
 const out = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'profiles_guard_test.sql'));

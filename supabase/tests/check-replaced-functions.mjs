@@ -107,6 +107,12 @@ const REPLACED = [
     'migration_anon_audit_fixes.sql'],
   // Match deletion takes back 150 per badge (what badges pay since 2026-05-25), not 50.
   ['public._reverse_match_side_effects()', 'migration_match_count_fix.sql', 'migration_fix_badge_reversal.sql'],
+  // Signed-out audit, the rest (migration_anon_audit_rest.sql): the referral
+  // code and inviter move to profile_private, so the three functions that
+  // read or write them change table.
+  ['public._pl_link_referral(uuid,text)', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
+  ['public.my_referral_code()', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
+  ['public.referral_preview(text)', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
 ];
 const TAG = '$pl_expect$';
 

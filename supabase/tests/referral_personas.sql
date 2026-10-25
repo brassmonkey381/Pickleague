@@ -2,7 +2,9 @@
 -- Referrals, Doggle parity (persona tests for migration_referrals.sql).
 --
 -- NOT runnable on its own: build-referral-test.mjs puts, at the marker line
--- below, migration_referrals.sql twice (it must be re-runnable) and then
+-- below, migration_referrals.sql twice (it must be re-runnable), then
+-- migration_anon_audit_rest.sql (which moves referral_code / invited_by from
+-- profiles to the owner-only profile_private) and then
 -- migration_rls_hardening_2026q3.sql (a re-run must keep the referral RPCs
 -- online). Everything runs inside the begin / rollback below, so the linked
 -- (live) database is left untouched:
@@ -25,6 +27,12 @@
 -- ============================================================
 
 begin;
+
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
 
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
@@ -96,12 +104,17 @@ end $$;
 
 -- @@MIGRATION@@
 
+-- (again: migration_anon_audit_rest.sql, spliced above, takes the default away)
+alter default privileges for role postgres grant execute on functions to public;
+
 
 -- A persona's pickles, referral code and referral row (read as admin).
 create function pg_temp.pickles(k text) returns integer language sql stable as $$
   select pickles from public.profiles where id = pg_temp.p(k) $$;
-create function pg_temp.code(k text) returns text language sql stable as $$
-  select referral_code from public.profiles where id = pg_temp.p(k) $$;
+-- security definer: the code lives in the owner-only profile_private, and
+-- this is also called while a persona (or anon) is the current role.
+create function pg_temp.code(k text) returns text language sql stable security definer as $$
+  select referral_code from public.profile_private where id = pg_temp.p(k) $$;
 create function pg_temp.rewarded(k text) returns boolean language sql stable as $$
   select rewarded_at is not null from public.referrals where invitee_id = pg_temp.p(k) $$;
 create function pg_temp.referrer_of(k text) returns uuid language sql stable as $$
@@ -168,11 +181,13 @@ declare
 begin
   perform pg_temp.as_admin();
   perform pg_temp.ok('R1 every persona got a 10-char referral code on sign-up',
-    (select bool_and(length(referral_code) = 10) from public.profiles where id in (select id from _p)));
+    (select bool_and(length(referral_code) = 10) and count(*) = (select count(*) from _p)
+       from public.profile_private where id in (select id from _p)));
   perform pg_temp.ok('R1 no live profile is without a code',
-    not exists (select 1 from public.profiles where referral_code is null));
+    not exists (select 1 from public.profiles p left join public.profile_private pp on pp.id = p.id
+                 where p.deleted_at is null and pp.referral_code is null));
   perform pg_temp.ok('R1 codes are unique case-insensitively (unique index on lower())',
-    exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'profiles_referral_code_uq'));
+    exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'profile_private_referral_code_uq'));
   foreach f in array array['public.claim_referral(text)', 'public.my_referral_code()', 'public.my_referral_stats()'] loop
     perform pg_temp.ok('R1 ' || f || ': authenticated yes, anon no (after the hardening re-run)',
       has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'));
@@ -222,7 +237,7 @@ begin
   perform pg_temp.ok('R2 RA earned Recruiter (its +150 is the badge''s own grant, counted above)',
     exists (select 1 from public.player_badges pb join public.badges b on b.id = pb.badge_id
              where pb.user_id = pg_temp.p('RA') and b.name = 'Recruiter'));
-  perform pg_temp.ok('R2 N1.invited_by = RA', (select invited_by from public.profiles where id = pg_temp.p('N1')) = pg_temp.p('RA'));
+  perform pg_temp.ok('R2 N1.invited_by = RA', (select invited_by from public.profile_private where id = pg_temp.p('N1')) = pg_temp.p('RA'));
   perform pg_temp.ok('R2 both got a shop notification',
     exists (select 1 from public.notifications where user_id = pg_temp.p('RA') and entity_type = 'shop' and title like '%Newbie joined%')
     and exists (select 1 from public.notifications where user_id = pg_temp.p('N1') and entity_type = 'shop' and title like '%Alice%'));
@@ -442,12 +457,15 @@ begin
     (r ->> 'pickles_earned')::integer = 2500 and (r ->> 'invited')::integer = 0, r::text);
   select count(*) into n from public.referrals;
   perform pg_temp.ok('R8 RLS: N1 sees its one row', n = 1, n::text);
-  -- The guard: a client update cannot change either column.
-  update public.profiles set referral_code = 'hacked', invited_by = null, tagline = 'hi' where id = pg_temp.p('N1');
+  -- Both columns live in profile_private (migration_anon_audit_rest.sql),
+  -- where the owner may update the phone only.
+  e := pg_temp.err($q$update public.profile_private set referral_code = 'hacked', invited_by = null$q$);
+  update public.profiles set tagline = 'hi' where id = pg_temp.p('N1');
   perform pg_temp.as_admin();
-  perform pg_temp.ok('R8 a client update keeps referral_code and invited_by (and still saves the rest)',
-    pg_temp.code('N1') <> 'hacked'
-    and (select invited_by = pg_temp.p('RA') and tagline = 'hi' from public.profiles where id = pg_temp.p('N1')));
+  perform pg_temp.ok('R8 a client cannot change its referral_code or invited_by (and still edits its profile)',
+    e is not null and pg_temp.code('N1') <> 'hacked'
+    and (select invited_by = pg_temp.p('RA') from public.profile_private where id = pg_temp.p('N1'))
+    and (select tagline = 'hi' from public.profiles where id = pg_temp.p('N1')), e::text);
 
   perform pg_temp.as_anon();
   r := public.referral_preview(upper(pg_temp.code('RA')))::jsonb;

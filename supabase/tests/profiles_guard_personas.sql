@@ -2,8 +2,10 @@
 -- Profiles column guard persona tests (migration_profiles_column_guard.sql).
 --
 -- NOT runnable on its own: build-profiles-guard-test.mjs puts, at the marker
--- line below, migration_referrals.sql (a no-op once it is live) and then
--- migration_profiles_column_guard.sql twice (it must be re-runnable).
+-- line below, migration_referrals.sql (a no-op once it is live), then
+-- migration_profiles_column_guard.sql twice (it must be re-runnable) and
+-- then migration_anon_audit_rest.sql (referral_code / invited_by live in the
+-- owner-only profile_private since; it also undoes a referrals re-run).
 -- Everything runs inside the begin / rollback below, so the linked (live)
 -- database is left untouched:
 --   node supabase/tests/build-profiles-guard-test.mjs <out.sql>
@@ -20,6 +22,12 @@
 -- ============================================================
 
 begin;
+
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
 
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
@@ -108,6 +116,9 @@ create function pg_temp.pickles(k text) returns integer language sql stable as $
 
 -- @@MIGRATION@@
 
+-- (again: migration_anon_audit_rest.sql, spliced above, takes the default away)
+alter default privileges for role postgres grant execute on functions to public;
+
 
 -- ════ Setup (after the migrations, so every trigger is live) ═════════════
 do $$
@@ -148,8 +159,8 @@ begin
     from pg_trigger t where t.tgrelid = 'public.profiles'::regclass and t.tgname = 'trg_profiles_column_guard';
   perform pg_temp.ok('G1 trg_profiles_column_guard is BEFORE INSERT OR UPDATE, for each row',
     v_tg like '%BEFORE INSERT OR UPDATE ON public.profiles FOR EACH ROW%', v_tg);
-  perform pg_temp.ok('G1 the referral guard is still there (compatible, not replaced)',
-    exists (select 1 from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'trg_profiles_referral_guard'), null);
+  perform pg_temp.ok('G1 the old referral guard went with the columns (migration_anon_audit_rest.sql)',
+    not exists (select 1 from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'trg_profiles_referral_guard'), null);
 
   perform pg_temp.ok('G1 anon can''t insert, update or delete profiles',
     not has_table_privilege('anon', 'public.profiles', 'insert')
@@ -234,13 +245,17 @@ begin
   perform pg_temp.ok('G2 an update that sends server-owned columns back unchanged still saves the rest',
     j ->> 'rows' = '1' and (select tagline from public.profiles where id = pg_temp.p('GA')) = 'Unchanged rest', j::text);
 
-  -- The referral columns keep their own silent guard.
+  -- referral_code / invited_by live in the owner-only profile_private since
+  -- migration_anon_audit_rest.sql, where the owner may update the phone only.
   j := pg_temp.run_as('GA', format($q$
-    update public.profiles set referral_code = 'hacked', invited_by = %L, tagline = 'Referral try' where id = %L$q$,
+    update public.profile_private set referral_code = 'hacked', invited_by = %L where id = %L$q$,
     pg_temp.p('GR'), pg_temp.p('GA')));
-  perform pg_temp.ok('G2 referral_code / invited_by are kept as they were (referral guard), and the rest saves',
-    j ->> 'rows' = '1' and (select referral_code <> 'hacked' and invited_by is null and tagline = 'Referral try'
-                              from public.profiles where id = pg_temp.p('GA')), j::text);
+  perform pg_temp.ok('G2 referral_code / invited_by: not on profiles, and the owner can''t write them in profile_private',
+    j ? 'state'
+    and not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles'
+                     and column_name in ('referral_code', 'invited_by'))
+    and (select referral_code <> 'hacked' and invited_by is null from public.profile_private where id = pg_temp.p('GA')),
+    j::text);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('G2 block crashed', false, sqlerrm);
@@ -481,14 +496,16 @@ declare
   r   jsonb;
   bR  integer := pg_temp.pickles('GR');
   bN  integer := pg_temp.pickles('GN');
+  -- Read as admin: GR's private row is GR's alone.
+  c   text := (select referral_code from public.profile_private where id = pg_temp.p('GR'));
 begin
   perform pg_temp.as_user(pg_temp.p('GN'));
-  r := public.claim_referral((select referral_code from public.profiles where id = pg_temp.p('GR')));
+  r := public.claim_referral(c);
   perform pg_temp.as_admin();
   perform pg_temp.ok('G6 a referral claim links and pays both sides (2500 each, at least)',
     (r ->> 'linked')::boolean and (r ->> 'rewarded')::boolean
     and pg_temp.pickles('GR') >= bR + 2500 and pg_temp.pickles('GN') = bN + 2500
-    and (select invited_by from public.profiles where id = pg_temp.p('GN')) = pg_temp.p('GR'),
+    and (select invited_by from public.profile_private where id = pg_temp.p('GN')) = pg_temp.p('GR'),
     format('%s; GR %s -> %s, GN %s -> %s', r, bR, pg_temp.pickles('GR'), bN, pg_temp.pickles('GN')));
 exception when others then
   perform pg_temp.as_admin();

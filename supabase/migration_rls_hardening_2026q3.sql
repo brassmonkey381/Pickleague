@@ -184,7 +184,14 @@ begin
         -- SELECT policies, so anon and authenticated must keep EXECUTE.
         '_pl_can_see_league','get_league_preview','list_league_previews',
         -- Pickle history (migration_pickle_ledger.sql, which grants them too).
-        'list_pickle_ledger','list_pickle_ledger_range','my_pickle_today'
+        'list_pickle_ledger','list_pickle_ledger_range','my_pickle_today',
+        -- Signed-out audit, the rest (migration_anon_audit_rest.sql, which
+        -- grants them too): the closed-league tournament / event / pot
+        -- helpers run inside SELECT policies, so anon and authenticated keep
+        -- EXECUTE. That file also keeps anon's EXECUTE to a signed-out
+        -- allowlist of its own (c_anon_allow): add a signed-out RPC there too.
+        '_pl_can_see_tournament','_pl_can_see_event','_pl_can_see_event_slot',
+        '_pl_can_see_mlp_team','_pl_can_see_doubles_pair','_pl_can_see_pot_scope'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

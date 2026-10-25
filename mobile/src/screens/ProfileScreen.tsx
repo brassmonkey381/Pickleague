@@ -30,6 +30,7 @@ import Svg, { Polyline, Line as SvgLine, Text as SvgText, Circle } from 'react-n
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { withGiftNotes } from '../data/giftMessages';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
 import { Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
@@ -490,7 +491,12 @@ export default function ProfileScreen({ navigation }: Props) {
       .eq('user_id', uid)
       .order('purchased_at', { ascending: false });
 
-    setShopPurchases(((data ?? []) as any[]).filter(r => r.item) as PurchaseWithItem[]);
+    const rows = ((data ?? []) as any[]).filter(r => r.item) as PurchaseWithItem[];
+    setShopPurchases(rows);
+    // A gift's note is the sender's and recipient's alone (its own table); fill
+    // it in after the list shows, so a slow read never holds the list back.
+    const withNotes = await withGiftNotes(rows);
+    if (withNotes !== rows) setShopPurchases(withNotes);
   }
 
   // The status strip reads the same progress math as UnlockProgress and Home
