@@ -18,6 +18,7 @@ import type { AgendaEventInput, AgendaItem, AgendaTournamentInput } from '../age
 import type { CourtRoutine } from '../courtRoutineRules';
 import type { CourtPlan } from '../courtPlans';
 import type { FriendAtCourt, FriendsAtCourts } from '../friendsAtCourts';
+import type { FriendCourtPlan } from '../planSharing';
 
 // Thu Oct 22 2026, 3 PM local.
 const NOW = new Date(2026, 9, 22, 15, 0).getTime();
@@ -80,8 +81,8 @@ const routine = (p: Partial<CourtRoutine> = {}): CourtRoutine => ({
   active: true,
   next: null,
   occurrences: [
-    { planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', windows: [] },
-    { planId: 'p-tomorrow', plannedAt: at(23, 18), plannedEndAt: at(23, 20), status: 'planned', windows: [] },
+    { planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', windows: [], sharedAt: null, shareSource: null },
+    { planId: 'p-tomorrow', plannedAt: at(23, 18), plannedEndAt: at(23, 20), status: 'planned', windows: [], sharedAt: null, shareSource: null },
   ],
   ...p,
 });
@@ -239,14 +240,14 @@ describe('day bands and ordering', () => {
     expect(paused.days).toEqual([]);
 
     const over = routine({
-      occurrences: [{ planId: 'p-am', plannedAt: at(22, 9), plannedEndAt: at(22, 11), status: 'planned', windows: [] }],
+      occurrences: [{ planId: 'p-am', plannedAt: at(22, 9), plannedEndAt: at(22, 11), status: 'planned', windows: [], sharedAt: null, shareSource: null }],
     });
     expect(buildPickleagueFeed(base({ routines: [over] })).days).toEqual([]);
   });
 
   it('shows a skipped stop (for Undo) without counting it', () => {
     const skipped = routine({
-      occurrences: [{ planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'cancelled', windows: [] }],
+      occurrences: [{ planId: 'p-today', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'cancelled', windows: [], sharedAt: null, shareSource: null }],
     });
     const f = buildPickleagueFeed(base({ routines: [skipped] }));
     expect(f.days[0].courts[0].lines).toHaveLength(1);
@@ -603,6 +604,8 @@ describe('my one-off planned check-ins (Doggle\'s "Plan a check-in for later")',
     plannedEndAt: at(22, 20),
     status: 'planned',
     starred: false,
+    sharedAt: null,
+    shareSource: null,
     ...p,
   });
 
@@ -662,5 +665,131 @@ describe('my one-off planned check-ins (Doggle\'s "Plan a check-in for later")',
     const ids = new Set(groups.flatMap((g) => g.people.map((p) => p.user_id)));
     const f = buildPickleagueFeed(base({ friendIds: ids, friendsAtCourts: fac(groups), plans: [plan()] }));
     expect(f.days[0].courts.some((c) => c.venueId === 'v-away')).toBe(true);
+  });
+});
+
+describe("friends' shared plans (plan sharing)", () => {
+  const fplan = (id: string, owner: string, venue: string, when: string, p: Partial<FriendCourtPlan> = {}): FriendCourtPlan => ({
+    planId: id,
+    ownerId: owner,
+    ownerName: `Name ${owner}`,
+    placeId: venue,
+    placeName: `Court ${venue}`,
+    at: when,
+    endAt: null,
+    kind: 'once',
+    avatarUrl: null,
+    avatarEmoji: null,
+    avatarBgColor: null,
+    isFriend: true,
+    isCloseFriend: false,
+    lat: null,
+    lng: null,
+    ...p,
+  });
+  const star = (id: string) => ({ venueId: id, venueName: `Court ${id}`, lat: null, lng: null });
+  const kinds = (c: { lines: FeedCourtLine[] }) => c.lines.map((l) => l.kind);
+  const who = (id: string): FeedPerson => ({ userId: id, name: id, avatarUrl: null, avatarEmoji: null, avatarBgColor: null, isCloseFriend: false });
+
+  it('files a plan under my court in its day band, and counts it', () => {
+    const f = buildPickleagueFeed(
+      base({
+        starred: [star('v1')],
+        friendIds: new Set(['a']),
+        friendPlans: [fplan('fp1', 'a', 'v1', at(22, 18)), fplan('fp2', 'a', 'v1', at(23, 9), { kind: 'routine' })],
+      }),
+    );
+    const today = f.days.find((d) => d.key === 'today')!;
+    const tomorrow = f.days.find((d) => d.key === 'tomorrow')!;
+    expect(kinds(today.courts[0])).toEqual(['friendPlan']);
+    expect(today.count).toBe(1);
+    const line = tomorrow.courts[0].lines[0];
+    expect(line.kind === 'friendPlan' && line.plan.routine).toBe(true);
+    expect(line.kind === 'friendPlan' && line.person.name).toBe('Name a');
+  });
+
+  it('leaves out anyone who is not my accepted friend, and everything while friends are unknown', () => {
+    const plans = [fplan('fp1', 'a', 'v1', at(22, 18)), fplan('fp2', 'm', 'v1', at(22, 19), { isFriend: false })];
+    const f = buildPickleagueFeed(base({ starred: [star('v1')], friendIds: new Set(['a', 'm']), friendPlans: plans }));
+    expect(f.days[0].courts[0].lines.map((l) => l.key)).toEqual(['fplan|fp1']);
+    expect(buildPickleagueFeed(base({ friendIds: new Set(['z']), friendPlans: plans })).days).toEqual([]);
+    expect(buildPickleagueFeed(base({ friendIds: null, friendPlans: plans })).days).toEqual([]);
+  });
+
+  it('gives a court with nothing of mine its own card, which gives way first under the cap', () => {
+    const stars = Array.from({ length: MAX_FEED_COURTS }, (_, i) => star(`s${i}`));
+    const full = buildPickleagueFeed(
+      base({ starred: stars, friendIds: new Set(['a']), friendPlans: [fplan('fp1', 'a', 'elsewhere', at(22, 18))] }),
+    );
+    expect(full.days[0].courts.map((c) => c.venueId)).not.toContain('elsewhere');
+    const roomy = buildPickleagueFeed(
+      base({ starred: [star('s0')], friendIds: new Set(['a']), friendPlans: [fplan('fp1', 'a', 'elsewhere', at(22, 18))] }),
+    );
+    const own = roomy.days[0].courts.find((c) => c.venueId === 'elsewhere')!;
+    expect(own.venueName).toBe('Court elsewhere');
+    expect(own.starred).toBe(false);
+  });
+
+  it('finds my court by name when the plan names another row of it', () => {
+    const f = buildPickleagueFeed(
+      base({
+        starred: [{ venueId: 'v1', venueName: 'Lakeside Park', lat: 37.8, lng: -122.26 }],
+        friendIds: new Set(['a']),
+        friendPlans: [fplan('fp1', 'a', 'v1-dup', at(22, 18), { placeName: 'Lakeside Park', lat: 37.8, lng: -122.26 })],
+      }),
+    );
+    expect(f.days[0].courts.map((c) => c.venueId)).toEqual(['v1']);
+  });
+
+  it('drops a plan once it is over, and one a friend here now came for', () => {
+    const here = fac([group('v1', [friend('a', { expires_at: at(22, 18) })])]);
+    const f = buildPickleagueFeed(
+      base({
+        starred: [star('v1')],
+        friendIds: new Set(['a', 'b']),
+        friendsAtCourts: here,
+        friendPlans: [fplan('old', 'b', 'v1', at(22, 14)), fplan('soon', 'a', 'v1', at(22, 15, 15)), fplan('later', 'a', 'v1', at(22, 19))],
+      }),
+    );
+    expect(f.days[0].courts[0].lines.map((l) => l.key)).toEqual(['here|v1|a', 'fplan|later']);
+  });
+
+  it('says whether my own stops and plans are shared', () => {
+    const r = routine({
+      occurrences: [
+        { planId: 'p1', plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', windows: [], sharedAt: null, shareSource: null },
+        { planId: 'p2', plannedAt: at(23, 18), plannedEndAt: at(23, 20), status: 'planned', windows: [], sharedAt: at(22, 9), shareSource: 'confirm' },
+        { planId: 'p3', plannedAt: at(24, 18), plannedEndAt: at(24, 20), status: 'planned', windows: [], sharedAt: null, shareSource: 'hidden' },
+      ],
+    });
+    const shared = (f: ReturnType<typeof buildPickleagueFeed>) =>
+      f.days.flatMap((d) => d.courts.flatMap((c) => c.lines)).flatMap((l) => (l.kind === 'stop' ? [`${l.stop.planId}:${l.stop.planShared}`] : []));
+    expect(shared(buildPickleagueFeed(base({ routines: [r] })))).toEqual(['p1:false', 'p2:true', 'p3:false']);
+    // Auto-share on predicts the server: p1 reads Shared, "Only you" stays.
+    expect(shared(buildPickleagueFeed(base({ routines: [r], autoShareRoutines: true })))).toEqual(['p1:true', 'p2:true', 'p3:false']);
+    const plans = buildPickleagueFeed(
+      base({
+        plans: [
+          { planId: 'o1', venueId: 'v9', venueName: 'Nine', lat: null, lng: null, plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', starred: false, sharedAt: at(22, 9), shareSource: 'plan' },
+        ],
+      }),
+    );
+    const line = plans.days[0].courts[0].lines[0];
+    expect(line.kind === 'plan' && line.plan.planShared).toBe(true);
+  });
+
+  it("caps a busy card by hiding friends' furthest plans before friends here", () => {
+    const lines: FeedCourtLine[] = [
+      ...['a', 'b', 'c', 'd'].map((id): FeedCourtLine => ({ kind: 'here', key: `here|${id}`, person: who(id), at: at(22, 14), until: null, viaSession: false })),
+      ...['p1', 'p2', 'p3'].map((id, i): FeedCourtLine => ({
+        kind: 'friendPlan',
+        key: `fplan|${id}`,
+        person: who(id),
+        plan: { planId: id, at: at(22, 17 + i), endAt: null, routine: false },
+      })),
+    ];
+    const { shown, more } = capCourtLines(lines);
+    expect(more).toBe(1);
+    expect(shown.map((l) => l.key)).toEqual(['here|a', 'here|b', 'here|c', 'here|d', 'fplan|p1', 'fplan|p2']);
   });
 });

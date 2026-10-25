@@ -8,6 +8,7 @@ import { DAY_MS, cachedFetch, setQueryData } from '@just-messin-around/expo-foun
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
 import { supabase } from '../lib/supabase';
 import { parseCourtPlans, type CourtPlan } from '../lib/courtPlans';
+import { PLAN_SHARING_ENABLED } from '../lib/features';
 
 export type { CourtPlan };
 
@@ -45,9 +46,15 @@ function stored(data: unknown): CourtPlan[] {
  * "Plan a check-in for later" at a court (any court; the server takes the
  * facility). Refusals (lib/refusals): court.gone, visit.bad_time,
  * visit.too_far, visit.bad_length, visit.limit, visit.taken.
+ *
+ * Plan sharing: `share` (default true: Shared) goes as p_share only with
+ * PLAN_SHARING_ENABLED, so with it off the key is absent and the server
+ * keeps the plan private (migration_plan_sharing.sql's default).
  */
-export async function planCourtCheckin(venueId: string, at: Date): Promise<CourtPlan[]> {
-  return stored(await sbCall(() => supabase.rpc('plan_court_checkin', { p_venue: venueId, p_at: at.toISOString() }), BOUND));
+export async function planCourtCheckin(venueId: string, at: Date, opts?: { share?: boolean }): Promise<CourtPlan[]> {
+  const args: Record<string, unknown> = { p_venue: venueId, p_at: at.toISOString() };
+  if (PLAN_SHARING_ENABLED) args.p_share = opts?.share ?? true;
+  return stored(await sbCall(() => supabase.rpc('plan_court_checkin', args), BOUND));
 }
 
 /** "Change time". Refusals: visit.gone, visit.bad_time, visit.too_far, visit.taken. */

@@ -8,7 +8,9 @@
 // sits under it. Its lines run in time order: friends who came and went
 // today (faded), me and friends here now (with their play mode), then what
 // is coming there (league events, booked matches, tournaments, drills, votes,
-// my routine stops, my one-off planned check-ins). Each person / stop / plan
+// my routine stops, my one-off planned check-ins, friends' shared plans).
+// With plan sharing, my stop and plan lines carry a Shared / Only you chip
+// (a toggle while in play). Each person / stop / plan
 // line's time chip opens what I can do
 // with it; a league line opens its screen. Over 6 lines the oldest finished
 // visits give way first.
@@ -24,13 +26,20 @@ import { dayLabel, shortTime } from '../../lib/agenda';
 import { crowdLineText } from '../../lib/courtCrowd';
 import { formatPluprShort } from '../../lib/plupr';
 import { playerModeLine, playModeNowLine, type PlayModeRow } from '../../lib/courtRoutineRules';
-import { courtHeaderActions, lineIsPast, sheetLineFacts } from '../../lib/checkinOptions';
+import { courtHeaderActions, lineIsPast, sheetLineFacts, SHARE_IN_PLAY_MS } from '../../lib/checkinOptions';
 import { capCourtLines, type DayBandKey, type FeedCourtCard as Card, type FeedCourtLine, type FeedSheetLine } from '../../lib/pickleagueFeed';
+import { friendPlanLine } from '../../lib/planSharing';
+import { PlanShareChip } from '@just-messin-around/expo-foundation/plans';
 import FeedHeaderAction from './FeedHeaderAction';
 
 const AVATAR = 36;
 
+type ShareLine = Extract<FeedCourtLine, { kind: 'stop' | 'plan' }>;
+
 export type FeedCourtCardActions = {
+  /** Plan sharing: my stop's or plan's Shared / Only you chip toggles it.
+   *  Absent (sharing off): no chip. */
+  toggleShare?: (line: ShareLine, card: Card) => void;
   openCourt: (card: Card) => void;
   /** Today's "Check in ▾": the court's options sheet. */
   checkInOptions: (card: Card) => void;
@@ -95,6 +104,9 @@ export default function FeedCourtCard({
   function chip(l: FeedSheetLine): { label: string; tone: ChipTone } {
     if (l.kind === 'mine' || l.kind === 'here') return { label: l.kind === 'here' && l.viaSession ? 'Playing now' : 'Here now', tone: 'success' };
     if (l.kind === 'left') return { label: 'Left', tone: 'neutral' };
+    if (l.kind === 'friendPlan') {
+      return { label: `At ${stopClock(l.plan.at)}`, tone: Date.parse(l.plan.at) <= now ? 'neutral' : 'info' };
+    }
     if (l.kind === 'plan') {
       return { label: `At ${stopClock(l.plan.at)}`, tone: Date.parse(l.plan.at) <= now ? 'neutral' : 'warning' };
     }
@@ -203,11 +215,67 @@ export default function FeedCourtCard({
           <Text style={t.title} numberOfLines={1}>
             You · your routine
           </Text>
-          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
-            {s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`}
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
+              {s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`}
+            </Text>
+            {s.status === 'planned' ? shareChip(l, s.planShared, s.at) : null}
+          </View>
         </View>
         {trailing(l, 'your routine stop')}
+      </View>
+    );
+  }
+
+  /** My stop's or plan's Shared / Only you: a toggle while it is in play. */
+  function shareChip(l: ShareLine, shared: boolean, at: string) {
+    const toggle = actions.toggleShare;
+    if (!toggle) return null;
+    const { busy, disabled } = actions.lineState(l.key);
+    const inPlay = Date.parse(at) > now - SHARE_IN_PLAY_MS;
+    return (
+      <PlanShareChip
+        shared={shared}
+        busy={busy}
+        disabled={disabled}
+        onPress={inPlay ? () => toggle(l, card) : undefined}
+        style={inPlay ? styles.shareChipBox : undefined}
+      />
+    );
+  }
+
+  /** A friend's shared plan here (Doggle's "Planned check-in at X (routine)"). */
+  function friendPlanRow(l: Extract<FeedCourtLine, { kind: 'friendPlan' }>) {
+    const p = l.person;
+    const line = friendPlanLine({ ownerName: p.name, at: l.plan.at, kind: l.plan.routine ? 'routine' : 'once' }, now);
+    const rating = plupr.get(p.userId);
+    const meta = [rating != null ? `PLUPR ${formatPluprShort(rating, null)}` : null, line.meta].filter(Boolean).join(' · ');
+    return (
+      <View style={styles.line}>
+        <Avatar
+          size={AVATAR}
+          photoUrl={p.avatarUrl}
+          name={p.name}
+          icon={p.avatarEmoji && !p.avatarUrl ? <Text style={styles.emoji}>{p.avatarEmoji}</Text> : undefined}
+          backgroundColor={p.avatarBgColor ?? undefined}
+        />
+        <View style={styles.body}>
+          <View style={styles.nameRow}>
+            <Text
+              style={[t.title, styles.shrink]}
+              numberOfLines={1}
+              onPress={() => actions.openPerson(p.userId, p.name)}
+              accessibilityRole="link"
+            >
+              {p.name}
+            </Text>
+            {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+          </View>
+          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1} accessibilityLabel={line.a11y}>
+            {meta}
+          </Text>
+        </View>
+        {trailing(l, p.name)}
       </View>
     );
   }
@@ -224,9 +292,12 @@ export default function FeedCourtCard({
           <Text style={t.title} numberOfLines={1}>
             You · planned check-in
           </Text>
-          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
-            {`${stopClock(p.at)}–${clock(p.endAt)}`}
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
+              {`${stopClock(p.at)}–${clock(p.endAt)}`}
+            </Text>
+            {shareChip(l, p.planShared, p.at)}
+          </View>
         </View>
         {trailing(l, 'your planned check-in')}
       </View>
@@ -349,7 +420,15 @@ export default function FeedCourtCard({
               key={l.key}
               style={[styles.row, own && [styles.ownRow, { backgroundColor: c.successLight }], past && styles.past]}
             >
-              {l.kind === 'stop' ? stopLine(l) : l.kind === 'plan' ? planLine(l) : l.kind === 'mine' ? mineLine(l) : personLine(l)}
+              {l.kind === 'stop'
+                ? stopLine(l)
+                : l.kind === 'plan'
+                  ? planLine(l)
+                  : l.kind === 'mine'
+                    ? mineLine(l)
+                    : l.kind === 'friendPlan'
+                      ? friendPlanRow(l)
+                      : personLine(l)}
             </View>
           );
         })}
@@ -393,6 +472,10 @@ const styles = StyleSheet.create({
   crowd: { marginTop: SPACE.xxs },
   shrink: { flexShrink: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  // The chip's 44 tap box overlaps the lines above and below instead of
+  // making the row 44 tall (the pill itself is about 24).
+  shareChipBox: { marginVertical: -10 },
   rows: { gap: SPACE.xs, marginTop: SPACE.sm },
   row: { paddingVertical: SPACE.xs },
   line: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },

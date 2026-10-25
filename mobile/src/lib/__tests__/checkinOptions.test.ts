@@ -193,6 +193,47 @@ describe("a line's time chip", () => {
   it('a friend who left: their profile only', () => {
     expect(lineActionIds({ kind: 'left' }, ctx())).toEqual(['profile']);
   });
+
+  it("a friend's shared plan: their profile only, never faded", () => {
+    expect(lineActionIds({ kind: 'friendPlan', at: at(18) }, ctx())).toEqual(['profile']);
+    expect(lineIsPast({ kind: 'friendPlan', at: at(14, 50) }, NOW)).toBe(false);
+  });
+});
+
+describe('plan sharing: Share with friends / Make it only you', () => {
+  it('my routine stop: after Change time, the one that flips it', () => {
+    expect(lineActionIds({ kind: 'stop', status: 'planned', at: at(18), shared: false }, ctx())).toEqual([
+      'checkInNow',
+      'onMyWay',
+      'changeTime',
+      'share',
+      'editRoutine',
+      'skipStop',
+    ]);
+    expect(lineActionIds({ kind: 'stop', status: 'planned', at: at(18), shared: true }, ctx({ day: 'tomorrow' }))).toEqual([
+      'changeTime',
+      'unshare',
+      'editRoutine',
+      'skipStop',
+    ]);
+  });
+
+  it('my one-off plan: before Cancel this visit', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(18), shared: true }, ctx({ hereMine: true }))).toEqual(['changeTime', 'unshare', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18), shared: false }, ctx({ day: 'later' }))).toEqual(['changeTime', 'share', 'cancelPlan']);
+  });
+
+  it('only while in play (no more than 30 minutes past its time), and never on a skipped stop', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(14, 40), shared: false }, ctx())).toContain('share');
+    expect(lineActionIds({ kind: 'plan', at: at(14, 30), shared: false }, ctx())).not.toContain('share');
+    expect(lineActionIds({ kind: 'stop', status: 'cancelled', at: at(18), shared: false }, ctx())).toEqual(['undoSkip', 'editRoutine']);
+  });
+
+  it('nothing to share when sharing is off (no `shared`)', () => {
+    const ids = lineActionIds({ kind: 'plan', at: at(18) }, ctx());
+    expect(ids).not.toContain('share');
+    expect(ids).not.toContain('unshare');
+  });
 });
 
 describe('which lines are faded (Doggle isPast)', () => {

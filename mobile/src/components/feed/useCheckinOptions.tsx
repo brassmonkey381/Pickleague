@@ -34,6 +34,8 @@
 // "…". The court page's sheet says a refusal or a failure inside itself and
 // stays open to pick again: a toast sits under an open sheet's backdrop on
 // web and behind its Modal on native (the pickers close first, so theirs toast).
+// With plan sharing, a new plan is Shared by default (friends who can see my
+// plans see it); the court page's sheet has a Shared / Only you chip for it.
 //
 // A follow-up (the On my way sheet, a picker, a check-in that may ask for
 // location, My routine's add sheet) opens from the sheet's onDismissed: iOS
@@ -57,7 +59,9 @@ import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { STILL_WORKING, refusalCode } from '../../lib/refusals';
-import { CHECKIN_PLANS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../../lib/features';
+import { CHECKIN_PLANS_ENABLED, FRIENDS_AT_COURTS_ENABLED, PLAN_SHARING_ENABLED, ROUTINES_ENABLED } from '../../lib/features';
+import { PlanShareChip } from '@just-messin-around/expo-foundation/plans';
+import { planSheetShareHint } from '../../lib/planSharing';
 import { useMyFriends } from '../../lib/useFriends';
 import { playSession } from '../../lib/playSession';
 import { checkOutHere } from '../../lib/checkinPlay';
@@ -117,8 +121,9 @@ const ACTION_BOUND_MS = 16_000;
 const TELL_AFTER_CHECKIN_MS = 2 * 60_000;
 
 type SlotPick = { court: CheckinCourt; day: 'today' | 'tomorrow' };
-/** The court page's plan sheet: a new plan, or (planId) a plan's new time. */
-type PlanSheet = { court: CheckinCourt; value: Date; planId: string | null; was: string | null };
+/** The court page's plan sheet: a new plan, or (planId) a plan's new time.
+ *  `share`: a new plan's Shared / Only you (plan sharing; default Shared). */
+type PlanSheet = { court: CheckinCourt; value: Date; planId: string | null; was: string | null; share: boolean };
 type Busy = 'extend' | 'out' | 'plan';
 /** Where a plan write's outcome is said: the toast, or the plan sheet's own line. */
 type Say = { success: (m: string) => void; info: (m: string) => void; error: (m: string) => void };
@@ -221,7 +226,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
   /** Open the right picker for "Plan a check-in for later". */
   const openPlanLater = (court: CheckinCourt) => {
     if (configRef.current.planPicker === 'datetime') {
-      openPlanSheet({ court, value: defaultPlanAt(Date.now()), planId: null, was: null });
+      openPlanSheet({ court, value: defaultPlanAt(Date.now()), planId: null, was: null, share: true });
     } else {
       setSlotPick({ court, day: 'today' });
     }
@@ -336,8 +341,10 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     }
   };
 
-  /** plan_court_checkin at `at`. */
-  const plan = async (court: CheckinCourt, at: Date, say: Say = toast): Promise<boolean> => {
+  /** plan_court_checkin at `at`. `share`: Shared (the default) or Only you,
+   *  with plan sharing on (the pickers make Shared plans; the court page's
+   *  sheet has the chip). */
+  const plan = async (court: CheckinCourt, at: Date, say: Say = toast, share = true): Promise<boolean> => {
     const problem = planTimeProblem(at, Date.now());
     if (problem) {
       say.info(problem);
@@ -346,8 +353,8 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     configRef.current.onTap?.('plan_pick');
     return writePlan(
       court,
-      () => planCourtCheckin(court.venueId, at),
-      plannedMessage(court.venueName, at.toISOString(), Date.now()),
+      () => planCourtCheckin(court.venueId, at, { share }),
+      plannedMessage(court.venueName, at.toISOString(), Date.now()) + (PLAN_SHARING_ENABLED && share ? ' Your friends can see it.' : ''),
       "Couldn't plan your check-in. Try again.",
       say,
     );
@@ -391,7 +398,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     }
     setPlanError(null);
     const inSheet: Say = { success: toast.success, info: setPlanError, error: setPlanError };
-    const ok = s.planId ? await movePlan(s.court, s.planId, s.value, inSheet) : await plan(s.court, s.value, inSheet);
+    const ok = s.planId ? await movePlan(s.court, s.planId, s.value, inSheet) : await plan(s.court, s.value, inSheet, s.share);
     if (ok) setPlanSheet((cur) => (cur === s ? null : cur));
   };
 
@@ -494,8 +501,23 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
               }}
             />
           ) : null}
+          {PLAN_SHARING_ENABLED && planView && !planView.planId ? (
+            <View style={S.shareRow}>
+              <Text style={[t.body, S.shareLabel]}>Who sees it</Text>
+              <PlanShareChip
+                shared={planView.share}
+                size="md"
+                disabled={busy != null}
+                onPress={() => setPlanSheet((cur) => (cur ? { ...cur, share: !cur.share } : cur))}
+              />
+            </View>
+          ) : null}
           <Text style={[t.hint, { color: c.textSub }]}>
-            A check-in there within 30 minutes of this time keeps it. Only you see your planned check-ins.
+            {PLAN_SHARING_ENABLED
+              ? `A check-in there within 30 minutes of this time keeps it.${
+                  planView && !planView.planId ? ` ${planSheetShareHint(planView.share)}` : ''
+                }`
+              : 'A check-in there within 30 minutes of this time keeps it. Only you see your planned check-ins.'}
           </Text>
           {/* Why it didn't go through: here, not a toast (one would sit under this sheet). */}
           <StatusBanner status={planError ? { kind: 'error', text: planError } : null} style={S.planError} />
@@ -547,7 +569,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     openPlanLater,
     /** A plan's Change time on the court page: the plan sheet at its time, any day. */
     openMovePlan: (court: CheckinCourt, p: Pick<CourtPlan, 'planId' | 'plannedAt'>) =>
-      openPlanSheet({ court, value: new Date(p.plannedAt), planId: p.planId, was: p.plannedAt }),
+      openPlanSheet({ court, value: new Date(p.plannedAt), planId: p.planId, was: p.plannedAt, share: true }),
     /** A plan's Cancel this visit on the court page. */
     cancelPlan,
     /** The On my way sheet, straight away (a header button, a line's sheet's follow-up). */
@@ -561,6 +583,8 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
 
 const S = StyleSheet.create({
   planBody: { gap: SPACE.md, paddingBottom: SPACE.sm },
+  shareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACE.md },
+  shareLabel: { flexShrink: 1 },
   // The body's gap spaces it.
   planError: { marginVertical: 0 },
 });

@@ -29,7 +29,7 @@ import { useStatusMessage } from '../lib/useStatusMessage';
 import { ThemeMode } from '../lib/theme';
 import { RootStackParamList } from '../types';
 import { isGodmodeUserId } from '../lib/godmode';
-import { FRIENDS_AT_COURTS_ENABLED, WAGERS_ENABLED } from '../lib/features';
+import { FRIENDS_AT_COURTS_ENABLED, PLAN_SHARING_ENABLED, WAGERS_ENABLED } from '../lib/features';
 import { removeAvatarObjects } from '../data/moderationAdmin';
 import PresencePrivacyRows from '../components/presence/PresencePrivacyRows';
 import { enablePushNotifications, unregisterPushTokenAsync } from '../lib/push';
@@ -92,7 +92,9 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   ...(FRIENDS_AT_COURTS_ENABLED
     ? [
         { key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' },
-        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court, or that they just got there" },
+        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: PLAN_SHARING_ENABLED
+            ? "When a friend says they're heading to a court, that they just got there, or that they plan to play"
+            : "When a friend says they're heading to a court, or that they just got there" },
       ]
     : []),
 ];

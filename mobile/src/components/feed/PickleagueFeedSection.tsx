@@ -54,7 +54,7 @@ import {
   type CheckinHostBusy,
 } from '../../lib/checkinHost';
 import { checkinChanged } from '../../lib/courtCheckin';
-import { lineActionIds, sheetLineFacts, type LineActionId } from '../../lib/checkinOptions';
+import { SHARE_ACTION_LABEL, lineActionIds, sheetLineFacts, type LineActionId } from '../../lib/checkinOptions';
 import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
@@ -62,8 +62,17 @@ import {
   COURT_DISCOVERY_ENABLED,
   COURT_STARS_ENABLED,
   FRIENDS_AT_COURTS_ENABLED,
+  PLAN_SHARING_ENABLED,
   ROUTINES_ENABLED,
 } from '../../lib/features';
+import { shareToggledMessage } from '../../lib/planSharing';
+import {
+  FRIEND_PLANS_KEY,
+  FRIEND_PLANS_PERSIST_MS,
+  FRIEND_PLANS_TTL_MS,
+  fetchFriendCourtPlans,
+  setCourtPlanShared,
+} from '../../data/planSharing';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { refusalCode } from '../../lib/refusals';
 import { cancelledMessage, movedMessage, moveSlots, planWhen } from '../../lib/courtPlans';
@@ -96,8 +105,11 @@ import {
   MY_COURT_ROUTINES_KEY,
   MY_COURT_ROUTINES_PERSIST_MS,
   MY_COURT_ROUTINES_TTL_MS,
+  COURT_ROUTINE_SETTINGS_KEY,
+  autoShareOf,
   fetchMyCourtRoutines,
   getCourtPlayModes,
+  getCourtRoutineSettings,
   moveRoutineOccurrence,
   skipRoutineOccurrence,
   unskipRoutineOccurrence,
@@ -208,6 +220,23 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     enabled: CHECKIN_PLANS_ENABLED,
   });
   const plans = React.useMemo(() => (CHECKIN_PLANS_ENABLED ? plansQ.data ?? [] : []), [plansQ.data]);
+  // Plan sharing: my friends' shared plans (7 days, every court), and my
+  // "Share my routine stops automatically" (a stop's chip predicts it).
+  const sharing = PLAN_SHARING_ENABLED && CHECKIN_PLANS_ENABLED && ROUTINES_ENABLED;
+  const friendPlansQ = useCachedQuery(FRIEND_PLANS_KEY, () => fetchFriendCourtPlans(), {
+    ttlMs: FRIEND_PLANS_TTL_MS,
+    persistMs: FRIEND_PLANS_PERSIST_MS,
+    enabled: sharing && FRIENDS_AT_COURTS_ENABLED,
+  });
+  const friendPlans = React.useMemo(
+    () => (sharing && FRIENDS_AT_COURTS_ENABLED ? friendPlansQ.data ?? [] : []),
+    [sharing, friendPlansQ.data],
+  );
+  const routineSettingsQ = useCachedQuery(COURT_ROUTINE_SETTINGS_KEY, getCourtRoutineSettings, {
+    ttlMs: 60 * 60_000,
+    enabled: sharing,
+  });
+  const autoShare = sharing ? autoShareOf(routineSettingsQ.data) : null;
   // A check-in within 30 minutes of a routine stop or a planned check-in
   // keeps it on the server (_pl_routine_plan_at): reload both when a new
   // check-in lands, so a kept one leaves the card instead of sitting next to
@@ -230,6 +259,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     COURT_STARS_ENABLED ? favoritesQ.refresh : null,
     ROUTINES_ENABLED ? routinesQ.refresh : null,
     CHECKIN_PLANS_ENABLED ? plansQ.refresh : null,
+    sharing && FRIENDS_AT_COURTS_ENABLED ? friendPlansQ.refresh : null,
   ];
   const refreshersRef = React.useRef(refreshers);
   refreshersRef.current = refreshers;
@@ -296,8 +326,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         friendIds,
         mine: checkin.mine,
         plans,
+        friendPlans,
+        autoShareRoutines: autoShare,
       }),
-    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine, plans],
+    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine, plans, friendPlans, autoShare],
   );
 
   // Who is open to play / in a closed group: court_play_modes for today's
@@ -426,9 +458,31 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
+  /** My stop's or plan's Shared / Only you (set_court_plan_shared). Over or
+   *  gone (plan.gone / visit.gone): the list is re-read so the line goes. */
+  async function runShare(line: Extract<FeedSheetLine, { kind: 'stop' | 'plan' }>, card: CourtCard) {
+    if (busyKey) return;
+    const shared = line.kind === 'stop' ? line.stop.planShared : line.plan.planShared;
+    const planId = line.kind === 'stop' ? line.stop.planId : line.plan.planId;
+    const kind = line.kind === 'stop' ? 'routine' : 'once';
+    tap(shared ? 'plan_unshare' : 'plan_share');
+    setBusyKey(line.key);
+    try {
+      await setCourtPlanShared(planId, !shared);
+      toast.success(shareToggledMessage(!shared, kind));
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't change who sees your plan. Try again.", { venueName: card.venueName }));
+      const code = refusalCode(e);
+      if (code === 'plan.gone') void routinesQ.refresh();
+      if (code === 'visit.gone') void plansQ.refresh();
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   /** A line's sheet, in Doggle's order (lib/checkinOptions lineActionIds). */
   function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
-    const ids = lineActionIds(sheetLineFacts(line), {
+    const ids = lineActionIds(sheetLineFacts(line, sharing), {
       day,
       nowMs: now,
       hereMine: card.hereMine,
@@ -438,7 +492,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     const today = day === 'today';
     const stop = line.kind === 'stop' ? line.stop : null;
     const oneOff = line.kind === 'plan' ? line.plan : null;
-    const person = line.kind === 'here' || line.kind === 'left' ? line.person : null;
+    const person = line.kind === 'here' || line.kind === 'left' || line.kind === 'friendPlan' ? line.person : null;
+    const own = line.kind === 'stop' || line.kind === 'plan' ? line : null;
     const then = (fn: () => void) => () => {
       afterLineSheet.current = fn;
     };
@@ -500,6 +555,15 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
                   ),
               }
             : null;
+        case 'share':
+        case 'unshare':
+          return own
+            ? {
+                label: SHARE_ACTION_LABEL[id],
+                iconName: id === 'share' ? 'group' : 'lock',
+                onPress: () => void runShare(own, card),
+              }
+            : null;
         case 'editRoutine':
           return { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() };
         case 'skipStop':
@@ -551,6 +615,13 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
       return { title: `You · ${card.venueName}`, subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}` };
     }
+    if (line.kind === 'friendPlan') {
+      const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
+      return {
+        title: `${line.person.name} · ${card.venueName}`,
+        subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}${line.plan.routine ? ' (routine)' : ''}`,
+      };
+    }
     return {
       title: `${line.person.name} · ${card.venueName}`,
       subtitle: line.kind === 'here' ? `Here since ${clock(line.at)}` : `Was here ${clock(line.at)}–${clock(line.endedAt)}`,
@@ -568,6 +639,11 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // What runs now, if anything: a line's action, my own line's, a plan, or the host's.
   const running = busyKey ?? ownBusyKey ?? planBusyKey ?? (hostBusy != null ? 'checkin-host' : null);
   const courtCardActions: FeedCourtCardActions = {
+    toggleShare: sharing
+      ? (line, card) => {
+          if (!running) void runShare(line, card);
+        }
+      : undefined,
     openCourt: (card) => { tap('court'); openCourt(card.venueId); },
     checkInOptions: (card) => { if (!running) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
     plan: (card) => { if (!running) { tap('plan_options'); checkin.openPlan(courtOf(card)); } },

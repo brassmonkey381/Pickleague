@@ -11,9 +11,17 @@ import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { useToast } from '../../lib/useToast';
 import { explainRefusal } from '../../lib/refusalNotices';
 import { navigateWhenReady } from '../../lib/navigationRef';
-import { ROUTINES_ENABLED } from '../../lib/features';
+import { CHECKIN_PLANS_ENABLED, PLAN_SHARING_ENABLED, ROUTINES_ENABLED } from '../../lib/features';
 import { courtArrivalResync } from '../../data/courtArrival';
-import { COURT_ROUTINE_SETTINGS_KEY, getCourtRoutineSettings, setRoutineAutoCheckin } from '../../data/courtRoutines';
+import { AutoShareSettingRow } from '@just-messin-around/expo-foundation/plans';
+import { PL_AUTO_SHARE_COPY, autoShareToggledMessage } from '../../lib/planSharing';
+import {
+  COURT_ROUTINE_SETTINGS_KEY,
+  autoShareOf,
+  getCourtRoutineSettings,
+  setAutoShareRoutines,
+  setRoutineAutoCheckin,
+} from '../../data/courtRoutines';
 
 export default function RoutineSettingsSection() {
   return ROUTINES_ENABLED ? <Section /> : null;
@@ -39,6 +47,19 @@ function Section() {
     }
   };
 
+  /** Plan sharing: "Share my routine stops automatically". */
+  const setShare = async (on: boolean) => {
+    setBusy(true);
+    try {
+      await setAutoShareRoutines(on);
+      toast.success(autoShareToggledMessage(on));
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't update that setting. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <SectionHeader icon="calendar-event" title="At your routine courts" />
@@ -52,6 +73,14 @@ function Section() {
           footnote={Platform.OS === 'web' ? 'Applies on your phone.' : undefined}
           accessibilityLabel="Check me in when I arrive at a routine court"
         />
+        {PLAN_SHARING_ENABLED && CHECKIN_PLANS_ENABLED ? (
+          <AutoShareSettingRow
+            value={autoShareOf(q.data) === true}
+            onChange={(on) => void setShare(on)}
+            disabled={busy || !q.data}
+            copy={PL_AUTO_SHARE_COPY}
+          />
+        ) : null}
         <TextLink label="Manage my routine" size="sub" onPress={() => navigateWhenReady('Routines')} style={S.link} />
       </Panel>
     </>

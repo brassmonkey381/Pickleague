@@ -87,6 +87,7 @@ import CheckinPlanLine from '../components/routines/CheckinPlanLine';
 import { useCourtFavoriteIds } from '../data/courtFavorites';
 import CourtCheckInNotes from '../components/court/CourtCheckInNotes';
 import CourtPlansHere from '../components/court/CourtPlansHere';
+import FriendPlansHere from '../components/court/FriendPlansHere';
 import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
 import { useCheckinOptions } from '../components/feed/useCheckinOptions';
@@ -304,6 +305,8 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         ) : null}
         {/* My planned check-ins here, any day (the feed shows this week's). */}
         <CourtPlansHere court={checkinCourt} here={here} options={options} onCheckIn={() => void checkIn()} />
+        {/* Friends' shared plans here, 7 days ahead (plan sharing). */}
+        <FriendPlansHere venueId={court.id} />
         {/* Checked in here, Check out takes Check in ▾'s place: its "Plan a
             check-in for later" and "Make this a routine" stay a tap away
             (Doggle's place page always has PLAN A VISIT). */}

@@ -91,6 +91,8 @@ function withToday(r: CourtRoutine, startMin = 0, status: RoutineOccurrence['sta
     plannedEndAt: at(startMin + r.lengthMin).toISOString(),
     status,
     windows: windowsToAbsolute(r.windows, plannedAt),
+    sharedAt: null,
+    shareSource: null,
   };
   return { ...r, occurrences: [occ], next: occ };
 }

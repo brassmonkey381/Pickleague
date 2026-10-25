@@ -3,7 +3,8 @@
 // shape list_my_court_plans answers with, the time pickers' slots and the
 // words the app says. A plan is kept by a check-in at that court within 30
 // minutes either side of its time (as a routine stop), gets the routine
-// stop's reminder, and is seen by nobody else.
+// stop's reminder. With plan sharing (lib/planSharing) friends who can see my
+// plans see it once it is shared (Shared by default); before that, nobody else.
 //
 //   Check in ▾ > Plan a check-in for later   today's slots, from the next
 //                                            quarter hour to 11:45 PM
@@ -16,7 +17,9 @@
 //
 // PURE: no React Native, no Supabase. The vitest suite is
 // lib/__tests__/courtPlans.test.ts.
+import type { PlanShareSource } from '@just-messin-around/expo-foundation/plans/rules';
 import { dayLabel, shortTime } from './agenda';
+import { asShareSource } from './courtRoutineRules';
 
 /** The pickers' step (Doggle's 15-minute slots). */
 export const PLAN_SLOT_MS = 15 * 60_000;
@@ -41,6 +44,10 @@ export type CourtPlan = {
   status: 'planned' | 'completed';
   /** At one of my starred courts (an arrival there keeps it too). */
   starred: boolean;
+  /** Plan sharing (migration_plan_sharing.sql): null = only I see it. */
+  sharedAt: string | null;
+  /** 'plan' = shared when made; 'hidden' = I chose Only you; null = never shared. */
+  shareSource: PlanShareSource | null;
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -67,6 +74,8 @@ export function parseCourtPlans(data: unknown): CourtPlan[] {
       plannedEndAt: end && Number.isFinite(Date.parse(end)) ? end : new Date(Date.parse(plannedAt) + 2 * 3_600_000).toISOString(),
       status: r.status === 'completed' ? 'completed' : 'planned',
       starred: r.starred === true,
+      sharedAt: str(r.shared_at),
+      shareSource: asShareSource(r.share_source),
     });
   }
   return out.sort((a, b) => Date.parse(a.plannedAt) - Date.parse(b.plannedAt));

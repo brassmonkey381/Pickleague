@@ -59,7 +59,15 @@ import {
   setRoutineAutoCheckin,
   skipRoutineOccurrence,
   unskipRoutineOccurrence,
+  autoShareOf,
+  setAutoShareRoutines,
 } from '../data/courtRoutines';
+import { AutoShareSettingRow } from '@just-messin-around/expo-foundation/plans';
+import { CHECKIN_PLANS_ENABLED, PLAN_SHARING_ENABLED } from '../lib/features';
+import { PL_AUTO_SHARE_COPY, autoShareToggledMessage } from '../lib/planSharing';
+
+/** Plan sharing's "Share my routine stops automatically" shows here too. */
+const sharing = PLAN_SHARING_ENABLED && CHECKIN_PLANS_ENABLED;
 import { useCourtFavorites } from '../data/courtFavorites';
 import { listMyFriends } from '../data/friends';
 import type { FriendRow } from '../lib/friendship';
@@ -130,6 +138,7 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
   const [deleting, setDeleting] = React.useState(false);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [prefBusy, setPrefBusy] = React.useState(false);
+  const [shareBusy, setShareBusy] = React.useState(false);
   const [moving, setMoving] = React.useState<{ o: RoutineOccurrence; r: CourtRoutine } | null>(null);
 
   const refreshRoutines = routinesQ.refresh;
@@ -244,6 +253,19 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
     }
   }
 
+  /** "Share my routine stops automatically" (plan sharing). */
+  async function setAutoShare(on: boolean) {
+    setShareBusy(true);
+    try {
+      await setAutoShareRoutines(on);
+      toast.success(autoShareToggledMessage(on));
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't update that setting. Try again."));
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   async function moveTo(hhmm: string) {
     const m = moving;
     setMoving(null);
@@ -264,7 +286,10 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
       <ScrollView contentContainerStyle={S.content}>
         <Text style={[t.bodySub, S.sub]}>
           The courts you play at the same time most weeks. Pickleague plans each one for you: you get a nudge at its time,
-          arriving checks you in for as long as you play, and friends see it as a planned check-in.
+          arriving checks you in for as long as you play
+          {sharing
+            ? ". Friends see a stop as a planned check-in once you confirm it that day, or straight away with automatic sharing below."
+            : ', and friends see it as a planned check-in.'}
         </Text>
 
         {shownSuggestions.length > 0 ? (
@@ -458,6 +483,20 @@ export default function CourtRoutinesScreen({ route, navigation }: Props) {
             </Panel>
           </View>
         ) : null}
+
+        {sharing && settingsQ.data ? (
+          <View style={S.block}>
+            <Text style={[t.label, S.label]}>WHO SEES YOUR STOPS</Text>
+            <Panel padded={false} style={S.shareCard}>
+              <AutoShareSettingRow
+                value={autoShareOf(settingsQ.data) === true}
+                onChange={(on) => void setAutoShare(on)}
+                disabled={shareBusy}
+                copy={PL_AUTO_SHARE_COPY}
+              />
+            </Panel>
+          </View>
+        ) : null}
       </ScrollView>
 
       <RoutineEditSheet
@@ -499,6 +538,8 @@ const S = StyleSheet.create({
   block: { marginTop: SPACE.lg },
   label: { marginBottom: SPACE.sm },
   card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, padding: SPACE.md, marginBottom: SPACE.sm },
+  // SettingSwitchRow brings its own padding.
+  shareCard: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, marginBottom: SPACE.sm, overflow: 'hidden' },
   paused: { opacity: 0.6 },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
   cardBody: { flex: 1, minWidth: 0 },

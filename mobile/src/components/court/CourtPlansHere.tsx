@@ -2,7 +2,9 @@
 // whatever the day (Doggle's place page lists your planned visit there with
 // Cancel). The feed shows only this week's (its Later band ends 6 days out),
 // and a plan can be up to 60 days ahead, so this is where one further out
-// is seen, moved or cancelled. Owner-only, like the plans themselves.
+// is seen, moved or cancelled. With plan sharing each carries its Shared /
+// Only you chip (a toggle while in play; also Share with friends / Make it
+// only you in its sheet); friends' shared plans here are FriendPlansHere.
 //
 //   YOUR PLANNED CHECK-INS HERE
 //   (cal)  Sat at 6 PM                       [At Sat 6 PM ▾]
@@ -22,12 +24,18 @@ import { FeedTimeChip } from '@just-messin-around/expo-foundation/ui/feed';
 import { dayBandOf } from '@just-messin-around/expo-foundation/scheduling/dayBands';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { PlanShareChip } from '@just-messin-around/expo-foundation/plans';
 import { useTheme } from '../../lib/ThemeContext';
+import { useToast } from '../../lib/useToast';
 import { track } from '../../lib/analytics';
 import { shortTime } from '../../lib/agenda';
-import { CHECKIN_PLANS_ENABLED } from '../../lib/features';
+import { CHECKIN_PLANS_ENABLED, PLAN_SHARING_ENABLED } from '../../lib/features';
 import { checkinChanged } from '../../lib/courtCheckin';
-import { lineActionIds, type LineActionId } from '../../lib/checkinOptions';
+import { SHARE_ACTION_LABEL, SHARE_IN_PLAY_MS, lineActionIds, type LineActionId } from '../../lib/checkinOptions';
+import { explainRefusal } from '../../lib/refusalNotices';
+import { refusalCode } from '../../lib/refusals';
+import { planIsShared, shareToggledMessage } from '../../lib/planSharing';
+import { setCourtPlanShared } from '../../data/planSharing';
 import { planDayTime, plansAtCourt, planWhen, type CourtPlan } from '../../lib/courtPlans';
 import {
   MY_COURT_PLANS_KEY,
@@ -72,9 +80,28 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
   const mine = CHECKIN_PLANS_ENABLED ? plansAtCourt(plansQ.data ?? [], court.venueId, now) : [];
   const writing = options.busy === 'plan' && options.planning === court.venueId;
 
+  // Plan sharing: a plan's Shared / Only you (its chip, or its sheet's item).
+  const toast = useToast();
+  const [sharing, setSharing] = React.useState<string | null>(null);
+  const toggleShare = async (p: CourtPlan) => {
+    if (sharing || options.busy != null) return;
+    const shared = planIsShared(p);
+    track('courts.plan_line', { action: shared ? 'unshare' : 'share' });
+    setSharing(p.planId);
+    try {
+      await setCourtPlanShared(p.planId, !shared);
+      toast.success(shareToggledMessage(!shared, 'once'));
+    } catch (e) {
+      toast.error(explainRefusal(e, "Couldn't change who sees your plan. Try again.", { venueName: court.venueName }));
+      if (refusalCode(e) === 'visit.gone') void plansQ.refresh();
+    } finally {
+      setSharing(null);
+    }
+  };
+
   function actions(p: CourtPlan): ActionSheetAction[] {
     const ids = lineActionIds(
-      { kind: 'plan', at: p.plannedAt },
+      { kind: 'plan', at: p.plannedAt, ...(PLAN_SHARING_ENABLED ? { shared: planIsShared(p) } : {}) },
       {
         day: dayBandOf(Date.parse(p.plannedAt), now) ?? 'later',
         nowMs: now,
@@ -113,6 +140,13 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
               after.current = () => options.openMovePlan(court, p);
             },
           };
+        case 'share':
+        case 'unshare':
+          return {
+            label: SHARE_ACTION_LABEL[id],
+            iconName: id === 'share' ? 'group' : 'lock',
+            onPress: () => void toggleShare(p),
+          };
         case 'cancelPlan':
           return {
             label: 'Cancel this visit',
@@ -149,15 +183,26 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
                   <Text style={t.title} numberOfLines={1}>
                     {when}
                   </Text>
-                  <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
-                    {`Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
-                  </Text>
+                  <View style={S.metaRow}>
+                    <Text style={[t.meta, S.shrink, { color: c.textSub }]} numberOfLines={1}>
+                      {`Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
+                    </Text>
+                    {PLAN_SHARING_ENABLED ? (
+                      <PlanShareChip
+                        shared={planIsShared(p)}
+                        busy={sharing === p.planId}
+                        disabled={(sharing != null && sharing !== p.planId) || options.busy != null}
+                        onPress={Date.parse(p.plannedAt) > now - SHARE_IN_PLAY_MS ? () => void toggleShare(p) : undefined}
+                        style={S.shareChipBox}
+                      />
+                    ) : null}
+                  </View>
                 </View>
                 <FeedTimeChip
                   label={today(p.plannedAt) ? `At ${shortTime(new Date(p.plannedAt))}` : 'Options'}
                   tone={Date.parse(p.plannedAt) <= now ? 'neutral' : 'warning'}
                   busy={writing}
-                  disabled={options.busy != null && !writing}
+                  disabled={(options.busy != null && !writing) || sharing != null}
                   onPress={() => {
                     if (options.busy != null) return;
                     after.current = null;
@@ -191,5 +236,9 @@ const S = StyleSheet.create({
   wrap: { gap: SPACE.sm, marginTop: SPACE.sm },
   line: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
   body: { flex: 1, minWidth: 0, gap: SPACE.xxs / 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
+  shrink: { flexShrink: 1 },
+  // The chip's 44 tap box overlaps the lines around it instead of making the row 44 tall.
+  shareChipBox: { marginVertical: -10 },
   kindIcon: { width: ICON, height: ICON, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
 });

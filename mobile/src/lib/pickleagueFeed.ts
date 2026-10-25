@@ -29,6 +29,10 @@
 //     today, the court I'm checked in at and the courts my accepted friends
 //     are at. Nobody who isn't my friend, and no court that is only
 //     "frequent" or a league's home court;
+//   - my accepted friends' shared plans (plan sharing: a one-off they shared,
+//     a routine stop they confirmed), "Sky · planned 6 PM · routine", under
+//     the court in that day's band; a court with nothing of mine gets a card
+//     of its own, which gives way first under the court cap;
 //   - an item goes under the court it happens at (foundation matchPlace: the
 //     catalog id, then coordinates, then a name that fits one court); one at
 //     no court of mine goes to the band's "Elsewhere", never dropped.
@@ -60,6 +64,7 @@ import type { CourtRoutine, PlayMode } from './courtRoutineRules';
 import { planInPlay, type CourtPlan } from './courtPlans';
 import type { AbsoluteTimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import type { FriendAtCourt, FriendsAtCourts, FriendsCourtGroup } from './friendsAtCourts';
+import { planIsShared, stopIsShared, type FriendCourtPlan } from './planSharing';
 
 export type { DayBandKey };
 
@@ -80,6 +85,8 @@ export const STOP_GRACE_MS = 30 * 60_000;
 export const COURT_GENERIC_WORDS = ['pickleball', 'pickle', 'ball', 'courts', 'court', 'tennis', 'pb'] as const;
 
 const DEFAULT_STOP_MIN = 120;
+/** A friend here now hides their plan there up to this far ahead (they came for it). */
+export const FRIEND_PLAN_HERE_MS = 30 * 60_000;
 
 // ── Shapes ───────────────────────────────────────────────────────────────────
 export type FeedCourtRef = { venueId: string; venueName: string; lat?: number | null; lng?: number | null };
@@ -101,6 +108,8 @@ export type FeedRoutineStop = {
   /** 'cancelled' = skipped today (shown faded, with Undo). */
   status: 'planned' | 'cancelled';
   windows: AbsoluteTimeWindow<PlayMode>[];
+  /** Friends who can see my plans see it (lib/planSharing stopIsShared). */
+  planShared: boolean;
 };
 
 /** My one-off planned check-in (lib/courtPlans; Doggle's "Plan a check-in for later"). */
@@ -108,6 +117,17 @@ export type FeedOneOffPlan = {
   planId: string;
   at: string;
   endAt: string;
+  /** Friends who can see my plans see it. */
+  planShared: boolean;
+};
+
+/** A friend's shared plan at a court (list_friend_court_plans). */
+export type FeedFriendPlan = {
+  planId: string;
+  at: string;
+  endAt: string | null;
+  /** A routine stop they confirmed (or auto-shared), not a one-off. */
+  routine: boolean;
 };
 
 /** My own check-in (Doggle's own "Here now" line). Today only. */
@@ -130,6 +150,8 @@ export type FeedCourtLine =
   | { kind: 'left'; key: string; person: FeedPerson; at: string; endedAt: string }
   | { kind: 'stop'; key: string; stop: FeedRoutineStop }
   | { kind: 'plan'; key: string; plan: FeedOneOffPlan }
+  /** A friend's shared plan there (plan sharing). */
+  | { kind: 'friendPlan'; key: string; person: FeedPerson; plan: FeedFriendPlan }
   /** A league event, booked match, tournament, drill or vote at this court.
    *  `mirror`: it needs me, so it is pinned in Needs you as well (not counted here). */
   | { kind: 'agenda'; key: string; row: AgendaRow; mirror: boolean };
@@ -194,6 +216,12 @@ export type FeedInput = {
   mine?: FeedMyCheckin | null;
   /** My one-off planned check-ins (list_my_court_plans; absent = none). */
   plans?: readonly CourtPlan[];
+  /** My friends' shared plans (list_friend_court_plans; absent = none). Only
+   *  accepted friends in `friendIds` show (no league mate who isn't one). */
+  friendPlans?: readonly FriendCourtPlan[];
+  /** My "Share my routine stops automatically" (null / absent = not known):
+   *  a stop's Shared chip predicts what the server does with it on. */
+  autoShareRoutines?: boolean | null;
 };
 
 // ── Rules ────────────────────────────────────────────────────────────────────
@@ -226,7 +254,12 @@ function person(p: FriendAtCourt): FeedPerson {
 
 /** A routine's occurrence as a feed stop, or null once it is over (its end, or
  *  its time + the grace when it has no end) or checked in already. */
-export function routineStopOf(r: CourtRoutine, o: CourtRoutine['occurrences'][number], now: number): FeedRoutineStop | null {
+export function routineStopOf(
+  r: CourtRoutine,
+  o: CourtRoutine['occurrences'][number],
+  now: number,
+  autoShare: boolean | null = null,
+): FeedRoutineStop | null {
   if (o.status === 'completed') return null;
   const at = ms(o.plannedAt);
   if (!Number.isFinite(at)) return null;
@@ -239,6 +272,7 @@ export function routineStopOf(r: CourtRoutine, o: CourtRoutine['occurrences'][nu
     endAt: new Date(endMs).toISOString(),
     status: o.status === 'cancelled' ? 'cancelled' : 'planned',
     windows: o.windows,
+    planShared: stopIsShared(o, autoShare),
   };
 }
 
@@ -246,11 +280,11 @@ export function routineStopOf(r: CourtRoutine, o: CourtRoutine['occurrences'][nu
 const lineTime = (l: FeedCourtLine): number => {
   if (l.kind === 'mine') return ms(l.checkin.checkedInAt);
   if (l.kind === 'stop') return ms(l.stop.at);
-  if (l.kind === 'plan') return ms(l.plan.at);
+  if (l.kind === 'plan' || l.kind === 'friendPlan') return ms(l.plan.at);
   if (l.kind === 'agenda') return l.row.bucket === 'live' && !l.row.startsAt ? -Infinity : ms(l.row.startsAt);
   return ms(l.at);
 };
-const LINE_ORDER: Record<FeedCourtLine['kind'], number> = { left: 0, mine: 1, here: 1, stop: 2, plan: 2, agenda: 2 };
+const LINE_ORDER: Record<FeedCourtLine['kind'], number> = { left: 0, mine: 1, here: 1, stop: 2, plan: 2, friendPlan: 2, agenda: 2 };
 
 /** Doggle's order: who came and went (by when they left), who is here (me
  *  first, then by arrival, close friends first), then what is coming, in
@@ -272,9 +306,10 @@ export function sortCourtLines(lines: readonly FeedCourtLine[]): FeedCourtLine[]
   });
 }
 
-/** Over the cap, the oldest finished visits give way first, then the latest
- *  arrivals among friends here now: my own stops and agenda lines stay (what's
- *  next for me matters more). "See all" shows the rest. */
+/** Over the cap, the oldest finished visits give way first, then friends'
+ *  plans (the furthest off first), then the latest arrivals among friends
+ *  here now: my own stops and agenda lines stay (what's next for me matters
+ *  more). "See all" shows the rest. */
 export function capCourtLines(lines: readonly FeedCourtLine[], cap = COURT_ROWS_CAP): { shown: FeedCourtLine[]; more: number } {
   if (lines.length <= cap) return { shown: [...lines], more: 0 };
   let drop = lines.length - cap;
@@ -282,6 +317,9 @@ export function capCourtLines(lines: readonly FeedCourtLine[], cap = COURT_ROWS_
   lines.forEach((l, i) => {
     if (drop > 0 && l.kind === 'left') { hidden.add(i); drop -= 1; }
   });
+  for (let i = lines.length - 1; i >= 0 && drop > 0; i -= 1) {
+    if (lines[i].kind === 'friendPlan') { hidden.add(i); drop -= 1; }
+  }
   for (let i = lines.length - 1; i >= 0 && drop > 0; i -= 1) {
     if (lines[i].kind === 'here') { hidden.add(i); drop -= 1; }
   }
@@ -351,6 +389,7 @@ function friendLines(g: FriendsCourtGroup, friends: ReadonlySet<string>, now: nu
 }
 
 type KnownCourt = KnownPlace & { starred: boolean; routine: boolean };
+type FriendPlanLine = Extract<FeedCourtLine, { kind: 'friendPlan' }>;
 type CardDraft = Omit<FeedCourtCard, 'count' | 'lines' | 'hereMine'> & { lines: FeedCourtLine[] };
 type BandAgenda = { atCourt: Map<string, FeedCourtLine[]>; elsewhere: AgendaRow[] };
 
@@ -361,6 +400,7 @@ function courtCards(
   courts: Map<string, KnownCourt>,
   stopsByVenue: Map<string, FeedRoutineStop[]>,
   plansByVenue: Map<string, { venueName: string; plans: FeedOneOffPlan[] }>,
+  friendPlansByVenue: Map<string, { venueName: string; lines: FriendPlanLine[] }>,
   agenda: BandAgenda,
   friendGroups: Map<string, { group: FriendsCourtGroup; lines: FeedCourtLine[] }>,
   mine: FeedMyCheckin | null,
@@ -405,6 +445,14 @@ function courtCards(
     for (const p of mine) d.lines.push({ kind: 'plan', key: `plan|${p.planId}`, plan: p });
   }
 
+  // My friends' shared plans that day (a court with nothing of mine gets a
+  // card of its own, which gives way first under the cap below).
+  for (const [venueId, { venueName, lines }] of friendPlansByVenue) {
+    const that = lines.filter((l) => dayBandOf(ms(l.plan.at), now) === day);
+    if (that.length === 0) continue;
+    draft(venueId, venueName).lines.push(...that);
+  }
+
   // My own check-in, then friends: who is at a court now, or left it
   // earlier today. Today only.
   if (day === 'today' && mine) {
@@ -435,8 +483,14 @@ function courtCards(
     l.kind === 'stop' ? l.stop.status === 'planned' : l.kind === 'agenda' ? !l.mirror : true;
   const mineThere = (c: { lines: FeedCourtLine[] }) =>
     c.lines.some((l) => l.kind === 'mine' || l.kind === 'stop' || l.kind === 'plan' || l.kind === 'agenda');
+  // A friend here now needs no "planned 6 PM" line for a plan of theirs
+  // there that is under way or about to be (they came for it).
+  const cameForIt = (d: CardDraft, l: FeedCourtLine) =>
+    l.kind === 'friendPlan' &&
+    ms(l.plan.at) <= now + FRIEND_PLAN_HERE_MS &&
+    d.lines.some((h) => h.kind === 'here' && h.person.userId === l.person.userId);
   const cards: FeedCourtCard[] = [...drafts.values()].map((d) => {
-    const lines = sortCourtLines(d.lines);
+    const lines = sortCourtLines(d.lines.filter((l) => !cameForIt(d, l)));
     return { ...d, lines, hereMine: lines.some((l) => l.kind === 'mine'), count: lines.filter(counts).length };
   });
   // Something live or people there now (me or friends) first, then my plans,
@@ -510,7 +564,7 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
     for (const o of [...r.occurrences, ...(r.next ? [r.next] : [])]) {
       if (seen.has(o.planId)) continue;
       seen.add(o.planId);
-      const s = routineStopOf(r, o, now);
+      const s = routineStopOf(r, o, now, input.autoShareRoutines ?? null);
       if (!s) continue;
       const list = stopsByVenue.get(r.venueId) ?? [];
       list.push(s);
@@ -528,7 +582,7 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
       courts.set(p.venueId, { id: p.venueId, name: p.venueName, lat: p.lat, lng: p.lng, starred: false, routine: false });
     }
     const entry = plansByVenue.get(p.venueId) ?? { venueName: known?.name || p.venueName, plans: [] };
-    entry.plans.push({ planId: p.planId, at: p.plannedAt, endAt: p.plannedEndAt });
+    entry.plans.push({ planId: p.planId, at: p.plannedAt, endAt: p.plannedEndAt, planShared: planIsShared(p) });
     plansByVenue.set(p.venueId, entry);
   }
 
@@ -552,6 +606,37 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
   ];
   if (mine && !todayCourts.some((ct) => ct.id === mine.venueId)) {
     todayCourts.push({ id: mine.venueId, name: mine.venueName, lat: null, lng: null, starred: false, routine: false });
+  }
+
+  // My friends' shared plans (the server already applied each owner's plan
+  // privacy): only accepted friends I know as such, each under the court of
+  // mine it is at (id, then coordinates, then name), else a court of its own.
+  const friendPlansByVenue = new Map<string, { venueName: string; lines: FriendPlanLine[] }>();
+  if (input.friendIds) {
+    for (const p of input.friendPlans ?? []) {
+      if (!p.isFriend || !input.friendIds.has(p.ownerId)) continue;
+      const atMs = ms(p.at);
+      if (!Number.isFinite(atMs) || atMs <= now - STOP_GRACE_MS) continue;
+      const court = todayCourts.some((ct) => ct.id === p.placeId)
+        ? null
+        : courtOfPlace({ venueId: p.placeId, name: p.placeName, lat: p.lat, lng: p.lng }, todayCourts);
+      const venueId = court?.id ?? p.placeId;
+      const entry = friendPlansByVenue.get(venueId) ?? { venueName: court?.name || p.placeName, lines: [] };
+      entry.lines.push({
+        kind: 'friendPlan',
+        key: `fplan|${p.planId}`,
+        person: {
+          userId: p.ownerId,
+          name: p.ownerName,
+          avatarUrl: p.avatarUrl,
+          avatarEmoji: p.avatarEmoji,
+          avatarBgColor: p.avatarBgColor,
+          isCloseFriend: p.isCloseFriend,
+        },
+        plan: { planId: p.planId, at: p.at, endAt: p.endAt ?? null, routine: p.kind === 'routine' },
+      });
+      friendPlansByVenue.set(venueId, entry);
+    }
   }
 
   // Each row to its band, then to its court there (or Elsewhere).
@@ -579,7 +664,7 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
   const days: FeedDay[] = [];
   for (const key of ['today', 'tomorrow', 'later'] as const) {
     const elsewhere = bands[key].elsewhere;
-    const cards = courtCards(key, input, courts, stopsByVenue, plansByVenue, bands[key], key === 'today' ? friendGroups : new Map(), mine);
+    const cards = courtCards(key, input, courts, stopsByVenue, plansByVenue, friendPlansByVenue, bands[key], key === 'today' ? friendGroups : new Map(), mine);
     if (elsewhere.length === 0 && cards.length === 0) continue;
     const count = elsewhere.length + cards.reduce((n, c) => n + c.count, 0);
     days.push({ key, title: DAY_BAND_TITLE[key], courts: cards, elsewhere, count });

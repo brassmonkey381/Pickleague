@@ -173,11 +173,28 @@ export function loadProfileRoutines(profileId: string): Promise<ProfileRoutine[]
 }
 
 // ── "Check me in at my routine courts" ──────────────────────────────────────
-export type CourtRoutineSettings = { routine_auto_checkin: boolean };
+export type CourtRoutineSettings = {
+  routine_auto_checkin: boolean;
+  /**
+   * "Share my routine stops automatically" (migration_plan_sharing.sql;
+   * default off, and off before that file is live). A copy cached by an older
+   * build has no such key: read it with autoShareOf, which says null then.
+   */
+  auto_share_routines: boolean;
+};
+
+function parseSettings(raw: unknown): CourtRoutineSettings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<CourtRoutineSettings>;
+  return { routine_auto_checkin: r.routine_auto_checkin !== false, auto_share_routines: r.auto_share_routines === true };
+}
+
+/** The auto-share setting from a (maybe older) cached copy: null when it isn't known. */
+export function autoShareOf(s: Partial<CourtRoutineSettings> | null | undefined): boolean | null {
+  return typeof s?.auto_share_routines === 'boolean' ? s.auto_share_routines : null;
+}
 
 export async function getCourtRoutineSettings(): Promise<CourtRoutineSettings> {
-  const r = (await sbCall(() => supabase.rpc('get_court_routine_settings'), BOUND)) as Partial<CourtRoutineSettings> | null;
-  return { routine_auto_checkin: r?.routine_auto_checkin !== false };
+  return parseSettings(await sbCall(() => supabase.rpc('get_court_routine_settings'), BOUND));
 }
 
 export function loadCourtRoutineSettings(force = false): Promise<CourtRoutineSettings> {
@@ -188,10 +205,30 @@ export function loadCourtRoutineSettings(force = false): Promise<CourtRoutineSet
 }
 
 export async function setRoutineAutoCheckin(on: boolean): Promise<CourtRoutineSettings> {
-  const r = (await sbCall(() => supabase.rpc('set_routine_auto_checkin', { p_on: on }), BOUND)) as Partial<CourtRoutineSettings> | null;
-  const s = { routine_auto_checkin: r?.routine_auto_checkin !== false };
+  const s = parseSettings(await sbCall(() => supabase.rpc('set_routine_auto_checkin', { p_on: on }), BOUND));
   setQueryData(COURT_ROUTINE_SETTINGS_KEY, s);
   return s;
+}
+
+/**
+ * "Share my routine stops automatically" (set_auto_share_routines). On
+ * shares my routine stops still in play that I never shared nor hid; off
+ * un-shares only the ones it shared. My routines' share columns change, so
+ * their list is re-read (a forced read that replaces the cached copy, not an
+ * invalidate: geofence wakes read that copy from disk).
+ */
+export async function setAutoShareRoutines(on: boolean): Promise<CourtRoutineSettings> {
+  const s = parseSettings(await sbCall(() => supabase.rpc('set_auto_share_routines', { p_on: on }), BOUND));
+  setQueryData(COURT_ROUTINE_SETTINGS_KEY, s);
+  void loadMyCourtRoutines(true)
+    .then(() => courtRoutinesChanged.emit())
+    .catch(() => undefined);
+  return s;
+}
+
+/** Share these routine stops (the daily sheet's Confirm / Confirm all). Refusals: plan.gone, request.bad. */
+export async function confirmCourtPlans(planIds: readonly string[]): Promise<CourtRoutine[]> {
+  return stored(await sbCall(() => supabase.rpc('confirm_court_plans', { p_plan_ids: [...planIds] }), BOUND));
 }
 
 // ── A check-in's plan ───────────────────────────────────────────────────────

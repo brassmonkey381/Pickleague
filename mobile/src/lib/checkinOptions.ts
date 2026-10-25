@@ -122,9 +122,21 @@ export type LineActionId =
   | 'undoSkip'
   // My one-off plan (also checkInNow, onMyWay, changeTime)
   | 'cancelPlan'
+  // My stop or plan, with plan sharing: "Share with friends" / "Make it only you"
+  | 'share'
+  | 'unshare'
   // A friend's
   | 'checkInHere'
   | 'profile';
+
+/** A stop or plan stays shareable this long after its time (set_court_plan_shared's window). */
+export const SHARE_IN_PLAY_MS = 30 * 60_000;
+
+/** The sheet's words for the share actions. */
+export const SHARE_ACTION_LABEL: Record<'share' | 'unshare', string> = {
+  share: 'Share with friends',
+  unshare: 'Make it only you',
+};
 
 export type LineActionContext = {
   day: DayBandKey;
@@ -136,18 +148,31 @@ export type LineActionContext = {
   onMyWaySent: boolean;
 };
 
+/** `shared`: friends see it (plan sharing on); absent: sharing isn't offered. */
 export type SheetLineFacts =
   | { kind: 'mine'; queued: boolean }
-  | { kind: 'stop'; status: 'planned' | 'cancelled'; at: string }
-  | { kind: 'plan'; at: string }
+  | { kind: 'stop'; status: 'planned' | 'cancelled'; at: string; shared?: boolean }
+  | { kind: 'plan'; at: string; shared?: boolean }
+  | { kind: 'friendPlan'; at: string }
   | { kind: 'here' | 'left' };
 
-/** What the rules need from a feed line. */
-export function sheetLineFacts(line: FeedSheetLine): SheetLineFacts {
+/** What the rules need from a feed line. `sharing`: plan sharing is on (the
+ *  stop and plan lines carry whether they're shared). */
+export function sheetLineFacts(line: FeedSheetLine, sharing = false): SheetLineFacts {
   if (line.kind === 'mine') return { kind: 'mine', queued: line.checkin.queued };
-  if (line.kind === 'stop') return { kind: 'stop', status: line.stop.status, at: line.stop.at };
-  if (line.kind === 'plan') return { kind: 'plan', at: line.plan.at };
+  if (line.kind === 'stop') {
+    return { kind: 'stop', status: line.stop.status, at: line.stop.at, ...(sharing ? { shared: line.stop.planShared } : {}) };
+  }
+  if (line.kind === 'plan') return { kind: 'plan', at: line.plan.at, ...(sharing ? { shared: line.plan.planShared } : {}) };
+  if (line.kind === 'friendPlan') return { kind: 'friendPlan', at: line.plan.at };
   return { kind: line.kind };
+}
+
+/** Share / Make it only you, for my stop or plan still in play (its time no
+ *  more than 30 minutes ago), when sharing is offered. */
+function shareAction(l: { at: string; shared?: boolean }, nowMs: number): LineActionId | null {
+  if (l.shared === undefined || !(Date.parse(l.at) > nowMs - SHARE_IN_PLAY_MS)) return null;
+  return l.shared ? 'unshare' : 'share';
 }
 
 /** Already over, so the line is faded (Doggle's isPast): a visit that ended,
@@ -181,6 +206,8 @@ export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineAc
     // the plan is still ahead).
     const ahead = Date.parse(l.at) > ctx.nowMs;
     add('changeTime', ahead);
+    const share = shareAction(l, ctx.nowMs);
+    if (share) out.push(share);
     add('editRoutine', true);
     add('skipStop', ahead);
     return out;
@@ -191,9 +218,13 @@ export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineAc
     add('checkInNow', today && !ctx.hereMine);
     add('onMyWay', today && !ctx.hereMine && ctx.canOnMyWay && Date.parse(l.at) > ctx.nowMs - ON_MY_WAY_PLAN_OVER_MS);
     add('changeTime', Date.parse(l.at) > ctx.nowMs);
+    const share = shareAction(l, ctx.nowMs);
+    if (share) out.push(share);
     add('cancelPlan', true);
     return out;
   }
+  // A friend's plan: their profile (Doggle's Join is a later step).
+  if (l.kind === 'friendPlan') return ['profile'];
   if (l.kind === 'here') {
     add('onMyWay', today && !ctx.hereMine && ctx.canOnMyWay && !ctx.onMyWaySent);
     add('checkInHere', today && !ctx.hereMine);

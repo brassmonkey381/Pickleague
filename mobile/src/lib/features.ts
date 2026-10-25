@@ -132,6 +132,27 @@ export const ROUTINES_ENABLED = true;
 export const CHECKIN_PLANS_ENABLED = true;
 
 /**
+ * Plan sharing (foundation 1.70 `/plans`, supabase/migration_plan_sharing.sql;
+ * the user, 2026-10-24: "we never show routines automatically"): friends see
+ * a planned check-in only once I share it. A one-off plan is shared when made
+ * (the plan sheet's Shared / Only you chip, default Shared); a routine stop
+ * when I confirm it on the once-a-day "Today's routine" sheet on Home, or
+ * automatically with Settings' "Share my routine stops automatically"
+ * (default off). My plan lines get a Shared / Only you chip and a Share /
+ * Only you action; friends' shared plans show under their court on the feed
+ * and on the court page ("Friends planning to play here").
+ *
+ * ON (flags default true), but its server half must be live BEFORE the OTA
+ * that carries this: state/plan-sharing-apply.ps1 (after
+ * checkin-plans-apply.ps1). Needs CHECKIN_PLANS_ENABLED and ROUTINES_ENABLED.
+ * Off, nothing calls confirm_court_plans, set_court_plan_shared,
+ * set_auto_share_routines or list_friend_court_plans, plan_court_checkin is
+ * called without p_share (the server keeps the plan private), and the copy
+ * says "Only you see your planned check-ins." as before.
+ */
+export const PLAN_SHARING_ENABLED = true;
+
+/**
  * Referrals, Doggle parity (state/referrals-plan.md): invite links
  * (www.pickleague.club/invite/CODE and ?ref=CODE), the InviteLanding screen,
  * the ReferralHost that stashes a code and claims it after sign-in (with

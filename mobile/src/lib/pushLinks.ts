@@ -121,9 +121,12 @@ export function linkOf(data: Record<string, unknown> | null | undefined): string
   // "Sam is on the way to Lakeside" / "Sam is at Lakeside" (migration_on_my_way.sql)
   // and a planned check-in's reminder (plan_reminder, migration_court_oneoff_plans.sql,
   // as Doggle's "Visit starting soon" opens the place) carry home/-, which
-  // older bundles route to Home; this build opens the court.
+  // older bundles route to Home; this build opens the court. So does a
+  // friend's shared plan ("Sky plans to play at Lakeside", friend_plan,
+  // migration_plan_sharing.sql).
   const venue = str(data.venue_id);
-  if ((data.kind === 'on_my_way' || data.kind === 'plan_reminder') && venue && (base === '' || base.startsWith('home/'))) {
+  const courtKinds = data.kind === 'on_my_way' || data.kind === 'plan_reminder' || data.kind === 'friend_plan';
+  if (courtKinds && venue && (base === '' || base.startsWith('home/'))) {
     return `court/${venue}`;
   }
   const k = KIND_LINKS[str(data.kind) ?? ''];

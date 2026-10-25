@@ -105,13 +105,18 @@ import FriendsAtCourtsSection from '../components/home/FriendsAtCourtsSection';
 import RoutineSuggestionCard from '../components/routines/RoutineSuggestionCard';
 import StreakBonusModal from '../components/home/StreakBonusModal';
 import PickleagueFeedSection from '../components/feed/PickleagueFeedSection';
+import { HomePlanConfirmSheet, useHomePlanConfirm } from '../components/home/HomePlanConfirm';
 import { PickleAmount } from '../components/PickleAmount';
 import { WEB_COLUMN_MAX_WIDTH } from '../lib/webColumn';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Home'> };
 
 /** Pop-ups Home may raise on its own. Queued: never two RN Modals at once. */
-type QueuedModal = { kind: 'welcome'; balance: number } | { kind: 'streak'; result: StreakResult };
+type QueuedModal =
+  | { kind: 'welcome'; balance: number }
+  | { kind: 'streak'; result: StreakResult }
+  /** "Today's routine": confirm today's routine stops (plan sharing, once a local day). */
+  | { kind: 'planConfirm' };
 
 const JOIN_ROWS = 3;
 const OPEN_ROWS = 3;
@@ -351,6 +356,24 @@ export default function HomeScreen({ navigation }: Props) {
     })),
   });
   const isGuest = useIsGuest();
+
+  // ── "Today's routine" (plan sharing): queued behind the welcome and streak
+  // pop-ups; the hook loads today's unconfirmed stops, the queue presents it.
+  const planConfirm = useHomePlanConfirm(profile?.id ?? null, isGuest, activeModal?.kind === 'planConfirm');
+  const planQueued = queue.some(m => m.kind === 'planConfirm');
+  useEffect(() => {
+    if (planConfirm.ready && !planQueued) enqueue({ kind: 'planConfirm' });
+  }, [planConfirm.ready, planQueued, enqueue]);
+  // Its turn: present it once (present() re-checks the stops against the
+  // clock; nothing left to confirm, or it can't show, and the queue moves on).
+  const planTurn = useRef<QueuedModal | null>(null);
+  const { present: presentPlan } = planConfirm;
+  useEffect(() => {
+    if (activeModal?.kind !== 'planConfirm' || planTurn.current === activeModal) return;
+    planTurn.current = activeModal;
+    if (!presentPlan()) closeModal();
+  }, [activeModal, presentPlan, closeModal]);
+
   const dupr = useDuprImportOffer();
   const getStartedVisible = !ftue.loading && (!ftue.allClaimed || isGuest || dupr.visible);
   const accountIsNew = profile?.created_at ? now - Date.parse(profile.created_at) < NEW_ACCOUNT_MS : false;
@@ -888,6 +911,12 @@ export default function HomeScreen({ navigation }: Props) {
       />
 
       <StreakBonusModal visible={!!streakModal} result={streakModal?.result ?? null} onClose={closeModal} />
+
+      <HomePlanConfirmSheet
+        state={planConfirm}
+        onDismissed={closeModal}
+        onOpenSettings={() => navigation.navigate('Routines')}
+      />
     </View>
   );
 }

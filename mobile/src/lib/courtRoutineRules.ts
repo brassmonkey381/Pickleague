@@ -17,6 +17,7 @@ import {
   wallClockIn,
 } from '@just-messin-around/expo-foundation/scheduling/weekdayMask';
 import { stopDueAt, type RecurringStop } from '@just-messin-around/expo-foundation/scheduling/recurringStops';
+import type { PlanShareSource } from '@just-messin-around/expo-foundation/plans/rules';
 import {
   KEEP_WINDOWS_APART,
   fitWindowsToLength,
@@ -96,6 +97,10 @@ export type RoutineOccurrence = {
   /** 'cancelled' = skipped; 'completed' = checked in. */
   status: 'planned' | 'cancelled' | 'completed';
   windows: AbsoluteTimeWindow<PlayMode>[];
+  /** Plan sharing (migration_plan_sharing.sql): null = only I see this stop. */
+  sharedAt: string | null;
+  /** Why it is shared ('confirm' / 'auto') or explicitly not ('hidden'); null = never shared. */
+  shareSource: PlanShareSource | null;
 };
 
 export type CourtRoutine = {
@@ -170,6 +175,10 @@ const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const asMode = (v: unknown): PlayMode | null => (v === 'open' || v === 'closed' ? v : null);
 const STATUSES = new Set(['planned', 'cancelled', 'completed']);
+const SHARE_SOURCES = new Set<string>(['plan', 'confirm', 'auto', 'hidden']);
+/** court_plans.share_source; anything else (or absent, before migration_plan_sharing.sql) is null. */
+export const asShareSource = (v: unknown): PlanShareSource | null =>
+  typeof v === 'string' && SHARE_SOURCES.has(v) ? (v as PlanShareSource) : null;
 
 function parseOccurrence(raw: unknown): RoutineOccurrence | null {
   const n = raw as Record<string, unknown> | null | undefined;
@@ -181,6 +190,8 @@ function parseOccurrence(raw: unknown): RoutineOccurrence | null {
     plannedEndAt: strOrNull(n.planned_end_at),
     status: (STATUSES.has(status) ? status : 'planned') as RoutineOccurrence['status'],
     windows: parseAbsoluteWindows(n.windows, PLAY_MODES),
+    sharedAt: strOrNull(n.shared_at),
+    shareSource: asShareSource(n.share_source),
   };
 }
 
