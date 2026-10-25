@@ -41,10 +41,12 @@ const REPLACED = [
     'migration_validity_rules.sql', 'migration_court_arrival_queue.sql'],
   ['public._pl_session_validity(uuid)', 'migration_validity_rules.sql', 'migration_court_arrival_queue.sql'],
   ['public.expire_venue_checkins()', 'migration_venue_checkins.sql', 'migration_court_arrival_queue.sql'],
-  // Both were replaced again later by migration_court_routines.sql (live since
+  // Replaced again later by migration_court_routines.sql (live since
   // 2026-10-22), so that body counts as a match too.
-  ['public._purge_account(uuid)', 'migration_presence_p1_hygiene.sql', 'migration_court_arrival_queue.sql',
-    'migration_court_routines.sql'],
+  // _purge_account: last applied from migration_court_routines.sql; the
+  // signed-out audit fixes (migration_anon_audit_fixes.sql) replace it to
+  // delete profile_private and stop setting the dropped profiles.phone.
+  ['public._purge_account(uuid)', 'migration_court_routines.sql', 'migration_anon_audit_fixes.sql'],
   ['public.prune_presence_history()', 'migration_presence_p1_hygiene.sql', 'migration_court_arrival_queue.sql',
     'migration_court_routines.sql'],
   ['public.venue_set_geom()', 'migration_add_venue_geofences.sql', 'migration_court_arrival_settings.sql'],
@@ -95,6 +97,14 @@ const REPLACED = [
   ['public.list_profile_court_routines(uuid)', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
   ['public.plan_court_checkin(text,timestamptz,integer)', 'migration_court_oneoff_plans.sql',
     'migration_plan_sharing.sql', null, 'public.plan_court_checkin(text,timestamptz,integer,boolean)'],
+  // Signed-out audit fixes (migration_anon_audit_fixes.sql): the guest RPCs
+  // write the phone to profile_private, generate_playoff_bracket gains its
+  // admin check, get_wagers_on_player keeps closed leagues' bettors private.
+  ['public.complete_guest_upgrade(text,text,text)', 'migration_guest_upgrade.sql', 'migration_anon_audit_fixes.sql'],
+  ['public.redeem_guest_invite(text,text)', 'migration_guest_upgrade.sql', 'migration_anon_audit_fixes.sql'],
+  ['public.generate_playoff_bracket(uuid)', 'migration_prod_reconcile_2026q3.sql', 'migration_anon_audit_fixes.sql'],
+  ['public.get_wagers_on_player(uuid,text,uuid)', 'migration_prod_reconcile_2026q3.sql',
+    'migration_anon_audit_fixes.sql'],
 ];
 const TAG = '$pl_expect$';
 
