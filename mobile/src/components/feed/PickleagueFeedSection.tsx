@@ -19,7 +19,7 @@
 //        (🏆)   Fall Classic · The HUB · registered         Sat 9 AM
 //   [Tomorrow  Fri, Oct 23                    1 v]
 //   [Later this week                          2 v]
-//   My leagues ›  My tournaments ›  Find courts ›
+//   My tournaments ›  My routine ›
 //
 // What qualifies is lib/pickleagueFeed.ts (tested): my leagues, tournaments I
 // signed up for, starred and routine courts, and my accepted friends. The
@@ -758,7 +758,6 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     };
   });
 
-  const isMember = home.myLeagues.length > 0;
   const hasFriends = (myFriendsQ.data?.length ?? 0) > 0;
   // Only what would fill the feed and isn't set up yet. No "find a league"
   // here: a member has leagues, and a non-member gets Join a league right below.
@@ -857,14 +856,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
         <View style={styles.links}>
           {privilegedLeagues.length > 0 ? <TextLink label="Propose a play day" onPress={propose} /> : null}
-          {isMember ? (
-            <TextLink label="My leagues" onPress={() => { tap('all_leagues'); openDiscover(navigation, { tab: 'leagues', mine: true }); }} />
-          ) : null}
           {hasTournaments ? (
             <TextLink label="My tournaments" onPress={() => { tap('my_tournaments'); openDiscover(navigation, { tab: 'tournaments', mine: true }); }} />
-          ) : null}
-          {COURT_DISCOVERY_ENABLED ? (
-            <TextLink label="Find courts" onPress={() => { tap('find_courts'); openDiscover(navigation, { tab: 'places' }); }} />
           ) : null}
           {ROUTINES_ENABLED ? <TextLink label="My routine" onPress={() => { tap('routines'); openRoutines(); }} /> : null}
         </View>
