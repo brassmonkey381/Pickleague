@@ -1,6 +1,7 @@
 // Home's 44px greeting row (plan section 3): "(avatar) Hi, Brian ›" opens
 // Profile, the login streak sits beside it (in place of a modal on every
-// launch), and the balance opens the Shop.
+// launch), and the balance opens the pickles viewer (history, play streak,
+// and the links to the Shop and the calendar).
 //
 //   (B) Hi, Brian ›                       (fire) 5   (pickle) 1,240
 //
@@ -18,7 +19,7 @@ import { Icon, IconValue } from '@just-messin-around/expo-foundation/icons';
 import { useTheme } from '../../lib/ThemeContext';
 import { AVATARS } from '../../data/profileCustomization';
 import FlairName from '../FlairName';
-import { PickleBalance } from '../PickleAmount';
+import { PickleBalance, picklesLabel } from '../PickleAmount';
 import type { Profile } from '../../types';
 
 type Props = {
@@ -26,7 +27,8 @@ type Props = {
   /** Login streak in days; 0 hides it. */
   streak: number;
   onProfile: () => void;
-  onShop: () => void;
+  /** Opens the pickles viewer (components/home/PicklesViewer). */
+  onBalance: () => void;
   /** Opens the streak pop-up (current streak + upcoming milestone rewards). */
   onStreak: () => void;
 };
@@ -35,7 +37,7 @@ const AVATAR = 28;
 /** The avatar emoji is the player's own pick (content, not chrome): 16 in the 28 circle. */
 const AVATAR_EMOJI = 16;
 
-export default function HomeGreeting({ profile, streak, onProfile, onShop, onStreak }: Props) {
+export default function HomeGreeting({ profile, streak, onProfile, onBalance, onStreak }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const firstName = profile?.full_name?.trim().split(/\s+/)[0] ?? '';
@@ -97,11 +99,12 @@ export default function HomeGreeting({ profile, streak, onProfile, onShop, onStr
       <TouchableOpacity
         style={styles.box}
         activeOpacity={0.8}
-        onPress={onShop}
+        onPress={onBalance}
         accessibilityRole="button"
         accessibilityLabel={
-          balance != null ? `${balance.toLocaleString()} pickles. Open the Pickle Shop` : 'Open the Pickle Shop'
+          balance != null ? `${picklesLabel(balance)}. Open your pickle history` : 'Open your pickle history'
         }
+        accessibilityHint="Shows what you earned and spent, with links to the Shop and the calendar"
       >
         <PickleBalance balance={balance} preset="title" decorative />
       </TouchableOpacity>

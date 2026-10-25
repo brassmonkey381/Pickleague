@@ -93,6 +93,7 @@ import CourtCheckinCard, { type CourtCardMode } from '../components/CourtCheckin
 import ClosestUnlocksCard from '../components/ClosestUnlocksCard';
 import { EMPTY_HOME, HOME_KEY, loadHome, type HomeData } from '../components/home/homeData';
 import HomeGreeting from '../components/home/HomeGreeting';
+import PicklesViewer from '../components/home/PicklesViewer';
 import GetStartedPanel from '../components/home/GetStartedPanel';
 import NowPanel from '../components/home/NowPanel';
 import UpNextSection from '../components/home/UpNextSection';
@@ -218,6 +219,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [queue, setQueue] = useState<QueuedModal[]>([]);
   const [codeOpen, setCodeOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The pickles viewer (the balance's tap): a sheet the user opened, so it holds the queue.
+  const [picklesOpen, setPicklesOpen] = useState(false);
   const [handoffHeld, setHandoffHeld] = useState(false);
   const handoffTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdHandoff = useCallback(() => {
@@ -233,7 +236,7 @@ export default function HomeScreen({ navigation }: Props) {
     return () => clearTimeout(timer);
   }, [focused]);
 
-  const activeModal = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen ? queue[0] ?? null : null;
+  const activeModal = focused && focusSettled && !handoffHeld && !codeOpen && !pickerOpen && !picklesOpen ? queue[0] ?? null : null;
   // The pop-up on screen right now (one commit behind, which is enough: a
   // queued one only appears after a HANDOFF_MS pause anyway).
   const shownRef = useRef<QueuedModal | null>(null);
@@ -257,6 +260,7 @@ export default function HomeScreen({ navigation }: Props) {
   // Sheets the user opened hold the queue while up, and hand off like a pop-up
   // when they close (same commit as the close, so nothing slips through).
   const closeCodeSheet = useCallback(() => { holdHandoff(); setCodeOpen(false); }, [holdHandoff]);
+  const closePickles = useCallback(() => { holdHandoff(); setPicklesOpen(false); }, [holdHandoff]);
   const onPickerOpenChange = useCallback((open: boolean) => {
     if (!open) holdHandoff();
     setPickerOpen(open);
@@ -601,7 +605,7 @@ export default function HomeScreen({ navigation }: Props) {
       profile={profile}
       streak={claimedStreak ?? data.streak}
       onProfile={() => { tap('greeting', 'profile'); navigation.navigate('Profile', {}); }}
-      onShop={() => { tap('greeting', 'shop'); navigation.navigate('Shop'); }}
+      onBalance={() => { tap('greeting', 'pickles'); setPicklesOpen(true); }}
       onStreak={() => { tap('greeting', 'streak'); void openStreak(); }}
     />,
   );
@@ -868,6 +872,17 @@ export default function HomeScreen({ navigation }: Props) {
       >
         {sections}
       </ScrollView>
+
+      <PicklesViewer
+        visible={picklesOpen}
+        onClose={closePickles}
+        balance={profile ? profile.pickles ?? 0 : null}
+        balanceError={query.error}
+        onReloadBalance={reload}
+        // The kit closes the sheet first, then these run.
+        onOpenShop={() => { tap('greeting', 'pickles_shop'); navigation.navigate('Shop'); }}
+        onOpenCalendar={() => { tap('greeting', 'pickles_calendar'); navigation.navigate('PicklesCalendar'); }}
+      />
 
       <JoinCodeModal
         visible={codeOpen}

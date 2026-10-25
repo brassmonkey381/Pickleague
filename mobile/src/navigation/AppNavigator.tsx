@@ -74,6 +74,7 @@ import DrillScreen from '../screens/DrillScreen';
 import DrillSearchScreen from '../screens/DrillSearchScreen';
 import DrillRequestsScreen from '../screens/DrillRequestsScreen';
 import ShopScreen from '../screens/ShopScreen';
+import PicklesCalendarScreen from '../screens/PicklesCalendarScreen';
 import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
@@ -445,6 +446,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="DrillSearch" component={DrillSearchScreen} options={{ title: 'Find Drillers' }} />
                 <Stack.Screen name="DrillRequests" component={DrillRequestsScreen} options={{ title: 'Drill Requests' }} />
                 <Stack.Screen name="Shop" component={ShopScreen} options={{ title: 'Pickle Shop' }} />
+                <Stack.Screen name="PicklesCalendar" component={PicklesCalendarScreen} options={{ title: 'Pickle Calendar' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: 'Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: 'Godmode' }} />

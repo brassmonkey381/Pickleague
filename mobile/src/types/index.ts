@@ -624,6 +624,8 @@ export type RootStackParamList = {
   // focusId: a drill request or session id from a push; openChat opens its chat.
   DrillRequests: { focusId?: string; openChat?: boolean } | undefined;
   Shop: undefined;
+  // The pickles viewer's Calendar (Home balance): a month of daily pickle totals.
+  PicklesCalendar: undefined;
   QrWallet: undefined;
   QrPass: { passId: string };
   ScoringAlgo: undefined;

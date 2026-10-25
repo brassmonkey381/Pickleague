@@ -128,6 +128,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Settings: 'settings/:focus?',
       About: 'about',
       Shop: 'shop',
+      PicklesCalendar: 'pickles/calendar',
       GiftPickles: 'gift-pickles',
       ScoringAlgo: 'scoring-algo',
       UnlockProgress: 'unlock-progress',
