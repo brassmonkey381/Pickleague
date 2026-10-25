@@ -29,6 +29,14 @@
 --   SN  "I'm here": F1 (push on), F2 (no phone), FH (hidden from), NF (not a friend)
 --   SO  old send_on_my_way calls, friend G1         SO2 friend G2 (no pick)
 --   PD  account deleted
+--   PR3 a routine stop days ahead holds its time    PR4 Undo skip next to a one-off
+--   PR5 Change today's time next to a one-off
+--   SL  "I'm here" at a 4th court in 30 minutes (friend FL)
+--   SP  "I'm here" paused / check-ins hidden / a blocked friend (FP, FB)
+--
+-- Nothing reads court_plans or push_outbox beyond these personas: the
+-- linked database has real players' rows (one-off plans included once this
+-- file is live), and a re-run of the apply script must still pass.
 -- ============================================================
 
 begin;
@@ -50,11 +58,15 @@ insert into _p values
   ('F2',  'a9100000-0000-4000-8000-00000000000f'), ('FH',  'a9100000-0000-4000-8000-000000000010'),
   ('NF',  'a9100000-0000-4000-8000-000000000011'), ('SO',  'a9100000-0000-4000-8000-000000000012'),
   ('G1',  'a9100000-0000-4000-8000-000000000013'), ('SO2', 'a9100000-0000-4000-8000-000000000014'),
-  ('G2',  'a9100000-0000-4000-8000-000000000015'), ('PD',  'a9100000-0000-4000-8000-000000000016');
+  ('G2',  'a9100000-0000-4000-8000-000000000015'), ('PD',  'a9100000-0000-4000-8000-000000000016'),
+  ('PR3', 'a9100000-0000-4000-8000-000000000017'), ('PR4', 'a9100000-0000-4000-8000-000000000018'),
+  ('PR5', 'a9100000-0000-4000-8000-000000000019'), ('SL',  'a9100000-0000-4000-8000-00000000001a'),
+  ('FL',  'a9100000-0000-4000-8000-00000000001b'), ('SP',  'a9100000-0000-4000-8000-00000000001c'),
+  ('FP',  'a9100000-0000-4000-8000-00000000001d'), ('FB',  'a9100000-0000-4000-8000-00000000001e');
 grant select on _p to authenticated, anon;
 
 create temp table _ids (k text primary key, id uuid not null default gen_random_uuid());
-insert into _ids (k) values ('PK'), ('PK2'), ('PV'), ('SN');
+insert into _ids (k) values ('PK'), ('PK2'), ('PV'), ('SN'), ('SL'), ('SP');
 grant select on _ids to authenticated, anon;
 
 -- Plan ids the sections hand on to each other.
@@ -191,7 +203,12 @@ insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_rad
   ('test:op-here',     array['pickleball'], 'OP Test Here',     'court', 41.40, -103.0, 'google', 100),
   ('test:op-there',    array['pickleball'], 'OP Test There',    'court', 41.41, -103.0, 'google', 100),
   ('test:op-omw',      array['pickleball'], 'OP Test Omw',      'court', 41.42, -103.0, 'google', 100),
-  ('test:op-rejected', array['pickleball'], 'OP Test Rejected', 'court', 41.43, -103.0, 'google', 100);
+  ('test:op-rejected', array['pickleball'], 'OP Test Rejected', 'court', 41.43, -103.0, 'google', 100),
+  ('test:op-r3',       array['pickleball'], 'OP Test Routine 3','court', 41.44, -103.0, 'google', 100),
+  ('test:op-r4',       array['pickleball'], 'OP Test Routine 4','court', 41.45, -103.0, 'google', 100),
+  ('test:op-r5',       array['pickleball'], 'OP Test Routine 5','court', 41.46, -103.0, 'google', 100),
+  ('test:op-cap',      array['pickleball'], 'OP Test Cap',      'court', 41.47, -103.0, 'google', 100),
+  ('test:op-pause',    array['pickleball'], 'OP Test Pause',    'court', 41.48, -103.0, 'google', 100);
 insert into public.venues (id, sport, name, kind, lat, lng, source, geofence_radius_m, canonical_id) values
   ('test:op-home-osm', array['pickleball'], 'OP Test Home', 'court', 41.30005, -103.0, 'osm', 100, 'test:op-home'),
   ('test:op-here-osm', array['pickleball'], 'OP Test Here', 'court', 41.40005, -103.0, 'osm', 100, 'test:op-here');
@@ -200,7 +217,8 @@ update public.venues set confirmation_status = 'rejected' where id = 'test:op-re
 insert into public.court_favorites (user_id, venue_id)
 select pg_temp.p(k), v from (values
   ('PO', 'test:op-home'), ('PV', 'test:op-arr'), ('PW', 'test:op-home'), ('PA', 'test:op-arr2'),
-  ('PA', 'test:op-arr3'), ('PR', 'test:op-routine'), ('PR2', 'test:op-routine2')) s(k, v);
+  ('PA', 'test:op-arr3'), ('PR', 'test:op-routine'), ('PR2', 'test:op-routine2'),
+  ('PR3', 'test:op-r3'), ('PR4', 'test:op-r4'), ('PR5', 'test:op-r5')) s(k, v);
 
 -- Consent for everyone; PA has automatic check-in off.
 insert into public.presence_settings (user_id, consent_seen_at, auto_checkin)
@@ -209,8 +227,10 @@ on conflict (user_id) do update set consent_seen_at = excluded.consent_seen_at, 
 
 insert into public.friendships (requester_id, addressee_id, status, responded_at)
 select pg_temp.p(a), pg_temp.p(b), 'accepted', now() from (values
-  ('PO', 'PF'), ('SN', 'F1'), ('SN', 'F2'), ('SN', 'FH'), ('SO', 'G1'), ('SO2', 'G2')) s(a, b);
+  ('PO', 'PF'), ('SN', 'F1'), ('SN', 'F2'), ('SN', 'FH'), ('SO', 'G1'), ('SO2', 'G2'),
+  ('SL', 'FL'), ('SP', 'FP'), ('SP', 'FB')) s(a, b);
 insert into public.presence_hidden_from (user_id, hidden_user_id) values (pg_temp.p('SN'), pg_temp.p('FH'));
+insert into public.user_blocks (blocker_id, blocked_id) values (pg_temp.p('SP'), pg_temp.p('FB'));
 
 -- Phones: everyone but F2; push on for all.
 insert into public.push_tokens (user_id, token, platform)
@@ -232,10 +252,13 @@ declare
     'public.move_court_plan(uuid,timestamptz)',
     'public.cancel_court_plan(uuid)',
     'public.list_my_court_plans()',
-    'public.send_on_my_way(text,integer,uuid[],boolean)'];
+    'public.send_on_my_way(text,integer,uuid[],boolean)',
+    'public.unskip_court_routine_occurrence(uuid)',
+    'public.move_court_routine_occurrence(uuid,timestamptz)'];
   v_internal text[] := array[
     'public._pl_plan_near(uuid,text,timestamptz,uuid)',
     'public._pl_routine_stop_due(uuid,text,timestamptz)',
+    'public._pl_routine_time_near(uuid,text,timestamptz)',
     'public._pl_court_arrival_off(uuid,text)',
     'public.process_court_routine_reminders()'];
 begin
@@ -261,8 +284,10 @@ begin
     (select count(*) = 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = 'send_on_my_way')
     and to_regprocedure('public.send_on_my_way(text,integer,uuid[])') is null);
-  perform pg_temp.ok('P1 court_plans.kind: every row before this file reads routine',
-    not exists (select 1 from public.court_plans where kind <> 'routine'));
+  -- Any player's rows: a routine occurrence always reads routine (one-off
+  -- plans real players made since this file went live are fine).
+  perform pg_temp.ok('P1 court_plans.kind: every routine occurrence reads routine',
+    not exists (select 1 from public.court_plans where routine_id is not null and kind <> 'routine'));
   perform pg_temp.ok('P1 a once row can''t carry a routine (court_plans_kind_chk)',
     pg_temp.err($q$insert into public.court_plans (user_id, venue_id, planned_at, planned_end_at, kind, routine_date)
                    values ('a9100000-0000-4000-8000-000000000001', 'test:op-away', now(), now() + interval '1 hour',
@@ -304,7 +329,8 @@ begin
       e ->> 'state' = '42501', e::text);
   end loop;
   perform pg_temp.as_admin();
-  perform pg_temp.ok('P2 nothing planned by any of it', not exists (select 1 from public.court_plans where kind = 'once'));
+  perform pg_temp.ok('P2 nothing planned by any of it',
+    not exists (select 1 from public.court_plans where kind = 'once' and user_id in (select id from _p)));
 end $$;
 
 
@@ -870,6 +896,203 @@ begin
   perform public._purge_account(pg_temp.p('PD'));
   perform pg_temp.ok('P15 a deleted account leaves no plan behind',
     not exists (select 1 from public.court_plans where user_id = pg_temp.p('PD')));
+end $$;
+
+
+-- ════ P16 a routine stop not made yet holds its time ═══════════════════
+-- The materializer makes yesterday to tomorrow only; a one-off plan days
+-- ahead at a routine's time would otherwise take that day from it.
+do $$
+declare
+  e      jsonb;
+  v_stop timestamptz;
+  v_once uuid;
+  v_rid  uuid;
+begin
+  perform pg_temp.as_user(pg_temp.p('PR3'));
+  perform public.save_court_routine(null, 'test:op-r3', ((now() at time zone 'UTC') + interval '10 minutes')::time,
+                                    127, 'UTC', 120, null);
+  perform pg_temp.as_admin();
+  select id into v_rid from public.court_routines where user_id = pg_temp.p('PR3');
+  -- Its stop 4 days from now (every day, UTC, to the minute): not made yet.
+  v_stop := date_trunc('minute', now() + interval '10 minutes') + interval '4 days';
+  perform pg_temp.ok('P16 the routine has no stop 4 days ahead yet',
+    not exists (select 1 from public.court_plans where user_id = pg_temp.p('PR3') and planned_at = v_stop));
+  e := pg_temp.err_as('PR3', format('select public.plan_court_checkin(%L, %L)', 'test:op-r3', v_stop + interval '10 minutes'));
+  perform pg_temp.ok('P16 a one-off 10 minutes from that stop: pl:visit.taken, the routine''s, naming the court and that day',
+    e ->> 'hint' = 'pl:visit.taken'
+    and e ->> 'msg' like 'Your routine already has you at OP Test Routine 3 at % that day. Pick another time.'
+    and ((e ->> 'detail')::jsonb ->> 'routine')::boolean
+    and ((e ->> 'detail')::jsonb ->> 'planned_at')::timestamptz = v_stop
+    and (e ->> 'detail')::jsonb -> 'plan_id' = 'null'::jsonb, e::text);
+  e := pg_temp.err_as('PR3', format('select public.plan_court_checkin(%L, %L)', 'test:op-r3', v_stop - interval '30 minutes'));
+  perform pg_temp.ok('P16 30 minutes before it: refused too', e ->> 'hint' = 'pl:visit.taken', e::text);
+  perform pg_temp.plan('PR3', 'test:op-r3', v_stop + interval '45 minutes');
+  select id into v_once from public.court_plans where user_id = pg_temp.p('PR3') and kind = 'once';
+  perform pg_temp.ok('P16 45 minutes from it is fine', v_once is not null);
+  e := pg_temp.err_as('PR3', format('select public.move_court_plan(%L, %L)', v_once, v_stop - interval '5 minutes'));
+  perform pg_temp.ok('P16 moving a one-off onto that stop: pl:visit.taken, not moved',
+    e ->> 'hint' = 'pl:visit.taken' and ((e ->> 'detail')::jsonb ->> 'routine')::boolean
+    and (select planned_at from public.court_plans where id = v_once) = v_stop + interval '45 minutes', e::text);
+  perform pg_temp.plan('PR3', 'test:op-routine', v_stop);
+  perform pg_temp.ok('P16 the same time at another court is fine',
+    exists (select 1 from public.court_plans where user_id = pg_temp.p('PR3') and venue_id = 'test:op-routine'));
+  -- A paused routine makes no stop, so it holds nothing.
+  perform pg_temp.as_user(pg_temp.p('PR3'));
+  perform public.set_court_routine_active(v_rid, false);
+  perform pg_temp.as_admin();
+  perform pg_temp.plan('PR3', 'test:op-r3', v_stop + interval '10 minutes');
+  perform pg_temp.ok('P16 with the routine paused, that time is free',
+    exists (select 1 from public.court_plans where user_id = pg_temp.p('PR3') and kind = 'once'
+              and planned_at = v_stop + interval '10 minutes'));
+end $$;
+
+
+-- ════ P17 Undo skip / Change today's time next to a one-off ═════════════
+do $$
+declare
+  occ    public.court_plans;
+  e      jsonb;
+  v_once uuid;
+  v_to   timestamptz;
+begin
+  -- PR4: today's stop skipped, a one-off 3 minutes after it, then Undo skip.
+  perform pg_temp.as_user(pg_temp.p('PR4'));
+  perform public.save_court_routine(null, 'test:op-r4', ((now() at time zone 'UTC') + interval '20 minutes')::time,
+                                    127, 'UTC', 120, null);
+  perform pg_temp.as_admin();
+  select * into occ from public.court_plans where user_id = pg_temp.p('PR4') and kind = 'routine' order by planned_at limit 1;
+  perform pg_temp.as_user(pg_temp.p('PR4'));
+  perform public.skip_court_routine_occurrence(occ.id);
+  perform pg_temp.as_admin();
+  perform pg_temp.plan('PR4', 'test:op-r4', occ.planned_at + interval '3 minutes');
+  select id into v_once from public.court_plans where user_id = pg_temp.p('PR4') and kind = 'once';
+  perform pg_temp.ok('P17 a one-off 3 minutes from a skipped stop is fine (a skipped stop holds nothing)', v_once is not null);
+  e := pg_temp.err_as('PR4', format('select public.unskip_court_routine_occurrence(%L)', occ.id));
+  perform pg_temp.ok('P17 Undo skip next to it: pl:plan.taken, naming the court, still skipped',
+    e ->> 'hint' = 'pl:plan.taken'
+    and e ->> 'msg' like 'You already plan to check in at OP Test Routine 4 at %. Cancel that check-in first, then undo the skip.'
+    and (e ->> 'detail')::jsonb ->> 'plan_id' = v_once::text
+    and (select status from public.court_plans where id = occ.id) = 'cancelled', e::text);
+  perform pg_temp.as_user(pg_temp.p('PR4'));
+  perform public.cancel_court_plan(v_once);
+  perform public.unskip_court_routine_occurrence(occ.id);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('P17 with the one-off cancelled, Undo skip works',
+    (select status from public.court_plans where id = occ.id) = 'planned');
+  -- Undo skip on a stop that isn't skipped: still fine (as before).
+  perform pg_temp.as_user(pg_temp.p('PR4'));
+  perform public.unskip_court_routine_occurrence(occ.id);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('P17 Undo skip on a planned stop changes nothing',
+    (select status from public.court_plans where id = occ.id) = 'planned');
+
+  -- PR5: a one-off 35 minutes after today's stop, then the stop moved next to it.
+  perform pg_temp.as_user(pg_temp.p('PR5'));
+  perform public.save_court_routine(null, 'test:op-r5', ((now() at time zone 'UTC') + interval '40 minutes')::time,
+                                    127, 'UTC', 120, null);
+  perform pg_temp.as_admin();
+  select * into occ from public.court_plans where user_id = pg_temp.p('PR5') and kind = 'routine' order by planned_at limit 1;
+  perform pg_temp.plan('PR5', 'test:op-r5', occ.planned_at + interval '35 minutes');
+  select id into v_once from public.court_plans where user_id = pg_temp.p('PR5') and kind = 'once';
+  perform pg_temp.ok('P17 a one-off 35 minutes after a stop is fine', v_once is not null);
+  v_to := occ.planned_at + interval '30 minutes';
+  e := pg_temp.err_as('PR5', format('select public.move_court_routine_occurrence(%L, %L)', occ.id, v_to));
+  perform pg_temp.ok('P17 Change today''s time to 5 minutes from the one-off: pl:plan.taken, not moved',
+    ((e ->> 'hint' = 'pl:plan.taken'
+      and e ->> 'msg' like 'You already plan to check in at OP Test Routine 5 at %. Pick another time.'
+      and (e ->> 'detail')::jsonb ->> 'plan_id' = v_once::text)
+     -- (Past UTC midnight the same-day rule answers first.)
+     or ((v_to at time zone 'UTC')::date <> occ.routine_date and e ->> 'hint' = 'pl:plan.bad_time'))
+    and (select planned_at from public.court_plans where id = occ.id) = occ.planned_at, e::text);
+  v_to := occ.planned_at + interval '4 minutes';
+  e := pg_temp.err_as('PR5', format('select public.move_court_routine_occurrence(%L, %L)', occ.id, v_to));
+  perform pg_temp.ok('P17 to 31 minutes from it: moved',
+    (e is null and (select planned_at from public.court_plans where id = occ.id) = v_to)
+    or ((v_to at time zone 'UTC')::date <> occ.routine_date and e ->> 'hint' = 'pl:plan.bad_time'), coalesce(e::text, ''));
+end $$;
+
+
+-- ════ P18 "I'm here" at most 3 other courts per 30 minutes ═════════════
+do $$
+declare
+  v jsonb;
+begin
+  perform pg_temp.checkin('SL', 'test:op-cap', pg_temp.i('SL'));
+  -- Told friends at three other courts in the last 30 minutes.
+  insert into public.pl_throttle (scope, kind, key, last_at) values
+    (pg_temp.p('SL')::text, 'on_my_way_here', 'test:op-c1', now() - interval '5 minutes'),
+    (pg_temp.p('SL')::text, 'on_my_way_here', 'test:op-c2', now() - interval '10 minutes'),
+    (pg_temp.p('SL')::text, 'on_my_way_here', 'test:op-c3', now() - interval '20 minutes');
+  v := pg_temp.send('SL', 'test:op-cap', null, array['FL'], true);
+  perform pg_temp.ok('P18 a 4th court within 30 minutes: reason limit, retry_at when the third of them ages out; nothing sent, no window spent',
+    (v ->> 'sent')::boolean = false and v ->> 'reason' = 'limit' and (v ->> 'here')::boolean
+    and (v ->> 'retry_at')::timestamptz = now() + interval '10 minutes'
+    and pg_temp.pushed('SL', true) = ''
+    and not exists (select 1 from public.pl_throttle where scope = pg_temp.p('SL')::text
+                      and kind in ('on_my_way_here', 'on_my_way_here_to') and key like 'test:op-cap%'), v::text);
+  update public.pl_throttle set last_at = now() - interval '31 minutes'
+   where scope = pg_temp.p('SL')::text and key = 'test:op-c3';
+  v := pg_temp.send('SL', 'test:op-cap', null, array['FL'], true);
+  perform pg_temp.ok('P18 two other courts in 30 minutes: sent', (v ->> 'sent')::boolean and (v ->> 'count')::int = 1
+    and pg_temp.pushed('SL', true) = 'FL', v::text);
+end $$;
+
+
+-- ════ P19 "I'm here" is presence: paused, check-ins hidden, blocked ════
+do $$
+declare
+  v jsonb;
+begin
+  perform pg_temp.checkin('SP', 'test:op-pause', pg_temp.i('SP'));
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP', 'FB'], true);
+  perform pg_temp.ok('P19 a friend I blocked is never told: FP only',
+    (v ->> 'sent')::boolean and (v ->> 'count')::int = 1 and pg_temp.pushed('SP', true) = 'FP', v::text);
+
+  update public.pl_throttle set last_at = last_at - interval '31 minutes'
+   where scope = pg_temp.p('SP')::text and kind in ('on_my_way_here', 'on_my_way_here_to');
+  update public.presence_settings set paused_until = now() + interval '1 hour' where user_id = pg_temp.p('SP');
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP'], true);
+  perform pg_temp.ok('P19 paused: nobody is told, no window spent',
+    (v ->> 'sent')::boolean = false and v ->> 'reason' = 'nobody' and (v ->> 'here')::boolean
+    and (select count(*) from public.push_outbox o where o.recipient_id = pg_temp.p('FP')
+           and o.push_data ->> 'sender_id' = pg_temp.p('SP')::text and (o.push_data ->> 'here')::boolean) = 1
+    and (select last_at from public.pl_throttle where scope = pg_temp.p('SP')::text and kind = 'on_my_way_here'
+           and key = 'test:op-pause') < now() - interval '30 minutes', v::text);
+  v := pg_temp.send('SP', 'test:op-pause', 10, array['FP'], false);
+  perform pg_temp.ok('P19 an "on my way" while paused still goes (an ETA, not presence)',
+    (v ->> 'sent')::boolean and (v ->> 'count')::int = 1, v::text);
+
+  update public.presence_settings set paused_until = null, checkins_level = 'hidden' where user_id = pg_temp.p('SP');
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP'], true);
+  perform pg_temp.ok('P19 check-ins hidden: nobody is told', v ->> 'reason' = 'nobody', v::text);
+  update public.presence_settings set checkins_level = 'friends' where user_id = pg_temp.p('SP');
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP'], true);
+  perform pg_temp.ok('P19 check-ins shown to friends again: told', (v ->> 'sent')::boolean and (v ->> 'count')::int = 1, v::text);
+
+  -- Not here: a check-in that isn't location-confirmed, or was taken back.
+  update public.pl_throttle set last_at = last_at - interval '31 minutes'
+   where scope = pg_temp.p('SP')::text and kind in ('on_my_way_here', 'on_my_way_here_to');
+  update public.venue_checkins set location_confirmed = false where id = pg_temp.i('SP');
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP'], true);
+  perform pg_temp.ok('P19 a check-in not location-confirmed: not_here', v ->> 'reason' = 'not_here', v::text);
+  update public.venue_checkins set location_confirmed = true, taken_back_at = now() where id = pg_temp.i('SP');
+  v := pg_temp.send('SP', 'test:op-pause', null, array['FP'], true);
+  perform pg_temp.ok('P19 a check-in taken back: not_here', v ->> 'reason' = 'not_here', v::text);
+end $$;
+
+
+-- ════ P20 taking an arrival back un-keeps its one-off plan ══════════════
+do $$
+declare
+  v_plan uuid;
+begin
+  select plan_id into v_plan from public.venue_checkins where id = pg_temp.i('PV');
+  perform public._pl_take_back_arrival(pg_temp.p('PV'), array[pg_temp.i('PV')], now());
+  perform pg_temp.ok('P20 the plan PV''s arrival kept (P9) is planned again, with no check-in',
+    v_plan is not null
+    and (select status from public.court_plans where id = v_plan) = 'planned'
+    and (select checkin_id from public.court_plans where id = v_plan) is null);
 end $$;
 
 

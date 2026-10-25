@@ -24,11 +24,16 @@
 --       (Pickleague's cap; Doggle has none). Refused within 30 minutes of
 --       another planned check-in of mine at that court, a routine stop
 --       included (Doggle refuses the same time; 30 minutes is the window a
---       check-in keeps a plan in, so two would compete for one check-in).
+--       check-in keeps a plan in, so two would compete for one check-in),
+--       and within 30 minutes of a routine stop not made yet (more than a
+--       day ahead: _pl_routine_time_near), which the plan would otherwise
+--       quietly take that day (the materializer skips a day with a plan
+--       near), losing the stop's arrival override and its Skip.
 --   move_court_plan(p_plan_id, p_at)    my planned one-off, still in play
 --       (its time no more than 30 minutes ago): a new time from a minute
 --       ago (Doggle 0429) to 60 days ahead, end and windows moving with it,
---       its unsent reminder dropped (it re-arms for the new time).
+--       its unsent reminder dropped (it re-arms for the new time). The same
+--       30-minute refusals as plan_court_checkin.
 --   cancel_court_plan(p_plan_id)        my planned one-off (any time, as
 --       Doggle): status 'cancelled', its unsent reminder dropped.
 --   list_my_court_plans()               my one-off plans still in play
@@ -56,9 +61,12 @@
 -- Reminder: the same path as a routine stop's (process_court_routine_
 -- reminders, pg_cron */5, 10 minutes before to 15 after, once per time, not
 -- when already checked in there or playing), push_data.kind 'plan_reminder'
--- (a tap opens Home: send-push gives an unknown kind no buttons, so the
--- routine reminder's Skip today never meets a one-off plan). Doggle sends its
--- own "Visit starting soon" 30 minutes ahead; the task said one path.
+-- (send-push gives an unknown kind no buttons, so the routine reminder's
+-- Skip today never meets a one-off plan; a tap opens the court's page in
+-- this build, lib/pushLinks linkOf, as Doggle's opens the place, and Home in
+-- older ones). Category notifyAutoCheckins, as a routine stop's (Settings
+-- says "before a check-in you planned" under Auto check-ins). Doggle sends
+-- its own "Visit starting soon" 30 minutes ahead; the task said one path.
 --
 -- Who sees a one-off plan: only its owner, as a routine stop (court_plans
 -- stays owner-only; no read of anyone else's occurrences exists). Friends
@@ -90,10 +98,13 @@
 --     follows (Doggle 0441): one send per court per 30 minutes
 --     (pl_throttle kind 'on_my_way_here', key the court) and one push per
 --     friend per court per 30 minutes ('on_my_way_here_to', key
---     '<court>|<friend>'; Doggle's 'here:<site>|<friend>'). Pickleague's
---     check-in holds one court at a time, so Doggle's "3 parks per 30
---     minutes" cap has nothing to add;
---   * never to a friend I hid my presence from (presence_hidden_from):
+--     '<court>|<friend>'; Doggle's 'here:<site>|<friend>'), and at most 3
+--     OTHER courts per 30 minutes (Doggle 0451's cap: check-ins one after
+--     another would otherwise push one friend once per court): reason
+--     'limit' with retry_at, nothing sent, no window spent;
+--   * only to a friend who may see my check-ins by name right now
+--     (_pl_can_see_presence 'checkins' = 'named'): never one I hid my
+--     presence from, nobody while I'm paused or my check-ins are hidden.
 --     "I'm here" is presence. Left out, not counted (Pickleague's rule on top
 --     of Doggle's);
 --   * the push: "<Name> is at <Court>" / "Checked in just now. Tap to see
@@ -103,24 +114,28 @@
 --     here: true, so every build's tap opens the court; it expires in 30
 --     minutes.
 --   The answer gains here: true (only then), eta_minutes null, and the
---   reason 'not_here'.
+--   reasons 'not_here' and 'limit'.
 --
 -- ── Replaced (each copied from the LATEST file that defines it; live bodies
 -- checked equal to those files, read-only, 2026-10-24) ────────────────────
 --   send_on_my_way              (migration_on_my_way.sql) 3 args -> 4 (p_here)
 --   _pl_court_arrival_off       (migration_court_routines.sql) routine stops only
 --   process_court_routine_reminders (migration_court_routines.sql) + one-off plans
+--   unskip_court_routine_occurrence (migration_court_routines.sql) refused next
+--                               to another plan of mine there (pl:plan.taken)
+--   move_court_routine_occurrence   (migration_court_routines.sql) the same
 -- New client RPCs (granted to authenticated, in the hardening allowlist):
 --   plan_court_checkin, move_court_plan, cancel_court_plan, list_my_court_plans
 -- New internal helpers (execute revoked from public, anon, authenticated):
---   _pl_plan_near, _pl_routine_stop_due
--- supabase/tests/check-replaced-functions.mjs has the three.
+--   _pl_plan_near, _pl_routine_stop_due, _pl_routine_time_near
+-- supabase/tests/check-replaced-functions.mjs has the five.
 --
 -- APPLY ORDER: after migration_on_my_way.sql, migration_court_routines.sql,
 -- migration_court_routines_planned_end.sql and migration_checkin_starts_
 -- session.sql (all live). RE-APPLY after any re-run of
--- migration_court_routines.sql (it puts the old _pl_court_arrival_off and
--- process_court_routine_reminders back) or of migration_on_my_way.sql (its
+-- migration_court_routines.sql (it puts the old _pl_court_arrival_off,
+-- process_court_routine_reminders, unskip_court_routine_occurrence and
+-- move_court_routine_occurrence back) or of migration_on_my_way.sql (its
 -- first block drops every other send_on_my_way, this one included, and makes
 -- the 3-argument one again). The test builders do. Re-runnable; no
 -- begin/commit.
@@ -194,6 +209,40 @@ as $$
 $$;
 revoke all on function public._pl_routine_stop_due(uuid, text, timestamptz) from public, anon, authenticated;
 
+-- A routine stop of mine at this court that WILL be made within 30 minutes of
+-- p_at but isn't yet (the materializer makes only yesterday to tomorrow): an
+-- active routine at a court I still star, on that local day, its window not
+-- over, no occurrence row for that day yet (a made one, skipped, kept or
+-- moved, is _pl_plan_near's to judge). The nearest, with its zone; no row
+-- when none. Without it a one-off plan days ahead would quietly take that
+-- day from the routine: the materializer skips a day with a plan within 30
+-- minutes, so no routine stop, no arrival override, no Skip on the reminder.
+create or replace function public._pl_routine_time_near(p_uid uuid, p_venue text, p_at timestamptz)
+returns table (routine_id uuid, stop_at timestamptz, tz text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select cr.id, t.stop_at, cr.tz
+    from public.court_routines cr
+   cross join lateral (
+     select ((p_at at time zone cr.tz)::date + k) as day from generate_series(-1, 1) k) d
+   cross join lateral (select (d.day + cr.local_time) at time zone cr.tz as stop_at) t
+   where cr.user_id = p_uid and cr.active
+     and cr.venue_id in (select v.id from public.venues v
+                          where v.id = coalesce(public._pl_canonical_venue(p_venue), p_venue)
+                             or v.canonical_id = coalesce(public._pl_canonical_venue(p_venue), p_venue))
+     and public._pl_is_starred(cr.user_id, cr.venue_id)
+     and (cr.days & (1 << (extract(isodow from d.day)::int - 1))) <> 0
+     and t.stop_at between p_at - interval '30 minutes' and p_at + interval '30 minutes'
+     and t.stop_at > now() - interval '30 minutes'
+     and not exists (select 1 from public.court_plans x where x.routine_id = cr.id and x.routine_date = d.day)
+   order by abs(extract(epoch from (t.stop_at - p_at))), cr.id
+   limit 1;
+$$;
+revoke all on function public._pl_routine_time_near(uuid, text, timestamptz) from public, anon, authenticated;
+
 
 -- ── 3. Client RPCs ─────────────────────────────────────────────────────────
 
@@ -249,6 +298,7 @@ declare
   v_name   text;
   v_status text;
   v_near   public.court_plans;
+  v_rt     record;
   v_tz     text;
 begin
   if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
@@ -292,6 +342,15 @@ begin
       detail = jsonb_build_object('plan_id', v_near.id, 'planned_at', v_near.planned_at,
                                   'routine', v_near.kind = 'routine')::text;
   end if;
+  -- A routine stop not made yet (more than a day ahead) holds its time too.
+  select * into v_rt from public._pl_routine_time_near(v_me, v_venue, v_at);
+  if v_rt.routine_id is not null then
+    raise exception using
+      message = format('Your routine already has you at %s at %s that day. Pick another time.',
+                       coalesce(v_name, 'this court'), public._pl_clock(v_rt.stop_at, v_rt.tz)),
+      hint = 'pl:visit.taken',
+      detail = jsonb_build_object('plan_id', null, 'planned_at', v_rt.stop_at, 'routine', true)::text;
+  end if;
 
   insert into public.court_plans (user_id, venue_id, planned_at, planned_end_at, windows, status, kind)
   values (v_me, v_venue, v_at, v_at + make_interval(mins => v_len),
@@ -313,6 +372,7 @@ declare
   v_at   timestamptz := date_trunc('minute', p_at);
   v_pl   public.court_plans;
   v_near public.court_plans;
+  v_rt   record;
   v_by   interval;
   v_name text;
   v_tz   text;
@@ -344,6 +404,15 @@ begin
       hint = 'pl:visit.taken',
       detail = jsonb_build_object('plan_id', v_near.id, 'planned_at', v_near.planned_at,
                                   'routine', v_near.kind = 'routine')::text;
+  end if;
+  select * into v_rt from public._pl_routine_time_near(v_me, v_pl.venue_id, v_at);
+  if v_rt.routine_id is not null then
+    v_name := (select nullif(btrim(v.name), '') from public.venues v where v.id = v_pl.venue_id);
+    raise exception using
+      message = format('Your routine already has you at %s at %s that day. Pick another time.',
+                       coalesce(v_name, 'this court'), public._pl_clock(v_rt.stop_at, v_rt.tz)),
+      hint = 'pl:visit.taken',
+      detail = jsonb_build_object('plan_id', null, 'planned_at', v_rt.stop_at, 'routine', true)::text;
   end if;
   v_by := v_at - v_pl.planned_at;
   update public.court_plans
@@ -492,6 +561,110 @@ end $$;
 revoke all on function public.process_court_routine_reminders() from public, anon, authenticated;
 
 
+-- ── 5b. Replaced: a routine stop can't land next to a one-off plan ────────
+-- unskip_court_routine_occurrence and move_court_routine_occurrence: from
+-- migration_court_routines.sql (the latest). Changed: each takes the plans
+-- lock (plan_court_checkin's) and refuses with pl:plan.taken when another
+-- planned check-in of mine at that court (a one-off plan, usually) is within
+-- 30 minutes of the stop's time (_pl_plan_near), as plan_court_checkin
+-- refuses the other way round. Before, "Undo skip" or "Change today's time"
+-- could put a routine stop 3 minutes from a one-off plan: two plans, two
+-- reminders, one check-in to keep them. Same signatures, same answers.
+create or replace function public.unskip_court_routine_occurrence(p_plan_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_me   uuid := auth.uid();
+  v_pl   public.court_plans;
+  v_near public.court_plans;
+  v_name text;
+begin
+  if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
+  perform pg_advisory_xact_lock(hashtext('court_plans:' || v_me::text));
+  select * into v_pl from public.court_plans pl
+   where pl.id = p_plan_id and pl.user_id = v_me and pl.routine_id is not null
+     and pl.status in ('cancelled', 'planned') and pl.planned_at > now()
+   for update;
+  if v_pl.id is null then
+    raise exception using message = 'That routine check-in is already over, so it can''t be changed. Pull to refresh.', hint = 'pl:plan.gone';
+  end if;
+  if v_pl.status = 'cancelled' then
+    v_near := public._pl_plan_near(v_me, v_pl.venue_id, v_pl.planned_at, v_pl.id);
+    if v_near.id is not null then
+      v_name := (select nullif(btrim(v.name), '') from public.venues v where v.id = v_pl.venue_id);
+      raise exception using
+        message = format('You already plan to check in at %s at %s. Cancel that check-in first, then undo the skip.',
+                         coalesce(v_name, 'this court'),
+                         public._pl_clock(v_near.planned_at, coalesce((select cr.tz from public.court_routines cr where cr.id = v_pl.routine_id),
+                                                                      public._pickleague_tz_for(v_me)))),
+        hint = 'pl:plan.taken',
+        detail = jsonb_build_object('plan_id', v_near.id, 'planned_at', v_near.planned_at,
+                                    'routine', v_near.kind = 'routine')::text;
+    end if;
+  end if;
+  update public.court_plans
+     set status = 'planned', updated_at = now()
+   where id = v_pl.id;
+  return public.list_my_court_routines();
+end $$;
+revoke all on function public.unskip_court_routine_occurrence(uuid) from public, anon;
+grant execute on function public.unskip_court_routine_occurrence(uuid) to authenticated;
+
+create or replace function public.move_court_routine_occurrence(p_plan_id uuid, p_at timestamptz)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_me   uuid := auth.uid();
+  v_pl   record;
+  v_at   timestamptz := date_trunc('minute', p_at);
+  v_by   interval;
+  v_near public.court_plans;
+  v_name text;
+begin
+  if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
+  perform pg_advisory_xact_lock(hashtext('court_plans:' || v_me::text));
+  select pl.id, pl.venue_id, pl.planned_at, pl.routine_date, pl.status, coalesce(cr.tz, public._pickleague_tz_for(v_me)) as tz
+    into v_pl
+    from public.court_plans pl
+    left join public.court_routines cr on cr.id = pl.routine_id
+   where pl.id = p_plan_id and pl.user_id = v_me and pl.routine_id is not null
+   for update of pl;
+  if not found or v_pl.status <> 'planned' or v_pl.planned_at <= now() - interval '30 minutes' then
+    raise exception using message = 'That routine check-in is already over, so it can''t be changed. Pull to refresh.', hint = 'pl:plan.gone';
+  end if;
+  if v_at is null or v_at <= now() or (v_at at time zone v_pl.tz)::date <> v_pl.routine_date then
+    raise exception using message = 'Pick a later time on the same day.', hint = 'pl:plan.bad_time';
+  end if;
+  v_near := public._pl_plan_near(v_me, v_pl.venue_id, v_at, p_plan_id);
+  if v_near.id is not null then
+    v_name := (select nullif(btrim(v.name), '') from public.venues v where v.id = v_pl.venue_id);
+    raise exception using
+      message = format('You already plan to check in at %s at %s. Pick another time.',
+                       coalesce(v_name, 'this court'), public._pl_clock(v_near.planned_at, v_pl.tz)),
+      hint = 'pl:plan.taken',
+      detail = jsonb_build_object('plan_id', v_near.id, 'planned_at', v_near.planned_at,
+                                  'routine', v_near.kind = 'routine')::text;
+  end if;
+  v_by := v_at - v_pl.planned_at;
+  update public.court_plans
+     set planned_at = v_at, planned_end_at = planned_end_at + v_by,
+         windows = public._pl_shift_windows(windows, v_by), updated_at = now()
+   where id = p_plan_id;
+  delete from public.push_outbox o
+   where o.recipient_id = v_me and o.notification_id is null and o.status in ('pending', 'failed')
+     and o.push_data ->> 'kind' = 'routine_reminder' and o.push_data ->> 'plan_id' = p_plan_id::text;
+  return public.list_my_court_routines();
+end $$;
+revoke all on function public.move_court_routine_occurrence(uuid, timestamptz) from public, anon;
+grant execute on function public.move_court_routine_occurrence(uuid, timestamptz) to authenticated;
+
+
 -- ── 6. Replaced: send_on_my_way gains p_here ──────────────────────────────
 -- From migration_on_my_way.sql (its only definition), every on-my-way rule
 -- unchanged; p_here as in the header (B). The old 3-argument function goes
@@ -621,8 +794,10 @@ begin
                    or (f.addressee_id = v_me and f.requester_id = y.id)))
          and public._pl_friendable(y.id)
          and not public._pl_blocked_pair(v_me, y.id)
-         and not (v_here and exists (select 1 from public.presence_hidden_from h
-                                      where h.user_id = v_me and h.hidden_user_id = y.id))
+         -- I'm here is presence: only a friend who may see my check-ins by
+         -- name now (not one I hid from, not while I'm paused or my
+         -- check-ins are hidden).
+         and not (v_here and public._pl_can_see_presence(y.id, v_me, 'checkins') <> 'named')
     ) x;
   v_total := cardinality(v_ids);
 
@@ -645,6 +820,20 @@ begin
       else jsonb_build_object('sent', false, 'count', 0, 'reason', 'recent',
              'eta_minutes', v_eta, 'venue_id', v_venue, 'venue_name', v_court,
              'sent_at', v_last, 'retry_at', v_last + v_window) end;
+  end if;
+
+  -- I'm here: at most 3 other courts per 30 minutes (Doggle 0451), so
+  -- checking in court after court can't push one friend again and again
+  -- (the per-friend window is per court). No window spent.
+  if v_here and (select count(*) from public.pl_throttle t
+                  where t.scope = v_me::text and t.kind = 'on_my_way_here' and t.key <> v_venue
+                    and t.last_at > now() - v_window) >= 3 then
+    return jsonb_build_object('sent', false, 'count', 0, 'reason', 'limit', 'here', true,
+      'eta_minutes', null, 'venue_id', v_venue, 'venue_name', v_court,
+      'retry_at', (select t.last_at + v_window from public.pl_throttle t
+                    where t.scope = v_me::text and t.kind = 'on_my_way_here' and t.key <> v_venue
+                      and t.last_at > now() - v_window
+                    order by t.last_at desc offset 2 limit 1));
   end if;
 
   -- Every friend picked was told in the last 30 minutes.

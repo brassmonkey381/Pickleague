@@ -44,8 +44,9 @@ export function etaLabel(minutes: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
-/** 'not_here': an "I'm here" (p_here) while not checked in at that court. */
-export type OnMyWayReason = 'recent' | 'recent_friends' | 'nobody' | 'not_here';
+/** 'not_here': an "I'm here" (p_here) while not checked in at that court.
+ *  'limit': an "I'm here" after telling friends about 3 other courts in 30 minutes. */
+export type OnMyWayReason = 'recent' | 'recent_friends' | 'nobody' | 'not_here' | 'limit';
 
 export type OnMyWayResult = {
   sent: boolean;
@@ -61,7 +62,7 @@ export type OnMyWayResult = {
   venueName: string | null;
   /** The send (sent), or the last send at this court ('recent'), by the server's clock. */
   sentAt: string | null;
-  /** When another send can go out ('recent', 'recent_friends'). */
+  /** When another send can go out ('recent', 'recent_friends', 'limit'). */
   retryAt: string | null;
 };
 
@@ -73,7 +74,9 @@ export function normalizeOnMyWayResult(raw: unknown, etaSent: number): OnMyWayRe
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const sent = r.sent === true;
   const reason =
-    r.reason === 'recent' || r.reason === 'recent_friends' || r.reason === 'nobody' || r.reason === 'not_here' ? r.reason : null;
+    r.reason === 'recent' || r.reason === 'recent_friends' || r.reason === 'nobody' || r.reason === 'not_here' || r.reason === 'limit'
+      ? r.reason
+      : null;
   return {
     sent,
     here: r.here === true,
@@ -163,6 +166,12 @@ function hereMessage(
   switch (res.reason) {
     case 'not_here':
       return `You're not checked in at ${court}, so nobody was told. Check in there, then tell your friends.`;
+    case 'limit': {
+      const next = at(res.retryAt);
+      return `You told friends you were at 3 other courts in the last 30 minutes, so nobody was told about ${court}. ${
+        next ? `You can send another after ${next}.` : 'You can send another in 30 minutes.'
+      }`;
+    }
     case 'recent': {
       const ago = agoLabel(res.sentAt, nowMs);
       const next = at(res.retryAt);
@@ -180,7 +189,7 @@ function hereMessage(
     default:
       return picked === false
         ? "You don't have any friends to tell yet. Add friends from a player's profile, then try again."
-        : "None of the friends you picked could be told: they're no longer on your friends list, or you hid your check-ins from them. Pick other friends.";
+        : "None of the friends you picked could be told: they're no longer on your friends list, or they can't see your check-ins right now (you hid them or paused). Pick other friends.";
   }
 }
 

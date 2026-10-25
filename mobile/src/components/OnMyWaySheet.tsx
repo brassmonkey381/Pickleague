@@ -25,7 +25,10 @@
 // "Tell friends you're at Lakeside", no ETA, the button "Tell 3 friends
 // you're here"; the push reads "<Name> is at <Court>" (send_on_my_way
 // p_here, migration_court_oneoff_plans.sql: only while checked in there, its
-// own 30-minute windows, never to a friend I hid my check-ins from).
+// own 30-minute windows, at most 3 other courts per 30 minutes, only to
+// friends who can see my check-ins now: not one I hid them from, nobody
+// while I'm paused). Every friend starts ticked here too: Pickleague's On my
+// way default (all friends), not Doggle's friends-at-the-park.
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -160,8 +163,8 @@ export default function OnMyWaySheet({ target, onClose }: { target: OnMyWayTarge
         toast.info(msg);
       }
       // "Pick other friends": keep the sheet up so they can. Not checked in
-      // there: nothing this sheet can change.
-      if (res.sent || res.reason === 'recent' || res.reason === 'not_here') {
+      // there, or 3 other courts told in 30 minutes: nothing this sheet can change.
+      if (res.sent || res.reason === 'recent' || res.reason === 'not_here' || res.reason === 'limit') {
         if (current.current === sentFor) onClose();
       }
     } catch (e) {

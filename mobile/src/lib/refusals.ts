@@ -73,6 +73,8 @@ export const REFUSAL_CODES = [
   'plan.gone',
   'plan.bad_time',
   'plan.bad_end',
+  // migration_court_oneoff_plans.sql: Undo skip / Change today's time next to another plan there.
+  'plan.taken',
   // migration_profiles_column_guard.sql: a profile column only the server writes.
   'profile.server_owned',
   // migration_on_my_way.sql: send_on_my_way.
@@ -376,6 +378,11 @@ export function refusalCopy(
       return 'Pick a later time on the same day.';
     case 'plan.bad_end':
       return 'Pick an end time later than now.';
+    case 'plan.taken': {
+      // DETAIL {plan_id, planned_at, routine}: the other plan there, a one-off usually.
+      const when = dateOf(detail.planned_at);
+      return `You already plan to check in at ${court ?? 'this court'}${when ? ` at ${at(when)}` : ''}. Pick another time, or cancel that check-in first.`;
+    }
     case 'profile.server_owned':
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";

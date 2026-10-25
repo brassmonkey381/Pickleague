@@ -67,6 +67,16 @@ describe('linkOf', () => {
     // a kind on another entity: leave it alone
     expect(linkOf({ deepLink: 'shop/-', kind: 'drill_chat' })).toBe('shop/-');
   });
+
+  it("a planned check-in's reminder opens its court (Doggle's opens the place); a routine stop's stays on Home", () => {
+    const reminder = { deepLink: 'home/-', kind: 'plan_reminder', plan_id: 'p1', venue_id: 'osm:way/123' };
+    expect(linkOf(reminder)).toBe('court/osm:way/123');
+    expect(route(linkOf({ deepLink: 'home/-', kind: 'plan_reminder', venue_id: 'ven-1' }))).toEqual(
+      pushRoutes({ wagersEnabled: false })['court/']('ven-1', ''),
+    );
+    expect(linkOf({ deepLink: 'home/-', kind: 'plan_reminder' })).toBe('home/-');
+    expect(linkOf({ deepLink: 'home/-', kind: 'routine_reminder', venue_id: 'ven-1' })).toBe('home/-');
+  });
 });
 
 describe('routes', () => {

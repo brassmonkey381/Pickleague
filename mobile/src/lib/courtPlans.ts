@@ -8,8 +8,11 @@
 //   Check in ▾ > Plan a check-in for later   today's slots, from the next
 //                                            quarter hour to 11:45 PM
 //   Tomorrow's Plan ▾                        tomorrow, 6 AM to 11:45 PM
-//   The court page's Plan a check-in         any day and time (AppDateTimePicker)
-//   A plan's line > Change time              its day, from the next quarter hour
+//   The court page's Plan a check-in         any day and time (a sheet naming the
+//                                            court, DateTimeField, [Plan check-in])
+//   A plan's line > Change time              the feed: its day, from the next
+//                                            quarter hour; the court page: any day
+//   The court page's "Your planned check-ins here": every plan there, any day
 //
 // PURE: no React Native, no Supabase. The vitest suite is
 // lib/__tests__/courtPlans.test.ts.
@@ -143,15 +146,28 @@ export function planTimeProblem(at: Date, nowMs: number): string | null {
   return null;
 }
 
-/** "5:30 PM" today, "tomorrow 5:30 PM", "Sat 5:30 PM", "Nov 2 5:30 PM". */
+/** "5:30 PM" today, "tomorrow at 5:30 PM", "Sat at 5:30 PM", "Nov 2 at 5:30 PM" (Doggle's toast words). */
 export function planWhen(atIso: string, nowMs: number): string {
   const d = new Date(Date.parse(atIso));
   const day = dayLabel(d, new Date(nowMs));
   if (day === 'Today') return shortTime(d);
-  return `${day === 'Tmrw' ? 'tomorrow' : day} ${shortTime(d)}`;
+  return `${day === 'Tmrw' ? 'tomorrow' : day} at ${shortTime(d)}`;
 }
 
-/** The toast after a plan (Doggle's words, no emoji): "Planned a check-in at Lakeside for 5:30 PM." */
+/** A plan's own row on the court's page: "Today at 5:30 PM", "Tomorrow at 9 AM", "Sat at 6 PM", "Nov 21 at 9 AM". */
+export function planDayTime(atIso: string, nowMs: number): string {
+  const d = new Date(Date.parse(atIso));
+  const day = dayLabel(d, new Date(nowMs));
+  return `${day === 'Tmrw' ? 'Tomorrow' : day} at ${shortTime(d)}`;
+}
+
+/** My plans at one court still to come or in play, in time order (the court
+ *  page lists them all, whatever the day: the feed shows only this week). */
+export function plansAtCourt(plans: readonly CourtPlan[], venueId: string, nowMs: number): CourtPlan[] {
+  return plans.filter((p) => p.venueId === venueId && planInPlay(p, nowMs));
+}
+
+/** The toast after a plan (Doggle's words, no emoji): "Planned a check-in at Lakeside for tomorrow at 5:30 PM." */
 export function plannedMessage(venueName: string, atIso: string, nowMs: number): string {
   return `Planned a check-in at ${venueName} for ${planWhen(atIso, nowMs)}.`;
 }
@@ -161,9 +177,19 @@ export function movedMessage(venueName: string, atIso: string, nowMs: number): s
   return `Moved your check-in at ${venueName} to ${planWhen(atIso, nowMs)}.`;
 }
 
-/** The toast after Cancel this visit. */
-export function cancelledMessage(venueName: string): string {
-  return `Cancelled your check-in at ${venueName}.`;
+/** The toast after Cancel this visit, naming the time (Doggle: "Cancelled your 5:30 PM visit to X."). */
+export function cancelledMessage(venueName: string, atIso: string, nowMs: number): string {
+  const d = new Date(Date.parse(atIso));
+  if (!Number.isFinite(d.getTime())) return `Cancelled your check-in at ${venueName}.`;
+  return dayLabel(d, new Date(nowMs)) === 'Today'
+    ? `Cancelled your ${shortTime(d)} check-in at ${venueName}.`
+    : `Cancelled your check-in at ${venueName} for ${planWhen(atIso, nowMs)}.`;
+}
+
+/** The slot pickers' empty line: nothing left today, or a search that matched nothing. */
+export function slotPickerEmptyText(day: 'today' | 'tomorrow', slotCount: number): string {
+  if (slotCount > 0) return 'No time matches. Try one like 5:30.';
+  return day === 'today' ? "No times left today. Plan another day from the court's page." : 'No times to pick.';
 }
 
 /** The pickers' titles (Doggle's). */

@@ -118,10 +118,14 @@ export function linkOf(data: Record<string, unknown> | null | undefined): string
   if (!data) return '';
   const type = str(data.entity_type);
   const base = str(data.deepLink) ?? (type ? `${type}/${str(data.entity_id) ?? NO_ID}` : '');
-  // "Sam is on the way to Lakeside" (migration_on_my_way.sql) carries
-  // home/-, which older bundles route to Home; this build opens the court.
+  // "Sam is on the way to Lakeside" / "Sam is at Lakeside" (migration_on_my_way.sql)
+  // and a planned check-in's reminder (plan_reminder, migration_court_oneoff_plans.sql,
+  // as Doggle's "Visit starting soon" opens the place) carry home/-, which
+  // older bundles route to Home; this build opens the court.
   const venue = str(data.venue_id);
-  if (data.kind === 'on_my_way' && venue && (base === '' || base.startsWith('home/'))) return `court/${venue}`;
+  if ((data.kind === 'on_my_way' || data.kind === 'plan_reminder') && venue && (base === '' || base.startsWith('home/'))) {
+    return `court/${venue}`;
+  }
   const k = KIND_LINKS[str(data.kind) ?? ''];
   if (k && base.startsWith(k.from) && has(base.slice(k.from.length))) return k.to + base.slice(k.from.length);
   return base;

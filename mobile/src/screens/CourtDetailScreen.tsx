@@ -19,16 +19,20 @@
 // "A simple 'Check In' button covers all the bases"; components/feed/
 // useCheckinOptions): Check in now, Check in and tell friends, On my way
 // (friends to tell; every friend starts ticked), Plan a check-in for later
-// (a day and a time: AppDateTimePicker, as Doggle's place page plans with a
-// DateTimeField), Make this a routine (a starred court). It shows
+// (a sheet naming the court, a day and a time, [Plan check-in]: Doggle's
+// place page's PLAN A VISIT), Make this a routine (a starred court). Under
+// the buttons, "Your planned check-ins here" lists every plan of mine at
+// this court, any day, with Change time and Cancel (components/court/
+// CourtPlansHere; the feed shows only this week's). It shows
 // even far from the court, as Doggle's does: a check-in from too far says
 // why, and the note under the buttons says to check in once there (no fix
 // within the fence + 150 m or the outline: lib/courtDiscovery
 // courtPrimaryAction). Check in now is this page's own flow
 // (lib/useCourtCheckIn), so its notes show here. Every check-in starts the
 // play session; the island switches its mode. Checked in here, the page
-// offers Check out (it ends the session too), the plan line and, at a
-// starred court, Make this a routine (Check in ▾ is gone then). An alias id
+// offers Check out (it ends the session too), the plan line, Plan a
+// check-in for later and, at a starred court, Make this a routine (Check in
+// ▾ is gone then). An alias id
 // opens its facility, and the URL moves to the facility's id. A court that
 // is gone says so (refusals 'view').
 //
@@ -65,7 +69,7 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { googleMapsKey, hasGoogleMaps, placeMapMode } from '../lib/maps';
-import { COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
+import { CHECKIN_PLANS_ENABLED, COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
 import {
   courtCrowdText,
   courtDistanceLabel,
@@ -83,6 +87,7 @@ import CrowdLine, { useOpenToPlay } from '../components/court/CrowdLine';
 import CheckinPlanLine from '../components/routines/CheckinPlanLine';
 import { useCourtFavoriteIds } from '../data/courtFavorites';
 import CourtCheckInNotes from '../components/court/CourtCheckInNotes';
+import CourtPlansHere from '../components/court/CourtPlansHere';
 import PlayersHereList from '../components/PlayersHereList';
 import ShareLinkButton from '../components/ShareLinkButton';
 import { useCheckinOptions } from '../components/feed/useCheckinOptions';
@@ -171,9 +176,11 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
   const primary = courtPrimaryAction(court, fix);
   const distance = fix ? courtDistanceLabel(metersBetween(fix, court)) : null;
 
+  // Settles once the check-in is done or refused ("Check in and tell
+  // friends" stops waiting then).
   const checkIn = useCallback(() => {
     track('courts.checkin_tap', { primary });
-    void flow.checkIn({ id: court.id, name: court.name });
+    return flow.checkIn({ id: court.id, name: court.name });
   }, [flow, court.id, court.name, primary]);
 
   // The one "Check in ▾" (the feed court card's): Check in now, Check in and
@@ -188,6 +195,9 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
     onTap: (option) => track('courts.checkin_option', { option, primary }),
   });
   const starred = starredIds.has(court.id);
+  const checkinCourt = { venueId: court.id, venueName: court.name, starred };
+  // A plan write for this court (the plan sheet, a plan's Change time or Cancel).
+  const planning = options.busy === 'plan' && options.planning === court.id;
   const directionsTo = Number.isFinite(court.lat) && Number.isFinite(court.lng) ? { lat: court.lat, lng: court.lng } : null;
 
   const facts: FactRow[] = [
@@ -250,11 +260,11 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
                   iconName="chevron-down"
                   iconPosition="trailing"
                   title="Check in"
-                  loading={flow.busy === 'checkin'}
-                  disabled={!!flow.busy}
+                  loading={flow.busy === 'checkin' || planning}
+                  disabled={!!flow.busy || options.busy != null}
                   onPress={() => {
                     track('courts.checkin_options', { primary });
-                    options.openCheckin({ venueId: court.id, venueName: court.name, starred });
+                    options.openCheckin(checkinCourt);
                   }}
                   accessibilityLabel={`Check in at ${court.name}: options`}
                 />
@@ -293,19 +303,39 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
         {courtCrowdText(crowdNow, { friendsEnabled: FRIENDS_AT_COURTS_ENABLED }) ? (
           <CrowdLine venueId={court.id} venueName={court.name} crowd={crowdNow} openNow={openNow} />
         ) : null}
-        {/* Checked in here, Check out takes Check in ▾'s place: its "Make
-            this a routine" stays a tap away (the likeliest moment to set one up). */}
-        {here && ROUTINES_ENABLED && starred ? (
-          <TextLink
-            label="Make this a routine"
-            iconName="calendar-event"
-            size="sub"
-            onPress={() => {
-              track('courts.checkin_option', { option: 'makeRoutine', primary });
-              navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } });
-            }}
-            accessibilityHint="Plan a weekly check-in at this court"
-          />
+        {/* My planned check-ins here, any day (the feed shows this week's). */}
+        <CourtPlansHere court={checkinCourt} here={here} options={options} onCheckIn={() => void checkIn()} />
+        {/* Checked in here, Check out takes Check in ▾'s place: its "Plan a
+            check-in for later" and "Make this a routine" stay a tap away
+            (Doggle's place page always has PLAN A VISIT). */}
+        {here && (CHECKIN_PLANS_ENABLED || (ROUTINES_ENABLED && starred)) ? (
+          <View style={S.links}>
+            {CHECKIN_PLANS_ENABLED ? (
+              <TextLink
+                label="Plan a check-in for later"
+                iconName="calendar-event"
+                size="sub"
+                disabled={options.busy != null}
+                onPress={() => {
+                  track('courts.checkin_option', { option: 'planLater', primary });
+                  options.openPlanLater(checkinCourt);
+                }}
+                accessibilityHint="Pick a day and a time to check in here"
+              />
+            ) : null}
+            {ROUTINES_ENABLED && starred ? (
+              <TextLink
+                label="Make this a routine"
+                iconName="calendar-event"
+                size="sub"
+                onPress={() => {
+                  track('courts.checkin_option', { option: 'makeRoutine', primary });
+                  navigation.navigate('Routines', { newVenue: { venueId: court.id, venueName: court.name } });
+                }}
+                accessibilityHint="Plan a weekly check-in at this court"
+              />
+            ) : null}
+          </View>
         ) : null}
       </Panel>
 
@@ -404,4 +434,5 @@ const S = StyleSheet.create({
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
   share: { alignSelf: 'center' },
   gapXs: { marginTop: SPACE.xs },
+  links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg },
 });

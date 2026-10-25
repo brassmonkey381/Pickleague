@@ -39,7 +39,9 @@ export type Prefs = {
   notifyFriendRequests:     boolean;
   /** Court arrival at starred courts: "Checked in at X", "Still at X?", "Not
    *  checked in at X", and "Checked out" when any check-in runs out (category
-   *  notifyAutoCheckins, migration_court_arrival_queue.sql). The server also
+   *  notifyAutoCheckins, migration_court_arrival_queue.sql), and the reminder
+   *  before a routine stop or a one-off planned check-in (migration_court_
+   *  routines.sql, migration_court_oneoff_plans.sql). The server also
    *  reads it to tell the phone whether it can push to it. */
   notifyAutoCheckins:       boolean;
   /** "Check in nearby?" (category notifyCheckinPrompts,

@@ -65,6 +65,7 @@ import {
   ROUTINES_ENABLED,
 } from '../../lib/features';
 import { explainRefusal } from '../../lib/refusalNotices';
+import { refusalCode } from '../../lib/refusals';
 import { cancelledMessage, movedMessage, moveSlots, planWhen } from '../../lib/courtPlans';
 import {
   MY_COURT_PLANS_KEY,
@@ -273,6 +274,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const checkin = useCheckinOptions({
     from: 'feed',
     planPicker: 'today',
+    // CheckinHost runs it (false: no host, the court's page opened instead).
     checkIn: (court) => checkInHere(court, null),
     openRoutines: (court) => openRoutines({ venueId: court.venueId, venueName: court.venueName }),
     onTap: (id) => tap(CHECKIN_TAP[id] ?? id),
@@ -367,10 +369,15 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // Check in at this court (CheckinHost; every check-in starts the play
   // session). With no host mounted (the bottom bar off), the court page has
   // the check-in. `target`: the home.tap target, null when the caller tapped it.
-  const checkInHere = (card: { venueId: string; venueName: string }, target: string | null = 'check_in') => {
+  // True when the host took it.
+  const checkInHere = (card: { venueId: string; venueName: string }, target: string | null = 'check_in'): boolean => {
     if (target) tap(target);
-    if (checkinHostOwnsNotes()) checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
-    else openCourt(card.venueId);
+    if (checkinHostOwnsNotes()) {
+      checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
+      return true;
+    }
+    openCourt(card.venueId);
+    return false;
   };
   const canOnMyWay = checkin.canOnMyWay;
 
@@ -412,6 +419,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       toast.success(done);
     } catch (e) {
       toast.error(explainRefusal(e, fail, { venueName, action: 'plan_checkin' }));
+      // Moved or cancelled on another device, or over: drop the dead line now.
+      if (refusalCode(e) === 'visit.gone') void plansQ.refresh();
     } finally {
       setBusyKey(null);
     }
@@ -486,7 +495,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
                     line.key,
                     card.venueName,
                     () => cancelCourtPlan(oneOff.planId),
-                    cancelledMessage(card.venueName),
+                    cancelledMessage(card.venueName, oneOff.at, now),
                     "Couldn't cancel that check-in. Try again.",
                   ),
               }
@@ -553,9 +562,11 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   }
 
   // My own line's Stay / Check out runs in the hook: its chip shows it.
-  const ownBusyKey = checkin.busy != null ? `mine|${checkin.current?.id ?? ''}` : null;
-  // What runs now, if anything: a line's action, my own line's, or the host's.
-  const running = busyKey ?? ownBusyKey ?? (hostBusy != null ? 'checkin-host' : null);
+  const ownBusyKey = checkin.busy === 'extend' || checkin.busy === 'out' ? `mine|${checkin.current?.id ?? ''}` : null;
+  // A plan from Check in ▾ or Plan ▾: that court's header control shows it.
+  const planBusyKey = checkin.busy === 'plan' ? 'plan' : null;
+  // What runs now, if anything: a line's action, my own line's, a plan, or the host's.
+  const running = busyKey ?? ownBusyKey ?? planBusyKey ?? (hostBusy != null ? 'checkin-host' : null);
   const courtCardActions: FeedCourtCardActions = {
     openCourt: (card) => { tap('court'); openCourt(card.venueId); },
     checkInOptions: (card) => { if (!running) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
@@ -563,7 +574,9 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     onMyWay: (card) => onMyWay(card),
     headerFacts: (card) => ({ canOnMyWay, onMyWaySent: sentOnMyWayRecently(card.venueId, now), canPlan: checkin.canPlan(card) }),
     headerState: (card, action) => {
-      const busy = action === 'checkIn' && hostBusy === 'checkin' && checkingInAt === card.venueId;
+      const busy =
+        (action === 'checkIn' && hostBusy === 'checkin' && checkingInAt === card.venueId) ||
+        (action !== 'onMyWay' && checkin.busy === 'plan' && checkin.planning === card.venueId);
       return { busy, disabled: running != null && !busy };
     },
     renderAgenda: (line, _card, day) => agendaRow(line, 0, day),

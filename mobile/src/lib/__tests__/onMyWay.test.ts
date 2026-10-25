@@ -300,7 +300,13 @@ describe('"Check in and tell friends" (p_here)', () => {
     expect(msg({ sent: false, reason: 'recent_friends', retry_at: new Date(T0 + 5 * 60_000).toISOString() })).toBe(
       "You told those friends you're at Lakeside less than 30 minutes ago, so they weren't told again. Pick other friends, or try again after 18:05.",
     );
-    expect(msg({ sent: false, reason: 'nobody' })).toContain('you hid your check-ins from them');
+    // The server leaves out a friend who can't see my check-ins now (hidden from, paused, hidden).
+    expect(msg({ sent: false, reason: 'nobody' })).toContain("they can't see your check-ins right now (you hid them or paused)");
+    // At most 3 other courts per 30 minutes (Doggle 0451).
+    expect(here({ sent: false, reason: 'limit' }).reason).toBe('limit');
+    expect(msg({ sent: false, reason: 'limit', retry_at: new Date(T0 + 10 * 60_000).toISOString() })).toBe(
+      'You told friends you were at 3 other courts in the last 30 minutes, so nobody was told about Lakeside. You can send another after 18:10.',
+    );
   });
 
   it('its button, and it never labels the card "On the way"', () => {
