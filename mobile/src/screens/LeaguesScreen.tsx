@@ -91,6 +91,7 @@ import { usePlayUserId } from '../components/play/usePlayUserId';
 import { fixtureLeagues, isFixtureId, usePlayFixtureOn } from '../lib/__dev__/playFixture';
 import { useSearchArea } from '../lib/useSearchArea';
 import { searchAreaKey, widerSearchRadius } from '../lib/searchArea';
+import { listLeaguePreviews, previewAsLeague, type LeaguePreview } from '../data/leaguePreview';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Leagues'>;
@@ -156,15 +157,29 @@ async function loadLeaguesData(): Promise<LeaguesData> {
   // league list either — it only ever needed the user id.
   const uid = await currentUserId(supabase);
 
-  const [leagueRows, adminLeagueCount] = await Promise.all([
+  const [tableRows, adminLeagueCount, previews] = await Promise.all([
     sbCall(() => supabase.from('leagues').select('*').eq('is_active', true).order('created_at', { ascending: false })),
     // Non-fatal on its own: countActiveAdminLeagues throws by design, but a
     // failed create-limit count must not blank the whole league list. The
     // screen keeps the last known count instead.
     uid ? countActiveAdminLeagues(uid).catch(() => null) : Promise.resolve(0),
+    // Closed leagues I'm not in: their rows are members-only
+    // (migration_closed_league_privacy.sql), so they come as previews (name,
+    // member count, activity, a point rounded to about a mile) and still list
+    // with "Request code". Soft: [] when signed out or before the RPC exists.
+    uid ? listLeaguePreviews() : Promise.resolve([] as LeaguePreview[]),
   ]);
 
-  const ids = (leagueRows ?? []).map((l) => l.id);
+  const seenIds = new Set((tableRows ?? []).map((l) => l.id as string));
+  const previewById = new Map(
+    previews.filter((p) => p.is_active && !seenIds.has(p.id)).map((p) => [p.id, p] as const),
+  );
+  const leagueRows = [
+    ...(tableRows ?? []),
+    ...Array.from(previewById.values()).map((p) => previewAsLeague(p, { withPoint: true })),
+  ];
+
+  const ids = leagueRows.map((l) => l.id);
   if (ids.length === 0) return { leagues: [], godmode: isGodmodeUserId(uid), activeAdminLeagueCount: adminLeagueCount };
 
   // All parallel fetches
@@ -237,7 +252,9 @@ async function loadLeaguesData(): Promise<LeaguesData> {
   }
   const nowMs = Date.now();
 
-  const leagues: PlayLeagueRow[] = (leagueRows ?? []).map((l) => {
+  const leagues: PlayLeagueRow[] = leagueRows.map((l) => {
+    // A preview's roster and matches are not readable: its counts come with it.
+    const preview    = previewById.get(l.id) ?? null;
     const members    = memberRows.filter((m) => m.league_id === l.id);
     const lMatches   = matchRows.filter((m) => m.league_id === l.id);
     const myMembership = myMembers.find((m: any) => m.league_id === l.id);
@@ -280,9 +297,9 @@ async function loadLeaguesData(): Promise<LeaguesData> {
     return {
       ...l,
       is_open: l.is_open ?? true,
-      memberCount: members.length,
-      matchCount: lMatches.length,
-      distinctPlayDays: distinctDays,
+      memberCount: preview ? preview.member_count : members.length,
+      matchCount: preview ? preview.match_count : lMatches.length,
+      distinctPlayDays: preview ? preview.play_days : distinctDays,
       myRole: myMembership?.role ?? null,
       hasRequested,
       activeSeasonCount: myActiveSeasonsOnly.length,
@@ -300,7 +317,7 @@ async function loadLeaguesData(): Promise<LeaguesData> {
       featuredSeasonLockWeeks: featuredSeason?.lock_frequency_weeks ?? null,
       featuredSeasonPeriods: featuredSeason?.total_periods ?? null,
       saved: savedIds.has(l.id),
-      recentMatchCount,
+      recentMatchCount: preview ? preview.recent_match_count : recentMatchCount,
     };
   });
 
