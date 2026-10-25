@@ -37,6 +37,7 @@
 // (components/home/LeagueSpotlight.tsx), so they never slow this payload.
 import { sbCall, currentUserId } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../../lib/supabase';
+import { listLeaguePreviews } from '../../data/leaguePreview';
 import { isoDate } from '../../lib/drillTime';
 import { FORMAT_META } from '../../lib/tournament';
 import { EVENT_LIVE_WINDOW_MS } from '../../lib/agenda';
@@ -458,6 +459,9 @@ export async function loadHome(): Promise<HomeData> {
   if (!uid) return EMPTY_HOME;
 
   const today = isoDate(new Date());
+  // Closed leagues I'm not in come as previews (their rows are members-only,
+  // migration_closed_league_privacy.sql). Soft: [] on any failure.
+  const previewsP = listLeaguePreviews();
   const [profile, unreadRes, unreadRows, memberRows, drillRows, regRows, openTourRows, streakRow, leagueRows, matchRows] = await Promise.all([
     sbCall(() => supabase.from('profiles').select('*').eq('id', uid).single()),
     supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false),
@@ -582,14 +586,26 @@ export async function loadHome(): Promise<HomeData> {
   const myTournamentIds = new Set(regs.map(x => x.t.id as string));
 
   // ── Joinable leagues (not mine) ──
-  const candidates = ((leagueRows ?? []) as any[]).filter(l => !allMyLeagueIds.has(l.id));
+  // The table's rows plus previews of closed leagues I can't read (no court
+  // name; a point rounded to about a mile; the member count rides along).
+  const tableLeagueRows = (leagueRows ?? []) as any[];
+  const seenLeagueIds = new Set(tableLeagueRows.map(l => l.id as string));
+  const previewOnly = (await previewsP).filter(p => p.is_active && !seenLeagueIds.has(p.id));
+  const previewMemberCounts = new Map(previewOnly.map(p => [p.id, p.member_count] as const));
+  const joinableRows: any[] = [
+    ...tableLeagueRows,
+    ...previewOnly.map(p => ({
+      id: p.id, name: p.name, home_court: null, home_court_lat: p.approx_lat, home_court_lng: p.approx_lng, is_open: p.is_open,
+    })),
+  ];
+  const candidates = joinableRows.filter(l => !allMyLeagueIds.has(l.id));
   const candidateIds = candidates.map(l => l.id as string);
 
   // League names for tournaments (mine or open) whose league I'm not in.
   const openTours = ((openTourRows ?? []) as any[]).filter(t => !myTournamentIds.has(t.id));
   const knownNames = new Map<string, string>();
   for (const l of myLeagues) knownNames.set(l.id, l.name);
-  for (const l of (leagueRows ?? []) as any[]) knownNames.set(l.id, l.name);
+  for (const l of joinableRows) knownNames.set(l.id, l.name);
   // Each known league's home court point, to place a tournament with no venue.
   const leaguePoint = new Map<string, { lat: number; lng: number }>();
   const notePoint = (l: { id: string; home_court_lat?: unknown; home_court_lng?: unknown }) => {
@@ -601,7 +617,7 @@ export async function loadHome(): Promise<HomeData> {
     const l = Array.isArray(m.league) ? m.league[0] : m.league;
     if (l) notePoint(l);
   }
-  for (const l of (leagueRows ?? []) as any[]) notePoint(l);
+  for (const l of joinableRows) notePoint(l);
   const missingLeagueIds = Array.from(new Set(
     [...regs.map(x => x.t.league_id), ...openTours.map(t => t.league_id)]
       .filter((id): id is string => !!id && !knownNames.has(id)),
@@ -795,7 +811,7 @@ export async function loadHome(): Promise<HomeData> {
     is_open: l.is_open ?? null,
     lat: typeof l.home_court_lat === 'number' ? l.home_court_lat : null,
     lng: typeof l.home_court_lng === 'number' ? l.home_court_lng : null,
-    memberCount: counts.get(l.id) ?? 0,
+    memberCount: previewMemberCounts.get(l.id) ?? counts.get(l.id) ?? 0,
     requested: requested.has(l.id),
     inSeason: inSeason.has(l.id),
   }));

@@ -58,6 +58,7 @@ import { useTour } from '../lib/TourContext';
 import { trackSectionToggle } from '../lib/analytics';
 import { useLeagueJoin } from '../lib/useLeagueJoin';
 import { tournamentStatusChip } from '../lib/entityGlyph';
+import { fetchLeaguePreview, previewAsLeague } from '../data/leaguePreview';
 import { standingsTargetSeasonId } from '../lib/seasonSummary';
 import LeagueJoinCard from '../components/LeagueJoinCard';
 import SeasonStrip from '../components/SeasonStrip';
@@ -118,6 +119,12 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   // league" card and quietly dropped every admin control.
   const [roleKnown, setRoleKnown] = useState(false);
   const [league, setLeague]   = useState<League | null>(null);
+  // A closed league this viewer isn't in: its row, roster, seasons and events
+  // are members-only (migration_closed_league_privacy.sql), so the page is
+  // built from get_league_preview (name, description, member count) and shows
+  // only the identity and "Want in?".
+  const [isPreview, setIsPreview] = useState(false);
+  const [previewMemberCount, setPreviewMemberCount] = useState<number | null>(null);
   // The loaded name wins over the param: a push used to pass its own title
   // ("🎟️ Invite: ...") as the league name, header included. A clean web URL
   // (/leagues/:id) has no param at all, so the header says "League" until the
@@ -207,7 +214,9 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         getLeagueRole(leagueId).catch(() => 'unknown' as const),
         // Local session read instead of checkGodmode()'s getUser() round trip.
         currentUserId(supabase),
-        sbCall(() => supabase.from('leagues').select('*').eq('id', leagueId).single()),
+        // maybeSingle: a closed league the viewer isn't in reads as no row
+        // (RLS), and falls back to its preview below.
+        sbCall(() => supabase.from('leagues').select('*').eq('id', leagueId).maybeSingle()),
         sbCall(() => supabase.from('league_seasons')
           .select('*')
           .eq('league_id', leagueId)
@@ -220,7 +229,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           .eq('league_id', leagueId)
           .eq('status', 'completed')
           .order('end_date', { ascending: false })),
-        // Members (readable by everyone): the "N members" chip and the
+        // Members (a public league's: everyone; a closed one's: its members):
+        // the "N members" chip and the
         // Standings rows' names, flair and PLUPR. Decorative, so a failure
         // leaves them out instead of failing the screen (the standings load
         // then reads them itself).
@@ -230,6 +240,34 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
           .catch(() => null),
       ]);
       if (role !== 'unknown') { setMyRole(role); setRoleKnown(true); }
+
+      if (!leagueRow) {
+        // No row: a closed league I'm not in (preview), or no such league.
+        // Signed out there is no preview: "League not found."
+        const preview = uid ? await fetchLeaguePreview(leagueId) : null;
+        setMyUserId(uid);
+        setGodmode(isGodmodeUserId(uid));
+        setLoadError(null);
+        setActiveSeason(null);
+        setPastSeasons([]);
+        setMembers(null);
+        setStandings(null);
+        setStandingsLoading(false);
+        setComingUp([]);
+        setChampion(null);
+        if (!preview) {
+          setLeague(null);
+          setIsPreview(false);
+          return;
+        }
+        setLeague(previewAsLeague(preview, { withPoint: false }));
+        setIsPreview(true);
+        setPreviewMemberCount(preview.member_count);
+        // My own pending request is still mine to read ("Requested").
+        void loadRequests(role, uid, null);
+        return;
+      }
+      setIsPreview(false);
       const season = (seasonRow as LeagueSeason) ?? null;
       const completed = (completedRows ?? []) as LeagueSeason[];
       const memberList = memberRows ? (memberRows as unknown as MemberRow[]) : null;
@@ -623,7 +661,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
   const nonMember = roleKnown && !myRole;
   const requested = myRequestPending || stickyJoin.requestedIds.has(leagueId);
   const standingsSeasonId = standingsTargetSeasonId(activeSeason, pastSeasons);
-  const memberCount = members ? members.length : null;
+  const memberCount = isPreview ? previewMemberCount : members ? members.length : null;
   const lockDue = privileged && !!standings?.summary?.lockDue;
 
   const goStandings = (seasonId: string) =>
@@ -708,7 +746,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
         },
       }
     : null;
-  const stickyPrimary = nonMember ? joinAction : { title: 'Record match', onPress: goRecord };
+  const stickyPrimary = nonMember || isPreview ? joinAction : { title: 'Record match', onPress: goRecord };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
@@ -725,11 +763,30 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             myRole={myRole}
             memberCount={memberCount}
             privileged={privileged}
-            onOpenInfo={() => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
+            onOpenInfo={isPreview ? undefined : () => navigation.navigate('LeagueInfo', { leagueId, leagueName })}
             onSetCourt={privileged && (godmode || league.is_active) ? () => setEditVisible(true) : undefined}
           />
         </View>
 
+        {isPreview ? (
+          // A closed league I'm not in: only what the join flow needs.
+          <View style={styles.you} onLayout={onYouLayout}>
+            <LeagueJoinCard
+              leagueId={leagueId}
+              leagueName={leagueName}
+              isOpen={league.is_open}
+              roleKnown={roleKnown}
+              isMember={false}
+              requested={requested}
+              onJoined={() => load()}
+              onRequested={() => setMyRequestPending(true)}
+              onWithdrawn={() => setMyRequestPending(false)}
+            />
+            <Text style={t.sub}>
+              Private league: its members see the standings, events and players.
+            </Text>
+          </View>
+        ) : (<>
         {/* 2 · You: the join card (non-members) and the quick row */}
         <View style={styles.you} onLayout={onYouLayout}>
           <LeagueJoinCard
@@ -789,6 +846,7 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
             note={!league.is_active && privileged ? 'This league is closed: edits are locked.' : null}
           />
         ) : null}
+        </>)}
       </ScrollView>
 
       {/* Last child of the root, outside the ScrollView: the bar is absolutely

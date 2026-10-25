@@ -24,6 +24,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
 import { supabase } from '../lib/supabase';
+import { listLeaguePreviews } from '../data/leaguePreview';
 import { useToast } from '../lib/useToast';
 import { useTheme } from '../lib/ThemeContext';
 import { RootStackParamList } from '../types';
@@ -425,6 +426,14 @@ async function enrich(rows: Bookmark[]): Promise<EnrichedBookmark[]> {
 
   const tMap = new Map<string, any>(((tRes ?? []) as any[]).map(r => [r.id, r]));
   const lMap = new Map<string, any>(((lRes ?? []) as any[]).map(r => [r.id, r]));
+  // A saved closed league I'm not in reads as no row (members-only,
+  // migration_closed_league_privacy.sql): its preview names it instead of
+  // "Deleted league". No court name in a preview.
+  if (byType.league.some(id => !lMap.has(id))) {
+    for (const p of await listLeaguePreviews()) {
+      if (!lMap.has(p.id)) lMap.set(p.id, { id: p.id, name: p.name, home_court: null });
+    }
+  }
   const eMap = new Map<string, any>(((eRes ?? []) as any[]).map(r => [r.id, r]));
   const dMap = new Map<string, any>(((dRes ?? []) as any[]).map(r => [r.id, r]));
   const pMap = new Map<string, any>(((pRes ?? []) as any[]).map(r => [r.id, r]));

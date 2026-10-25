@@ -40,6 +40,7 @@ create table public.leagues (
   created_at  timestamptz default now()
 );
 alter table public.leagues enable row level security;
+-- Replaced by migration_closed_league_privacy.sql (closed leagues: members only).
 create policy "Leagues viewable by everyone"         on public.leagues for select using (true);
 create policy "Authenticated users can create leagues" on public.leagues for insert with check (auth.uid() = created_by);
 create policy "League creator can update"             on public.leagues for update using (auth.uid() = created_by);
@@ -53,6 +54,7 @@ create table public.league_members (
   unique(league_id, user_id)
 );
 alter table public.league_members enable row level security;
+-- Replaced by migration_closed_league_privacy.sql (closed leagues: members only).
 create policy "Members viewable by everyone" on public.league_members for select using (true);
 create policy "Users can join leagues"       on public.league_members for insert with check (auth.uid() = user_id);
 create policy "Users can leave leagues"      on public.league_members for delete using (auth.uid() = user_id);
@@ -75,6 +77,7 @@ create table public.league_events (
   created_at        timestamptz default now()
 );
 alter table public.league_events enable row level security;
+-- Replaced by migration_closed_league_privacy.sql (closed leagues: members only).
 create policy "Events viewable by everyone"          on public.league_events for select using (true);
 create policy "League members can create events"     on public.league_events for insert with check (
   exists (select 1 from public.league_members where league_id = league_events.league_id and user_id = auth.uid())
@@ -141,6 +144,7 @@ create table public.matches (
   constraint different_players check (player1_id <> player2_id)
 );
 alter table public.matches enable row level security;
+-- Replaced by migration_closed_league_privacy.sql (closed leagues: members only).
 create policy "Matches viewable by everyone"     on public.matches for select using (true);
 create policy "League members can record matches" on public.matches for insert with check (
   exists (select 1 from public.league_members where league_id = matches.league_id and user_id = auth.uid())

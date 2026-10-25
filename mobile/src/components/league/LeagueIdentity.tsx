@@ -61,8 +61,9 @@ export type LeagueIdentityProps = {
   memberCount: number | null;
   /** Admin/co-admin: sees the "No home court" prompt. */
   privileged: boolean;
-  /** "How it works" (info glyph) -> LeagueInfo. */
-  onOpenInfo: () => void;
+  /** "How it works" (info glyph) -> LeagueInfo. Left out (no chip) on a
+   *  closed league's preview, whose LeagueInfo a non-member can't read. */
+  onOpenInfo?: () => void;
   /** Admin's "No home court" chip -> the Edit league sheet. */
   onSetCourt?: () => void;
 };
@@ -146,17 +147,19 @@ export default function LeagueIdentity({
           <Chip {...chipProps} label={`${memberCount} member${memberCount === 1 ? '' : 's'}`} />
         ) : null}
         {roleChip ? <Chip {...chipProps} label={`You: ${roleLabel(myRole)}`} tone={roleChip.tone} /> : null}
-        <Chip
-          {...chipProps}
-          hitBox
-          iconName="info"
-          label="How it works"
-          variant="outline"
-          tone="brand"
-          onPress={onOpenInfo}
-          accessibilityRole="button"
-          accessibilityLabel="How it works"
-        />
+        {onOpenInfo ? (
+          <Chip
+            {...chipProps}
+            hitBox
+            iconName="info"
+            label="How it works"
+            variant="outline"
+            tone="brand"
+            onPress={onOpenInfo}
+            accessibilityRole="button"
+            accessibilityLabel="How it works"
+          />
+        ) : null}
       </View>
 
       {rosterOpen && presence.venueId ? (
