@@ -139,6 +139,11 @@
 -- first block drops every other send_on_my_way, this one included, and makes
 -- the 3-argument one again). The test builders do. Re-runnable; no
 -- begin/commit.
+-- Once migration_plan_sharing.sql is live, RE-APPLY IT after any re-run of
+-- THIS file: this file makes the 3-argument plan_court_checkin again beside
+-- that file's 4-argument one (p_share), so a call by name without p_share is
+-- ambiguous to PostgREST and fails, and puts back a list_my_court_plans
+-- without the share.
 --   supabase db query --linked -f supabase/migration_court_oneoff_plans.sql
 -- Test first: node supabase/tests/build-court-oneoff-plans-test.mjs
 -- ============================================================

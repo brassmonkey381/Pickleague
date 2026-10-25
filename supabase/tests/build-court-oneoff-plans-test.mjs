@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // Build the one-off planned check-ins + "Check in and tell friends" persona
 // test: court_oneoff_plans_personas.sql with migration_court_oneoff_plans.sql
-// (twice: it must be re-runnable) and then migration_rls_hardening_2026q3.sql
-// (a re-run must keep the four new RPCs and send_on_my_way online) in place
-// of its -- @@MIGRATION@@ line. The test file holds the begin / rollback, so
-// the result leaves the linked (live) database untouched.
+// (twice: it must be re-runnable), then migration_plan_sharing.sql (it
+// replaces plan_court_checkin and list_my_court_plans, so it is re-applied
+// after every run of the one-off file, as on live) and then
+// migration_rls_hardening_2026q3.sql (a re-run must keep the four new RPCs
+// and send_on_my_way online) in place of its -- @@MIGRATION@@ line. The test
+// file holds the begin / rollback, so the result leaves the linked (live)
+// database untouched.
 //
 //   node supabase/tests/build-court-oneoff-plans-test.mjs [out.sql]
 //   (from the linked checkout) supabase db query --linked -f <out.sql> -o csv
@@ -24,6 +27,7 @@ const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'court_oneoff_plans_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
 const MIGRATION = 'migration_court_oneoff_plans.sql';
+const PLAN_SHARING = 'migration_plan_sharing.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 const CLIENT_RPCS = ['plan_court_checkin', 'move_court_plan', 'cancel_court_plan', 'list_my_court_plans', 'send_on_my_way'];
 
@@ -90,6 +94,7 @@ if (!body.includes(MARKER)) {
 const spliced = [
   `-- ════ ${MIGRATION} ════\n${read(MIGRATION)}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${read(MIGRATION)}`,
+  `-- ════ ${PLAN_SHARING} (re-applied after it) ════\n${read(PLAN_SHARING)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${hardening}`,
 ].join('\n');
 

@@ -173,7 +173,9 @@ begin
         'send_on_my_way',
         -- One-off planned check-ins (migration_court_oneoff_plans.sql, which
         -- grants them too).
-        'cancel_court_plan','list_my_court_plans','move_court_plan','plan_court_checkin'
+        'cancel_court_plan','list_my_court_plans','move_court_plan','plan_court_checkin',
+        -- Plan sharing (migration_plan_sharing.sql, which grants them too).
+        'confirm_court_plans','list_friend_court_plans','set_auto_share_routines','set_court_plan_shared'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

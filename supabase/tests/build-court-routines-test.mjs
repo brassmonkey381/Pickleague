@@ -5,9 +5,9 @@
 // trigger function, the materializer, save_court_routine,
 // set_court_routine_active and delete_court_routine, so it goes after every
 // run of the routines file, and it must be re-runnable too), then
-// migration_checkin_starts_session.sql and migration_court_oneoff_plans.sql
-// (each replaces functions the routines file defines) and then
-// migration_rls_hardening_2026q3.sql (a
+// migration_checkin_starts_session.sql, migration_court_oneoff_plans.sql and
+// migration_plan_sharing.sql (each replaces functions the files before it
+// define) and then migration_rls_hardening_2026q3.sql (a
 // re-run must keep the new client RPCs online) in place of its
 // -- @@MIGRATION@@ line. The test file holds the
 // begin / rollback, so the result leaves the linked (live) database untouched.
@@ -35,6 +35,10 @@ const CHECKIN_SESSION = 'migration_checkin_starts_session.sql';
 // process_court_routine_reminders (last defined by the routines file), so it
 // goes after every run of it too.
 const ONEOFF_PLANS = 'migration_court_oneoff_plans.sql';
+// Plan sharing: replaces list_my_court_routines, get_court_routine_settings,
+// save_court_routine (the routines files') and plan_court_checkin (the
+// one-off file's), so it goes after every run of them, as on live.
+const PLAN_SHARING = 'migration_plan_sharing.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */
@@ -96,6 +100,7 @@ const spliced = [
   `-- ════ ${PLANNED_END} (re-run) ════\n${read(PLANNED_END)}`,
   `-- ════ ${CHECKIN_SESSION} ════\n${read(CHECKIN_SESSION)}`,
   `-- ════ ${ONEOFF_PLANS} ════\n${read(ONEOFF_PLANS)}`,
+  `-- ════ ${PLAN_SHARING} ════\n${read(PLAN_SHARING)}`,
   `-- ════ ${HARDENING} (re-run) ════\n${read(HARDENING)}`,
 ].join('\n');
 
