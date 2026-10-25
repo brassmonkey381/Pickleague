@@ -139,8 +139,14 @@ const CHECKIN_TAP: Record<string, string> = {
 };
 
 // Which bands the viewer folded or opened: module scope, so Home remounting
-// doesn't spring a folded Today open again. A cold start goes back to the defaults.
-let rememberedBands: Partial<Record<string, boolean>> = {};
+// doesn't spring a folded Today open again. A cold start goes back to the
+// defaults. Kept apart for daytime and late evening (Doggle's rule): an
+// afternoon tap doesn't stop Tomorrow opening at 10 PM.
+let rememberedBands: { late: boolean; open: Partial<Record<string, boolean>> } = { late: false, open: {} };
+
+/** From 10 PM local the day is about over: Tomorrow opens and Today folds. */
+const LATE_HOUR = 22;
+const isLateEvening = (ms: number) => new Date(ms).getHours() >= LATE_HOUR;
 
 type Nav = { navigate: (...args: never[]) => void; dispatch: (action: ReturnType<typeof CommonActions.navigate>) => void };
 
@@ -196,6 +202,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const focused = useIsFocused();
   const tick = useTicker(focused ? CLOCK_MS : 0);
   const now = Math.max(tick, props.now);
+  const late = isLateEvening(now);
 
   // ── Court-side reads (Home's payload has the league side) ──
   const friendsQ = useCachedQuery<FriendsAtCourts>(FRIENDS_COURTS_KEY, () => getFriendsAtCourts(), {
@@ -836,7 +843,13 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         ) : null}
 
         {bands.length > 0 ? (
-          <DayBands bands={bands} initialOpen={rememberedBands} onOpenChange={(o) => { rememberedBands = o; }} />
+          <DayBands
+            bands={bands}
+            leadKey={late ? 'tomorrow' : null}
+            modeKey={late ? 'late' : 'day'}
+            initialOpen={rememberedBands.late === late ? rememberedBands.open : {}}
+            onOpenChange={(o) => { rememberedBands = { late, open: o }; }}
+          />
         ) : null}
         {feedEmpty ? emptyBlock : null}
 
