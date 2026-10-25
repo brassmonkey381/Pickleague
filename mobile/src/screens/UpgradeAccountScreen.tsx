@@ -53,14 +53,22 @@ export default function UpgradeAccountScreen({ navigation }: Props) {
       // LOCAL session read (getUser() is a network call that fails offline).
       const uid = await currentUserId(supabase);
       if (!uid) return;
-      const data = await sbCall(() =>
-        supabase.from('profiles').select('full_name, phone, gender').eq('id', uid).maybeSingle(),
-      ).catch(() => null); // Pre-fill is a nicety; the form still works empty.
+      // Pre-fill is a nicety; the form still works empty, so each read fails
+      // on its own. The phone is in owner-only profile_private, not profiles
+      // (migration_anon_audit_fixes.sql).
+      const [data, priv] = await Promise.all([
+        sbCall(() =>
+          supabase.from('profiles').select('full_name, gender').eq('id', uid).maybeSingle(),
+        ).catch(() => null),
+        sbCall(() =>
+          supabase.from('profile_private').select('phone').eq('id', uid).maybeSingle(),
+        ).catch(() => null),
+      ]);
+      if (priv?.phone) setPhone(priv.phone);
       if (!data) return;
       const parts = (data.full_name ?? '').trim().split(/\s+/);
       if (parts[0]) setFirstName(parts[0]);
       if (parts.length > 1) setLastName(parts.slice(1).join(' '));
-      if (data.phone) setPhone(data.phone);
       if (data.gender && data.gender !== 'prefer-not-to-say') setGender(data.gender as Gender);
     })();
   }, []);

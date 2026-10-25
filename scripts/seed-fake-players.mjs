@@ -312,7 +312,6 @@ async function seed() {
       profile_name_style_id: chance(0.3) ? pick(HERO_STYLES) : null,
       profile_frame: chance(0.3) ? pick(FRAMES) : null,
       pickles: Math.floor(rnd(0, 8000)),
-      phone: chance(0.3) ? `+1555${String(Math.floor(rnd(1000000, 9999999)))}` : null,
       drilling_enabled: drilling,
       drill_availability: drilling ? makeAvailability() : [],
       drill_shot_prefs: drilling ? sample(SHOT_PREFS, 2 + Math.floor(rnd(0, 4))) : [],
@@ -321,6 +320,12 @@ async function seed() {
     };
     const { error: pe } = await db.from('profiles').update(patch).eq('id', r.id);
     if (pe) console.warn(`  ⚠ customize ${r.username}: ${pe.message}`);
+    // The phone lives in owner-only profile_private (migration_anon_audit_fixes.sql).
+    if (chance(0.3)) {
+      const phone = `+1555${String(Math.floor(rnd(1000000, 9999999)))}`;
+      const { error: phE } = await db.from('profile_private').upsert({ id: r.id, phone }, { onConflict: 'id' });
+      if (phE) console.warn(`  ⚠ phone ${r.username}: ${phE.message}`);
+    }
     // 1–2 paddles from the real catalog, first one default.
     if (paddleModels?.length && chance(0.85)) {
       const models = sample(paddleModels, chance(0.3) ? 2 : 1);
