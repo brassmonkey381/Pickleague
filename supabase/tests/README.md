@@ -366,8 +366,9 @@ touches playoff bracket generation or advancement.
 
 - `pickle_ledger_personas.sql` (+ `build-pickle-ledger-test.mjs`)
   - Pickle history (`migration_pickle_ledger.sql`): applies the migration twice
-    and re-runs `migration_rls_hardening_2026q3.sql` inside one rolled-back
-    transaction, then checks: RLS, grants and function attributes; that every
+    and (last) re-runs `migration_rls_hardening_2026q3.sql` inside one
+    rolled-back transaction, then checks: that applying it (and again) takes
+    no ACCESS EXCLUSIVE lock on a live table; RLS, grants and function attributes; that every
     live function assigning `profiles.pickles` has a label in
     `pickle_ledger_sources`; one "Starting balance" row per profile with
     pickles (none added by the re-run); the rows the REAL functions write and
@@ -376,7 +377,9 @@ touches playoff bracket generation or advancement.
     placed / cancelled / won, a confirmed match (play streak day 2 in the
     player's zone, first-match bonus, games, new court, badges), the daily
     login, a getting-started step, a referral (both sides plus the Recruiter
-    badge), a God mode gift (both sides), the welcome pickles; changes from no
+    badge), a tournament invite code's subsidy charged and refunded (the
+    creator's "Invite subsidy" rows, apart from the registrant's entry), a
+    God mode gift (both sides), the welcome pickles; changes from no
     function, caller labels (`pl.pickle_reason` / `_bonus` / `_meta`), a
     malformed one, a ledger that refuses the row (the pickles still move; the
     gap shows in the `balance_after` chain), a profile inserted with pickles;
@@ -386,6 +389,13 @@ touches playoff bracket generation or advancement.
     `my_pickle_today`; that every persona's history adds up to its balance;
     account deletion; grants after the hardening re-run; and an INFO row with
     the cost per change.
+
+    While it runs on live (~5 s) it holds up writes (not reads) to
+    `profiles`, `player_shop_purchases`, `redemption_orders` and
+    `pickle_pot_contributions`. The hardening re-run's DROP / CREATE POLICY
+    holds ACCESS EXCLUSIVE (reads wait too) on `tournament_registrations` and
+    `league_members`, which is why it runs last, milliseconds before the
+    rollback. INFO rows list both.
 
     ```sh
     node supabase/tests/build-pickle-ledger-test.mjs /tmp/pickle_ledger_test.sql

@@ -35,8 +35,11 @@
 --      sender. The Shop rows are written after the change, so small AFTER
 --      INSERT triggers on player_shop_purchases and redemption_orders name the
 --      item ("Shop: Neon paddle", "Gift: Neon paddle for Sam") on the ledger
---      row of the same transaction. Names are first names, as the referral
---      pushes word them.
+--      row of the same transaction. Likewise triggers on pickle_pot_contributions
+--      tell a tournament invite code's subsidy (taken from, and refunded to,
+--      the code's creator) from the registrant's own ante: "Invite subsidy:
+--      <tournament>", not "Tournament entry". Names are first names, as the
+--      referral pushes word them.
 --   5. Future callers can label a change themselves, transaction-locally,
 --      right before it (and should clear it right after, '' = unset):
 --        select set_config('pl.pickle_reason', 'Season bonus', true);
@@ -57,9 +60,9 @@
 --      per live profile with pickles <> 0 (kind 'start', meta.starting_balance
 --      true: the app shows it neutrally and leaves it out of earned / spent
 --      totals). The trigger is created first, so no change can slip between
---      the two (create trigger holds writes to profiles until the file's
---      transaction ends: run it as one file; the persona test takes ~5 s with
---      it). A re-run adds a starting row only for a profile with no rows at all.
+--      the two (it holds writes to profiles until the file's transaction
+--      ends: run it as one file). A re-run adds a starting row only for a
+--      profile with no rows at all.
 --   8. Account deletion (_purge_account tombstones the profile: deleted_at
 --      set, pickles 0): a trigger on that moment deletes the account's rows,
 --      and other players' rows that name it (counterpart_id) go back to the
@@ -113,11 +116,21 @@
 --   history like anyone; there is nobody else's to block.
 -- New internal functions (execute revoked from public, anon, authenticated):
 --   _pl_pickle_ledger_capture(), _pl_pickle_ledger_item(),
---   _pl_pickle_ledger_purge() (all trigger functions).
+--   _pl_pickle_ledger_subsidy(), _pl_pickle_ledger_purge() (all trigger functions).
 -- Replaced: none.
 --
--- Idempotent: re-runnable as a whole (create if not exists, drop trigger if
--- exists + create, the map upserted, the starting rows only where missing).
+-- ── Locks (what applying this file holds until its transaction ends) ──────
+--   The first apply: SHARE ROW EXCLUSIVE on profiles (the foreign key and the
+--   triggers), player_shop_purchases, redemption_orders and
+--   pickle_pot_contributions (their triggers): writes to them wait, reads
+--   don't. A re-run: the same, plus writes to pickle_ledger itself (create
+--   index if not exists takes SHARE). Nothing here takes ACCESS
+--   EXCLUSIVE on a live table (which would hold up reads too): the triggers
+--   are CREATE OR REPLACE (PG 14+; live is 17), never dropped, and RLS and
+--   the policy are only created when missing. The persona test checks it.
+--
+-- Idempotent: re-runnable as a whole (create if not exists, create or
+-- replace trigger, the map upserted, the starting rows only where missing).
 -- Persona test: supabase/tests/pickle_ledger_personas.sql
 --   (node supabase/tests/build-pickle-ledger-test.mjs <out.sql>).
 -- ============================================================
@@ -149,11 +162,22 @@ create index if not exists pickle_ledger_profile_created_idx
 create index if not exists pickle_ledger_counterpart_idx
   on public.pickle_ledger (counterpart_id) where counterpart_id is not null;
 
-alter table public.pickle_ledger enable row level security;
-drop policy if exists pickle_ledger_select_own on public.pickle_ledger;
-create policy pickle_ledger_select_own on public.pickle_ledger
-  for select to authenticated
-  using (profile_id = (select auth.uid()));
+-- Enable RLS and create the policy only when missing: ALTER TABLE ... ENABLE
+-- ROW LEVEL SECURITY and DROP / CREATE POLICY take ACCESS EXCLUSIVE, which on
+-- a re-run would hold up the capture trigger's inserts (and so every pickles
+-- change) until the file's transaction ends (see "Locks" at the top).
+do $$
+begin
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.pickle_ledger'::regclass) then
+    alter table public.pickle_ledger enable row level security;
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'pickle_ledger'
+                    and policyname = 'pickle_ledger_select_own') then
+    create policy pickle_ledger_select_own on public.pickle_ledger
+      for select to authenticated
+      using (profile_id = (select auth.uid()));
+  end if;
+end $$;
 revoke all on table public.pickle_ledger from public, anon, authenticated;
 grant select on table public.pickle_ledger to authenticated;
 grant all on table public.pickle_ledger to service_role;
@@ -175,7 +199,12 @@ create table if not exists public.pickle_ledger_sources (
 );
 comment on table public.pickle_ledger_sources is
   'migration_pickle_ledger.sql: the label, kind, category and gold flag for a pickles change by each function (source = the nearest function on the call stack).';
-alter table public.pickle_ledger_sources enable row level security;
+do $$
+begin
+  if not (select c.relrowsecurity from pg_class c where c.oid = 'public.pickle_ledger_sources'::regclass) then
+    alter table public.pickle_ledger_sources enable row level security;
+  end if;
+end $$;
 revoke all on table public.pickle_ledger_sources from public, anon, authenticated;
 grant all on table public.pickle_ledger_sources to service_role;
 
@@ -215,8 +244,9 @@ insert into public.pickle_ledger_sources (source, sign, reason, kind, category, 
   ('cancel_tournament',                     1, 'Wager refunded: tournament cancelled', 'refund', 'wager', false, null),
   ('godmode_delete_tournament',             1, 'Wager refunded: tournament deleted',   'refund', 'wager', false, null),
   ('godmode_delete_league',                 1, 'Refund: league deleted',     'refund',   'league',      false, null),
-  -- Tournament antes and prize pots.
-  ('_charge_tournament_ante',              -1, 'Tournament entry',           'spend',    'tournament',  false, null),
+  -- Tournament antes and prize pots. An invite code creator's subsidy runs
+  -- in the same two functions and is renamed by §3b ("Invite subsidy: ...").
+  ('_charge_tournament_ante',             -1, 'Tournament entry',           'spend',    'tournament',  false, null),
   ('_refund_registration_ante',             1, 'Tournament entry refunded',  'refund',   'tournament',  false, null),
   ('_refund_tournament_pot',                1, 'Prize pot refunded',         'refund',   'tournament',  false, null),
   ('contribute_pickles_to_pool',           -1, 'Added to a prize pot',       'spend',    'prize',       false, null),
@@ -496,16 +526,17 @@ begin
 end $$;
 revoke execute on function public._pl_pickle_ledger_capture() from public, anon, authenticated;
 
--- The trigger first, then the starting rows (rule 7).
-drop trigger if exists trg_profiles_pickle_ledger on public.profiles;
-create trigger trg_profiles_pickle_ledger
+-- The trigger first, then the starting rows (rule 7). CREATE OR REPLACE
+-- TRIGGER, never DROP + CREATE: dropping an existing trigger takes ACCESS
+-- EXCLUSIVE on the table, so a re-run would hold up every read of profiles
+-- until the file's transaction ends ("Locks" at the top).
+create or replace trigger trg_profiles_pickle_ledger
   after update on public.profiles
   for each row
   when (old.pickles is distinct from new.pickles)
   execute function public._pl_pickle_ledger_capture();
 
-drop trigger if exists trg_profiles_pickle_ledger_insert on public.profiles;
-create trigger trg_profiles_pickle_ledger_insert
+create or replace trigger trg_profiles_pickle_ledger_insert
   after insert on public.profiles
   for each row
   when (new.pickles <> 0)
@@ -568,15 +599,73 @@ begin
 end $$;
 revoke execute on function public._pl_pickle_ledger_item() from public, anon, authenticated;
 
-drop trigger if exists trg_player_shop_purchases_pickle_ledger on public.player_shop_purchases;
-create trigger trg_player_shop_purchases_pickle_ledger
+create or replace trigger trg_player_shop_purchases_pickle_ledger
   after insert on public.player_shop_purchases
   for each row execute function public._pl_pickle_ledger_item();
 
-drop trigger if exists trg_redemption_orders_pickle_ledger on public.redemption_orders;
-create trigger trg_redemption_orders_pickle_ledger
+create or replace trigger trg_redemption_orders_pickle_ledger
   after insert on public.redemption_orders
   for each row execute function public._pl_pickle_ledger_item();
+
+
+-- ════ 3b. An invite code's subsidy is the creator's own row ══════════════
+-- _charge_tournament_ante takes a tournament invite code's pickle_subsidy
+-- from the code's creator, and _refund_registration_ante gives it back,
+-- in the same function frame as the registrant's own ante, so the map alone
+-- would call the creator's row "Tournament entry" for a tournament they never
+-- entered. pickle_pot_contributions tells them apart: the subsidy's row is
+-- kind 'ante_subsidy', inserted right AFTER the creator's pickles are taken,
+-- and stamped refunded_at right AFTER they are given back (latest bodies:
+-- migration_tournament_ante_refunds_and_cancel.sql, same as live). This names
+-- the ledger row of the same transaction (same creator, source, amount, not
+-- named yet): "Invite subsidy: Ledger Cup" / "Invite subsidy refunded: ...".
+-- A whole-pot refund (_refund_tournament_pot: cancel / delete) sums a player's
+-- rows into one "Prize pot refunded" row and is left as it is.
+create or replace function public._pl_pickle_ledger_subsidy()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_refund boolean := tg_op = 'UPDATE';
+  v_name   text;
+begin
+  begin
+    if new.kind is distinct from 'ante_subsidy' or new.scope_type is distinct from 'tournament'
+       or (v_refund and (old.refunded_at is not null or new.refunded_at is null)) then
+      return null;
+    end if;
+    select t.name into v_name from public.tournaments t where t.id = new.scope_id;
+    update public.pickle_ledger l
+       set reason = case when v_refund then 'Invite subsidy refunded' else 'Invite subsidy' end
+                    || coalesce(': ' || v_name, ''),
+           meta = l.meta || jsonb_build_object('invite_subsidy', true, 'tournament_id', new.scope_id)
+     where l.id = (select l2.id from public.pickle_ledger l2
+                    where l2.profile_id = new.user_id and l2.created_at = now()
+                      and l2.source = case when v_refund then '_refund_registration_ante' else '_charge_tournament_ante' end
+                      and l2.delta = case when v_refund then new.amount_paid else -new.amount_paid end
+                      and not (l2.meta ? 'invite_subsidy')
+                    order by l2.id desc
+                    limit 1);
+  exception when others then
+    raise warning 'pickle_ledger: could not name an invite subsidy row (%: %)', sqlstate, sqlerrm;
+  end;
+  return null;
+end $$;
+revoke execute on function public._pl_pickle_ledger_subsidy() from public, anon, authenticated;
+
+create or replace trigger trg_pickle_pot_contributions_ledger_subsidy
+  after insert on public.pickle_pot_contributions
+  for each row
+  when (new.kind = 'ante_subsidy')
+  execute function public._pl_pickle_ledger_subsidy();
+
+create or replace trigger trg_pickle_pot_contributions_ledger_subsidy_refund
+  after update of refunded_at on public.pickle_pot_contributions
+  for each row
+  when (new.kind = 'ante_subsidy' and old.refunded_at is null and new.refunded_at is not null)
+  execute function public._pl_pickle_ledger_subsidy();
 
 
 -- ════ 4. Account deletion ════════════════════════════════════════════════
@@ -604,8 +693,7 @@ begin
 end $$;
 revoke execute on function public._pl_pickle_ledger_purge() from public, anon, authenticated;
 
-drop trigger if exists trg_profiles_pickle_ledger_purge on public.profiles;
-create trigger trg_profiles_pickle_ledger_purge
+create or replace trigger trg_profiles_pickle_ledger_purge
   after update on public.profiles
   for each row
   when (old.deleted_at is null and new.deleted_at is not null)

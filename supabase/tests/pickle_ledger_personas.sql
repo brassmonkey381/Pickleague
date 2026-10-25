@@ -2,13 +2,22 @@
 -- Pickle history: persona tests for migration_pickle_ledger.sql.
 --
 -- NOT runnable on its own: build-pickle-ledger-test.mjs puts
--- migration_pickle_ledger.sql (twice: it must be re-runnable) and then
--- migration_rls_hardening_2026q3.sql (a re-run must keep the new RPCs online)
--- at the marker line below. Everything runs inside the begin / rollback
--- below, so the linked (live) database is left untouched:
+-- migration_pickle_ledger.sql (twice: it must be re-runnable) at the
+-- MIGRATION marker line and migration_rls_hardening_2026q3.sql (a re-run
+-- must keep the new RPCs online) at the HARDENING marker line near the end.
+-- Everything runs inside the begin / rollback below, so the linked (live)
+-- database is left untouched:
 --   node supabase/tests/build-pickle-ledger-test.mjs <out.sql>
 --   (from the linked checkout) supabase db query --linked -f <out.sql> -o csv
 -- Every row should read ok = true; the first row is the summary.
+--
+-- What it holds up on live while it runs (~5 s), until the rollback: writes
+-- to profiles, player_shop_purchases, redemption_orders and
+-- pickle_pot_contributions (the migration's triggers; reads go on; L0 and
+-- L19 check that nothing before the hardening re-run takes ACCESS EXCLUSIVE
+-- on a live table). The hardening re-run's DROP / CREATE POLICY takes ACCESS
+-- EXCLUSIVE on tournament_registrations and league_members (reads wait too),
+-- so it runs last, a few milliseconds before the rollback.
 --
 -- now() is fixed for the whole transaction, so every row written here has
 -- the same created_at (the id breaks the tie, as in one real transaction that
@@ -22,6 +31,8 @@
 --   PB  Blake: PA's opponent (starts at 0: no starting row)
 --   PW  Wren: starts with 1000; bets on PA's match (one won, one cancelled)
 --   PR  Riley: a referrer (90 days old)    PN  Noor: claims Riley's code
+--       (then enters a tournament on Riley's invite code, which pays 100 of
+--       the 300 ante, and leaves again)
 --   PG  Gale: gets a God mode gift          PD  Dana: starts with 1000, claims
 --       the welcome pickles, then deletes the account
 --   PX  Xavi: starts with 500; real-world redemptions (one item switched on,
@@ -165,6 +176,20 @@ create function pg_temp.ids(j jsonb) returns bigint[] language sql immutable as 
     from jsonb_array_elements(coalesce(j, '[]'::jsonb)) with ordinality as t (e, o)
 $$;
 
+-- Every relation that exists before the migration (live tables, their
+-- indexes, the catalogs), so the lock checks can tell them from the new ones.
+create temp table _pre_rels as select oid as relid from pg_class where relpersistence <> 't';
+-- The locks this transaction holds on those, in the given modes; null if none.
+create function pg_temp.locks_on_live(p_modes text[]) returns text language sql stable as $$
+  select string_agg(x.rel || ' ' || x.mode, ', ' order by x.rel, x.mode)
+    from (select distinct c.oid::regclass::text as rel, l.mode
+            from pg_locks l
+            join pg_class c on c.oid = l.relation
+           where l.pid = pg_backend_pid() and l.locktype = 'relation' and l.granted
+             and l.mode = any (p_modes)
+             and c.oid in (select relid from _pre_rels)) x
+$$;
+
 
 -- ════ Setup (before the migration: the starting balances are the backfill's) ═
 insert into auth.users (id, email, raw_user_meta_data, email_confirmed_at)
@@ -192,6 +217,21 @@ insert into public.league_members (league_id, user_id, role) values
 on conflict do nothing;
 
 -- @@MIGRATION@@
+
+
+-- ════ L0 what applying the migration (twice) holds up on live ═══════════
+do $$
+declare
+  v text;
+begin
+  v := pg_temp.locks_on_live(array['AccessExclusiveLock']);
+  perform pg_temp.ok('L0 applying the migration, and again, takes no ACCESS EXCLUSIVE lock on a live table (reads never wait)',
+    v is null, coalesce(v, 'none'));
+  perform pg_temp.ok('INFO live tables whose writes wait for this run (until the rollback)', true,
+    coalesce(pg_temp.locks_on_live(array['ShareLock', 'ShareRowExclusiveLock', 'ExclusiveLock']), 'none'));
+exception when others then
+  perform pg_temp.ok('L0 block crashed', false, sqlerrm);
+end $$;
 
 
 -- ════ Helpers that read pickle_ledger (after it exists) ══════════════════
@@ -262,6 +302,7 @@ begin
     null);
 
   foreach f in array array['public._pl_pickle_ledger_capture()', 'public._pl_pickle_ledger_item()',
+                           'public._pl_pickle_ledger_subsidy()',
                            'public._pl_pickle_ledger_purge()', 'public.list_pickle_ledger(integer,timestamptz,bigint)',
                            'public.list_pickle_ledger_range(timestamptz,timestamptz)', 'public.my_pickle_today()'] loop
     if not exists (select 1 from pg_proc p where p.oid = to_regprocedure(f) and p.prosecdef
@@ -272,7 +313,7 @@ begin
   perform pg_temp.ok('L1 every new function is security definer with search_path ''''', cardinality(v_bad) = 0,
     array_to_string(v_bad, ', '));
 
-  perform pg_temp.ok('L1 the triggers: capture on update and insert, purge on deletion, the two item triggers; all enabled',
+  perform pg_temp.ok('L1 the triggers: capture on update and insert, purge on deletion, the two item triggers, the two subsidy triggers; all enabled',
     (select count(*) from pg_trigger t where t.tgrelid = 'public.profiles'::regclass
         and t.tgfoid = 'public._pl_pickle_ledger_capture()'::regprocedure and t.tgenabled = 'O') = 2
     and (select count(*) from pg_trigger t where t.tgrelid = 'public.profiles'::regclass
@@ -281,11 +322,13 @@ begin
         and t.tgfoid = 'public._pl_pickle_ledger_item()'::regprocedure and t.tgenabled = 'O') = 1
     and (select count(*) from pg_trigger t where t.tgrelid = 'public.redemption_orders'::regclass
         and t.tgfoid = 'public._pl_pickle_ledger_item()'::regprocedure and t.tgenabled = 'O') = 1
+    and (select count(*) from pg_trigger t where t.tgrelid = 'public.pickle_pot_contributions'::regclass
+        and t.tgfoid = 'public._pl_pickle_ledger_subsidy()'::regprocedure and t.tgenabled = 'O') = 2
     and pg_get_triggerdef((select t.oid from pg_trigger t where t.tgname = 'trg_profiles_pickle_ledger'
                              and t.tgrelid = 'public.profiles'::regclass)) like '%AFTER UPDATE ON public.profiles%WHEN ((old.pickles IS DISTINCT FROM new.pickles))%',
     (select string_agg(pg_get_triggerdef(t.oid), ' | ') from pg_trigger t
       where t.tgfoid in ('public._pl_pickle_ledger_capture()'::regprocedure, 'public._pl_pickle_ledger_purge()'::regprocedure,
-                         'public._pl_pickle_ledger_item()'::regprocedure)));
+                         'public._pl_pickle_ledger_item()'::regprocedure, 'public._pl_pickle_ledger_subsidy()'::regprocedure)));
 
   perform pg_temp.ok('L1 the ledger index serves the feed: (profile_id, created_at desc, id desc)',
     exists (select 1 from pg_indexes where schemaname = 'public' and tablename = 'pickle_ledger'
@@ -525,11 +568,20 @@ begin
     pg_temp.row_text(l));
   select count(*) into v_n from public.pickle_ledger
    where profile_id in (pg_temp.p('PA'), pg_temp.p('PB')) and id > mark and source = '_grant_pickles_on_badge';
-  perform pg_temp.ok('L5 every badge the match brought is named ("Badge: <name>")',
-    not exists (select 1 from public.pickle_ledger
-                 where profile_id in (pg_temp.p('PA'), pg_temp.p('PB')) and id > mark
-                   and source = '_grant_pickles_on_badge'
-                   and (reason not like 'Badge: %' or meta ->> 'badge' is null or kind <> 'earn')),
+  -- At least one badge must come (live's First Rally is for a first match),
+  -- so the badge lookup is really exercised; each row names the award it
+  -- was paid for.
+  perform pg_temp.ok('L5 the match brings badges, each its own regular row named for the award ("Badge: <name>")',
+    v_n >= 1
+    and not exists (select 1 from public.pickle_ledger x
+                     where x.profile_id in (pg_temp.p('PA'), pg_temp.p('PB')) and x.id > mark
+                       and x.source = '_grant_pickles_on_badge'
+                       and (x.reason is distinct from 'Badge: ' || (x.meta ->> 'badge') or x.kind <> 'earn'
+                            or x.is_bonus or x.category <> 'badge'
+                            or not exists (select 1 from public.player_badges pb
+                                             join public.badges b on b.id = pb.badge_id
+                                            where pb.id::text = x.meta ->> 'badge_award_id'
+                                              and pb.user_id = x.profile_id and b.name = x.meta ->> 'badge'))),
     v_n || ' badge rows: ' || coalesce((select string_agg(reason, ', ') from public.pickle_ledger
       where profile_id in (pg_temp.p('PA'), pg_temp.p('PB')) and id > mark and source = '_grant_pickles_on_badge'), 'none'));
   perform pg_temp.ok('L5 nothing the match paid fell through to "Pickles adjusted"',
@@ -599,18 +651,73 @@ begin
     and lr.meta ->> 'referral_id' = ln.meta ->> 'referral_id' and lr.meta ->> 'via' = 'claim_referral',
     format('%s; %s; %s', r, pg_temp.row_text(lr), pg_temp.row_text(ln)));
 
-  if exists (select 1 from public.player_badges pb join public.badges b on b.id = pb.badge_id
-              where pb.user_id = pg_temp.p('PR') and b.name = 'Recruiter') then
-    select * into lb from pg_temp.since('PR', mark, '_grant_pickles_on_badge') limit 1;
+  -- Live has a Recruiter badge (a first referral), so it must come here; only
+  -- a database without one skips this (INFO).
+  if exists (select 1 from public.badges b where b.name = 'Recruiter') then
+    select s.* into lb from pg_temp.since('PR', mark, '_grant_pickles_on_badge') s
+     order by (s.reason = 'Badge: Recruiter') desc, s.id
+     limit 1;
     perform pg_temp.ok('L7 ...the Recruiter badge''s pickles are their own regular row, traced to claim_referral',
-      lb.reason = 'Badge: Recruiter' and lb.kind = 'earn' and not lb.is_bonus and lb.meta ->> 'via' = 'claim_referral',
-      pg_temp.row_text(lb));
+      lb.id is not null and lb.reason = 'Badge: Recruiter' and lb.kind = 'earn' and not lb.is_bonus
+      and lb.meta ->> 'via' = 'claim_referral'
+      and exists (select 1 from public.player_badges pb join public.badges b on b.id = pb.badge_id
+                   where pb.id::text = lb.meta ->> 'badge_award_id' and pb.user_id = pg_temp.p('PR') and b.name = 'Recruiter'),
+      coalesce(pg_temp.row_text(lb), 'no badge row for Riley'));
   else
-    perform pg_temp.ok('INFO no Recruiter badge was awarded (none on live?)', true, null);
+    perform pg_temp.ok('INFO no Recruiter badge in public.badges: its row not exercised', true, null);
   end if;
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('L7 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ L7b an invite code's subsidy is the creator's row, not an entry ════
+-- A 300 ante; Riley's invite code pays 100 of it. Noor registers with the
+-- code (the REAL _charge_tournament_ante trigger), then leaves during
+-- registration (the REAL _refund_registration_ante).
+do $$
+declare
+  v_t    uuid;
+  v_code uuid;
+  mark   bigint := pg_temp.mark();
+  ln     public.pickle_ledger;
+  lr     public.pickle_ledger;
+  bn     integer := pg_temp.pickles('PN');
+  br     integer := pg_temp.pickles('PR');
+begin
+  insert into public.tournaments (name, format, created_by, pickle_ante, status)
+  values ('Ledger Cup', 'round_robin', pg_temp.p('PA'), 300, 'registration')
+  returning id into v_t;
+  insert into public.invite_codes (scope_type, scope_id, created_by, pickle_subsidy, max_uses)
+  values ('tournament', v_t, pg_temp.p('PR'), 100, 5)
+  returning id into v_code;
+  insert into public.tournament_registrations (tournament_id, user_id, status, redeemed_invite_code_id)
+  values (v_t, pg_temp.p('PN'), 'approved', v_code);
+
+  select * into ln from pg_temp.since('PN', mark, '_charge_tournament_ante');
+  select * into lr from pg_temp.since('PR', mark, '_charge_tournament_ante');
+  perform pg_temp.ok('L7b the registrant pays "Tournament entry"; the code''s creator a spend row "Invite subsidy: Ledger Cup"',
+    pg_temp.pickles('PN') = bn - 200 and pg_temp.pickles('PR') = br - 100
+    and ln.delta = -200 and ln.reason = 'Tournament entry' and ln.kind = 'spend' and not (ln.meta ? 'invite_subsidy')
+    and lr.delta = -100 and lr.reason = 'Invite subsidy: Ledger Cup' and lr.kind = 'spend' and lr.category = 'tournament'
+    and not lr.is_bonus and (lr.meta ->> 'invite_subsidy')::boolean and lr.meta ->> 'tournament_id' = v_t::text
+    and lr.balance_after = pg_temp.pickles('PR'),
+    format('%s; %s', pg_temp.row_text(ln), pg_temp.row_text(lr)));
+
+  mark := pg_temp.mark();
+  delete from public.tournament_registrations where tournament_id = v_t and user_id = pg_temp.p('PN');
+  select * into ln from pg_temp.since('PN', mark, '_refund_registration_ante');
+  select * into lr from pg_temp.since('PR', mark, '_refund_registration_ante');
+  perform pg_temp.ok('L7b leaving during registration refunds each: "Tournament entry refunded" / "Invite subsidy refunded: Ledger Cup"',
+    pg_temp.pickles('PN') = bn and pg_temp.pickles('PR') = br
+    and ln.delta = 200 and ln.reason = 'Tournament entry refunded' and ln.kind = 'refund' and not (ln.meta ? 'invite_subsidy')
+    and lr.delta = 100 and lr.reason = 'Invite subsidy refunded: Ledger Cup' and lr.kind = 'refund'
+    and lr.category = 'tournament' and not lr.is_bonus and (lr.meta ->> 'invite_subsidy')::boolean,
+    format('%s; %s', pg_temp.row_text(ln), pg_temp.row_text(lr)));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('L7b block crashed', false, sqlerrm);
 end $$;
 
 
@@ -999,34 +1106,6 @@ exception when others then
 end $$;
 
 
--- ════ L18 grants after the hardening re-run ══════════════════════════════
-do $$
-declare
-  f     text;
-  v_bad text[] := '{}';
-begin
-  foreach f in array array['public.list_pickle_ledger(integer,timestamptz,bigint)',
-                           'public.list_pickle_ledger_range(timestamptz,timestamptz)', 'public.my_pickle_today()'] loop
-    if not has_function_privilege('authenticated', f, 'execute') or has_function_privilege('anon', f, 'execute') then
-      v_bad := v_bad || f;
-    end if;
-  end loop;
-  perform pg_temp.ok('L18 after the hardening re-run the three RPCs are callable by players, not anon',
-    cardinality(v_bad) = 0, array_to_string(v_bad, ', '));
-  v_bad := '{}';
-  foreach f in array array['public._pl_pickle_ledger_capture()', 'public._pl_pickle_ledger_item()',
-                           'public._pl_pickle_ledger_purge()'] loop
-    if has_function_privilege('authenticated', f, 'execute') or has_function_privilege('anon', f, 'execute') then
-      v_bad := v_bad || f;
-    end if;
-  end loop;
-  perform pg_temp.ok('L18 the trigger functions are not callable by clients', cardinality(v_bad) = 0,
-    array_to_string(v_bad, ', '));
-exception when others then
-  perform pg_temp.ok('L18 block crashed', false, sqlerrm);
-end $$;
-
-
 -- ════ L19 what a change costs (INFO) ═════════════════════════════════════
 do $$
 declare
@@ -1054,6 +1133,51 @@ begin
            round((extract(epoch from (t1 - t0) - (t2 - t1)) * 1000 / 200)::numeric, 3)));
 exception when others then
   perform pg_temp.ok('L19 block crashed', false, sqlerrm);
+end $$;
+
+do $$
+declare
+  v text := pg_temp.locks_on_live(array['AccessExclusiveLock']);
+begin
+  perform pg_temp.ok('L19 ...and the whole run so far took no ACCESS EXCLUSIVE lock on a live table',
+    v is null, coalesce(v, 'none'));
+exception when others then
+  perform pg_temp.ok('L19 lock check crashed', false, sqlerrm);
+end $$;
+
+
+-- The hardening re-run comes last: its DROP / CREATE POLICY holds ACCESS
+-- EXCLUSIVE on its tables until the rollback, a few milliseconds from here.
+-- @@HARDENING@@
+
+
+-- ════ L18 grants after the hardening re-run ══════════════════════════════
+do $$
+declare
+  f     text;
+  v_bad text[] := '{}';
+begin
+  foreach f in array array['public.list_pickle_ledger(integer,timestamptz,bigint)',
+                           'public.list_pickle_ledger_range(timestamptz,timestamptz)', 'public.my_pickle_today()'] loop
+    if not has_function_privilege('authenticated', f, 'execute') or has_function_privilege('anon', f, 'execute') then
+      v_bad := v_bad || f;
+    end if;
+  end loop;
+  perform pg_temp.ok('L18 after the hardening re-run the three RPCs are callable by players, not anon',
+    cardinality(v_bad) = 0, array_to_string(v_bad, ', '));
+  v_bad := '{}';
+  foreach f in array array['public._pl_pickle_ledger_capture()', 'public._pl_pickle_ledger_item()',
+                           'public._pl_pickle_ledger_subsidy()', 'public._pl_pickle_ledger_purge()'] loop
+    if has_function_privilege('authenticated', f, 'execute') or has_function_privilege('anon', f, 'execute') then
+      v_bad := v_bad || f;
+    end if;
+  end loop;
+  perform pg_temp.ok('L18 the trigger functions are not callable by clients', cardinality(v_bad) = 0,
+    array_to_string(v_bad, ', '));
+  perform pg_temp.ok('INFO live tables the hardening re-run holds ACCESS EXCLUSIVE on (until the rollback, right after this)', true,
+    coalesce(pg_temp.locks_on_live(array['AccessExclusiveLock']), 'none'));
+exception when others then
+  perform pg_temp.ok('L18 block crashed', false, sqlerrm);
 end $$;
 
 

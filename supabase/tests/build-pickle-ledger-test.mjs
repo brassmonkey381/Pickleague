@@ -1,9 +1,14 @@
 #!/usr/bin/env node
-// Build the pickle history persona test: pickle_ledger_personas.sql with, in
-// place of its -- @@MIGRATION@@ line,
-//   migration_pickle_ledger.sql                 (the file under test)
-//   migration_pickle_ledger.sql (re-run)        (it must be re-runnable: no second starting row)
-//   migration_rls_hardening_2026q3.sql (re-run) (a re-run must keep the three new RPCs online)
+// Build the pickle history persona test: pickle_ledger_personas.sql with
+//   at its -- @@MIGRATION@@ line:
+//     migration_pickle_ledger.sql                 (the file under test)
+//     migration_pickle_ledger.sql (re-run)        (it must be re-runnable: no second starting
+//                                                  row, no ACCESS EXCLUSIVE lock on a live table)
+//   at its -- @@HARDENING@@ line, near the end:
+//     migration_rls_hardening_2026q3.sql (re-run) (a re-run must keep the three new RPCs online;
+//                                                  last, because its DROP / CREATE POLICY holds
+//                                                  ACCESS EXCLUSIVE on tournament_registrations
+//                                                  and league_members until the rollback)
 // The test file holds the begin / rollback, so the result leaves the linked
 // (live) database untouched.
 //
@@ -22,6 +27,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'pickle_ledger_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
+const HARDENING_MARKER = '-- @@HARDENING@@';
 const MIGRATION = 'migration_pickle_ledger.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 const CLIENT_RPCS = ['list_pickle_ledger', 'list_pickle_ledger_range', 'my_pickle_today'];
@@ -81,18 +87,20 @@ for (const fn of CLIENT_RPCS) {
 }
 
 const body = fs.readFileSync(BODY, 'utf8').replace(/\r\n/g, '\n');
-if (!body.includes(MARKER)) {
-  console.error(`FAILED: ${path.basename(BODY)} has no "${MARKER}" line.`);
-  process.exit(1);
+for (const m of [MARKER, HARDENING_MARKER]) {
+  if (body.split('\n').filter((l) => l.trim() === m).length !== 1) {
+    console.error(`FAILED: ${path.basename(BODY)} needs exactly one "${m}" line.`);
+    process.exit(1);
+  }
 }
 
 const migration = read(MIGRATION);
 const spliced = [
   `-- ════ ${MIGRATION} ════\n${migration}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${migration}`,
-  `-- ════ ${HARDENING} (re-run) ════\n${hardening}`,
 ].join('\n');
 
 const out = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'pickle_ledger_test.sql'));
-fs.writeFileSync(out, body.replace(MARKER, () => spliced));
+const splice = { [MARKER]: spliced, [HARDENING_MARKER]: `-- ════ ${HARDENING} (re-run) ════\n${hardening}` };
+fs.writeFileSync(out, body.split('\n').map((l) => splice[l.trim()] ?? l).join('\n'));
 console.log(out);
