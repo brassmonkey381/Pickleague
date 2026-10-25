@@ -3,7 +3,7 @@
 // this same panel when Discover is off). No new server work: the friends RPCs
 // and the player search the Friends screen already used.
 //
-//   [🔍 Search players near Alameda, CA]            opens a player's profile
+//   [🔍 Search players by name or @username]        opens a player's profile
 //   (Friends 5) (Requests 2) (Played with) (Nearby)  the view; Requests counts what waits on you
 //   Friends     ⭐ Close friends are listed first...  (A) Sam · Friends since Oct 2   ⭐ ⋯
 //   Requests    WAITING ON YOU (A) Sam · 2d ago   [Accept] [Decline]
@@ -26,13 +26,14 @@
 // - The search is UserPickerModal with realPeopleOnly (no unclaimed DUPR
 //   placeholders, guest passes or deleted accounts). Picking a player opens
 //   their profile, where Add friend is one tap.
-// - Discover's search area (the pills above the tabs) limits the search and
-//   Nearby to the players who PLAY there (data/playersNear: by their leagues'
-//   home courts only; never a starred court, a check-in or where they are
-//   now). Friends, Requests
-//   and Played with are yours and are not limited. Until the area is known
-//   neither lists anyone; only with no area at all (no location, no city, no
-//   located league court) does the search cover everyone, as before.
+// - Discover's search area (the pills above the tabs) limits Nearby, and the
+//   search before a name is typed, to the players who PLAY there
+//   (data/playersNear: by their leagues' home courts only; never a starred
+//   court, a check-in or where they are now). Typing a name (2+ letters)
+//   searches EVERY player (data/playerSearch -> search_players; the user,
+//   2026-10-24): "Near <area>" first, then "Everywhere else"; blocks both
+//   ways and hidden test accounts left out by the server. Friends, Requests
+//   and Played with are yours and are not limited.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -105,6 +106,8 @@ import { useSearchArea } from '../../lib/useSearchArea';
 import { searchAreaKey } from '../../lib/searchArea';
 import { playsAtLabel, type NearPlayer } from '../../lib/playersNear';
 import { listPlayersNear } from '../../data/playersNear';
+import { searchPlayers } from '../../data/playerSearch';
+import { groupSearchResults } from '../../lib/playerSearch';
 import { useBlockedIds } from '../../lib/moderation';
 import { useSearchAreaPlace } from '../SearchAreaBar';
 import type { RootStackParamList } from '../../types';
@@ -315,6 +318,15 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
   const loadNear = useCallback(
     async () => (area ? (await listPlayersNear(area, { realPeopleOnly: true, limit: 500 })).map(toPicked) : []),
     [area],
+  );
+  // A typed name searches everyone; the players near the area come first.
+  const searchByName = useCallback(
+    async (q: string): Promise<PickedUser[]> => {
+      const rows = await searchPlayers(q, area, { realPeopleOnly: true, exclude: notMe, limit: 60 });
+      return groupSearchResults(rows, areaPlace, area != null)
+        .flatMap((sec) => sec.rows.map((p) => ({ ...toPicked(p), section: sec.title })));
+    },
+    [area, areaPlace, notMe],
   );
   function onPick(u: PickedUser) {
     setPickerOpen(false);
@@ -718,12 +730,12 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
           // A button that opens the search (role "search" made it a landmark
           // on web and a "search field" to VoiceOver).
           accessibilityRole="button"
-          accessibilityLabel={area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name'}
+          accessibilityLabel="Search players by name or @username"
           accessibilityHint="Opens player search"
         >
           <Icon name="search" size={16} color={c.textSub} />
           <Text style={[t.sub, S.flex]} numberOfLines={1}>
-            {area ? `Search players near ${areaPlace ?? 'your area'}` : 'Search players by name or @username'}
+            Search players by name or @username
           </Text>
         </TouchableOpacity>
 
@@ -789,6 +801,7 @@ export default function PlayersPanel({ navigation, active = true, view: viewPara
         load={area || !areaReady ? loadNear : undefined}
         loadKey={areaKey}
         subtitle={area ? `Players near ${areaPlace ?? 'your area'} · ${area.radiusMi} mi` : null}
+        search={searchByName}
         onPick={onPick}
         onClose={() => setPickerOpen(false)}
       />
