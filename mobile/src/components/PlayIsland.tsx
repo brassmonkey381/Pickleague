@@ -16,7 +16,6 @@ import { PLAY_NAV_ENABLED } from '../lib/features';
 import { setIslandShown, useNavBarHeight } from '../lib/appChrome';
 import { islandBottom } from '../lib/navBarRules';
 import CheckinPlanLine from './routines/CheckinPlanLine';
-import IslandPillText from './play/IslandPillText';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -232,8 +231,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       // covering it. Nothing to pass here; the bar publishes its own height.
       anchor="bottom"
       style={position}
-      // The mode and timer stay whole; only the court is cut short (IslandPillText).
-      pill={<IslandPillText primary={`${meta?.label ?? 'Playing'} · ${clock(elapsed)}`} secondary={where} />}
+      // The mode and timer stay whole; only the court is cut short (foundation 1.72).
+      pill={{ primary: `${meta?.label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
       title="PLAYING NOW"
       stats={[
         { value: clock(elapsed), label: 'Elapsed' },

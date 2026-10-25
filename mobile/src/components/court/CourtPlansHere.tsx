@@ -195,7 +195,7 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
                         busy={sharing === p.planId}
                         disabled={(sharing != null && sharing !== p.planId) || options.busy != null}
                         onPress={Date.parse(p.plannedAt) > now - SHARE_IN_PLAY_MS ? () => void toggleShare(p) : undefined}
-                        style={S.shareChipBox}
+                        compact
                       />
                     ) : null}
                   </View>
@@ -241,6 +241,5 @@ const S = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
   shrink: { flexShrink: 1 },
   // The chip's 44 tap box overlaps the lines around it instead of making the row 44 tall.
-  shareChipBox: { marginVertical: -10 },
   kindIcon: { width: ICON, height: ICON, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
 });

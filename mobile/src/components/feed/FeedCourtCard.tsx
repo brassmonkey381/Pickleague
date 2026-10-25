@@ -256,7 +256,7 @@ export default function FeedCourtCard({
         busy={busy}
         disabled={disabled}
         onPress={inPlay ? () => toggle(l, card) : undefined}
-        style={inPlay ? styles.shareChipBox : undefined}
+        compact={inPlay}
       />
     );
   }
@@ -496,7 +496,6 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xs, minWidth: 0 },
   // The chip's 44 tap box overlaps the lines above and below instead of
   // making the row 44 tall (the pill itself is about 24).
-  shareChipBox: { marginVertical: -10 },
   rows: { gap: SPACE.xs, marginTop: SPACE.sm },
   row: { paddingVertical: SPACE.xs },
   line: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },

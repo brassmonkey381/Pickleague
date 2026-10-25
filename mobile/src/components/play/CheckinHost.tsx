@@ -85,7 +85,6 @@ import { listMyCourtFavorites } from '../../data/courtFavorites';
 import { PLAY_NAV_ENABLED } from '../../lib/features';
 import CourtCheckInNotes from '../court/CourtCheckInNotes';
 import CheckinPlanLine from '../routines/CheckinPlanLine';
-import IslandPillText from './IslandPillText';
 
 const CHECKOUT_BOUND_MS = CHECKIN_BOUND_MS_DEFAULT + CHECKOUT_FIX_WAIT_MS;
 const GAP = Platform.OS === 'web' ? 10 : 6;
@@ -485,8 +484,8 @@ function Host() {
         onExpandedChange={setExpanded}
         anchor="bottom"
         style={position}
-        // The label stays whole; only the court part is cut short (IslandPillText).
-        pill={<IslandPillText primary={pill.primary} secondary={pill.secondary} />}
+        // The label stays whole; only the court part is cut short (foundation 1.72).
+        pill={{ primary: pill.primary, secondary: pill.secondary }}
         title={title}
         sections={sections}
         actions={actions}
