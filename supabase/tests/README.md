@@ -295,6 +295,20 @@ touches playoff bracket generation or advancement.
     their league court, before and after the pause); drilling only, name /
     @username search with literal `%`; and the God mode test-account switch.
 
+- `search_players_personas.sql` (+ `build-search-players-test.mjs`)
+  - Player search by name (`migration_search_players.sql`): splices
+    `migration_discover_players_near.sql`, then the migration twice, inside one
+    rolled-back transaction (no hardening re-run; the builder refuses unless
+    its allowlist names `search_players`), then checks: grants and attributes,
+    no phone / email column, the body reads no starred court, check-in or
+    presence setting; refusals (signed out, under 2 letters, half a centre);
+    everyone matching the name is found, but only discover_players_near's
+    players (league home courts) are placed, and first, nearest first; a
+    closed league's member, a starred / checked-in-now player and a far
+    player are found unplaced; blocks both ways, deleted accounts, the viewer,
+    p_exclude and (real people only) placeholders / guests left out; no centre
+    places nobody; literal `%` and `\`; @username; the God mode switch.
+
 - `on_my_way_personas.sql` (+ `build-on-my-way-test.mjs`)
   - "On my way" (`migration_on_my_way.sql`): applies the migration twice
     inside one rolled-back transaction (it does NOT re-run

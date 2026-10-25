@@ -168,6 +168,9 @@ begin
         -- Discover's search area: players and drill partners near it
         -- (migration_discover_players_near.sql, which grants it too).
         'discover_players_near',
+        -- Player search by name: everyone, the players near the area first
+        -- (migration_search_players.sql, which grants it too).
+        'search_players',
         -- "On my way" to a court, with an ETA (migration_on_my_way.sql, which
         -- grants it too; migration_court_oneoff_plans.sql adds p_here).
         'send_on_my_way',

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, ActivityIndicator, Platform, Pressable,
@@ -12,6 +12,7 @@ import { isServerRefusal } from '../lib/refusals';
 import { useTheme } from '../lib/ThemeContext';
 import { AVATARS } from '../data/profileCustomization';
 import { listEveryone } from '../data/inviteSuggestions';
+import { SEARCH_DEBOUNCE_MS, SHORT_QUERY_HINT, searchEmptyCopy, searchableQuery } from '../lib/playerSearch';
 import EmptyState from './EmptyState';
 
 export type PickedUser = {
@@ -23,6 +24,9 @@ export type PickedUser = {
   avatar_bg_color: string | null;
   /** A line under the @username ("Plays at Lakeside Park · 2 mi"). */
   detail?: string | null;
+  /** A group heading ("Near Alameda, CA", "Everywhere else"): shown above the
+   *  first row of each run of rows with the same section. */
+  section?: string | null;
 };
 
 type Props = {
@@ -40,6 +44,10 @@ type Props = {
   loadKey?: string;
   /** A line under the title ("Players near Alameda, CA · 5 mi"). */
   subtitle?: string | null;
+  /** Searches by name (Discover's Players: everyone, the players near the
+   *  area first). Set, a query of 2+ letters goes here (debounced) instead of
+   *  filtering the loaded list; shorter, the loaded list is filtered. */
+  search?: (query: string) => Promise<PickedUser[]>;
   onPick: (u: PickedUser) => void;
   onClose: () => void;
 };
@@ -54,7 +62,7 @@ function loadProblem(e: unknown): string {
 }
 
 export default function UserPickerModal({
-  visible, title, excludeUserIds, realPeopleOnly = false, load, loadKey, subtitle, onPick, onClose,
+  visible, title, excludeUserIds, realPeopleOnly = false, load, loadKey, subtitle, search, onPick, onClose,
 }: Props) {
   const { colors: c } = useTheme();
   const S = makeStyles(c);
@@ -109,16 +117,53 @@ export default function UserPickerModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, realPeopleOnly, attempt, loadKey, !!load]);
 
+  // ── Name search (only with `search`) ──
+  const searchQ = search ? searchableQuery(query) : null;
+  const [found, setFound] = useState<{ q: string; rows: PickedUser[] } | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
+  const searchRef = useRef(search);
+  searchRef.current = search;
+  useEffect(() => {
+    if (!visible || !searchQ || !searchRef.current) {
+      setFound(null);
+      setSearchError(null);
+      return;
+    }
+    let live = true;
+    setSearchError(null);
+    const timer = setTimeout(() => {
+      searchRef.current!(searchQ).then(
+        (rows) => { if (live) setFound({ q: searchQ, rows }); },
+        (e: unknown) => {
+          if (!live) return;
+          setFound({ q: searchQ, rows: [] });
+          setSearchError(loadProblem(e));
+        },
+      );
+    }, SEARCH_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(timer); };
+  }, [visible, searchQ, searchAttempt, loadKey]);
+  // The results for what is typed now; older ones stay up (dimmed by the
+  // spinner) until the new ones land, so the list doesn't flash empty.
+  const searching = !!searchQ && found?.q !== searchQ && !searchError;
+
   const exclude = useMemo(() => new Set(excludeUserIds ?? []), [excludeUserIds]);
 
   const filtered = useMemo(() => {
+    if (searchQ) return (found?.rows ?? []).filter(u => !exclude.has(u.id));
     const q = query.trim().toLowerCase();
     return users.filter(u => {
       if (exclude.has(u.id)) return false;
       if (!q) return true;
       return (u.full_name ?? '').toLowerCase().includes(q) || (u.username ?? '').toLowerCase().includes(q.replace(/^@/, ''));
     });
-  }, [users, query, exclude]);
+  }, [users, query, exclude, searchQ, found]);
+
+  const listHint = !search ? null
+    : query.trim().replace(/^@/, '').trim().length === 1 ? SHORT_QUERY_HINT
+    : !query.trim() ? 'Type a name to search every player.'
+    : null;
 
   const content = (
     <>
@@ -155,13 +200,32 @@ export default function UserPickerModal({
         )}
       </View>
 
-      {loading ? (
+      {(searchQ ? searching && !found : loading) ? (
         <ActivityIndicator size="large" color={c.primary} style={S.spinner} />
       ) : (
         <FlatList
           data={filtered}
           keyExtractor={u => u.id}
-          ListEmptyComponent={loadError
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={listHint || (searchQ && searching)
+            ? (
+              <View style={S.hintRow}>
+                {searchQ && searching ? <ActivityIndicator size="small" color={c.primary} /> : null}
+                <Text style={[t.hint, S.flexText]}>{searchQ && searching ? 'Searching every player…' : listHint}</Text>
+              </View>
+            )
+            : null}
+          ListEmptyComponent={searchQ
+            ? (searchError
+              ? <ErrorState
+                  iconName="offline"
+                  error={null}
+                  message={searchError}
+                  onRetry={() => setSearchAttempt(n => n + 1)}
+                />
+              : searching ? null
+              : <EmptyState iconName="search" {...searchEmptyCopy(searchQ)} />)
+            : loadError
             // A failed read is never "No matches": the message says why, with a retry.
             ? <ErrorState
                 iconName="offline"
@@ -169,12 +233,23 @@ export default function UserPickerModal({
                 message={loadError}
                 onRetry={() => setAttempt(n => n + 1)}
               />
-            : <EmptyState iconName="search" title="No matches." subtitle={load && !query.trim() ? 'No one plays here yet. Try a wider radius.' : undefined} />}
-          renderItem={({ item }) => {
+            : <EmptyState
+                iconName="search"
+                title="No matches."
+                subtitle={load && !query.trim()
+                  ? (search ? 'No one plays here yet. Try a wider radius, or type a name to search every player.' : 'No one plays here yet. Try a wider radius.')
+                  : undefined}
+              />}
+          renderItem={({ item, index }) => {
             const cartoon = AVATARS.find(a => a.id === (item.avatar_id ?? 1)) ?? AVATARS[0];
             const emoji   = item.avatar_emoji ?? cartoon.emoji;
             const bg      = item.avatar_bg_color ?? cartoon.bgColor;
+            const heading = item.section && (index === 0 || filtered[index - 1]?.section !== item.section) ? item.section : null;
             return (
+              <>
+              {heading ? (
+                <Text style={[t.label, S.section]} accessibilityRole="header">{heading}</Text>
+              ) : null}
               <TouchableOpacity
                 style={S.row}
                 onPress={() => onPick(item)}
@@ -192,6 +267,7 @@ export default function UserPickerModal({
                 </View>
                 <Icon name="chevron-right" size={16} color={c.textMuted} />
               </TouchableOpacity>
+              </>
             );
           }}
           contentContainerStyle={S.listContent}
@@ -252,6 +328,9 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     clearBtn:    { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 
     spinner:     { marginTop: SPACE.xl * 2 },
+    hintRow:     { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, paddingHorizontal: SPACE.lg, paddingVertical: SPACE.sm },
+    flexText:    { flex: 1, minWidth: 0 },
+    section:     { paddingHorizontal: SPACE.lg, paddingTop: SPACE.md, paddingBottom: SPACE.xs },
     listContent: { paddingBottom: SPACE.xl * 2 },
     row:         { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACE.md, paddingHorizontal: SPACE.lg, borderBottomWidth: HAIRLINE, borderBottomColor: c.border, backgroundColor: c.surface, gap: SPACE.md },
     rowText:     { flex: 1, minWidth: 0 },
