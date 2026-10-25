@@ -3,9 +3,10 @@
 -- for migration_court_oneoff_plans.sql.
 --
 -- NOT runnable on its own: build-court-oneoff-plans-test.mjs puts
--- migration_court_oneoff_plans.sql (twice: it must be re-runnable) and then
--- migration_rls_hardening_2026q3.sql (a re-run must keep the new RPCs
--- online) at the marker line below. Everything runs inside the begin /
+-- migration_court_oneoff_plans.sql (twice: it must be re-runnable),
+-- migration_plan_sharing.sql (re-applied after it, as on live: plans stay
+-- private unless p_share) and then migration_rls_hardening_2026q3.sql (a
+-- re-run must keep the new RPCs online) at the marker line below. Everything runs inside the begin /
 -- rollback below, so the linked (live) database is left untouched:
 --   node supabase/tests/build-court-oneoff-plans-test.mjs <out.sql>
 --   (from the linked checkout) supabase db query --linked -f <out.sql> -o csv
@@ -247,8 +248,10 @@ do $$
 declare
   f        text;
   v_bad    text;
+  -- plan_court_checkin: the 4-argument one (p_share) of
+  -- migration_plan_sharing.sql, which the builder re-applies after this file.
   v_client text[] := array[
-    'public.plan_court_checkin(text,timestamptz,integer)',
+    'public.plan_court_checkin(text,timestamptz,integer,boolean)',
     'public.move_court_plan(uuid,timestamptz)',
     'public.cancel_court_plan(uuid)',
     'public.list_my_court_plans()',

@@ -132,6 +132,11 @@
 -- saved or edited during its window doing nothing today; one deleted or
 -- paused during its window leaving today's occurrence behind, still kept by
 -- a check-in by hand). The test builders and the apply scripts do this.
+-- Then RE-APPLY migration_court_oneoff_plans.sql and migration_plan_sharing.sql
+-- after it too, in that order: this file puts back list_my_court_routines
+-- and get_court_routine_settings without the plan share (shared_at,
+-- share_source, auto_share_routines), and the routines-file bodies the
+-- one-off file replaces.
 --   supabase db query --linked -f supabase/migration_court_routines.sql
 -- ============================================================
 

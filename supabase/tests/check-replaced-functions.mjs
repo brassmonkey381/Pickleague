@@ -81,6 +81,20 @@ const REPLACED = [
     'migration_court_oneoff_plans.sql'],
   ['public.send_on_my_way(text,integer,uuid[])', 'migration_on_my_way.sql', 'migration_court_oneoff_plans.sql', null,
     'public.send_on_my_way(text,integer,uuid[],boolean)'],
+  // Plan sharing (migration_plan_sharing.sql): the owner's reads carry
+  // shared_at / share_source, the routine settings auto_share_routines, an
+  // edited routine keeps its stops' shares, and plan_court_checkin gains
+  // p_share (a fourth argument: the three-argument function is dropped).
+  // Needs migration_court_oneoff_plans.sql live first (list_my_court_plans).
+  ['public.list_my_court_plans()', 'migration_court_oneoff_plans.sql', 'migration_plan_sharing.sql'],
+  ['public.list_my_court_routines()', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
+  ['public.get_court_routine_settings()', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
+  ['public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)', 'migration_court_routines_planned_end.sql',
+    'migration_plan_sharing.sql'],
+  // ...and a profile's weekly routines go to others only while auto-share is on.
+  ['public.list_profile_court_routines(uuid)', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
+  ['public.plan_court_checkin(text,timestamptz,integer)', 'migration_court_oneoff_plans.sql',
+    'migration_plan_sharing.sql', null, 'public.plan_court_checkin(text,timestamptz,integer,boolean)'],
 ];
 const TAG = '$pl_expect$';
 

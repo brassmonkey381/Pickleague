@@ -143,6 +143,9 @@
 -- of migration_court_routines.sql: it puts the old bodies back
 -- (build-court-routines-test.mjs and build-presence-test.mjs do this, and
 -- state/server-batch2-apply.ps1 applies this file after it when present).
+-- RE-APPLY migration_plan_sharing.sql after any re-run of THIS file: this
+-- file puts back a save_court_routine that drops a routine stop's share
+-- (confirmed or "Only you") whenever the routine is edited.
 -- Re-runnable; no begin/commit.
 --   supabase db query --linked -f supabase/migration_court_routines_planned_end.sql
 -- ============================================================
