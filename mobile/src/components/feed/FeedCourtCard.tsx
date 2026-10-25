@@ -252,7 +252,7 @@ export default function FeedCourtCard({
     <View style={[styles.card, { borderColor: c.border }]}>
       <View style={[styles.header, twoActions && styles.headerWrap]}>
         <TouchableOpacity
-          style={[styles.headerName, twoActions && styles.headerNameWrap]}
+          style={[styles.headerName, twoActions ? styles.headerNameWrap : styles.headerNameFill]}
           onPress={() => actions.openCourt(card)}
           accessibilityRole="button"
           accessibilityLabel={`${card.venueName}. Open the court`}
@@ -373,13 +373,20 @@ export default function FeedCourtCard({
 const styles = StyleSheet.create({
   card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-  headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  headerName: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  // One action (or none): the name takes the rest of the row, one line.
+  headerNameFill: { flex: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
-  // Two actions: the row wraps. The name's basis is its own one-line width
-  // (not flex: 1's 0), so a name that doesn't fit beside the actions breaks
-  // the row and takes all of the first; the actions sit right, under it.
+  // Two actions: the row wraps. The name's basis must be its own one-line
+  // width, so a name that doesn't fit beside the actions breaks the row and
+  // takes all of the first; the actions sit right, under it. So no flex: 1
+  // and no flexGrow here: on iOS/Android (Yoga) flex: 1 turns basis 'auto'
+  // into 0, and Yoga also gives the row's only grow-and-shrink child a basis
+  // of 0, wrap or not. Either way the row never breaks (the name is crushed
+  // beside the actions). Web has neither rule, which is why web alone looked
+  // right. Shrink only: grow 0, basis auto.
   headerWrap: { flexWrap: 'wrap', rowGap: SPACE.xs },
-  headerNameWrap: { flexGrow: 1, flexShrink: 1, flexBasis: 'auto' },
+  headerNameWrap: { flexShrink: 1 },
   headerActionsWrap: { marginLeft: 'auto' },
   sent: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
   agendaRow: { marginHorizontal: -SPACE.xs },

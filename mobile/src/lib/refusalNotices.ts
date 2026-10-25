@@ -27,7 +27,9 @@ import { NO_CONNECTION, isServerRefusal, refusalCode, refusalMessage, type Refus
 /**
  * The copy for an error the player is waiting on. `network` replaces the
  * no-connection line.
- *   1. A refusal this build knows (pl:<code>, or an older server's text): its own words.
+ *   1. A refusal this build knows (pl:<code>, or a known text: an older
+ *      server's, a trigger's raised without a code, the app's own signed-out
+ *      errors): its own words.
  *   2. A pl:* refusal this build has no code for yet (a newer server): the
  *      server's own message, which migration_refusal_messages.sql writes for people.
  *   3. No signal, signed out, not allowed: the kit's fixed plain copy

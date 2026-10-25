@@ -150,6 +150,27 @@ describe('explainRefusal', () => {
     expect(explainRefusal('a string', fb)).toBe(fb);
   });
 
+  it('recording a match: a completed tournament match, or signed out, says why instead of "Try again"', () => {
+    const fb = "Couldn't record the match. Try again.";
+    const opts = { network: "Lost the connection, so we can't tell whether this match saved." };
+    // _lock_completed_tournament_match: P0001 with no pl: hint.
+    const locked = {
+      code: 'P0001',
+      message:
+        "This match is already recorded — completed tournament matches can't be changed. Ask the organizer if a correction is needed.",
+      details: null,
+      hint: null,
+    };
+    const lockedOut = explainRefusal(locked, fb, {}, opts);
+    expect(lockedOut).toBe("This match is already recorded, so its score can't be changed. Ask the organizer if a correction is needed.");
+    expect(lockedOut).not.toContain('—');
+    // requireUserId(supabase, 'Please sign in again to record a match.'): a plain Error, kit kind 'unknown'.
+    expect(explainRefusal(new Error('Please sign in again to record a match.'), fb, {}, opts)).toBe(
+      "You're signed out. Sign in to Pickleague and try again.",
+    );
+    expect(isRetryLater(new Error('Not signed in.'))).toBe(true);
+  });
+
   it("a pl:* refusal this build has no code for yet (a newer server): the server's words, written for people", () => {
     expect(
       explainRefusal({ code: 'P0001', message: 'Courts close at 10 PM. Plan an earlier time.', hint: 'pl:court.closed_late' }, 'F.'),
