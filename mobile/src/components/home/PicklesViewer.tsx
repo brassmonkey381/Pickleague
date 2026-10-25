@@ -14,32 +14,53 @@
 // cap Pickleague has: other pickles are never capped, so the meter reads the
 // server's streak_today, never the day's earned total.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import {
   PointsActivityModal,
+  pointsErrorReason,
+  resolvePointsCopy,
   usePointsLedger,
   type PointsCapProgress,
   type PointsUnit,
 } from '@just-messin-around/expo-foundation/gamification/points';
+import { TextLink } from '@just-messin-around/expo-foundation/ui';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { SPACE } from '@just-messin-around/expo-foundation/styles';
+import { useTheme } from '../../lib/ThemeContext';
 import { PickleAmount, PickleBalance } from '../PickleAmount';
-import { listPickleLedgerPage, loadPickleToday, playStreakCaption, type PickleToday } from '../../data/pickleLedger';
+import {
+  listPickleLedgerPage,
+  loadPickleToday,
+  playStreakCaption,
+  playStreakLoadError,
+  type PickleToday,
+} from '../../data/pickleLedger';
+
+// PointsCalendar's day summary draws its words ("earned", "spent") at 14 / 800
+// and hands that style to its own amount, but renderAmount never receives it
+// (kit 1.73 has no textStyle in PointsAmountRenderInfo), so match it here.
+const DAY_TOTAL_TEXT = { fontSize: 14, fontWeight: '800' } as const;
 
 /** Pickles, drawn with PickleAmount / PickleBalance everywhere the kit draws an amount. */
 export const PICKLES_UNIT: PointsUnit = {
   singular: 'pickle',
   plural: 'pickles',
   iconName: 'pickle',
-  renderAmount: ({ amount, kind, color, preset, accessibilityLabel }) =>
-    kind == null ? (
-      <PickleBalance balance={amount} preset={preset} color={color} />
+  renderAmount: ({ amount, kind, color, preset, context, accessibilityLabel }) => {
+    const textStyle = context === 'day' ? DAY_TOTAL_TEXT : undefined;
+    return kind == null ? (
+      <PickleBalance balance={amount} preset={preset} color={color} textStyle={textStyle} />
     ) : (
       <PickleAmount
         amount={Math.abs(amount)}
         prefix={amount > 0 ? '+' : amount < 0 ? '-' : ''}
         preset={preset}
         color={color}
+        textStyle={textStyle}
         accessibilityLabel={accessibilityLabel}
       />
-    ),
+    );
+  },
 };
 
 /** The viewer's and the calendar's words (the rest are the kit's, in pickles). */
@@ -74,6 +95,8 @@ export default function PicklesViewer({
   onOpenCalendar,
   onDismissed,
 }: Props) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
   const ledger = usePointsLedger({ enabled: visible, fetchPage: listPickleLedgerPage });
 
   // Today's play streak, read each time the viewer opens.
@@ -82,6 +105,8 @@ export default function PicklesViewer({
   const seq = useRef(0);
   const loadToday = useCallback(() => {
     const n = ++seq.current;
+    // A previous open's answer may be another day's: never show it as today's.
+    setToday(null);
     setTodayError(null);
     loadPickleToday().then(
       (t) => { if (n === seq.current) setToday(t); },
@@ -90,10 +115,18 @@ export default function PicklesViewer({
   }, []);
   useEffect(() => {
     if (visible) loadToday();
-    else seq.current++; // drop a late answer after a close
+    else {
+      seq.current++; // drop a late answer after a close
+      setToday(null);
+      setTodayError(null);
+    }
   }, [visible, loadToday]);
 
-  const error = todayError ?? (balance == null ? balanceError : null) ?? null;
+  // Only the balance joins the feed's "Couldn't load your pickles" banner: a
+  // failed play-streak read leaves the balance and the rows fine, so it gets
+  // its own line in place of the meter.
+  const error = (balance == null ? balanceError : null) ?? null;
+  const todayFailed = todayError != null && todayError !== false;
   const { reload } = ledger;
   const onRetry = useCallback(() => {
     loadToday();
@@ -121,6 +154,19 @@ export default function PicklesViewer({
         capTitle: 'Play streak today',
         capCaption: (_p: PointsCapProgress) => playStreakCaption(today),
       }}
-    />
+    >
+      {todayFailed ? (
+        <View style={styles.todayFail} accessibilityRole="alert">
+          <Text style={[t.sub, { color: c.textSub }]}>
+            {playStreakLoadError(pointsErrorReason(todayError, resolvePointsCopy(PICKLES_UNIT, PICKLES_COPY)))}
+          </Text>
+          <TextLink label="Try again" onPress={loadToday} accessibilityLabel="Try loading today's play streak again" />
+        </View>
+      ) : null}
+    </PointsActivityModal>
   );
 }
+
+const styles = StyleSheet.create({
+  todayFail: { gap: SPACE.xs, marginBottom: SPACE.md },
+});

@@ -38,6 +38,7 @@ import {
   pickleLedgerError,
   pickleRangeChunks,
   playStreakCaption,
+  playStreakLoadError,
   toPickleEntry,
   type PickleLedgerRow,
 } from '../pickleLedger';
@@ -232,5 +233,11 @@ describe('my_pickle_today and the play streak meter', () => {
       'Play a match today to start a play streak and earn 50.',
     );
     expect(playStreakCaption(null)).toBeNull();
+  });
+
+  it('a failed play-streak read names the streak, not the pickles', () => {
+    expect(playStreakLoadError('Check your signal and try again.')).toBe(
+      "Couldn't load today's play streak. Check your signal and try again. Your pickles and their history are fine.",
+    );
   });
 });

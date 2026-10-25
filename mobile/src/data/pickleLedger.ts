@@ -210,6 +210,11 @@ export async function loadPickleToday(): Promise<PickleToday | null> {
  * The cap meter's caption: the play streak pays once a day (50 x streak day,
  * at most 200), so "N left to earn today" would be untrue after today's grant.
  */
+/** The line shown in place of the play-streak meter when my_pickle_today fails (reason from pointsErrorReason). */
+export function playStreakLoadError(reason: string): string {
+  return `Couldn't load today's play streak. ${reason} Your pickles and their history are fine.`;
+}
+
 export function playStreakCaption(today: PickleToday | null): string | null {
   if (!today) return null;
   const next = today.next_streak.toLocaleString();
