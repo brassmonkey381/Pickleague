@@ -15,8 +15,8 @@
 //
 // PURE (no React Native, no kit imports), so vitest covers it
 // (lib/__tests__/refusals.test.ts). lib/refusalNotices.ts is the side that
-// shows them; callers fall back to friendlySbMessage for anything this
-// doesn't know (explainRefusal there).
+// shows them; for anything this doesn't know, explainRefusal there uses the
+// kit's fixed copy (no signal, signed out) or the caller's fallback.
 import { shortTime } from './agenda';
 
 export const REFUSAL_CODES = [
@@ -89,6 +89,9 @@ export const REFUSAL_CODES = [
   'visit.taken',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
+  // Only from the server's text: _lock_completed_tournament_match
+  // (migration_lock_completed_tournament_matches.sql) raises it with no pl: code.
+  'match.already_recorded',
   // The app's own.
   'match.not_member',
   'match.score_invalid',
@@ -152,6 +155,12 @@ export function whenLabel(d: Date, nowMs: number = Date.now()): string {
 // before 2026-10-16), and the new texts when a hint got lost on the way.
 const LEGACY: ReadonlyArray<[RegExp, RefusalCode]> = [
   [/^Not authenticated$|signed out\. Sign in to Pickleague/i, 'auth.signed_out'],
+  // The app's own signed-out errors: the kit's requireUserId ("Not signed
+  // in.", or the message a screen passes it, "Please sign in again to record
+  // a match.") and the helpers' "You need to be signed in to ...".
+  [/^Not signed in\.?$|^Please sign in again|^You need to be signed in|^Sign in to /i, 'auth.signed_out'],
+  // A second player recording a tournament match that's already completed.
+  [/already recorded.*completed tournament matches/i, 'match.already_recorded'],
   [/need to be at the court/i, 'fix.not_at_court'],
   [/precise enough/i, 'fix.imprecise'],
   [/location is out of date\. Check that your phone/i, 'fix.stale_clock'],
@@ -318,6 +327,8 @@ export function refusalCopy(
     }
     case 'match.not_pending':
       return "This match isn't waiting for a confirmation any more. Refresh to see where it stands.";
+    case 'match.already_recorded':
+      return "This match is already recorded, so its score can't be changed. Ask the organizer if a correction is needed.";
     case 'match.not_player':
       return 'Only players in this match can confirm it.';
     case 'match.not_member':
@@ -487,6 +498,8 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
       return 'Too late to confirm';
     case 'match.already_confirmed':
       return 'Already confirmed';
+    case 'match.already_recorded':
+      return 'Already recorded';
     case 'match.scheduled':
     case 'match.not_pending':
     case 'match.not_player':

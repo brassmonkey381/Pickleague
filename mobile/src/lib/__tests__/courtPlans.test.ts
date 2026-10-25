@@ -102,8 +102,30 @@ describe('the pickers (Doggle: 15-minute slots)', () => {
     expect(moveSlots('nope', NOW)).toEqual([]);
   });
 
-  it("the court page's picker starts 45 minutes out, on a quarter hour", () => {
-    expect(defaultPlanAt(NOW).getTime()).toBe(local(22, 16));
+  it("the court page's picker starts 45 minutes out, snapped to the NEAREST quarter hour (Doggle's defaultPlannedTime)", () => {
+    // 3:07 PM + 45 min = 3:52 PM -> 3:45 PM (Doggle: snapToMinuteInterval rounds, it doesn't round up).
+    expect(defaultPlanAt(NOW).getTime()).toBe(local(22, 15, 45));
+    const at = (h: number, m: number, s = 0) => defaultPlanAt(new Date(2026, 9, 22, h, m, s).getTime());
+    // The web check: about 5:15 PM showed 6:15 PM; Doggle shows 6:00 PM.
+    expect(at(17, 15)).toEqual(new Date(2026, 9, 22, 18, 0));
+    expect(at(17, 16)).toEqual(new Date(2026, 9, 22, 18, 0));
+    // Seconds don't count (Doggle reads getMinutes): 6:07:59 is 6:07, nearer 6:00.
+    expect(at(17, 22, 59)).toEqual(new Date(2026, 9, 22, 18, 0));
+    // Half way and past it: up.
+    expect(at(17, 23)).toEqual(new Date(2026, 9, 22, 18, 15));
+    expect(at(17, 38)).toEqual(new Date(2026, 9, 22, 18, 30));
+    // Rounding into the next hour and the next day.
+    expect(at(17, 8)).toEqual(new Date(2026, 9, 22, 18, 0));
+    expect(at(23, 10)).toEqual(new Date(2026, 9, 23, 0, 0));
+    // Always a quarter hour, seconds and milliseconds zero, at least 37.5 minutes out.
+    for (let m = 0; m < 60; m++) {
+      const nowMs = new Date(2026, 9, 22, 9, m, 30).getTime() + 123;
+      const d = defaultPlanAt(nowMs);
+      expect(d.getMinutes() % 15).toBe(0);
+      expect(d.getSeconds()).toBe(0);
+      expect(d.getMilliseconds()).toBe(0);
+      expect(d.getTime() - nowMs).toBeGreaterThan(37 * 60_000);
+    }
   });
 
   it('a picked time: later than now, at most 60 days out (the server says the same)', () => {

@@ -32,7 +32,7 @@ import { PLAY_NAV_ENABLED, DISCOVER_ENABLED } from '../lib/features';
 import { activeNavSlot, centreState, navBarVisible, navSideSlots, type NavSlot, type SideSlot } from '../lib/navBarRules';
 import { setNavBarHeight } from '../lib/appChrome';
 import { playIslandExpand, playSession } from '../lib/playSession';
-import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
+import { useCurrentCheckin } from '../lib/useCurrentCheckin';
 import {
   checkinHereRequested,
   checkinHostBusy,
@@ -104,11 +104,8 @@ function Bar({ signedIn }: { signedIn: boolean }) {
     void currentUserId(supabase).then(setMyId).catch(() => {});
   }, [signedIn]);
 
-  const [checkin, setCheckin] = useState<CurrentCheckin | null>(null);
-  useEffect(() => {
-    void peekCurrentCheckin().then(setCheckin);
-    return checkinChanged.subscribe(setCheckin);
-  }, [signedIn]);
+  // A change heard first wins over the cached read (lib/useCurrentCheckin).
+  const [checkin] = useCurrentCheckin(signedIn);
   const [busy, setBusy] = useState<CheckinHostBusy>(null);
   useSignal(checkinHostBusy, setBusy);
   // The island's Check out on its way (lib/checkinPlay): that check-in is

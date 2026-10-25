@@ -16,6 +16,7 @@ import { PLAY_NAV_ENABLED } from '../lib/features';
 import { setIslandShown, useNavBarHeight } from '../lib/appChrome';
 import { islandBottom } from '../lib/navBarRules';
 import CheckinPlanLine from './routines/CheckinPlanLine';
+import IslandPillText from './play/IslandPillText';
 import { LiveStatusIsland, type IslandAction } from '@just-messin-around/expo-foundation/ui/island';
 import { useResumeLiveSession } from '@just-messin-around/expo-foundation/session';
 import { useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -40,13 +41,8 @@ import { switchToOpenPlan } from '../lib/courtRoutineRules';
 import { getCheckinPlan, setCheckinPlan } from '../data/courtRoutines';
 import { STILL_WORKING, untrackedStartNote } from '../lib/refusals';
 import { lostPlayNote, lostPlayOffersRecord } from '../lib/sessionValidity';
-import {
-  checkinChanged,
-  extendCheckinByHour,
-  peekCurrentCheckin,
-  takeFixIfAllowed,
-  type CurrentCheckin,
-} from '../lib/courtCheckin';
+import { extendCheckinByHour, takeFixIfAllowed } from '../lib/courtCheckin';
+import { useCurrentCheckin } from '../lib/useCurrentCheckin';
 
 function clock(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -59,7 +55,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   const toast = useToast();
   const s = playSession.useLiveSession();
   const elapsed = useElapsed(s.startedAtMs);
-  const [checkin, setCheckin] = useState<CurrentCheckin | null>(null);
+  // A change heard first wins over the cached read (lib/useCurrentCheckin).
+  const [checkin] = useCurrentCheckin(signedIn);
   const [expanded, setExpanded] = useState(false);
 
   useResumeLiveSession({ session: playSession, getActive: getActivePlay, timeoutMs: 8_000, enabled: signedIn });
@@ -67,9 +64,7 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
   useEffect(() => {
     if (!signedIn) return;
     void syncPlayStartReminders();
-    void peekCurrentCheckin().then(setCheckin);
   }, [signedIn]);
-  useSignal(checkinChanged, setCheckin);
   useSignal(playIslandExpand, () => setExpanded(true));
   // A Start at a court that didn't check me in: the island stops naming the
   // court (lib/playSession) and says why, once.
@@ -237,7 +232,8 @@ export default function PlayIsland({ signedIn }: { signedIn: boolean }) {
       // covering it. Nothing to pass here; the bar publishes its own height.
       anchor="bottom"
       style={position}
-      pill={{ primary: `${meta?.label ?? 'Playing'} · ${clock(elapsed)}`, secondary: where ?? undefined }}
+      // The mode and timer stay whole; only the court is cut short (IslandPillText).
+      pill={<IslandPillText primary={`${meta?.label ?? 'Playing'} · ${clock(elapsed)}`} secondary={where} />}
       title="PLAYING NOW"
       stats={[
         { value: clock(elapsed), label: 'Elapsed' },

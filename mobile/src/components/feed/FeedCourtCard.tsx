@@ -129,34 +129,43 @@ export default function FeedCourtCard({
         : (mode ? playerModeLine(mode) : '') || (l.until ? `until ${clock(l.until)}` : `since ${clock(l.at)}`),
     ].filter(Boolean);
     return (
-      <View style={styles.line}>
-        <Avatar
-          size={AVATAR}
-          photoUrl={p.avatarUrl}
-          name={p.name}
-          icon={p.avatarEmoji && !p.avatarUrl ? <Text style={styles.emoji}>{p.avatarEmoji}</Text> : undefined}
-          backgroundColor={p.avatarBgColor ?? undefined}
-        />
-        <View style={styles.body}>
-          <View style={styles.nameRow}>
-            <Text
-              style={[t.title, styles.shrink]}
-              numberOfLines={1}
-              onPress={() => actions.openPerson(p.userId, p.name)}
-              accessibilityRole="link"
-            >
-              {p.name}
-            </Text>
-            {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+      <>
+        <View style={styles.line}>
+          <Avatar
+            size={AVATAR}
+            photoUrl={p.avatarUrl}
+            name={p.name}
+            icon={p.avatarEmoji && !p.avatarUrl ? <Text style={styles.emoji}>{p.avatarEmoji}</Text> : undefined}
+            backgroundColor={p.avatarBgColor ?? undefined}
+          />
+          <View style={styles.body}>
+            <View style={styles.nameRow}>
+              <Text
+                style={[t.title, styles.shrink]}
+                numberOfLines={1}
+                onPress={() => actions.openPerson(p.userId, p.name)}
+                accessibilityRole="link"
+              >
+                {p.name}
+              </Text>
+              {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+            </View>
           </View>
-          {facts.length ? (
-            <Text style={[t.meta, { color: l.kind === 'here' ? c.success : c.textSub }]} numberOfLines={1}>
-              {facts.join(' · ')}
-            </Text>
-          ) : null}
+          {trailing(l, p.name)}
         </View>
-        {trailing(l, p.name)}
-      </View>
+        {facts.length ? underLine(facts.join(' · '), l.kind === 'here' ? c.success : c.textSub) : null}
+      </>
+    );
+  }
+
+  /** A line's facts ("PLUPR 3.82 · until 6:37 PM"), full width under it,
+   *  wrapping if they must (Doggle's stay line): beside the name, the chip's
+   *  column cut them short ("until 6:37 P…"). */
+  function underLine(text: string, color: string) {
+    return (
+      <Text style={[t.meta, styles.under, { color }]} numberOfLines={2}>
+        {text}
+      </Text>
     );
   }
 
@@ -165,20 +174,20 @@ export default function FeedCourtCard({
     const m = l.checkin;
     const facts = [m.queued ? 'Saved with no signal' : m.playing ? 'Playing now' : 'Checked in', `until ${clock(m.expiresAt)}`];
     return (
-      <View style={styles.line}>
-        <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
-          <Icon name={m.playing ? 'play' : 'pin'} size={18} color={c.primary} />
+      <>
+        <View style={styles.line}>
+          <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
+            <Icon name={m.playing ? 'play' : 'pin'} size={18} color={c.primary} />
+          </View>
+          <View style={styles.body}>
+            <Text style={t.title} numberOfLines={1}>
+              You
+            </Text>
+          </View>
+          {trailing(l, 'your check-in')}
         </View>
-        <View style={styles.body}>
-          <Text style={t.title} numberOfLines={1}>
-            You
-          </Text>
-          <Text style={[t.meta, { color: c.success }]} numberOfLines={1}>
-            {facts.join(' · ')}
-          </Text>
-        </View>
-        {trailing(l, 'your check-in')}
-      </View>
+        {underLine(facts.join(' · '), c.success)}
+      </>
     );
   }
 
@@ -230,14 +239,20 @@ export default function FeedCourtCard({
     friendHere: card.lines.some((l) => l.kind === 'here'),
     ...actions.headerFacts(card),
   });
-  // Two actions leave the name little room: let it wrap rather than cut (Doggle).
+  // Two actions ("On my way ▾" + "Check in ▾", about 185 px) leave the name
+  // under 60% of a phone-width card, so with two the actions wrap to a row of
+  // their own under the name whenever the name doesn't fit beside them on one
+  // line: the name keeps the whole first row (two lines at most) instead of
+  // being crushed to "Oakland- / Alamed…" in 112 px. A short name ("Star
+  // Park") still shares its row. One action leaves the name over 60%: as
+  // before, one line beside it.
   const twoActions = header.length > 1;
 
   return (
     <View style={[styles.card, { borderColor: c.border }]}>
-      <View style={styles.header}>
+      <View style={[styles.header, twoActions && styles.headerWrap]}>
         <TouchableOpacity
-          style={styles.headerName}
+          style={[styles.headerName, twoActions ? styles.headerNameWrap : styles.headerNameFill]}
           onPress={() => actions.openCourt(card)}
           accessibilityRole="button"
           accessibilityLabel={`${card.venueName}. Open the court`}
@@ -249,7 +264,7 @@ export default function FeedCourtCard({
           <Icon name="chevron-right" size={16} color={c.textMuted} />
         </TouchableOpacity>
         {header.length > 0 ? (
-          <View style={styles.headerActions}>
+          <View style={[styles.headerActions, twoActions && styles.headerActionsWrap]}>
             {header.map((a) => {
               switch (a) {
                 case 'onMyWaySent':
@@ -358,8 +373,21 @@ export default function FeedCourtCard({
 const styles = StyleSheet.create({
   card: { borderWidth: HAIRLINE, borderRadius: RADIUS.lg, paddingVertical: SPACE.sm, paddingHorizontal: SPACE.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
-  headerName: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  headerName: { minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.xs },
+  // One action (or none): the name takes the rest of the row, one line.
+  headerNameFill: { flex: 1 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACE.md },
+  // Two actions: the row wraps. The name's basis must be its own one-line
+  // width, so a name that doesn't fit beside the actions breaks the row and
+  // takes all of the first; the actions sit right, under it. So no flex: 1
+  // and no flexGrow here: on iOS/Android (Yoga) flex: 1 turns basis 'auto'
+  // into 0, and Yoga also gives the row's only grow-and-shrink child a basis
+  // of 0, wrap or not. Either way the row never breaks (the name is crushed
+  // beside the actions). Web has neither rule, which is why web alone looked
+  // right. Shrink only: grow 0, basis auto.
+  headerWrap: { flexWrap: 'wrap', rowGap: SPACE.xs },
+  headerNameWrap: { flexShrink: 1 },
+  headerActionsWrap: { marginLeft: 'auto' },
   sent: { flexDirection: 'row', alignItems: 'center', gap: SPACE.xxs },
   agendaRow: { marginHorizontal: -SPACE.xs },
   crowd: { marginTop: SPACE.xxs },
@@ -371,6 +399,8 @@ const styles = StyleSheet.create({
   ownRow: { marginHorizontal: -SPACE.sm, paddingHorizontal: SPACE.sm, borderRadius: RADIUS.md },
   past: { opacity: 0.55 },
   body: { flex: 1, minWidth: 0, gap: SPACE.xxs / 2 },
+  // Under the avatar's column: lined up with the name, out to the card's edge.
+  under: { paddingLeft: AVATAR + SPACE.md },
   // Things get rounded-square tiles (people keep round avatars).
   kindIcon: { width: AVATAR, height: AVATAR, borderRadius: RADIUS.md, alignItems: 'center', justifyContent: 'center' },
   // The player's own avatar emoji (content, not chrome).

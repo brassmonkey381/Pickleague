@@ -200,6 +200,26 @@ describe('refusalCode: codes first, then the texts an older server sends', () =>
     for (const [message, code] of cases) expect(refusalCode({ message }), message).toBe(code);
   });
 
+  it("maps texts raised without a pl: code: the app's own signed-out errors, a completed tournament match", () => {
+    const cases: [string, RefusalCode][] = [
+      // The kit's requireUserId default, and the messages screens pass it.
+      ['Not signed in.', 'auth.signed_out'],
+      ['Please sign in again to record a match.', 'auth.signed_out'],
+      ['Please sign in again to create a tournament.', 'auth.signed_out'],
+      ['You need to be signed in to block someone.', 'auth.signed_out'],
+      ['Sign in to save a QR code.', 'auth.signed_out'],
+      // _lock_completed_tournament_match, as the live trigger raises it (P0001, no hint).
+      [
+        "This match is already recorded — completed tournament matches can't be changed. Ask the organizer if a correction is needed.",
+        'match.already_recorded',
+      ],
+    ];
+    for (const [message, code] of cases) expect(refusalCode({ message, code: 'P0001' }), message).toBe(code);
+    expect(refusalCode(new Error('Please sign in again to record a match.'))).toBe('auth.signed_out');
+    // Not a signed-out text: "sign in" in the middle of a sentence.
+    expect(refusalCode({ message: 'Ask them to sign in to Pickleague first.' })).toBeNull();
+  });
+
   it('an old "(about N m away)" still gives the distance', () => {
     expect(refusalMessage({ message: 'You need to be at the court to check in (about 240 m away).' }, { venueName: 'Lakeside' })).toBe(
       "You're about 240 m from Lakeside. You need to be at the court to check in, so try again when you get there.",

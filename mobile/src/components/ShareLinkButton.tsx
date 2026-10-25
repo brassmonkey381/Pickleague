@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Platform, Text, TouchableOpacity, StyleSheet, ViewStyle } from 'react-native';
 import { setClipboard } from '@just-messin-around/expo-foundation/platform';
+import { Button } from '@just-messin-around/expo-foundation/forms';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT } from '@just-messin-around/expo-foundation/typography';
@@ -20,6 +21,7 @@ export default function ShareLinkButton({
   message,
   title,
   style,
+  size,
   onCopied,
   onShare,
 }: {
@@ -29,6 +31,10 @@ export default function ShareLinkButton({
   message: string;
   title?: string;
   style?: ViewStyle;
+  /** 'sm': the foundation's 32px outline Button (a 44px tap box), to sit in a
+   *  row of `Button size="sm"` (a court page's header: Check in, Directions).
+   *  Default: the grey pill. */
+  size?: 'sm';
   /** Fired when the desktop-web clipboard fallback was used, so the screen
    *  can flash "link copied" — the sheet opening is its own feedback. */
   onCopied?: () => void;
@@ -58,6 +64,21 @@ export default function ShareLinkButton({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (size === 'sm') {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        iconName={Platform.OS === 'web' ? 'link' : 'share'}
+        title={Platform.OS === 'web' ? 'Copy link' : 'Share'}
+        loading={busy}
+        onPress={() => void onPress()}
+        style={style}
+        accessibilityLabel="Share link"
+      />
+    );
   }
 
   return (

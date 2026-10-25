@@ -52,13 +52,31 @@ vi.mock('expo-notifications', () => ({
     return { granted: h.granted, status: h.granted ? 'granted' : 'denied' };
   },
 }));
-vi.mock('@just-messin-around/expo-foundation/supabase', () => ({
-  classifySbError: (e: { code?: string } | null) => (e?.code === 'PGRST301' ? 'auth' : 'unknown'),
-  friendlySbMessage: (_e: unknown, fallback?: string, overrides?: Record<string, string>) => {
-    h.friendly.push({ fallback, overrides });
-    return `kit:${fallback}`;
-  },
-}));
+vi.mock('@just-messin-around/expo-foundation/supabase', () => {
+  // The kit's classifySbError for the shapes these tests send (expo-foundation src/supabase/errors.ts).
+  const classifySbError = (e: { code?: string; message?: string } | null) => {
+    if (!e) return 'unknown';
+    if (/failed to fetch|timed out/i.test(String(e.message ?? ''))) return 'network';
+    if (e.code === 'PGRST301') return 'auth';
+    if (e.code === '42501') return 'permission';
+    if (e.code === 'PGRST202') return 'missingFunction';
+    if (e.code === '23505') return 'conflict';
+    if (/^XX/.test(e.code ?? '')) return 'server';
+    return 'unknown';
+  };
+  return {
+    classifySbError,
+    friendlySbMessage: (e: { code?: string; message?: string } | null, fallback?: string, overrides?: Record<string, string>) => {
+      h.friendly.push({ fallback, overrides });
+      const kind = classifySbError(e);
+      if (overrides?.[kind]) return overrides[kind];
+      if (kind === 'auth') return 'Please sign in again.';
+      if (kind === 'permission') return "You don't have access to that.";
+      // The kit's default: the error's own message (the raw text explainRefusal must not show).
+      return e?.message || fallback;
+    },
+  };
+});
 
 import {
   explainRefusal,
@@ -94,13 +112,71 @@ describe('explainRefusal', () => {
     expect(h.friendly).toHaveLength(0);
   });
 
-  it('anything else: the kit text with the caller\'s fallback and the app\'s no-connection line (no em dash)', () => {
-    expect(explainRefusal({ message: 'boom', code: 'XX000' }, "Couldn't check you in. Try again.")).toBe(
-      "kit:Couldn't check you in. Try again.",
+  it("no signal: the app's no-connection line (no em dash), or the caller's own", () => {
+    expect(explainRefusal(new Error('Failed to fetch'), "Couldn't check you in. Try again.")).toBe(
+      'No connection. Check your signal and try again.',
     );
-    expect(h.friendly[0].overrides?.network).toBe('No connection. Check your signal and try again.');
-    explainRefusal(new Error('Failed to fetch'), 'F.', {}, { network: 'Lost the connection.' });
-    expect(h.friendly[1].overrides?.network).toBe('Lost the connection.');
+    expect(explainRefusal(new Error('Request timed out'), 'F.', {}, { network: 'Lost the connection.' })).toBe('Lost the connection.');
+  });
+
+  it("signed out or not allowed: the kit's fixed plain copy", () => {
+    expect(explainRefusal({ code: 'PGRST301', message: 'JWT expired' }, 'F.')).toBe('Please sign in again.');
+    expect(explainRefusal({ code: '42501', message: 'new row violates row-level security policy for table "x"' }, 'F.')).toBe(
+      "You don't have access to that.",
+    );
+  });
+
+  it("a function the server doesn't have yet (PGRST202): the caller's fallback, never the schema-cache text", () => {
+    const missing = {
+      code: 'PGRST202',
+      message: 'Could not find the function public.plan_court_checkin(p_at, p_venue) in the schema cache',
+      details: 'Searched for the function public.plan_court_checkin with parameters p_at, p_venue',
+      hint: 'Perhaps you meant to call the function public.plan_court_routine',
+    };
+    const out = explainRefusal(missing, "Couldn't plan your check-in. Try again.", { venueName: 'Lakeside', action: 'plan_checkin' });
+    expect(out).toBe("Couldn't plan your check-in. Try again.");
+    expect(out).not.toMatch(/schema cache|function/);
+  });
+
+  it("any other server or runtime error: the caller's fallback, not its raw message", () => {
+    const fb = "Couldn't check you in. Try again.";
+    expect(explainRefusal({ message: 'boom', code: 'XX000' }, fb)).toBe(fb);
+    expect(explainRefusal({ code: '23505', message: 'duplicate key value violates unique constraint "x_pkey"' }, fb)).toBe(fb);
+    expect(explainRefusal({ code: '22P02', message: 'invalid input syntax for type uuid: "x"' }, fb)).toBe(fb);
+    expect(explainRefusal(new TypeError("Cannot read properties of undefined (reading 'id')"), fb)).toBe(fb);
+    // An older server's P0001 without a pl: code isn't known copy either.
+    expect(explainRefusal({ code: 'P0001', message: 'Not authorized' }, fb)).toBe(fb);
+    expect(explainRefusal(null, fb)).toBe(fb);
+    expect(explainRefusal('a string', fb)).toBe(fb);
+  });
+
+  it('recording a match: a completed tournament match, or signed out, says why instead of "Try again"', () => {
+    const fb = "Couldn't record the match. Try again.";
+    const opts = { network: "Lost the connection, so we can't tell whether this match saved." };
+    // _lock_completed_tournament_match: P0001 with no pl: hint.
+    const locked = {
+      code: 'P0001',
+      message:
+        "This match is already recorded — completed tournament matches can't be changed. Ask the organizer if a correction is needed.",
+      details: null,
+      hint: null,
+    };
+    const lockedOut = explainRefusal(locked, fb, {}, opts);
+    expect(lockedOut).toBe("This match is already recorded, so its score can't be changed. Ask the organizer if a correction is needed.");
+    expect(lockedOut).not.toContain('—');
+    // requireUserId(supabase, 'Please sign in again to record a match.'): a plain Error, kit kind 'unknown'.
+    expect(explainRefusal(new Error('Please sign in again to record a match.'), fb, {}, opts)).toBe(
+      "You're signed out. Sign in to Pickleague and try again.",
+    );
+    expect(isRetryLater(new Error('Not signed in.'))).toBe(true);
+  });
+
+  it("a pl:* refusal this build has no code for yet (a newer server): the server's words, written for people", () => {
+    expect(
+      explainRefusal({ code: 'P0001', message: 'Courts close at 10 PM. Plan an earlier time.', hint: 'pl:court.closed_late' }, 'F.'),
+    ).toBe('Courts close at 10 PM. Plan an earlier time.');
+    // A pl: hint with no message: nothing to show, so the fallback.
+    expect(explainRefusal({ code: 'P0001', message: '', hint: 'pl:court.closed_late' }, 'F.')).toBe('F.');
   });
 });
 

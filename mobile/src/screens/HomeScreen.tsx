@@ -29,6 +29,8 @@
 // Sections are a KEYED array, so React moves an element between positions
 // without remounting it. That is how the check-in card goes from the court row
 // to NOW and back while staying mounted (the 'home/' push target relies on it).
+// Only while the element's TYPE stays the same too: the card is always the
+// same View wrapper under the same key (lib/homeCourtSlot).
 //
 // Location is never requested here (rule 5): the permission status is read,
 // and coordinates are used only when it is already granted.
@@ -53,6 +55,7 @@ import { supabase } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/useToast';
 import { COURT_DISCOVERY_ENABLED, HOME_FEED_ENABLED, PLAY_NAV_ENABLED } from '../lib/features';
+import { homeCourtSlot } from '../lib/homeCourtSlot';
 import { setAlertBadge, useAlertBadge } from '../lib/useAlertBadge';
 import { requestCheckinIsland } from '../lib/checkinHost';
 import { openDiscover } from '../lib/discoverNav';
@@ -585,14 +588,19 @@ export default function HomeScreen({ navigation }: Props) {
   // check-in card must never be re-parented (see the file header).
   if (nowActive) sections.push(<SectionHeader key="now-header" title="Now" style={styles.nowHeader} />);
 
+  // One wrapper under one key in every mode (lib/homeCourtSlot): only moved or
+  // hidden, never swapped, or React remounts the card, which reports 'idle'
+  // as it mounts and loops (the 2026-10-24 request storm).
+  const courtSlot = homeCourtSlot(courtMode, { playNav: PLAY_NAV_ENABLED });
   const court = (
-    <CourtCheckinCard
-      key="court"
-      onModeChange={setCourtMode}
-      onTap={(target) => tap(courtMode === 'idle' ? 'court' : 'now', target)}
-    />
+    <View key={courtSlot.key} style={courtSlot.hidden ? styles.hidden : undefined}>
+      <CourtCheckinCard
+        onModeChange={setCourtMode}
+        onTap={(target) => tap(courtMode === 'idle' ? 'court' : 'now', target)}
+      />
+    </View>
   );
-  if (courtMode !== 'idle') sections.push(court);
+  if (courtSlot.place === 'now') sections.push(court);
 
   if (session || liveEvents.length > 0) {
     sections.push(
@@ -725,9 +733,7 @@ export default function HomeScreen({ navigation }: Props) {
   // in does that job; the user, 2026-10-22: "'At the courts' section can be
   // removed"). The card stays mounted, hidden, so its prompt / checked-in
   // modes still surface above.
-  if (courtMode === 'idle') {
-    sections.push(PLAY_NAV_ENABLED ? <View key="court" style={styles.hidden}>{court}</View> : court);
-  }
+  if (courtSlot.place === 'row') sections.push(court);
 
   // With the feed on, both live inside it.
   if (!HOME_FEED_ENABLED) {

@@ -44,7 +44,6 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { setQueryData } from '@just-messin-around/expo-foundation/cache';
-import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { openDirections } from '@just-messin-around/expo-foundation/platform/location';
 import {
@@ -66,7 +65,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { track } from '../lib/analytics';
 import { checkGodmode } from '../lib/godmode';
 import { explainRefusal } from '../lib/refusalNotices';
-import { checkinChanged, peekCurrentCheckin, type CurrentCheckin } from '../lib/courtCheckin';
+import { useCurrentCheckin } from '../lib/useCurrentCheckin';
 import { useCourtCheckIn } from '../lib/useCourtCheckIn';
 import { googleMapsKey, hasGoogleMaps, placeMapMode } from '../lib/maps';
 import { CHECKIN_PLANS_ENABLED, COURT_STARS_ENABLED, FRIENDS_AT_COURTS_ENABLED, ROUTINES_ENABLED } from '../lib/features';
@@ -151,17 +150,16 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
   const { coords } = usePlayLocation();
   const [copied, setCopied] = useState(false);
   const [godmode, setGodmode] = useState(false);
-  const [current, setCurrent] = useState<CurrentCheckin | null>(null);
+  // A change heard first wins over the cached read (lib/useCurrentCheckin).
+  const [current, setCurrent] = useCurrentCheckin();
 
   useEffect(() => {
     let on = true;
     void checkGodmode().then((g) => on && setGodmode(g));
-    void peekCurrentCheckin().then((cur) => on && setCurrent(cur));
     return () => {
       on = false;
     };
   }, []);
-  useSignal(checkinChanged, setCurrent);
 
   const flow = useCourtCheckIn({ onCheckedIn: setCurrent, onCurrent: setCurrent });
   const crowd = useCourtCrowds([court.id], focused);
@@ -281,13 +279,14 @@ function CourtPage({ court, navigation }: { court: CourtDetail; navigation: Prop
                   }}
                 />
               ) : null}
+              {/* The 32px outline button, as Check in and Directions (not the grey pill). */}
               <ShareLinkButton
+                size="sm"
                 url={courtShareUrl(court.id)}
                 title={court.name}
                 message={`${court.name} on Pickleague`}
                 onCopied={() => setCopied(true)}
                 onShare={() => track('courts.share', { aliases: court.aliases.length })}
-                style={S.share}
               />
             </>
           }
@@ -432,7 +431,6 @@ const S = StyleSheet.create({
   fill: { flex: 1 },
   content: { padding: SPACE.lg, gap: SPACE.sm, paddingBottom: SPACE.xl },
   chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs },
-  share: { alignSelf: 'center' },
   gapXs: { marginTop: SPACE.xs },
   links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg },
 });

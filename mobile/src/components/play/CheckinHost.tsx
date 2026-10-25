@@ -41,7 +41,6 @@ import { useToast } from '../../lib/useToast';
 import { navigateWhenReady, navigationRef } from '../../lib/navigationRef';
 import { navRouteChanged } from '../../navigation/AppNavBar';
 import {
-  checkinChanged,
   checkinRejected,
   checkOut,
   extendCheckinByHour,
@@ -53,6 +52,7 @@ import {
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../../lib/courtCheckin';
+import { useCurrentCheckin } from '../../lib/useCurrentCheckin';
 import { CHECKOUT_FIX_WAIT_MS, FIX_REUSE_MS, isFixFresh } from '../../lib/courtCheckinRules';
 import { clockLabel } from '../../lib/courtRoutineRules';
 import { CHECKIN_BOUND_MS, CHECKIN_BOUND_MS_DEFAULT, useCourtCheckIn } from '../../lib/useCourtCheckIn';
@@ -85,6 +85,7 @@ import { listMyCourtFavorites } from '../../data/courtFavorites';
 import { PLAY_NAV_ENABLED } from '../../lib/features';
 import CourtCheckInNotes from '../court/CourtCheckInNotes';
 import CheckinPlanLine from '../routines/CheckinPlanLine';
+import IslandPillText from './IslandPillText';
 
 const CHECKOUT_BOUND_MS = CHECKIN_BOUND_MS_DEFAULT + CHECKOUT_FIX_WAIT_MS;
 const GAP = Platform.OS === 'web' ? 10 : 6;
@@ -100,7 +101,9 @@ function Host() {
   const toast = useToast();
   const insets = useContext(SafeAreaInsetsContext);
   const barPx = useNavBarHeight();
-  const [stored, setCurrent] = useState<CurrentCheckin | null>(null);
+  // The cached copy, then every change; a change heard first wins over the
+  // cached read (lib/useCurrentCheckin).
+  const [stored, setCurrent] = useCurrentCheckin();
   // The play island's Check out is on its way (lib/checkinPlay): that
   // check-in is leaving, so it doesn't show here meanwhile (it does again if
   // the check-out is refused).
@@ -160,14 +163,11 @@ function Host() {
     });
   }, [setMessage]);
   useEffect(() => {
-    void peekCurrentCheckin().then(setCurrent);
     sync();
-    const off = checkinChanged.subscribe(setCurrent);
     const app = AppState.addEventListener('change', (s) => {
       if (s === 'active') sync();
     });
     return () => {
-      off();
       app.remove();
     };
   }, [sync]);
@@ -485,7 +485,8 @@ function Host() {
         onExpandedChange={setExpanded}
         anchor="bottom"
         style={position}
-        pill={pill}
+        // The label stays whole; only the court part is cut short (IslandPillText).
+        pill={<IslandPillText primary={pill.primary} secondary={pill.secondary} />}
         title={title}
         sections={sections}
         actions={actions}
