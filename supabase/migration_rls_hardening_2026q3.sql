@@ -182,7 +182,9 @@ begin
         -- Closed league privacy (migration_closed_league_privacy.sql, which
         -- grants them too). _pl_can_see_league runs inside the league tables'
         -- SELECT policies, so anon and authenticated must keep EXECUTE.
-        '_pl_can_see_league','get_league_preview','list_league_previews'
+        '_pl_can_see_league','get_league_preview','list_league_previews',
+        -- Pickle history (migration_pickle_ledger.sql, which grants them too).
+        'list_pickle_ledger','list_pickle_ledger_range','my_pickle_today'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

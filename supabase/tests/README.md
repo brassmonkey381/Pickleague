@@ -363,3 +363,31 @@ touches playoff bracket generation or advancement.
     node supabase/tests/build-auto-complete-seasons-test.mjs /tmp/auto_complete_seasons_test.sql
     supabase db query --linked -f /tmp/auto_complete_seasons_test.sql -o csv
     ```
+
+- `pickle_ledger_personas.sql` (+ `build-pickle-ledger-test.mjs`)
+  - Pickle history (`migration_pickle_ledger.sql`): applies the migration twice
+    and re-runs `migration_rls_hardening_2026q3.sql` inside one rolled-back
+    transaction, then checks: RLS, grants and function attributes; that every
+    live function assigning `profiles.pickles` has a label in
+    `pickle_ledger_sources`; one "Starting balance" row per profile with
+    pickles (none added by the re-run); the rows the REAL functions write and
+    their labels, gold flag, kind and source: a Shop purchase, a gifted item, a
+    real-world redemption and gift (one item switched on, rolled back), wagers
+    placed / cancelled / won, a confirmed match (play streak day 2 in the
+    player's zone, first-match bonus, games, new court, badges), the daily
+    login, a getting-started step, a referral (both sides plus the Recruiter
+    badge), a God mode gift (both sides), the welcome pickles; changes from no
+    function, caller labels (`pl.pickle_reason` / `_bonus` / `_meta`), a
+    malformed one, a ledger that refuses the row (the pickles still move; the
+    gap shows in the `balance_after` chain), a profile inserted with pickles;
+    who may read and write; `list_pickle_ledger` paging (rows sharing a
+    `created_at`), `p_before` alone, the limit clamps and `local_day`;
+    `list_pickle_ledger_range` (half-open, the 62-day cap, refusals);
+    `my_pickle_today`; that every persona's history adds up to its balance;
+    account deletion; grants after the hardening re-run; and an INFO row with
+    the cost per change.
+
+    ```sh
+    node supabase/tests/build-pickle-ledger-test.mjs /tmp/pickle_ledger_test.sql
+    supabase db query --linked -f /tmp/pickle_ledger_test.sql -o csv
+    ```
