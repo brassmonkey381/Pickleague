@@ -844,6 +844,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         {bands.length > 0 ? (
           <DayBands
             bands={bands}
+            single
             leadKey={late ? 'tomorrow' : null}
             modeKey={late ? 'late' : 'day'}
             initialOpen={rememberedBands.late === late ? rememberedBands.open : {}}
