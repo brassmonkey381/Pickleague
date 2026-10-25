@@ -88,6 +88,12 @@ const migration = read(path.join(supa, MIGRATION));
 
 const parts = [
   'begin;',
+  [
+    '-- The pg_temp helpers run as anon / authenticated. Since migration_anon_audit_rest.sql,',
+    '-- functions postgres creates are not EXECUTE-able by PUBLIC by default, so this test',
+    '-- transaction (rolled back) gives the helpers the old default back.',
+    'alter default privileges for role postgres grant execute on functions to public;',
+  ].join('\n'),
   body.slice(0, at),
   `-- ════ ${MIGRATION} ════\n${migration}`,
   `-- ════ ${MIGRATION} (re-run) ════\n${migration}`,

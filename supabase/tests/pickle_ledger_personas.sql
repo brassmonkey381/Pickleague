@@ -44,6 +44,12 @@
 -- ============================================================
 
 begin;
+
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
 -- Don't queue behind a long transaction on profiles (and block others behind us).
 set local lock_timeout = '15s';
 
@@ -636,9 +642,18 @@ declare
   lr    public.pickle_ledger;
   ln    public.pickle_ledger;
   lb    public.pickle_ledger;
+  c     text;
 begin
+  -- Riley's code, read as admin: on profiles before migration_anon_audit_rest.sql,
+  -- in the owner-only profile_private since.
+  if exists (select 1 from information_schema.columns where table_schema = 'public'
+              and table_name = 'profile_private' and column_name = 'referral_code') then
+    execute 'select referral_code from public.profile_private where id = $1' into c using pg_temp.p('PR');
+  else
+    execute 'select referral_code from public.profiles where id = $1' into c using pg_temp.p('PR');
+  end if;
   perform pg_temp.as_user(pg_temp.p('PN'));
-  r := public.claim_referral((select referral_code from public.profiles where id = pg_temp.p('PR')));
+  r := public.claim_referral(c);
   perform pg_temp.as_admin();
   select * into lr from pg_temp.since('PR', mark, '_pl_pay_referral_reward');
   select * into ln from pg_temp.since('PN', mark, '_pl_pay_referral_reward');

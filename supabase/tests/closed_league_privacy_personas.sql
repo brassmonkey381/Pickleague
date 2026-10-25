@@ -24,6 +24,12 @@
 
 begin;
 
+-- The pg_temp helpers below are called by the personas (as anon /
+-- authenticated). Since migration_anon_audit_rest.sql, functions postgres
+-- creates are no longer EXECUTE-able by PUBLIC by default, so this test
+-- transaction (rolled back below) gives the helpers the old default back.
+alter default privileges for role postgres grant execute on functions to public;
+
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
 grant select, insert on _results to authenticated, anon;
@@ -206,8 +212,13 @@ begin
     and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'league_invites'
                      and policyname = 'Anyone can look up invite by token'), null);
   perform pg_temp.ok('C1 each table has exactly one "Closed league privacy" policy',
-    (select count(*) from pg_policies where schemaname = 'public' and policyname like 'Closed league privacy:%') = 9,
-    (select count(*)::text from pg_policies where schemaname = 'public' and policyname like 'Closed league privacy:%'));
+    (select count(*) from pg_policies where schemaname = 'public' and policyname like 'Closed league privacy:%'
+        and tablename in ('leagues', 'league_members', 'league_player_ratings', 'league_seasons', 'season_snapshots',
+                          'season_final_standings', 'league_events', 'matches', 'invite_codes')) = 9,
+    -- (the tournament / event tables have theirs from migration_anon_audit_rest.sql)
+    (select count(*)::text from pg_policies where schemaname = 'public' and policyname like 'Closed league privacy:%'
+        and tablename in ('leagues', 'league_members', 'league_player_ratings', 'league_seasons', 'season_snapshots',
+                          'season_final_standings', 'league_events', 'matches', 'invite_codes')));
 
   for v_def, v_conf in
     select p.prosecdef, p.proconfig from pg_proc p
