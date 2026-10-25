@@ -794,7 +794,10 @@ const TILE = 32;
 const styles = StyleSheet.create({
   container: { flex: 1 },
   banner: { marginHorizontal: SPACE.lg, marginTop: SPACE.sm },
-  chips: { paddingHorizontal: SPACE.lg },
+  // flexGrow 0: with no trailing slot the chip row IS a horizontal ScrollView,
+  // whose default flexGrow 1 split the screen with the list (chips floated
+  // mid-screen, the list started halfway down).
+  chips: { paddingHorizontal: SPACE.lg, flexGrow: 0 },
   markAll: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingHorizontal: SPACE.sm },
   headerAction: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SPACE.sm },
   skeleton: { paddingHorizontal: SPACE.lg },
