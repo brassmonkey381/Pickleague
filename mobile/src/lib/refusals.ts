@@ -73,11 +73,20 @@ export const REFUSAL_CODES = [
   'plan.gone',
   'plan.bad_time',
   'plan.bad_end',
+  // migration_court_oneoff_plans.sql: Undo skip / Change today's time next to another plan there.
+  'plan.taken',
   // migration_profiles_column_guard.sql: a profile column only the server writes.
   'profile.server_owned',
   // migration_on_my_way.sql: send_on_my_way.
   'omw.bad_eta',
   'omw.too_many',
+  // migration_court_oneoff_plans.sql: one-off planned check-ins.
+  'visit.gone',
+  'visit.bad_time',
+  'visit.too_far',
+  'visit.bad_length',
+  'visit.limit',
+  'visit.taken',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // The app's own.
@@ -94,8 +103,20 @@ const CODE_SET: ReadonlySet<string> = new Set(REFUSAL_CODES);
 /** Which action was refused, where the same code reads differently. */
 /** 'view': opening a court's page (Courts, a shared court link). 'plan': a
  *  check-in's planned end or play windows (set_checkin_plan). */
-/** 'on_my_way': telling friends I'm heading to a court (send_on_my_way). */
-export type RefusalAction = 'check_in' | 'extend' | 'start' | 'favorite' | 'hide' | 'friend' | 'confirm' | 'view' | 'plan' | 'on_my_way';
+/** 'on_my_way': telling friends I'm heading to a court (send_on_my_way).
+ *  'plan_checkin': planning a check-in for later (plan_court_checkin). */
+export type RefusalAction =
+  | 'check_in'
+  | 'extend'
+  | 'start'
+  | 'favorite'
+  | 'hide'
+  | 'friend'
+  | 'confirm'
+  | 'view'
+  | 'plan'
+  | 'on_my_way'
+  | 'plan_checkin';
 
 export type RefusalContext = {
   action?: RefusalAction;
@@ -231,6 +252,9 @@ export function refusalCopy(
       if (ctx.action === 'on_my_way') {
         return `${court ?? 'That court'} isn't in Pickleague any more, so your friends can't be told you're on the way. Find your court again.`;
       }
+      if (ctx.action === 'plan_checkin') {
+        return `${court ?? 'That court'} isn't in Pickleague any more, so you can't plan a check-in there. Find your court again.`;
+      }
       return ctx.action === 'favorite'
         ? "That court isn't in Pickleague any more, so it can't be starred."
         : `${court ?? 'That court'} isn't in Pickleague any more, so you can't check in there. Find your court again.`;
@@ -354,6 +378,11 @@ export function refusalCopy(
       return 'Pick a later time on the same day.';
     case 'plan.bad_end':
       return 'Pick an end time later than now.';
+    case 'plan.taken': {
+      // DETAIL {plan_id, planned_at, routine}: the other plan there, a one-off usually.
+      const when = dateOf(detail.planned_at);
+      return `You already plan to check in at ${court ?? 'this court'}${when ? ` at ${at(when)}` : ''}. Pick another time, or cancel that check-in first.`;
+    }
     case 'profile.server_owned':
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
@@ -361,6 +390,25 @@ export function refusalCopy(
       return 'Pick how far away you are: 1 minute to 3 hours.';
     case 'omw.too_many':
       return 'You can tell up to 50 friends at once. Pick fewer friends, then send.';
+    case 'visit.gone':
+      return "That planned check-in is over or was cancelled, so it can't be changed. Pull to refresh.";
+    case 'visit.bad_time':
+      return 'Pick a time later than now for your check-in.';
+    case 'visit.too_far':
+      return 'You can plan a check-in up to 60 days ahead. Pick an earlier day.';
+    case 'visit.bad_length':
+      return 'Pick how long you play: 30 minutes to 4 hours.';
+    case 'visit.limit':
+      return 'You have 20 planned check-ins coming up. Cancel one to plan another.';
+    case 'visit.taken': {
+      // DETAIL {plan_id, planned_at, routine}: the plan already there.
+      const when = dateOf(detail.planned_at);
+      const where = court ?? 'this court';
+      const time = when ? ` at ${at(when)}` : '';
+      return detail.routine === true
+        ? `Your routine already has you at ${where}${time}. Pick another time, or change that stop's time.`
+        : `You already plan to check in at ${where}${time}. Pick another time.`;
+    }
     case 'consent.declined':
       // The court card's Check in and the bar's ▶ Play both land here.
       return 'Not checked in: first choose who sees you at the courts, then try again.';
@@ -444,6 +492,7 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
     case 'match.not_player':
       return 'Nothing to confirm';
     case 'plan.gone':
+    case 'visit.gone':
       return 'Already over';
     case 'routine.not_found':
       return 'Routine not found';

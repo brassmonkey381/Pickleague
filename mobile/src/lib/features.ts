@@ -114,6 +114,24 @@ export const COURT_DISCOVERY_ENABLED = true;
 export const ROUTINES_ENABLED = true;
 
 /**
+ * One-off planned check-ins and "Check in and tell friends" (Doggle parity,
+ * Phase 2 of the court card's "Check in ▾"): the Check in sheet's "Check in
+ * and tell friends" and "Plan a check-in for later", Tomorrow's Plan ▾ opening
+ * its time picker, the court page's day-and-time picker, and a plan's line
+ * on the feed card (Check in now · On my way · Change time · Cancel this
+ * visit).
+ *
+ * ON (the user's rule: flags default true), but its server half,
+ * supabase/migration_court_oneoff_plans.sql (plan_court_checkin,
+ * move_court_plan, cancel_court_plan, list_my_court_plans, send_on_my_way's
+ * p_here), must be live BEFORE the OTA that carries this:
+ * state/checkin-plans-apply.ps1 applies it after its rolled-back persona
+ * suite passes. Off, those items never show, no plan is read, and every
+ * send_on_my_way call is the three-argument one.
+ */
+export const CHECKIN_PLANS_ENABLED = true;
+
+/**
  * Referrals, Doggle parity (state/referrals-plan.md): invite links
  * (www.pickleague.club/invite/CODE and ?ref=CODE), the InviteLanding screen,
  * the ReferralHost that stashes a code and claims it after sign-in (with
@@ -143,7 +161,8 @@ export const REFERRALS_ENABLED = true;
  * the court I'm at in one tap (components/play/CheckinHost, which owns the
  * check-in listeners and drives the island's checked-in state). The bell and
  * the gear stay in Home's top bar; Me gets a gear too. CourtDetail's primary
- * button is "▶ Play here", the end sheet says how long and where, and
+ * button is "Check in ▾" (2026-10-24, the feed card's one control; every
+ * check-in starts the session), the end sheet says how long and where, and
  * /play/start opens the sheet.
  *
  * ON since 2026-10-22: the user asked for changes straight in production, no

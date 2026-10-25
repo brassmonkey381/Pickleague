@@ -87,12 +87,12 @@ const PUSH_TYPES: { key: PushTypeKey; label: string; desc: string }[] = [
   // D3, lib/courtArrival), but never for a type switched off here. "Auto
   // check-ins" also carries "👋 Checked out" when any check-in runs out
   // (manual ones included), so its line says so.
-  { key: 'notifyAutoCheckins', label: 'Auto check-ins', desc: 'At your starred courts, and when a check-in ends' },
+  { key: 'notifyAutoCheckins', label: 'Auto check-ins', desc: 'At your starred courts, before a check-in you planned, and when a check-in ends' },
   { key: 'notifyCheckinPrompts', label: 'Check-in prompts', desc: 'Near courts, when you arrive' },
   ...(FRIENDS_AT_COURTS_ENABLED
     ? [
         { key: 'notifyFriendRequests' as const, label: 'Friend requests', desc: 'When someone wants to be friends, and when they accept' },
-        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court" },
+        { key: 'notifyFriendsOnTheWay' as const, label: 'Friends on the way', desc: "When a friend says they're heading to a court, or that they just got there" },
       ]
     : []),
 ];

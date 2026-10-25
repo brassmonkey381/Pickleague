@@ -191,6 +191,7 @@ describe('recipients', () => {
   it("the pill's window: a send starts it now, a 'recent' refusal keeps the server's last send", () => {
     const res: OnMyWayResult = {
       sent: false,
+      here: false,
       count: 0,
       skippedRecent: 0,
       reason: null,
@@ -271,5 +272,48 @@ describe('the server and the app agree', () => {
     expect(sql).toMatch(/v_eta < 1 or v_eta > 180/);
     expect(sql).toMatch(/coalesce\(p_eta_minutes, 15\)/);
     expect(sql).toMatch(/> 50 then/);
+  });
+});
+
+describe('"Check in and tell friends" (p_here)', () => {
+  const here = (p: Record<string, unknown>) => normalizeOnMyWayResult({ here: true, eta_minutes: null, venue_name: 'Lakeside', ...p }, 15);
+
+  it('reads here and the not_here reason', () => {
+    const r = here({ sent: false, reason: 'not_here' });
+    expect(r.here).toBe(true);
+    expect(r.reason).toBe('not_here');
+    expect(normalizeOnMyWayResult({ sent: true, count: 1 }, 15).here).toBe(false);
+  });
+
+  it('words each answer as "at", never "on the way"', () => {
+    const msg = (p: Record<string, unknown>) => onMyWayMessage(here(p), { venueName: 'Lakeside', nowMs: T0, timeLabel: label });
+    expect(msg({ sent: true, count: 3, skipped_recent: 0 })).toBe("Told 3 friends you're at Lakeside.");
+    expect(msg({ sent: true, count: 1, skipped_recent: 1 })).toBe(
+      "Told 1 friend you're at Lakeside. 1 friend you told in the last 30 minutes wasn't told again.",
+    );
+    expect(msg({ sent: false, reason: 'not_here' })).toBe(
+      "You're not checked in at Lakeside, so nobody was told. Check in there, then tell your friends.",
+    );
+    expect(msg({ sent: false, reason: 'recent', sent_at: new Date(T0 - 8 * 60_000).toISOString(), retry_at: new Date(T0 + 22 * 60_000).toISOString() })).toBe(
+      "You already told your friends you're at Lakeside 8 min ago, so nobody was told again. You can send another after 18:22.",
+    );
+    expect(msg({ sent: false, reason: 'recent_friends', retry_at: new Date(T0 + 5 * 60_000).toISOString() })).toBe(
+      "You told those friends you're at Lakeside less than 30 minutes ago, so they weren't told again. Pick other friends, or try again after 18:05.",
+    );
+    // The server leaves out a friend who can't see my check-ins now (hidden from, paused, hidden).
+    expect(msg({ sent: false, reason: 'nobody' })).toContain("they can't see your check-ins right now (you hid them or paused)");
+    // At most 3 other courts per 30 minutes (Doggle 0451).
+    expect(here({ sent: false, reason: 'limit' }).reason).toBe('limit');
+    expect(msg({ sent: false, reason: 'limit', retry_at: new Date(T0 + 10 * 60_000).toISOString() })).toBe(
+      'You told friends you were at 3 other courts in the last 30 minutes, so nobody was told about Lakeside. You can send another after 18:10.',
+    );
+  });
+
+  it('its button, and it never labels the card "On the way"', () => {
+    expect(sendLabel(3, 15, true)).toBe("Tell 3 friends you're here");
+    expect(sendLabel(1, 15, true)).toBe("Tell 1 friend you're here");
+    expect(sendLabel(0, 15, true)).toBe('Pick friends to tell');
+    expect(windowStartMs(here({ sent: true, count: 2 }), T0)).toBeNull();
+    expect(windowStartMs(here({ sent: false, reason: 'recent', sent_at: new Date(T0).toISOString() }), T0)).toBeNull();
   });
 });

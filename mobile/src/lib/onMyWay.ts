@@ -44,10 +44,14 @@ export function etaLabel(minutes: number): string {
   return m === 0 ? `${h} hr` : `${h} hr ${m} min`;
 }
 
-export type OnMyWayReason = 'recent' | 'recent_friends' | 'nobody';
+/** 'not_here': an "I'm here" (p_here) while not checked in at that court.
+ *  'limit': an "I'm here" after telling friends about 3 other courts in 30 minutes. */
+export type OnMyWayReason = 'recent' | 'recent_friends' | 'nobody' | 'not_here' | 'limit';
 
 export type OnMyWayResult = {
   sent: boolean;
+  /** "Check in and tell friends" (p_here, migration_court_oneoff_plans.sql): "<Name> is at <Court>", no ETA. */
+  here: boolean;
   /** Friends told (a friend whose phone can't get it counts too: the reply never reveals settings). */
   count: number;
   /** Friends picked but skipped: told by me (about any court) in the last 30 minutes. */
@@ -58,7 +62,7 @@ export type OnMyWayResult = {
   venueName: string | null;
   /** The send (sent), or the last send at this court ('recent'), by the server's clock. */
   sentAt: string | null;
-  /** When another send can go out ('recent', 'recent_friends'). */
+  /** When another send can go out ('recent', 'recent_friends', 'limit'). */
   retryAt: string | null;
 };
 
@@ -69,9 +73,13 @@ const text = (v: unknown) => (typeof v === 'string' && v.length > 0 ? v : null);
 export function normalizeOnMyWayResult(raw: unknown, etaSent: number): OnMyWayResult {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const sent = r.sent === true;
-  const reason = r.reason === 'recent' || r.reason === 'recent_friends' || r.reason === 'nobody' ? r.reason : null;
+  const reason =
+    r.reason === 'recent' || r.reason === 'recent_friends' || r.reason === 'nobody' || r.reason === 'not_here' || r.reason === 'limit'
+      ? r.reason
+      : null;
   return {
     sent,
+    here: r.here === true,
     count: num(r.count),
     skippedRecent: num(r.skipped_recent),
     reason: sent ? null : reason ?? 'nobody',
@@ -109,6 +117,7 @@ export function onMyWayMessage(
     return ctx.timeLabel ? ctx.timeLabel(new Date(t)) : whenLabel(new Date(t), ctx.nowMs);
   };
   const friends = (n: number) => (n === 1 ? '1 friend' : `${n} friends`);
+  if (res.here) return hereMessage(res, court, ctx.picked, at, ctx.nowMs);
   if (res.sent) {
     const told = `Told ${friends(res.count)} you're about ${etaLabel(res.etaMinutes)} from ${court}.`;
     if (res.skippedRecent > 0) {
@@ -138,6 +147,52 @@ export function onMyWayMessage(
   }
 }
 
+/** "Check in and tell friends" (p_here): "Told 3 friends you're at Lakeside." and the not-sent reasons. */
+function hereMessage(
+  res: OnMyWayResult,
+  court: string,
+  picked: boolean | undefined,
+  at: (iso: string | null) => string | null,
+  nowMs: number,
+): string {
+  const friends = (n: number) => (n === 1 ? '1 friend' : `${n} friends`);
+  if (res.sent) {
+    const told = `Told ${friends(res.count)} you're at ${court}.`;
+    if (res.skippedRecent > 0) {
+      return `${told} ${friends(res.skippedRecent)} you told in the last 30 minutes ${res.skippedRecent === 1 ? "wasn't" : "weren't"} told again.`;
+    }
+    return told;
+  }
+  switch (res.reason) {
+    case 'not_here':
+      return `You're not checked in at ${court}, so nobody was told. Check in there, then tell your friends.`;
+    case 'limit': {
+      const next = at(res.retryAt);
+      return `You told friends you were at 3 other courts in the last 30 minutes, so nobody was told about ${court}. ${
+        next ? `You can send another after ${next}.` : 'You can send another in 30 minutes.'
+      }`;
+    }
+    case 'recent': {
+      const ago = agoLabel(res.sentAt, nowMs);
+      const next = at(res.retryAt);
+      return `You already told your friends you're at ${court}${ago ? ` ${ago}` : ''}, so nobody was told again. ${
+        next ? `You can send another after ${next}.` : 'You can send another 30 minutes after the last one.'
+      }`;
+    }
+    case 'recent_friends': {
+      const next = at(res.retryAt);
+      return `You told ${picked === false ? 'your friends' : 'those friends'} you're at ${court} less than 30 minutes ago, so they weren't told again. Pick other friends${
+        next ? `, or try again after ${next}` : ''
+      }.`;
+    }
+    case 'nobody':
+    default:
+      return picked === false
+        ? "You don't have any friends to tell yet. Add friends from a player's profile, then try again."
+        : "None of the friends you picked could be told: they're no longer on your friends list, or they can't see your check-ins right now (you hid them or paused). Pick other friends.";
+  }
+}
+
 export type OnMyWayFriend = {
   userId: string;
   name: string;
@@ -164,10 +219,11 @@ export function sortRecipients<T extends OnMyWayFriend>(friends: readonly T[]): 
   return [...friends].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 
-/** The sheet's button: "Tell 3 friends · about 15 min". */
-export function sendLabel(count: number, etaMinutes: number): string {
+/** The sheet's button: "Tell 3 friends · about 15 min", or (here) "Tell 3 friends you're here". */
+export function sendLabel(count: number, etaMinutes: number, here = false): string {
   if (count === 0) return 'Pick friends to tell';
-  return `Tell ${count === 1 ? '1 friend' : `${count} friends`} · about ${etaLabel(etaMinutes)}`;
+  const who = count === 1 ? '1 friend' : `${count} friends`;
+  return here ? `Tell ${who} you're here` : `Tell ${who} · about ${etaLabel(etaMinutes)}`;
 }
 
 /** Why the button is off, in words (rule 11), or null when it can send. */
@@ -185,6 +241,8 @@ export function sendBlockedReason(count: number): string | null {
  * window.
  */
 export function windowStartMs(res: OnMyWayResult, nowMs: number): number | null {
+  // "I'm here" has its own window; the label is about "on my way".
+  if (res.here) return null;
   if (res.sent) return nowMs;
   if (res.reason !== 'recent') return null;
   const t = res.sentAt ? Date.parse(res.sentAt) : NaN;

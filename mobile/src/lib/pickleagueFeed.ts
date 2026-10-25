@@ -7,10 +7,12 @@
 //
 //   Needs you (pinned)       votes, RSVPs, scores to confirm, invites, requests
 //   Today
-//     ★ Lakeside  [Check in] [▶ Play]
-//        league event, booked match, tournament, drill, my routine stop,
-//        friends here now / who came and went, a vote for an event there
-//     ★ Star Park            Nothing planned · ▶ Start playing
+//     ★ Lakeside                         [On my way ▾] [Check in ▾]
+//        my own check-in there now, league event, booked match, tournament,
+//        drill, my routine stop, my one-off planned check-in, friends here
+//        now / who came and went, a vote for an event there
+//     ★ Star Park                                      [Check in ▾]
+//        Nothing planned
 //     Elsewhere              what is mine that day at no court of mine
 //   Tomorrow ... Later this week ...
 //
@@ -22,9 +24,11 @@
 //     invites to one (a request of me). Never an open tournament I'm not in;
 //   - court cards only for my starred courts (every star gets a Today and a
 //     Tomorrow card, even empty, as in Doggle; Later only when something is
-//     there), my routine courts (on a day with a stop or something there) and,
-//     today, the courts my accepted friends are at. Nobody who isn't my friend,
-//     and no court that is only "frequent" or a league's home court;
+//     there), my routine courts (on a day with a stop or something there),
+//     the courts of my one-off plans (on a day with a plan or something there) and,
+//     today, the court I'm checked in at and the courts my accepted friends
+//     are at. Nobody who isn't my friend, and no court that is only
+//     "frequent" or a league's home court;
 //   - an item goes under the court it happens at (foundation matchPlace: the
 //     catalog id, then coordinates, then a name that fits one court); one at
 //     no court of mine goes to the band's "Elsewhere", never dropped.
@@ -53,6 +57,7 @@ import {
 } from './agenda';
 import type { CrowdNumbers } from './courtCrowd';
 import type { CourtRoutine, PlayMode } from './courtRoutineRules';
+import { planInPlay, type CourtPlan } from './courtPlans';
 import type { AbsoluteTimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import type { FriendAtCourt, FriendsAtCourts, FriendsCourtGroup } from './friendsAtCourts';
 
@@ -98,14 +103,37 @@ export type FeedRoutineStop = {
   windows: AbsoluteTimeWindow<PlayMode>[];
 };
 
+/** My one-off planned check-in (lib/courtPlans; Doggle's "Plan a check-in for later"). */
+export type FeedOneOffPlan = {
+  planId: string;
+  at: string;
+  endAt: string;
+};
+
+/** My own check-in (Doggle's own "Here now" line). Today only. */
+export type FeedMyCheckin = {
+  id: string;
+  venueId: string;
+  venueName: string;
+  /** When it began, as the server has it (none while it is still queued). */
+  checkedInAt: string | null;
+  expiresAt: string;
+  /** Saved offline, not on the server yet. */
+  queued: boolean;
+  /** A play session is running (every check-in starts one). */
+  playing: boolean;
+};
+
 export type FeedCourtLine =
+  | { kind: 'mine'; key: string; checkin: FeedMyCheckin }
   | { kind: 'here'; key: string; person: FeedPerson; at: string; until: string | null; viaSession: boolean }
   | { kind: 'left'; key: string; person: FeedPerson; at: string; endedAt: string }
   | { kind: 'stop'; key: string; stop: FeedRoutineStop }
+  | { kind: 'plan'; key: string; plan: FeedOneOffPlan }
   /** A league event, booked match, tournament, drill or vote at this court.
    *  `mirror`: it needs me, so it is pinned in Needs you as well (not counted here). */
   | { kind: 'agenda'; key: string; row: AgendaRow; mirror: boolean };
-/** A person or a stop: the lines with a time chip and an action sheet. */
+/** A person, my check-in, a stop or a plan: the lines with a time chip and an action sheet. */
 export type FeedSheetLine = Exclude<FeedCourtLine, { kind: 'agenda' }>;
 
 export type FeedCourtCard = {
@@ -115,6 +143,8 @@ export type FeedCourtCard = {
   starred: boolean;
   /** One of my routines stops here (any day). */
   routine: boolean;
+  /** I'm checked in here now (its line is on the card). Today only. */
+  hereMine: boolean;
   /** In time order: who came and went, who is here, then what is coming. */
   lines: FeedCourtLine[];
   /** Everyone else checked in there now (anonymous to me). Today only. */
@@ -160,6 +190,10 @@ export type FeedInput = {
   friendsAtCourts: FriendsAtCourts | null;
   /** My accepted friends. null = not known yet: no friend lines at all. */
   friendIds: ReadonlySet<string> | null;
+  /** My check-in now (lib/courtCheckin's current one), or none. */
+  mine?: FeedMyCheckin | null;
+  /** My one-off planned check-ins (list_my_court_plans; absent = none). */
+  plans?: readonly CourtPlan[];
 };
 
 // ── Rules ────────────────────────────────────────────────────────────────────
@@ -210,18 +244,21 @@ export function routineStopOf(r: CourtRoutine, o: CourtRoutine['occurrences'][nu
 
 /** When a line happens (NaN = undated: a vote). */
 const lineTime = (l: FeedCourtLine): number => {
+  if (l.kind === 'mine') return ms(l.checkin.checkedInAt);
   if (l.kind === 'stop') return ms(l.stop.at);
+  if (l.kind === 'plan') return ms(l.plan.at);
   if (l.kind === 'agenda') return l.row.bucket === 'live' && !l.row.startsAt ? -Infinity : ms(l.row.startsAt);
   return ms(l.at);
 };
-const LINE_ORDER: Record<FeedCourtLine['kind'], number> = { left: 0, here: 1, stop: 2, agenda: 2 };
+const LINE_ORDER: Record<FeedCourtLine['kind'], number> = { left: 0, mine: 1, here: 1, stop: 2, plan: 2, agenda: 2 };
 
-/** Doggle's order: who came and went (by when they left), who is here (by
- *  arrival, close friends first), then what is coming, in time order (my
- *  stops and the league side together), undated votes last. */
+/** Doggle's order: who came and went (by when they left), who is here (me
+ *  first, then by arrival, close friends first), then what is coming, in
+ *  time order (my stops and the league side together), undated votes last. */
 export function sortCourtLines(lines: readonly FeedCourtLine[]): FeedCourtLine[] {
   return [...lines].sort((a, b) => {
     if (LINE_ORDER[a.kind] !== LINE_ORDER[b.kind]) return LINE_ORDER[a.kind] - LINE_ORDER[b.kind];
+    if ((a.kind === 'mine') !== (b.kind === 'mine')) return a.kind === 'mine' ? -1 : 1;
     if (a.kind === 'left' && b.kind === 'left') return ms(a.endedAt) - ms(b.endedAt);
     if (a.kind === 'here' && b.kind === 'here' && a.person.isCloseFriend !== b.person.isCloseFriend) {
       return a.person.isCloseFriend ? -1 : 1;
@@ -314,7 +351,7 @@ function friendLines(g: FriendsCourtGroup, friends: ReadonlySet<string>, now: nu
 }
 
 type KnownCourt = KnownPlace & { starred: boolean; routine: boolean };
-type CardDraft = Omit<FeedCourtCard, 'count' | 'lines'> & { lines: FeedCourtLine[] };
+type CardDraft = Omit<FeedCourtCard, 'count' | 'lines' | 'hereMine'> & { lines: FeedCourtLine[] };
 type BandAgenda = { atCourt: Map<string, FeedCourtLine[]>; elsewhere: AgendaRow[] };
 
 /** Court cards for one band. */
@@ -323,8 +360,10 @@ function courtCards(
   input: FeedInput,
   courts: Map<string, KnownCourt>,
   stopsByVenue: Map<string, FeedRoutineStop[]>,
+  plansByVenue: Map<string, { venueName: string; plans: FeedOneOffPlan[] }>,
   agenda: BandAgenda,
   friendGroups: Map<string, { group: FriendsCourtGroup; lines: FeedCourtLine[] }>,
+  mine: FeedMyCheckin | null,
 ): FeedCourtCard[] {
   const { now } = input;
   const drafts = new Map<string, CardDraft>();
@@ -358,10 +397,19 @@ function courtCards(
     for (const s of mine) d.lines.push({ kind: 'stop', key: `stop|${s.planId}`, stop: s });
   }
 
-  // The league side: what happens at each court that day.
-  for (const [venueId, lines] of agenda.atCourt) draft(venueId, 'A court').lines.push(...lines);
+  // My one-off plans that day.
+  for (const [venueId, { venueName, plans }] of plansByVenue) {
+    const mine = plans.filter((p) => dayBandOf(ms(p.at), now) === day);
+    if (mine.length === 0) continue;
+    const d = draft(venueId, venueName);
+    for (const p of mine) d.lines.push({ kind: 'plan', key: `plan|${p.planId}`, plan: p });
+  }
 
-  // Friends: who is at a court now, or left it earlier today. Today only.
+  // My own check-in, then friends: who is at a court now, or left it
+  // earlier today. Today only.
+  if (day === 'today' && mine) {
+    draft(mine.venueId, mine.venueName).lines.push({ kind: 'mine', key: `mine|${mine.id}`, checkin: mine });
+  }
   if (day === 'today') {
     for (const { group: g, lines } of friendGroups.values()) {
       const d = draft(g.venue_id, g.venue_name);
@@ -378,17 +426,23 @@ function courtCards(
     }
   }
 
+  // The league side: what happens at each court that day (after the courts
+  // that come with their own name, my check-in's and friends', so a court
+  // only an item names keeps the right one).
+  for (const [venueId, lines] of agenda.atCourt) draft(venueId, 'A court').lines.push(...lines);
+
   const counts = (l: FeedCourtLine) =>
     l.kind === 'stop' ? l.stop.status === 'planned' : l.kind === 'agenda' ? !l.mirror : true;
+  const mineThere = (c: { lines: FeedCourtLine[] }) =>
+    c.lines.some((l) => l.kind === 'mine' || l.kind === 'stop' || l.kind === 'plan' || l.kind === 'agenda');
   const cards: FeedCourtCard[] = [...drafts.values()].map((d) => {
     const lines = sortCourtLines(d.lines);
-    return { ...d, lines, count: lines.filter(counts).length };
+    return { ...d, lines, hereMine: lines.some((l) => l.kind === 'mine'), count: lines.filter(counts).length };
   });
-  // Something live or friends there now first, then my plans, then the quiet
-  // stars; by name.
-  const mineThere = (c: FeedCourtCard) => c.lines.some((l) => l.kind === 'stop' || l.kind === 'agenda');
+  // Something live or people there now (me or friends) first, then my plans,
+  // then the quiet stars; by name.
   const rank = (c: FeedCourtCard) => [
-    -c.lines.filter((l) => l.kind === 'here' || (l.kind === 'agenda' && l.row.bucket === 'live')).length,
+    -c.lines.filter((l) => l.kind === 'mine' || l.kind === 'here' || (l.kind === 'agenda' && l.row.bucket === 'live')).length,
     mineThere(c) ? 0 : 1,
     -c.count,
   ];
@@ -464,6 +518,23 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
     }
   }
 
+  // My one-off plans not kept yet, still in play (lib/courtPlans planInPlay).
+  // Their courts count as mine (as a routine's), so an item there finds them.
+  const plansByVenue = new Map<string, { venueName: string; plans: FeedOneOffPlan[] }>();
+  for (const p of input.plans ?? []) {
+    if (!planInPlay(p, now)) continue;
+    const known = courts.get(p.venueId);
+    if (!known) {
+      courts.set(p.venueId, { id: p.venueId, name: p.venueName, lat: p.lat, lng: p.lng, starred: false, routine: false });
+    }
+    const entry = plansByVenue.get(p.venueId) ?? { venueName: known?.name || p.venueName, plans: [] };
+    entry.plans.push({ planId: p.planId, at: p.plannedAt, endAt: p.plannedEndAt });
+    plansByVenue.set(p.venueId, entry);
+  }
+
+  // My check-in, while it runs (the copy on this device can outlive it).
+  const mine = input.mine && ms(input.mine.expiresAt) > now ? input.mine : null;
+
   // Today's friends' courts (only courts with a friend line).
   const friendGroups = new Map<string, { group: FriendsCourtGroup; lines: FeedCourtLine[] }>();
   if (input.friendsAtCourts && input.friendIds) {
@@ -479,6 +550,9 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
       .filter(({ group: g }) => !courts.has(g.venue_id))
       .map(({ group: g }) => ({ id: g.venue_id, name: g.venue_name, lat: g.lat, lng: g.lng, starred: false, routine: false })),
   ];
+  if (mine && !todayCourts.some((ct) => ct.id === mine.venueId)) {
+    todayCourts.push({ id: mine.venueId, name: mine.venueName, lat: null, lng: null, starred: false, routine: false });
+  }
 
   // Each row to its band, then to its court there (or Elsewhere).
   const needsYou: AgendaRow[] = [];
@@ -505,7 +579,7 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
   const days: FeedDay[] = [];
   for (const key of ['today', 'tomorrow', 'later'] as const) {
     const elsewhere = bands[key].elsewhere;
-    const cards = courtCards(key, input, courts, stopsByVenue, bands[key], key === 'today' ? friendGroups : new Map());
+    const cards = courtCards(key, input, courts, stopsByVenue, plansByVenue, bands[key], key === 'today' ? friendGroups : new Map(), mine);
     if (elsewhere.length === 0 && cards.length === 0) continue;
     const count = elsewhere.length + cards.reduce((n, c) => n + c.count, 0);
     days.push({ key, title: DAY_BAND_TITLE[key], courts: cards, elsewhere, count });

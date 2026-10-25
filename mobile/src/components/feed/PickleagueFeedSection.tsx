@@ -8,11 +8,13 @@
 //   📅 My routine: Tue, Thu 6 PM at Lakeside ›
 //   NEEDS YOU · 3 ...... votes, RSVPs, scores to confirm, invites, requests
 //   [Today  Thu, Oct 22                    5 ^]
-//     ★ Lakeside        6 here · 2 open    [Check in] [▶ Play]
+//     ★ Lakeside                     [On my way ▾]  [Check in ▾]
+//        6 here · 2 open
 //        (Ann)  Ann · PLUPR 3.82 · Open to play until 7 PM   [Here now ▾]
 //        (📅)   Ladder night · Dinks · you're in            6 PM
 //        (📅)   You · your routine · 6–8 PM               [At 6 PM ▾]
-//     ★ Star Park       Nothing planned · ▶ Start playing
+//     ★ Star Park                                    [Check in ▾]
+//        Nothing planned
 //     ELSEWHERE
 //        (🏆)   Fall Classic · The HUB · registered         Sat 9 AM
 //   [Tomorrow  Fri, Oct 23                    1 v]
@@ -25,6 +27,10 @@
 // The court side reads friends_at_courts (polled each minute while Home is
 // focused), my stars, my routines, my friends list (their PLUPR and who counts
 // as a friend), and court_play_modes for at most 6 courts with people there.
+//
+// A court card's one "Check in ▾" (Doggle's park card, 2026-10-24) and my own
+// check-in line come from ./useCheckinOptions; which items each line's sheet
+// lists is lib/checkinOptions (tested).
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CommonActions, useIsFocused, useNavigation } from '@react-navigation/native';
@@ -40,16 +46,35 @@ import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/useToast';
 import { trackHomeTap } from '../../lib/analytics';
 import { openDiscover } from '../../lib/discoverNav';
-import { openPlayStart } from '../../lib/playSession';
-import { checkinAtRequested, checkinHostOwnsNotes } from '../../lib/checkinHost';
+import {
+  checkinAtRequested,
+  checkinHereRequested,
+  checkinHostBusy,
+  checkinHostOwnsNotes,
+  type CheckinHostBusy,
+} from '../../lib/checkinHost';
+import { checkinChanged } from '../../lib/courtCheckin';
+import { lineActionIds, sheetLineFacts, type LineActionId } from '../../lib/checkinOptions';
 import { dayLabel, shortTime, type AgendaRow, type AgendaTarget } from '../../lib/agenda';
 import { inboxAgendaItems } from '../../lib/inboxRequests';
 import {
+  CHECKIN_PLANS_ENABLED,
   COURT_DISCOVERY_ENABLED,
   COURT_STARS_ENABLED,
   FRIENDS_AT_COURTS_ENABLED,
   ROUTINES_ENABLED,
 } from '../../lib/features';
+import { explainRefusal } from '../../lib/refusalNotices';
+import { refusalCode } from '../../lib/refusals';
+import { cancelledMessage, movedMessage, moveSlots, planWhen } from '../../lib/courtPlans';
+import {
+  MY_COURT_PLANS_KEY,
+  MY_COURT_PLANS_PERSIST_MS,
+  MY_COURT_PLANS_TTL_MS,
+  cancelCourtPlan,
+  fetchMyCourtPlans,
+  moveCourtPlan,
+} from '../../data/courtPlans';
 import {
   BAND_ROWS_PREVIEW,
   NEEDS_YOU_PREVIEW,
@@ -81,14 +106,25 @@ import {
 import RoutineSuggestionCard from '../routines/RoutineSuggestionCard';
 import FeedAgendaLine from './FeedAgendaLine';
 import FeedCourtCard, { type FeedCourtCardActions } from './FeedCourtCard';
-import OnMyWaySheet, { type OnMyWayTarget } from '../OnMyWaySheet';
+import { useCheckinOptions, type CheckinCourt } from './useCheckinOptions';
+import type { OnMyWayTarget } from '../OnMyWaySheet';
 import { onMyWaySent, sentOnMyWayRecently } from '../../data/onMyWay';
 
 const POLL_MS = 60_000;
 const CLOCK_MS = 60_000;
 const SLOT_MS = 15 * 60_000;
-/** iOS won't present the next modal until the action sheet has faded out. */
-const SHEET_FADE_MS = 400;
+
+/** home.tap targets for the Check in sheet's items and my own line's. */
+const CHECKIN_TAP: Record<string, string> = {
+  checkInNow: 'checkin_now',
+  tellFriends: 'checkin_tell_friends',
+  onMyWay: 'checkin_on_my_way',
+  planLater: 'checkin_plan_later',
+  makeRoutine: 'checkin_routine',
+  plan_pick: 'plan_pick',
+  extend: 'extend',
+  check_out: 'check_out',
+};
 
 // Which bands the viewer folded or opened: module scope, so Home remounting
 // doesn't spring a folded Today open again. A cold start goes back to the defaults.
@@ -164,6 +200,27 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     enabled: ROUTINES_ENABLED,
   });
   const routines = React.useMemo(() => (ROUTINES_ENABLED ? routinesQ.data ?? [] : []), [routinesQ.data]);
+  // My one-off planned check-ins (data/courtPlans; a plan, move or cancel
+  // writes the new list into this cache).
+  const plansQ = useCachedQuery(MY_COURT_PLANS_KEY, fetchMyCourtPlans, {
+    ttlMs: MY_COURT_PLANS_TTL_MS,
+    persistMs: MY_COURT_PLANS_PERSIST_MS,
+    enabled: CHECKIN_PLANS_ENABLED,
+  });
+  const plans = React.useMemo(() => (CHECKIN_PLANS_ENABLED ? plansQ.data ?? [] : []), [plansQ.data]);
+  // A check-in within 30 minutes of a routine stop or a planned check-in
+  // keeps it on the server (_pl_routine_plan_at): reload both when a new
+  // check-in lands, so a kept one leaves the card instead of sitting next to
+  // my own "Here now" line (Doggle reloads its feed after every check-in).
+  const seenCheckin = React.useRef<string | null>(null);
+  useSignal(checkinChanged, (cur) => {
+    const id = cur && !cur.queued ? cur.id : null;
+    if (id && id !== seenCheckin.current) {
+      if (ROUTINES_ENABLED) void routinesQ.refresh();
+      if (CHECKIN_PLANS_ENABLED) void plansQ.refresh();
+    }
+    seenCheckin.current = id;
+  });
   const friendsFailed = FRIENDS_AT_COURTS_ENABLED && friendsQ.error != null && friendsQ.data === undefined;
 
   // Home's pull-to-refresh reloads the court side too.
@@ -172,6 +229,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     FRIENDS_AT_COURTS_ENABLED ? myFriendsQ.refresh : null,
     COURT_STARS_ENABLED ? favoritesQ.refresh : null,
     ROUTINES_ENABLED ? routinesQ.refresh : null,
+    CHECKIN_PLANS_ENABLED ? plansQ.refresh : null,
   ];
   const refreshersRef = React.useRef(refreshers);
   refreshersRef.current = refreshers;
@@ -211,6 +269,17 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     [home.inbox, home.profile?.id, privilegedLeagues, now],
   );
 
+  // The court card's "Check in ▾", Plan ▾, On my way, and my own check-in
+  // (its line, Stay 1 more hour, Check out).
+  const checkin = useCheckinOptions({
+    from: 'feed',
+    planPicker: 'today',
+    // CheckinHost runs it (false: no host, the court's page opened instead).
+    checkIn: (court) => checkInHere(court, null),
+    openRoutines: (court) => openRoutines({ venueId: court.venueId, venueName: court.venueName }),
+    onTap: (id) => tap(CHECKIN_TAP[id] ?? id),
+  });
+
   const feed = React.useMemo(
     () =>
       buildPickleagueFeed({
@@ -225,8 +294,10 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         routines,
         friendsAtCourts: FRIENDS_AT_COURTS_ENABLED ? friendsQ.data ?? null : null,
         friendIds,
+        mine: checkin.mine,
+        plans,
       }),
-    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds],
+    [now, home.events, home.myTournaments, home.drills, home.drillsToday, home.matches, requests, hideKeys, starred, routines, friendsQ.data, friendIds, checkin.mine, plans],
   );
 
   // Who is open to play / in a closed group: court_play_modes for today's
@@ -261,15 +332,32 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   // ── Actions ──
   const [busyKey, setBusyKey] = React.useState<string | null>(null);
   const [lineSheet, setLineSheet] = React.useState<{ line: FeedSheetLine; card: CourtCard; day: DayBandKey } | null>(null);
-  const [courtSheet, setCourtSheet] = React.useState<{ card: CourtCard; day: DayBandKey } | null>(null);
-  const [timePick, setTimePick] = React.useState<{ planId: string; at: string; venueName: string; key: string } | null>(null);
+  // Change time: a routine stop's (move_court_routine_occurrence, the same
+  // day) or a one-off plan's (move_court_plan).
+  const [timePick, setTimePick] = React.useState<
+    { kind: 'stop' | 'plan'; planId: string; at: string; venueName: string; key: string } | null
+  >(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [confirmed, setConfirmed] = React.useState<ReadonlySet<string>>(() => new Set());
-  // "On my way": the court whose sheet is open. omwTick re-labels the pill after a send.
-  const [omwTarget, setOmwTarget] = React.useState<OnMyWayTarget | null>(null);
+  // CheckinHost's work (a Check in now from here, the bar's centre button,
+  // the island's Stay or Check out): the card whose check-in it runs shows
+  // "…" on its Check in, and the other controls dim meanwhile (Doggle's
+  // pillState). Which court: the last check-in asked of the host, until it
+  // is done.
+  const [hostBusy, setHostBusy] = React.useState<CheckinHostBusy>(null);
+  const [checkingInAt, setCheckingInAt] = React.useState<string | null>(null);
+  useSignal(checkinAtRequested, (v) => setCheckingInAt(v.id));
+  useSignal(checkinHereRequested, () => setCheckingInAt(null));
+  useSignal(checkinHostBusy, (b) => {
+    setHostBusy(b);
+    if (b == null) setCheckingInAt(null);
+  });
+  // omwTick re-labels "On my way" as "On the way" after a send.
   const [, setOmwTick] = React.useState(0);
   useSignal(onMyWaySent, () => setOmwTick((n) => n + 1));
-  const afterSheet = (fn: () => void) => setTimeout(fn, SHEET_FADE_MS);
+  // What a line's sheet opens once it has faded out (ActionSheetModal
+  // onDismissed): iOS won't present the next modal before then.
+  const afterLineSheet = React.useRef<(() => void) | null>(null);
 
   const openCourt = (venueId: string) => {
     if (COURT_DISCOVERY_ENABLED) go('CourtDetail', { venueId });
@@ -278,29 +366,35 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     if (ROUTINES_ENABLED) go('Routines', newVenue ? { newVenue } : undefined);
   };
   const openPerson = (userId: string, name: string) => go('PlayerProfile', { userId, userName: name });
-  // Play / Check in at this court (P1's start sheet and CheckinHost). With
-  // no host mounted (the bottom bar off), the court page has the check-in.
-  const playHere = (card: { venueId: string; venueName: string }, target = 'play_here') => {
-    tap(target);
-    openPlayStart({ venue: { id: card.venueId, name: card.venueName } });
+  // Check in at this court (CheckinHost; every check-in starts the play
+  // session). With no host mounted (the bottom bar off), the court page has
+  // the check-in. `target`: the home.tap target, null when the caller tapped it.
+  // True when the host took it.
+  const checkInHere = (card: { venueId: string; venueName: string }, target: string | null = 'check_in'): boolean => {
+    if (target) tap(target);
+    if (checkinHostOwnsNotes()) {
+      checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
+      return true;
+    }
+    openCourt(card.venueId);
+    return false;
   };
-  const checkInHere = (card: { venueId: string; venueName: string }) => {
-    tap('check_in');
-    if (checkinHostOwnsNotes()) checkinAtRequested.emit({ id: card.venueId, name: card.venueName });
-    else openCourt(card.venueId);
-  };
+  const canOnMyWay = checkin.canOnMyWay;
 
-  // On my way: friends the card shows here now are listed first (all start ticked).
-  const onMyWay = (card: CourtCard, from: OnMyWayTarget['from'] = 'feed') => {
-    if (busyKey) return;
-    tap('on_my_way');
+  /** The court a card is, for the Check in sheets: friends it shows here now
+   *  are listed first on On my way (all start ticked). */
+  const courtOf = (card: CourtCard): CheckinCourt => {
     const atCourt = new Map<string, string>();
     for (const l of card.lines) {
       if (l.kind === 'here' && friendIds?.has(l.person.userId)) atCourt.set(l.person.userId, l.viaSession ? 'Playing now' : 'Here now');
     }
-    setOmwTarget({ venueId: card.venueId, venueName: card.venueName, atCourt, from });
+    return { venueId: card.venueId, venueName: card.venueName, starred: card.starred, atCourt };
   };
-  const canOnMyWay = FRIENDS_AT_COURTS_ENABLED && (myFriendsQ.data?.length ?? 0) > 0;
+  const onMyWay = (card: CourtCard, from: OnMyWayTarget['from'] = 'feed') => {
+    if (busyKey) return;
+    tap('on_my_way');
+    checkin.onMyWay(courtOf(card), from);
+  };
 
   async function runRoutine(key: string, fn: () => Promise<unknown>, done: string, fail: string) {
     if (busyKey) return;
@@ -315,74 +409,184 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
     }
   }
 
-  function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
-    if (line.kind === 'here' || line.kind === 'left') {
-      const first = line.person.name.split(/\s+/)[0] || line.person.name;
-      return [
-        ...(line.kind === 'here' && day === 'today'
-          ? [{ label: 'Play here', iconName: 'play' as const, onPress: () => playHere(card) }]
-          : []),
-        { label: `See ${first}'s profile`, iconName: 'person' as const, onPress: () => openPerson(line.person.userId, line.person.name) },
-      ];
+  /** A one-off plan's Change time / Cancel this visit: its refusals have
+   *  their own words (lib/refusals visit.*). */
+  async function runPlan(key: string, venueName: string, fn: () => Promise<unknown>, done: string, fail: string) {
+    if (busyKey) return;
+    setBusyKey(key);
+    try {
+      await fn();
+      toast.success(done);
+    } catch (e) {
+      toast.error(explainRefusal(e, fail, { venueName, action: 'plan_checkin' }));
+      // Moved or cancelled on another device, or over: drop the dead line now.
+      if (refusalCode(e) === 'visit.gone') void plansQ.refresh();
+    } finally {
+      setBusyKey(null);
     }
-    const s = line.stop;
-    if (s.status === 'cancelled') {
-      return [
-        {
-          label: 'Undo skip',
-          iconName: 'calendar-event',
-          onPress: () => void runRoutine(line.key, () => unskipRoutineOccurrence(s.planId), `Back on: ${card.venueName} at ${shortTime(new Date(s.at))}.`, "Couldn't undo that skip"),
-        },
-        { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() },
-      ];
-    }
-    const soon = day === 'today' && Date.parse(s.at) - now <= 30 * 60_000;
-    return [
-      ...(soon ? [{ label: 'Start playing', iconName: 'play' as const, onPress: () => playHere(card, 'start_playing') }] : []),
-      {
-        label: day === 'today' ? "Change today's time" : 'Change the time that day',
-        iconName: 'calendar-event',
-        onPress: () => afterSheet(() => setTimePick({ planId: s.planId, at: s.at, venueName: card.venueName, key: line.key })),
-      },
-      {
-        label: day === 'today' ? 'Skip today' : 'Skip that day',
-        style: 'destructive',
-        onPress: () => void runRoutine(line.key, () => skipRoutineOccurrence(s.planId), `Skipped ${card.venueName}. Undo it here or in My routine.`, "Couldn't skip that stop"),
-      },
-      { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() },
-    ];
   }
 
-  function courtActions(card: CourtCard, day: DayBandKey): ActionSheetAction[] {
-    const routine = ROUTINES_ENABLED
-      ? [{ label: 'Make this a routine', iconName: 'calendar-event' as const, onPress: () => openRoutines({ venueId: card.venueId, venueName: card.venueName }) }]
-      : [];
-    if (day !== 'today') return routine;
-    return [
-      ...(canOnMyWay
-        ? [{ label: 'On my way: tell friends', iconName: 'arrow-right' as const, onPress: () => afterSheet(() => onMyWay(card, 'feed_sheet')) }]
-        : []),
-      { label: 'Check in here', iconName: 'pin' as const, onPress: () => checkInHere(card) },
-      { label: 'Play here', iconName: 'play' as const, onPress: () => playHere(card) },
-      ...routine,
-    ];
+  /** A line's sheet, in Doggle's order (lib/checkinOptions lineActionIds). */
+  function lineActions(line: FeedSheetLine, card: CourtCard, day: DayBandKey): ActionSheetAction[] {
+    const ids = lineActionIds(sheetLineFacts(line), {
+      day,
+      nowMs: now,
+      hereMine: card.hereMine,
+      canOnMyWay,
+      onMyWaySent: sentOnMyWayRecently(card.venueId, now),
+    });
+    const today = day === 'today';
+    const stop = line.kind === 'stop' ? line.stop : null;
+    const oneOff = line.kind === 'plan' ? line.plan : null;
+    const person = line.kind === 'here' || line.kind === 'left' ? line.person : null;
+    const then = (fn: () => void) => () => {
+      afterLineSheet.current = fn;
+    };
+    const item = (id: LineActionId): ActionSheetAction | null => {
+      switch (id) {
+        case 'extend':
+          return { label: 'Stay 1 more hour', iconName: 'clock', onPress: () => void checkin.extend() };
+        case 'checkOut':
+          // With a session running, Check out opens the play end sheet (a
+          // modal): only once this one has gone, or iOS drops it.
+          return { label: 'Check out', iconName: 'logout', onPress: then(() => void checkin.checkOut()) };
+        case 'checkInNow':
+          return {
+            label: 'Check in now',
+            iconName: 'pin',
+            onPress: then(() => checkInHere(card, oneOff ? 'plan_check_in' : 'stop_check_in')),
+          };
+        case 'checkInHere':
+          return { label: 'Check in here', iconName: 'pin', onPress: then(() => checkInHere(card, 'friend_check_in')) };
+        case 'onMyWay':
+          return { label: 'On my way', iconName: 'megaphone', onPress: then(() => onMyWay(card, 'feed_sheet')) };
+        case 'profile':
+          return person
+            ? {
+                label: `See ${person.name.split(/\s+/)[0] || person.name}'s profile`,
+                iconName: 'person',
+                onPress: () => openPerson(person.userId, person.name),
+              }
+            : null;
+        case 'changeTime':
+          if (oneOff) {
+            return {
+              label: 'Change time',
+              iconName: 'clock',
+              onPress: then(() =>
+                setTimePick({ kind: 'plan', planId: oneOff.planId, at: oneOff.at, venueName: card.venueName, key: line.key }),
+              ),
+            };
+          }
+          return stop
+            ? {
+                label: today ? "Change today's time" : 'Change the time that day',
+                iconName: 'calendar-event',
+                onPress: then(() => setTimePick({ kind: 'stop', planId: stop.planId, at: stop.at, venueName: card.venueName, key: line.key })),
+              }
+            : null;
+        case 'cancelPlan':
+          return oneOff
+            ? {
+                label: 'Cancel this visit',
+                style: 'destructive',
+                onPress: () =>
+                  void runPlan(
+                    line.key,
+                    card.venueName,
+                    () => cancelCourtPlan(oneOff.planId),
+                    cancelledMessage(card.venueName, oneOff.at, now),
+                    "Couldn't cancel that check-in. Try again.",
+                  ),
+              }
+            : null;
+        case 'editRoutine':
+          return { label: 'Edit my routine', iconName: 'edit', onPress: () => openRoutines() };
+        case 'skipStop':
+          return stop
+            ? {
+                label: today ? 'Skip today' : 'Skip that day',
+                style: 'destructive',
+                onPress: () =>
+                  void runRoutine(line.key, () => skipRoutineOccurrence(stop.planId), `Skipped ${card.venueName}. Undo it here or in My routine.`, "Couldn't skip that stop"),
+              }
+            : null;
+        case 'undoSkip':
+          return stop
+            ? {
+                label: 'Undo skip',
+                iconName: 'calendar-event',
+                onPress: () =>
+                  void runRoutine(line.key, () => unskipRoutineOccurrence(stop.planId), `Back on: ${card.venueName} at ${shortTime(new Date(stop.at))}.`, "Couldn't undo that skip"),
+              }
+            : null;
+      }
+    };
+    return ids.map(item).filter((a): a is ActionSheetAction => a != null);
+  }
+
+  /** A line's sheet title ("You · Lakeside") and subtitle ("Checked in since 5:29 PM"), Doggle's words. */
+  function lineSheetText(line: FeedSheetLine, card: CourtCard, day: DayBandKey): { title: string; subtitle: string } {
+    const clock = (iso: string) => shortTime(new Date(iso));
+    if (line.kind === 'mine') {
+      const m = line.checkin;
+      return {
+        title: `You · ${card.venueName}`,
+        subtitle: m.queued
+          ? `Saved with no signal · until ${clock(m.expiresAt)}`
+          : m.checkedInAt
+            ? `Checked in since ${clock(m.checkedInAt)}`
+            : `Checked in until ${clock(m.expiresAt)}`,
+      };
+    }
+    if (line.kind === 'stop') {
+      const s = line.stop;
+      const when = day === 'later' ? `${dayLabel(new Date(s.at), new Date(now))} ${clock(s.at)}` : clock(s.at);
+      return {
+        title: `You · ${card.venueName}`,
+        subtitle: s.status === 'cancelled' ? `Skipped: ${when} (routine)` : `Planned check-in ${day === 'later' ? '' : 'at '}${when} (routine)`,
+      };
+    }
+    if (line.kind === 'plan') {
+      const when = day === 'later' ? planWhen(line.plan.at, now) : clock(line.plan.at);
+      return { title: `You · ${card.venueName}`, subtitle: `Planned check-in ${day === 'later' ? '' : 'at '}${when}` };
+    }
+    return {
+      title: `${line.person.name} · ${card.venueName}`,
+      subtitle: line.kind === 'here' ? `Here since ${clock(line.at)}` : `Was here ${clock(line.at)}–${clock(line.endedAt)}`,
+    };
   }
 
   function agendaRow(line: { row: AgendaRow; mirror: boolean }, i: number, band: DayBandKey) {
     return agendaLine(line.row, i, false, band);
   }
 
+  // My own line's Stay / Check out runs in the hook: its chip shows it.
+  const ownBusyKey = checkin.busy === 'extend' || checkin.busy === 'out' ? `mine|${checkin.current?.id ?? ''}` : null;
+  // A plan from Check in ▾ or Plan ▾: that court's header control shows it.
+  const planBusyKey = checkin.busy === 'plan' ? 'plan' : null;
+  // What runs now, if anything: a line's action, my own line's, a plan, or the host's.
+  const running = busyKey ?? ownBusyKey ?? planBusyKey ?? (hostBusy != null ? 'checkin-host' : null);
   const courtCardActions: FeedCourtCardActions = {
     openCourt: (card) => { tap('court'); openCourt(card.venueId); },
-    courtOptions: (card, day) => { if (!busyKey) setCourtSheet({ card, day }); },
-    checkIn: (card) => checkInHere(card),
-    play: (card) => playHere(card),
+    checkInOptions: (card) => { if (!running) { tap('check_in_options'); checkin.openCheckin(courtOf(card)); } },
+    plan: (card) => { if (!running) { tap('plan_options'); checkin.openPlan(courtOf(card)); } },
     onMyWay: (card) => onMyWay(card),
-    onMyWayState: (card) => (!canOnMyWay ? 'hidden' : sentOnMyWayRecently(card.venueId, now) ? 'sent' : 'ready'),
+    headerFacts: (card) => ({ canOnMyWay, onMyWaySent: sentOnMyWayRecently(card.venueId, now), canPlan: checkin.canPlan(card) }),
+    headerState: (card, action) => {
+      const busy =
+        (action === 'checkIn' && hostBusy === 'checkin' && checkingInAt === card.venueId) ||
+        (action !== 'onMyWay' && checkin.busy === 'plan' && checkin.planning === card.venueId);
+      return { busy, disabled: running != null && !busy };
+    },
     renderAgenda: (line, _card, day) => agendaRow(line, 0, day),
-    openLine: (line, card, day) => { if (!busyKey) setLineSheet({ line, card, day }); },
+    openLine: (line, card, day) => {
+      if (running) return;
+      afterLineSheet.current = null;
+      setLineSheet({ line, card, day });
+    },
     openPerson: (id, name) => { tap('person'); openPerson(id, name); },
-    lineState: (key) => ({ busy: busyKey === key, disabled: busyKey != null && busyKey !== key }),
+    lineState: (key) => ({ busy: running === key, disabled: running != null && running !== key }),
   };
 
   async function confirmDrill(sessionId: string) {
@@ -579,49 +783,36 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
 
       <ActionSheetModal
         visible={lineSheet != null}
-        title={
-          lineSheet
-            ? lineSheet.line.kind === 'stop'
-              ? `Your routine · ${lineSheet.card.venueName}`
-              : `${lineSheet.line.person.name} · ${lineSheet.card.venueName}`
-            : undefined
-        }
-        subtitle={
-          lineSheet
-            ? lineSheet.line.kind === 'stop'
-              ? `${lineSheet.line.stop.status === 'cancelled' ? 'Skipped: ' : 'Planned check-in '}${
-                  lineSheet.day === 'later'
-                    ? `${dayLabel(new Date(lineSheet.line.stop.at), new Date(now))} `
-                    : lineSheet.line.stop.status === 'cancelled'
-                      ? ''
-                      : 'at '
-                }${shortTime(new Date(lineSheet.line.stop.at))}`
-              : lineSheet.line.kind === 'here'
-                ? `Here since ${shortTime(new Date(lineSheet.line.at))}`
-                : `Was here ${shortTime(new Date(lineSheet.line.at))}–${shortTime(new Date(lineSheet.line.endedAt))}`
-            : undefined
-        }
+        title={lineSheet ? lineSheetText(lineSheet.line, lineSheet.card, lineSheet.day).title : undefined}
+        subtitle={lineSheet ? lineSheetText(lineSheet.line, lineSheet.card, lineSheet.day).subtitle : undefined}
         actions={lineSheet ? lineActions(lineSheet.line, lineSheet.card, lineSheet.day) : []}
         cancelLabel="Close"
         onClose={() => setLineSheet(null)}
-      />
-      <ActionSheetModal
-        visible={courtSheet != null}
-        title={courtSheet?.card.venueName}
-        subtitle={courtSheet?.day === 'tomorrow' ? 'Tomorrow' : courtSheet?.day === 'later' ? 'Later this week' : undefined}
-        actions={courtSheet ? courtActions(courtSheet.card, courtSheet.day) : []}
-        cancelLabel="Close"
-        onClose={() => setCourtSheet(null)}
+        onDismissed={() => {
+          const next = afterLineSheet.current;
+          afterLineSheet.current = null;
+          next?.();
+        }}
       />
       <SingleSelectModal
         visible={timePick != null}
         title={timePick ? `New time at ${timePick.venueName}` : 'New time'}
-        items={timePick ? timeSlots(timePick.at, now) : []}
+        items={timePick ? (timePick.kind === 'plan' ? moveSlots(timePick.at, now) : timeSlots(timePick.at, now)) : []}
         selectedId={timePick ? new Date(timePick.at).toISOString() : null}
         onPick={(id) => {
           const tp = timePick;
           setTimePick(null);
           if (!tp || !id || Date.parse(id) === Date.parse(tp.at)) return;
+          if (tp.kind === 'plan') {
+            void runPlan(
+              tp.key,
+              tp.venueName,
+              () => moveCourtPlan(tp.planId, new Date(id)),
+              movedMessage(tp.venueName, id, Date.now()),
+              "Couldn't change the time. Try again.",
+            );
+            return;
+          }
           void runRoutine(
             tp.key,
             () => moveRoutineOccurrence(tp.planId, new Date(id)),
@@ -633,7 +824,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
         searchPlaceholder="e.g. 5:30"
         emptyText="No later times left that day."
       />
-      <OnMyWaySheet target={omwTarget} onClose={() => setOmwTarget(null)} />
+      {/* Check in ▾, Plan ▾ and On my way. */}
+      {checkin.elements}
       <LeaguePickerModal
         visible={pickerOpen}
         leagues={privilegedLeagues}

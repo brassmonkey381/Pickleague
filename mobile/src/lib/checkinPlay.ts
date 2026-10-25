@@ -70,12 +70,14 @@ arrivalTakenBack.subscribe(({ venueId }) => {
  * checkoutInFlight). `error`: the check-out was refused (still checked in, so
  * the check-in shows again), for the island to say why.
  */
-export async function checkOutAndEnd(): Promise<{
+export type CheckOutAndEndResult = {
   ended: boolean;
   checkedOut: boolean;
   venueName: string | null;
   error?: unknown;
-}> {
+};
+
+export async function checkOutAndEnd(): Promise<CheckOutAndEndResult> {
   const s = playSession.get();
   const sessionId = s.id;
   const cur = await peekCurrentCheckin();
@@ -93,5 +95,21 @@ export async function checkOutAndEnd(): Promise<{
     return { ended, checkedOut: false, venueName, error };
   } finally {
     setCheckoutInFlight(null);
+  }
+}
+
+/**
+ * Check out from a court card or a court's page (the feed's own "Here now"
+ * line, the page's Check out): with a session running it is the island's
+ * Check out (= End, above); without one, a plain check-out of `checkin`
+ * (lib/courtCheckin checkOut, which still ends a session that starts meanwhile).
+ */
+export async function checkOutHere(checkin: { id: string; venueName: string }): Promise<CheckOutAndEndResult> {
+  if (running()) return checkOutAndEnd();
+  try {
+    await checkOut(checkin.id);
+    return { ended: false, checkedOut: true, venueName: checkin.venueName };
+  } catch (error) {
+    return { ended: false, checkedOut: false, venueName: checkin.venueName, error };
   }
 }
