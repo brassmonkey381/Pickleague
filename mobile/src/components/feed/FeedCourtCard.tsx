@@ -206,23 +206,40 @@ export default function FeedCourtCard({
   function stopLine(l: Extract<FeedCourtLine, { kind: 'stop' }>) {
     const s = l.stop;
     const plan = s.status === 'planned' ? playModeNowLine(s.windows, new Date(Math.max(now, Date.parse(s.at)))) : '';
+    const meta = s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`;
+    const chip = s.status === 'planned' ? shareChip(l, s.planShared, s.at) : null;
     return (
-      <View style={styles.line}>
-        <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
-          <Icon name="calendar-event" size={18} color={c.primary} />
-        </View>
-        <View style={styles.body}>
-          <Text style={t.title} numberOfLines={1}>
-            You · your routine
-          </Text>
-          <View style={styles.metaRow}>
-            <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
-              {s.status === 'cancelled' ? `Skipped · ${stopClock(s.at)}–${clock(s.endAt)}` : plan || `${stopClock(s.at)}–${clock(s.endAt)}`}
-            </Text>
-            {s.status === 'planned' ? shareChip(l, s.planShared, s.at) : null}
+      <>
+        <View style={styles.line}>
+          <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
+            <Icon name="calendar-event" size={18} color={c.primary} />
           </View>
+          <View style={styles.body}>
+            <Text style={t.title} numberOfLines={1}>
+              You · your routine
+            </Text>
+            {chip ? null : (
+              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
+                {meta}
+              </Text>
+            )}
+          </View>
+          {trailing(l, 'your routine stop')}
         </View>
-        {trailing(l, 'your routine stop')}
+        {chip ? metaWithChip(meta, chip) : null}
+      </>
+    );
+  }
+
+  /** With sharing: the line's facts full width under it (as a person's
+   *  are), then its Shared / Only you chip, so neither is cut short. */
+  function metaWithChip(meta: string, chip: React.ReactNode) {
+    return (
+      <View style={[styles.under, styles.metaRow]}>
+        <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={2}>
+          {meta}
+        </Text>
+        {chip}
       </View>
     );
   }
@@ -251,56 +268,60 @@ export default function FeedCourtCard({
     const rating = plupr.get(p.userId);
     const meta = [rating != null ? `PLUPR ${formatPluprShort(rating, null)}` : null, line.meta].filter(Boolean).join(' · ');
     return (
-      <View style={styles.line}>
-        <Avatar
-          size={AVATAR}
-          photoUrl={p.avatarUrl}
-          name={p.name}
-          icon={p.avatarEmoji && !p.avatarUrl ? <Text style={styles.emoji}>{p.avatarEmoji}</Text> : undefined}
-          backgroundColor={p.avatarBgColor ?? undefined}
-        />
-        <View style={styles.body}>
-          <View style={styles.nameRow}>
-            <Text
-              style={[t.title, styles.shrink]}
-              numberOfLines={1}
-              onPress={() => actions.openPerson(p.userId, p.name)}
-              accessibilityRole="link"
-            >
-              {p.name}
-            </Text>
-            {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+      <>
+        <View style={styles.line}>
+          <Avatar
+            size={AVATAR}
+            photoUrl={p.avatarUrl}
+            name={p.name}
+            icon={p.avatarEmoji && !p.avatarUrl ? <Text style={styles.emoji}>{p.avatarEmoji}</Text> : undefined}
+            backgroundColor={p.avatarBgColor ?? undefined}
+          />
+          <View style={styles.body}>
+            <View style={styles.nameRow}>
+              <Text
+                style={[t.title, styles.shrink]}
+                numberOfLines={1}
+                onPress={() => actions.openPerson(p.userId, p.name)}
+                accessibilityRole="link"
+              >
+                {p.name}
+              </Text>
+              {p.isCloseFriend ? <Icon name="star" size={12} color={c.primary} accessibilityLabel="Close friend" /> : null}
+            </View>
           </View>
-          <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1} accessibilityLabel={line.a11y}>
-            {meta}
-          </Text>
+          {trailing(l, p.name)}
         </View>
-        {trailing(l, p.name)}
-      </View>
+        {underLine(meta, c.textSub)}
+      </>
     );
   }
 
   /** My one-off planned check-in here (Doggle's "At 5:30 PM ▾" on a planned visit). */
   function planLine(l: Extract<FeedCourtLine, { kind: 'plan' }>) {
     const p = l.plan;
+    const meta = `${stopClock(p.at)}–${clock(p.endAt)}`;
+    const chip = shareChip(l, p.planShared, p.at);
     return (
-      <View style={styles.line}>
-        <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
-          <Icon name="calendar-event" size={18} color={c.primary} />
-        </View>
-        <View style={styles.body}>
-          <Text style={t.title} numberOfLines={1}>
-            You · planned check-in
-          </Text>
-          <View style={styles.metaRow}>
-            <Text style={[t.meta, styles.shrink, { color: c.textSub }]} numberOfLines={1}>
-              {`${stopClock(p.at)}–${clock(p.endAt)}`}
-            </Text>
-            {shareChip(l, p.planShared, p.at)}
+      <>
+        <View style={styles.line}>
+          <View style={[styles.kindIcon, { backgroundColor: c.primaryLight }]}>
+            <Icon name="calendar-event" size={18} color={c.primary} />
           </View>
+          <View style={styles.body}>
+            <Text style={t.title} numberOfLines={1}>
+              You · planned check-in
+            </Text>
+            {chip ? null : (
+              <Text style={[t.meta, { color: c.textSub }]} numberOfLines={1}>
+                {meta}
+              </Text>
+            )}
+          </View>
+          {trailing(l, 'your planned check-in')}
         </View>
-        {trailing(l, 'your planned check-in')}
-      </View>
+        {chip ? metaWithChip(meta, chip) : null}
+      </>
     );
   }
 

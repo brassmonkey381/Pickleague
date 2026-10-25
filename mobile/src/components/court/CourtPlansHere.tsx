@@ -183,8 +183,10 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
                   <Text style={t.title} numberOfLines={1}>
                     {when}
                   </Text>
+                  {/* With sharing, the chip follows the facts, which wrap
+                      rather than being cut short beside it. */}
                   <View style={S.metaRow}>
-                    <Text style={[t.meta, S.shrink, { color: c.textSub }]} numberOfLines={1}>
+                    <Text style={[t.meta, S.shrink, { color: c.textSub }]} numberOfLines={2}>
                       {`Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
                     </Text>
                     {PLAN_SHARING_ENABLED ? (
