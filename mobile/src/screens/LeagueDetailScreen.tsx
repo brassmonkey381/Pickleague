@@ -363,7 +363,8 @@ export default function LeagueDetailScreen({ navigation, route }: Props) {
       .select('id, name, status')
       .eq('league_id', leagueId)
       .eq('status', 'completed')
-      .order('updated_at', { ascending: false })
+      // tournaments has no updated_at (ordering by it 400'd, so the champion line
+      // never showed): newest by creation.
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();

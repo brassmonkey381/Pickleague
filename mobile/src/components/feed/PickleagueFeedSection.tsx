@@ -757,6 +757,17 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
       ),
     };
   });
+  // Until 10 PM Today is the open day even with nothing on it: an empty Today
+  // band (the feed drops empty days) keeps Tomorrow from opening in its place.
+  if (!late && bands.length > 0 && bands[0].key !== 'today') {
+    bands.unshift({
+      key: 'today',
+      title: 'Today',
+      date: dayBandDate('today', now),
+      count: 0,
+      children: <Text style={[t.meta, styles.emptyToday, { color: c.textMuted }]}>Nothing planned today.</Text>,
+    });
+  }
 
   const hasFriends = (myFriendsQ.data?.length ?? 0) > 0;
   // Only what would fill the feed and isn't set up yet. No "find a league"
@@ -845,7 +856,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           <DayBands
             bands={bands}
             single
-            leadKey={late ? 'tomorrow' : null}
+            leadKey={late ? 'tomorrow' : 'today'}
             modeKey={late ? 'late' : 'day'}
             initialOpen={rememberedBands.late === late ? rememberedBands.open : {}}
             onOpenChange={(o) => { rememberedBands = { late, open: o }; }}
@@ -945,5 +956,6 @@ const styles = StyleSheet.create({
   // above and below the text: the gap to the block above reads as the body's
   // 12, not 29, and the card no longer ends in 26px of padding.
   links: { flexDirection: 'row', flexWrap: 'wrap', columnGap: SPACE.lg, marginVertical: -SPACE.md },
+  emptyToday: { paddingVertical: SPACE.xs },
   elsewhere: { gap: SPACE.xs, paddingTop: SPACE.xxs },
 });
