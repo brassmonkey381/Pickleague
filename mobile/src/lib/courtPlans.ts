@@ -133,9 +133,18 @@ export function moveSlots(atIso: string, nowMs: number): PlanSlot[] {
   return out;
 }
 
-/** The court page's picker: now + 45 minutes, up to the next quarter hour. */
+/**
+ * The court page's picker: now + 45 minutes, snapped to the NEAREST quarter
+ * hour on the device's clock, seconds dropped (Doggle's defaultPlannedTime:
+ * the foundation's snapToMinuteInterval, which reads getMinutes and rounds).
+ * About 5:15 PM gives 6:00 PM, 5:23 PM gives 6:15 PM.
+ */
 export function defaultPlanAt(nowMs: number): Date {
-  return new Date(Math.ceil((nowMs + PLAN_DEFAULT_AHEAD_MS) / PLAN_SLOT_MS) * PLAN_SLOT_MS);
+  const d = new Date(nowMs + PLAN_DEFAULT_AHEAD_MS);
+  const step = PLAN_SLOT_MS / 60_000;
+  // 60 rolls over into the next hour (and day).
+  d.setMinutes(Math.round(d.getMinutes() / step) * step, 0, 0);
+  return d;
 }
 
 /** Why a picked time can't be planned, in words (the server says the same), or null. */

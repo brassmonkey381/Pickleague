@@ -2,8 +2,10 @@
 // 11, "every refusal says why and what to do".
 //
 //   - explainRefusal(e, fallback, ctx): the copy for an error a screen is
-//     waiting on. A known refusal gets its own words; anything else gets the
-//     kit's friendly text, with the app's no-connection line (no em dash).
+//     waiting on. A known refusal gets its own words; no signal / signed out
+//     / not allowed get the kit's fixed copy, with the app's no-connection
+//     line (no em dash); anything else gets the caller's fallback, never the
+//     server's raw text.
 //   - isRetryLater(e): no signal, or no signed-in session right now. Queued
 //     writes keep these and send them again instead of dropping them.
 //   - noteRefusalNotice(): a write the player is NOT looking at was refused
@@ -19,18 +21,37 @@ import { AppState, Platform } from 'react-native';
 import { createSignal } from '@just-messin-around/expo-foundation/hooks';
 import { isNetworkError } from '@just-messin-around/expo-foundation/platform';
 import { postLocalNotice } from '@just-messin-around/expo-foundation/platform/push';
-import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
-import { NO_CONNECTION, refusalCode, refusalMessage, type RefusalContext } from './refusals';
+import { classifySbError, friendlySbMessage, type SbErrorKind } from '@just-messin-around/expo-foundation/supabase';
+import { NO_CONNECTION, isServerRefusal, refusalCode, refusalMessage, type RefusalContext } from './refusals';
 
-/** The copy for an error the player is waiting on. `network` replaces the no-connection line. */
+/**
+ * The copy for an error the player is waiting on. `network` replaces the
+ * no-connection line.
+ *   1. A refusal this build knows (pl:<code>, or an older server's text): its own words.
+ *   2. A pl:* refusal this build has no code for yet (a newer server): the
+ *      server's own message, which migration_refusal_messages.sql writes for people.
+ *   3. No signal, signed out, not allowed: the kit's fixed plain copy
+ *      (friendlySbMessage), with the app's no-connection line.
+ *   4. Anything else (a function the server doesn't have yet, PGRST202
+ *      "Could not find the function ... in the schema cache"; a constraint; a
+ *      crash): the caller's `fallback`, never the server's or the runtime's raw text.
+ */
 export function explainRefusal(
   e: unknown,
   fallback: string,
   ctx: RefusalContext = {},
   opts: { network?: string } = {},
 ): string {
-  return refusalMessage(e, ctx) ?? friendlySbMessage(e, fallback, { network: opts.network ?? NO_CONNECTION });
+  const known = refusalMessage(e, ctx);
+  if (known) return known;
+  if (isServerRefusal(e)) return String((e as { message: string }).message).trim();
+  return FRIENDLY_KINDS.has(classifySbError(e))
+    ? friendlySbMessage(e, fallback, { network: opts.network ?? NO_CONNECTION })
+    : fallback;
 }
+
+/** The kinds friendlySbMessage words itself, in fixed plain copy (no server text). */
+const FRIENDLY_KINDS: ReadonlySet<SbErrorKind> = new Set<SbErrorKind>(['network', 'auth', 'permission']);
 
 /** No signal, or no signed-in session right now: a queued write should wait, not be dropped. */
 export function isRetryLater(e: unknown): boolean {

@@ -15,8 +15,8 @@
 //
 // PURE (no React Native, no kit imports), so vitest covers it
 // (lib/__tests__/refusals.test.ts). lib/refusalNotices.ts is the side that
-// shows them; callers fall back to friendlySbMessage for anything this
-// doesn't know (explainRefusal there).
+// shows them; for anything this doesn't know, explainRefusal there uses the
+// kit's fixed copy (no signal, signed out) or the caller's fallback.
 import { shortTime } from './agenda';
 
 export const REFUSAL_CODES = [

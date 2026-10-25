@@ -31,7 +31,9 @@
 // plan's time there (any day). Tomorrow's Plan ▾ opens tomorrow's slots
 // straight away (6 AM to 11:45 PM). Each calls data/courtPlans; `planning`
 // names the court whose plan is being written, so only its control shows
-// "…".
+// "…". The court page's sheet says a refusal or a failure inside itself and
+// stays open to pick again: a toast sits under an open sheet's backdrop on
+// web and behind its Modal on native (the pickers close first, so theirs toast).
 //
 // A follow-up (the On my way sheet, a picker, a check-in that may ask for
 // location, My routine's add sheet) opens from the sheet's onDismissed: iOS
@@ -43,6 +45,7 @@ import {
   BottomSheet,
   DateTimeField,
   SingleSelectModal,
+  StatusBanner,
   type ActionSheetAction,
 } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
@@ -59,14 +62,8 @@ import { useMyFriends } from '../../lib/useFriends';
 import { playSession } from '../../lib/playSession';
 import { checkOutHere } from '../../lib/checkinPlay';
 import { checkinHostBusy } from '../../lib/checkinHost';
-import {
-  checkedInHere,
-  checkinChanged,
-  extendCheckinByHour,
-  peekCurrentCheckin,
-  takeFixIfAllowed,
-  type CurrentCheckin,
-} from '../../lib/courtCheckin';
+import { checkedInHere, extendCheckinByHour, takeFixIfAllowed, type CurrentCheckin } from '../../lib/courtCheckin';
+import { useCurrentCheckin } from '../../lib/useCurrentCheckin';
 import { checkinOptionIds, movesCheckinNote, planOptionIds, type CheckinOptionId } from '../../lib/checkinOptions';
 import {
   canPlanLaterToday,
@@ -123,6 +120,8 @@ type SlotPick = { court: CheckinCourt; day: 'today' | 'tomorrow' };
 /** The court page's plan sheet: a new plan, or (planId) a plan's new time. */
 type PlanSheet = { court: CheckinCourt; value: Date; planId: string | null; was: string | null };
 type Busy = 'extend' | 'out' | 'plan';
+/** Where a plan write's outcome is said: the toast, or the plan sheet's own line. */
+type Say = { success: (m: string) => void; info: (m: string) => void; error: (m: string) => void };
 
 export function useCheckinOptions(config: CheckinOptionsConfig) {
   const { colors: c } = useTheme();
@@ -131,16 +130,9 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
   const friendsQ = useMyFriends(FRIENDS_AT_COURTS_ENABLED);
   const canOnMyWay = FRIENDS_AT_COURTS_ENABLED && (friendsQ.data?.length ?? 0) > 0;
 
-  // My check-in now (this device's copy; lib/courtCheckin keeps it current).
-  const [current, setCurrent] = React.useState<CurrentCheckin | null>(null);
-  React.useEffect(() => {
-    let on = true;
-    void peekCurrentCheckin().then((cur) => on && setCurrent(cur));
-    return () => {
-      on = false;
-    };
-  }, []);
-  useSignal(checkinChanged, setCurrent);
+  // My check-in now (this device's copy; lib/courtCheckin keeps it current;
+  // a change heard first wins over the cached read, lib/useCurrentCheckin).
+  const [current] = useCurrentCheckin();
   const playing = playSession.useLiveSession().status !== 'idle';
   const mine = React.useMemo<FeedMyCheckin | null>(
     () =>
@@ -171,6 +163,14 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
   };
   const [slotPick, setSlotPick] = React.useState<SlotPick | null>(null);
   const [planSheet, setPlanSheet] = React.useState<PlanSheet | null>(null);
+  // Why the plan sheet's last Plan check-in / Change time didn't go through,
+  // said in the sheet (a toast would be under its backdrop). Cleared as the
+  // sheet opens and as the time changes.
+  const [planError, setPlanError] = React.useState<string | null>(null);
+  const openPlanSheet = (s: PlanSheet) => {
+    setPlanError(null);
+    setPlanSheet(s);
+  };
   // The plan sheet keeps its court while it slides away (planSheet is null then).
   const planShown = React.useRef(planSheet);
   if (planSheet) planShown.current = planSheet;
@@ -221,7 +221,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
   /** Open the right picker for "Plan a check-in for later". */
   const openPlanLater = (court: CheckinCourt) => {
     if (configRef.current.planPicker === 'datetime') {
-      setPlanSheet({ court, value: defaultPlanAt(Date.now()), planId: null, was: null });
+      openPlanSheet({ court, value: defaultPlanAt(Date.now()), planId: null, was: null });
     } else {
       setSlotPick({ court, day: 'today' });
     }
@@ -305,21 +305,28 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     });
   }
 
-  /** A plan write (plan, move, cancel) for one court, then a toast that says
-   *  what happened (or why not). True when it went through. */
-  const writePlan = async (court: CheckinCourt, write: () => Promise<unknown>, done: string, fail: string): Promise<boolean> => {
+  /** A plan write (plan, move, cancel) for one court, then a line that says
+   *  what happened (or why not): a toast, or `say`'s (the plan sheet's own,
+   *  while it stays open). True when it went through. */
+  const writePlan = async (
+    court: CheckinCourt,
+    write: () => Promise<unknown>,
+    done: string,
+    fail: string,
+    say: Say = toast,
+  ): Promise<boolean> => {
     if (busyRef.current) {
-      toast.info(STILL_WORKING);
+      say.info(STILL_WORKING);
       return false;
     }
     setBusy('plan');
     setPlanning(court.venueId);
     try {
       await write();
-      toast.success(done);
+      say.success(done);
       return true;
     } catch (e) {
-      toast.error(explainRefusal(e, fail, { venueName: court.venueName, action: 'plan_checkin' }));
+      say.error(explainRefusal(e, fail, { venueName: court.venueName, action: 'plan_checkin' }));
       // Moved or cancelled elsewhere, or over: the list is out of date.
       if (refusalCode(e) === 'visit.gone') void loadMyCourtPlans(true).catch(() => undefined);
       return false;
@@ -330,10 +337,10 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
   };
 
   /** plan_court_checkin at `at`. */
-  const plan = async (court: CheckinCourt, at: Date): Promise<boolean> => {
+  const plan = async (court: CheckinCourt, at: Date, say: Say = toast): Promise<boolean> => {
     const problem = planTimeProblem(at, Date.now());
     if (problem) {
-      toast.info(problem);
+      say.info(problem);
       return false;
     }
     configRef.current.onTap?.('plan_pick');
@@ -342,14 +349,15 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
       () => planCourtCheckin(court.venueId, at),
       plannedMessage(court.venueName, at.toISOString(), Date.now()),
       "Couldn't plan your check-in. Try again.",
+      say,
     );
   };
 
   /** move_court_plan to `at` (the court page's Change time; the feed moves its own). */
-  const movePlan = async (court: CheckinCourt, planId: string, at: Date): Promise<boolean> => {
+  const movePlan = async (court: CheckinCourt, planId: string, at: Date, say: Say = toast): Promise<boolean> => {
     const problem = planTimeProblem(at, Date.now());
     if (problem) {
-      toast.info(problem);
+      say.info(problem);
       return false;
     }
     return writePlan(
@@ -357,6 +365,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
       () => moveCourtPlan(planId, at),
       movedMessage(court.venueName, at.toISOString(), Date.now()),
       "Couldn't change the time. Try again.",
+      say,
     );
   };
 
@@ -369,7 +378,10 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
       "Couldn't cancel that check-in. Try again.",
     );
 
-  /** The plan sheet's button: plan, or move to the time picked. */
+  /** The plan sheet's button: plan, or move to the time picked. A refusal or
+   *  a failure shows IN the sheet, which stays open to pick again: a toast
+   *  would sit under its backdrop (web), or behind its Modal (native).
+   *  Success closes it and toasts. */
   const submitPlanSheet = async () => {
     const s = planSheet;
     if (!s) return;
@@ -377,7 +389,9 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
       setPlanSheet(null);
       return;
     }
-    const ok = s.planId ? await movePlan(s.court, s.planId, s.value) : await plan(s.court, s.value);
+    setPlanError(null);
+    const inSheet: Say = { success: toast.success, info: setPlanError, error: setPlanError };
+    const ok = s.planId ? await movePlan(s.court, s.planId, s.value, inSheet) : await plan(s.court, s.value, inSheet);
     if (ok) setPlanSheet((cur) => (cur === s ? null : cur));
   };
 
@@ -474,12 +488,17 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
               label="When"
               value={planView.value}
               minimumDate={new Date()}
-              onChange={(d) => setPlanSheet((cur) => (cur ? { ...cur, value: d } : cur))}
+              onChange={(d) => {
+                setPlanError(null);
+                setPlanSheet((cur) => (cur ? { ...cur, value: d } : cur));
+              }}
             />
           ) : null}
           <Text style={[t.hint, { color: c.textSub }]}>
             A check-in there within 30 minutes of this time keeps it. Only you see your planned check-ins.
           </Text>
+          {/* Why it didn't go through: here, not a toast (one would sit under this sheet). */}
+          <StatusBanner status={planError ? { kind: 'error', text: planError } : null} style={S.planError} />
           <Button
             title={planView?.planId ? 'Change time' : 'Plan check-in'}
             iconName="calendar-event"
@@ -528,7 +547,7 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
     openPlanLater,
     /** A plan's Change time on the court page: the plan sheet at its time, any day. */
     openMovePlan: (court: CheckinCourt, p: Pick<CourtPlan, 'planId' | 'plannedAt'>) =>
-      setPlanSheet({ court, value: new Date(p.plannedAt), planId: p.planId, was: p.plannedAt }),
+      openPlanSheet({ court, value: new Date(p.plannedAt), planId: p.planId, was: p.plannedAt }),
     /** A plan's Cancel this visit on the court page. */
     cancelPlan,
     /** The On my way sheet, straight away (a header button, a line's sheet's follow-up). */
@@ -542,4 +561,6 @@ export function useCheckinOptions(config: CheckinOptionsConfig) {
 
 const S = StyleSheet.create({
   planBody: { gap: SPACE.md, paddingBottom: SPACE.sm },
+  // The body's gap spaces it.
+  planError: { marginVertical: 0 },
 });

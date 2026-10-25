@@ -53,11 +53,9 @@ import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { useTheme } from '../lib/ThemeContext';
 import {
-  checkinChanged,
   checkinRejected,
   checkOut,
   extendCheckinByHour,
-  peekCurrentCheckin,
   readRoutinesForCheckin,
   refreshCurrentCheckin,
   takeCheckinFix,
@@ -66,6 +64,7 @@ import {
   takeRejectedCheckinNotice,
   type CurrentCheckin,
 } from '../lib/courtCheckin';
+import { useCurrentCheckin } from '../lib/useCurrentCheckin';
 import { CHECKOUT_FIX_WAIT_MS, FIX_REUSE_MS, isFixFresh } from '../lib/courtCheckinRules';
 import { routineCheckinUntil, type CourtRoutine } from '../lib/courtRoutineRules';
 import { CHECKIN_BOUND_MS, CHECKIN_BOUND_MS_DEFAULT, useCourtCheckIn } from '../lib/useCourtCheckIn';
@@ -177,7 +176,8 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
   const S = makeStyles(c);
-  const [current, setCurrent] = useState<CurrentCheckin | null>(null);
+  // A change heard first wins over the cached read (lib/useCurrentCheckin).
+  const [current, setCurrent] = useCurrentCheckin();
   const [nearby, setNearby] = useState<ResolvedCourt | null>(null);
   const [rosterKey, setRosterKey] = useState(0);
   // Where "Find my court" found nothing: offered as "Add this court".
@@ -200,11 +200,6 @@ export default function CourtCheckinCard({ onModeChange, onTap }: Props = {}) {
   useEffect(() => {
     onModeChange?.(mode);
   }, [mode, onModeChange]);
-
-  useEffect(() => {
-    void peekCurrentCheckin().then(setCurrent);
-    return checkinChanged.subscribe(setCurrent);
-  }, []);
 
   // How long Check in here asks for: to the end of a routine stop due here
   // with its occurrence (manualCheckinMinutes), else 2 hours. My routines are
