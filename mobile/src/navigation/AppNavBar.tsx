@@ -15,12 +15,12 @@
 // Home's top bar.
 //
 // Hidden signed out, on Claim / UpgradeAccount / MatchEntry (lib/navBarRules)
-// and while the keyboard is up. It folds away when a session starts (the
-// island takes the bottom, Doggle's walk) and comes back when it ends; on
-// Home it starts folded to its chevron; the chevron folds and unfolds it by hand. Its height goes to lib/appChrome, so
+// and while the keyboard is up. Otherwise it is always there, with no fold
+// chevron (the user, 2026-10-25: "always there. no expand or collapse"),
+// during a session too. Its height goes to lib/appChrome, so
 // AppNavigator keeps that much clear under every screen and the island sits
 // just above it.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { FloatingNavBar, type FloatingNavItem } from '@just-messin-around/expo-foundation/ui';
 import { createSignal, useElapsed, useSignal } from '@just-messin-around/expo-foundation/hooks';
@@ -114,31 +114,9 @@ function Bar({ signedIn }: { signedIn: boolean }) {
   useSignal(checkoutInFlight, setOutId);
   const shownCheckin = checkin && checkin.id !== outId ? checkin : null;
 
-  // Folds away when a session starts, comes back when it ends (except on
-  // Home, where it stays folded to its chevron, as below).
-  const routeName = route?.name ?? null;
   const live = playSession.useLiveSession();
   const playing = live.status !== 'idle';
   const elapsed = useElapsed(playing ? (live.startedAtMs ?? null) : null);
-  const [collapsed, setCollapsed] = useState(false);
-  const wasPlaying = useRef(playing);
-  useEffect(() => {
-    if (playing !== wasPlaying.current) setCollapsed(playing || routeName === 'Home');
-    wasPlaying.current = playing;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- on a session's start or end only
-  }, [playing]);
-
-  // Folded to its chevron on Home (the user, 2026-10-22: "closed by default on
-  // the home page"), open elsewhere. Only on a change of screen, so a tap on
-  // the chevron holds until the player moves on.
-  const lastRoute = useRef<string | null>(null);
-  useEffect(() => {
-    if (!routeName || routeName === lastRoute.current) return;
-    lastRoute.current = routeName;
-    if (playing) return;
-    setCollapsed(routeName === 'Home');
-  }, [routeName, playing]);
-
   const visible = navBarVisible({ enabled: true, signedIn, route: route?.name });
   useEffect(() => {
     if (!visible) setNavBarHeight(0);
@@ -188,8 +166,6 @@ function Bar({ signedIn }: { signedIn: boolean }) {
       items={items}
       centre={centre}
       hidden={!visible}
-      collapsed={collapsed}
-      onToggleCollapsed={() => setCollapsed((x) => !x)}
       onHeightChange={setNavBarHeight}
       testID="app-nav-bar"
     />
