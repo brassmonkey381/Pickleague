@@ -91,6 +91,8 @@ const REPLACED = [
   ['public.get_court_routine_settings()', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
   ['public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)', 'migration_court_routines_planned_end.sql',
     'migration_plan_sharing.sql'],
+  // ...and a profile's weekly routines go to others only while auto-share is on.
+  ['public.list_profile_court_routines(uuid)', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
   ['public.plan_court_checkin(text,timestamptz,integer)', 'migration_court_oneoff_plans.sql',
     'migration_plan_sharing.sql', null, 'public.plan_court_checkin(text,timestamptz,integer,boolean)'],
 ];

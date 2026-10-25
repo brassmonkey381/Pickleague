@@ -32,7 +32,13 @@
 --      skipped one too, so Undo skip brings it back shared); a stop made
 --      while it is on is 'auto' (trg_court_plans_auto_share, BEFORE INSERT, so
 --      the materializer, re-created by two older files, needs no change). Off:
---      only the 'auto' ones go back to private; 'confirm' and 'hidden' stay.
+--      only the 'auto' ones still in play go back to private; 'confirm' and
+--      'hidden' stay. The trigger, the toggle and every function that writes
+--      a share (confirm, the chip, plan_court_checkin, save_court_routine)
+--      take the owner's 'court_plans:<id>' advisory lock first, so a stop the
+--      15-minute materializer makes while the owner turns auto-share off
+--      can't come out shared, and an edit can't lose an "Only you" made at
+--      that moment.
 --   4. One-off plans are shared at creation only when the client asks
 --      (plan_court_checkin p_share, default false: an old build's plan stays
 --      private, as its copy promised).
@@ -60,14 +66,20 @@
 --      the owner still stars. A rejected row is absent, not anonymised.
 --   9. Friend push only when a one-off plan is created shared, within 7
 --      days: 1 per owner per court per 6 hours (pl_throttle kind
---      'friend_plan'), to accepted friends who starred the owner
---      (close_friends) and may see the plan under rule 8, whose push and
---      "Friends on the way" switch allow it (category notifyFriendsOnTheWay:
+--      'friend_plan', taken only when someone will be told: a plan nobody
+--      may hear of doesn't silence the next one), to accepted friends who
+--      starred the owner (close_friends) and may see the plan under rule 8,
+--      whose push and "Friends on the way" switch allow it (category notifyFriendsOnTheWay:
 --      send-push only honours the categories it knows, and that one already
 --      means "a friend is heading to a court"). None for routine stops,
 --      confirms, moves, toggles, or a one-off shared later.
 --  10. list_my_court_plans and list_my_court_routines return shared_at and
 --      share_source (list_my_court_plans also kind).
+--  11. A player's weekly routines on their profile (list_profile_court_routines)
+--      are a standing "where I'll be". Someone other than the owner gets them
+--      only while the owner has auto-share on (and may see their plans by
+--      name, as before); otherwise []. Without it a friend could read today's
+--      stop off the pattern while the chip said "Only you see this".
 --
 -- ── New client RPCs (granted to authenticated, in the hardening allowlist) ─
 --   confirm_court_plans(p_plan_ids uuid[])            -> list_my_court_routines()
@@ -98,12 +110,14 @@
 --   get_court_routine_settings  (migration_court_routines.sql) + auto_share_routines
 --   save_court_routine          (migration_court_routines_planned_end.sql)
 --                               a re-made stop keeps 'confirm' / 'hidden'
+--   list_profile_court_routines (migration_court_routines.sql) others get []
+--                               unless the owner's auto-share is on (rule 11)
 -- NOT replaced, on purpose: move_court_routine_occurrence,
 -- unskip_court_routine_occurrence, skip_court_routine_occurrence,
 -- move_court_plan, cancel_court_plan (none touches shared_at),
 -- friends_at_courts ("now" check-ins; plans have their own read),
--- list_profile_court_routines (the weekly pattern), set_presence_settings.
--- supabase/tests/check-replaced-functions.mjs has the five.
+-- set_presence_settings.
+-- supabase/tests/check-replaced-functions.mjs has the six.
 --
 -- APPLY ORDER: after migration_court_oneoff_plans.sql is live
 -- (state\checkin-plans-apply.ps1 printed DONE), then re-run
@@ -161,6 +175,15 @@ comment on table public.court_plans is
 -- _pl_materialize_court_routines is re-created by migration_court_routines.sql
 -- and migration_court_routines_planned_end.sql, and a trigger survives their
 -- re-runs.
+-- The owner's 'court_plans:' lock first (set_auto_share_routines holds it):
+-- without it the 15-minute materializer could read "on", the owner turn it
+-- off and clear the 'auto' stops it can see, and the materializer then commit
+-- a new 'auto' stop, shared while the setting says off. With it one waits for
+-- the other, and the setting is read after the wait (a fresh snapshot per
+-- statement: this function is volatile). The user-side holders take it
+-- before any row lock; a deadlock with the materializer needs the toggle to
+-- hit a stop the same run is deleting, and Postgres then fails one of the two
+-- (the materializer's per-routine handler skips that stop until its next run).
 create or replace function public._pl_court_plan_auto_share()
 returns trigger
 language plpgsql
@@ -168,6 +191,7 @@ security definer
 set search_path = ''
 as $$
 begin
+  perform pg_advisory_xact_lock(hashtext('court_plans:' || new.user_id::text));
   if coalesce((select s.auto_share_routines from public.presence_settings s where s.user_id = new.user_id), false) then
     new.shared_at := now();
     new.share_source := 'auto';
@@ -223,12 +247,27 @@ declare
   v_name  text;
   v_canon text;
   v_title text;
+  v_tos   uuid[];
   v_to    uuid;
   v_n     int := 0;
 begin
   select * into v_pl from public.court_plans pl where pl.id = p_plan_id;
   if v_pl.id is null or v_pl.kind <> 'once' or v_pl.status <> 'planned' or v_pl.shared_at is null
      or v_pl.planned_at <= now() or v_pl.planned_at > now() + interval '7 days' then
+    return 0;
+  end if;
+  -- Who will be told: friends who starred me, may see this plan (rule 8),
+  -- and whose switches allow it (a phone, push on, "Friends on the way" on).
+  select coalesce(array_agg(cf.user_id order by cf.user_id), '{}') into v_tos
+    from public.close_friends cf
+   where cf.friend_id = v_pl.user_id and cf.user_id <> v_pl.user_id
+     and public.are_friends(cf.user_id, v_pl.user_id)
+     and public._pl_friendable(cf.user_id)
+     and public._pl_plan_visible(cf.user_id, v_pl)
+     and public._pl_push_reaches(cf.user_id, 'notifyFriendsOnTheWay');
+  -- Nobody: no push, and the court's 6 hours stay unused (a plan made while
+  -- paused or hidden must not silence the next one).
+  if cardinality(v_tos) = 0 then
     return 0;
   end if;
   select nullif(btrim(v.name), '') into v_name from public.venues v where v.id = v_pl.venue_id;
@@ -238,17 +277,7 @@ begin
     return 0;
   end if;
   v_title := public._pl_display_name(v_pl.user_id) || ' plans to play at ' || coalesce(v_name, 'a court');
-  for v_to in
-    select cf.user_id
-      from public.close_friends cf
-     where cf.friend_id = v_pl.user_id and cf.user_id <> v_pl.user_id
-       and public.are_friends(cf.user_id, v_pl.user_id)
-       and public._pl_friendable(cf.user_id)
-       and public._pl_plan_visible(cf.user_id, v_pl)
-     order by cf.user_id
-  loop
-    -- Their switches: no phone, push off or "Friends on the way" off.
-    continue when not public._pl_push_reaches(v_to, 'notifyFriendsOnTheWay');
+  foreach v_to in array v_tos loop
     begin
       insert into public.push_outbox
         (recipient_id, kind, category, title, body, deep_link, expires_at, push_data)
@@ -393,6 +422,52 @@ end $$;
 revoke all on function public.get_court_routine_settings() from public, anon;
 grant execute on function public.get_court_routine_settings() to authenticated;
 
+-- list_profile_court_routines: from migration_court_routines.sql (the
+-- latest). Changed (contract rule 11): another player gets my routines only
+-- while my "Share my routine stops automatically" is on. The weekly pattern
+-- says where I'll be on each day as plainly as the stops do, so with
+-- auto-share off ("we never show routines automatically") it stays mine,
+-- like the stops I haven't confirmed. Mine to me, and every other rule, as
+-- before.
+create or replace function public.list_profile_court_routines(p_profile uuid)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_me uuid := auth.uid();
+begin
+  if v_me is null then raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out'; end if;
+  if p_profile is null then return '[]'::jsonb; end if;
+  if p_profile <> v_me and public._pl_can_see_presence(v_me, p_profile, 'plans') <> 'named' then
+    return '[]'::jsonb;
+  end if;
+  if p_profile <> v_me
+     and not coalesce((select s.auto_share_routines from public.presence_settings s where s.user_id = p_profile), false) then
+    return '[]'::jsonb;
+  end if;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'venue_id',   cr.venue_id,
+             'venue_name', v.name,
+             'local_time', to_char(cr.local_time, 'HH24:MI'),
+             'days',       cr.days,
+             'tz',         cr.tz,
+             'length_min', cr.length_min,
+             'windows',    case when p_profile = v_me then cr.windows
+                                else (select coalesce(jsonb_agg(w - 'group' order by o), '[]'::jsonb)
+                                        from jsonb_array_elements(cr.windows) with ordinality x(w, o)) end)
+             order by cr.local_time, v.name, cr.id)
+      from public.court_routines cr
+      join public.venues v on v.id = cr.venue_id
+     where cr.user_id = p_profile and cr.active
+       and public._pl_is_starred(p_profile, cr.venue_id)), '[]'::jsonb);
+end $$;
+revoke all on function public.list_profile_court_routines(uuid) from public, anon;
+grant execute on function public.list_profile_court_routines(uuid) to authenticated;
+
 
 -- ── 5. Replaced: an edited routine keeps its stops' shares ─────────────────
 -- save_court_routine: from migration_court_routines_planned_end.sql (the
@@ -401,7 +476,8 @@ grant execute on function public.get_court_routine_settings() to authenticated;
 -- re-made stop of that date ('hidden' always; 'confirm' only while the routine
 -- keeps its court: a confirmation said "I'll be at THIS court"). Without it,
 -- editing a routine silently un-shared today's confirmed stop and shared a
--- stop made "Only you" under auto-share.
+-- stop made "Only you" under auto-share. It takes my 'court_plans:' lock
+-- before any write, so that list can't miss a choice made at the same moment.
 create or replace function public.save_court_routine(
   p_routine_id uuid,
   p_venue      text,
@@ -456,6 +532,10 @@ begin
                else public._pickleague_tz_for(v_me) end;
   v_windows := public._pl_clean_windows(v_me, p_windows, p_length_min);
 
+  -- My plan writes one at a time, before any row is touched: the share
+  -- choices read below can't miss an "Only you" or a confirm made at this
+  -- moment (set_court_plan_shared and confirm_court_plans hold this lock).
+  perform pg_advisory_xact_lock(hashtext('court_plans:' || v_me::text));
   if v_id is null then
     -- One at a time per player, so two saves can't both pass the cap.
     perform pg_advisory_xact_lock(hashtext('court_routines:' || v_me::text));
@@ -709,10 +789,14 @@ begin
        and status in ('planned', 'cancelled') and planned_at > now() - interval '30 minutes'
        and share_source is null;
   else
-    -- Only what auto-share shared; confirmed and "Only you" stops stay.
+    -- Only what auto-share shared; confirmed and "Only you" stops stay. Only
+    -- the stops still in play (what friends could see, and what Undo skip can
+    -- bring back): the past ones show nowhere, and the materializer deletes
+    -- them, so leaving them alone keeps this off its rows.
     update public.court_plans
        set shared_at = null, share_source = null, updated_at = now()
-     where user_id = v_me and share_source = 'auto';
+     where user_id = v_me and share_source = 'auto'
+       and planned_at > now() - interval '30 minutes';
   end if;
   return public.get_court_routine_settings();
 end $$;

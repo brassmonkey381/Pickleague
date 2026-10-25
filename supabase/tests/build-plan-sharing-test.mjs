@@ -35,7 +35,7 @@ const HARDENING = 'migration_rls_hardening_2026q3.sql';
 const CLIENT_RPCS = [
   'confirm_court_plans', 'list_friend_court_plans', 'set_auto_share_routines', 'set_court_plan_shared',
   'plan_court_checkin', 'list_my_court_plans', 'list_my_court_routines', 'get_court_routine_settings',
-  'save_court_routine',
+  'save_court_routine', 'list_profile_court_routines',
 ];
 
 /** The SQL with comments, string literals and dollar-quoted bodies blanked out. */

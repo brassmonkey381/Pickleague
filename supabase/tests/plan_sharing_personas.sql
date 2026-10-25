@@ -318,11 +318,37 @@ declare
     'public.list_my_court_plans()',
     'public.list_my_court_routines()',
     'public.get_court_routine_settings()',
-    'public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)'];
+    'public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)',
+    'public.list_profile_court_routines(uuid)'];
   v_internal text[] := array[
     'public._pl_plan_visible(uuid,public.court_plans)',
     'public._pl_friend_plan_push(uuid)',
     'public._pl_court_plan_auto_share()'];
+  -- Every function a client may call that runs as its owner (so past RLS)
+  -- and names court_plans or court_routines in its body. Each answers only
+  -- the caller's own rows, but for list_friend_court_plans (rule 8) and
+  -- list_profile_court_routines (rule 11). A new one fails this check: read
+  -- it for a leak of other players' plans, then add it here.
+  v_readers text[] := array[
+    'public.cancel_court_plan(uuid)',
+    'public.confirm_court_plans(uuid[])',
+    'public.delete_court_routine(uuid)',
+    'public.list_friend_court_plans(text,integer)',
+    'public.list_my_court_plans()',
+    'public.list_my_court_routines()',
+    'public.list_profile_court_routines(uuid)',
+    'public.move_court_plan(uuid,timestamptz)',
+    'public.move_court_routine_occurrence(uuid,timestamptz)',
+    'public.plan_court_checkin(text,timestamptz,integer,boolean)',
+    'public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)',
+    'public.set_auto_share_routines(boolean)',
+    'public.set_court_plan_shared(uuid,boolean)',
+    'public.set_court_routine_active(uuid,boolean)',
+    'public.skip_court_routine_occurrence(uuid)',
+    'public.suggest_court_routines(text)',
+    'public.unskip_court_routine_occurrence(uuid)'];
+  v_extra   text;
+  v_missing text;
 begin
   perform pg_temp.as_admin();
   foreach f in array v_client loop
@@ -361,6 +387,36 @@ begin
                    and column_name = 'share_source' and data_type = 'text')
     and exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'presence_settings'
                    and column_name = 'auto_share_routines' and is_nullable = 'NO' and column_default = 'false'));
+
+  -- Nothing new reads plans or routines for other players.
+  select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text) into v_extra
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prosecdef and p.prosrc ~* 'court_(plans|routines)'
+     and (has_function_privilege('authenticated', p.oid, 'EXECUTE') or has_function_privilege('anon', p.oid, 'EXECUTE'))
+     and p.oid not in (select to_regprocedure(r)::oid from unnest(v_readers) r where to_regprocedure(r) is not null);
+  select string_agg(r, ', ' order by r) into v_missing
+    from unnest(v_readers) r
+   where to_regprocedure(r) is null
+      or not exists (select 1 from pg_proc p where p.oid = to_regprocedure(r) and p.prosecdef
+                        and p.prosrc ~* 'court_(plans|routines)'
+                        and has_function_privilege('authenticated', p.oid, 'EXECUTE'));
+  perform pg_temp.ok('P16 the client-callable SECURITY DEFINER functions that name court_plans / court_routines are exactly the known '
+                     || cardinality(v_readers) || ' (a new one: check it for a leak, then list it)',
+    v_extra is null and v_missing is null,
+    'not listed: ' || coalesce(v_extra, 'none') || ' | listed, not found: ' || coalesce(v_missing, 'none'));
+  perform pg_temp.ok('P16 no view in public reads court_plans or court_routines (a view would run past RLS)',
+    not exists (select 1 from pg_views where schemaname = 'public' and definition ~* 'court_(plans|routines)'));
+  perform pg_temp.ok('P16 court_plans and court_routines are in no realtime publication',
+    not exists (select 1 from pg_publication_tables where schemaname = 'public' and tablename in ('court_plans', 'court_routines')));
+  perform pg_temp.ok('P16 the auto-share trigger, save_court_routine and set_auto_share_routines take the owner''s court_plans lock',
+    (select bool_and(p.prosrc like '%pg_advisory_xact_lock(hashtext(''court_plans:''%') from pg_proc p
+      where p.oid in (to_regprocedure('public._pl_court_plan_auto_share()'),
+                      to_regprocedure('public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)'),
+                      to_regprocedure('public.set_auto_share_routines(boolean)')))
+    and (select count(*) from pg_proc p
+          where p.oid in (to_regprocedure('public._pl_court_plan_auto_share()'),
+                          to_regprocedure('public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)'),
+                          to_regprocedure('public.set_auto_share_routines(boolean)'))) = 3);
 end $$;
 
 
@@ -781,6 +837,58 @@ begin
 end $$;
 
 
+-- ════ P10 a profile's weekly routines: only while auto-share is on ══════
+do $$
+declare
+  q    text := format('select public.list_profile_court_routines(%L)', pg_temp.p('OA'));
+  mine jsonb;
+  j    jsonb;
+  k    text;
+  e    jsonb;
+begin
+  mine := pg_temp.rpc('OA', q);
+  perform pg_temp.ok('P10 profile: my own routines, to me, whatever auto-share says (off here)',
+    jsonb_array_length(mine) >= 3
+    and not (select auto_share_routines from public.presence_settings where user_id = pg_temp.p('OA')), coalesce(mine::text, 'null'));
+  j := pg_temp.rpc('FR', q);
+  perform pg_temp.ok('P10 profile: auto-share off, a friend who sees OA''s plans gets [] (no pattern to read a stop off)',
+    j = '[]'::jsonb, coalesce(j::text, 'null'));
+  j := pg_temp.rpc('CF', q);
+  perform pg_temp.ok('P10 profile: nor a friend who starred OA', j = '[]'::jsonb, coalesce(j::text, 'null'));
+
+  update public.presence_settings set auto_share_routines = true where user_id = pg_temp.p('OA');
+  j := pg_temp.rpc('FR', q);
+  perform pg_temp.ok('P10 profile: auto-share on, the friend gets them all, the documented keys, never a window''s group',
+    jsonb_array_length(j) = jsonb_array_length(mine)
+    and not exists (select 1 from jsonb_array_elements(j) x
+                     where (select array_agg(y order by y) from jsonb_object_keys(x) y)
+                           <> array['days', 'length_min', 'local_time', 'tz', 'venue_id', 'venue_name', 'windows'])
+    and not exists (select 1 from jsonb_array_elements(j) x, jsonb_array_elements(x -> 'windows') w where w ? 'group'),
+    coalesce(j::text, 'null'));
+  foreach k in array array['HF', 'BK', 'BY', 'GU', 'ST', 'LM'] loop
+    j := pg_temp.rpc(k, q);
+    perform pg_temp.ok('P10 profile: auto-share on, still [] to ' || k || ' (plan privacy as before)',
+      j = '[]'::jsonb, coalesce(j::text, 'null'));
+  end loop;
+  update public.presence_settings set plans_level = 'hidden' where user_id = pg_temp.p('OA');
+  j := pg_temp.rpc('FR', q);
+  perform pg_temp.ok('P10 profile: auto-share on, plans hidden: []', j = '[]'::jsonb, coalesce(j::text, 'null'));
+  update public.presence_settings set plans_level = 'friends' where user_id = pg_temp.p('OA');
+
+  -- Off again from the setting's own RPC: gone again.
+  perform pg_temp.rpc('OA', 'select public.set_auto_share_routines(false)');
+  j := pg_temp.rpc('FR', q);
+  perform pg_temp.ok('P10 profile: set_auto_share_routines(false): [] again', j = '[]'::jsonb, coalesce(j::text, 'null'));
+  perform pg_temp.ok('P10 profile: and still all mine to me', pg_temp.rpc('OA', q) = mine);
+  e := pg_temp.err_as('OA', format('select public.list_profile_court_routines(%L)', gen_random_uuid()));
+  perform pg_temp.ok('P10 profile: an unknown player: [] (no error)', e is null);
+  perform pg_temp.as_signed_out();
+  e := pg_temp.err(q);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('P10 profile: signed out: pl:auth.signed_out', e ->> 'hint' = 'pl:auth.signed_out', coalesce(e::text, 'no error'));
+end $$;
+
+
 -- ════ P11 the time window ═══════════════════════════════════════════════
 do $$
 declare
@@ -903,6 +1011,12 @@ begin
   perform pg_temp.ok('P14 plans hidden, or paused: nobody told',
     pg_temp.pushed('OC', 'test:ps-c5') = '' and pg_temp.pushed('OC', 'test:ps-c6') = ''
     and pg_temp.i('C5') is not null and pg_temp.i('C6') is not null);
+  perform pg_temp.ok('P14 ...and with nobody told, those courts'' 6 hours stay unused (no throttle row)',
+    not exists (select 1 from public.pl_throttle where scope = pg_temp.p('OC')::text and kind = 'friend_plan'
+                   and key in ('test:ps-c5', 'test:ps-c6')));
+  perform pg_temp.plan('OC', 'test:ps-c5', '5 hours', true, 'C5b');
+  perform pg_temp.ok('P14 visible again, another shared plan at C5 within the 6 hours: CF told',
+    pg_temp.i('C5b') is not null and pg_temp.pushed('OC', 'test:ps-c5') = 'CF', pg_temp.pushed('OC', 'test:ps-c5'));
 
   -- 10 days ahead: no push, and it doesn't use up the court's 6 hours.
   v_c3 := pg_temp.plan('OC', 'test:ps-c3', '10 days', true, 'C3far');
@@ -920,10 +1034,10 @@ begin
     (pg_temp.pl(pg_temp.i('C2'))).share_source = 'plan' and pg_temp.pushed('OC', 'test:ps-c2') = '');
   perform pg_temp.ok('P14 routine confirms (OA, whom CF starred) and auto-share (OB): no push',
     pg_temp.pushed('OA') = '' and pg_temp.pushed('OB') = '');
-  perform pg_temp.ok('P14 CF got 3 in all (C1, C4, C3); nobody else got any',
+  perform pg_temp.ok('P14 CF got 4 in all (C1, C4, C5b, C3); nobody else got any',
     (select count(*) from public.push_outbox where push_data ->> 'kind' = 'friend_plan'
-       and push_data ->> 'sender_id' = pg_temp.p('OC')::text) = 3
-    and pg_temp.pushed('OC') = 'CF,CF,CF', pg_temp.pushed('OC'));
+       and push_data ->> 'sender_id' = pg_temp.p('OC')::text) = 4
+    and pg_temp.pushed('OC') = 'CF,CF,CF,CF', pg_temp.pushed('OC'));
   perform pg_temp.ok('P14 _pl_friend_plan_push on a routine stop, a private plan or no plan: 0, never an error',
     public._pl_friend_plan_push(pg_temp.i('S4')) = 0 and public._pl_friend_plan_push(pg_temp.i('OB8')) = 0
     and public._pl_friend_plan_push(gen_random_uuid()) = 0 and public._pl_friend_plan_push(null) = 0);

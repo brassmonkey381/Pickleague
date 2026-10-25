@@ -1029,6 +1029,15 @@ begin
   mine := jsonb_array_length(j);
   perform pg_temp.ok('R10 my own: the active ones (3), the group shown to me',
     mine = 3 and exists (select 1 from jsonb_array_elements(j) x, jsonb_array_elements(x -> 'windows') w where w ? 'group'), j::text);
+  -- Plan sharing (migration_plan_sharing.sql, spliced in by the builder):
+  -- others get a profile's routines only while its owner shares routine
+  -- stops automatically. Off (the default): nothing, even to a friend.
+  perform pg_temp.as_user(pg_temp.p('RF'));
+  perform pg_temp.ok('R10 auto-share off (the default): a friend gets nothing',
+    public.list_profile_court_routines(pg_temp.p('RO')) = '[]'::jsonb);
+  perform pg_temp.as_admin();
+  insert into public.presence_settings (user_id) values (pg_temp.p('RO')) on conflict (user_id) do nothing;
+  update public.presence_settings set auto_share_routines = true where user_id = pg_temp.p('RO');
   perform pg_temp.as_user(pg_temp.p('RF'));
   j := public.list_profile_court_routines(pg_temp.p('RO'));
   perform pg_temp.ok('R10 a friend (plans: friends by default): the same 3, never the group',
@@ -1056,6 +1065,11 @@ begin
   perform pg_temp.as_user(pg_temp.p('RF'));
   perform pg_temp.ok('R10 back to friends: a friend sees them again',
     jsonb_array_length(public.list_profile_court_routines(pg_temp.p('RO'))) = mine);
+  perform pg_temp.as_admin();
+  update public.presence_settings set auto_share_routines = false where user_id = pg_temp.p('RO');
+  perform pg_temp.as_user(pg_temp.p('RF'));
+  perform pg_temp.ok('R10 auto-share off again: nothing again',
+    public.list_profile_court_routines(pg_temp.p('RO')) = '[]'::jsonb);
 
   -- The tables themselves: owner-only.
   perform pg_temp.ok('R10 a friend reads none of RO''s rows from the tables',
