@@ -105,6 +105,8 @@ const REPLACED = [
   ['public.generate_playoff_bracket(uuid)', 'migration_prod_reconcile_2026q3.sql', 'migration_anon_audit_fixes.sql'],
   ['public.get_wagers_on_player(uuid,text,uuid)', 'migration_prod_reconcile_2026q3.sql',
     'migration_anon_audit_fixes.sql'],
+  // Match deletion takes back 150 per badge (what badges pay since 2026-05-25), not 50.
+  ['public._reverse_match_side_effects()', 'migration_match_count_fix.sql', 'migration_fix_badge_reversal.sql'],
 ];
 const TAG = '$pl_expect$';
 
