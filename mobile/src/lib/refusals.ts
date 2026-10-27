@@ -77,6 +77,10 @@ export const REFUSAL_CODES = [
   'plan.taken',
   // migration_profiles_column_guard.sql: a profile column only the server writes.
   'profile.server_owned',
+  // migration_cosmetic_equip_owned.sql: equip_shop_item and the profiles guard.
+  'shop.item_gone',
+  'shop.not_owned',
+  'shop.not_equippable',
   // migration_on_my_way.sql: send_on_my_way.
   'omw.bad_eta',
   'omw.too_many',
@@ -397,6 +401,21 @@ export function refusalCopy(
     case 'profile.server_owned':
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
+    case 'shop.item_gone':
+      return "That item isn't in the Shop any more, so it can't be equipped. Pull to refresh.";
+    case 'shop.not_owned': {
+      // equip_shop_item names the item (and the badge that unlocks it); the
+      // profiles guard (an older build's direct write) names columns only.
+      const item = typeof detail.item === 'string' && detail.item.trim() ? detail.item.trim() : null;
+      const badge = typeof detail.badge === 'string' && detail.badge.trim() ? detail.badge.trim() : null;
+      if (item && badge) return `You haven't unlocked ${item} yet. Earn the ${badge} badge, then equip it.`;
+      if (item) return `You don't own ${item} yet, so it can't be equipped. Buy it in the Shop first.`;
+      return "You can only equip Shop items you own. Buy it in the Shop first, or pick one from your inventory.";
+    }
+    case 'shop.not_equippable': {
+      const item = typeof detail.item === 'string' && detail.item.trim() ? detail.item.trim() : 'That item';
+      return `${item} isn't something you equip. Decorative badges show on your profile once you own them; show or hide them from your Profile.`;
+    }
     case 'omw.bad_eta':
       return 'Pick how far away you are: 1 minute to 3 hours.';
     case 'omw.too_many':
@@ -509,6 +528,11 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
       return 'Already over';
     case 'routine.not_found':
       return 'Routine not found';
+    case 'shop.item_gone':
+      return 'Item not found';
+    case 'shop.not_owned':
+    case 'shop.not_equippable':
+      return 'Not equipped';
     default:
       return "That didn't go through";
   }

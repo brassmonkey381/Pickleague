@@ -113,6 +113,9 @@ const REPLACED = [
   ['public._pl_link_referral(uuid,text)', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
   ['public.my_referral_code()', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
   ['public.referral_preview(text)', 'migration_referrals.sql', 'migration_anon_audit_rest.sql'],
+  // Equip only what you own (migration_cosmetic_equip_owned.sql): the profiles
+  // column guard checks a changed equipped cosmetic against the player's items.
+  ['public._pl_profiles_column_guard()', 'migration_profiles_column_guard.sql', 'migration_cosmetic_equip_owned.sql'],
 ];
 const TAG = '$pl_expect$';
 

@@ -34,6 +34,8 @@ export type PremiumAvatar = {
   name: string;
   emoji: string;
   bgColor: string;
+  /** The Shop item (shop_items.id): what equip_shop_item is called with. */
+  itemId?: string;
 };
 
 type Props = {

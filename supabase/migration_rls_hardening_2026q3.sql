@@ -191,7 +191,10 @@ begin
         -- EXECUTE. That file also keeps anon's EXECUTE to a signed-out
         -- allowlist of its own (c_anon_allow): add a signed-out RPC there too.
         '_pl_can_see_tournament','_pl_can_see_event','_pl_can_see_event_slot',
-        '_pl_can_see_mlp_team','_pl_can_see_doubles_pair','_pl_can_see_pot_scope'
+        '_pl_can_see_mlp_team','_pl_can_see_doubles_pair','_pl_can_see_pot_scope',
+        -- Equip only what you own (migration_cosmetic_equip_owned.sql, which
+        -- grants them too).
+        'equip_shop_item','unequip_cosmetic'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.

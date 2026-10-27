@@ -37,6 +37,8 @@ import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
+import { equipShopItem, unequipCosmetic } from '../data/cosmetics';
+import { explainRefusal } from '../lib/refusalNotices';
 import { useTheme } from '../lib/ThemeContext';
 import { Gender } from '../types';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
@@ -201,29 +203,56 @@ export default function EditProfileSheet({
     // picking or uploading a photo there still clears it. A player can have a
     // photo AND an equipped Shop avatar (Inventory Equip and Shop Buy & Equip
     // leave avatar_url alone), and an unrelated edit like the tagline must not
-    // un-equip it. When nothing changed this writes the existing values back,
-    // so the onSaved payload still carries the true columns.
+    // un-equip it.
+    //
+    // The Shop avatar is equipped by the server, which checks the player owns
+    // it (equip_shop_item / unequip_cosmetic, migration_cosmetic_equip_owned.sql),
+    // and only when the pick changed. It goes first: a refused equip saves
+    // nothing, so the sheet stays open with the reason.
     const premium = draft.premium;
-    const payload: EditProfileSaved = {
-      full_name:       fullName,
+    const premiumChanged =
+      (premium?.emoji ?? null) !== (initial.premium?.emoji ?? null) ||
+      (premium?.bgColor ?? null) !== (initial.premium?.bgColor ?? null);
+    const fields = {
+      full_name:     fullName,
       username,
-      tagline:         draft.tagline.trim() || null,
-      gender:          draft.gender,
-      selected_tags:   draft.selectedTags,
-      avatar_id:       draft.avatarId,
-      avatar_url:      draft.photoUrl,
-      avatar_emoji:    premium?.emoji ?? null,
-      avatar_bg_color: premium?.bgColor ?? null,
-      badges_public:   draft.badgesPublic,
+      tagline:       draft.tagline.trim() || null,
+      gender:        draft.gender,
+      selected_tags: draft.selectedTags,
+      avatar_id:     draft.avatarId,
+      avatar_url:    draft.photoUrl,
+      badges_public: draft.badgesPublic,
     };
 
     setSaving(true);
     status.clear();
+    let avatar = { avatar_emoji: initial.premium?.emoji ?? null, avatar_bg_color: initial.premium?.bgColor ?? null };
+    if (premiumChanged) {
+      try {
+        const cols = premium
+          ? await equipShopItem({
+              id: premium.itemId ?? '',
+              category: 'avatar',
+              slug: premium.slug,
+              payload: { emoji: premium.emoji, bgColor: premium.bgColor },
+            })
+          : await unequipCosmetic('avatar');
+        avatar = { avatar_emoji: cols.avatar_emoji ?? null, avatar_bg_color: cols.avatar_bg_color ?? null };
+      } catch (e) {
+        status.error(explainRefusal(e, premium
+          ? `Not saved: couldn't equip ${premium.name}. Try again.`
+          : "Not saved: couldn't change your avatar back. Try again."));
+        setSaving(false);
+        return;
+      }
+    }
+    const payload: EditProfileSaved = { ...fields, ...avatar };
+
     try {
       // .select() so an update that matched no row (expired session / RLS)
       // reads as a failure instead of a silent success.
       const rows = await sbCall(() =>
-        supabase.from('profiles').update(payload).eq('id', userId).select('id'),
+        supabase.from('profiles').update(fields).eq('id', userId).select('id'),
       ) as { id: string }[] | null;
       if (!rows || rows.length === 0) {
         status.error('Not saved. Your session may have expired. Please log out and back in.');

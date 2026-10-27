@@ -31,6 +31,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { withGiftNotes } from '../data/giftMessages';
+import { equipShopItem, unequipCosmetic, type CosmeticCategory, type EquippableItem } from '../data/cosmetics';
+import { explainRefusal } from '../lib/refusalNotices';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
 import { Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
@@ -577,46 +579,27 @@ export default function ProfileScreen({ navigation }: Props) {
     void loadNextUnlock(uid);
   };
 
-  async function equipAvatar(emoji: string | null, bgColor: string | null) {
+  // Inventory Equip / Revert. The server checks the player owns the item
+  // (equip_shop_item, migration_cosmetic_equip_owned.sql) and answers with the
+  // equipped columns, merged here; a refusal says why and what to do.
+  async function equipItem(item: EquippableItem & { name?: string }) {
     if (!userId) return;
-    const { error } = await supabase
-      .from('profiles')
-      .update({ avatar_emoji: emoji, avatar_bg_color: bgColor })
-      .eq('id', userId);
-    if (error) { status.error(error.message); return; }
-    setProfile(p => p ? { ...p, avatar_emoji: emoji, avatar_bg_color: bgColor } : p);
+    try {
+      const cols = await equipShopItem(item);
+      setProfile(p => p ? { ...p, ...cols } : p);
+    } catch (e) {
+      status.error(explainRefusal(e, `Couldn't equip ${item.name ?? 'that'}. Try again.`));
+    }
   }
 
-  async function applyFlair(value: string | null) {
+  async function unequip(category: CosmeticCategory) {
     if (!userId) return;
-    const { error } = await supabase
-      .from('profiles')
-      .update({ name_color: value })
-      .eq('id', userId);
-    if (error) { status.error(error.message); return; }
-    setProfile(p => p ? { ...p, name_color: value } : p);
-  }
-
-  // Equip / unequip name styles (list or hero). Slug is the shop_items.slug
-  // (which doubles as the FK in profiles.{list,hero}_name_style_id).
-  async function applyListNameStyle(slug: string | null) {
-    if (!userId) return;
-    const { error } = await supabase
-      .from('profiles')
-      .update({ list_name_style_id: slug })
-      .eq('id', userId);
-    if (error) { status.error(error.message); return; }
-    setProfile(p => p ? { ...p, list_name_style_id: slug } : p);
-  }
-
-  async function applyProfileNameStyle(slug: string | null) {
-    if (!userId) return;
-    const { error } = await supabase
-      .from('profiles')
-      .update({ profile_name_style_id: slug })
-      .eq('id', userId);
-    if (error) { status.error(error.message); return; }
-    setProfile(p => p ? { ...p, profile_name_style_id: slug } : p);
+    try {
+      const cols = await unequipCosmetic(category);
+      setProfile(p => p ? { ...p, ...cols } : p);
+    } catch (e) {
+      status.error(explainRefusal(e, "Couldn't change it back just now. Try again."));
+    }
   }
 
   async function togglePurchaseHidden(purchaseId: string, currentlyHidden: boolean) {
@@ -811,6 +794,7 @@ export default function ProfileScreen({ navigation }: Props) {
       name: p.item.name,
       emoji: p.item.payload?.emoji ?? p.item.icon,
       bgColor: p.item.payload?.bgColor ?? colors.surfaceAlt,
+      itemId: p.item.id,
     })), [shopPurchases, colors.surfaceAlt]);
 
   // Equipped premium avatar (driven by avatar_emoji + avatar_bg_color).
@@ -1268,13 +1252,13 @@ export default function ProfileScreen({ navigation }: Props) {
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
                       actionLabel={equipped ? 'Equipped' : 'Equip'}
                       equipped={equipped}
-                      onAction={() => equipAvatar(p.item.payload?.emoji ?? null, p.item.payload?.bgColor ?? null)}
+                      onAction={() => equipItem(p.item)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.avatar_emoji && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => equipAvatar(null, null)} />
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to cartoon avatar" onPress={() => unequip('avatar')} />
                 )}
               </View>
             )}
@@ -1297,13 +1281,13 @@ export default function ProfileScreen({ navigation }: Props) {
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
                       actionLabel={equipped ? 'Active' : 'Apply'}
                       equipped={equipped}
-                      onAction={() => applyFlair(value ?? null)}
+                      onAction={() => equipItem(p.item)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.name_color && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => applyFlair(null)} />
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default name color" onPress={() => unequip('flair')} />
                 )}
               </View>
             )}
@@ -1326,13 +1310,13 @@ export default function ProfileScreen({ navigation }: Props) {
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
                       actionLabel={equipped ? 'Equipped' : 'Equip'}
                       equipped={equipped}
-                      onAction={() => applyListNameStyle(slug)}
+                      onAction={() => equipItem(p.item)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.list_name_style_id && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => applyListNameStyle(null)} />
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default list name style" onPress={() => unequip('list_name_style')} />
                 )}
               </View>
             )}
@@ -1355,13 +1339,13 @@ export default function ProfileScreen({ navigation }: Props) {
                       onToggleHidden={() => togglePurchaseHidden(p.id, p.is_hidden)}
                       actionLabel={equipped ? 'Equipped' : 'Equip'}
                       equipped={equipped}
-                      onAction={() => applyProfileNameStyle(slug)}
+                      onAction={() => equipItem(p.item)}
                       styles={styles}
                     />
                   );
                 })}
                 {profile?.profile_name_style_id && (
-                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => applyProfileNameStyle(null)} />
+                  <TextLink iconName="undo" tone="sub" chevron={false} label="Revert to default profile name style" onPress={() => unequip('profile_name_style')} />
                 )}
               </View>
             )}

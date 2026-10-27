@@ -279,6 +279,30 @@ touches playoff bracket generation or advancement.
     match confirm with ratings / counters / first-match bonus, referral payout,
     service_role).
 
+- `cosmetic_equip_personas.sql` (+ `build-cosmetic-equip-test.mjs`)
+  - Equip only what you own (`migration_cosmetic_equip_owned.sql`): applies
+    the migration twice inside one rolled-back transaction (it does NOT
+    re-run `migration_profiles_column_guard.sql` or
+    `migration_rls_hardening_2026q3.sql`; the builder refuses unless that
+    file's allowlist names `equip_shop_item` and `unequip_cosmetic`), makes
+    its own `eq-test-*` Shop items, then checks: attributes and grants; a
+    purchase still auto-equips; the owner equips and unequips every category
+    through the RPCs (an item retired from the Shop included); a non-owner is
+    refused (`pl:shop.not_owned`, naming the item, or the badge for a gated
+    one) by the RPC and by a direct UPDATE of each column (bundled edits not
+    saved, the avatar pair checked together, server-owned columns still
+    `pl:profile.server_owned`); older builds' direct writes of owned items,
+    hidden purchases, unchanged values sent back and resets to null still
+    save; the rest of the profile stays editable; a gift doesn't equip and the
+    recipient can equip it; `pl:shop.not_equippable`, `pl:shop.item_gone`,
+    `pl:request.bad`, `pl:auth.signed_out`, anon denied; free items; and
+    service_role / owner writes.
+
+    ```sh
+    node supabase/tests/build-cosmetic-equip-test.mjs /tmp/cosmetic_equip_test.sql
+    supabase db query --linked -f /tmp/cosmetic_equip_test.sql -o csv
+    ```
+
 - `players_near_personas.sql` (+ `build-players-near-test.mjs`)
   - Players near a search area (`migration_discover_players_near.sql`): applies
     the migration twice inside one rolled-back transaction (it does NOT re-run

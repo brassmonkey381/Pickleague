@@ -73,6 +73,10 @@ const SERVER_CODES: RefusalCode[] = [
   // migration_on_my_way.sql
   'omw.bad_eta',
   'omw.too_many',
+  // migration_cosmetic_equip_owned.sql
+  'shop.item_gone',
+  'shop.not_owned',
+  'shop.not_equippable',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;
@@ -115,6 +119,22 @@ describe('every refusal code has its own plain words', () => {
     );
     expect(refusalCopy('court.gone', { action: 'on_my_way', venueName: 'Lakeside' })).toBe(
       "Lakeside isn't in Pickleague any more, so your friends can't be told you're on the way. Find your court again.",
+    );
+  });
+
+  it('Shop equips: the item and the badge from DETAIL, the guard columns-only refusal', () => {
+    expect(refusalCopy('shop.not_owned', {}, { item: 'Fox', badge: null })).toBe(
+      "You don't own Fox yet, so it can't be equipped. Buy it in the Shop first.",
+    );
+    expect(refusalCopy('shop.not_owned', {}, { item: 'Inferno', badge: 'Hot Streak' })).toBe(
+      "You haven't unlocked Inferno yet. Earn the Hot Streak badge, then equip it.",
+    );
+    expect(refusalCopy('shop.not_owned', {}, { columns: ['name_color'] })).toBe(
+      'You can only equip Shop items you own. Buy it in the Shop first, or pick one from your inventory.',
+    );
+    expect(refusalCopy('shop.not_equippable', {}, { item: 'Gold Star' })).toMatch(/^Gold Star isn't something you equip\./);
+    expect(refusalMessage({ message: 'x', hint: 'pl:shop.not_owned', details: '{"item": "Fox", "badge": null}' })).toBe(
+      "You don't own Fox yet, so it can't be equipped. Buy it in the Shop first.",
     );
   });
 

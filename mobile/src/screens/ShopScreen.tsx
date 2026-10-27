@@ -41,6 +41,8 @@ import AppRefreshControl from '../components/AppRefreshControl';
 import { useStatusMessage } from '../lib/useStatusMessage';
 import { useRefresh } from '../lib/useRefresh';
 import { PickleAmount, PickleBalance, picklesLabel } from '../components/PickleAmount';
+import { cosmeticColumns, equipShopItem } from '../data/cosmetics';
+import { explainRefusal } from '../lib/refusalNotices';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Shop'> };
 
@@ -247,27 +249,6 @@ export default function ShopScreen({ navigation }: Props) {
     setConfirmingItem(item);
   }
 
-  async function equipShopItem(item: ShopItem) {
-    if (!myUserId) return;
-    const update: Record<string, any> = {};
-    if (item.category === 'avatar') {
-      update.avatar_emoji    = item.payload?.emoji    ?? null;
-      update.avatar_bg_color = item.payload?.bgColor  ?? null;
-    } else if (item.category === 'flair' && item.payload?.kind === 'name_color') {
-      update.name_color = item.payload?.value ?? null;
-    } else if (item.category === 'list_name_style') {
-      // purchase_shop_item already auto-equips; this is for the "Buy & Equip"
-      // explicit path so the optimistic update stays consistent.
-      update.list_name_style_id = item.slug;
-    } else if (item.category === 'profile_name_style') {
-      update.profile_name_style_id = item.slug;
-    }
-    // cosmetic_badge: visible by default — nothing to write.
-    if (Object.keys(update).length > 0) {
-      await supabase.from('profiles').update(update).eq('id', myUserId);
-    }
-  }
-
   async function confirmBuy(equip: boolean = false) {
     const item = confirmingItem;
     if (!item) return;
@@ -286,13 +267,25 @@ export default function ShopScreen({ navigation }: Props) {
     setPickles(row.new_balance);
     setOwned(prev => new Set(prev).add(item.id));
 
-    if (equip) {
-      try { await equipShopItem(item); } catch { /* non-fatal */ }
+    // purchase_shop_item already equips what it can; Buy & Equip asks the
+    // server again (equip_shop_item checks the purchase) so the two agree.
+    // The purchase stands either way: a refused equip says why.
+    let equipError: string | null = null;
+    if (equip && cosmeticColumns(item)) {
+      try {
+        await equipShopItem(item);
+      } catch (e) {
+        equipError = explainRefusal(e, `Couldn't equip ${item.name}. Equip it from your Profile.`);
+      }
     }
 
     setBuying(null);
     setConfirmingItem(null);
     setBuyError(null);
+    if (equipError) {
+      status.error(`Purchased ${item.name}, but it wasn't equipped. ${equipError}`);
+      return;
+    }
     status.success(
       equip ? `Purchased & equipped! ${item.name} is now equipped on your profile.`
             : `Purchased! ${item.name} is in your inventory. Equip / hide it from your Profile.`,
