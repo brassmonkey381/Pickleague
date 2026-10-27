@@ -35,7 +35,7 @@ import { Icon } from '@just-messin-around/expo-foundation/icons';
 import { useStatusMessage } from '@just-messin-around/expo-foundation/hooks';
 import { SPACE, RADIUS, HAIRLINE, SMALL_TEXT_MAX_SCALE, webInputFontFloor } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
-import { sbCall, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { sbCall } from '@just-messin-around/expo-foundation/supabase';
 import { supabase } from '../lib/supabase';
 import { equipShopItem, unequipCosmetic } from '../data/cosmetics';
 import { explainRefusal } from '../lib/refusalNotices';
@@ -85,6 +85,12 @@ type Props = {
   onClose: () => void;
   /** After a successful Save, with the columns written. The sheet then closes. */
   onSaved: (saved: EditProfileSaved) => void;
+  /**
+   * The Shop avatar was equipped on the server but the other fields then
+   * failed to save: these columns are live, so the screen shows them. The
+   * sheet stays open with the reason; Save again sends everything again.
+   */
+  onPartialSaved?: (saved: Partial<EditProfileSaved>) => void;
 };
 
 type Page = 'form' | 'avatar' | 'tags';
@@ -138,7 +144,7 @@ async function pruneAvatarUploads(userId: string, savedUrl: string | null) {
 }
 
 export default function EditProfileSheet({
-  visible, userId, initial, earnedBadgeNames, purchasedAvatars, maxTagSlots, onClose, onSaved,
+  visible, userId, initial, earnedBadgeNames, purchasedAvatars, maxTagSlots, onClose, onSaved, onPartialSaved,
 }: Props) {
   const { colors: c } = useTheme();
   const t = textStyles(c);
@@ -208,7 +214,10 @@ export default function EditProfileSheet({
     // The Shop avatar is equipped by the server, which checks the player owns
     // it (equip_shop_item / unequip_cosmetic, migration_cosmetic_equip_owned.sql),
     // and only when the pick changed. It goes first: a refused equip saves
-    // nothing, so the sheet stays open with the reason.
+    // nothing, so the sheet stays open with the reason. The two writes are not
+    // one transaction: if the fields then fail, the new avatar is already live,
+    // so the screen is told (onPartialSaved) and the message says so. Save
+    // again re-sends both (equipping the same item twice is harmless).
     const premium = draft.premium;
     const premiumChanged =
       (premium?.emoji ?? null) !== (initial.premium?.emoji ?? null) ||
@@ -227,6 +236,7 @@ export default function EditProfileSheet({
     setSaving(true);
     status.clear();
     let avatar = { avatar_emoji: initial.premium?.emoji ?? null, avatar_bg_color: initial.premium?.bgColor ?? null };
+    let avatarSaved = false;
     if (premiumChanged) {
       try {
         const cols = premium
@@ -238,6 +248,7 @@ export default function EditProfileSheet({
             })
           : await unequipCosmetic('avatar');
         avatar = { avatar_emoji: cols.avatar_emoji ?? null, avatar_bg_color: cols.avatar_bg_color ?? null };
+        avatarSaved = true;
       } catch (e) {
         status.error(explainRefusal(e, premium
           ? `Not saved: couldn't equip ${premium.name}. Try again.`
@@ -247,6 +258,12 @@ export default function EditProfileSheet({
       }
     }
     const payload: EditProfileSaved = { ...fields, ...avatar };
+    // The fields failed after the avatar went through: say what did save.
+    const partly = (reason: string) => {
+      if (!avatarSaved) return reason;
+      onPartialSaved?.(avatar);
+      return `Your avatar changed, but your other edits weren't saved. ${reason.replace(/^Not saved\.\s*/, '')}`;
+    };
 
     try {
       // .select() so an update that matched no row (expired session / RLS)
@@ -255,7 +272,7 @@ export default function EditProfileSheet({
         supabase.from('profiles').update(fields).eq('id', userId).select('id'),
       ) as { id: string }[] | null;
       if (!rows || rows.length === 0) {
-        status.error('Not saved. Your session may have expired. Please log out and back in.');
+        status.error(partly('Not saved. Your session may have expired. Please log out and back in.'));
         return;
       }
       if (draft.photoUrl !== initial.photoUrl) void pruneAvatarUploads(userId, draft.photoUrl);
@@ -263,7 +280,9 @@ export default function EditProfileSheet({
     } catch (e: any) {
       // No "username taken" case: migration_relax_username_uniqueness.sql
       // dropped the unique constraint, so a duplicate handle simply saves.
-      status.error(friendlySbMessage(e, "Couldn't save your profile."));
+      // A known refusal (an unlockable avatar or tag not earned, too many tags:
+      // the profiles guard) gets its own words.
+      status.error(partly(explainRefusal(e, "Couldn't save your profile. Try again.")));
     } finally {
       setSaving(false);
     }

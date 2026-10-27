@@ -116,6 +116,8 @@ const REPLACED = [
   // Equip only what you own (migration_cosmetic_equip_owned.sql): the profiles
   // column guard checks a changed equipped cosmetic against the player's items.
   ['public._pl_profiles_column_guard()', 'migration_profiles_column_guard.sql', 'migration_cosmetic_equip_owned.sql'],
+  // ...and gift_shop_item refuses badge-gated items (they cost 0).
+  ['public.gift_shop_item(uuid,uuid,text)', 'migration_gift_shop_item_notify.sql', 'migration_cosmetic_equip_owned.sql'],
 ];
 const TAG = '$pl_expect$';
 

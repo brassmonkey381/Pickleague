@@ -295,8 +295,13 @@ touches playoff bracket generation or advancement.
     hidden purchases, unchanged values sent back and resets to null still
     save; the rest of the profile stays editable; a gift doesn't equip and the
     recipient can equip it; `pl:shop.not_equippable`, `pl:shop.item_gone`,
-    `pl:request.bad`, `pl:auth.signed_out`, anon denied; free items; and
-    service_role / owner writes.
+    `pl:request.bad`, `pl:auth.signed_out`, anon denied; free items;
+    service_role / owner writes; badge-gated Shop items (can't be gifted, an
+    old gifted row doesn't unlock one, the badge does, with or without a
+    purchase row); and badge cosmetics on a direct UPDATE (an unlockable
+    cartoon avatar or badge play tag without the badge is
+    `pl:profile.locked`, more tags than slots is `pl:profile.too_many_tags`,
+    values already on the profile stay after a badge is taken back).
 
     ```sh
     node supabase/tests/build-cosmetic-equip-test.mjs /tmp/cosmetic_equip_test.sql

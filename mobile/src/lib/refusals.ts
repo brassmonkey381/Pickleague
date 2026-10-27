@@ -81,6 +81,10 @@ export const REFUSAL_CODES = [
   'shop.item_gone',
   'shop.not_owned',
   'shop.not_equippable',
+  // migration_cosmetic_equip_owned.sql: the profiles guard on badge cosmetics
+  // (an unlockable cartoon avatar or play tag, the tag slot count).
+  'profile.locked',
+  'profile.too_many_tags',
   // migration_on_my_way.sql: send_on_my_way.
   'omw.bad_eta',
   'omw.too_many',
@@ -416,6 +420,22 @@ export function refusalCopy(
       const item = typeof detail.item === 'string' && detail.item.trim() ? detail.item.trim() : 'That item';
       return `${item} isn't something you equip. Decorative badges show on your profile once you own them; show or hide them from your Profile.`;
     }
+    case 'profile.locked': {
+      // DETAIL {columns, badges}: what was locked and the badges that unlock it.
+      const badges = Array.isArray(detail.badges)
+        ? detail.badges.filter((b): b is string => typeof b === 'string' && !!b.trim()).map(b => b.trim())
+        : [];
+      const cols = Array.isArray(detail.columns) ? detail.columns : [];
+      const what = cols.includes('avatar_id') && cols.includes('selected_tags') ? 'that avatar and play tag'
+        : cols.includes('avatar_id') ? 'that avatar' : cols.includes('selected_tags') ? 'that play tag' : 'that pick';
+      const badge = badges.length === 0 ? "a badge you haven't earned yet"
+        : badges.length === 1 ? `the ${badges[0]} badge` : `the ${badges.join(', ')} badges`;
+      return `Your profile wasn't saved: ${what} unlocks with ${badge}. Earn it first, or pick an unlocked one.`;
+    }
+    case 'profile.too_many_tags': {
+      const max = typeof detail.max_tags === 'number' ? detail.max_tags : null;
+      return `Your profile wasn't saved: you can show up to ${max ?? 'your number of'} play tags. Remove one, or earn the Veteran or Top Rated badge for another slot.`;
+    }
     case 'omw.bad_eta':
       return 'Pick how far away you are: 1 minute to 3 hours.';
     case 'omw.too_many':
@@ -533,6 +553,10 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
     case 'shop.not_owned':
     case 'shop.not_equippable':
       return 'Not equipped';
+    case 'profile.locked':
+      return 'Not unlocked yet';
+    case 'profile.too_many_tags':
+      return 'Too many tags';
     default:
       return "That didn't go through";
   }

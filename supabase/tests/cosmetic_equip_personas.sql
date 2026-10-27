@@ -204,12 +204,14 @@ begin
     and not has_function_privilege('authenticated', 'public._pl_profiles_column_guard()', 'execute')
     and not has_function_privilege('anon', 'public._pl_profiles_column_guard()', 'execute'), null);
   perform pg_temp.ok('E1 the guard body is this file''s (checks equipped cosmetics)',
-    (select prosrc like '%pl:shop.not_owned%' and prosrc like '%pl:profile.server_owned%' from pg_proc
+    (select prosrc like '%pl:shop.not_owned%' and prosrc like '%pl:profile.server_owned%' and prosrc like '%pl:profile.locked%' from pg_proc
       where oid = 'public._pl_profiles_column_guard()'::regprocedure), null);
   select pg_get_triggerdef(t.oid) into v_tg
     from pg_trigger t where t.tgrelid = 'public.profiles'::regclass and t.tgname = 'trg_profiles_column_guard';
   perform pg_temp.ok('E1 trg_profiles_column_guard (migration_profiles_column_guard.sql) runs it, BEFORE INSERT OR UPDATE',
     v_tg like '%BEFORE INSERT OR UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION %_pl_profiles_column_guard()%', v_tg);
+  perform pg_temp.ok('E1 gift_shop_item is this file''s (refuses badge-gated items)',
+    (select prosrc like '%can''''t be gifted%' from pg_proc where oid = 'public.gift_shop_item(uuid,uuid,text)'::regprocedure), null);
   perform pg_temp.ok('E1 setup made the nine test items', (select count(*) from _it) = 9, null);
 exception when others then
   perform pg_temp.as_admin();
@@ -527,6 +529,105 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('E11 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ E12 badge-gated Shop items: earned, never gifted ═══════════════════
+do $$
+declare
+  r      record;
+  j      jsonb;
+  v_gate uuid := (select unlock_badge_id from public.shop_items where id = pg_temp.it('GATE'));
+begin
+  if v_gate is null then
+    perform pg_temp.ok('E12 skipped (no badges on this database)', true, null);
+    return;
+  end if;
+
+  perform pg_temp.as_user(pg_temp.p('EA'));
+  select * into r from public.gift_shop_item(pg_temp.it('GATE'), pg_temp.p('EC'), null);
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E12 a badge-gated item can''t be gifted (it costs 0): says why, no purchase row',
+    not r.success and r.message like '%can''t be gifted%'
+    and not exists (select 1 from public.player_shop_purchases where user_id = pg_temp.p('EC') and shop_item_id = pg_temp.it('GATE')),
+    r.message);
+
+  -- A gift of one made before this file: the row alone doesn't unlock it.
+  insert into public.player_shop_purchases (user_id, shop_item_id, cost_paid, gifted_by_user_id)
+  values (pg_temp.p('EC'), pg_temp.it('GATE'), 0, pg_temp.p('EA'));
+  j := pg_temp.equip('EC', 'GATE');
+  perform pg_temp.ok('E12 an old gifted row of a gated item doesn''t equip it (RPC)', pg_temp.refused(j, 'shop.not_owned'), j::text);
+  j := pg_temp.run_as('EC', format('update public.profiles set profile_name_style_id = %L where id = %L', 'eq-test-gated', pg_temp.p('EC')));
+  perform pg_temp.ok('E12 ...nor directly', pg_temp.refused(j, 'shop.not_owned'), j::text);
+
+  -- Earning the badge does (trg_grant_unlock_items_on_badge adds the row too).
+  insert into public.player_badges (user_id, badge_id) values (pg_temp.p('EB'), v_gate) on conflict do nothing;
+  j := pg_temp.equip('EB', 'GATE');
+  perform pg_temp.ok('E12 a player who earned the badge equips it',
+    j ? 'v' and pg_temp.cos('EB') ->> 'profile_name_style_id' = 'eq-test-gated', j::text);
+  perform pg_temp.unequip('EB', 'profile_name_style');
+  j := pg_temp.run_as('EB', format('update public.profiles set profile_name_style_id = %L where id = %L', 'eq-test-gated', pg_temp.p('EB')));
+  perform pg_temp.ok('E12 ...directly too', j ->> 'rows' = '1', j::text);
+
+  -- Badge held but no purchase row ("Earned · pending grant" in the Shop).
+  insert into public.player_badges (user_id, badge_id) values (pg_temp.p('EC'), v_gate) on conflict do nothing;
+  delete from public.player_shop_purchases where user_id = pg_temp.p('EC') and shop_item_id = pg_temp.it('GATE');
+  j := pg_temp.equip('EC', 'GATE');
+  perform pg_temp.ok('E12 the badge without a purchase row is enough', j ? 'v', j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E12 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ E13 badge cosmetics: unlockable avatars, badge tags, tag slots ═════
+do $$
+declare
+  j     jsonb;
+  id_b  uuid := pg_temp.p('EB');
+  v_hot uuid := (select id from public.badges where name = 'Hot Streak');
+  v_vet uuid := (select id from public.badges where name = 'Veteran');
+begin
+  if v_hot is null or v_vet is null then
+    perform pg_temp.ok('E13 skipped (no Hot Streak / Veteran badge on this database)', true, null);
+    return;
+  end if;
+  delete from public.player_badges pb using public.badges b
+   where pb.badge_id = b.id and pb.user_id = id_b and b.name in ('Hot Streak', 'Veteran', 'Top Rated');
+  update public.profiles set avatar_id = 1, selected_tags = '{}' where id = id_b;
+
+  j := pg_temp.run_as('EB', format('update public.profiles set avatar_id = 18 where id = %L', id_b));
+  perform pg_temp.ok('E13 the Inferno avatar without Hot Streak is refused (pl:profile.locked names the badge)',
+    pg_temp.refused(j, 'profile.locked') and (j ->> 'detail')::jsonb -> 'columns' = '["avatar_id"]'::jsonb
+    and (j ->> 'detail')::jsonb -> 'badges' = '["Hot Streak"]'::jsonb and j ->> 'msg' like '%Hot Streak%', j::text);
+  j := pg_temp.run_as('EB', format($q$update public.profiles set selected_tags = array['dink-master', 'hot-streak-slayer'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 ...and so is the Hot Streak Slayer tag',
+    pg_temp.refused(j, 'profile.locked') and (j ->> 'detail')::jsonb -> 'columns' = '["selected_tags"]'::jsonb, j::text);
+  j := pg_temp.run_as('EB', format($q$update public.profiles set selected_tags = array['dink-master', 'poacher', 'the-grinder', 'net-rusher'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 four tags with three slots: pl:profile.too_many_tags (max 3)',
+    pg_temp.refused(j, 'profile.too_many_tags') and ((j ->> 'detail')::jsonb ->> 'max_tags')::int = 3, j::text);
+  j := pg_temp.run_as('EB', format($q$update public.profiles set avatar_id = 4, selected_tags = array['dink-master', 'poacher', 'the-grinder'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 a free avatar and three free tags save', j ->> 'rows' = '1', j::text);
+
+  insert into public.player_badges (user_id, badge_id) values (id_b, v_hot) on conflict do nothing;
+  insert into public.player_badges (user_id, badge_id) values (id_b, v_vet) on conflict do nothing;
+  j := pg_temp.run_as('EB', format($q$update public.profiles set avatar_id = 18,
+      selected_tags = array['dink-master', 'poacher', 'the-grinder', 'hot-streak-slayer'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 with Hot Streak and Veteran: Inferno, the Slayer tag and a fourth slot all save',
+    j ->> 'rows' = '1' and (select avatar_id from public.profiles where id = id_b) = 18, j::text);
+
+  -- A badge taken back later: what's already on the profile stays.
+  delete from public.player_badges where user_id = id_b and badge_id in (v_hot, v_vet);
+  j := pg_temp.run_as('EB', format($q$update public.profiles set tagline = 'Kept', avatar_id = 18,
+      selected_tags = array['dink-master', 'poacher', 'hot-streak-slayer'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 after losing the badges: keeping Inferno and the tag while removing one saves',
+    j ->> 'rows' = '1', j::text);
+  j := pg_temp.run_as('EB', format($q$update public.profiles set
+      selected_tags = array['dink-master', 'poacher', 'hot-streak-slayer', 'the-grinder'] where id = %L$q$, id_b));
+  perform pg_temp.ok('E13 ...but growing back past three slots is refused', pg_temp.refused(j, 'profile.too_many_tags'), j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E13 block crashed', false, sqlerrm);
 end $$;
 
 

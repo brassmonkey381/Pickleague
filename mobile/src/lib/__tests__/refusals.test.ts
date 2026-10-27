@@ -77,6 +77,8 @@ const SERVER_CODES: RefusalCode[] = [
   'shop.item_gone',
   'shop.not_owned',
   'shop.not_equippable',
+  'profile.locked',
+  'profile.too_many_tags',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;
@@ -136,6 +138,19 @@ describe('every refusal code has its own plain words', () => {
     expect(refusalMessage({ message: 'x', hint: 'pl:shop.not_owned', details: '{"item": "Fox", "badge": null}' })).toBe(
       "You don't own Fox yet, so it can't be equipped. Buy it in the Shop first.",
     );
+  });
+
+  it('badge cosmetics: names what was locked and the badges, or the tag slots', () => {
+    expect(refusalCopy('profile.locked', {}, { columns: ['avatar_id'], badges: ['Hot Streak'] })).toBe(
+      "Your profile wasn't saved: that avatar unlocks with the Hot Streak badge. Earn it first, or pick an unlocked one.",
+    );
+    expect(refusalCopy('profile.locked', {}, { columns: ['avatar_id', 'selected_tags'], badges: ['Dominant', 'Hot Streak'] })).toBe(
+      "Your profile wasn't saved: that avatar and play tag unlocks with the Dominant, Hot Streak badges. Earn it first, or pick an unlocked one.",
+    );
+    expect(refusalCopy('profile.too_many_tags', {}, { columns: ['selected_tags'], max_tags: 4 })).toBe(
+      "Your profile wasn't saved: you can show up to 4 play tags. Remove one, or earn the Veteran or Top Rated badge for another slot.",
+    );
+    expect(refusalTitle('profile.locked')).toBe('Not unlocked yet');
   });
 
   it('words what the app knows: the court, the person, the league', () => {

@@ -1439,6 +1439,7 @@ export default function ProfileScreen({ navigation }: Props) {
         maxTagSlots={maxTagSlots}
         onClose={() => setEditOpen(false)}
         onSaved={handleEditSaved}
+        onPartialSaved={saved => setProfile(p => (p ? { ...p, ...saved } : p))}
       />
     )}
     </>
