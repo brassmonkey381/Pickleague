@@ -31,18 +31,18 @@ alter default privileges for role postgres grant execute on functions to public;
 
 -- ════ Harness ════════════════════════════════════════════════════════════
 create temp table _results (n serial primary key, test text not null, ok boolean not null, detail text);
-grant select, insert on _results to authenticated, anon;
-grant usage on sequence _results_n_seq to authenticated, anon;
+grant select, insert on _results to authenticated, anon, service_role;
+grant usage on sequence _results_n_seq to authenticated, anon, service_role;
 
 create temp table _p (k text primary key, id uuid not null);
 insert into _p values
   ('EA', 'a8200000-0000-4000-8000-000000000001'), ('EB', 'a8200000-0000-4000-8000-000000000002'),
   ('EC', 'a8200000-0000-4000-8000-000000000003');
-grant select on _p to authenticated, anon;
+grant select on _p to authenticated, anon, service_role;
 
 -- The test Shop items (filled in Setup).
 create temp table _it (k text primary key, id uuid not null, name text not null);
-grant select on _it to authenticated, anon;
+grant select on _it to authenticated, anon, service_role;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
 create function pg_temp.it(text) returns uuid language sql stable as $$ select id from _it where k = $1 $$;
