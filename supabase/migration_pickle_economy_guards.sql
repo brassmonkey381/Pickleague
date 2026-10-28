@@ -621,10 +621,6 @@ create or replace trigger trg_pl_pot_columns_guard
   for each row execute function public._pl_pot_columns_guard();
 
 
--- ════ 9. Matches: no client UPDATE ════════════════════════════════════════
-drop policy if exists "League members can update scheduled matches" on public.matches;
-
-
 -- ════ 10. Drill requests: only the invited player answers ════════════════
 create or replace function public._pl_drill_request_guard()
 returns trigger
@@ -651,3 +647,9 @@ revoke execute on function public._pl_drill_request_guard() from public, anon, a
 create or replace trigger trg_pl_drill_request_guard
   before update on public.drill_requests
   for each row execute function public._pl_drill_request_guard();
+
+
+-- ════ 9. Matches: no client UPDATE ════════════════════════════════════════
+-- Last on purpose: DROP POLICY takes ACCESS EXCLUSIVE on matches (reads wait)
+-- until the file's transaction ends, so it holds it only for the commit.
+drop policy if exists "League members can update scheduled matches" on public.matches;
