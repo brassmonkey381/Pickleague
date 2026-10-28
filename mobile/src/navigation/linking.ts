@@ -132,6 +132,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       GiftPickles: 'gift-pickles',
       ScoringAlgo: 'scoring-algo',
       UnlockProgress: 'unlock-progress',
+      Achievements: 'achievements',
+      AchievementGroup: 'achievements/:groupId',
       Drill: 'drill',
       DrillSearch: 'drill/search',
       DrillRequests: 'drill/requests',

@@ -5,9 +5,10 @@
 //   2. Quick row   [Edit profile] [Match history] [Calendar]
 //   3. Status      "Next unlock: Ninja avatar 3/5 >" (tour 'profile/rewards';
 //                  replaces the ~900px Unlockable Rewards card, whose rows all
-//                  live on UnlockProgress)
+//                  live on Achievements; the row opens it on that badge)
 //   4. Coming up   my leagues & live tournaments -> their detail screens
-//   5. Reference   collapsed: Availability · Paddle · Badges · Inventory ·
+//   5. Reference   collapsed: Availability · Paddle · Achievements (a row to
+//                  the page) · Inventory ·
 //                  Doubles chemistry. Content mounts only when opened (the
 //                  672px availability grid included).
 // Every edit of who you are (avatar, name, username, tagline, gender, tags,
@@ -35,8 +36,9 @@ import { equipShopItem, unequipCosmetic, type CosmeticCategory, type EquippableI
 import { explainRefusal } from '../lib/refusalNotices';
 import { useTheme } from '../lib/ThemeContext';
 import { useTour } from '../lib/TourContext';
-import { Profile, PlayerLocationRating, ShopItem, RootStackParamList } from '../types';
-import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
+import { Profile, PlayerLocationRating, ShopItem, RootStackParamList, BadgeItem } from '../types';
+import { loadAchievements } from '../lib/achievementsData';
+import { overallSummary } from '../lib/achievements';
 import FlairName from '../components/FlairName';
 import PaddlePickerModal, { PaddleSelection } from '../components/PaddlePickerModal';
 import { PremiumAvatar } from '../components/AvatarPickerModal';
@@ -383,6 +385,8 @@ export default function ProfileScreen({ navigation }: Props) {
   // undefined = not known yet (loading, or the read failed). The strip renders
   // in every case so its tour anchor exists.
   const [unlock, setUnlock] = useState<NextUnlockResult | undefined>(undefined);
+  // The Achievements row's "12 of 40 unlocked"; null until known.
+  const [achCount, setAchCount] = useState<{ earned: number; total: number } | null>(null);
   const [comingLeagues, setComingLeagues] = useState<ComingLeague[]>([]);
   const [comingTournaments, setComingTournaments] = useState<ComingTournament[]>([]);
   const [showAllComing, setShowAllComing] = useState(false);
@@ -430,7 +434,7 @@ export default function ProfileScreen({ navigation }: Props) {
   // What changes on screens reached from here re-reads on every return:
   //   - Coming up (join a league, get approved into a tournament);
   //   - the pickle pill, avatar and name styles (FTUE Claim buttons live on
-  //     UnlockProgress now, and the pill opens the Shop, whose Buy & Equip
+  //     Achievements now, and the pill opens the Shop, whose Buy & Equip
   //     spends pickles and equips an avatar);
   //   - Inventory (a Shop purchase) and the next-unlock strip.
   // The mount load covers the first focus. Refs: the callback is stable.
@@ -481,6 +485,7 @@ export default function ProfileScreen({ navigation }: Props) {
     // Non-blocking: chemistry, next unlock, PLUPR history, shop purchases, coming up.
     loadChemistry(user.id);
     loadNextUnlock(user.id);
+    loadAchievementCount(user.id);
     loadEloHistory(user.id);
     loadShopPurchases(user.id);
     loadComingUp(user.id);
@@ -501,7 +506,7 @@ export default function ProfileScreen({ navigation }: Props) {
     if (withNotes !== rows) setShopPurchases(withNotes);
   }
 
-  // The status strip reads the same progress math as UnlockProgress and Home
+  // The status strip reads the same progress math as Achievements and Home
   // (lib/unlockProgress), so the three never disagree.
   async function loadNextUnlock(uid: string) {
     try {
@@ -509,6 +514,16 @@ export default function ProfileScreen({ navigation }: Props) {
     } catch {
       // computeBadgeProgress throws rather than reporting zero progress; keep
       // the strip's neutral "Unlockable rewards" instead of a wrong number.
+    }
+  }
+
+  // The Achievements row's count, from the same build the page uses (light:
+  // no progress maths), so the two never disagree.
+  async function loadAchievementCount(uid: string) {
+    try {
+      setAchCount(overallSummary((await loadAchievements(uid, true, { light: true })).achievements));
+    } catch {
+      // The row still opens the page; it just shows no count.
     }
   }
 
@@ -559,7 +574,7 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  // Only the profile columns other screens write (UnlockProgress claims, Shop
+  // Only the profile columns other screens write (Getting started claims on Achievements, Shop
   // purchases and equips), merged into the current row. Never touches
   // `availability` or `loading`, so an open grid keeps its state and Back
   // doesn't flash the skeleton.
@@ -577,6 +592,7 @@ export default function ProfileScreen({ navigation }: Props) {
     void loadVolatileProfile(uid);
     void loadShopPurchases(uid);
     void loadNextUnlock(uid);
+    void loadAchievementCount(uid);
   };
 
   // Inventory Equip / Revert. The server checks the player owns the item
@@ -724,58 +740,6 @@ export default function ProfileScreen({ navigation }: Props) {
     }
   }
 
-  async function toggleBadgeVisibility(playerBadgeIds: string[], hidden: boolean) {
-    if (playerBadgeIds.length === 0) return;
-    // IDs can come from either player_badges (earned badges) or
-    // player_shop_purchases (cosmetic badges). Split and route accordingly.
-    const purchaseIdSet = new Set(shopPurchases.map(p => p.id));
-    const earnedIds   = playerBadgeIds.filter(id => !purchaseIdSet.has(id));
-    const cosmeticIds = playerBadgeIds.filter(id =>  purchaseIdSet.has(id));
-
-    // Local state is updated only after the write lands. Previously both halves
-    // discarded their result and repainted regardless, so on bad WiFi a badge
-    // looked hidden while the server still showed it — and the lie survived
-    // until the next reload, by which point the user had moved on.
-    try {
-      if (earnedIds.length > 0) {
-        await sbCall(() =>
-          supabase.from('player_badges').update({ is_hidden: hidden }).in('id', earnedIds),
-        );
-        const idSet = new Set(earnedIds);
-        setBadges(prev => prev.map(b => idSet.has(b.id) ? { ...b, is_hidden: hidden } : b));
-      }
-      if (cosmeticIds.length > 0) {
-        await Promise.all(cosmeticIds.map(id =>
-          sbCall(() => supabase.rpc('set_purchase_hidden', { p_purchase_id: id, p_hidden: hidden })),
-        ));
-        const idSet = new Set(cosmeticIds);
-        setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
-      }
-    } catch (e) {
-      status.error(friendlySbMessage(e, `Could not ${hidden ? 'hide' : 'show'} that badge.`));
-    }
-  }
-
-  async function setAllBadgesHidden(hidden: boolean) {
-    if (!userId) return;
-    try {
-      await sbCall(() =>
-        supabase.from('player_badges').update({ is_hidden: hidden }).eq('user_id', userId),
-      );
-      setBadges(prev => prev.map(b => ({ ...b, is_hidden: hidden })));
-      const cosmetics = shopPurchases.filter(p => p.item.category === 'cosmetic_badge');
-      if (cosmetics.length > 0) {
-        await Promise.all(cosmetics.map(p =>
-          sbCall(() => supabase.rpc('set_purchase_hidden', { p_purchase_id: p.id, p_hidden: hidden })),
-        ));
-        const idSet = new Set(cosmetics.map(p => p.id));
-        setShopPurchases(prev => prev.map(p => idSet.has(p.id) ? { ...p, is_hidden: hidden } : p));
-      }
-    } catch (e) {
-      status.error(friendlySbMessage(e, `Could not ${hidden ? 'hide' : 'show'} your badges.`));
-    }
-  }
-
   function handleEditSaved(saved: EditProfileSaved) {
     setProfile(p => (p ? { ...p, ...saved } : p));
     setEditOpen(false);
@@ -819,61 +783,6 @@ export default function ProfileScreen({ navigation }: Props) {
 
   const earnedBadgeNames = Array.from(new Set(badges.map(b => b.badge.name)));
 
-  // Group badges by name (+ league_id for league badges) so duplicates
-  // collapse into a single tile with a ×N count. Keying on the badge's
-  // display name (which is always populated via the join) avoids any
-  // edge cases where badge_id might shift between rows of the same
-  // award type. Newest instance is the representative item used for the
-  // tile's emoji/name.
-  function groupBadges(list: BadgeItem[]) {
-    const groups = new Map<string, BadgeItem[]>();
-    for (const b of list) {
-      const key = `${b.badge.name}::${b.league_id ?? ''}`;
-      const existing = groups.get(key);
-      if (existing) existing.push(b);
-      else groups.set(key, [b]);
-    }
-    return Array.from(groups.values())
-      .map(stack => {
-        const sorted = [...stack].sort((a, b) =>
-          new Date(b.earned_at).getTime() - new Date(a.earned_at).getTime()
-        );
-        return { rep: sorted[0], stack: sorted };
-      })
-      .sort((a, b) =>
-        new Date(b.rep.earned_at).getTime() - new Date(a.rep.earned_at).getTime()
-      );
-  }
-  // Cosmetic badges purchased from the Pickle Shop appear in the same
-  // section. We mint a BadgeItem on the fly per purchase; the toggle in
-  // toggleBadgeVisibility routes by ID to the right table.
-  const cosmeticBadgeItems: BadgeItem[] = shopPurchases
-    .filter(p => p.item.category === 'cosmetic_badge')
-    .map(p => ({
-      id:         p.id,
-      badge_id:   `cosmetic:${p.shop_item_id}`,
-      is_hidden:  p.is_hidden,
-      earned_at:  p.purchased_at,
-      context:    p.gift_message ?? (p.gifted_by_user_id ? 'A gift' : null),
-      league_id:  null,
-      badge: {
-        name:        p.item.name,
-        description: p.item.description,
-        icon:        p.item.icon,
-        category:    'cosmetic',
-      },
-      league: null,
-    }));
-
-  const badgeGroups = [
-    { label: 'Profile',  groups: groupBadges(badges.filter(b => b.badge.category === 'profile')) },
-    { label: 'League',   groups: groupBadges(badges.filter(b => b.badge.category === 'league')) },
-    { label: 'Cosmetic', groups: groupBadges(cosmeticBadgeItems) },
-  ].filter(g => g.groups.length > 0);
-  const visibleBadgeCount =
-    badges.filter(b => !b.is_hidden).length +
-    cosmeticBadgeItems.filter(b => !b.is_hidden).length;
-  const totalBadgeCount = badges.length + cosmeticBadgeItems.length;
   const maxTagSlots = computeMaxTagSlots(earnedBadgeNames);
 
   const photoUrl = profile?.avatar_url ?? null;
@@ -919,8 +828,8 @@ export default function ProfileScreen({ navigation }: Props) {
     : unlock?.kind === 'all_earned' ? 'Every unlock earned'
     : 'Unlockable rewards';
   const unlockA11y = unlock?.kind === 'next'
-    ? `Next unlock: ${unlock.reward}, ${unlock.a11yValue}. Open unlock progress`
-    : `${unlockText}. Open unlock progress`;
+    ? `Next unlock: ${unlock.reward}, ${unlock.a11yValue}. Open achievements`
+    : `${unlockText}. Open achievements`;
 
   return (
     <>
@@ -1049,7 +958,8 @@ export default function ProfileScreen({ navigation }: Props) {
             />
           ) : <Text style={styles.stripLabel} numberOfLines={1}>{unlockText}</Text>}
           chevron
-          onPress={() => navigation.navigate('UnlockProgress')}
+          // Opens Achievements on the badge it names (its detail sheet).
+          onPress={() => navigation.navigate('Achievements', unlock?.kind === 'next' ? { focus: unlock.badge } : undefined)}
           accessibilityRole="button"
           accessibilityLabel={unlockA11y}
         />
@@ -1188,42 +1098,24 @@ export default function ProfileScreen({ navigation }: Props) {
           )}
         </CollapsibleSection>
 
-        {totalBadgeCount > 0 && (
-          <CollapsibleSection
-            compact
-            iconName="medal"
-            title="Badges"
-            count={totalBadgeCount}
-            summary={`${visibleBadgeCount} shown${profile?.badges_public === false ? ' · private profile' : ''}`}
-            onToggle={onSectionToggle('badges')}
-          >
-            <View style={styles.badgeActions}>
-              <Text style={[t.sub, styles.flexText]} numberOfLines={1}>Tap a badge to see why you earned it.</Text>
-              <TouchableOpacity style={styles.textBtn} onPress={() => setAllBadgesHidden(false)} accessibilityRole="button">
-                <Text style={styles.linkText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Show all</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.textBtn} onPress={() => setAllBadgesHidden(true)} accessibilityRole="button">
-                <Text style={styles.linkText} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Hide all</Text>
-              </TouchableOpacity>
-            </View>
-            {badgeGroups.map(g => (
-              <View key={g.label}>
-                <Text style={[t.fieldLabel, styles.groupLabel]} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>{g.label}</Text>
-                <View style={styles.badgeGrid}>
-                  {g.groups.map(bg => (
-                    <BadgeDisplay
-                      key={bg.rep.id}
-                      badge={bg.rep}
-                      stack={bg.stack}
-                      isOwner
-                      onToggleHide={toggleBadgeVisibility}
-                    />
-                  ))}
-                </View>
-              </View>
-            ))}
-          </CollapsibleSection>
-        )}
+        {/* Achievements: one row to the page (was the Badges grid; the page
+            has the medals, progress, and the hide-from-profile toggles). */}
+        <ListCard
+          density="compact"
+          minHeight={STRIP_HEIGHT}
+          style={styles.block}
+          leading={<Icon name="medal" size={18} color={colors.primary} />}
+          title={<Text style={styles.stripLabel} numberOfLines={1}>Achievements</Text>}
+          trailing={achCount ? (
+            <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
+              {achCount.earned} of {achCount.total} unlocked
+            </Text>
+          ) : undefined}
+          chevron
+          onPress={() => navigation.navigate('Achievements')}
+          accessibilityRole="button"
+          accessibilityLabel={achCount ? `Achievements, ${achCount.earned} of ${achCount.total} unlocked` : 'Achievements'}
+        />
 
         {shopPurchases.length > 0 && (
           <CollapsibleSection
@@ -1493,14 +1385,10 @@ function makeStyles(c: Colors) {
     rowTitle:   textStyles(c).title,
     rowSub:     textStyles(c).sub,
     textDim:    { color: c.textMuted },
-    textBtn:    { minHeight: 44, minWidth: 44, paddingHorizontal: SPACE.xs, alignItems: 'center', justifyContent: 'center' },
-    linkText:   { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.primary },
 
     availHead: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     paddleRow: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
 
-    badgeActions: { flexDirection: 'row', alignItems: 'center' },
-    badgeGrid:    { flexDirection: 'row', flexWrap: 'wrap', margin: -SPACE.xs },
 
     invRow:       { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 56 },
     invRowHidden: { opacity: 0.55 },

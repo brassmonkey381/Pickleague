@@ -46,6 +46,10 @@ const THRESHOLDS: ThresholdDef[] = [
   { badge: 'Court Hopper',       target: 5,   value: m => m.courts,         label: (c, t) => `${c} / ${t} courts played` },
   { badge: 'Doubles Dynamo',     target: 20,  value: m => m.doublesPlayed,  label: (c, t) => `${c} / ${t} doubles matches` },
   { badge: 'Singles Specialist', target: 25,  value: m => m.singlesPlayed,  label: (c, t) => `${c} / ${t} singles matches` },
+  // Read from the same last-200 completed matches as the rest, so both stop
+  // short of their real totals past 200 matches; both targets are below that.
+  { badge: 'Globetrotter II',    target: 10,  value: m => m.courts,         label: (c, t) => `${c} / ${t} courts played` },
+  { badge: 'Century',            target: 100, value: m => m.totalMatches,   label: (c, t) => `${c} / ${t} matches played` },
 ];
 
 // League-tracked badges with no global threshold. Progress is tracked per

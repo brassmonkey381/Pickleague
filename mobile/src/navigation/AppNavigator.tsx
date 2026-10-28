@@ -66,7 +66,9 @@ import MatchHistoryScreen from '../screens/MatchHistoryScreen';
 import CalendarAnalyticsScreen from '../screens/CalendarAnalyticsScreen';
 import SeasonStandingsScreen from '../screens/SeasonStandingsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import UnlockProgressScreen from '../screens/UnlockProgressScreen';
+import UnlockProgressRedirect from '../screens/UnlockProgressRedirect';
+import AchievementsScreen from '../screens/AchievementsScreen';
+import AchievementGroupScreen from '../screens/AchievementGroupScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import UpgradeAccountScreen from '../screens/UpgradeAccountScreen';
 import AboutScreen from '../screens/AboutScreen';
@@ -418,7 +420,9 @@ export default function AppNavigator() {
                     };
                   }}
                 />
-                <Stack.Screen name="UnlockProgress" component={UnlockProgressScreen} options={{ title: 'Unlock Progress' }} />
+                <Stack.Screen name="UnlockProgress" component={UnlockProgressRedirect} options={{ title: 'Achievements' }} />
+                <Stack.Screen name="Achievements" component={AchievementsScreen} options={{ title: 'Achievements' }} />
+                <Stack.Screen name="AchievementGroup" component={AchievementGroupScreen} options={({ route }) => ({ title: route.params?.title ?? 'Achievements' })} />
                 <Stack.Screen name="PlayerProfile" component={PlayerProfileScreen} options={({ route }) => ({ title: route.params?.userName ?? 'Player' })} />
                 <Stack.Screen name="Claim" component={ClaimAccountScreen} options={{ title: 'Claim account' }} />
                 <Stack.Screen name="HeadToHead" component={HeadToHeadScreen} options={({ route }) => ({ title: route.params?.opponentName ? `You vs ${route.params.opponentName}` : 'Head to head' })} />

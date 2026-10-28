@@ -6,8 +6,9 @@
 //   2. Quick row    [Head-to-head] (not on yourself) [Match history]
 //   3. Chemistry    your doubles chemistry together, when you've partnered
 //   4. Leagues in common  rows -> LeagueDetail (hidden when none / yourself)
-//   5. Badges (n)   one merged grid, newest first (was three category cards)
-import React, { useState, useCallback } from 'react';
+//   5. Achievements (n)  their newest earned medals in one row (hidden badges
+//                   left out), View all / a medal -> their Achievements page
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
 } from 'react-native';
@@ -25,8 +26,14 @@ import {
   sbCall, currentUserId, classifySbError, friendlySbMessage,
 } from '@just-messin-around/expo-foundation/supabase';
 import { useTheme } from '../lib/ThemeContext';
-import { Profile, PlayerLocationRating, RootStackParamList } from '../types';
-import BadgeDisplay, { BadgeItem } from '../components/BadgeDisplay';
+import { Profile, PlayerLocationRating, RootStackParamList, BadgeItem } from '../types';
+import {
+  AchievementMedal,
+  resolveTint,
+  sortAchievements,
+} from '@just-messin-around/expo-foundation/achievements';
+import { glyphForEmoji } from '@just-messin-around/expo-foundation/icons';
+import { buildAchievements } from '../lib/achievements';
 import FlairName from '../components/FlairName';
 import LeagueRow, { LeagueRowRole } from '../components/LeagueRow';
 import { AVATARS, PLAY_TAGS } from '../data/profileCustomization';
@@ -59,6 +66,8 @@ const TAG_CHIPS_SHOWN = 2;
 /** Leagues in common shown before "Show N more". */
 const COMMON_CAP = 4;
 const AVATAR = 64;
+/** Medals in the profile's Achievements row (the page has the rest). */
+const PREVIEW_MEDALS = 5;
 
 export default function PlayerProfileScreen({ navigation, route }: Props) {
   const { userId } = route.params;
@@ -191,6 +200,31 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     }
   }
 
+  // Their achievements from what load() already read (no extra query).
+  const earned = useMemo(() => buildAchievements({
+    catalog: [],
+    awards: badges.map(b => ({
+      id: b.id,
+      badgeName: b.badge.name,
+      earnedAt: b.earned_at,
+      leagueId: b.league_id,
+      leagueName: b.league?.name ?? null,
+      matchId: b.source_match_id ?? null,
+      context: b.context,
+      isHidden: b.is_hidden,
+    })),
+    collectibles: cosmeticPurchases.map(p => ({
+      id: p.id, shopItemId: p.shop_item_id, name: p.item.name, description: p.item.description,
+      icon: p.item.icon, acquiredAt: p.purchased_at, isHidden: false,
+      note: p.gifted_by_user_id ? 'A gift' : null,
+    })),
+    earnedOnly: true,
+    glyphForEmoji: e => (e ? glyphForEmoji(e) : undefined),
+  }), [badges, cosmeticPurchases]);
+  const openAchievements = (focus?: string) => navigation.navigate('Achievements', {
+    userId, userName: profile?.full_name ?? route.params.userName, focus,
+  });
+
   if (loading) return <View style={styles.screen}><SkeletonList rows={6} variant="row" /></View>;
   if (!profile) {
     // Keep a scroll view + pull-to-refresh mounted either way: the old bare
@@ -218,49 +252,12 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
     );
   }
 
-  // Group repeats of the same badge into a single stack so the tile can
-  // render "Badge ×N" instead of N identical tiles. Key on the badge's
-  // display name (always populated via the join) so awards always
-  // collapse regardless of any badge_id quirk.
-  function groupBadges(list: BadgeItem[]) {
-    const groups = new Map<string, BadgeItem[]>();
-    for (const b of list) {
-      const key = `${b.badge.name}::${b.league_id ?? ''}`;
-      const existing = groups.get(key);
-      if (existing) existing.push(b);
-      else groups.set(key, [b]);
-    }
-    return Array.from(groups.values())
-      .map(stack => {
-        const sorted = [...stack].sort((a, b) =>
-          new Date(b.earned_at).getTime() - new Date(a.earned_at).getTime()
-        );
-        return { rep: sorted[0], stack: sorted };
-      })
-      .sort((a, b) =>
-        new Date(b.rep.earned_at).getTime() - new Date(a.rep.earned_at).getTime()
-      );
-  }
-  const cosmeticBadgeItems: BadgeItem[] = cosmeticPurchases.map(p => ({
-    id:         p.id,
-    badge_id:   `cosmetic:${p.shop_item_id}`,
-    is_hidden:  false,
-    earned_at:  p.purchased_at,
-    context:    p.gift_message ?? (p.gifted_by_user_id ? 'A gift' : null),
-    league_id:  null,
-    badge: {
-      name:        p.item.name,
-      description: p.item.description,
-      icon:        p.item.icon,
-      category:    'cosmetic',
-    },
-    league: null,
-  }));
-
-  // One merged grid, newest first. Each tile's detail still names its
-  // category (Profile / League / Cosmetic), so nothing is lost by merging.
-  const badgeGroups = groupBadges([...badges, ...cosmeticBadgeItems]);
-  const badgeCount = badges.length + cosmeticBadgeItems.length;
+  // Their earned achievements (the page's own build: hidden badges were left
+  // out by the query), newest first; the profile shows the first few.
+  const earnedMedals = sortAchievements(earned.achievements.filter(x => !!x.earnedAt));
+  const medalCount = earnedMedals.length;
+  const tintOf = (groupId: string) =>
+    resolveTint(earned.groups.find(g => g.id === groupId)?.tint, colors as unknown as Record<string, unknown>, colors.primary);
   const badgesPublic = profile.badges_public !== false;
 
   // Per-court PLUPR (hidden) — grouped exactly as the court card needs it.
@@ -458,13 +455,23 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
       )}
 
       {/* ── 5. Badges (merged) ─────────────────────────────────── */}
-      {badgesPublic && badgeCount > 0 && (
+      {badgesPublic && medalCount > 0 && (
         <View style={styles.block}>
-          <SectionHeader title="Badges" count={badgeCount} />
+          <SectionHeader
+            title="Achievements"
+            count={medalCount}
+            action={{ label: 'View all', onPress: () => openAchievements() }}
+          />
           <Panel>
-            <View style={styles.badgeGrid}>
-              {badgeGroups.map(g => (
-                <BadgeDisplay key={g.rep.id} badge={g.rep} stack={g.stack} />
+            <View style={styles.medalRow}>
+              {earnedMedals.slice(0, PREVIEW_MEDALS).map(a => (
+                <AchievementMedal
+                  key={a.id}
+                  achievement={a}
+                  tint={tintOf(a.groupId)}
+                  size={52}
+                  onPress={() => openAchievements(a.id)}
+                />
               ))}
             </View>
           </Panel>
@@ -515,6 +522,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     insight:   { marginTop: SPACE.xs },
 
     moreRow:   { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },
-    badgeGrid: { flexDirection: 'row', flexWrap: 'wrap', margin: -SPACE.xs, borderRadius: RADIUS.md },
+    medalRow:  { flexDirection: 'row', gap: SPACE.md, justifyContent: 'flex-start' },
   });
 }
