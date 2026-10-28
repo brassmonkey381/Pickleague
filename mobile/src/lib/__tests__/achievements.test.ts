@@ -84,7 +84,7 @@ describe('buildAchievements (own page)', () => {
       award('Perfect Game', '2026-10-01T10:00:00Z', { matchId: 'M1' }),
     ],
     progress: { 'Hot Streak': { current: 3, target: 5, unit: 'wins' } },
-    streak: { current: 21, longest: 21, reachedOn: { 3: '2026-10-01T12:00:00', 7: '2026-10-05T12:00:00' } },
+    streak: { current: 21, longest: 21, reachedOn: { 7: '2026-10-05T12:00:00' } },
     ftue: { ...NO_FTUE, join_league: { complete: true, claimedAt: '2026-08-01T00:00:00Z' }, first_match: { complete: true, claimedAt: null } },
   });
 
@@ -148,7 +148,7 @@ describe('buildAchievements (own page)', () => {
     expect(gs.achievements.map(a => a.id)).not.toContain('badge:Welcome');
     expect(gs.summary.total).toBe(3);
     const { earned, total } = overallSummary(built.achievements);
-    expect(earned).toBe(1 + 2 + 2); // join_league, 2 streaks, Season Crown + Perfect Game
+    expect(earned).toBe(1 + 1 + 2); // join_league, Week Streak, Season Crown + Perfect Game
     expect(total).toBe(BADGE_DEFS.length - 1 + STREAK_MILESTONES.length + FTUE_DEFS.length);
   });
 

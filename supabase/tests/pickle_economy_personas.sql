@@ -256,9 +256,10 @@ begin
   insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at, game_scores)
   values (pg_temp.free(), pg_temp.p('MX'), pg_temp.p('MY'), 11, 0, 'singles', 'completed', now(), v_games)
   returning id into v_id;
-  select coalesce(sum(delta), 0) into v_paid from public.pickle_ledger
-   where profile_id = pg_temp.p('MX') and source = '_grant_match_game_bonus';
-  perform pg_temp.ok('E6 a 10-game match pays 5 games (125)', v_paid = 125, format('paid %s', v_paid));
+  -- Pay is per match since migration_fair_rewards.sql; the grant still counts at most 5 games.
+  select coalesce(max(games), 0) into v_paid from public.match_game_bonus_grants
+   where user_id = pg_temp.p('MX') and match_id = v_id;
+  perform pg_temp.ok('E6 a 10-game match counts 5 games', v_paid = 5, format('games %s', v_paid));
 
   for i in 1..3 loop
     insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)

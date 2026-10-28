@@ -6,7 +6,7 @@
 // never while another modal is up (HomeScreen's modal queue).
 import React from 'react';
 import { LoginBonusModal, type LoginBonusReward } from '@just-messin-around/expo-foundation/gamification';
-import { streakRoadmapFor, DAILY_STREAK_PICKLES, type StreakResult } from '../../lib/loginStreak';
+import { STREAK_ROADMAP, LOGIN_BONUS_SCHEDULE, type StreakResult } from '../../lib/loginStreak';
 import { useTheme } from '../../lib/ThemeContext';
 import { picklesLabel } from '../PickleAmount';
 
@@ -29,6 +29,8 @@ export default function StreakBonusModal({ visible, result, onClose }: Props) {
   return (
     <LoginBonusModal
       visible={visible}
+      // Doggle's day track: 7 days that build up, then a flat 50.
+      schedule={LOGIN_BONUS_SCHEDULE}
       day={result.streak_after}
       awarded={result.daily_pickles + result.milestone_pickles}
       streak={result.streak_after}
@@ -39,8 +41,7 @@ export default function StreakBonusModal({ visible, result, onClose }: Props) {
       claimedMessage="Come back tomorrow to extend your streak."
       message={result.used_freeze ? 'Used a streak freeze to bridge a missed day.' : undefined}
       messageIconName={result.used_freeze ? 'snowflake' : undefined}
-      // daily_pickles is 0 on an already-claimed result; fall back to the rate.
-      roadmap={streakRoadmapFor(result.daily_pickles || DAILY_STREAK_PICKLES)}
+      roadmap={STREAK_ROADMAP}
       stats={[
         { label: 'Longest', value: result.longest_streak },
         { label: 'Freezes left', value: result.freezes_remaining },

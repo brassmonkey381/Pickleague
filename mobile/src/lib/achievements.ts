@@ -129,12 +129,13 @@ export function badgeDef(name: string): BadgeDef | undefined {
   return DEF_BY_NAME.get(name);
 }
 
-/** The login-streak milestones claim_daily_login_streak() pays out on. */
+/** The login-streak badges claim_daily_login_streak() pays, once per account
+ *  (migration_fair_rewards.sql; login_streak_milestones records them). */
 export const STREAK_MILESTONES: ReadonlyArray<{ days: number; name: string; glyph: IconName; pickles: number }> = [
-  { days: 3, name: '3-Day Streak', glyph: 'sparkle', pickles: 25 },
-  { days: 7, name: 'Week Streak', glyph: 'fire', pickles: 100 },
-  { days: 30, name: 'Month Streak', glyph: 'calendar-event', pickles: 500 },
-  { days: 100, name: '100-Day Streak', glyph: 'rocket', pickles: 2000 },
+  { days: 7, name: 'Week Streak', glyph: 'fire', pickles: 200 },
+  { days: 30, name: 'Month Streak', glyph: 'calendar-event', pickles: 1000 },
+  { days: 100, name: '100-Day Streak', glyph: 'rocket', pickles: 2500 },
+  { days: 365, name: 'Year Streak', glyph: 'crown', pickles: 10000 },
 ];
 
 export type FtueStepKey = 'join_league' | 'setup_profile' | 'first_match';
@@ -335,7 +336,7 @@ export function buildAchievements(input: BuildAchievementsInput): BuiltAchieveme
       out.push({
         id: `streak:${m.days}`,
         name: m.name,
-        description: `Open Pickleague ${m.days} days in a row. Pays ${m.pickles.toLocaleString('en-US')} pickles.`,
+        description: `Open Pickleague ${m.days} days in a row. Pays ${m.pickles.toLocaleString('en-US')} pickles, once.`,
         groupId: 'streaks',
         glyph: m.glyph,
         earnedAt,

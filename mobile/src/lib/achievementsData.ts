@@ -110,7 +110,8 @@ export async function loadAchievements(userId: string, own: boolean, opts: LoadA
   const [progressList, streakRow, rewardRows, grantRows, memberRows, styleRows] = await Promise.all([
     opts.light ? Promise.resolve(null) : soft(computeBadgeProgress(userId)),
     soft(sbCall(() => supabase.from('user_login_streaks').select('current_streak, longest_streak').eq('user_id', userId).maybeSingle())),
-    soft(sbCall(() => supabase.from('user_streak_rewards').select('awarded_date, streak_after').eq('user_id', userId).not('milestone_label', 'is', null).order('awarded_date'))),
+    // The streak badges paid (once each; backfilled from user_streak_rewards).
+    soft(sbCall(() => supabase.from('login_streak_milestones').select('days, awarded_at').eq('user_id', userId))),
     soft(sbCall(() => supabase.from('ftue_grants').select('step, granted_at').eq('user_id', userId))),
     soft(sbCall(() => supabase.from('league_members').select('league_id').eq('user_id', userId).limit(1))),
     opts.light ? Promise.resolve(null) : soft(sbCall(() => supabase
@@ -128,8 +129,8 @@ export async function loadAchievements(userId: string, own: boolean, opts: LoadA
     const reachedOn: Record<number, string> = {};
     const milestoneDays = new Set(STREAK_MILESTONES.map(m => m.days));
     for (const r of ((rewardRows ?? []) as any[])) {
-      const d = Number(r.streak_after);
-      if (milestoneDays.has(d) && !reachedOn[d] && r.awarded_date) reachedOn[d] = `${r.awarded_date}T12:00:00`;
+      const d = Number(r.days);
+      if (milestoneDays.has(d) && r.awarded_at) reachedOn[d] = String(r.awarded_at);
     }
     streak = {
       current: Number((streakRow as any)?.current_streak ?? 0),

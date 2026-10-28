@@ -15,32 +15,37 @@ export type StreakResult = {
   longest_streak: number;
 };
 
-export const STREAK_MILESTONES = [3, 7, 30, 100] as const;
+/** Days 1-7 of a streak build up (Doggle's login bonus); day 8 on pays
+ *  DAILY_STREAK_PICKLES. Mirrors `v_sched` in claim_daily_login_streak
+ *  (migration_fair_rewards.sql). */
+export const LOGIN_BONUS_SCHEDULE = [15, 24, 33, 42, 51, 60, 75];
 
-/** Pickles granted every day the streak is extended: `v_daily` in
- *  claim_daily_login_streak (migration_daily_login_and_match_game_bonuses.sql,
- *  the "daily login 10->50" change). Keep in sync with the RPC. Only a fallback:
- *  the modal prefers the claim result's own daily_pickles (streakRoadmapFor). */
+/** Pickles each day from day 8 on, a little above the first week's average. */
 export const DAILY_STREAK_PICKLES = 50;
 
-/** Milestone bonuses on top of the daily pickles (same RPC, same migration). */
+/** What one streak day pays (before any streak badge). */
+export function dailyPicklesFor(day: number): number {
+  return day >= 1 && day <= LOGIN_BONUS_SCHEDULE.length ? LOGIN_BONUS_SCHEDULE[day - 1] : DAILY_STREAK_PICKLES;
+}
+
+/** The streak badges, each paid once per account (same RPC, same migration;
+ *  lib/achievements' STREAK_MILESTONES shows them on the Achievements page). */
 const MILESTONE_BONUS: { day: number; bonus: number; label: string }[] = [
-  { day: 3, bonus: 25, label: '3-day streak' },
-  { day: 7, bonus: 100, label: 'One week' },
-  { day: 30, bonus: 500, label: 'One month' },
-  { day: 100, bonus: 2000, label: 'Century' },
+  { day: 7, bonus: 200, label: 'Week Streak' },
+  { day: 30, bonus: 1000, label: 'Month Streak' },
+  { day: 100, bonus: 2500, label: '100-Day Streak' },
+  { day: 365, bonus: 10000, label: 'Year Streak' },
 ];
 
 /** The road map the streak modal shows (the foundation LoginBonusModal's
- *  `roadmap`): each milestone's reward is that day's daily pickles plus its
- *  bonus, as the RPC grants them. Pass the claim's `daily_pickles` so the road
- *  map can never disagree with the "Daily login" line next to it. (Named apart
- *  from the foundation's buildStreakRoadmap, which builds a different shape.) */
-export function streakRoadmapFor(daily: number = DAILY_STREAK_PICKLES): StreakMilestone[] {
-  return MILESTONE_BONUS.map(m => ({ day: m.day, reward: daily + m.bonus, label: m.label }));
+ *  `roadmap`): each badge day's reward is that day's pickles plus the badge,
+ *  as the RPC grants them. (Named apart from the foundation's
+ *  buildStreakRoadmap, which builds a different shape.) */
+export function streakRoadmapFor(): StreakMilestone[] {
+  return MILESTONE_BONUS.map(m => ({ day: m.day, reward: dailyPicklesFor(m.day) + m.bonus, label: m.label }));
 }
 
-/** The road map at the RPC's current daily rate. */
+/** The road map at the RPC's current rates. */
 export const STREAK_ROADMAP: StreakMilestone[] = streakRoadmapFor();
 
 let shownForUserId: string | null = null;
@@ -118,7 +123,7 @@ export async function claimDailyLoginStreak(): Promise<StreakResult | null> {
 }
 
 export function daysToNextMilestone(streak: number): { next: number | null; in: number | null } {
-  for (const m of STREAK_MILESTONES) {
+  for (const { day: m } of MILESTONE_BONUS) {
     if (streak < m) return { next: m, in: m - streak };
   }
   return { next: null, in: null };

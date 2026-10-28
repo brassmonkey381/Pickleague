@@ -122,10 +122,17 @@ const REPLACED = [
   // once / competitions only with real play, the daily play cap, at most 5
   // games, no back-filled streaks, no pot house bonus.
   ['public._grant_pickles_on_badge()', 'migration_bump_base_pickle_grants.sql', 'migration_pickle_economy_guards.sql'],
-  ['public._grant_match_game_bonus()', 'migration_daily_login_and_match_game_bonuses.sql', 'migration_pickle_economy_guards.sql'],
+  // ...and again by migration_fair_rewards.sql (front-loaded per day), so the
+  // economy guards' body is now the "old" one.
+  ['public._grant_match_game_bonus()', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
   ['public._grant_daily_streak_bonus()', 'migration_local_day_boundaries.sql', 'migration_pickle_economy_guards.sql'],
   ['public._grant_tournament_participation_bonus()', 'migration_shop_rewards_and_progress_badges.sql', 'migration_pickle_economy_guards.sql'],
   ['public.contribute_pickles_to_pool(text,uuid,integer)', 'migration_add_pickle_pots.sql', 'migration_pickle_economy_guards.sql'],
+  // Fair rewards (migration_fair_rewards.sql): Doggle's login build-up and
+  // once-per-account streak badges; the daily cap counts the social earns.
+  ['public.claim_daily_login_streak()', 'migration_local_day_boundaries.sql', 'migration_fair_rewards.sql'],
+  ['public._pl_play_cap_left(uuid)', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
+  ['public._pl_profiles_play_cap()', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
 ];
 const TAG = '$pl_expect$';
 
