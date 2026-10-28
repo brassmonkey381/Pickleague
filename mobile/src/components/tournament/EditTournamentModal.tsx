@@ -13,7 +13,7 @@ type Props = Pick<TournamentDetailState,
   | 'editName' | 'setEditName' | 'editDesc' | 'setEditDesc' | 'editLocation' | 'setEditLocation'
   | 'editMinPlayers' | 'setEditMinPlayers' | 'editMaxPlayers' | 'setEditMaxPlayers'
   | 'editStartTime' | 'setEditStartTime' | 'editLengthHours' | 'setEditLengthHours'
-  | 'editAnte' | 'setEditAnte' | 'editPayout' | 'setEditPayout' | 'editPrizePool' | 'setEditPrizePool'
+  | 'editAnte' | 'setEditAnte' | 'editPayout' | 'setEditPayout'
   | 'editSeeding' | 'setEditSeeding' | 'showStartPicker' | 'setShowStartPicker'>;
 
 /**
@@ -28,7 +28,7 @@ export default function EditTournamentModal({
   editName, setEditName, editDesc, setEditDesc, editLocation, setEditLocation,
   editMinPlayers, setEditMinPlayers, editMaxPlayers, setEditMaxPlayers,
   editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
-  editAnte, setEditAnte, editPayout, setEditPayout, editPrizePool, setEditPrizePool,
+  editAnte, setEditAnte, editPayout, setEditPayout,
   editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
 }: Props) {
   const { S, c } = useTournamentDetailStyles();
@@ -150,17 +150,6 @@ export default function EditTournamentModal({
           placeholder="60,25,15"
           placeholderTextColor={c.textMuted}
           maxLength={40}
-        />
-
-        <Text style={S.editFieldLabel}>Prize pool override (pickles)</Text>
-        <TextInput
-          style={[S.editInput, webInputFontFloor(S.editInput)]}
-          value={editPrizePool}
-          onChangeText={setEditPrizePool}
-          placeholder="Leave blank to keep current pool"
-          placeholderTextColor={c.textMuted}
-          keyboardType="number-pad"
-          maxLength={9}
         />
 
         <Text style={S.editFieldLabel}>Seeding mode</Text>

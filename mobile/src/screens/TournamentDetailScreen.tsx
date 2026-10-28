@@ -1058,7 +1058,6 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         editLengthHours={td.editLengthHours} setEditLengthHours={td.setEditLengthHours}
         editAnte={td.editAnte} setEditAnte={td.setEditAnte}
         editPayout={td.editPayout} setEditPayout={td.setEditPayout}
-        editPrizePool={td.editPrizePool} setEditPrizePool={td.setEditPrizePool}
         editSeeding={td.editSeeding} setEditSeeding={td.setEditSeeding}
         showStartPicker={td.showStartPicker} setShowStartPicker={td.setShowStartPicker}
       />

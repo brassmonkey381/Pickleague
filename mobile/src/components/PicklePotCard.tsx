@@ -183,8 +183,6 @@ function ContributeModal({
 
   const n = parseInt(amount, 10);
   const valid = Number.isFinite(n) && n > 0 && (myBalance == null || n <= myBalance);
-  const bonus = Number.isFinite(n) && n > 0 ? Math.floor(n * 0.25) : 0;
-  const added = (Number.isFinite(n) && n > 0 ? n : 0) + bonus;
 
   async function submit() {
     if (inFlight.current) return;
@@ -220,7 +218,7 @@ function ContributeModal({
         <View style={S.modalCard}>
           <Text style={S.modalTitle}>Contribute to {scopeLabel} Pot</Text>
           <Text style={S.modalBody}>
-            The house adds a <Text style={S.modalBold}>+25% bonus</Text> on top of your contribution.
+            Your pickles go straight into the pot for the winners.
           </Text>
           {myBalance != null && (
             <View style={S.modalSubRow}>
@@ -237,23 +235,6 @@ function ContributeModal({
             value={amount}
             onChangeText={setAmount}
           />
-
-          {Number.isFinite(n) && n > 0 && (
-            <View style={S.previewBox}>
-              <View style={S.previewRow}>
-                <Text style={S.previewLine}>You pay:</Text>
-                <PickleAmount amount={n} preset="sub" color={c.textSub} />
-              </View>
-              <View style={S.previewRow}>
-                <Text style={S.previewLine}>House bonus:</Text>
-                <PickleAmount amount={bonus} prefix="+" preset="sub" color={c.textSub} />
-              </View>
-              <View style={[S.previewRow, S.previewTotalRow]}>
-                <Text style={[S.previewLine, S.previewTotal]}>Pool gains:</Text>
-                <PickleAmount amount={added} preset="bodySub" textStyle={S.previewTotal} />
-              </View>
-            </View>
-          )}
 
           {myBalance != null && Number.isFinite(n) && n > myBalance && (
             <Text style={S.errorText}>You only have {picklesLabel(myBalance)}.</Text>
@@ -528,11 +509,6 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     label:    { fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: SPACE.md, marginBottom: SPACE.xs },
     input:    { minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, paddingVertical: SPACE.sm, fontSize: FONT.size.lg, color: c.text, backgroundColor: c.surface },
 
-    previewBox:    { backgroundColor: c.primaryLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
-    previewRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginVertical: SPACE.xxs },
-    previewTotalRow: { marginTop: SPACE.xs },
-    previewLine:   { fontSize: FONT.size.base, color: c.textSub },
-    previewTotal:  { fontSize: FONT.size.md, fontWeight: FONT.weight.heavy, color: c.primary },
     errorText:     { fontSize: FONT.size.sm, color: c.danger, marginTop: SPACE.sm },
 
     memberList:    { maxHeight: 200, marginTop: SPACE.xs, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md },

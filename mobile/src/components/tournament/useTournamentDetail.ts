@@ -139,7 +139,6 @@ export function useTournamentDetail({ navigation, tournamentId }: {
   const [editLengthHours, setEditLengthHours] = useState('');
   const [editAnte, setEditAnte]               = useState('');
   const [editPayout, setEditPayout]           = useState('');
-  const [editPrizePool, setEditPrizePool]     = useState('');
   const [editSeeding, setEditSeeding]         = useState<'random' | 'elo'>('random');
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [savingEdit, setSavingEdit]           = useState(false);
@@ -551,7 +550,6 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     setEditLengthHours(tournament.expected_length_hours != null ? String(tournament.expected_length_hours) : '');
     setEditAnte(tournament.pickle_ante != null ? String(tournament.pickle_ante) : '0');
     setEditPayout(Array.isArray(tournament.payout_structure) ? tournament.payout_structure.join(',') : '60,25,15');
-    setEditPrizePool(tournament.prize_pool != null ? String(tournament.prize_pool) : '');
     setEditSeeding((tournament.seeding === 'elo' ? 'elo' : 'random'));
     setEditError(null);
     setShowEditModal(true);
@@ -597,14 +595,6 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     }
 
     // Prize pool override — leave null to let the existing accounting drive it
-    let prizePoolN: number | null = null;
-    if (editPrizePool.trim()) {
-      prizePoolN = parseInt(editPrizePool.trim(), 10);
-      if (!Number.isFinite(prizePoolN) || prizePoolN < 0) {
-        setEditError('Prize pool must be 0 or a positive integer.'); return;
-      }
-    }
-
     setSavingEdit(true);
     const updatePayload: Record<string, any> = {
       name,
@@ -618,8 +608,8 @@ export function useTournamentDetail({ navigation, tournamentId }: {
       payout_structure:      payoutParts,
       seeding:               editSeeding,
     };
-    // Only override the pool when the admin explicitly typed a value.
-    if (prizePoolN != null) updatePayload.prize_pool = prizePoolN;
+    // The prize pool is server-owned (migration_pickle_economy_guards.sql):
+    // it only grows from antes and contributions.
 
     const { error } = await supabase.from('tournaments').update(updatePayload).eq('id', tournament.id);
     setSavingEdit(false);
@@ -1214,7 +1204,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     editName, setEditName, editDesc, setEditDesc, editLocation, setEditLocation,
     editMinPlayers, setEditMinPlayers, editMaxPlayers, setEditMaxPlayers,
     editStartTime, setEditStartTime, editLengthHours, setEditLengthHours,
-    editAnte, setEditAnte, editPayout, setEditPayout, editPrizePool, setEditPrizePool,
+    editAnte, setEditAnte, editPayout, setEditPayout,
     editSeeding, setEditSeeding, showStartPicker, setShowStartPicker,
     // Wagers
     wagerSubject, setWagerSubject, wagerOpen, setWagerOpen,

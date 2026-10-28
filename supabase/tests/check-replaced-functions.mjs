@@ -118,6 +118,14 @@ const REPLACED = [
   ['public._pl_profiles_column_guard()', 'migration_profiles_column_guard.sql', 'migration_cosmetic_equip_owned.sql'],
   // ...and gift_shop_item refuses badge-gated items (they cost 0).
   ['public.gift_shop_item(uuid,uuid,text)', 'migration_gift_shop_item_notify.sql', 'migration_cosmetic_equip_owned.sql'],
+  // Pickle economy guards (migration_pickle_economy_guards.sql): badges pay
+  // once / competitions only with real play, the daily play cap, at most 5
+  // games, no back-filled streaks, no pot house bonus.
+  ['public._grant_pickles_on_badge()', 'migration_bump_base_pickle_grants.sql', 'migration_pickle_economy_guards.sql'],
+  ['public._grant_match_game_bonus()', 'migration_daily_login_and_match_game_bonuses.sql', 'migration_pickle_economy_guards.sql'],
+  ['public._grant_daily_streak_bonus()', 'migration_local_day_boundaries.sql', 'migration_pickle_economy_guards.sql'],
+  ['public._grant_tournament_participation_bonus()', 'migration_shop_rewards_and_progress_badges.sql', 'migration_pickle_economy_guards.sql'],
+  ['public.contribute_pickles_to_pool(text,uuid,integer)', 'migration_add_pickle_pots.sql', 'migration_pickle_economy_guards.sql'],
 ];
 const TAG = '$pl_expect$';
 

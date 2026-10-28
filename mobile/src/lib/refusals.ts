@@ -77,6 +77,9 @@ export const REFUSAL_CODES = [
   'plan.taken',
   // migration_profiles_column_guard.sql: a profile column only the server writes.
   'profile.server_owned',
+  // migration_pickle_economy_guards.sql: prize pots, and drill requests answered by the invitee.
+  'pot.server_owned',
+  'drill.not_yours',
   // migration_cosmetic_equip_owned.sql: equip_shop_item and the profiles guard.
   'shop.item_gone',
   'shop.not_owned',
@@ -405,6 +408,11 @@ export function refusalCopy(
     case 'profile.server_owned':
       // Only an outdated or broken build sends one: the app never writes these columns.
       return "Your profile wasn't saved: Pickleague keeps your pickles, ratings and match stats up to date itself. Update Pickleague, then try again.";
+    case 'pot.server_owned':
+      // Only an older build sends one: its tournament edit sheet had a prize pool field.
+      return "The prize pot only grows from entry fees and contributions, so it can't be set by hand. Update Pickleague, then save again.";
+    case 'drill.not_yours':
+      return 'Only the invited player can accept or decline this drill request. Wait for their answer, or cancel it and send a new one.';
     case 'shop.item_gone':
       return "That item isn't in the Shop any more, so it can't be equipped. Pull to refresh.";
     case 'shop.not_owned': {

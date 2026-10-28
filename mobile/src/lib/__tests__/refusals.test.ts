@@ -70,6 +70,9 @@ const SERVER_CODES: RefusalCode[] = [
   'friend.not_friends',
   // migration_profiles_column_guard.sql
   'profile.server_owned',
+  // migration_pickle_economy_guards.sql
+  'pot.server_owned',
+  'drill.not_yours',
   // migration_on_my_way.sql
   'omw.bad_eta',
   'omw.too_many',
