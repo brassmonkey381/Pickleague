@@ -267,8 +267,8 @@ begin
     returning id into v_id;
     v_ids := v_ids || v_id;
   end loop;
-  -- Since migration_fair_rewards.sql: the same players earn at most 120 within 12 hours.
-  perform pg_temp.ok('E6 ...six matches with the same pair within 12 hours pay 120 in all',
+  -- Since migration_fair_rewards.sql: the same players pay for 3 matches within 12 hours.
+  perform pg_temp.ok('E6 ...six matches with the same pair within 12 hours pay 3 x 40',
     (select sum(paid) from public.match_game_bonus_grants where user_id = pg_temp.p('MX')) = 120
     and (select paid from public.match_game_bonus_grants where match_id = v_ids[5] and user_id = pg_temp.p('MX')) = 0);
 exception when others then

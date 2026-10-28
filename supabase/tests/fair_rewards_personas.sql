@@ -15,6 +15,7 @@
 --   MA  plays MB, MC, MD, ME in one day (front-loaded pay, 3 new opponents a week)
 --   CA  checks in at a court, then plays CB
 --   OR  organises a season with MA..MD (real play); SO a solo league's season
+--   DA..DE  doubles: the same four, then one player swapped (a new group)
 -- ============================================================
 
 begin;
@@ -35,7 +36,9 @@ insert into _p values
   ('MC', 'a9f00000-0000-4000-8000-000000000005'), ('MD', 'a9f00000-0000-4000-8000-000000000006'),
   ('ME', 'a9f00000-0000-4000-8000-000000000007'), ('CA', 'a9f00000-0000-4000-8000-000000000008'),
   ('CB', 'a9f00000-0000-4000-8000-000000000009'), ('OR', 'a9f00000-0000-4000-8000-00000000000a'),
-  ('SO', 'a9f00000-0000-4000-8000-00000000000b');
+  ('SO', 'a9f00000-0000-4000-8000-00000000000b'), ('DA', 'a9f00000-0000-4000-8000-00000000000c'),
+  ('DB', 'a9f00000-0000-4000-8000-00000000000d'), ('DC', 'a9f00000-0000-4000-8000-00000000000e'),
+  ('DD', 'a9f00000-0000-4000-8000-00000000000f'), ('DE', 'a9f00000-0000-4000-8000-000000000010');
 grant select on _p to authenticated, anon;
 
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
@@ -93,7 +96,7 @@ begin
          (pg_temp.solo(), 'Fair Solo League', null, false, pg_temp.p('SO'));
   insert into public.league_members (league_id, user_id, role)
   select pg_temp.lg(), pg_temp.p(k), case when k = 'OR' then 'admin' else 'member' end
-    from unnest(array['OR','MA','MB','MC','MD','ME','CA','CB']) k
+    from unnest(array['OR','MA','MB','MC','MD','ME','CA','CB','DA','DB','DC','DD','DE']) k
   union all select pg_temp.solo(), pg_temp.p('SO'), 'admin'
   on conflict (league_id, user_id) do nothing;
 exception when others then
@@ -221,7 +224,7 @@ exception when others then
 end $$;
 
 
--- ════ F3b the same players earn at most 120 within 12 hours ══════════════
+-- ════ F3b the same players pay for 3 matches within 12 hours ═════════════
 do $$
 declare
   v_ids uuid[] := '{}';
@@ -236,7 +239,7 @@ begin
     v_ids := v_ids || v_id;
   end loop;
   perform set_config('pickleague.skip_badge_pickle_grant', '', true);
-  perform pg_temp.ok('F3b six matches with the same pair pay 40, 40, 40, then nothing (120 in 12 hours)',
+  perform pg_temp.ok('F3b six matches with the same pair pay 40, 40, 40, then nothing (3 in 12 hours)',
     array(select (select g.paid from public.match_game_bonus_grants g
                    where g.match_id = v_ids[i] and g.user_id = pg_temp.p('LA'))
             from generate_series(1, 6) i) = array[40, 40, 40, 0, 0, 0],
@@ -257,7 +260,7 @@ declare
   k text;
 begin
   -- ME plays 12 matches today against 6 players in turn, twice each, so no
-  -- pair gets near 120. The 500 cap isn't reached either (about 460 in all).
+  -- pair reaches 3. The 500 cap isn't reached either (about 460 in all).
   perform set_config('pickleague.skip_badge_pickle_grant', 'on', true);
   foreach k in array array['MB','MC','MD','CA','CB','OR','MB','MC','MD','CA','CB','OR'] loop
     insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
@@ -273,6 +276,46 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('F3c block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ F3d doubles: one different player makes a new group ════════════════
+do $$
+declare
+  v_ids uuid[] := '{}';
+  v_id  uuid;
+  i     integer;
+begin
+  perform set_config('pickleague.skip_badge_pickle_grant', 'on', true);
+  -- DA + DB vs DC + DD four times, then DA + DB vs DC + DE four times.
+  for i in 1..8 loop
+    insert into public.matches (league_id, player1_id, partner1_id, player2_id, partner2_id,
+                                player1_score, player2_score, match_type, status, played_at)
+    values (pg_temp.lg(), pg_temp.p('DA'), pg_temp.p('DB'), pg_temp.p('DC'),
+            pg_temp.p(case when i <= 4 then 'DD' else 'DE' end), 11, 6, 'doubles', 'completed', now())
+    returning id into v_id;
+    v_ids := v_ids || v_id;
+  end loop;
+  perform set_config('pickleague.skip_badge_pickle_grant', '', true);
+  -- DA: the first group pays 3 (the 4th pays 0 and doesn't move the curve);
+  -- the new group pays 3 more, on down the curve: 35, 30, 25.
+  perform pg_temp.ok('F3d doubles: same four pay 3 matches, then a swapped player is a new group',
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DA'))
+            from generate_series(1, 8) i) = array[40, 40, 40, 0, 35, 30, 25, 0],
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DA'))
+            from generate_series(1, 8) i)::text);
+  perform pg_temp.ok('F3d ...and the new player starts at 40 x 3',
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DE'))
+            from generate_series(5, 8) i) = array[40, 40, 40, 0],
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DE'))
+            from generate_series(5, 8) i)::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('F3d block crashed', false, sqlerrm);
 end $$;
 
 

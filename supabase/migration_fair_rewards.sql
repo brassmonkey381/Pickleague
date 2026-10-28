@@ -26,10 +26,12 @@
 --   2. Match pay (_grant_match_game_bonus), inside the daily cap: front-loaded
 --      per day, per match: a player's first 3 matches of their day pay 40
 --      each, then 35, 30, 25, 20, 15, 10, 5, and 0 from the 12th match, whoever
---      they're with (it was 25 a game). The same players (the same 2 in singles,
---      the same 4 in doubles) earn at most 120 together within 12 hours (it
---      was: the 4th match within 24 hours paid nothing).
---      match_game_bonus_grants.paid records each match's pay for that limit.
+--      they're with (it was 25 a game). Each exact group (the same 2 in
+--      singles, the same 4 in doubles) pays a player for at most 3 matches
+--      within 12 hours; one different player makes it a new group (it was:
+--      the 4th match within 24 hours paid nothing). A match the group limit
+--      doesn't pay doesn't move the player down the day's curve either.
+--      match_game_bonus_grants.paid records each match's pay.
 --   3. Social earns, new, inside the daily cap:
 --      * New opponent (_grant_new_opponent_bonus): +50 for each player you
 --        play for the first time (either side), at most 3 a week (rolling 7
@@ -308,18 +310,19 @@ begin
     where uid is not null
   loop
     begin
-      -- The day's curve: this player's nth match today, whoever it's with.
-      -- 1-3 pay 40, then 35, 30, 25, 20, 15, 10, 5, and 0 from the 12th.
+      -- The day's curve: this player's nth paid match today, whoever it's
+      -- with. 1-3 pay 40, then 35, 30, 25, 20, 15, 10, 5, and 0 from the 12th.
       v_tz := public._pickleague_tz_for(v_uid);
       select count(*) + 1 into v_n
         from public.match_game_bonus_grants g
        where g.user_id = v_uid
          and g.match_id <> new.id
+         and coalesce(g.paid, 25 * g.games) > 0
          and g.granted_at >= ((now() at time zone v_tz)::date)::timestamp at time zone v_tz;
       v_bonus := case when v_n <= 3 then 40 else greatest(40 - 5 * (v_n - 3), 0) end;
 
-      -- The same players earn at most 120 together within 12 hours.
-      select coalesce(sum(coalesce(g.paid, 25 * g.games)), 0) into v_group
+      -- Each exact group pays this player for at most 3 matches within 12 hours.
+      select count(*) into v_group
         from public.match_game_bonus_grants g
         join public.matches x on x.id = g.match_id
        where g.user_id = v_uid
@@ -328,8 +331,10 @@ begin
              between coalesce(new.played_at, now()) - interval '12 hours' and coalesce(new.played_at, now()) + interval '12 hours'
          and (select array_agg(u order by u)
                 from unnest(array[x.player1_id, x.partner1_id, x.player2_id, x.partner2_id]) as u
-               where u is not null) = v_players;
-      v_bonus := greatest(least(v_bonus, 120 - v_group, public._pl_play_cap_left(v_uid)), 0);
+               where u is not null) = v_players
+         and coalesce(g.paid, 25 * g.games) > 0;
+      if v_group >= 3 then v_bonus := 0; end if;
+      v_bonus := greatest(least(v_bonus, public._pl_play_cap_left(v_uid)), 0);
 
       insert into public.match_game_bonus_grants(match_id, user_id, games, paid)
         values (new.id, v_uid, v_games, v_bonus)
