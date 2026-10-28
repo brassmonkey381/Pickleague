@@ -307,6 +307,11 @@ export function buildAchievements(input: BuildAchievementsInput): BuiltAchieveme
       glyph,
       earnedAt,
       progress: prog,
+      // Silver / bronze finishes wear their own metal (foundation 1.85).
+      ...(name === 'Season Silver' ? { tint: 'medalSilver', ringTint: 'medalSilver' } : null),
+      ...(name === 'Season Bronze' ? { tint: 'medalBronze', ringTint: 'medalBronze' } : null),
+      // "×3" on a badge earned several times (several leagues, stacking wins).
+      count: awards.length > 1 ? awards.length : undefined,
       hidden: earnedOnly || retired || !!def?.hiddenUntilEarned,
       meta: {
         kind: 'badge',
@@ -354,6 +359,7 @@ export function buildAchievements(input: BuildAchievementsInput): BuiltAchieveme
         glyph: d.glyph,
         earnedAt: claimed ? st!.claimedAt : null,
         progress: claimable ? { current: 1, target: 1, label: 'Ready to claim' } : null,
+        statusLabel: claimable ? 'Ready to claim' : undefined,
         meta: {
           kind: 'ftue', awards: [], perLeague: false, stacks: false, rewards: [],
           ftueStep: d.step, claimable, ftueReward: d.reward,
