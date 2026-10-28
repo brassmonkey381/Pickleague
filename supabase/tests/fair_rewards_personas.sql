@@ -241,11 +241,11 @@ begin
   perform set_config('pickleague.skip_badge_pickle_grant', '', true);
   perform pg_temp.ok('F3b six matches with the same pair pay 40, 40, 40, then nothing (3 in 12 hours)',
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('LA'))
-            from generate_series(1, 6) i) = array[40, 40, 40, 0, 0, 0],
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('LA'))
+            from generate_series(1, 6) s(n)) = array[40, 40, 40, 0, 0, 0],
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('LA'))
-            from generate_series(1, 6) i)::text);
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('LA'))
+            from generate_series(1, 6) s(n))::text);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('F3b block crashed', false, sqlerrm);
@@ -301,18 +301,18 @@ begin
   -- the new group pays 3 more, on down the curve: 35, 30, 25.
   perform pg_temp.ok('F3d doubles: same four pay 3 matches, then a swapped player is a new group',
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DA'))
-            from generate_series(1, 8) i) = array[40, 40, 40, 0, 35, 30, 25, 0],
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('DA'))
+            from generate_series(1, 8) s(n)) = array[40, 40, 40, 0, 35, 30, 25, 0],
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DA'))
-            from generate_series(1, 8) i)::text);
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('DA'))
+            from generate_series(1, 8) s(n))::text);
   perform pg_temp.ok('F3d ...and the new player starts at 40 x 3',
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DE'))
-            from generate_series(5, 8) i) = array[40, 40, 40, 0],
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('DE'))
+            from generate_series(5, 8) s(n)) = array[40, 40, 40, 0],
     array(select (select g.paid from public.match_game_bonus_grants g
-                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('DE'))
-            from generate_series(5, 8) i)::text);
+                   where g.match_id = v_ids[s.n] and g.user_id = pg_temp.p('DE'))
+            from generate_series(5, 8) s(n))::text);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('F3d block crashed', false, sqlerrm);
