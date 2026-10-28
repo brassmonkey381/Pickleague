@@ -611,7 +611,13 @@ export type RootStackParamList = {
     period?: number;
   };
   Profile: { userId?: string };
+  // Old route, kept so links and pushes still land: redirects to Achievements.
   UnlockProgress: undefined;
+  // Own page with no userId. `focus` (a badge name or achievement id) opens
+  // that one's detail sheet on arrival (Me's "Next unlock" row).
+  Achievements: { userId?: string; userName?: string; focus?: string } | undefined;
+  // One group's "View all" grid.
+  AchievementGroup: { groupId: string; title?: string; userId?: string; userName?: string };
   // focus 'checkins': open "Check-in automation" and scroll to it (the
   // settings/checkins link on the Not here notices, lib/courtArrivalRules).
   Settings: { focus?: 'checkins' } | undefined;
@@ -654,4 +660,23 @@ export type RootStackParamList = {
   // My routine (ROUTINES_ENABLED). newVenue opens the add sheet with that
   // starred court picked ("Make it a routine" on a court).
   Routines: { newVenue?: { venueId: string; venueName: string } } | undefined;
+};
+
+/** A player_badges row with its badge (and league) joined: what Profile and
+ *  PlayerProfile read. lib/achievements turns these into medals. */
+export type BadgeItem = {
+  id: string;
+  badge_id: string;
+  is_hidden: boolean;
+  earned_at: string;
+  context: string | null;
+  league_id: string | null;
+  source_match_id?: string | null;
+  badge: {
+    name: string;
+    description: string;
+    icon: string;
+    category: 'profile' | 'league' | 'cosmetic';
+  };
+  league?: { name: string } | null;
 };

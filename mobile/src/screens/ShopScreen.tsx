@@ -94,7 +94,7 @@ export default function ShopScreen({ navigation }: Props) {
   const [earnedBadgeIds, setEarnedBadgeIds] = useState<Set<string>>(new Set());
   // badge name → { current, target, label } for the small progress indicator
   // rendered under each locked name-style preview. Mirrors the computation
-  // in UnlockProgressScreen so the two screens agree.
+  // in lib/unlockProgress (Achievements uses it too) so the screens agree.
   const [badgeProgress, setBadgeProgress] = useState<Record<string, { current: number; target: number; label: string }>>({});
 
   // Buy flow

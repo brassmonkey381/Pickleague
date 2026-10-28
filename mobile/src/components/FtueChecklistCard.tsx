@@ -18,9 +18,10 @@ import { Profile } from '../types';
 // match), each worth pickles once (claim_ftue_step).
 //
 // Two surfaces share this file:
-//   - UnlockProgress → Getting started (UnlockProgressScreen) renders the
-//     default export (alwaysShow + embedded), a progress tracker that stays
-//     visible when everything is done. Profile links there from its status strip.
+//   - Achievements (and its View all) reads useFtueChecklist for the Getting
+//     started group's Claim / Start buttons in the detail sheet. The default
+//     export (the stand-alone card) has no screen using it since that page
+//     replaced UnlockProgress.
 //   - Home's Get started panel (components/home/GetStartedPanel) uses
 //     useFtueChecklist + FtueStepRow, so the steps sit as rows in one Panel next
 //     to the guest / DUPR offers (plan section 3).
