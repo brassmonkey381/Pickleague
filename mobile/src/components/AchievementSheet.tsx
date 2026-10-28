@@ -64,6 +64,7 @@ export default function AchievementSheet({
     const lines = awardLines(meta.awards, longDateFormatter);
     const earned = !!a.earnedAt;
     const showInstances = meta.kind === 'badge' && (lines.length > 1 || meta.perLeague || lines.some(l => l.matchId || l.context));
+    const single = lines.length === 1 && !meta.perLeague;
     const hiddenNote = own && earned && isHiddenFromProfile(meta);
     const parts: React.ReactNode[] = [];
 
@@ -75,10 +76,17 @@ export default function AchievementSheet({
           ) : null}
           {lines.slice(0, MAX_LINES).map(l => (
             <View key={l.id} style={styles.line}>
-              <Icon name={meta.perLeague ? 'pickleball' : 'calendar'} size={14} color={c.textMuted} />
+              <Icon name={meta.perLeague ? 'pickleball' : single ? 'info' : 'calendar'} size={14} color={c.textMuted} />
               <View style={styles.flex}>
-                <Text style={t.sub} numberOfLines={1}>{l.text}</Text>
-                {l.context ? <Text style={t.meta} numberOfLines={2}>{l.context}</Text> : null}
+                {/* One account-wide award: the sheet already shows its date. */}
+                {single && l.context ? (
+                  <Text style={t.sub} numberOfLines={2}>{l.context}</Text>
+                ) : (
+                  <>
+                    <Text style={t.sub} numberOfLines={1}>{l.text}</Text>
+                    {l.context ? <Text style={t.meta} numberOfLines={2}>{l.context}</Text> : null}
+                  </>
+                )}
               </View>
               {l.matchId && userId ? (
                 <TextLink

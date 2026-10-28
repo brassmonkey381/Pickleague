@@ -5,10 +5,10 @@
 //   2. Quick row   [Edit profile] [Match history] [Calendar]
 //   3. Status      "Next unlock: Ninja avatar 3/5 >" (tour 'profile/rewards';
 //                  replaces the ~900px Unlockable Rewards card, whose rows all
-//                  live on Achievements; the row opens it on that badge)
+//                  live on Achievements; the row opens it on that badge),
+//                  then "Achievements · 3 of 42 unlocked" (the page)
 //   4. Coming up   my leagues & live tournaments -> their detail screens
-//   5. Reference   collapsed: Availability · Paddle · Achievements (a row to
-//                  the page) · Inventory ·
+//   5. Reference   collapsed: Availability · Paddle · Inventory ·
 //                  Doubles chemistry. Content mounts only when opened (the
 //                  672px availability grid included).
 // Every edit of who you are (avatar, name, username, tagline, gender, tags,
@@ -965,6 +965,28 @@ export default function ProfileScreen({ navigation }: Props) {
         />
       </View>
 
+      {/* Achievements: one strip row to the page, under the next unlock it
+          belongs with (was the Badges grid in Reference; the page has the
+          medals, progress, and the hide-from-profile toggles). */}
+      <ListCard
+        density="compact"
+        minHeight={STRIP_HEIGHT}
+        style={styles.block}
+        leading={<Icon name="medal" size={18} color={colors.primary} />}
+        // The count sits in the title: a ListCard `trailing` replaces the chevron
+        // the strips above and below keep.
+        title={(
+          <Text style={styles.stripLabel} numberOfLines={1}>
+            Achievements
+            {achCount ? <Text style={styles.stripCount}> · {achCount.earned} of {achCount.total} unlocked</Text> : null}
+          </Text>
+        )}
+        chevron
+        onPress={() => navigation.navigate('Achievements')}
+        accessibilityRole="button"
+        accessibilityLabel={achCount ? `Achievements, ${achCount.earned} of ${achCount.total} unlocked` : 'Achievements'}
+      />
+
       {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
       <FriendsLink style={styles.block} />
 
@@ -1097,25 +1119,6 @@ export default function ProfileScreen({ navigation }: Props) {
             </View>
           )}
         </CollapsibleSection>
-
-        {/* Achievements: one row to the page (was the Badges grid; the page
-            has the medals, progress, and the hide-from-profile toggles). */}
-        <ListCard
-          density="compact"
-          minHeight={STRIP_HEIGHT}
-          style={styles.block}
-          leading={<Icon name="medal" size={18} color={colors.primary} />}
-          title={<Text style={styles.stripLabel} numberOfLines={1}>Achievements</Text>}
-          trailing={achCount ? (
-            <Text style={t.meta} numberOfLines={1} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>
-              {achCount.earned} of {achCount.total} unlocked
-            </Text>
-          ) : undefined}
-          chevron
-          onPress={() => navigation.navigate('Achievements')}
-          accessibilityRole="button"
-          accessibilityLabel={achCount ? `Achievements, ${achCount.earned} of ${achCount.total} unlocked` : 'Achievements'}
-        />
 
         {shopPurchases.length > 0 && (
           <CollapsibleSection
@@ -1374,6 +1377,7 @@ function makeStyles(c: Colors) {
     // label: the unlock label shares its row with a bar and a count, so the
     // reward name keeps more of its width.
     stripLabel: { fontSize: FONT.size.base, fontWeight: FONT.weight.semibold, color: c.text },
+    stripCount: { fontWeight: FONT.weight.regular, color: c.textSub },
 
     // 4. Coming up
     moreRow: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderTopWidth: HAIRLINE, borderTopColor: c.border },
