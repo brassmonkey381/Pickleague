@@ -202,7 +202,8 @@ begin
 
   select array_agg(delta order by id) into v_pays from public.pickle_ledger
    where profile_id = pg_temp.p('MA') and source = '_grant_match_game_bonus';
-  perform pg_temp.ok('F3 four matches in a day pay 40, 40, 40, 5', v_pays = array[40, 40, 40, 5], v_pays::text);
+  perform pg_temp.ok('F3 four matches in a day, each with someone else, pay 40, 40, 40, 35',
+    v_pays = array[40, 40, 40, 35], v_pays::text);
   select count(*) into v_new from public.pickle_ledger
    where profile_id = pg_temp.p('MA') and source = '_grant_new_opponent_bonus' and delta = 50 and reason = 'New opponent';
   perform pg_temp.ok('F3 four new opponents: +50 for 3 of them (3 a week)', v_new = 3, v_new::text);
@@ -217,6 +218,61 @@ begin
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('F3 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ F3b the same players earn at most 120 within 12 hours ══════════════
+do $$
+declare
+  v_ids uuid[] := '{}';
+  v_id  uuid;
+  i     integer;
+begin
+  perform set_config('pickleague.skip_badge_pickle_grant', 'on', true);
+  for i in 1..6 loop
+    insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
+    values (pg_temp.lg(), pg_temp.p('LA'), pg_temp.p('LB'), 11, 5, 'singles', 'completed', now())
+    returning id into v_id;
+    v_ids := v_ids || v_id;
+  end loop;
+  perform set_config('pickleague.skip_badge_pickle_grant', '', true);
+  perform pg_temp.ok('F3b six matches with the same pair pay 40, 40, 40, then nothing (120 in 12 hours)',
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('LA'))
+            from generate_series(1, 6) i) = array[40, 40, 40, 0, 0, 0],
+    array(select (select g.paid from public.match_game_bonus_grants g
+                   where g.match_id = v_ids[i] and g.user_id = pg_temp.p('LA'))
+            from generate_series(1, 6) i)::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('F3b block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ F3c the day's curve: 40 x3, then 35 ... 5, then 0 ═════════════════════
+do $$
+declare
+  v_pays integer[] := '{}';
+  v_id   uuid;
+  k text;
+begin
+  -- ME plays 12 matches today against 6 players in turn, twice each, so no
+  -- pair gets near 120. The 500 cap isn't reached either (about 460 in all).
+  perform set_config('pickleague.skip_badge_pickle_grant', 'on', true);
+  foreach k in array array['MB','MC','MD','CA','CB','OR','MB','MC','MD','CA','CB','OR'] loop
+    insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
+    values (pg_temp.lg(), pg_temp.p('ME'), pg_temp.p(k), 11, 7, 'singles', 'completed', now())
+    returning id into v_id;
+    v_pays := v_pays || (select g.paid from public.match_game_bonus_grants g
+                          where g.match_id = v_id and g.user_id = pg_temp.p('ME'));
+  end loop;
+  perform set_config('pickleague.skip_badge_pickle_grant', '', true);
+  -- ME already played MA once in F3 (its match 1, 40), so these are matches 2-13.
+  perform pg_temp.ok('F3c the day''s curve: matches 2-13 pay 40, 40, 35, 30, 25, 20, 15, 10, 5, 0, 0, 0',
+    v_pays = array[40, 40, 35, 30, 25, 20, 15, 10, 5, 0, 0, 0], v_pays::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('F3c block crashed', false, sqlerrm);
 end $$;
 
 

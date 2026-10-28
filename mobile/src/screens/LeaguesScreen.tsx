@@ -30,6 +30,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { refusalMessage } from '../lib/refusals';
+import { createCostLine } from '../lib/createCosts';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
 import {
   ActionSheetModal,
@@ -543,7 +545,7 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
       setName(''); setDescription(''); setIsOpen(true); setHomeCourt(null); setCreateError('');
       void reload();
     } catch (e) {
-      setCreateError(friendlySbMessage(e, 'Failed to create league.'));
+      setCreateError(refusalMessage(e) ?? friendlySbMessage(e, 'Failed to create league.'));
     } finally {
       setCreating(false);
     }
@@ -993,6 +995,8 @@ export default function LeaguesScreen({ navigation, route, active = true, routeM
             </View>
           )}
 
+          <Text style={[t.hint, S.costLine]}>{createCostLine('league')}</Text>
+
           {createError ? (
             <View style={S.errorBox}>
               <Text style={[t.sub, S.errorText]}>{createError}</Text>
@@ -1061,6 +1065,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     },
     toggleText: { flex: 1, marginRight: SPACE.sm },
     toggleLabel: { fontWeight: FONT.weight.semibold, color: c.textSub },
+    costLine: { marginTop: SPACE.md },
     errorBox: { backgroundColor: c.dangerLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
     errorText: { color: c.danger, fontWeight: FONT.weight.semibold },
     courtWarning: {

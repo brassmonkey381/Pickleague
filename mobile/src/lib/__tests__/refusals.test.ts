@@ -73,6 +73,9 @@ const SERVER_CODES: RefusalCode[] = [
   // migration_pickle_economy_guards.sql
   'pot.server_owned',
   'drill.not_yours',
+  // migration_create_costs.sql
+  'create.limit',
+  'create.cost',
   // migration_on_my_way.sql
   'omw.bad_eta',
   'omw.too_many',

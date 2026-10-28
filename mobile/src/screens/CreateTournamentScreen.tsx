@@ -14,6 +14,8 @@ import CourtPicker, { CourtResult } from '../components/CourtPicker';
 import { checkGodmode, countActiveOwnedTournaments } from '../lib/godmode';
 import { useTheme } from '../lib/ThemeContext';
 import { sbCall, requireUserId, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { refusalMessage } from '../lib/refusals';
+import { createCostLine } from '../lib/createCosts';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { shadowColor } from '@just-messin-around/expo-foundation/theme';
@@ -410,7 +412,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
           rolledBack = true;
         } catch { /* reported below */ }
         setError(rolledBack
-          ? `${friendlySbMessage(regErr, 'Could not finish setting up the tournament.')} It was cancelled — nothing was left half-created. Please try again.`
+          ? `${friendlySbMessage(regErr, 'Could not finish setting up the tournament.')} It was cancelled and its 2,500 pickles are back. Please try again.`
           : `${friendlySbMessage(regErr, 'Could not finish setting up the tournament.')} "${t.name}" was created but you are not registered as its admin — reconnect and cancel it from the tournament page before creating another.`);
         return;
       }
@@ -418,7 +420,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
       setSuccess(true);
       navTimer.current = setTimeout(() => navigation.replace('TournamentDetail', { tournamentId: t.id, tournamentName: t.name }), 800);
     } catch (e) {
-      setError(friendlySbMessage(e, 'Could not create the tournament.', {
+      setError(refusalMessage(e) ?? friendlySbMessage(e, 'Could not create the tournament.', {
         network: 'Lost the connection. Check the Tournaments list before trying again — it may have been created.',
       }));
     } finally {
@@ -713,6 +715,7 @@ export default function CreateTournamentScreen({ navigation, route }: Props) {
         )}
 
         {/* ── Status / submit ── */}
+        <Text style={S.costLine}>{createCostLine('tournament')}</Text>
         {error ? (
           <View style={S.errorBox}><Text style={S.errorText}>{error}</Text></View>
         ) : null}
@@ -782,6 +785,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: c.surfaceAlt, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.sm },
     relink: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: SPACE.xs, minHeight: 44 },
     relinkText: { color: c.primary, marginTop: 0, fontWeight: FONT.weight.semibold },
+    costLine: { ...t.hint, color: c.textSub, marginTop: SPACE.md },
     errorBox: { backgroundColor: c.dangerLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },
     errorText: { ...t.bodySub, color: c.danger, fontWeight: FONT.weight.semibold },
     successBox: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, backgroundColor: c.successLight, borderRadius: RADIUS.md, padding: SPACE.md, marginTop: SPACE.md },

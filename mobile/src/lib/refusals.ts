@@ -80,6 +80,9 @@ export const REFUSAL_CODES = [
   // migration_pickle_economy_guards.sql: prize pots, and drill requests answered by the invitee.
   'pot.server_owned',
   'drill.not_yours',
+  // migration_create_costs.sql: starting a league / tournament.
+  'create.limit',
+  'create.cost',
   // migration_cosmetic_equip_owned.sql: equip_shop_item and the profiles guard.
   'shop.item_gone',
   'shop.not_owned',
@@ -411,6 +414,21 @@ export function refusalCopy(
     case 'pot.server_owned':
       // Only an older build sends one: its tournament edit sheet had a prize pool field.
       return "The prize pot only grows from entry fees and contributions, so it can't be set by hand. Update Pickleague, then save again.";
+    case 'create.limit': {
+      // DETAIL {kind, limit}
+      const kind = detail.kind === 'tournament' ? 'tournament' : 'league';
+      return kind === 'league'
+        ? "You're already running an active league. Close it, or hand it to another admin, before starting another."
+        : "You're already running an active tournament. Finish or cancel it before starting another.";
+    }
+    case 'create.cost': {
+      // DETAIL {kind, cost, balance}
+      const kind = detail.kind === 'tournament' ? 'tournament' : 'league';
+      const cost = Number(detail.cost) || (kind === 'league' ? 5000 : 2500);
+      const balance = Number(detail.balance);
+      const have = Number.isFinite(balance) ? ` You have ${balance.toLocaleString('en-US')}.` : '';
+      return `Starting a ${kind} costs ${cost.toLocaleString('en-US')} pickles.${have} Play matches and log in daily to earn more.`;
+    }
     case 'drill.not_yours':
       return 'Only the invited player can accept or decline this drill request. Wait for their answer, or cancel it and send a new one.';
     case 'shop.item_gone':

@@ -261,15 +261,16 @@ begin
    where user_id = pg_temp.p('MX') and match_id = v_id;
   perform pg_temp.ok('E6 a 10-game match counts 5 games', v_paid = 5, format('games %s', v_paid));
 
-  for i in 1..3 loop
+  for i in 1..5 loop
     insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
     values (pg_temp.free(), pg_temp.p('MX'), pg_temp.p('MY'), 11, 3, 'singles', 'completed', now())
     returning id into v_id;
     v_ids := v_ids || v_id;
   end loop;
-  perform pg_temp.ok('E6 ...the 4th match with the same pair in a day pays no games',
-    not exists (select 1 from public.match_game_bonus_grants where match_id = v_ids[3])
-    and exists (select 1 from public.match_game_bonus_grants where match_id = v_ids[2]));
+  -- Since migration_fair_rewards.sql: the same players earn at most 120 within 12 hours.
+  perform pg_temp.ok('E6 ...six matches with the same pair within 12 hours pay 120 in all',
+    (select sum(paid) from public.match_game_bonus_grants where user_id = pg_temp.p('MX')) = 120
+    and (select paid from public.match_game_bonus_grants where match_id = v_ids[5] and user_id = pg_temp.p('MX')) = 0);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('E6 block crashed', false, sqlerrm);

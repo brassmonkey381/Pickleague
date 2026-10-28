@@ -25,8 +25,11 @@
 --        already paid are backfilled, so nobody is paid twice.
 --   2. Match pay (_grant_match_game_bonus), inside the daily cap: front-loaded
 --      per day, per match: a player's first 3 matches of their day pay 40
---      each, later ones 5 (it was 25 a game). The 4th match within 24 hours
---      with the same players still pays nothing.
+--      each, then 35, 30, 25, 20, 15, 10, 5, and 0 from the 12th match, whoever
+--      they're with (it was 25 a game). The same players (the same 2 in singles,
+--      the same 4 in doubles) earn at most 120 together within 12 hours (it
+--      was: the 4th match within 24 hours paid nothing).
+--      match_game_bonus_grants.paid records each match's pay for that limit.
 --   3. Social earns, new, inside the daily cap:
 --      * New opponent (_grant_new_opponent_bonus): +50 for each player you
 --        play for the first time (either side), at most 3 a week (rolling 7
@@ -62,6 +65,9 @@
 
 
 -- ════ 0. Tables ══════════════════════════════════════════════════════════
+
+-- What each match paid each player (the same-players limit adds these up).
+alter table public.match_game_bonus_grants add column if not exists paid integer;
 
 create table if not exists public.login_streak_milestones (
   user_id    uuid not null references public.profiles(id) on delete cascade,
@@ -280,9 +286,9 @@ declare
   v_bonus integer;
   v_rowcount integer;
   v_players uuid[];
-  v_repeats integer;
   v_tz    text;
-  v_today integer;
+  v_n     integer;
+  v_group integer;
 begin
   if coalesce(new.status, 'completed') <> 'completed' then return new; end if;
 
@@ -290,21 +296,10 @@ begin
   -- row keeps the count, the pay is per match (migration_fair_rewards.sql §2).
   v_games := least(greatest(coalesce(jsonb_array_length(new.game_scores), 1), 1), 5);
 
-  -- The same players a 4th time within 24 hours: no match pickles.
+  -- This match's players, sorted: "the same players" means exactly this set.
   select array_agg(u order by u) into v_players
     from unnest(array[new.player1_id, new.partner1_id, new.player2_id, new.partner2_id]) as u
    where u is not null;
-  select count(*) into v_repeats
-    from public.matches x
-   where x.id <> new.id
-     and coalesce(x.status, 'completed') = 'completed'
-     and coalesce(x.played_at, x.created_at)
-         between coalesce(new.played_at, now()) - interval '24 hours' and coalesce(new.played_at, now()) + interval '24 hours'
-     and x.player1_id = any (v_players)
-     and (select array_agg(u order by u)
-            from unnest(array[x.player1_id, x.partner1_id, x.player2_id, x.partner2_id]) as u
-           where u is not null) = v_players;
-  if v_repeats >= 3 then return new; end if;
 
   for v_uid in
     select distinct uid from (values
@@ -313,16 +308,31 @@ begin
     where uid is not null
   loop
     begin
-      -- Matches already paid today, in this player's day: the first 3 pay 40.
+      -- The day's curve: this player's nth match today, whoever it's with.
+      -- 1-3 pay 40, then 35, 30, 25, 20, 15, 10, 5, and 0 from the 12th.
       v_tz := public._pickleague_tz_for(v_uid);
-      select count(*) into v_today
+      select count(*) + 1 into v_n
         from public.match_game_bonus_grants g
        where g.user_id = v_uid
          and g.match_id <> new.id
          and g.granted_at >= ((now() at time zone v_tz)::date)::timestamp at time zone v_tz;
-      v_bonus := least(case when v_today < 3 then 40 else 5 end, public._pl_play_cap_left(v_uid));
-      insert into public.match_game_bonus_grants(match_id, user_id, games)
-        values (new.id, v_uid, v_games)
+      v_bonus := case when v_n <= 3 then 40 else greatest(40 - 5 * (v_n - 3), 0) end;
+
+      -- The same players earn at most 120 together within 12 hours.
+      select coalesce(sum(coalesce(g.paid, 25 * g.games)), 0) into v_group
+        from public.match_game_bonus_grants g
+        join public.matches x on x.id = g.match_id
+       where g.user_id = v_uid
+         and g.match_id <> new.id
+         and coalesce(x.played_at, x.created_at)
+             between coalesce(new.played_at, now()) - interval '12 hours' and coalesce(new.played_at, now()) + interval '12 hours'
+         and (select array_agg(u order by u)
+                from unnest(array[x.player1_id, x.partner1_id, x.player2_id, x.partner2_id]) as u
+               where u is not null) = v_players;
+      v_bonus := greatest(least(v_bonus, 120 - v_group, public._pl_play_cap_left(v_uid)), 0);
+
+      insert into public.match_game_bonus_grants(match_id, user_id, games, paid)
+        values (new.id, v_uid, v_games, v_bonus)
         on conflict (match_id, user_id) do nothing;
       get diagnostics v_rowcount = row_count;
       if v_rowcount > 0 and v_bonus > 0 then
@@ -331,9 +341,9 @@ begin
           perform public._notify_user(
             v_uid,
             format('🥒 +%s pickles for your match!', v_bonus),
-            case when v_today < 3
+            case when v_n <= 3
                  then format('You earned %s 🥒 for playing. Your first 3 matches each day pay the most.', v_bonus)
-                 else format('You earned %s 🥒 for playing. Tomorrow''s first 3 matches pay 40 each.', v_bonus) end,
+                 else format('You earned %s 🥒 for playing. Each match today pays a little less; tomorrow starts at 40 again.', v_bonus) end,
             v_uid,
             'shop'
           );
