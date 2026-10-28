@@ -43,6 +43,8 @@ grant select on _p to authenticated, anon;
 create function pg_temp.p(text) returns uuid language sql stable as $$ select id from _p where k = $1 $$;
 create function pg_temp.solo() returns uuid language sql immutable as $$ select 'b9e00000-0000-4000-8000-000000000001'::uuid $$;
 create function pg_temp.real() returns uuid language sql immutable as $$ select 'b9e00000-0000-4000-8000-000000000002'::uuid $$;
+-- Where MX/MY and DS/DR play (matches need a league).
+create function pg_temp.free() returns uuid language sql immutable as $$ select 'b9e00000-0000-4000-8000-000000000003'::uuid $$;
 
 create function pg_temp.ok(p_test text, p_ok boolean, p_detail text default null) returns void
 language sql as $$ insert into _results (test, ok, detail) values (p_test, coalesce(p_ok, false), p_detail) $$;
@@ -99,11 +101,14 @@ begin
 
   insert into public.leagues (id, name, description, is_open, created_by)
   values (pg_temp.solo(), 'Economy Solo League', null, false, pg_temp.p('SO')),
-         (pg_temp.real(), 'Economy Real League', null, false, pg_temp.p('R1'));
+         (pg_temp.real(), 'Economy Real League', null, false, pg_temp.p('R1')),
+         (pg_temp.free(), 'Economy Free League', null, true, pg_temp.p('MX'));
   insert into public.league_members (league_id, user_id, role) values
     (pg_temp.solo(), pg_temp.p('SO'), 'admin'),
     (pg_temp.real(), pg_temp.p('R1'), 'admin'), (pg_temp.real(), pg_temp.p('R2'), 'member'),
-    (pg_temp.real(), pg_temp.p('R3'), 'member'), (pg_temp.real(), pg_temp.p('R4'), 'member')
+    (pg_temp.real(), pg_temp.p('R3'), 'member'), (pg_temp.real(), pg_temp.p('R4'), 'member'),
+    (pg_temp.free(), pg_temp.p('MX'), 'admin'), (pg_temp.free(), pg_temp.p('MY'), 'member'),
+    (pg_temp.free(), pg_temp.p('DS'), 'member'), (pg_temp.free(), pg_temp.p('DR'), 'member')
   on conflict (league_id, user_id) do nothing;
   insert into public.league_player_ratings (league_id, user_id, rating)
   select pg_temp.solo(), pg_temp.p('SO'), 3.5
@@ -152,6 +157,9 @@ begin
     has_function_privilege('authenticated', 'public.contribute_pickles_to_pool(text,uuid,integer)', 'execute'));
   perform pg_temp.ok('E1 existing badges are backfilled as paid',
     (select count(*) from public.pickle_badge_payouts) > 0);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E1 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -171,6 +179,9 @@ begin
             and league_id = pg_temp.solo()));
   perform pg_temp.ok('E2 ...and no pickles for it', pg_temp.pickles('SO') = v_before,
     format('before %s, after %s', v_before, pg_temp.pickles('SO')));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E2 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -192,6 +203,9 @@ begin
     v_mid > v_before and v_mid - v_before <= 150, format('before %s, after %s', v_before, v_mid));
   perform pg_temp.ok('E3 ...the same period again pays nothing', pg_temp.pickles('R1') = v_mid,
     format('after first %s, after second %s', v_mid, pg_temp.pickles('R1')));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E3 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -224,6 +238,9 @@ begin
   perform pg_temp.ok('E5 five badges in a day pay 500, not 750', v_n = 5 and pg_temp.pickles('CP') - v_cp = 500,
     format('%s badges, gained %s', v_n, pg_temp.pickles('CP') - v_cp));
   perform pg_temp.ok('E5 ...and the cap says 0 left', public._pl_play_cap_left(pg_temp.p('CP')) = 0);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E4 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -236,32 +253,38 @@ declare
   v_ids   uuid[] := '{}';
   i       integer;
 begin
-  insert into public.matches (player1_id, player2_id, player1_score, player2_score, match_type, status, played_at, game_scores)
-  values (pg_temp.p('MX'), pg_temp.p('MY'), 10, 0, 'singles', 'completed', now(), v_games)
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at, game_scores)
+  values (pg_temp.free(), pg_temp.p('MX'), pg_temp.p('MY'), 11, 0, 'singles', 'completed', now(), v_games)
   returning id into v_id;
   select coalesce(sum(delta), 0) into v_paid from public.pickle_ledger
    where profile_id = pg_temp.p('MX') and source = '_grant_match_game_bonus';
   perform pg_temp.ok('E6 a 10-game match pays 5 games (125)', v_paid = 125, format('paid %s', v_paid));
 
   for i in 1..3 loop
-    insert into public.matches (player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
-    values (pg_temp.p('MX'), pg_temp.p('MY'), 11, 3, 'singles', 'completed', now())
+    insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
+    values (pg_temp.free(), pg_temp.p('MX'), pg_temp.p('MY'), 11, 3, 'singles', 'completed', now())
     returning id into v_id;
     v_ids := v_ids || v_id;
   end loop;
   perform pg_temp.ok('E6 ...the 4th match with the same pair in a day pays no games',
     not exists (select 1 from public.match_game_bonus_grants where match_id = v_ids[3])
     and exists (select 1 from public.match_game_bonus_grants where match_id = v_ids[2]));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E6 block crashed', false, sqlerrm);
 end $$;
 
 
 -- ════ E7 no back-filled streak days ══════════════════════════════════════
 do $$
 begin
-  insert into public.matches (player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
-  values (pg_temp.p('DS'), pg_temp.p('DR'), 11, 4, 'singles', 'completed', now() - interval '10 days');
+  insert into public.matches (league_id, player1_id, player2_id, player1_score, player2_score, match_type, status, played_at)
+  values (pg_temp.free(), pg_temp.p('DS'), pg_temp.p('DR'), 11, 4, 'singles', 'completed', now() - interval '10 days');
   perform pg_temp.ok('E7 a match dated 10 days ago starts no streak day',
     not exists (select 1 from public.daily_play_streaks where user_id = pg_temp.p('DS')));
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E7 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -275,6 +298,9 @@ begin
   perform pg_temp.ok('E8 contributing 100 adds exactly 100',
     coalesce((j ->> 'success')::boolean, false)
     and (select prize_pool from public.leagues where id = pg_temp.solo()) = v_pool + 100, j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E8 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -293,6 +319,9 @@ begin
   j := pg_temp.json_as('SO', format(
     'with u as (update public.leagues set description = ''still editable'' where id = %L returning 1) select to_jsonb(count(*)) from u', pg_temp.solo()));
   perform pg_temp.ok('E9 ...other league fields still save', j = '1'::jsonb, j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E9 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -309,6 +338,9 @@ begin
     'with u as (update public.matches set status = ''completed'' where id = %L returning 1) select to_jsonb(count(*)) from u', v_id));
   perform pg_temp.ok('E10 the recorder cannot mark their own match completed',
     (j = '0'::jsonb or j ? 'error') and (select status from public.matches where id = v_id) = 'pending', j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E10 block crashed', false, sqlerrm);
 end $$;
 
 
@@ -330,6 +362,9 @@ begin
   j := pg_temp.json_as('DS', format(
     'with u as (update public.drill_requests set status = ''cancelled'' where id = %L returning 1) select to_jsonb(count(*)) from u', v_id));
   perform pg_temp.ok('E11 the sender can still cancel', j = '1'::jsonb, j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('E11 block crashed', false, sqlerrm);
 end $$;
 
 
