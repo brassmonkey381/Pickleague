@@ -17,6 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, type LayoutChangeEvent } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { createArtResolver } from '@just-messin-around/expo-foundation/room/art';
 import { roomBuyConfirmCopy } from '@just-messin-around/expo-foundation/room';
 import { Panel, SectionHeader, Chip, ErrorState, SegmentedToggle, ConfirmModal } from '@just-messin-around/expo-foundation/ui';
@@ -100,6 +101,14 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   const visit = useVisitHome(mine ? null : ownerParam, !mine && meId !== undefined);
   const home = mine ? myHome : visit;
   const owner = usePlaceOwner(ownerId);
+
+  // Pickles change on other screens (Shop, gifts, claims): re-read my balance on every focus.
+  const refreshMine = myHome.refresh;
+  useFocusEffect(
+    useCallback(() => {
+      if (mine && meId !== undefined) void refreshMine();
+    }, [mine, meId, refreshMine]),
+  );
 
   const ownerFirst = firstName(owner.data?.full_name) || route.params?.userName?.split(/\s+/)[0] || '';
   useEffect(() => {
@@ -192,20 +201,31 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   // ── actions ──
   const say = (kind: DecorNotice['kind'], text: string) => setNotice({ kind, text });
 
+  // A ref, not state: two taps in one frame both see busyId === null.
+  const busyRef = useRef(false);
   async function run(id: string, fn: () => Promise<void>) {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusyId(id);
     setNotice(null);
     try {
       await fn();
     } finally {
+      busyRef.current = false;
       setBusyId(null);
     }
   }
 
   function onAction(row: DecorRow) {
-    if (!slot || busyId) return;
+    if (!slot || busyId || busyRef.current) return;
     const { item, action } = row;
     const slotId = slot.id;
+    // A pillow with no couch wouldn't show: say so before any pickles are spent.
+    const parent = blockingParent(MY_PLACE_SLOTS, slotId, saved);
+    if (parent && (action.type === 'buy' || action.type === 'equip')) {
+      say('info', parentEmptyNote(slot, parent));
+      return;
+    }
     switch (action.type) {
       case 'remove':
         void run(item.id, async () => {
@@ -252,7 +272,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
 
   async function confirmBuy() {
     const p = pendingBuy;
-    if (!p) return;
+    if (!p || busyRef.current) return;
     setPendingBuy(null);
     await run(p.item.id, async () => {
       try {
@@ -295,30 +315,30 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
     );
   }
 
-  if (!mine && home.error && !home.data) {
-    const block = visitBlock(home.error);
-    if (block) {
-      const body = refusalMessage(home.error, { action: 'visit_place', personName: ownerFirst || null }) ?? '';
-      return (
-        <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
-          <Panel style={styles.blockPanel}>
-            <Icon name={block === 'private' || block === 'friends_only' ? 'lock' : block === 'guest' || block === 'signed_out' ? 'person' : 'eye-off'} size={36} color={c.textMuted} />
-            <Text style={[t.h3, styles.center]}>{visitBlockTitle(block, ownerFirst || refusalDetail(home.error).name as string)}</Text>
-            <Text style={[t.bodySub, styles.center]}>{body}</Text>
-            {block === 'friends_only' && ownerParam && owner.data ? (
-              <FriendButton userId={ownerParam} meId={meId ?? null} profile={owner.data} style={styles.friend} />
-            ) : null}
-            {block === 'guest' ? (
-              <Button title="Finish signing up" onPress={() => navigation.navigate('UpgradeAccount')} style={styles.blockBtn} />
-            ) : null}
-            {block === 'friends_only' ? (
-              <Button size="sm" variant="outline" title="Check again" onPress={() => void refresh.onRefresh()} style={styles.blockBtn} />
-            ) : null}
-            <Button size="sm" variant="outline" title="Go back" onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))} style={styles.blockBtn} />
-          </Panel>
-        </ScrollView>
-      );
-    }
+  // A refusal wins over a room read earlier this session: Only me, an unfriend
+  // or a block applies as soon as the server says so.
+  const block = !mine && home.error ? visitBlock(home.error) : null;
+  if (block) {
+    const body = refusalMessage(home.error, { action: 'visit_place', personName: ownerFirst || null }) ?? '';
+    return (
+      <ScrollView style={{ backgroundColor: c.bg }} contentContainerStyle={styles.container} refreshControl={<AppRefreshControl {...refresh} />}>
+        <Panel style={styles.blockPanel}>
+          <Icon name={block === 'private' || block === 'friends_only' ? 'lock' : block === 'guest' || block === 'signed_out' ? 'person' : 'eye-off'} size={36} color={c.textMuted} />
+          <Text style={[t.h3, styles.center]}>{visitBlockTitle(block, ownerFirst || refusalDetail(home.error).name as string)}</Text>
+          <Text style={[t.bodySub, styles.center]}>{body}</Text>
+          {block === 'friends_only' && ownerParam && owner.data ? (
+            <FriendButton userId={ownerParam} meId={meId ?? null} profile={owner.data} style={styles.friend} />
+          ) : null}
+          {block === 'guest' ? (
+            <Button title="Finish signing up" onPress={() => navigation.navigate('UpgradeAccount')} style={styles.blockBtn} />
+          ) : null}
+          {block === 'friends_only' ? (
+            <Button size="sm" variant="outline" title="Check again" onPress={() => void refresh.onRefresh()} style={styles.blockBtn} />
+          ) : null}
+          <Button size="sm" variant="outline" title="Go back" onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'))} style={styles.blockBtn} />
+        </Panel>
+      </ScrollView>
+    );
   }
 
   const firstError = (!catalog.data && catalog.error) || (!home.data && home.error) || null;
@@ -339,7 +359,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
   const filled = filledCount(saved, decorSlots);
   const blocked = slot ? blockingParent(MY_PLACE_SLOTS, slot.id, saved) : null;
   const confirm = pendingBuy ? roomBuyConfirmCopy(pendingBuy.item, PICKLE_WORDS) : null;
-  const roomName = mine ? 'Your room' : `${ownerFirst || 'Their'}'s room`;
+  const roomName = mine ? 'Your room' : ownerFirst ? `${ownerFirst}'s room` : 'Their room';
 
   return (
     <View style={[styles.screen, { backgroundColor: c.bg }]}>
@@ -460,7 +480,7 @@ export default function MyPlaceScreen({ navigation, route }: Props) {
         ) : (
           <Text style={[t.sub, styles.block]}>
             {filled === 0
-              ? `${ownerFirst || 'They'} hasn't decorated yet. Check back later.`
+              ? `${ownerFirst ? `${ownerFirst} hasn't` : "They haven't"} decorated yet. Check back later.`
               : `This is ${ownerFirst ? `${ownerFirst}'s` : 'their'} place. Only ${ownerFirst || 'they'} can decorate it.`}
           </Text>
         )}

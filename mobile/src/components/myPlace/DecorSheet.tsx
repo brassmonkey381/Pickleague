@@ -269,6 +269,6 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SPACE.sm, minHeight: 44 },
   thumb: { width: THUMB + 8, height: THUMB + 8, borderRadius: RADIUS.md, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   tags: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 2 },
-  tag: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, overflow: 'hidden' },
+  tag: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: RADIUS.sm, overflow: 'hidden' },
   action: { minWidth: 92 },
 });

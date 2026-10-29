@@ -13,7 +13,8 @@
 // into the cached home, so the room re-renders from one write.
 //
 // Art: home_item_art is read only for the ids being drawn (the room, the open
-// sheet), kept in memory under ART_KEY, and sanitized on the device by the
+// sheet), kept in memory under ART_KEY (outside the 'myplace' prefix, so pull
+// to refresh never wipes art the effect won't reload), and sanitized on the device by the
 // kit's art resolver (createArtResolver) when drawn.
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { sbCall } from '@just-messin-around/expo-foundation/supabase';
@@ -36,14 +37,17 @@ import {
   type MyPlaceHome,
   type MyPlaceItem,
   type MyPlaceVisibility,
+  visitBlock,
 } from '../lib/myPlace';
 import { MY_PLACE_SLOTS } from '../lib/myPlaceSlots';
+import { HOME_KEY, type HomeData } from '../components/home/homeData';
+import { PICKLE_CALENDAR_CACHE_KEY } from './pickleLedger';
 
 export const MY_PLACE_KEY = 'myplace';
 export const MY_HOME_KEY = 'me:myPlace';
 const CATALOG_KEY = 'myplace:catalog';
 const LAYOUT_KEY = 'myplace:layout';
-const ART_KEY = 'myplace:art';
+const ART_KEY = 'myplaceArt';
 const visitKey = (ownerId: string) => `myplace:visit:${ownerId}`;
 const ownerKey = (ownerId: string) => `myplace:owner:${ownerId}`;
 
@@ -124,9 +128,21 @@ export function useMyHome(enabled = true) {
   });
 }
 
-/** Someone else's place. Not kept on disk: a block or Only me must apply on the next open. */
+/**
+ * Someone else's place. Not kept on disk: a block or Only me must apply on the
+ * next open. A refused visit also drops the memory copy, so the cache's
+ * stale-if-error can't keep serving the room the owner just closed.
+ */
 export function useVisitHome(ownerId: string | null, enabled = true) {
-  return useCachedQuery<MyPlaceHome>(visitKey(ownerId ?? '-'), () => getHome(ownerId), {
+  const key = visitKey(ownerId ?? '-');
+  return useCachedQuery<MyPlaceHome>(key, async () => {
+    try {
+      return await getHome(ownerId);
+    } catch (e) {
+      if (visitBlock(e)) invalidateQueries(key);
+      throw e;
+    }
+  }, {
     ttlMs: VISIT_TTL_MS,
     enabled: enabled && !!ownerId,
   });
@@ -226,6 +242,12 @@ export async function buyHomeItem(itemId: string): Promise<BuyResult> {
     owned: h.owned.includes(res.itemId) ? h.owned : [...h.owned, res.itemId],
     balance: res.balance ?? h.balance,
   }));
+  if (res.cost > 0 && res.balance != null) {
+    // The balance other screens show: Home's greeting, and the pickle ledger.
+    const home = peekQuery<HomeData>(HOME_KEY);
+    if (home?.profile) setQueryData(HOME_KEY, { ...home, profile: { ...home.profile, pickles: res.balance } });
+    invalidateQueries(PICKLE_CALENDAR_CACHE_KEY);
+  }
   return res;
 }
 

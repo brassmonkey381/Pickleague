@@ -24,6 +24,8 @@ import {
   type SlotDef,
 } from '@just-messin-around/expo-foundation/room/layout';
 import type { RoomItem } from '@just-messin-around/expo-foundation/room/shop';
+import { RADIUS } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
 import { tileGrid, type AvatarLook } from '../../lib/myPlace';
 import { MY_PLACE_FLOOR_LINE, MY_PLACE_SLOTS, myPlaceBackdrop } from '../../lib/myPlaceSlots';
@@ -50,6 +52,7 @@ const TILES_ACROSS = 4;
 
 export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, label, onPressSlot, activeSlot }: Props) {
   const { colors: c } = useTheme();
+  const t = textStyles(c);
   const height = Math.round(width * RATIO);
 
   const renderBackdrop = useMemo(
@@ -86,7 +89,7 @@ export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, 
       resolveArt={resolveArt}
       renderAvatar={renderAvatar}
       renderBackdrop={renderBackdrop}
-      radius={16}
+      radius={RADIUS.lg}
       accessibilityLabel={label}
     >
       {onPressSlot ? (
@@ -116,11 +119,11 @@ export default function MyPlaceRoom({ width, layout, items, resolveArt, avatar, 
                   styles.abs,
                   styles.target,
                   { left: box.left, top: box.top, width: Math.max(box.width, 24), height: Math.max(box.height, 24) },
-                  !filled && { borderColor: c.textMuted, borderStyle: 'dashed', borderWidth: 1.5, backgroundColor: 'rgba(255,255,255,0.18)' },
+                  !filled && { borderColor: c.textMuted, borderStyle: 'dashed', borderWidth: 1.5, backgroundColor: `${c.surface}2E` /* surface at 18% */ },
                   on && { borderColor: c.primary, borderStyle: 'solid', borderWidth: 2 },
                 ]}
               >
-                {!filled ? <Text style={[styles.plus, { color: c.textSub }]}>+</Text> : null}
+                {!filled ? <Text style={[t.h3, styles.plus, { color: c.textSub }]}>+</Text> : null}
               </Pressable>
             );
           })}
@@ -207,6 +210,6 @@ function shadingOverlay(W: number, H: number, floorTop: number): string {
 
 const styles = StyleSheet.create({
   abs: { position: 'absolute' },
-  target: { borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  plus: { fontSize: 18, fontWeight: '800', lineHeight: 20 },
+  target: { borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
+  plus: { fontWeight: '800' },
 });
