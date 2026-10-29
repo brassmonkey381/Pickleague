@@ -100,6 +100,26 @@ SUGGESTED WALKTHROUGH
      Check in now and Not here, then "Checked in at <court>" a minute later,
      a take-back when leaving within 5 minutes, and "Leaving <court>?" when
      leaving later. Details under PERMISSIONS below.
+12. Getting around: the bar at the bottom is Home, Saved, Play (the round
+   button: check in or start playing at a court), Discover and Me.
+13. Discover: Leagues, Tournaments, Places (courts near you or a searched
+   city; tap one for its page) and Players (friends, friend requests, people
+   you've played with, search by name).
+14. Planned check-ins: on a court card or court page, "Check in" opens its
+   options: "Plan a check-in for later" (a time; then Edit plan sets how long
+   and when you drill, play in a closed group or play open), "Check in and
+   tell friends", and "On my way" (a push to the friends you pick, about N
+   minutes out). Me -> My routine sets a weekly routine at a starred court.
+   Friends see a planned check-in only once you share it (Shared / Only you).
+15. Pickles: tap the balance on Home for the pickle history (what was earned
+   and spent, a calendar of daily totals). Me -> Achievements shows badges.
+   Me -> Invite & Earn has the player's invite link.
+16. Share my finish: on a finished season's standings, or a finished
+   tournament's "You" card, "Share my finish" makes an image of the player's
+   final place and opens the iOS share sheet.
+17. Play sessions: after a session ends it can be discarded, past sessions
+   are listed in a session history, and Record Match offers the players
+   checked in at the same court.
 
 5. EXTERNAL SERVICES USED
 - Supabase (hosted PostgreSQL, Auth, Storage) - user accounts, all league and
@@ -146,7 +166,9 @@ cached no longer than the permitted 30 days and attributed per record. The app
 contains no licensed sports content and no professional league or team marks.
 
 USER-GENERATED CONTENT
-User-generated content is deliberately minimal and is not a social feed. It
+User-generated content is deliberately minimal and is not a social feed (Home
+lists court activity, such as who is checked in and planned check-ins; there
+are no posts). It
 consists of: a display name and short tagline, an optional profile photo, the
 names of leagues, events, and venues created by organizers, and one private
 messaging surface - when a player asks another player to practise ("drill")
@@ -196,13 +218,17 @@ league. Specifically:
   no payment SDK anywhere in the app.
 - They have NO cash value and cannot be withdrawn, transferred off-platform, or
   exchanged for anything of real-world value.
-- They are earned only by playing and recording matches.
-- They can be spent ONLY on cosmetic items: avatars, profile name styles, and
-  decorative badges.
+- They are earned only inside the app: by playing and recording matches,
+  opening the app on consecutive days, earning badges, and inviting a friend
+  who signs up and confirms their email (both players get the invite reward).
+- They can be spent ONLY inside the app: on cosmetic items (avatars, profile
+  name styles, decorative badges, and decor for the player's "My Place"
+  room), and on creating a league or a tournament (a fixed pickle cost).
 - They CANNOT be staked, wagered, or bet on anything. There is no prediction,
   wagering, or contest-of-chance feature in this build.
 
-In short: pickles are a points total that can buy a nicer avatar. There is no
+In short: pickles are a points total that can buy a nicer avatar or pay to
+start a league. There is no
 purchase, no cash-out, no staking, and no real money anywhere in the app.
 
 PERMISSIONS AND WHY THEY ARE REQUESTED
@@ -267,9 +293,12 @@ PERMISSIONS AND WHY THEY ARE REQUESTED
   name and phone number of contacts the player explicitly selects are sent, in
   order to create that invite.
 - Photo library: only to select a profile picture, or to pick a QR code image
-  for the QR wallet.
+  for the QR wallet. "Share my finish" hands its image to the iOS share sheet;
+  Pickleague itself never writes to the photo library.
 - Notifications: optional, off by default. Used for match results, event
-  reminders, drill requests, tournament updates and court check-ins. Some
+  reminders, drill requests, tournament updates, court check-ins, planned
+  check-in reminders, and a friend saying they are on the way to (or at) a
+  court. Some
   notifications carry buttons (for example "Can't make it", "Confirm",
   "Check in", "Check in now", "Not here", "Stay 1 more hour", "Check out")
   that answer without opening the app.
@@ -384,7 +413,10 @@ node scripts/seed-fake-players.mjs --qa --delete --league "Alameda Evening Leagu
   currency.
 - App Privacy questionnaire — declare email, precise location, contacts, photos,
   push token, and user content. Keep the contacts answer aligned with the
-  privacy policy's precise wording.
+  privacy policy's precise wording. For build 14 also check (privacy.html,
+  2026-10-29): Other User Content (planned check-ins, On my way), Product
+  Interaction (pickle history, seen tips), and the invite-link records
+  (salted network-address hash, 24 hours; App Functionality, not tracking).
 - Support URL (required) and Marketing URL (optional).
 
 ## 5. Screen recording shot list — 2.1 rejection, 2026-08-12
@@ -438,6 +470,13 @@ ones to forget, so shoot in this order:
 7. **Account deletion.** Settings → Delete account, all the way through
    confirmation. Their list explicitly includes deletion flows, and this is the
    single most common cause of a follow-up rejection.
+
+8. **Build 14 additions.** The court arrival flow (§7), then, as the demo
+   account: the bottom bar, Discover's four tiles, a court's "Check in"
+   options with Plan a check-in for later and Edit plan, On my way, Me -> My
+   routine, the pickle history from Home's balance, Achievements, Invite &
+   Earn, Share my finish up to the share sheet, and a play session's history
+   with Discard.
 
 Nothing to record for paid content: there is no purchase or subscription flow
 anywhere in the app.
@@ -584,26 +623,25 @@ and the [API contract](play-sessions-presence-api.md#court-arrival-2026-10-19).
   only TestFlight build 13 phones), then build 14 with these strings and notes, device tests,
   submit.
 
-## 8. Courts: find a court, open its page (1.0.5)
+## 8. Courts: find a court, open its page (on in build 14)
 
-Court discovery Phase 1 (`state/court-discovery-plan.md`) is JS only and ships by OTA behind
-`COURT_DISCOVERY_ENABLED` (off until `supabase/migration_court_discovery_p1.sql` is live and its
-persona test passes; flipped after 1.0.4 is approved). For the 1.0.5 submission:
+Court discovery (`state/court-discovery-plan.md`) is on for everyone (`COURT_DISCOVERY_ENABLED`),
+now inside Discover -> Places, so it is in the build 14 bundle and §1 item 13:
 
-- **Notes (§1):** add a step: Home -> Courts tile (or "Browse courts ›" on the court card) lists
-  nearby pickleball courts, nearest first; tapping one opens its page (facts, leagues there,
-  who's here, Directions, Share, Check in). Location is asked only from "Use my location"; a city
-  search works without it. Signed-in only.
+- **Notes (§1):** Discover -> Places lists nearby pickleball courts, nearest first; tapping one
+  opens its page (facts, leagues there, who's here, Directions, Share, Check in). Location is
+  asked only from "Use my location"; a city search works without it. Signed-in only.
 - **Permission strings: no change.** The when-in-use string already says "show courts near you".
 - **Screen recording (§5):** Courts list with location allowed, a city search, one court page,
   Directions opening Maps.
 
-## 9. Routines: planned check-ins at starred courts (after 1.0.4, by OTA)
+## 9. Routines and planned check-ins (on in build 14)
 
-Routine check-ins (`state/routine-checkins-plan.md`, Doggle's routines) are JS only and ship by
-OTA behind `ROUTINES_ENABLED` (off until `supabase/migration_court_routines.sql` is live, the
-hardening migration re-run and send-push redeployed with the new push kinds). For the next
-submission after the flag flips:
+Routine check-ins (`state/routine-checkins-plan.md`, Doggle's routines), one-off planned
+check-ins with Edit plan (Drill / Closed group / Open play), plan sharing and On my way are all
+on for everyone and in the build 14 bundle (§1 item 14). Friends see a plan only once its owner
+shares it (`migration_plan_sharing.sql`; "Share my routine stops automatically" is off by
+default). Notes for §1, already folded into item 14:
 
 - **Notes (§1):** add a step: Profile -> "My routine" (also Settings -> Check-in automation ->
   "Manage my routine"). A routine is a starred court, a time, the days, how long you play (30 min
@@ -612,17 +650,18 @@ submission after the flag flips:
   court between 30 minutes before and 30 minutes after its time checks you in for as long as you
   planned ("Check me in at my routine courts", on by default, in the same Settings section). A
   check-in can also get a length and windows by hand ("Plan my play"), and "Switch to open play
-  now" opens the rest of it to anyone. Friends see your routines on your profile as "Planned
-  check-ins" (Settings -> Privacy -> "Who sees my planned check-ins", default Friends; blocked
-  and hidden-from players never do). Other players at a court see only "N here · M open to play".
+  now" opens the rest of it to anyone. Friends see a routine's stop only once you confirm it
+  from the daily list (or turn on auto-share), and only as Settings -> Privacy -> "Who sees my
+  planned check-ins" allows (default Friends; blocked and hidden-from players never do). Other
+  players at a court see only "N here · M open to play".
 - **Permission strings: no change.** Routines live only at starred courts (the user's decision
   of 2026-10-20), which the "Always" string already names; no new permission, plugin or module.
 - **App Privacy questionnaire: no change expected.** A routine stores a court, a time, days, a
   length and windows; an arrival during one stores what any arrival check-in stores (no
   coordinates).
 - **Privacy policy:** [`mobile/public/privacy.html`](../mobile/public/privacy.html) has a
-  "Routine check-ins" row (what is stored, who sees it, deleted with the account). Land it with
-  the OTA that flips the flag.
+  "Planned check-ins and routines" row (what is stored, the Shared / Only you rule, who sees it,
+  deleted with the account) and an "On my way" row. Live with master since 2026-10-29.
 - **Screen recording (§5):** My routine with one routine (Edit open: court, time, days, How long,
   Closed group / Open play), a friend's profile showing Planned check-ins, the court card's "Plan
   my play" and "Switch to open play now", and the reminder push with its two buttons.
