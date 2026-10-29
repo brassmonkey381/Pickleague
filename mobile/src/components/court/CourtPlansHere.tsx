@@ -11,9 +11,10 @@
 //          Planned check-in · until 8 PM
 //
 // The chip's sheet is the feed line's (lib/checkinOptions lineActionIds):
-// Check in now · On my way (today) · Change time · Cancel this visit. Change
-// time opens the page's plan sheet (any day); the writes run in
-// useCheckinOptions, so the page's Check in waits for them.
+// Check in now · On my way (today) · Change time · Edit plan · Cancel this
+// visit. Change time opens the page's plan sheet (any day); the writes run in
+// useCheckinOptions, so the page's Check in waits for them. Edit plan (how
+// long, Closed group / Open play / Drill) is PlanEditSheet's own write.
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useCachedQuery } from '@just-messin-around/expo-foundation/cache';
@@ -37,6 +38,7 @@ import { refusalCode } from '../../lib/refusals';
 import { planIsShared, shareToggledMessage } from '../../lib/planSharing';
 import { setCourtPlanShared } from '../../data/planSharing';
 import { planDayTime, plansAtCourt, planWhen, type CourtPlan } from '../../lib/courtPlans';
+import { playModeNowLine } from '../../lib/courtRoutineRules';
 import {
   MY_COURT_PLANS_KEY,
   MY_COURT_PLANS_PERSIST_MS,
@@ -45,6 +47,7 @@ import {
 } from '../../data/courtPlans';
 import { sentOnMyWayRecently } from '../../data/onMyWay';
 import type { CheckinCourt, useCheckinOptions } from '../feed/useCheckinOptions';
+import PlanEditSheet, { type PlanEditTarget } from '../routines/PlanEditSheet';
 
 type Props = {
   court: CheckinCourt;
@@ -76,6 +79,7 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
   });
   const [open, setOpen] = React.useState<CourtPlan | null>(null);
   const after = React.useRef<(() => void) | null>(null);
+  const [planEdit, setPlanEdit] = React.useState<PlanEditTarget | null>(null);
 
   const mine = CHECKIN_PLANS_ENABLED ? plansAtCourt(plansQ.data ?? [], court.venueId, now) : [];
   const writing = options.busy === 'plan' && options.planning === court.venueId;
@@ -140,6 +144,15 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
               after.current = () => options.openMovePlan(court, p);
             },
           };
+        case 'editPlan':
+          return {
+            label: 'Edit plan',
+            iconName: 'edit',
+            onPress: () => {
+              tap(id);
+              after.current = () => setPlanEdit({ ...p, venueName: court.venueName });
+            },
+          };
         case 'share':
         case 'unshare':
           return {
@@ -187,7 +200,8 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
                       rather than being cut short beside it. */}
                   <View style={S.metaRow}>
                     <Text style={[t.meta, S.shrink, { color: c.textSub }]} numberOfLines={2}>
-                      {`Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
+                      {playModeNowLine(p.windows, new Date(Math.max(now, Date.parse(p.plannedAt)))) ||
+                        `Planned check-in · until ${shortTime(new Date(p.plannedEndAt))}`}
                     </Text>
                     {PLAN_SHARING_ENABLED ? (
                       <PlanShareChip
@@ -230,6 +244,7 @@ export default function CourtPlansHere({ court, here, options, onCheckIn }: Prop
           next?.();
         }}
       />
+      <PlanEditSheet plan={planEdit} onClose={() => setPlanEdit(null)} />
     </>
   );
 }

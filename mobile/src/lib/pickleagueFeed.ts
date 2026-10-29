@@ -119,6 +119,8 @@ export type FeedOneOffPlan = {
   endAt: string;
   /** Friends who can see my plans see it. */
   planShared: boolean;
+  /** Closed group / Open play / Drill (Edit plan); [] = nothing said. */
+  windows: AbsoluteTimeWindow<PlayMode>[];
 };
 
 /** A friend's shared plan at a court (list_friend_court_plans). */
@@ -582,7 +584,7 @@ export function buildPickleagueFeed(input: FeedInput): PickleagueFeed {
       courts.set(p.venueId, { id: p.venueId, name: p.venueName, lat: p.lat, lng: p.lng, starred: false, routine: false });
     }
     const entry = plansByVenue.get(p.venueId) ?? { venueName: known?.name || p.venueName, plans: [] };
-    entry.plans.push({ planId: p.planId, at: p.plannedAt, endAt: p.plannedEndAt, planShared: planIsShared(p) });
+    entry.plans.push({ planId: p.planId, at: p.plannedAt, endAt: p.plannedEndAt, planShared: planIsShared(p), windows: p.windows });
     plansByVenue.set(p.venueId, entry);
   }
 

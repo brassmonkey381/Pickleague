@@ -166,19 +166,19 @@ describe("a line's time chip", () => {
     expect(lineActionIds({ kind: 'stop', status: 'cancelled', at: at(18) }, ctx())).toEqual(['undoSkip', 'editRoutine']);
   });
 
-  it("my one-off plan today: Check in now, On my way, Change time, Cancel this visit (Doggle's order)", () => {
-    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'changeTime', 'cancelPlan']);
+  it("my one-off plan today: Check in now, On my way, Change time, Edit plan, Cancel this visit (Doggle's order + Edit plan)", () => {
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'changeTime', 'editPlan', 'cancelPlan']);
   });
 
-  it('my one-off plan once checked in here, or tomorrow: Change time and Cancel', () => {
-    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ hereMine: true }))).toEqual(['changeTime', 'cancelPlan']);
-    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ day: 'tomorrow' }))).toEqual(['changeTime', 'cancelPlan']);
+  it('my one-off plan once checked in here, or tomorrow: Change time, Edit plan and Cancel', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ hereMine: true }))).toEqual(['changeTime', 'editPlan', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ day: 'tomorrow' }))).toEqual(['changeTime', 'editPlan', 'cancelPlan']);
   });
 
-  it('my one-off plan past its time: no Change time; On my way until 30 minutes past; Cancel always', () => {
-    expect(lineActionIds({ kind: 'plan', at: at(14, 40) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'cancelPlan']);
+  it('my one-off plan past its time: no Change time; On my way and Edit plan until 30 minutes past; Cancel always', () => {
+    expect(lineActionIds({ kind: 'plan', at: at(14, 40) }, ctx())).toEqual(['checkInNow', 'onMyWay', 'editPlan', 'cancelPlan']);
     expect(lineActionIds({ kind: 'plan', at: at(14, 20) }, ctx())).toEqual(['checkInNow', 'cancelPlan']);
-    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ canOnMyWay: false }))).toEqual(['checkInNow', 'changeTime', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18) }, ctx({ canOnMyWay: false }))).toEqual(['checkInNow', 'changeTime', 'editPlan', 'cancelPlan']);
   });
 
   it('a friend here: On my way, Check in here, their profile', () => {
@@ -219,8 +219,8 @@ describe('plan sharing: Share with friends / Make it only you', () => {
   });
 
   it('my one-off plan: before Cancel this visit', () => {
-    expect(lineActionIds({ kind: 'plan', at: at(18), shared: true }, ctx({ hereMine: true }))).toEqual(['changeTime', 'unshare', 'cancelPlan']);
-    expect(lineActionIds({ kind: 'plan', at: at(18), shared: false }, ctx({ day: 'later' }))).toEqual(['changeTime', 'share', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18), shared: true }, ctx({ hereMine: true }))).toEqual(['changeTime', 'editPlan', 'unshare', 'cancelPlan']);
+    expect(lineActionIds({ kind: 'plan', at: at(18), shared: false }, ctx({ day: 'later' }))).toEqual(['changeTime', 'editPlan', 'share', 'cancelPlan']);
   });
 
   it('only while in play (no more than 30 minutes past its time), and never on a skipped stop', () => {

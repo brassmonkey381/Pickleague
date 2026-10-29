@@ -37,6 +37,21 @@ describe('pickPlayChip', () => {
     expect(pickPlayChip({ ...base, lastUsed: 'drill' })).toMatchObject({ chip: 'drill', why: 'last_used' });
   });
 
+  it('a routine drilling now picks Drill, and its line says so', () => {
+    const routine: ChipRoutine = {
+      plannedAt: at(-15),
+      plannedEndAt: at(105),
+      lengthMin: 120,
+      windows: [
+        { startsAt: at(-15), endsAt: at(45), mode: 'drill' },
+        { startsAt: at(45), endsAt: at(105), mode: 'open' },
+      ],
+    };
+    const p = pickPlayChip({ ...base, routine });
+    expect(p.chip).toBe('drill');
+    expect(draftPlanLine(p.windows ?? [], p.lengthMin ?? 0, NOW, clock)).toBe('Drill until 18:45, then open play until 19:45');
+  });
+
   it("a routine at this court now: its current window's mode, length and windows", () => {
     // 5:30 PM stop, closed until 6:30, then open until 7:30.
     const routine: ChipRoutine = {

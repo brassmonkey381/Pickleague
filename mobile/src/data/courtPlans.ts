@@ -9,6 +9,8 @@ import { createSignal } from '@just-messin-around/expo-foundation/hooks';
 import { supabase } from '../lib/supabase';
 import { parseCourtPlans, type CourtPlan } from '../lib/courtPlans';
 import { PLAN_SHARING_ENABLED } from '../lib/features';
+import { windowsToRows, type TimeWindow } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
+import type { PlayMode } from '../lib/courtRoutineRules';
 
 export type { CourtPlan };
 
@@ -60,6 +62,31 @@ export async function planCourtCheckin(venueId: string, at: Date, opts?: { share
 /** "Change time". Refusals: visit.gone, visit.bad_time, visit.too_far, visit.taken. */
 export async function moveCourtPlan(planId: string, at: Date): Promise<CourtPlan[]> {
   return stored(await sbCall(() => supabase.rpc('move_court_plan', { p_plan_id: planId, p_at: at.toISOString() }), BOUND));
+}
+
+/**
+ * "Edit plan": how long, and the Closed group / Open play / Drill windows
+ * (offsets from the plan's time; [] = the whole length, nothing said).
+ * Refusals: visit.gone, visit.bad_length, windows.bad. A server older than
+ * migration_plan_options.sql has no set_court_plan_details: friendlySbMessage
+ * words that as a failure, nothing else breaks.
+ */
+export async function setCourtPlanDetails(
+  planId: string,
+  lengthMin: number,
+  windows: readonly TimeWindow<PlayMode>[],
+): Promise<CourtPlan[]> {
+  return stored(
+    await sbCall(
+      () =>
+        supabase.rpc('set_court_plan_details', {
+          p_plan_id: planId,
+          p_length_min: lengthMin,
+          p_windows: windows.length ? windowsToRows(windows) : null,
+        }),
+      BOUND,
+    ),
+  );
 }
 
 /** "Cancel this visit". Refusal: visit.gone. */

@@ -14,12 +14,22 @@
 //   A plan's line > Change time              the feed: its day, from the next
 //                                            quarter hour; the court page: any day
 //   The court page's "Your planned check-ins here": every plan there, any day
+//   A plan's line > Edit plan                how long, and Closed group / Open
+//                                            play / Drill windows (PlanEditSheet;
+//                                            set_court_plan_details,
+//                                            migration_plan_options.sql)
 //
 // PURE: no React Native, no Supabase. The vitest suite is
 // lib/__tests__/courtPlans.test.ts.
 import type { PlanShareSource } from '@just-messin-around/expo-foundation/plans/rules';
+import {
+  parseAbsoluteWindows,
+  windowsToOffsets,
+  type AbsoluteTimeWindow,
+  type TimeWindow,
+} from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { dayLabel, shortTime } from './agenda';
-import { asShareSource } from './courtRoutineRules';
+import { DEFAULT_PLAY_LENGTH_MIN, PLAY_MODES, asShareSource, windowsSaySomething, type PlayMode } from './courtRoutineRules';
 
 /** The pickers' step (Doggle's 15-minute slots). */
 export const PLAN_SLOT_MS = 15 * 60_000;
@@ -48,6 +58,11 @@ export type CourtPlan = {
   sharedAt: string | null;
   /** 'plan' = shared when made; 'hidden' = I chose Only you; null = never shared. */
   shareSource: PlanShareSource | null;
+  /** Planned length in minutes (planned end − time). */
+  lengthMin: number;
+  /** Closed group / Open play / Drill windows (absolute); [] from a server
+   *  older than migration_plan_options.sql. */
+  windows: AbsoluteTimeWindow<PlayMode>[];
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
@@ -64,6 +79,8 @@ export function parseCourtPlans(data: unknown): CourtPlan[] {
     const plannedAt = str(r?.planned_at);
     if (!r || !planId || !venueId || !plannedAt || !Number.isFinite(Date.parse(plannedAt))) continue;
     const end = str(r.planned_end_at);
+    const plannedEndAt = end && Number.isFinite(Date.parse(end)) ? end : new Date(Date.parse(plannedAt) + 2 * 3_600_000).toISOString();
+    const lengthMin = num(r.length_min) ?? Math.round((Date.parse(plannedEndAt) - Date.parse(plannedAt)) / 60_000);
     out.push({
       planId,
       venueId,
@@ -71,14 +88,21 @@ export function parseCourtPlans(data: unknown): CourtPlan[] {
       lat: num(r.lat),
       lng: num(r.lng),
       plannedAt,
-      plannedEndAt: end && Number.isFinite(Date.parse(end)) ? end : new Date(Date.parse(plannedAt) + 2 * 3_600_000).toISOString(),
+      plannedEndAt,
       status: r.status === 'completed' ? 'completed' : 'planned',
       starred: r.starred === true,
       sharedAt: str(r.shared_at),
       shareSource: asShareSource(r.share_source),
+      lengthMin: lengthMin > 0 ? lengthMin : DEFAULT_PLAY_LENGTH_MIN,
+      windows: parseAbsoluteWindows(r.windows, PLAY_MODES),
     });
   }
   return out.sort((a, b) => Date.parse(a.plannedAt) - Date.parse(b.plannedAt));
+}
+
+/** A plan's windows as the editor takes them: offsets from its time, [] when nothing is said. */
+export function planEditWindows(p: Pick<CourtPlan, 'plannedAt' | 'windows'>): TimeWindow<PlayMode>[] {
+  return windowsSaySomething(p.windows) ? windowsToOffsets(p.windows, p.plannedAt) : [];
 }
 
 /** Not kept yet and still in play (its time no more than 30 minutes ago): the feed shows it. */

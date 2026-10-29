@@ -12,6 +12,7 @@ import {
   nextSlotMs,
   parseCourtPlans,
   planDayTime,
+  planEditWindows,
   planInPlay,
   planPickerTitle,
   planTimeProblem,
@@ -57,6 +58,36 @@ describe('list_my_court_plans', () => {
     expect(list[0]).toMatchObject({ planId: 'z', venueName: 'A court', plannedEndAt: iso(22, 20), status: 'planned' });
     expect(parseCourtPlans(null)).toEqual([]);
     expect(parseCourtPlans({})).toEqual([]);
+  });
+
+  it('reads length and windows (migration_plan_options.sql), Drill included; an older server: from the end, no windows', () => {
+    const [p] = parseCourtPlans([
+      {
+        plan_id: 'd', venue_id: 'v', planned_at: iso(22, 17), planned_end_at: iso(22, 20), length_min: 180,
+        windows: [
+          { starts_at: iso(22, 17), ends_at: iso(22, 18), mode: 'drill', hint: null, group: [] },
+          { starts_at: iso(22, 18), ends_at: iso(22, 20), mode: 'open', hint: 'all_levels', group: [] },
+          { starts_at: iso(22, 20), ends_at: iso(22, 21), mode: 'nap', hint: null, group: [] },
+        ],
+      },
+    ]);
+    expect(p.lengthMin).toBe(180);
+    expect(p.windows.map((w) => w.mode)).toEqual(['drill', 'open', null]);
+    expect(planEditWindows(p).slice(0, 2)).toEqual([
+      expect.objectContaining({ startMin: 0, endMin: 60, mode: 'drill' }),
+      expect.objectContaining({ startMin: 60, endMin: 180, mode: 'open', hint: 'all_levels' }),
+    ]);
+    const [old] = parseCourtPlans([{ plan_id: 'o', venue_id: 'v', planned_at: iso(22, 17), planned_end_at: iso(22, 18, 30) }]);
+    expect(old).toMatchObject({ lengthMin: 90, windows: [] });
+    expect(planEditWindows(old)).toEqual([]);
+  });
+
+  it('nothing said: the editor starts empty (one window, not set)', () => {
+    const [p] = parseCourtPlans([
+      { plan_id: 'n', venue_id: 'v', planned_at: iso(22, 17), planned_end_at: iso(22, 19),
+        windows: [{ starts_at: iso(22, 17), ends_at: iso(22, 19), mode: null }] },
+    ]);
+    expect(planEditWindows(p)).toEqual([]);
   });
 
   it('a plan is in play until 30 minutes past its time, and never once kept', () => {

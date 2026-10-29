@@ -179,6 +179,8 @@ begin
         'cancel_court_plan','list_my_court_plans','move_court_plan','plan_court_checkin',
         -- Plan sharing (migration_plan_sharing.sql, which grants them too).
         'confirm_court_plans','list_friend_court_plans','set_auto_share_routines','set_court_plan_shared',
+        -- Plan options (migration_plan_options.sql, which grants it too).
+        'set_court_plan_details',
         -- Closed league privacy (migration_closed_league_privacy.sql, which
         -- grants them too). _pl_can_see_league runs inside the league tables'
         -- SELECT policies, so anon and authenticated must keep EXECUTE.

@@ -308,6 +308,11 @@ describe('routine and window copy', () => {
     expect(playModeNowLine(abs, at(10), TZ)).toBe('Closed group until 10:30 AM, then open play');
     expect(playModeNowLine(abs, at(100), TZ)).toBe('Open play until 12 PM');
     expect(playModeNowLine(abs, at(200), TZ)).toBe('');
+    const drill = [
+      { startsAt: at(0).toISOString(), endsAt: at(60).toISOString(), mode: 'drill' as const },
+      { startsAt: at(60).toISOString(), endsAt: at(180).toISOString(), mode: 'open' as const },
+    ];
+    expect(playModeNowLine(drill, at(10), TZ)).toBe('Drill until 10 AM, then open play');
   });
 
   it('a roster row: open until, closed with names (first names) or not, open from', () => {
@@ -320,6 +325,16 @@ describe('routine and window copy', () => {
       'Closed group · open from 10:30 AM',
     );
     expect(playerModeLine({ ...base, modeNow: null }, TZ)).toBe('');
+    expect(playerModeLine({ ...base, modeNow: 'drill' }, TZ)).toBe('Drilling until 10:30 AM');
+    expect(playerModeLine({ ...base, modeNow: 'drill', nextOpenAt: at(90).toISOString() }, TZ)).toBe(
+      'Drilling until 10:30 AM · open from 10:30 AM',
+    );
+  });
+
+  it("court_play_modes: a drilling player's mode comes through", () => {
+    const m = parseCourtPlayModes({ open_now: 0, players: [{ checkin_id: 'c1', user_id: 'u1', mode_now: 'drill' }] });
+    expect(m.openNow).toBe(0);
+    expect(m.players[0].modeNow).toBe('drill');
   });
 
   it('court_play_modes parsed, counts floored at 0', () => {

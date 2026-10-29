@@ -129,8 +129,11 @@ export const PLAY_CHIP_LABEL: Record<PlayChip, string> = { open: 'Open play', cl
 /** "Around now" for drills and events: 60 minutes either side of the start. */
 export const AROUND_NOW_MS = 60 * 60_000;
 
+/** A window's mode (lib/courtRoutineRules PlayMode), null when not said. */
+export type WindowMode = 'open' | 'closed' | 'drill' | null;
+
 /** A play window from a routine, absolute (the occurrence's own). */
-export type ChipWindow = { startsAt: string; endsAt: string; mode: 'open' | 'closed' | null };
+export type ChipWindow = { startsAt: string; endsAt: string; mode: WindowMode };
 
 /** The routine occurrence due at this court now (lib/courtRoutineRules routineOccurrenceAt). */
 export type ChipRoutine = {
@@ -150,7 +153,7 @@ export type ChipScheduleItem = {
   title: string;
 };
 
-export type ChipDraftWindow = { startMin: number; endMin: number; mode: 'open' | 'closed' | null };
+export type ChipDraftWindow = { startMin: number; endMin: number; mode: WindowMode };
 
 export type ChipPick = {
   chip: PlayChip;
@@ -164,7 +167,7 @@ export type ChipPick = {
 };
 
 /** The mode in force at `nowMs` (before the first window, the first's; after the last, the last's). */
-function modeNow(windows: readonly ChipWindow[], nowMs: number): 'open' | 'closed' | null {
+function modeNow(windows: readonly ChipWindow[], nowMs: number): WindowMode {
   const sorted = [...windows].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
   if (sorted.length === 0) return null;
   let m = sorted[0].mode;
@@ -218,7 +221,7 @@ export function pickPlayChip(p: {
     const from = routineWindowsFromNow(routine, nowMs);
     const mode = modeNow(routine.windows, nowMs);
     return {
-      chip: mode === 'closed' ? 'closed' : 'open',
+      chip: mode === 'closed' ? 'closed' : mode === 'drill' ? 'drill' : 'open',
       why: 'routine',
       hint: `From your ${clock(routine.plannedAt)} routine`,
       lengthMin: from.lengthMin,
@@ -281,14 +284,14 @@ export function draftPlanLine(
   const at = (min: number) => clock(new Date(startMs + min * 60_000).toISOString());
   const said = windows.filter((w) => w.mode != null);
   if (said.length === 0) return `Until ${at(lengthMin)}`;
-  const runs: { mode: 'open' | 'closed' | null; endMin: number }[] = [];
+  const runs: { mode: WindowMode; endMin: number }[] = [];
   for (const w of [...windows].sort((a, b) => a.startMin - b.startMin)) {
     const last = runs[runs.length - 1];
     if (last && last.mode === w.mode) last.endMin = w.endMin;
     else runs.push({ mode: w.mode, endMin: w.endMin });
   }
   runs[runs.length - 1].endMin = lengthMin;
-  const label = (m: 'open' | 'closed' | null) => (m === 'open' ? 'Open play' : m === 'closed' ? 'Closed group' : 'Not set');
+  const label = (m: WindowMode) => (m === 'open' ? 'Open play' : m === 'closed' ? 'Closed group' : m === 'drill' ? 'Drill' : 'Not set');
   return runs
     .map((r, i) => (i === 0 ? `${label(r.mode)} until ${at(r.endMin)}` : `then ${label(r.mode).toLowerCase()} until ${at(r.endMin)}`))
     .join(', ');

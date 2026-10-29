@@ -1,7 +1,8 @@
 // Add or edit one routine check-in (Doggle's RoutineEditSheet): the court,
 // the time, the days, and what Pickleague adds: how long you play and how
-// that time splits into Closed group / Open play windows. Courts are your
-// starred courts only (the user's decision 1: routines live at starred
+// that time splits into Closed group / Open play / Drill windows
+// (PlayPlanFields, shared with a one-off plan's PlanEditSheet). Courts are
+// your starred courts only (the user's decision 1: routines live at starred
 // courts; the server refuses any other with pl:routine.not_starred).
 //
 // Built from the foundation's routine kit: WeekdayMaskPicker, ClockTimeField,
@@ -9,26 +10,18 @@
 // modal over this sheet would not show on iOS (one presented modal at a time).
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { BottomSheet, Chip, ClockTimeField, DurationChips, TimeWindowsEditor, WeekdayMaskPicker } from '@just-messin-around/expo-foundation/ui';
+import { BottomSheet, ClockTimeField, WeekdayMaskPicker } from '@just-messin-around/expo-foundation/ui';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
-import {
-  KEEP_WINDOWS_APART,
-  fitWindowsToLength,
-  formatDurationMinutes,
-  type TimeWindow,
-} from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 import { useTheme } from '../../lib/ThemeContext';
-import { PLAY_HINTS, PLAY_LENGTH_OPTIONS, PLAY_MODE_LABEL, PLAY_WINDOW_RULES, type PlayMode } from '../../lib/courtRoutineRules';
 import type { CourtRoutineInput } from '../../data/courtRoutines';
 import type { CourtFavorite } from '../../data/courtFavorites';
 import type { FriendRow } from '../../lib/friendship';
+import PlayPlanFields from './PlayPlanFields';
 
 export type RoutineDraft = CourtRoutineInput & { venueName: string };
-
-const MAX_GROUP = 7;
 
 export default function RoutineEditSheet({
   visible,
@@ -64,14 +57,6 @@ export default function RoutineEditSheet({
     setConfirmingDelete(false);
   }, [visible, initial]);
 
-  const modes = React.useMemo(
-    () => [
-      { value: 'closed' as PlayMode, label: PLAY_MODE_LABEL.closed, color: c.warning },
-      { value: 'open' as PlayMode, label: PLAY_MODE_LABEL.open, color: c.success },
-    ],
-    [c.warning, c.success],
-  );
-
   if (!draft) return null;
   const set = (patch: Partial<RoutineDraft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
   const canSave = !!draft.venueId && draft.days > 0 && !saving && !deleting;
@@ -79,14 +64,6 @@ export default function RoutineEditSheet({
   const courts: { venue_id: string; venue_name: string }[] = starred.some((s) => s.venue_id === draft.venueId) || !draft.venueId
     ? starred
     : [{ venue_id: draft.venueId, venue_name: draft.venueName }, ...starred];
-
-  // A split the player hasn't given two modes yet stays split (foundation 1.58);
-  // the screen joins same-mode neighbours when it saves (routineWindowsToSave).
-  const setLength = (lengthMin: number) =>
-    set({
-      lengthMin,
-      windows: draft.windows.length ? fitWindowsToLength(draft.windows, lengthMin, PLAY_WINDOW_RULES, KEEP_WINDOWS_APART) : [],
-    });
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title={initial?.id ? 'Edit routine' : 'New routine'} height="90%">
@@ -130,54 +107,12 @@ export default function RoutineEditSheet({
         <Text style={[t.label, S.label]}>DAYS</Text>
         <WeekdayMaskPicker value={draft.days} onChange={(days) => set({ days })} />
 
-        <Text style={[t.label, S.label]}>HOW LONG</Text>
-        <DurationChips
-          value={draft.lengthMin}
-          onChange={setLength}
-          options={PLAY_LENGTH_OPTIONS}
-          format={formatDurationMinutes}
-        />
-
-        <Text style={[t.label, S.label]}>CLOSED GROUP OR OPEN PLAY</Text>
-        <Text style={[t.hint, S.gap]}>
-          Split your time: a closed group (friends, or a set foursome), then open play for anyone. Others see "open to
-          play" only during open play.
-        </Text>
-        <TimeWindowsEditor<PlayMode>
+        <PlayPlanFields
           lengthMin={draft.lengthMin}
           windows={draft.windows}
-          onChange={(windows: TimeWindow<PlayMode>[]) => set({ windows })}
-          modes={modes}
-          hints={PLAY_HINTS}
+          onChange={set}
           startClock={draft.localTime}
-          rules={{ stepMin: 15, minWindowMin: 15, maxWindows: 6, maxGroup: MAX_GROUP }}
-          renderGroup={
-            friends.length
-              ? ({ window, setGroup }) =>
-                  window.mode === 'closed' ? (
-                    <View style={S.group}>
-                      <Text style={[t.meta, { color: c.textSub }]}>With (optional, up to {MAX_GROUP}):</Text>
-                      <View style={S.chipRow}>
-                        {friends.map((f) => {
-                          const ids = window.group ?? [];
-                          const on = ids.includes(f.user_id);
-                          return (
-                            <Chip
-                              key={f.user_id}
-                              label={f.full_name?.trim() || 'Friend'}
-                              selected={on}
-                              onPress={() =>
-                                setGroup(on ? ids.filter((x) => x !== f.user_id) : ids.length < MAX_GROUP ? [...ids, f.user_id] : ids)
-                              }
-                            />
-                          );
-                        })}
-                      </View>
-                    </View>
-                  ) : null
-              : undefined
-          }
-          unsaidColor={c.border}
+          friends={friends}
         />
 
         <Text style={[t.hint, S.hint]}>
@@ -212,7 +147,6 @@ const S = StyleSheet.create({
   scroll: { flex: 1 },
   body: { paddingBottom: SPACE.xl },
   label: { marginTop: SPACE.md + 2, marginBottom: SPACE.sm },
-  gap: { marginBottom: SPACE.sm },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACE.sm },
   court: {
     flexDirection: 'row',
@@ -226,7 +160,6 @@ const S = StyleSheet.create({
     justifyContent: 'center',
   },
   shrink: { flexShrink: 1 },
-  group: { marginTop: SPACE.sm, gap: SPACE.xs },
   hint: { marginTop: SPACE.lg },
   save: { marginTop: SPACE.md },
 });

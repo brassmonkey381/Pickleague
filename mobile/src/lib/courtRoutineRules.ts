@@ -2,7 +2,7 @@
 // data/routines.ts helpers): the shapes list_my_court_routines and friends
 // answer with, which routine stop is due at a court right now (an arrival
 // keys off it, maybe inside a geofence wake with no signal), and the words
-// for lengths, Closed group / Open play windows and play modes.
+// for lengths, Closed group / Open play / Drill windows and play modes.
 //
 // PURE: no React Native, no Supabase. Only the foundation's scheduling
 // modules (themselves pure), so vitest covers it
@@ -39,16 +39,17 @@ import {
 } from '@just-messin-around/expo-foundation/scheduling/timeWindows';
 
 // ── Modes, hints, rules (the server's _pl_windows_problem mirrors these) ─────
-export type PlayMode = 'closed' | 'open';
-export const PLAY_MODES: readonly PlayMode[] = ['closed', 'open'];
+export type PlayMode = 'closed' | 'open' | 'drill';
+export const PLAY_MODES: readonly PlayMode[] = ['closed', 'open', 'drill'];
 
-/** The plan's naming: "Closed group" (friends, or an equal-skill foursome) and "Open play". */
-export const PLAY_MODE_LABEL: Record<PlayMode, string> = { closed: 'Closed group', open: 'Open play' };
+/** The plan's naming: "Closed group" (friends, or an equal-skill foursome),
+ *  "Open play" and "Drill" (practice; like a closed group, not joinable). */
+export const PLAY_MODE_LABEL: Record<PlayMode, string> = { closed: 'Closed group', open: 'Open play', drill: 'Drill' };
 /** A window with nothing said. */
 export const UNSAID_LABEL = 'Not set';
 
-/** The fixed hint lists (no free text, so nothing to moderate). */
-export const PLAY_HINTS: Record<PlayMode, { id: string; label: string }[]> = {
+/** The fixed hint lists (no free text, so nothing to moderate). Drill takes no hint. */
+export const PLAY_HINTS: Record<'open' | 'closed', { id: string; label: string }[]> = {
   open: [
     { id: 'all_levels', label: 'All levels' },
     { id: 'near_my_level', label: 'Near my level' },
@@ -173,7 +174,7 @@ export type CourtPlayModes = {
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const strOrNull = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const asMode = (v: unknown): PlayMode | null => (v === 'open' || v === 'closed' ? v : null);
+const asMode = (v: unknown): PlayMode | null => (v === 'open' || v === 'closed' || v === 'drill' ? v : null);
 const STATUSES = new Set(['planned', 'cancelled', 'completed']);
 const SHARE_SOURCES = new Set<string>(['plan', 'confirm', 'auto', 'hidden']);
 /** court_plans.share_source; anything else (or absent, before migration_plan_sharing.sql) is null. */
@@ -553,11 +554,16 @@ export function clockLabel(iso: string | Date, timeZone?: string | null): string
 
 /**
  * A roster row's play mode: "Open to play until 12 PM", "Closed group with
- * Ann, Bob", "Closed group · open from 10:30 AM". '' when nothing is said.
+ * Ann, Bob", "Closed group · open from 10:30 AM", "Drilling until 6 PM".
+ * '' when nothing is said.
  */
 export function playerModeLine(row: Pick<PlayModeRow, 'modeNow' | 'modeUntil' | 'nextOpenAt' | 'closedGroup'>, timeZone?: string | null): string {
   if (row.modeNow === 'open') {
     return row.modeUntil ? `Open to play until ${clockLabel(row.modeUntil, timeZone)}` : 'Open to play';
+  }
+  if (row.modeNow === 'drill') {
+    const base = row.modeUntil ? `Drilling until ${clockLabel(row.modeUntil, timeZone)}` : 'Drilling';
+    return row.nextOpenAt ? `${base} · open from ${clockLabel(row.nextOpenAt, timeZone)}` : base;
   }
   if (row.modeNow === 'closed') {
     const names = row.closedGroup.map((m) => m.fullName?.trim().split(/\s+/)[0]).filter((n): n is string => !!n);

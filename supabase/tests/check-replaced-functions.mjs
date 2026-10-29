@@ -88,7 +88,9 @@ const REPLACED = [
   // edited routine keeps its stops' shares, and plan_court_checkin gains
   // p_share (a fourth argument: the three-argument function is dropped).
   // Needs migration_court_oneoff_plans.sql live first (list_my_court_plans).
-  ['public.list_my_court_plans()', 'migration_court_oneoff_plans.sql', 'migration_plan_sharing.sql'],
+  // ...and again by migration_plan_options.sql (adds length_min and windows),
+  // so plan sharing's body is now the "old" one.
+  ['public.list_my_court_plans()', 'migration_plan_sharing.sql', 'migration_plan_options.sql'],
   ['public.list_my_court_routines()', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
   ['public.get_court_routine_settings()', 'migration_court_routines.sql', 'migration_plan_sharing.sql'],
   ['public.save_court_routine(uuid,text,time,integer,text,integer,jsonb)', 'migration_court_routines_planned_end.sql',
@@ -133,6 +135,12 @@ const REPLACED = [
   ['public.claim_daily_login_streak()', 'migration_local_day_boundaries.sql', 'migration_fair_rewards.sql'],
   ['public._pl_play_cap_left(uuid)', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
   ['public._pl_profiles_play_cap()', 'migration_pickle_economy_guards.sql', 'migration_fair_rewards.sql'],
+  // Plan options (migration_plan_options.sql): Drill joins Closed group and
+  // Open play wherever windows are checked or worded.
+  ['public._pl_windows_problem(jsonb,integer)', 'migration_court_routines.sql', 'migration_plan_options.sql'],
+  ['public._pl_clean_abs_windows(uuid,jsonb,timestamptz,timestamptz)',
+    'migration_court_routines.sql', 'migration_plan_options.sql'],
+  ['public._pl_windows_summary(jsonb,timestamptz,text)', 'migration_court_routines.sql', 'migration_plan_options.sql'],
 ];
 const TAG = '$pl_expect$';
 

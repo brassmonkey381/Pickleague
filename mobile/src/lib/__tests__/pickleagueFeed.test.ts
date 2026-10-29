@@ -606,6 +606,8 @@ describe('my one-off planned check-ins (Doggle\'s "Plan a check-in for later")',
     starred: false,
     sharedAt: null,
     shareSource: null,
+    lengthMin: 120,
+    windows: [],
     ...p,
   });
 
@@ -770,7 +772,7 @@ describe("friends' shared plans (plan sharing)", () => {
     const plans = buildPickleagueFeed(
       base({
         plans: [
-          { planId: 'o1', venueId: 'v9', venueName: 'Nine', lat: null, lng: null, plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', starred: false, sharedAt: at(22, 9), shareSource: 'plan' },
+          { planId: 'o1', venueId: 'v9', venueName: 'Nine', lat: null, lng: null, plannedAt: at(22, 18), plannedEndAt: at(22, 20), status: 'planned', starred: false, sharedAt: at(22, 9), shareSource: 'plan', lengthMin: 120, windows: [] },
         ],
       }),
     );

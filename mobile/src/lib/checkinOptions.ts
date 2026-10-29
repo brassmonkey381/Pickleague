@@ -120,7 +120,9 @@ export type LineActionId =
   | 'editRoutine'
   | 'skipStop'
   | 'undoSkip'
-  // My one-off plan (also checkInNow, onMyWay, changeTime)
+  // My one-off plan (also checkInNow, onMyWay, changeTime): Edit plan
+  // (length and Closed group / Open play / Drill), Cancel this visit
+  | 'editPlan'
   | 'cancelPlan'
   // My stop or plan, with plan sharing: "Share with friends" / "Make it only you"
   | 'share'
@@ -218,6 +220,8 @@ export function lineActionIds(l: SheetLineFacts, ctx: LineActionContext): LineAc
     add('checkInNow', today && !ctx.hereMine);
     add('onMyWay', today && !ctx.hereMine && ctx.canOnMyWay && Date.parse(l.at) > ctx.nowMs - ON_MY_WAY_PLAN_OVER_MS);
     add('changeTime', Date.parse(l.at) > ctx.nowMs);
+    // set_court_plan_details' window: until 30 minutes past its time.
+    add('editPlan', Date.parse(l.at) > ctx.nowMs - SHARE_IN_PLAY_MS);
     const share = shareAction(l, ctx.nowMs);
     if (share) out.push(share);
     add('cancelPlan', true);

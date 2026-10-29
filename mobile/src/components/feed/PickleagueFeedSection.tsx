@@ -116,6 +116,7 @@ import {
   type CourtPlayModes,
 } from '../../data/courtRoutines';
 import RoutineSuggestionCard from '../routines/RoutineSuggestionCard';
+import PlanEditSheet, { type PlanEditTarget } from '../routines/PlanEditSheet';
 import FeedAgendaLine from './FeedAgendaLine';
 import FeedCourtCard, { type FeedCourtCardActions } from './FeedCourtCard';
 import { useCheckinOptions, type CheckinCourt } from './useCheckinOptions';
@@ -376,6 +377,8 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
   const [timePick, setTimePick] = React.useState<
     { kind: 'stop' | 'plan'; planId: string; at: string; venueName: string; key: string } | null
   >(null);
+  // Edit plan: a one-off plan's length and Closed group / Open play / Drill.
+  const [planEdit, setPlanEdit] = React.useState<PlanEditTarget | null>(null);
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
   const [confirmed, setConfirmed] = React.useState<ReadonlySet<string>>(() => new Set());
   // CheckinHost's work (a Check in now from here, the bar's centre button,
@@ -545,6 +548,22 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
                 label: today ? "Change today's time" : 'Change the time that day',
                 iconName: 'calendar-event',
                 onPress: then(() => setTimePick({ kind: 'stop', planId: stop.planId, at: stop.at, venueName: card.venueName, key: line.key })),
+              }
+            : null;
+        case 'editPlan':
+          return oneOff
+            ? {
+                label: 'Edit plan',
+                iconName: 'edit',
+                onPress: then(() =>
+                  setPlanEdit({
+                    planId: oneOff.planId,
+                    plannedAt: oneOff.at,
+                    lengthMin: Math.round((Date.parse(oneOff.endAt) - Date.parse(oneOff.at)) / 60_000),
+                    windows: oneOff.windows,
+                    venueName: card.venueName,
+                  }),
+                ),
               }
             : null;
         case 'cancelPlan':
@@ -888,6 +907,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           next?.();
         }}
       />
+      <PlanEditSheet plan={planEdit} onClose={() => setPlanEdit(null)} />
       <SingleSelectModal
         visible={timePick != null}
         title={timePick ? `New time at ${timePick.venueName}` : 'New time'}

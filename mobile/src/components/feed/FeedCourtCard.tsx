@@ -300,7 +300,8 @@ export default function FeedCourtCard({
   /** My one-off planned check-in here (Doggle's "At 5:30 PM ▾" on a planned visit). */
   function planLine(l: Extract<FeedCourtLine, { kind: 'plan' }>) {
     const p = l.plan;
-    const meta = `${stopClock(p.at)}–${clock(p.endAt)}`;
+    const mode = playModeNowLine(p.windows, new Date(Math.max(now, Date.parse(p.at))));
+    const meta = mode || `${stopClock(p.at)}–${clock(p.endAt)}`;
     const chip = shareChip(l, p.planShared, p.at);
     return (
       <>

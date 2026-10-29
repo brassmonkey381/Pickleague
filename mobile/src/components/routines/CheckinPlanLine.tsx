@@ -35,7 +35,6 @@ import {
   fitCheckinPlanWindows,
   PLAY_HINTS,
   PLAY_LENGTH_OPTIONS,
-  PLAY_MODE_LABEL,
   stayUntilLabel,
   stayUntilOffer,
   switchToOpenPlan,
@@ -45,6 +44,7 @@ import {
 import { checkinPlanChanged, getCheckinPlan, setCheckinPlan, type CheckinPlan } from '../../data/courtRoutines';
 import { checkinChanged, extendCheckinUntil } from '../../lib/courtCheckin';
 import { draftPlanLine } from '../../lib/playStartRules';
+import { playModeOptions } from './playModeOptions';
 
 /**
  * Draft mode (the ▶ Play sheet, plan C2): a plan for a check-in that doesn't
@@ -117,10 +117,7 @@ function DraftPlanEditor({ draft, onClose }: { draft: DraftPlan; onClose: () => 
   );
   const [base, setBase] = React.useState<TimeWindow<PlayMode>[]>(windows);
   const startClock = minutesToClock(wallClockIn(null, new Date()).minutes);
-  const modes = [
-    { value: 'closed' as PlayMode, label: PLAY_MODE_LABEL.closed, color: c.warning },
-    { value: 'open' as PlayMode, label: PLAY_MODE_LABEL.open, color: c.success },
-  ];
+  const modes = playModeOptions(c);
   return (
     <View>
         <Text style={[t.label, S.label]}>HOW LONG (FROM NOW)</Text>
@@ -304,10 +301,7 @@ function CheckinPlanSheet({ plan, venueName, onClose }: { plan: CheckinPlan; ven
   };
   const [saving, setSaving] = React.useState(false);
   const startClock = minutesToClock(wallClockIn(null, new Date(plan.checkedInAt)).minutes);
-  const modes = [
-    { value: 'closed' as PlayMode, label: PLAY_MODE_LABEL.closed, color: c.warning },
-    { value: 'open' as PlayMode, label: PLAY_MODE_LABEL.open, color: c.success },
-  ];
+  const modes = playModeOptions(c);
 
   // The windows shown; the planned end and the boundaries left where they
   // were at their own minute (an open and save changes nothing).
