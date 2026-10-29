@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Pressable, Linking } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Icon, type IconName } from '@just-messin-around/expo-foundation/icons';
@@ -8,6 +8,7 @@ import { RADIUS, SPACE } from '@just-messin-around/expo-foundation/styles';
 import { FONT, textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
 import { useTheme } from '../lib/ThemeContext';
+import { GUIDES, guideUrl } from '../data/guides';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'About'> };
 
@@ -29,6 +30,28 @@ export default function AboutScreen({}: Props) {
       <Icon name="pickle" size={64} color={c.primary} style={S.logo} />
       <Text style={[t.display, S.center, S.appName]} accessibilityRole="header">Pickleague</Text>
       <Text style={[S.tagline, S.center]}>More fun. More frequent. More fair.</Text>
+
+      <Panel padded={SPACE.lg} style={S.card}>
+        <Text style={S.sectionTitle} accessibilityRole="header">Guides</Text>
+        {GUIDES.map((g, i) => (
+          <Pressable
+            key={g.slug}
+            onPress={() => Linking.openURL(guideUrl(g))}
+            accessibilityRole="link"
+            accessibilityLabel={g.title}
+            style={({ pressed }) => [S.valueRow, i === GUIDES.length - 1 && S.valueRowLast, pressed && S.pressed]}
+          >
+            <View style={S.valueTile}>
+              <Icon name={g.icon} size={18} color={c.primary} />
+            </View>
+            <View style={S.valueText}>
+              <Text style={t.title}>{g.title}</Text>
+              <Text style={[t.sub, S.valueDesc]}>{g.desc}</Text>
+            </View>
+            <Icon name="chevron-right" size={18} color={c.textSub} style={S.chevron} />
+          </Pressable>
+        ))}
+      </Panel>
 
       <Panel padded={SPACE.lg} style={S.card}>
         <Text style={S.sectionTitle} accessibilityRole="header">Our Mission</Text>
@@ -94,6 +117,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
     valueTile:    { width: TILE, height: TILE, borderRadius: RADIUS.md, backgroundColor: c.primaryLight, alignItems: 'center', justifyContent: 'center' },
     valueText:    { flex: 1, minWidth: 0 },
     valueDesc:    { marginTop: SPACE.xxs },
+    pressed:      { opacity: 0.6 },
+    chevron:      { alignSelf: 'center' },
     version:      { marginTop: SPACE.lg },
     credit:       { marginTop: SPACE.xs },
   });
