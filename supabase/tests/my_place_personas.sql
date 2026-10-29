@@ -2,8 +2,9 @@
 -- My Place persona tests (migration_my_place.sql).
 --
 -- NOT runnable on its own: build-my-place-test.mjs puts
--- migration_my_place.sql, twice (it must be re-runnable), at the marker line
--- below. Everything runs inside the begin / rollback below, so the linked
+-- migration_my_place.sql at the @@MIGRATION@@ line below and again (it must
+-- be re-runnable) at @@MIGRATION_RERUN@@, with admin edits in between that
+-- the re-run must keep (M1 checks them). Everything runs inside the begin / rollback below, so the linked
 -- (live) database is left untouched:
 --   node supabase/tests/build-my-place-test.mjs <out.sql>
 --   (from the linked checkout) supabase db query --linked -f <out.sql> -o csv
@@ -171,6 +172,36 @@ create function pg_temp.pickles(k text) returns integer language sql stable as $
 -- @@MIGRATION@@
 
 
+-- ════ Between the two runs: admin edits the re-run must keep ═════════════
+-- Phase 3 retires placeholders (and an admin may delete one nobody owns);
+-- the re-run must not seed them back. Picks placeholders nobody owns, so it
+-- works on live too (all rolled back).
+create temp table _between (k text primary key, v text);
+grant select on _between to authenticated, anon, service_role;
+do $$
+declare
+  v_gone    text;
+  v_retired text;
+begin
+  select i.id into v_gone from public.home_items i
+   where i.id like 'ph\_%'
+     and not exists (select 1 from public.home_owned_items o where o.item_id = i.id)
+     and not exists (select 1 from public.home_equipped e where e.item_id = i.id)
+   order by i.id limit 1;
+  if v_gone is not null then
+    delete from public.home_items where id = v_gone;
+  end if;
+  select i.id into v_retired from public.home_items i
+   where i.id like 'ph\_%' and i.is_starter order by i.id limit 1;
+  if v_retired is not null then
+    update public.home_items set is_starter = false, available_until = now() where id = v_retired;
+  end if;
+  insert into _between values ('gone', v_gone), ('retired', v_retired);
+end $$;
+
+-- @@MIGRATION_RERUN@@
+
+
 -- Read as admin (after the migration: SQL functions check their tables when created).
 create function pg_temp.eq(k text) returns jsonb language sql stable as $$
   select coalesce(jsonb_object_agg(slot_id, item_id), '{}'::jsonb) from public.home_equipped where owner_id = pg_temp.p(k) $$;
@@ -208,7 +239,14 @@ begin
     ('mpt_soon',    'Mpt Soon',    'couch',      100,   'common', '2099-01', now() + interval '1 day',   null,                      9005),
     ('mpt_ended',   'Mpt Ended',   'couch',      100,   'common', '2020-01', now() - interval '10 days', now() - interval '1 day',  9006),
     ('mpt_window',  'Mpt Window',  'window',     1000,  'legendary', '2026-10', now() - interval '1 day', now() + interval '1 day', 9007),
-    ('mpt_rug',     'Mpt Rug',     'rug',        50000, 'common', null,      null,                       null,                      9008);
+    ('mpt_rug',     'Mpt Rug',     'rug',        50000, 'common', null,      null,                       null,                      9008),
+    ('mpt_hat',     'Mpt Hat',     'mpt_hat',    0,     'common', null,      null,                       null,                      9009),
+    ('mpt_mini',    'Mpt Mini',    'mpt_mini',   0,     'common', null,      null,                       null,                      9010);
+  -- Kit shapes no seeded slot has yet (M9): an attached slot on the avatar,
+  -- and a prop on a prop (mpt_mini on shelf_item on shelf).
+  insert into public.home_slots (id, label, kind, fits, parent_id, sort) values
+    ('mpt_hat',  'Mpt Hat',  'attached', 'mpt_hat',  'avatar',     9001),
+    ('mpt_mini', 'Mpt Mini', 'prop',     'mpt_mini', 'shelf_item', 9002);
   insert into public.home_item_art (item_id, art_svg) values ('mpt_window', '<svg viewBox="0 0 100 100"></svg>');
 end $$;
 
@@ -228,7 +266,7 @@ begin
       has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'), null);
   end loop;
   foreach f in array array['public._pl_room_layout_problem(jsonb)', 'public._pl_home_equipped(uuid)',
-                           'public._pl_my_place_purge()'] loop
+                           'public._pl_home_empty_parent(uuid,text)', 'public._pl_my_place_purge()'] loop
     perform pg_temp.ok(format('M1 internal %s: no client may call it', f),
       not has_function_privilege('authenticated', f, 'execute') and not has_function_privilege('anon', f, 'execute'), null);
   end loop;
@@ -265,7 +303,25 @@ begin
     exists (select 1 from public.pickle_ledger_sources where source = 'buy_home_item' and sign = -1 and kind = 'spend'), null);
   perform pg_temp.ok('M1 the purge trigger is on profiles',
     exists (select 1 from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'trg_profiles_my_place_purge'), null);
-  perform pg_temp.ok('M1 setup made the eight test items', (select count(*) from public.home_items where id like 'mpt\_%') = 8, null);
+  perform pg_temp.ok('M1 setup made the ten test items', (select count(*) from public.home_items where id like 'mpt\_%') = 10, null);
+
+  -- The re-run kept the edits made between the runs (no placeholder seeded back).
+  perform pg_temp.ok('M1 a re-run doesn''t seed back a deleted placeholder',
+    (select v from _between where k = 'gone') is null
+    or not exists (select 1 from public.home_items where id = (select v from _between where k = 'gone')),
+    coalesce((select v from _between where k = 'gone'), 'skipped: every placeholder is owned or gone'));
+  perform pg_temp.ok('M1 ...nor makes a retired placeholder a starter again',
+    (select v from _between where k = 'retired') is null
+    or (select not is_starter and available_until is not null from public.home_items
+         where id = (select v from _between where k = 'retired')),
+    coalesce((select v from _between where k = 'retired'), 'skipped: no placeholder starter'));
+  perform pg_temp.ok('M1 owned and equipped rows reference items on delete restrict (a delete never wipes a purchase)',
+    (select bool_and(c.confdeltype = 'r') from pg_constraint c
+      where c.contype = 'f' and c.confrelid = 'public.home_items'::regclass
+        and c.conrelid in ('public.home_owned_items'::regclass, 'public.home_equipped'::regclass))
+    and (select count(*) from pg_constraint c
+          where c.contype = 'f' and c.confrelid = 'public.home_items'::regclass
+            and c.conrelid in ('public.home_owned_items'::regclass, 'public.home_equipped'::regclass)) = 2, null);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('M1 block crashed', false, sqlerrm);
@@ -292,9 +348,13 @@ begin
     and not exists (select 1 from public.home_equipped e join public.home_items i on i.id = e.item_id
                       join public.home_slots s on s.id = e.slot_id
                      where e.owner_id = pg_temp.p('MA') and s.fits <> i.slot_group)
-    and (select count(*) from public.home_equipped where owner_id = pg_temp.p('MA'))
-        = (select count(distinct i.id) from public.home_items i where i.is_starter
-             and exists (select 1 from public.home_slots s where s.fits = i.slot_group and s.parent_id is null)), pg_temp.eq('MA')::text);
+    -- Only what the claim gave, and something whenever a starter fits a
+    -- top-level spot (the first such item always finds it empty).
+    and (select bool_and(e.value = any (v_items)) from jsonb_each_text(j -> 'v' -> 'equipped') e) is not false
+    and ((select count(*) from public.home_equipped where owner_id = pg_temp.p('MA')) > 0
+         or not exists (select 1 from public.home_items i where i.id = any (v_items)
+                          and exists (select 1 from public.home_slots s where s.fits = i.slot_group
+                                         and s.parent_id is null and s.kind <> 'avatar'))), pg_temp.eq('MA')::text);
 
   select count(*) into v_owned from public.home_owned_items where owner_id = pg_temp.p('MA');
   perform pg_temp.clear('MA', 'wallpaper');
@@ -371,6 +431,8 @@ begin
   perform pg_temp.ok('M3 no such item: pl:home.item_gone', pg_temp.refused(j, 'home.item_gone'), j::text);
   j := pg_temp.eval_as('MA', 'select public.buy_home_item(null)');
   perform pg_temp.ok('M3 no item id: pl:request.bad', pg_temp.refused(j, 'request.bad'), j::text);
+  j := pg_temp.buy('MA', '  ');
+  perform pg_temp.ok('M3 ...a blank item id too', pg_temp.refused(j, 'request.bad') and pg_temp.pickles('MA') = 8500, j::text);
   j := pg_temp.eval_nouser('select public.buy_home_item(''mpt_floor'')');
   perform pg_temp.ok('M3 no user: pl:auth.signed_out', pg_temp.refused(j, 'auth.signed_out'), j::text);
   j := pg_temp.eval_anon('select public.buy_home_item(''mpt_floor'')');
@@ -405,7 +467,8 @@ begin
     pg_temp.refused(j, 'home.wrong_slot') and (j ->> 'detail')::jsonb ->> 'fits' = 'floor'
     and (j ->> 'detail')::jsonb ->> 'slot_fits' = 'rug' and j ->> 'msg' like '%doesn''t fit Rug%', j::text);
   j := pg_temp.equip('MA', 'avatar', 'mpt_floor');
-  perform pg_temp.ok('M4 the avatar spot takes no decor: pl:home.wrong_slot', pg_temp.refused(j, 'home.wrong_slot'), j::text);
+  perform pg_temp.ok('M4 the avatar spot takes no decor: pl:home.wrong_slot', pg_temp.refused(j, 'home.wrong_slot')
+    and j ->> 'msg' like 'That spot is where you stand%', j::text);
   j := pg_temp.equip('MA', 'rug', 'mpt_rug');
   perform pg_temp.ok('M4 not owned: pl:home.not_owned', pg_temp.refused(j, 'home.not_owned')
     and (j ->> 'detail')::jsonb ->> 'item' = 'Mpt Rug' and not (pg_temp.eq('MA') ? 'rug'), j::text);
@@ -418,6 +481,9 @@ begin
   perform pg_temp.ok('M4 no such item: pl:home.item_gone', pg_temp.refused(j, 'home.item_gone'), j::text);
   j := pg_temp.equip('MA', null, 'mpt_floor');
   perform pg_temp.ok('M4 no slot id: pl:request.bad', pg_temp.refused(j, 'request.bad'), j::text);
+  j := pg_temp.equip('MA', 'floor', null);
+  perform pg_temp.ok('M4 no item id: pl:request.bad', pg_temp.refused(j, 'request.bad')
+    and pg_temp.eq('MA') ->> 'floor' = 'mpt_floor', j::text);
   j := pg_temp.eval_nouser('select public.equip_home_item(''floor'', ''mpt_floor'')');
   perform pg_temp.ok('M4 no user: pl:auth.signed_out', pg_temp.refused(j, 'auth.signed_out'), j::text);
   j := pg_temp.eval_anon('select public.equip_home_item(''floor'', ''mpt_floor'')');
@@ -481,6 +547,12 @@ begin
   j := pg_temp.run_as('MA', format($q$insert into public.home_settings (owner_id, visibility) values (%L, 'only_me')$q$, pg_temp.p('MA')));
   perform pg_temp.ok('M5 ...and a direct settings write', j ->> 'state' = '42501', j::text);
 
+  -- Even the admin can't delete an item someone bought: retire it instead.
+  j := pg_temp.run($q$delete from public.home_items where id = 'mpt_floor'$q$);
+  perform pg_temp.ok('M5 deleting a bought item is refused (foreign key), the purchase stays',
+    j ->> 'state' = '23503' and pg_temp.owns('MA', 'mpt_floor')
+    and exists (select 1 from public.home_items where id = 'mpt_floor'), j::text);
+
   -- Reads: the catalog, art, slots and layout for every signed-in player; owned rows only for their owner.
   j := pg_temp.eval_as('MB', $q$select jsonb_build_object(
       'items', (select count(*) from public.home_items where id like 'mpt\_%'),
@@ -490,7 +562,7 @@ begin
       'owned_of_ma', (select count(*) from public.home_owned_items where owner_id <> auth.uid()),
       'equipped_of_ma', (select count(*) from public.home_equipped where owner_id <> auth.uid()))$q$);
   perform pg_temp.ok('M5 a signed-in player reads the catalog, art, slots and layout, but not another player''s rows',
-    (j -> 'v' ->> 'items')::int = 8 and (j -> 'v' ->> 'art')::int = 1 and (j -> 'v' ->> 'slots')::int >= 14
+    (j -> 'v' ->> 'items')::int = 10 and (j -> 'v' ->> 'art')::int = 1 and (j -> 'v' ->> 'slots')::int >= 14
     and (j -> 'v' ->> 'layout')::int = 1 and (j -> 'v' ->> 'owned_of_ma')::int = 0
     and (j -> 'v' ->> 'equipped_of_ma')::int = 0, j::text);
   j := pg_temp.eval_as('MA', $q$select to_jsonb(count(*)) from public.home_owned_items$q$);
@@ -618,7 +690,6 @@ begin
       ('an array',                 '[]'::jsonb),
       ('no version',               '{"placements": {}}'::jsonb),
       ('version as a string',      '{"version": "1", "placements": {}}'::jsonb),
-      ('version 1.5',              '{"version": 1.5, "placements": {}}'::jsonb),
       ('version 0',                '{"version": 0, "placements": {}}'::jsonb),
       ('no placements',            '{"version": 1}'::jsonb),
       ('placements as an array',   '{"version": 1, "placements": []}'::jsonb),
@@ -635,7 +706,6 @@ begin
       ('a position below -1',      '{"version": 1, "placements": {"shelf": {"kind": "furniture", "cx": -1.5, "bottom": 0.8, "w": 0.2}}}'::jsonb),
       ('a wide ar of 0',           '{"version": 1, "placements": {"rug": {"kind": "wide", "cx": 0.5, "top": 0.8, "w": 0.2, "ar": 0}}}'::jsonb),
       ('a z that isn''t a number', '{"version": 1, "placements": {"shelf": {"kind": "furniture", "cx": 0.5, "bottom": 0.8, "w": 0.2, "z": "top"}}}'::jsonb),
-      ('a flip that isn''t true / false', '{"version": 1, "placements": {"shelf": {"kind": "furniture", "cx": 0.5, "bottom": 0.8, "w": 0.2, "flip": "yes"}}}'::jsonb),
       ('a bad slot id',            '{"version": 1, "placements": {"bad id!": {"kind": "free", "cx": 0.5, "top": 0.1, "w": 0.2}}}'::jsonb),
       ('an unknown slot with a bad placement', '{"version": 1, "placements": {"future_slot": {"kind": "free", "cx": 0.5, "top": 0.1}}}'::jsonb),
       ('more than 200 slots',      jsonb_build_object('version', 1, 'placements',
@@ -653,6 +723,15 @@ begin
   perform pg_temp.ok('M7 a newer layout version: pl:home.layout_newer, nothing saved',
     pg_temp.refused(j, 'home.layout_newer') and ((j ->> 'detail')::jsonb ->> 'version')::numeric = 2
     and pg_temp.layout() = v_good, j::text);
+  j := pg_temp.save('GM', '{"version": 1.5, "placements": {}}'::jsonb);
+  perform pg_temp.ok('M7 ...any version above 1, like the kit''s migrateLayout (1.5 too)',
+    pg_temp.refused(j, 'home.layout_newer') and ((j ->> 'detail')::jsonb ->> 'version')::numeric = 1.5
+    and pg_temp.layout() = v_good, j::text);
+
+  -- The kit reads only flip: true and ignores anything else, so the server does too.
+  j := pg_temp.save('GM', '{"version": 1, "placements": {"shelf": {"kind": "furniture", "cx": 0.5, "bottom": 0.8, "w": 0.2, "flip": "yes"}}}'::jsonb);
+  perform pg_temp.ok('M7 a flip that isn''t true / false saves (the kit ignores it)',
+    j ? 'v' and pg_temp.layout() -> 'placements' -> 'shelf' ->> 'flip' = 'yes', j::text);
 
   j := pg_temp.save('GM', '{"version": 1, "placements": {}}'::jsonb);
   perform pg_temp.ok('M7 the empty layout (every slot at its default) saves',
@@ -683,9 +762,54 @@ begin
   perform pg_temp.ok('M8 ...and a visit gets pl:player.gone, saying to pick someone else',
     pg_temp.refused(j, 'player.gone') and j ->> 'msg' like '%pick someone else%', j::text);
   perform pg_temp.ok('M8 other players'' places are untouched', exists (select 1 from public.home_equipped where owner_id = pg_temp.p('MA')), null);
+
+  -- The deleted account itself (a session still open): every RPC says signed out.
+  j := pg_temp.eval_as('MX', 'select public.get_home()');
+  perform pg_temp.ok('M8 the deleted account opens its own place: pl:auth.signed_out', pg_temp.refused(j, 'auth.signed_out'), j::text);
+  j := pg_temp.buy('MX', 'mpt_plant');
+  perform pg_temp.ok('M8 ...buys (no live profile): pl:auth.signed_out, nothing owned',
+    pg_temp.refused(j, 'auth.signed_out') and not pg_temp.owns('MX', 'mpt_plant'), j::text);
+  j := pg_temp.equip('MX', 'accent', 'mpt_plant');
+  perform pg_temp.ok('M8 ...equips: pl:auth.signed_out', pg_temp.refused(j, 'auth.signed_out'), j::text);
+  j := pg_temp.clear('MX', 'accent');
+  perform pg_temp.ok('M8 ...clears: pl:auth.signed_out', pg_temp.refused(j, 'auth.signed_out'), j::text);
+  j := pg_temp.eval_as('MX', 'select public.claim_my_place_starter()');
+  perform pg_temp.ok('M8 ...claims the starter set: pl:auth.signed_out, nothing claimed',
+    pg_temp.refused(j, 'auth.signed_out')
+    and not exists (select 1 from public.home_starter_claims where owner_id = pg_temp.p('MX')), j::text);
 exception when others then
   perform pg_temp.as_admin();
   perform pg_temp.ok('M8 block crashed', false, sqlerrm);
+end $$;
+
+
+-- ════ M9 the kit's slot rules: attached slots, the whole parent chain ═══
+-- Here MA's shelf is empty (cleared in M5) and the trophy is on shelf_item.
+do $$
+declare j jsonb;
+begin
+  perform pg_temp.buy('MA', 'mpt_hat');
+  j := pg_temp.equip('MA', 'mpt_hat', 'mpt_hat');
+  perform pg_temp.ok('M9 an attached slot on the avatar takes decor (the kit sells it; the avatar counts as there)',
+    j ? 'v' and pg_temp.eq('MA') ->> 'mpt_hat' = 'mpt_hat', j::text);
+
+  perform pg_temp.buy('MA', 'mpt_mini');
+  j := pg_temp.equip('MA', 'mpt_mini', 'mpt_mini');
+  perform pg_temp.ok('M9 a prop on a filled prop on an empty shelf: pl:home.parent_empty names the shelf (the whole chain)',
+    pg_temp.refused(j, 'home.parent_empty') and (j ->> 'detail')::jsonb ->> 'parent' = 'Shelf'
+    and not (pg_temp.eq('MA') ? 'mpt_mini'), j::text);
+  perform pg_temp.equip('MA', 'shelf', 'mpt_shelf');
+  j := pg_temp.equip('MA', 'mpt_mini', 'mpt_mini');
+  perform pg_temp.ok('M9 ...fill the shelf, then it goes in', j ? 'v' and pg_temp.eq('MA') ->> 'mpt_mini' = 'mpt_mini', j::text);
+
+  perform pg_temp.clear('MA', 'mpt_mini');
+  perform pg_temp.clear('MA', 'shelf_item');
+  j := pg_temp.equip('MA', 'mpt_mini', 'mpt_mini');
+  perform pg_temp.ok('M9 ...with the shelf top empty: pl:home.parent_empty names the shelf top',
+    pg_temp.refused(j, 'home.parent_empty') and (j ->> 'detail')::jsonb ->> 'parent' = 'Shelf top', j::text);
+exception when others then
+  perform pg_temp.as_admin();
+  perform pg_temp.ok('M9 block crashed', false, sqlerrm);
 end $$;
 
 

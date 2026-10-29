@@ -56,9 +56,10 @@ equipped map, settings and starter claim.
 
 Fields per kind (the kit's `validatePlacement`): `furniture` / `avatar` `cx, bottom, w`; `free` / `wide`
 `cx, top, w` (+ optional `ar` above 0 on `wide`); `prop` `u, surface, scale`; `floor` `u, baseY, scale`;
-`attached` `dx, dy, scale`. Positions -1 to 2, the size above 0 and at most 4, `z` a number, `flip` true or false.
+`attached` `dx, dy, scale`. Positions -1 to 2, the size above 0 and at most 4, `z` a number. `flip` is not checked (the kit reads only `flip: true`).
 `backdrop` slots (wallpaper, floor) take no placement. A placement for a slot the server doesn't know is checked
-and kept (a newer build's slot); other keys are kept as sent. At most 200 placements, 64 KB.
+and kept (a newer build's slot); other keys are kept as sent. At most 200 placements, 64 KB. Any `version` above 1 (1.5 too) is `home.layout_newer`, as
+the kit's `migrateLayout` reads it.
 
 ### Slots
 
@@ -85,8 +86,10 @@ Phase 4 adds a vitest that fails when they differ (like `profileCustomizationSer
 ### Seed items
 
 15 placeholders, ids `ph_*`, `art_svg` none (the kit draws its dashed placeholder). Starter set (free, once):
-`ph_wall_white`, `ph_floor_maple`, `ph_couch_basic`, `ph_plant`. For sale: 900 to 5,000 pickles. Phase 3 replaces
-them.
+`ph_wall_white`, `ph_floor_maple`, `ph_couch_basic`, `ph_plant`. For sale: 900 to 5,000 pickles. Seeded only into an
+empty catalog, so a re-run never brings a placeholder back. Phase 3 retires them with `available_until = now()`
+and `is_starter = false`, never a delete: `home_owned_items` and `home_equipped` reference items `on delete
+restrict`, so deleting an item someone bought is refused instead of wiping their purchase.
 
 ## RPCs
 
@@ -98,13 +101,14 @@ message for people (see the table below).
 | --- | --- |
 | `get_home(p_owner uuid default null)` | Yours (null or your id): `{owner_id, is_me: true, visibility, equipped: {slot: item}, item_ids, owned, starter_claimed, balance}`. Someone else's: `{owner_id, is_me: false, visibility, equipped, item_ids}`. |
 | `buy_home_item(p_item_id text)` | `{item_id, cost, balance, already_owned}`. Already owned = success, nothing charged. Does not equip. |
-| `equip_home_item(p_slot_id text, p_item_id text)` | `{slot_id, item_id, moved_from, equipped}`. An item already in another slot moves (`moved_from`). |
+| `equip_home_item(p_slot_id text, p_item_id text)` | `{slot_id, item_id, moved_from, equipped}`. An item already in another slot moves (`moved_from`). Any slot but the avatar's (attached slots too). The parent rule walks the whole chain, like the kit's `emptyParentSlot`. |
 | `clear_home_slot(p_slot_id text)` | `{slot_id, cleared, equipped}`. An empty or unknown slot is fine (`cleared: false`). Items sitting on the cleared slot stay equipped; the kit hides them. |
 | `set_my_place_visibility(p_visibility text)` | `{visibility}` (`friends` or `only_me`) |
 | `claim_my_place_starter()` | `{claimed, claimed_at, items, equipped}`. A second call is `claimed: false`, not an error. |
 | `save_room_layout(p_layout jsonb)` | `{id, updated_at}`. God mode only. |
 
-A buy locks the player's balance row, takes the price and adds the owned row in one transaction. The pickle
+Buy, equip, clear and the starter claim each lock the player's profile row first, so two calls at once (a double
+tap, two devices) run one after the other. A buy takes the price and adds the owned row in one transaction. The pickle
 history row reads "My Place: <item>" (kind spend, category shop). Free items write no history row.
 
 ## Refusal codes
@@ -115,7 +119,7 @@ history row reads "My Place: <item>" (kind spend, category shop). Free items wri
 | `request.bad` | a missing id; a visibility that isn't `friends` / `only_me` | |
 | `admin.only` | `save_room_layout` by anyone but God mode | |
 | `home.layout_bad` | the layout's shape | `{slot, reason}` |
-| `home.layout_newer` | a layout version above 1 | `{version}` |
+| `home.layout_newer` | a layout version above 1 (any number) | `{version}` |
 | `home.item_gone` | no such item | `{item_id}` |
 | `home.not_yet` | not on sale yet | `{item, available_from}` |
 | `home.ended` | its drop has ended (owners keep and can still equip it) | `{item, available_until}` |
@@ -123,7 +127,7 @@ history row reads "My Place: <item>" (kind spend, category shop). Free items wri
 | `home.slot_unknown` | a slot the server doesn't know (update the app) | `{slot_id}` |
 | `home.wrong_slot` | the item doesn't fit, or the avatar spot | `{item, slot, fits, slot_fits}` |
 | `home.not_owned` | equipping an item you don't own | `{item}` |
-| `home.parent_empty` | the slot sits on an empty slot | `{slot, parent}` |
+| `home.parent_empty` | the slot sits on an empty slot (the first one down the chain) | `{slot, parent}` |
 | `player.gone` | `get_home`: the owner deleted their account | |
 | `home.unavailable` | `get_home`: a block between you, either way | |
 | `home.guest` | `get_home`: a guest pass visiting someone else | |

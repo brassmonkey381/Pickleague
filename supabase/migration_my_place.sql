@@ -36,6 +36,10 @@
 --                    available_until (exclusive), art_key (bundled art),
 --                    art_aspect, icon, sort, is_starter. Signed-in players read
 --                    it all (the app hides ended items a player doesn't own).
+--                    Retire an item with available_until = now() and
+--                    is_starter = false, never a delete: owned and equipped
+--                    rows reference it on delete restrict, so deleting an
+--                    item someone bought is refused, not a silent loss.
 --   home_item_art   item_id -> art_svg (server-provided SVG, sanitized on the
 --                    device). Separate so catalog lists stay light. Readable by
 --                    signed-in players.
@@ -61,7 +65,10 @@
 --       already_owned}. Already owned = success, nothing charged (a retried
 --       buy is safe). Does not equip: the kit's useRoomShop calls equip next.
 --   equip_home_item(p_slot_id text, p_item_id text) -> jsonb {slot_id,
---       item_id, moved_from, equipped}
+--       item_id, moved_from, equipped}. Any slot but the avatar's (attached
+--       slots too, like the kit's useRoomShop). The parent rule walks the
+--       whole chain like the kit's emptyParentSlot (avatar parents count as
+--       there).
 --   clear_home_slot(p_slot_id text) -> jsonb {slot_id, cleared, equipped}.
 --       An empty slot clears fine (cleared false). Items sitting on it stay
 --       equipped; the kit hides them until the slot is filled again.
@@ -70,7 +77,7 @@
 --       Once per account; a second call is not an error (claimed false), so
 --       the app can call it every time My Place opens until it sticks. Each
 --       starter item goes in the first slot (by sort) it fits that is empty
---       and whose parent is filled.
+--       and whose parent chain is filled.
 --   save_room_layout(p_layout jsonb) -> jsonb {id, updated_at}. God mode only
 --       (is_godmode_user(auth.uid()), the one hardcoded admin id, mirroring
 --       mobile/src/lib/godmode.ts). Shape checked server side.
@@ -81,7 +88,7 @@
 --   request.bad           a missing id, or a visibility that isn't friends / only_me
 --   admin.only            save_room_layout by anyone but God mode
 --   home.layout_bad       DETAIL {slot, reason}: the layout's shape
---   home.layout_newer     DETAIL {version}: a layout version this server doesn't check
+--   home.layout_newer     DETAIL {version}: any version above 1 (as the kit's migrateLayout reads it)
 --   home.item_gone        DETAIL {item_id}: no such catalog item
 --   home.not_yet          DETAIL {item, available_from}: not on sale yet
 --   home.ended            DETAIL {item, available_until}: its drop has ended
@@ -89,7 +96,7 @@
 --   home.slot_unknown     DETAIL {slot_id}: a slot this server doesn't know
 --   home.wrong_slot       DETAIL {item, slot, fits, slot_fits}: doesn't fit, or the avatar spot
 --   home.not_owned        DETAIL {item}
---   home.parent_empty     DETAIL {slot, parent}: it sits on an empty spot
+--   home.parent_empty     DETAIL {slot, parent}: it sits on an empty spot (the first one down the chain)
 --   player.gone           get_home: the owner deleted their account (or never existed)
 --   home.unavailable      get_home: a block between you, either way
 --   home.guest            get_home: a guest pass visiting someone else
@@ -114,18 +121,24 @@
 --
 -- New internal functions (execute revoked from public, anon, authenticated):
 --   _pl_room_layout_problem(jsonb), _pl_home_equipped(uuid),
---   _pl_my_place_purge() (trigger).
+--   _pl_home_empty_parent(uuid, text), _pl_my_place_purge() (trigger).
 -- Replaced: none (check-replaced-functions.mjs needs no entry).
 --
 -- ── Locks ─────────────────────────────────────────────────────────────────
+--   Every RPC that writes a player's rows (buy, equip, clear, the starter
+--   claim) first locks that player's profiles row (select ... for update), so
+--   two calls from one player at once (a double tap, two devices) run one
+--   after the other: the second sees the first's rows and never trips a raw
+--   unique-key error.
 --   New tables only, plus one CREATE OR REPLACE TRIGGER on profiles (SHARE ROW
 --   EXCLUSIVE: profile writes wait until the file's transaction ends, reads
 --   don't). RLS and policies are created only when missing, so a re-run takes
 --   no ACCESS EXCLUSIVE lock.
 --
--- Idempotent; no top-level transaction. Seeds (slots upserted, the layout row
--- and placeholder items only when missing, so a re-run never undoes an admin
--- edit). Persona test: supabase/tests/my_place_personas.sql
+-- Idempotent; no top-level transaction. Seeds: slots upserted, the layout row
+-- only when missing, the placeholder items only into an empty catalog (so a
+-- re-run never undoes an admin edit and never brings back a retired or
+-- deleted placeholder). Persona test: supabase/tests/my_place_personas.sql
 --   (node supabase/tests/build-my-place-test.mjs <out.sql>).
 -- Contract for the phase 4 screens: docs/my-place.md.
 -- Apply after migration_pickle_ledger.sql with:
@@ -191,7 +204,7 @@ create table if not exists public.home_item_art (
 
 create table if not exists public.home_owned_items (
   owner_id    uuid not null references public.profiles (id) on delete cascade,
-  item_id     text not null references public.home_items (id) on delete cascade,
+  item_id     text not null references public.home_items (id) on delete restrict,
   acquired_at timestamptz not null default now(),
   cost_paid   integer not null default 0,
   source      text not null default 'buy',
@@ -203,7 +216,7 @@ create index if not exists home_owned_items_item_idx on public.home_owned_items 
 create table if not exists public.home_equipped (
   owner_id   uuid not null references public.profiles (id) on delete cascade,
   slot_id    text not null,
-  item_id    text not null references public.home_items (id) on delete cascade,
+  item_id    text not null references public.home_items (id) on delete restrict,
   updated_at timestamptz not null default now(),
   primary key (owner_id, slot_id),
   constraint home_equipped_one_slot_per_item unique (owner_id, item_id)
@@ -289,7 +302,12 @@ on conflict (id) do update
 
 -- Placeholder catalog (art_svg null: the kit draws its dashed placeholder).
 -- The real ~30 items come in phase 3; these ids start with ph_ so phase 3 can
--- retire them. Only inserted when missing, so a re-run never resets a price.
+-- retire them (available_until = now(), is_starter = false; see home_items).
+-- Seeded only into an empty catalog: a re-run never resets a price and never
+-- brings back a placeholder that was retired or deleted.
+do $$
+begin
+if not exists (select 1 from public.home_items) then
 insert into public.home_items (id, name, slot_group, cost, rarity, season, available_from, available_until, art_key, art_aspect, icon, sort, is_starter) values
   ('ph_wall_white',     'Plain Walls',        'wallpaper',    0,    'common',    null, null, null, null, null, '🏠', 10, true),
   ('ph_floor_maple',    'Maple Floor',        'floor',        0,    'common',    null, null, null, null, null, '🪵', 20, true),
@@ -307,6 +325,8 @@ insert into public.home_items (id, name, slot_group, cost, rarity, season, avail
   ('ph_pillow_ball',    'Ball Pillow',        'couch_pillow', 900,  'common',    null, null, null, null, null, '🟢', 140, false),
   ('ph_ball_bucket',    'Ball Bucket',        'accent',       900,  'common',    null, null, null, null, null, '🪣', 150, false)
 on conflict (id) do nothing;
+end if;
+end $$;
 
 -- The ledger's wording for a My Place buy (migration_pickle_ledger.sql rule 3).
 insert into public.pickle_ledger_sources (source, sign, reason, kind, category, is_bonus, why) values
@@ -321,8 +341,10 @@ on conflict (source, sign) do update
 -- {version} for a newer version. The kit's validatePlacement rules
 -- (expo-foundation src/room/layout.ts): right kind for a known slot, every
 -- field a number, positions within -1..2, the size above 0 and at most 4,
--- `ar` above 0, `z` a number, `flip` true / false (null is "not set" for the
--- optional three). A placement for a slot this server doesn't know is checked
+-- `ar` above 0, `z` a number (null is "not set" for those two). `flip` is
+-- not checked: the kit reads only `flip: true` and ignores anything else. Any
+-- version above 1 is a newer layout ({version}), as migrateLayout reads it.
+-- A placement for a slot this server doesn't know is checked
 -- the same way but kept (a newer app build's slot). Backdrop slots have no
 -- placement. Other keys are kept as they are.
 create or replace function public._pl_room_layout_problem(p_layout jsonb)
@@ -351,7 +373,7 @@ begin
     return jsonb_build_object('slot', null, 'reason', '"version" must be a number.');
   end if;
   v_ver := (p_layout ->> 'version')::numeric;
-  if v_ver > 1 and v_ver = trunc(v_ver) then
+  if v_ver > 1 then
     return jsonb_build_object('version', v_ver);
   end if;
   if v_ver <> 1 then
@@ -411,9 +433,6 @@ begin
     if coalesce(jsonb_typeof(v_p -> 'z'), 'null') not in ('null', 'number') then
       return jsonb_build_object('slot', v_key, 'reason', '"z" must be a number.');
     end if;
-    if coalesce(jsonb_typeof(v_p -> 'flip'), 'null') not in ('null', 'boolean') then
-      return jsonb_build_object('slot', v_key, 'reason', '"flip" must be true or false.');
-    end if;
   end loop;
   return null;
 end $$;
@@ -431,6 +450,39 @@ as $$
     from public.home_equipped e where e.owner_id = p_owner;
 $$;
 revoke execute on function public._pl_home_equipped(uuid) from public, anon, authenticated;
+
+-- The first slot p_slot sits on (directly or further down) that the owner
+-- has left empty, so an item put there would not show; null when none is.
+-- The kit's emptyParentSlot: avatar parents count as there (the avatar
+-- always is), a parent that is not a slot ends the walk, and the walk stops
+-- after 17 steps (a loop in the structure).
+create or replace function public._pl_home_empty_parent(p_owner uuid, p_slot text)
+returns public.home_slots
+language plpgsql
+stable
+set search_path = ''
+as $$
+declare
+  v_cur    public.home_slots;
+  v_parent public.home_slots;
+begin
+  select * into v_cur from public.home_slots s where s.id = p_slot;
+  for depth in 0 .. 16 loop
+    exit when v_cur.id is null or v_cur.parent_id is null;
+    v_parent := null;
+    select * into v_parent from public.home_slots s where s.id = v_cur.parent_id;
+    if v_parent.id is null then
+      return null;
+    end if;
+    if v_parent.kind <> 'avatar'
+       and not exists (select 1 from public.home_equipped e where e.owner_id = p_owner and e.slot_id = v_parent.id) then
+      return v_parent;
+    end if;
+    v_cur := v_parent;
+  end loop;
+  return null;
+end $$;
+revoke execute on function public._pl_home_empty_parent(uuid, text) from public, anon, authenticated;
 
 
 -- ════ 4. save_room_layout (God mode only) ════════════════════════════════
@@ -583,6 +635,12 @@ begin
       hint    = 'pl:request.bad';
   end if;
 
+  -- One call per player at a time (a double tap, two devices; see Locks).
+  perform 1 from public.profiles p where p.id = v_me and p.deleted_at is null for update;
+  if not found then
+    raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out';
+  end if;
+
   select * into v_slot from public.home_slots where id = p_slot_id;
   if v_slot.id is null then
     raise exception using
@@ -599,10 +657,10 @@ begin
       hint    = 'pl:home.item_gone';
   end if;
 
-  if v_slot.kind = 'avatar' or v_slot.kind = 'attached' or v_item.slot_group <> v_slot.fits then
+  if v_slot.kind = 'avatar' or v_item.slot_group <> v_slot.fits then
     raise exception using
-      message = case when v_slot.kind in ('avatar', 'attached')
-                  then v_slot.label || ' is where you stand, so decor doesn''t go there. Pick another spot.'
+      message = case when v_slot.kind = 'avatar'
+                  then 'That spot is where you stand, so decor doesn''t go there. Pick another spot.'
                   else v_item.name || ' doesn''t fit ' || v_slot.label || '. Pick an item from the ' || v_slot.label || ' list.' end,
       detail  = jsonb_build_object('item', v_item.name, 'slot', v_slot.label, 'fits', v_item.slot_group,
                                    'slot_fits', v_slot.fits)::text,
@@ -616,17 +674,15 @@ begin
       hint    = 'pl:home.not_owned';
   end if;
 
-  -- The parent rule: a prop on an empty spot wouldn't show (the kit hides it).
-  if v_slot.parent_id is not null then
-    select * into v_parent from public.home_slots where id = v_slot.parent_id;
-    if v_parent.id is not null and v_parent.kind not in ('avatar', 'backdrop')
-       and not exists (select 1 from public.home_equipped e where e.owner_id = v_me and e.slot_id = v_parent.id) then
-      raise exception using
-        message = v_item.name || ' sits on the ' || v_parent.label || ' spot, which is empty, so it wouldn''t show. Put something in '
-                  || v_parent.label || ' first, then come back.',
-        detail  = jsonb_build_object('slot', v_slot.label, 'parent', v_parent.label)::text,
-        hint    = 'pl:home.parent_empty';
-    end if;
+  -- The parent rule: an item on an empty spot wouldn't show (the kit hides
+  -- it). The whole chain, like the kit's emptyParentSlot.
+  v_parent := public._pl_home_empty_parent(v_me, v_slot.id);
+  if v_parent.id is not null then
+    raise exception using
+      message = v_item.name || ' sits on the ' || v_parent.label || ' spot, which is empty, so it wouldn''t show. Put something in '
+                || v_parent.label || ' first, then come back.',
+      detail  = jsonb_build_object('slot', v_slot.label, 'parent', v_parent.label)::text,
+      hint    = 'pl:home.parent_empty';
   end if;
 
   -- One slot per item: equipping it here moves it from another slot.
@@ -661,6 +717,11 @@ begin
     raise exception using
       message = 'That didn''t go through because this version of Pickleague sent an incomplete request. Update Pickleague, then try again.',
       hint    = 'pl:request.bad';
+  end if;
+  -- One call per player at a time, like equip_home_item.
+  perform 1 from public.profiles p where p.id = v_me and p.deleted_at is null for update;
+  if not found then
+    raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out';
   end if;
   -- Any slot id, known or not: a row a newer build made can still be emptied.
   delete from public.home_equipped e where e.owner_id = v_me and e.slot_id = p_slot_id;
@@ -714,7 +775,9 @@ begin
   if v_me is null then
     raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out';
   end if;
-  if not exists (select 1 from public.profiles p where p.id = v_me and p.deleted_at is null) then
+  -- One call per player at a time, like equip_home_item.
+  perform 1 from public.profiles p where p.id = v_me and p.deleted_at is null for update;
+  if not found then
     raise exception using message = 'You''re signed out. Sign in to Pickleague and try again.', hint = 'pl:auth.signed_out';
   end if;
 
@@ -735,16 +798,15 @@ begin
   on conflict (owner_id, item_id) do nothing;
 
   -- Each into the first empty slot it fits (parents first, by sort), unless
-  -- it is in a slot already or its spot's parent is empty.
+  -- it is in a slot already or a spot under it is empty (the whole chain).
   for r in select i.id, i.slot_group from public.home_items i where i.id = any (v_items) order by i.sort, i.id loop
     continue when exists (select 1 from public.home_equipped e where e.owner_id = v_me and e.item_id = r.id);
+    v_slot := null;
     select s.* into v_slot
       from public.home_slots s
-     where s.fits = r.slot_group and s.kind not in ('avatar', 'attached')
+     where s.fits = r.slot_group and s.kind <> 'avatar'
        and not exists (select 1 from public.home_equipped e where e.owner_id = v_me and e.slot_id = s.id)
-       and (s.parent_id is null
-            or exists (select 1 from public.home_slots ps where ps.id = s.parent_id and ps.kind in ('avatar', 'backdrop'))
-            or exists (select 1 from public.home_equipped e where e.owner_id = v_me and e.slot_id = s.parent_id))
+       and (public._pl_home_empty_parent(v_me, s.id)).id is null
      order by s.sort, s.id
      limit 1;
     if v_slot.id is not null then

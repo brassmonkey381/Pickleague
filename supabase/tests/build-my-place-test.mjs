@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Build the My Place persona test: my_place_personas.sql with
-// migration_my_place.sql, twice (it must be re-runnable), in place of its
-// -- @@MIGRATION@@ line. The test file holds the begin / rollback, so the
+// migration_my_place.sql in place of its -- @@MIGRATION@@ line, and again (it
+// must be re-runnable) in place of its -- @@MIGRATION_RERUN@@ line. Between
+// the two, the test makes admin edits the re-run must not undo. The test file holds the begin / rollback, so the
 // result leaves the linked (live) database untouched.
 //
 // It does NOT splice migration_rls_hardening_2026q3.sql (its policy rewrites
@@ -23,6 +24,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const supa = path.resolve(here, '..');
 const BODY = path.join(here, 'my_place_personas.sql');
 const MARKER = '-- @@MIGRATION@@';
+const RERUN = '-- @@MIGRATION_RERUN@@';
 const MIGRATION = 'migration_my_place.sql';
 const HARDENING = 'migration_rls_hardening_2026q3.sql';
 
@@ -81,16 +83,16 @@ for (const fn of ['get_home', 'buy_home_item', 'equip_home_item', 'clear_home_sl
 }
 
 const body = fs.readFileSync(BODY, 'utf8').replace(/\r\n/g, '\n');
-if (!body.includes(MARKER)) {
-  console.error(`FAILED: ${path.basename(BODY)} has no "${MARKER}" line.`);
-  process.exit(1);
+for (const m of [MARKER, RERUN]) {
+  if (body.split(m).length !== 2) {
+    console.error(`FAILED: ${path.basename(BODY)} needs exactly one "${m}" line.`);
+    process.exit(1);
+  }
 }
 
-const spliced = [
-  `-- ==== ${MIGRATION} ====\n${read(MIGRATION)}`,
-  `-- ==== ${MIGRATION} (re-run) ====\n${read(MIGRATION)}`,
-].join('\n');
-
+const migration = read(MIGRATION);
 const out = path.resolve(process.argv[2] ?? path.join(os.tmpdir(), 'my_place_test.sql'));
-fs.writeFileSync(out, body.replace(MARKER, () => spliced));
+fs.writeFileSync(out, body
+  .replace(MARKER, () => `-- ==== ${MIGRATION} ====\n${migration}`)
+  .replace(RERUN, () => `-- ==== ${MIGRATION} (re-run) ====\n${migration}`));
 console.log(out);
