@@ -128,6 +128,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
       Settings: 'settings/:focus?',
       About: 'about',
       Shop: 'shop',
+      MyPlace: 'place/:userId?',
+      MyPlaceLayout: 'admin/my-place-layout',
       PicklesCalendar: 'pickles/calendar',
       GiftPickles: 'gift-pickles',
       ScoringAlgo: 'scoring-algo',

@@ -394,6 +394,21 @@ export default function PlayerProfileScreen({ navigation, route }: Props) {
         />
       </View>
 
+      {/* My Place (docs/my-place.md): their room, read-only. The server
+          decides who may visit (friends / only me, blocks, guests) and the
+          screen says why when it can't. Unclaimed placeholders have no room. */}
+      {isOther && !profile.is_unclaimed ? (
+        <Button
+          size="sm"
+          variant="outline"
+          iconName="home"
+          title="Visit their place"
+          onPress={() => navigation.navigate('MyPlace', { userId, userName: profile.full_name })}
+          accessibilityLabel={`Visit ${profile.full_name}'s place`}
+          style={styles.visitBtn}
+        />
+      ) : null}
+
       {/* Routines: their planned check-ins, as their plans_level lets me see them. */}
       <PlannedCheckinsSection profileId={userId} />
 
@@ -516,6 +531,7 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     quickRow: { flexDirection: 'row', gap: SPACE.sm, marginBottom: SPACE.sm },
     quickBtn: { flexGrow: 1 },
+    visitBtn: { marginBottom: SPACE.sm },
 
     chemMain:  { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
     chemDelta: { fontSize: FONT.size.h2, fontWeight: FONT.weight.heavy },

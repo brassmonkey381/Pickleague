@@ -618,6 +618,12 @@ export default function SettingsScreen({ navigation, route }: Props) {
             />
             <Divider S={S} />
             <SettingActionRow
+              label="My Place layout"
+              desc="Move where each room spot sits, for every player"
+              onPress={() => navigation.navigate('MyPlaceLayout')}
+            />
+            <Divider S={S} />
+            <SettingActionRow
               label="Court Outlines"
               desc="Draw a building outline so check-ins pass anywhere inside"
               onPress={() => navigation.navigate('AdminBoundaries')}

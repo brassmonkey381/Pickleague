@@ -990,6 +990,19 @@ export default function ProfileScreen({ navigation }: Props) {
       {/* Friends (renders nothing while FRIENDS_AT_COURTS_ENABLED is off). */}
       <FriendsLink style={styles.block} />
 
+      {/* My Place (docs/my-place.md): my decoratable room. */}
+      <ListCard
+        density="compact"
+        minHeight={STRIP_HEIGHT}
+        style={styles.block}
+        leading={<Icon name="home" size={18} color={colors.primary} />}
+        title={<Text style={styles.stripLabel} numberOfLines={1}>My Place</Text>}
+        chevron
+        onPress={() => navigation.navigate('MyPlace')}
+        accessibilityRole="button"
+        accessibilityLabel="My Place, your room"
+      />
+
       {/* My routine (Doggle's Profile button; ROUTINES_ENABLED): the same
           strip row as Friends and the next unlock. */}
       {ROUTINES_ENABLED ? (

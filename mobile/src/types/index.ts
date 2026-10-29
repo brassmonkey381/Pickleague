@@ -632,6 +632,12 @@ export type RootStackParamList = {
   // focusId: a drill request or session id from a push; openChat opens its chat.
   DrillRequests: { focusId?: string; openChat?: boolean } | undefined;
   Shop: undefined;
+  // My Place (docs/my-place.md): mine with no userId; another player's room,
+  // read-only, with one. userName: the title until their profile loads.
+  // Link: place/:userId?
+  MyPlace: { userId?: string; userName?: string } | undefined;
+  // God mode only: where each My Place slot is drawn, for every room.
+  MyPlaceLayout: undefined;
   // The pickles viewer's Calendar (Home balance): a month of daily pickle totals.
   PicklesCalendar: undefined;
   QrWallet: undefined;

@@ -101,6 +101,22 @@ export const REFUSAL_CODES = [
   'visit.bad_length',
   'visit.limit',
   'visit.taken',
+  // migration_my_place.sql: My Place (buy / equip / clear decor, visiting, the admin layout).
+  'admin.only',
+  'home.layout_bad',
+  'home.layout_newer',
+  'home.item_gone',
+  'home.not_yet',
+  'home.ended',
+  'home.not_enough',
+  'home.slot_unknown',
+  'home.wrong_slot',
+  'home.not_owned',
+  'home.parent_empty',
+  'home.unavailable',
+  'home.guest',
+  'home.private',
+  'home.friends_only',
   // Only from an older server's message (it couldn't tell these apart).
   'match.not_pending',
   // Only from the server's text: _lock_completed_tournament_match
@@ -121,7 +137,8 @@ const CODE_SET: ReadonlySet<string> = new Set(REFUSAL_CODES);
 /** 'view': opening a court's page (Courts, a shared court link). 'plan': a
  *  check-in's planned end or play windows (set_checkin_plan). */
 /** 'on_my_way': telling friends I'm heading to a court (send_on_my_way).
- *  'plan_checkin': planning a check-in for later (plan_court_checkin). */
+ *  'plan_checkin': planning a check-in for later (plan_court_checkin).
+ *  'visit_place': opening another player's My Place (get_home). */
 export type RefusalAction =
   | 'check_in'
   | 'extend'
@@ -133,7 +150,8 @@ export type RefusalAction =
   | 'view'
   | 'plan'
   | 'on_my_way'
-  | 'plan_checkin';
+  | 'plan_checkin'
+  | 'visit_place';
 
 export type RefusalContext = {
   action?: RefusalAction;
@@ -232,6 +250,9 @@ export function refusalDetail(e: unknown): Record<string, unknown> {
     return {};
   }
 }
+
+/** A DETAIL string field, trimmed ('' when missing). */
+const textOf = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 function dateOf(v: unknown): Date | null {
   if (typeof v !== 'string') return null;
@@ -363,6 +384,9 @@ export function refusalCopy(
     case 'schedule.use_rpc':
       return "Couldn't schedule the match because this version of Pickleague sent an outdated request. Update Pickleague, then try again.";
     case 'player.gone':
+      if (ctx.action === 'visit_place') {
+        return "That account isn't in Pickleague any more, so there's no My Place to visit. Go back and pick someone else.";
+      }
       return ctx.action === 'hide'
         ? "We couldn't find that player, so there's nothing to hide from."
         : "We couldn't find that player. Open their profile and try again.";
@@ -490,6 +514,62 @@ export function refusalCopy(
       return 'Not checked in: first choose who sees you at the courts, then try again.';
     case 'consent.unknown_offline':
       return "No connection, so Pickleague couldn't check who you chose to see you at the courts. Open Pickleague at the court to check in.";
+    // ── My Place (migration_my_place.sql) ──
+    case 'admin.only':
+      return 'Only the God mode account can change the My Place layout, so nothing was saved. Sign in with that account to edit it.';
+    case 'home.layout_bad': {
+      // DETAIL {slot, reason}: the reason is the server's own sentence.
+      const slot = textOf(detail.slot);
+      const reason = textOf(detail.reason).replace(/[.!]+$/, '');
+      const where = slot ? `the ${slot} spot` : 'the layout';
+      return `The layout wasn't saved: ${where} has a problem${reason ? ` (${reason})` : ''}. Fix it, then save again.`;
+    }
+    case 'home.layout_newer':
+      return "The saved layout comes from a newer version of Pickleague, so this version can't save over it. Update Pickleague, then try again.";
+    case 'home.item_gone':
+      return "That decor isn't in My Place any more. Pull to refresh, then pick another item.";
+    case 'home.not_yet': {
+      const from = dateOf(detail.available_from);
+      return `${textOf(detail.item) || 'That item'} isn't on sale yet${from ? `: it goes on sale ${at(from)}` : ''}. Check back when its drop starts.`;
+    }
+    case 'home.ended':
+      return `${textOf(detail.item) || 'That item'} is no longer sold: its drop has ended. Pick another item.`;
+    case 'home.not_enough': {
+      // DETAIL {item, cost, balance, short}
+      const item = textOf(detail.item) || 'That item';
+      const cost = Number(detail.cost);
+      const short = Number(detail.short);
+      const price = Number.isFinite(cost) && cost > 0 ? ` costs ${cost.toLocaleString('en-US')} pickles` : ' costs more pickles than you have';
+      const need = Number.isFinite(short) && short > 0 ? `You need ${short.toLocaleString('en-US')} more` : 'You need a few more';
+      return `${item}${price}. ${need}: play matches and log in daily to earn them, then come back.`;
+    }
+    case 'home.slot_unknown':
+      return "That spot isn't in this version of My Place. Update Pickleague, then try again.";
+    case 'home.wrong_slot': {
+      const item = textOf(detail.item) || 'That item';
+      const slot = textOf(detail.slot);
+      return slot
+        ? `${item} doesn't fit the ${slot} spot. Pick an item from the ${slot} list.`
+        : `${item} doesn't fit that spot. Pick an item from that spot's list.`;
+    }
+    case 'home.not_owned':
+      return `You don't own ${textOf(detail.item) || 'that item'} yet, so it can't go in your room. Buy it first.`;
+    case 'home.parent_empty': {
+      const slot = textOf(detail.slot) || 'That spot';
+      const parent = textOf(detail.parent);
+      return parent
+        ? `${slot} sits on the ${parent} spot, which is empty, so it wouldn't show. Put something in ${parent} first, then try again.`
+        : `${slot} sits on an empty spot, so it wouldn't show. Fill that spot first, then try again.`;
+    }
+    case 'home.unavailable':
+      // Vague on purpose: it must never single out a block (decision 1).
+      return "This My Place isn't available. Go back and visit someone else's.";
+    case 'home.guest':
+      return "Visiting other players' places needs a full Pickleague account. Finish signing up, then come back.";
+    case 'home.private':
+      return `${textOf(detail.name) || person || 'This player'} keeps My Place to themselves right now, so it can't be visited. Visit a friend's place instead.`;
+    case 'home.friends_only':
+      return `${textOf(detail.name) || person || 'This player'} shares My Place with friends only. Send them a friend request; once they accept, you can visit.`;
   }
 }
 
@@ -583,6 +663,17 @@ export function refusalTitle(code: RefusalCode, action?: RefusalAction): string 
       return 'Not unlocked yet';
     case 'profile.too_many_tags':
       return 'Too many tags';
+    case 'home.private':
+    case 'home.friends_only':
+    case 'home.unavailable':
+    case 'home.guest':
+      return "Can't visit";
+    case 'home.not_enough':
+      return 'Not enough pickles';
+    case 'admin.only':
+    case 'home.layout_bad':
+    case 'home.layout_newer':
+      return 'Layout not saved';
     default:
       return "That didn't go through";
   }
