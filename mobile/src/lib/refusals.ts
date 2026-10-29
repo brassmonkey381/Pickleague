@@ -40,6 +40,9 @@ export const REFUSAL_CODES = [
   'checkin.needs_fix',
   'checkin.too_old',
   'session.not_yours',
+  // migration_play_session_history.sql: discard_play_session.
+  'session.gone',
+  'session.open',
   'membership.locked',
   'match.removed',
   'match.already_confirmed',
@@ -349,6 +352,10 @@ export function refusalCopy(
       return "A league membership can't be moved to another league or player. Leave the league, then join the one you want.";
     case 'session.not_yours':
       return "That play session belongs to another account, so it wasn't saved. Start a new session.";
+    case 'session.gone':
+      return 'That play session is already gone from your history. Pull to refresh.';
+    case 'session.open':
+      return 'This play session is still going. End it first, then discard it.';
     case 'match.removed':
       // True whoever recorded it (the recorder's own team is confirmed at insert).
       return "This match was removed: it wasn't confirmed by both teams within an hour, or it was deleted. Ask whoever recorded it to enter it again.";

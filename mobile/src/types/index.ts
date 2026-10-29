@@ -640,6 +640,7 @@ export type RootStackParamList = {
   MyPlaceLayout: undefined;
   // The pickles viewer's Calendar (Home balance): a month of daily pickle totals.
   PicklesCalendar: undefined;
+  PlayHistory: undefined;
   QrWallet: undefined;
   QrPass: { passId: string };
   ScoringAlgo: undefined;

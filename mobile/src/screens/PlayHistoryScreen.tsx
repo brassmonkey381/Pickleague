@@ -1,0 +1,208 @@
+// Play history (Me › Play history, PKL-011; docs/play-sessions-presence.md
+// Phase 2): my ended play sessions, newest first, 30 at a time
+// (list_my_play_sessions). Each row: court and kind, day and times, whether it
+// counts, its matches. The row's ⋯ discards it (discard_play_session): it
+// leaves the list and never counts again, with a confirm first. A server
+// without the history SQL says so instead of an error.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
+import { Badge, ConfirmModal, EmptyState, ErrorState, ListCard } from '@just-messin-around/expo-foundation/ui';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
+import { textStyles } from '@just-messin-around/expo-foundation/typography';
+import { useTheme } from '../lib/ThemeContext';
+import { useToast } from '../lib/useToast';
+import { useRefresh } from '../lib/useRefresh';
+import AppRefreshControl from '../components/AppRefreshControl';
+import { SkeletonList } from '../components/Skeleton';
+import { refusalMessage } from '../lib/refusals';
+import { discardPlaySession, listMyPlaySessions, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../data/playSessions';
+import {
+  matchCountLabel,
+  mergeHistory,
+  nextHistoryCursor,
+  playHistoryStatus,
+  playHistoryTitle,
+  playHistoryWhen,
+} from '../lib/playHistory';
+import type { RootStackParamList } from '../types';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'PlayHistory'>;
+
+export default function PlayHistoryScreen(_props: Props) {
+  const { colors: c } = useTheme();
+  const t = textStyles(c);
+  const toast = useToast();
+  const [rows, setRows] = useState<PlayHistoryRow[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [notReady, setNotReady] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [discarding, setDiscarding] = useState<PlayHistoryRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  // A slower first page never overwrites a newer one.
+  const seq = useRef(0);
+
+  const load = useCallback(async () => {
+    const token = ++seq.current;
+    try {
+      const page = await listMyPlaySessions(null);
+      if (token !== seq.current) return;
+      setRows(page);
+      setCursor(nextHistoryCursor(page, PLAY_HISTORY_PAGE));
+      setError(null);
+      setNotReady(false);
+    } catch (e) {
+      if (token !== seq.current) return;
+      if (classifySbError(e) === 'missingFunction') setNotReady(true);
+      else setError(e);
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const refresh = useRefresh(load);
+
+  const loadMore = async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await listMyPlaySessions(cursor);
+      setRows((prev) => mergeHistory(prev ?? [], page));
+      setCursor(nextHistoryCursor(page, PLAY_HISTORY_PAGE));
+    } catch {
+      // The end of the list stays where it is; scrolling again retries.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const discard = async () => {
+    const row = discarding;
+    if (!row) return;
+    setBusy(true);
+    try {
+      await discardPlaySession(row.id);
+      setRows((prev) => (prev ?? []).filter((r) => r.id !== row.id));
+      setDiscarding(null);
+      toast.info('Session discarded');
+    } catch (e) {
+      setDiscarding(null);
+      if (classifySbError(e) === 'missingFunction') {
+        toast.error("Discarding sessions isn't ready yet. Try again later.");
+      } else {
+        toast.error(refusalMessage(e) ?? friendlySbMessage(e, "Couldn't discard that session. Try again."));
+      }
+      if (refusalMessage(e)) void load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const now = Date.now();
+  const renderRow = ({ item: r }: { item: PlayHistoryRow }) => {
+    const status = playHistoryStatus(r);
+    const matches = matchCountLabel(r.matchCount);
+    return (
+      <ListCard
+        style={S.row}
+        title={<Text style={t.title} numberOfLines={2}>{playHistoryTitle(r)}</Text>}
+        subtitle={
+          <View style={S.sub}>
+            <Text style={t.meta} numberOfLines={1}>{playHistoryWhen(r, now)}</Text>
+            <View style={S.statusLine}>
+              <Badge label={status.label} tone={status.tone} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE} />
+              {matches ? <Text style={t.meta}>{matches}</Text> : null}
+            </View>
+            {status.note ? <Text style={[t.meta, { color: c.textSub }]} numberOfLines={2}>{status.note}</Text> : null}
+          </View>
+        }
+        trailing={
+          <Pressable
+            onPress={() => setDiscarding(r)}
+            hitSlop={8}
+            style={({ pressed }) => [S.more, pressed && { opacity: 0.6 }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Discard ${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}`}
+          >
+            <Icon name="trash" size={18} color={c.textMuted} />
+          </Pressable>
+        }
+        accessibilityLabel={`${playHistoryTitle(r)}, ${playHistoryWhen(r, now)}, ${status.label}`}
+      />
+    );
+  };
+
+  if (notReady) {
+    return (
+      <View style={[S.screen, { backgroundColor: c.bg }]}>
+        <EmptyState iconName="clock" title="Play history is almost here" subtitle="Your past sessions show here soon. Check back later today." />
+      </View>
+    );
+  }
+  if (error && !rows) {
+    return (
+      <View style={[S.screen, { backgroundColor: c.bg }]}>
+        <ErrorState error={error} onRetry={() => void load()} />
+      </View>
+    );
+  }
+  if (!rows) {
+    return (
+      <View style={[S.screen, S.pad, { backgroundColor: c.bg }]}>
+        <SkeletonList rows={5} />
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <FlatList
+        style={{ backgroundColor: c.bg }}
+        contentContainerStyle={S.pad}
+        data={rows}
+        keyExtractor={(r) => r.id}
+        renderItem={renderRow}
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.5}
+        refreshControl={<AppRefreshControl {...refresh} />}
+        ListHeaderComponent={
+          rows.length ? (
+            <Text style={[t.meta, S.header, { color: c.textSub }]}>
+              A session counts once it lasts 5 minutes and has a match or drill. Discard one you didn't mean to start.
+            </Text>
+          ) : null
+        }
+        ListEmptyComponent={
+          <EmptyState
+            iconName="clock"
+            title="No play sessions yet"
+            subtitle="Check in at a court or tap Play. Each session shows here once it ends."
+          />
+        }
+      />
+      <ConfirmModal
+        visible={!!discarding}
+        title="Discard this session?"
+        body={discarding
+          ? `${playHistoryTitle(discarding)}, ${playHistoryWhen(discarding, now)}. It leaves your history and won't count. Matches you recorded stay.`
+          : ''}
+        primaryLabel="Discard"
+        variant="danger"
+        busy={busy}
+        onConfirm={() => void discard()}
+        onClose={() => { if (!busy) setDiscarding(null); }}
+      />
+    </>
+  );
+}
+
+const S = StyleSheet.create({
+  screen: { flex: 1 },
+  pad: { padding: SPACE.lg, gap: SPACE.sm },
+  header: { marginBottom: SPACE.sm },
+  row: { marginBottom: SPACE.sm },
+  sub: { gap: SPACE.xs, marginTop: SPACE.xs },
+  statusLine: { flexDirection: 'row', alignItems: 'center', gap: SPACE.sm },
+  more: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+});

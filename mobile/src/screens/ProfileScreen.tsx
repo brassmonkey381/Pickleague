@@ -66,6 +66,7 @@ import { useRefresh } from '../lib/useRefresh';
 import AppRefreshControl from '../components/AppRefreshControl';
 import { SkeletonList } from '../components/Skeleton';
 import FriendsLink from '../components/FriendsLink';
+import PlayHistoryLink from '../components/play/PlayHistoryLink';
 import { ROUTINES_ENABLED } from '../lib/features';
 import { sbCall, currentUserId, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 
@@ -1018,6 +1019,7 @@ export default function ProfileScreen({ navigation }: Props) {
           accessibilityLabel="My routine"
         />
       ) : null}
+      <PlayHistoryLink style={styles.block} />
 
       {/* ── 4. Coming up ────────────────────────────────────────── */}
       {comingCount > 0 && (

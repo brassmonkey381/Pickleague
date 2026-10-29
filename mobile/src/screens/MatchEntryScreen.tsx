@@ -35,6 +35,8 @@ import { explainRefusal } from '../lib/refusalNotices';
 import { refusalCopy } from '../lib/refusals';
 import { getMyPlaySession, getMySessionValidity } from '../data/playSessions';
 import { getVenuesByIds } from '../data/venueCheckins';
+import { getCourtPresence } from '../data/courtPresence';
+import { hereChoices, hereFirst, nextEmptySlot } from '../lib/matchPlayersHere';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MatchEntry'>;
@@ -144,6 +146,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     p1: null, partner1: null, p2: null, partner2: null,
   });
   const [location, setLocation]     = useState<CourtResult | null>(null);
+  // "Here now" (PKL-011): who is checked in at the match's court (named rows
+  // only). Empty without a known court, offline, or for a tournament match.
+  const hereVenueId = isTournamentMatch ? null : location?.catalogId ?? null;
+  const [hereIds, setHereIds] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    if (!hereVenueId) { setHereIds(new Set()); return; }
+    let cancelled = false;
+    getCourtPresence(hereVenueId)
+      .then((rows) => {
+        if (!cancelled) setHereIds(new Set(rows.map((r) => r.user_id).filter((id): id is string => !!id)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [hereVenueId]);
   // Default outdoor — overridden by learnCourtDefault when we have a signal.
   const [isOutdoor, setIsOutdoor]   = useState<boolean | null>(true);
   const [courtHint, setCourtHint]   = useState<CourtHint | null>(null);
@@ -883,12 +899,15 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
     if (!pickerSlot) return [];
     const value = slotValue[pickerSlot];
     const exclude = slotExclude[pickerSlot];
-    return members
+    return hereFirst(members
       .filter((m) => !exclude.includes(m.id) || m.id === value)
-      .map((m) => ({ id: m.id, name: m.full_name ?? 'Player' }));
+      .map((m) => ({ id: m.id, name: m.full_name ?? 'Player' })), hereIds);
     // slotValue / slotExclude are rebuilt every render from these inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickerSlot, members, p1, partner1, p2, partner2]);
+  }, [pickerSlot, members, p1, partner1, p2, partner2, hereIds]);
+  // Tapping a player here fills the next empty slot (none: the chips hide).
+  const emptySlot = isTournamentMatch ? null : nextEmptySlot(matchType, slotValue);
+  const here = emptySlot ? hereChoices(members, hereIds, [p1, partner1, p2, partner2].filter(Boolean)) : [];
 
   const selectedLeagueName = leagueCandidates.find(l => l.id === selectedLeagueId)?.name ?? null;
   // The optional tournament tag only renders when the chosen league has an
@@ -959,6 +978,20 @@ export default function MatchEntryScreen({ navigation, route }: Props) {
             <PlayerField slot="partner2" name={nameOf(partner2)} onPress={() => openPicker('partner2')} S={S} />
           )}
         </View>
+        {here.length > 0 && emptySlot ? (
+          <View style={S.hereRow}>
+            <Text style={S.hereLabel} maxFontSizeMultiplier={SMALL_TEXT_MAX_SCALE}>Here now</Text>
+            {here.slice(0, 8).map((h) => (
+              <FilterPill
+                key={h.id}
+                label={h.name}
+                active={false}
+                onPress={() => slotSetter[emptySlot](h.id)}
+                accessibilityLabel={`${h.name} is here. Add as ${SLOT_LABEL[emptySlot].toLowerCase()}`}
+              />
+            ))}
+          </View>
+        ) : null}
       </Panel>
 
       {/* Home-launched entry: league (required) + tournament tag (optional).
@@ -1249,6 +1282,8 @@ function makeStyles(c: ReturnType<typeof useTheme>['colors']) {
 
     // Player / league fields: a 44 box, the 15px value, a chevron.
     teamRow:          { flexDirection: 'row', gap: SPACE.sm },
+    hereRow:          { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SPACE.xs, marginTop: SPACE.sm },
+    hereLabel:        { fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, color: c.textMuted, marginRight: SPACE.xs },
     field:            { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', minHeight: 44, borderWidth: HAIRLINE, borderColor: c.border, borderRadius: RADIUS.md, paddingHorizontal: SPACE.md, backgroundColor: c.surface },
     fieldText:        { flex: 1, fontSize: FONT.size.lg, color: c.text },
     fieldPlaceholder: { color: c.textMuted },

@@ -131,6 +131,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       MyPlace: 'place/:userId?',
       MyPlaceLayout: 'admin/my-place-layout',
       PicklesCalendar: 'pickles/calendar',
+      PlayHistory: 'play/history',
       GiftPickles: 'gift-pickles',
       ScoringAlgo: 'scoring-algo',
       UnlockProgress: 'unlock-progress',

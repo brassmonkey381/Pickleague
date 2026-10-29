@@ -181,6 +181,9 @@ begin
         'confirm_court_plans','list_friend_court_plans','set_auto_share_routines','set_court_plan_shared',
         -- Plan options (migration_plan_options.sql, which grants it too).
         'set_court_plan_details',
+        -- Play session history and Discard (migration_play_session_history.sql,
+        -- which grants them too).
+        'discard_play_session','list_my_play_sessions',
         -- Closed league privacy (migration_closed_league_privacy.sql, which
         -- grants them too). _pl_can_see_league runs inside the league tables'
         -- SELECT policies, so anon and authenticated must keep EXECUTE.

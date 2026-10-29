@@ -141,6 +141,12 @@ const REPLACED = [
   ['public._pl_clean_abs_windows(uuid,jsonb,timestamptz,timestamptz)',
     'migration_court_routines.sql', 'migration_plan_options.sql'],
   ['public._pl_windows_summary(jsonb,timestamptz,text)', 'migration_court_routines.sql', 'migration_plan_options.sql'],
+  // Play session history (migration_play_session_history.sql): a discarded
+  // session never counts and never takes a match or drill.
+  ['public._pl_refresh_session_validity(uuid)', 'migration_validity_rules.sql', 'migration_play_session_history.sql'],
+  ['public._pl_match_session(uuid,uuid,timestamptz)', 'migration_validity_rules.sql', 'migration_play_session_history.sql'],
+  ['public._pl_drill_session(uuid,uuid,timestamptz,timestamptz,integer)', 'migration_validity_rules.sql',
+    'migration_play_session_history.sql'],
 ];
 const TAG = '$pl_expect$';
 

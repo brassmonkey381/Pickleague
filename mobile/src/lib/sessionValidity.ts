@@ -154,7 +154,9 @@ export function endDecision(s: EndedPlay): EndDecision {
 /** my_session_validity's answer (null: not mine, or not on the server yet). */
 export type SessionValidity = {
   valid: boolean;
-  reason: 'open' | 'too_short' | 'no_match_or_drill' | 'linked_match' | 'match_in_window' | 'drill_in_window';
+  reason: 'open' | 'too_short' | 'no_match_or_drill' | 'linked_match' | 'match_in_window' | 'drill_in_window'
+    // Discarded by its player (migration_play_session_history.sql).
+    | 'discarded';
   needs: 'minutes' | 'match_or_drill' | null;
   window_ends_at: string | null;
   rewards_pending_confirmation?: boolean;

@@ -79,6 +79,7 @@ import ShopScreen from '../screens/ShopScreen';
 import MyPlaceScreen from '../screens/MyPlaceScreen';
 import MyPlaceLayoutScreen from '../screens/MyPlaceLayoutScreen';
 import PicklesCalendarScreen from '../screens/PicklesCalendarScreen';
+import PlayHistoryScreen from '../screens/PlayHistoryScreen';
 import ScoringAlgoScreen from '../screens/ScoringAlgoScreen';
 import GiftPicklesScreen from '../screens/GiftPicklesScreen';
 import GodmodeScreen from '../screens/GodmodeScreen';
@@ -455,6 +456,7 @@ export default function AppNavigator() {
                 <Stack.Screen name="MyPlace" component={MyPlaceScreen} options={({ route }) => ({ title: route.params?.userId ? (route.params.userName ? `${route.params.userName.split(/\s+/)[0]}'s place` : 'Their place') : 'My Place' })} />
                 <Stack.Screen name="MyPlaceLayout" component={MyPlaceLayoutScreen} options={{ title: 'My Place layout' }} />
                 <Stack.Screen name="PicklesCalendar" component={PicklesCalendarScreen} options={{ title: 'Pickle Calendar' }} />
+                <Stack.Screen name="PlayHistory" component={PlayHistoryScreen} options={{ title: 'Play history' }} />
                 <Stack.Screen name="ScoringAlgo" component={ScoringAlgoScreen} options={{ title: 'Scoring Algo' }} />
                 <Stack.Screen name="GiftPickles" component={GiftPicklesScreen} options={{ title: 'Gift Pickles' }} />
                 <Stack.Screen name="Godmode" component={GodmodeScreen} options={{ title: 'Godmode' }} />

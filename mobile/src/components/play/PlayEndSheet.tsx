@@ -13,7 +13,8 @@
 // (matches.play_session_id), Review drill opens DrillRequests ("Review your
 // drills", which lists today's drill) for a drill session, and Not now (or
 // closing the sheet) leaves a note that it still counts when one is recorded
-// within 2 hours. Without a server answer the copy is hedged ("If you haven't
+// within 2 hours. Discard throws the session away (discard_play_session,
+// PKL-011): it leaves Play history and never counts. Without a server answer the copy is hedged ("If you haven't
 // recorded it yet"), or, after a match this device recorded, decision 3's
 // toast. Every line says why it doesn't count yet and by when to fix that
 // (rule 11): nothing recorded, what the player recorded counts for another
@@ -31,7 +32,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Button } from '@just-messin-around/expo-foundation/forms';
 import { useSignal } from '@just-messin-around/expo-foundation/hooks';
 import { withTimeout } from '@just-messin-around/expo-foundation/platform';
-import { BottomSheet } from '@just-messin-around/expo-foundation/ui';
+import { BottomSheet, TextLink } from '@just-messin-around/expo-foundation/ui';
 import { SPACE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { useTheme } from '../../lib/ThemeContext';
@@ -49,7 +50,8 @@ import {
   type EndedPlay,
   type ServerAnswer,
 } from '../../lib/sessionValidity';
-import { getMySessionValidity } from '../../data/playSessions';
+import { discardPlaySession, getMySessionValidity } from '../../data/playSessions';
+import { refusalCode } from '../../lib/refusals';
 import { PLAY_NAV_ENABLED } from '../../lib/features';
 import { playCompleteLine } from '../../lib/playStartRules';
 
@@ -115,6 +117,18 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
     setShown(null);
     openMatchEntryForSession(id);
   };
+  const discard = () => {
+    if (!shown) return;
+    const id = shown.ended.id;
+    setShown(null);
+    discardPlaySession(id).then(
+      () => toast.info('Session discarded'),
+      // Its End still on its way (session.open), offline, or an older server.
+      (e) => toast.info(refusalCode(e) === 'session.gone'
+        ? 'Session discarded'
+        : "Couldn't discard it yet. Discard it from Me › Play history in a moment."),
+    );
+  };
   const reviewDrill = () => {
     setShown(null);
     // "Review your drills" lists every started, unreviewed drill, today's
@@ -132,6 +146,7 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
             <Button title="Record match" variant="success" onPress={recordMatch} />
             {view.ask.offerDrill ? <Button title="Review drill" variant="outline" onPress={reviewDrill} /> : null}
             <Button title="Not now" variant="outline" onPress={notNow} />
+            <TextLink label="Discard session" onPress={discard} accessibilityLabel="Discard this play session" style={S.discard} />
           </View>
         </View>
       ) : null}
@@ -142,4 +157,5 @@ export default function PlayEndSheetHost({ signedIn }: { signedIn: boolean }) {
 const S = StyleSheet.create({
   body: { gap: SPACE.md, paddingBottom: SPACE.sm },
   actions: { gap: SPACE.sm },
+  discard: { alignSelf: 'center', minHeight: 44 },
 });

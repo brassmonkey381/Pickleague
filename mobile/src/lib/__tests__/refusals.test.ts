@@ -85,6 +85,9 @@ const SERVER_CODES: RefusalCode[] = [
   'shop.not_equippable',
   'profile.locked',
   'profile.too_many_tags',
+  // migration_play_session_history.sql
+  'session.gone',
+  'session.open',
 ];
 
 const GENERIC = /something went wrong|an error occurred|try again later\.?$|^error/i;

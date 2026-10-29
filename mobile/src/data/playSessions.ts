@@ -12,6 +12,9 @@ import { classifySbError, sbCall } from '@just-messin-around/expo-foundation/sup
 import { supabase } from '../lib/supabase';
 import { checkoutFixArgs, fixArgs, type DeviceFix } from '../lib/courtCheckinRules';
 import type { SessionValidity } from '../lib/sessionValidity';
+import { parsePlayHistory, PLAY_HISTORY_PAGE, type PlayHistoryRow } from '../lib/playHistory';
+
+export { PLAY_HISTORY_PAGE };
 
 export type PlayKind = 'open_play' | 'drill' | 'match' | 'event';
 
@@ -172,4 +175,32 @@ export async function getMyUpcomingPlay(userId: string): Promise<UpcomingPlay[]>
   ]
     .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
     .slice(0, 10);
+}
+
+// ── Session history and Discard (supabase/migration_play_session_history.sql) ──
+
+export type { PlayHistoryRow } from '../lib/playHistory';
+
+/**
+ * My ended sessions, newest first: a page of PLAY_HISTORY_PAGE, the next one
+ * started before `before` (the last row's startedAt). Throws as sbCall does;
+ * a server without the history SQL throws 'missingFunction' (the screen says
+ * it isn't ready yet).
+ */
+export async function listMyPlaySessions(before?: string | null): Promise<PlayHistoryRow[]> {
+  return parsePlayHistory(
+    await sbCall(
+      () => supabase.rpc('list_my_play_sessions', { p_before: before ?? null, p_limit: PLAY_HISTORY_PAGE }),
+      BOUND,
+    ),
+  );
+}
+
+/**
+ * Discard one of my ENDED sessions: it leaves the history and never counts.
+ * 1, or 0 when it was discarded already (a retry). Refusals (lib/refusals):
+ * session.gone, session.open, session.not_yours.
+ */
+export async function discardPlaySession(id: string): Promise<number> {
+  return ((await sbCall(() => supabase.rpc('discard_play_session', { p_id: id }), BOUND)) ?? 0) as number;
 }
