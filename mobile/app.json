@@ -23,6 +23,7 @@
         "NSLocationWhenInUseUsageDescription": "Pickleague uses your location to show courts near you, to look for a court you're at for check-in prompts, and to confirm you're at a court when you check in or start a play session there.",
         "NSContactsUsageDescription": "Pickleague uses your contacts so you can pick people to invite. Only the people you choose are sent.",
         "NSPhotoLibraryUsageDescription": "Pickleague uses your photo library so you can choose a profile picture, or save your club's QR code to your QR wallet.",
+        "NSPhotoLibraryAddUsageDescription": "Pickleague saves images you choose to save, like your season or tournament finish card, to your photo library.",
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationAlwaysAndWhenInUseUsageDescription": "At courts you've starred, Pickleague can check you in automatically when you arrive and stay a minute (leave within 5 minutes and it doesn't count). Otherwise it only sends check-in prompts. At a court where you saved a QR code, it lets you open that code with one tap when you arrive. You can turn this off in Settings.",
         "UIBackgroundModes": [
