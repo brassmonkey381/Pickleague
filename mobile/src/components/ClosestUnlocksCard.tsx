@@ -58,7 +58,6 @@ export default function ClosestUnlocksCard({ userId, navigation, onPressed }: Pr
       <View style={styles.bar}>
         <ProgressBar
           progress={next.pct}
-          layout="inline"
           label={`Next unlock: ${next.badge}`}
           valueText={value}
           accessibilityValueText={`${next.current} of ${next.target}`}

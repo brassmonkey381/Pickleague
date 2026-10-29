@@ -215,7 +215,7 @@ export default function FeedCourtCard({
             <Icon name="calendar-event" size={18} color={c.primary} />
           </View>
           <View style={styles.body}>
-            <Text style={t.title} numberOfLines={1}>
+            <Text style={t.title} numberOfLines={2}>
               You · your routine
             </Text>
             {chip ? null : (
@@ -309,7 +309,7 @@ export default function FeedCourtCard({
             <Icon name="calendar-event" size={18} color={c.primary} />
           </View>
           <View style={styles.body}>
-            <Text style={t.title} numberOfLines={1}>
+            <Text style={t.title} numberOfLines={2}>
               You · planned check-in
             </Text>
             {chip ? null : (
@@ -336,8 +336,8 @@ export default function FeedCourtCard({
   // their own under the name whenever the name doesn't fit beside them on one
   // line: the name keeps the whole first row (two lines at most) instead of
   // being crushed to "Oakland- / Alamed…" in 112 px. A short name ("Star
-  // Park") still shares its row. One action leaves the name over 60%: as
-  // before, one line beside it.
+  // Park") still shares its row. One action leaves the name over 60%: beside
+  // it, up to two lines (one cut "The Hub Sports Clu…" at large text sizes).
   const twoActions = header.length > 1;
 
   return (
@@ -350,7 +350,7 @@ export default function FeedCourtCard({
           accessibilityLabel={`${card.venueName}. Open the court`}
         >
           <Icon name={card.starred ? 'star' : 'pin'} size={16} color={c.primary} />
-          <Text style={[t.title, styles.shrink]} numberOfLines={twoActions ? 2 : 1}>
+          <Text style={[t.title, styles.shrink]} numberOfLines={2}>
             {card.venueName}
           </Text>
           <Icon name="chevron-right" size={16} color={c.textMuted} />

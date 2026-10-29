@@ -828,7 +828,7 @@ export default function PickleagueFeedSection(props: PickleagueFeedProps) {
           <View style={styles.lineGlyph}>
             <Icon name="calendar-event" size={14} color={c.textSub} />
           </View>
-          <Text style={[t.meta, styles.flex, { color: c.textSub }]} numberOfLines={1}>
+          <Text style={[t.meta, styles.flex, { color: c.textSub }]} numberOfLines={2}>
             {routineLine}
           </Text>
           <Icon name="chevron-right" size={14} color={c.textMuted} />
