@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<circle cx="72" cy="93" r="6" fill="#f2dd4b"/><circle cx="74" cy="90.5" r="0.6" fill="#c9b52e"/><circle cx="75.5" cy="95" r="0.6" fill="#c9b52e"/><circle cx="70.5" cy="96.5" r="0.6" fill="#c9b52e"/>
+<g transform="translate(50 60)">
+<g fill="#7fae84">
+<path transform="rotate(-80) scale(0.75)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(80) scale(0.75)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(-55) scale(0.88)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(55) scale(0.88)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+</g>
+<g fill="#8fcf8a">
+<path transform="rotate(-30) scale(0.95)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(30) scale(0.95)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(-12)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path transform="rotate(12)" d="M0 0C-9 -8 -9 -26 0 -40C9 -26 9 -8 0 0Z"/>
+<path d="M0 0C-9 -8 -9 -26 0 -42C9 -26 9 -8 0 0Z"/>
+</g>
+<path d="M-1.5 -6C-3 -14 -2.5 -28 0 -36" stroke="#a9d1a5" stroke-width="1" fill="none"/>
+<circle transform="rotate(-55)" cx="0" cy="-33" r="1.4" fill="#e0533f"/>
+<circle transform="rotate(30)" cx="0" cy="-36" r="1.4" fill="#e0533f"/>
+<circle transform="rotate(80)" cx="0" cy="-28" r="1.4" fill="#e0533f"/>
+<ellipse cx="0" cy="-5" rx="5" ry="6" fill="#a9d1a5"/>
+</g>
+<path d="M28 62H72L66.5 97.5Q66 100 63.5 100H36.5Q34 100 33.5 97.5Z" fill="#c96f4a"/>
+<path d="M60 66H70.6L66.5 97.5Q66 100 63.5 100H62Z" fill="#b5613f"/>
+<rect x="24" y="56" width="52" height="10" rx="3" fill="#d98563"/>
+<rect x="25" y="56.5" width="50" height="2.5" rx="1.2" fill="#df9a7e"/>
+</svg>

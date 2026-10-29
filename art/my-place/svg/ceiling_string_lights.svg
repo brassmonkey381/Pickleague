@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 25">
+<path d="M0 1Q16.5 22.5 33 2Q50 28 67 2Q83.5 22.5 100 1" fill="none" stroke="#3a3a3a" stroke-width="0.8"/>
+<g opacity="0.2">
+<circle cx="3.3" cy="8.1" r="3.5" fill="#f2dd4b"/><circle cx="9.9" cy="13.3" r="3.5" fill="#e0871e"/><circle cx="16.5" cy="15.2" r="3.5" fill="#8fcf8a"/><circle cx="23.1" cy="13.7" r="3.5" fill="#f5f1e6"/><circle cx="29.7" cy="8.9" r="3.5" fill="#f2dd4b"/>
+<circle cx="36.4" cy="9.9" r="3.5" fill="#e0871e"/><circle cx="43.2" cy="16.1" r="3.5" fill="#8fcf8a"/><circle cx="50" cy="18.2" r="3.5" fill="#f5f1e6"/><circle cx="56.8" cy="16.1" r="3.5" fill="#f2dd4b"/><circle cx="63.6" cy="9.9" r="3.5" fill="#e0871e"/>
+<circle cx="70.3" cy="8.9" r="3.5" fill="#8fcf8a"/><circle cx="76.9" cy="13.7" r="3.5" fill="#f5f1e6"/><circle cx="83.5" cy="15.2" r="3.5" fill="#f2dd4b"/><circle cx="90.1" cy="13.3" r="3.5" fill="#e0871e"/><circle cx="96.7" cy="8.1" r="3.5" fill="#8fcf8a"/>
+</g>
+<g fill="#8a6f55">
+<rect x="2.4" y="4.9" width="1.8" height="1.2" rx="0.4"/><rect x="9" y="10.1" width="1.8" height="1.2" rx="0.4"/><rect x="15.6" y="12" width="1.8" height="1.2" rx="0.4"/><rect x="22.2" y="10.5" width="1.8" height="1.2" rx="0.4"/><rect x="28.8" y="5.7" width="1.8" height="1.2" rx="0.4"/>
+<rect x="35.5" y="6.7" width="1.8" height="1.2" rx="0.4"/><rect x="42.3" y="12.9" width="1.8" height="1.2" rx="0.4"/><rect x="49.1" y="15" width="1.8" height="1.2" rx="0.4"/><rect x="55.9" y="12.9" width="1.8" height="1.2" rx="0.4"/><rect x="62.7" y="6.7" width="1.8" height="1.2" rx="0.4"/>
+<rect x="69.4" y="5.7" width="1.8" height="1.2" rx="0.4"/><rect x="76" y="10.5" width="1.8" height="1.2" rx="0.4"/><rect x="82.6" y="12" width="1.8" height="1.2" rx="0.4"/><rect x="89.2" y="10.1" width="1.8" height="1.2" rx="0.4"/><rect x="95.8" y="4.9" width="1.8" height="1.2" rx="0.4"/>
+</g>
+<ellipse cx="3.3" cy="8.1" rx="1.6" ry="2.2" fill="#f2dd4b"/><ellipse cx="9.9" cy="13.3" rx="1.6" ry="2.2" fill="#e0871e"/><ellipse cx="16.5" cy="15.2" rx="1.6" ry="2.2" fill="#8fcf8a"/><ellipse cx="23.1" cy="13.7" rx="1.6" ry="2.2" fill="#f5f1e6" stroke="#e2dccf" stroke-width="0.5"/><ellipse cx="29.7" cy="8.9" rx="1.6" ry="2.2" fill="#f2dd4b"/>
+<ellipse cx="36.4" cy="9.9" rx="1.6" ry="2.2" fill="#e0871e"/><ellipse cx="43.2" cy="16.1" rx="1.6" ry="2.2" fill="#8fcf8a"/><ellipse cx="50" cy="18.2" rx="1.6" ry="2.2" fill="#f5f1e6" stroke="#e2dccf" stroke-width="0.5"/><ellipse cx="56.8" cy="16.1" rx="1.6" ry="2.2" fill="#f2dd4b"/><ellipse cx="63.6" cy="9.9" rx="1.6" ry="2.2" fill="#e0871e"/>
+<ellipse cx="70.3" cy="8.9" rx="1.6" ry="2.2" fill="#8fcf8a"/><ellipse cx="76.9" cy="13.7" rx="1.6" ry="2.2" fill="#f5f1e6" stroke="#e2dccf" stroke-width="0.5"/><ellipse cx="83.5" cy="15.2" rx="1.6" ry="2.2" fill="#f2dd4b"/><ellipse cx="90.1" cy="13.3" rx="1.6" ry="2.2" fill="#e0871e"/><ellipse cx="96.7" cy="8.1" rx="1.6" ry="2.2" fill="#8fcf8a"/>
+<g fill="#2e7d32"><rect x="31.5" y="0" width="3" height="3" rx="1"/><rect x="65.5" y="0" width="3" height="3" rx="1"/></g>
+<path d="M33 3v1.2M67 3v1.2" stroke="#1b5e20" stroke-width="1"/>
+</svg>
