@@ -194,7 +194,10 @@ begin
         '_pl_can_see_mlp_team','_pl_can_see_doubles_pair','_pl_can_see_pot_scope',
         -- Equip only what you own (migration_cosmetic_equip_owned.sql, which
         -- grants them too).
-        'equip_shop_item','unequip_cosmetic'
+        'equip_shop_item','unequip_cosmetic',
+        -- My Place (migration_my_place.sql, which grants them too).
+        'buy_home_item','claim_my_place_starter','clear_home_slot','equip_home_item','get_home',
+        'save_room_layout','set_my_place_visibility'
         -- Deliberately NOT listed (no client caller; a re-run revokes them):
         -- backfill_venue_cities (a full-table venues UPDATE, maintenance only),
         -- send_test_push, venue_containing_point, list_venues_in_radius.
