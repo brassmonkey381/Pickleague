@@ -232,10 +232,10 @@ function ActionButton({
       );
     case 'locked':
     case 'unavailable':
-      // No dead button: the row's line says why, and a tap explains what to do.
+      // A disabled Buy: the row's line already says why.
       return (
-        <Button size="sm" variant="outline" title="Why?" disabled={busy} onPress={onPress}
-          accessibilityLabel={`Why can't I buy ${name}?`} style={styles.action} />
+        <Button size="sm" variant="success" title="Buy" disabled onPress={onPress}
+          accessibilityLabel={`Can't buy ${name} yet`} style={styles.action} />
       );
   }
 }
