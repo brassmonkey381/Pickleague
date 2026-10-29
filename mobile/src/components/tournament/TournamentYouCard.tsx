@@ -90,6 +90,8 @@ export type YouCardFacts = {
   myRank: number | null;
   podium: { rank: number; names: string; isMe: boolean }[];
   payoutLine: string | null;
+  /** Opens the finish share card (PKL-013); null hides Share. */
+  onShare: (() => void) | null;
 };
 
 /** "50-pickle ante" (prose: the pickle glyph stays out of sentences). */
@@ -173,6 +175,7 @@ export function youCardView(kind: YouCardKind, f: YouCardFacts): YouCardView | n
         title: f.myRank != null ? `You finished ${ordinal(f.myRank)}` : 'Podium',
         podium: f.podium,
         lines: f.payoutLine ? [f.payoutLine] : undefined,
+        primary: f.myRank != null && f.onShare ? { title: 'Share my finish', onPress: f.onShare, variant: 'outline' } : undefined,
       };
     default:
       return null;

@@ -6,6 +6,7 @@ export type Gender = 'male' | 'female' | 'other' | 'prefer-not-to-say';
 
 export type Profile = {
   id: string;
+  deleted_at?: string | null;
   username: string;
   full_name: string;
   avatar_url: string | null;
@@ -471,6 +472,7 @@ export type SeasonFinalStanding = {
     avatar_url?: string | null;
     name_color?: string | null;
     list_name_style_id?: string | null;
+    deleted_at?: string | null;
   };
 };
 

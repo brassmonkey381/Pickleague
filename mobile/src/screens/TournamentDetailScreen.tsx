@@ -9,6 +9,10 @@ import { RouteProp, useIsFocused } from '@react-navigation/native';
 import { classifySbError, friendlySbMessage } from '@just-messin-around/expo-foundation/supabase';
 import { CollapsibleSection, ErrorState, Panel, StickyActionBar } from '@just-messin-around/expo-foundation/ui';
 import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
+import FinishShareStudio from '../components/share/FinishShareStudio';
+import { cardPodium, shortName, type FinishShareData } from '../lib/finishShare';
+import { useBlockedIds } from '../lib/moderation';
 import { SPACE, SMALL_TEXT_MAX_SCALE } from '@just-messin-around/expo-foundation/styles';
 import { textStyles } from '@just-messin-around/expo-foundation/typography';
 import { RootStackParamList } from '../types';
@@ -226,6 +230,8 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }, [navigation, tournamentId, tournament?.name, tournament?.status]);
 
   // ── Derived data (memoized; safe before the loading return) ──
+  const blocked = useBlockedIds();
+  const [shareOpen, setShareOpen] = useState(false);
   const registrations = td.registrations;
   const approved = useMemo(() => registrations.filter(r => r.status === 'approved'), [registrations]);
   const myUserId = td.myUserId;
@@ -470,6 +476,34 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
   }
   const myRank = finalRankOf(td.finalRanks, myUserId);
   const pool = tournament.prize_pool ?? 0;
+
+  // ── Share my finish (PKL-013): a completed tournament where I have a rank ──
+  let shareData: FinishShareData | null = null;
+  if (status === 'completed' && myRank != null && myUserId) {
+    const profileOf = (id: string) => registrations.find(r => r.user_id === id)?.profile;
+    shareData = {
+      kind: 'tournament',
+      title: tournament.name,
+      league: null,
+      rank: myRank,
+      of: new Set(td.finalRanks.map(r => r.final_rank)).size || null,
+      wins: mine ? mine.row.wins : null,
+      losses: mine ? mine.row.losses : null,
+      me: shortName(profileOf(myUserId)?.full_name ?? td.playerName(myUserId)),
+      podium: cardPodium(
+        podiumFromFinalRanks(td.finalRanks).map(p => ({
+          rank: p.rank,
+          players: p.userIds.map(id => ({
+            id,
+            fullName: profileOf(id)?.full_name ?? td.profileNames[id] ?? null,
+            deleted: !!profileOf(id)?.deleted_at,
+          })),
+        })),
+        blocked,
+      ),
+    };
+  }
+  const canShareFinish = !!shareData && isImageShareAvailable();
   const view = youCardView(kind, {
     isFull,
     spotsLeft: tournament.max_players != null ? Math.max(0, tournament.max_players - approved.length) : null,
@@ -515,6 +549,7 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
     payoutLine: pool > 0
       ? (tournament.champion_payout_applied_at ? `${picklesLabel(pool)} pot paid out` : `${picklesLabel(pool)} pot · payout pending`)
       : null,
+    onShare: canShareFinish ? () => setShareOpen(true) : null,
   });
 
   // ── Sticky bar: the You card's primary action, once the card is off screen ──
@@ -1032,6 +1067,10 @@ export default function TournamentDetailScreen({ navigation, route }: Props) {
         primary={stickyPrimary ?? undefined}
         secondary={stickySecondary}
       />
+
+      {shareData ? (
+        <FinishShareStudio visible={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />
+      ) : null}
 
       {/* ── Bracket release time picker ── */}
       <AppDateTimePicker

@@ -193,7 +193,7 @@ export function useTournamentDetail({ navigation, tournamentId }: {
     const [tRes, regRes, role, godmodeResult] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', tournamentId).single(),
       supabase.from('tournament_registrations')
-        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played, name_color, list_name_style_id, avatar_emoji, avatar_bg_color)')
+        .select('*, profile:profiles!tournament_registrations_user_id_fkey(id, full_name, rating, total_matches_played, name_color, list_name_style_id, avatar_emoji, avatar_bg_color, deleted_at)')
         .eq('tournament_id', tournamentId)
         .order('role'),
       getTournamentRole(tournamentId),

@@ -14,9 +14,9 @@
 // The standings math lives in components/standings/standingsModel.ts (pure,
 // tested); this file loads, picks the tab, and lays it out.
 import { useNavReserve, useScreenBottomInset } from '../lib/appChrome';
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet,
+  ScrollView, View, Text, StyleSheet, TouchableOpacity,
   type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -59,6 +59,11 @@ import {
 } from '../components/standings/standingsModel';
 import { localIsoDate } from '../lib/seasonSummary';
 import { resolveStandingsTarget } from '../lib/savedStandingsData';
+import { Icon } from '@just-messin-around/expo-foundation/icons';
+import { isImageShareAvailable } from '@just-messin-around/expo-foundation/platform';
+import FinishShareStudio from '../components/share/FinishShareStudio';
+import { cardPodium, shortName, type FinishShareData } from '../lib/finishShare';
+import { useBlockedIds } from '../lib/moderation';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SeasonStandings'>;
@@ -231,6 +236,61 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
     if (!leagueName && season?.name) navigation.setOptions({ title: season.name });
   }, [navigation, leagueName, season?.name]);
 
+  // ── Share my finish (PKL-013) ──
+  // A completed season where I have a final rank, on a binary that can share
+  // an image. Its own headerRight effect, keyed on my rank (not the title-only
+  // setOptions above, which skips when a leagueName param is passed).
+  const blocked = useBlockedIds();
+  const [shareOpen, setShareOpen] = useState(false);
+  const myFinal = season?.status === 'completed' && myUserId ? finals.find(r => r.user_id === myUserId) : undefined;
+  const myFinalRank = myFinal?.final_rank ?? null;
+  const shareData = useMemo<FinishShareData | null>(() => {
+    if (!season || myFinalRank == null || !myFinal) return null;
+    // Record: my cumulative W-L in the last period that has my row.
+    let wins: number | null = null;
+    let losses: number | null = null;
+    for (let i = periods.length - 1; i >= 0; i--) {
+      const row = periods[i].rows.find(r => r.user_id === myUserId);
+      if (row) { wins = row.wins_in_season ?? null; losses = row.losses_in_season ?? null; break; }
+    }
+    const byRank = new Map<number, { id: string; fullName: string | null; deleted: boolean }[]>();
+    for (const r of finals) {
+      if (r.final_rank > 3) continue;
+      const list = byRank.get(r.final_rank) ?? [];
+      list.push({ id: r.user_id, fullName: r.profile?.full_name ?? null, deleted: !!(r.profile as any)?.deleted_at });
+      byRank.set(r.final_rank, list);
+    }
+    return {
+      kind: 'season',
+      title: season.name,
+      league: leagueName || null,
+      rank: myFinalRank,
+      of: finals.length || null,
+      wins,
+      losses,
+      me: shortName(myFinal.profile?.full_name),
+      podium: cardPodium([...byRank].map(([rank, players]) => ({ rank, players })), blocked),
+    };
+  }, [season, myFinal, myFinalRank, finals, periods, myUserId, leagueName, blocked]);
+  const canShareFinish = !!shareData && isImageShareAvailable();
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: canShareFinish
+        ? () => (
+            <TouchableOpacity
+              onPress={() => setShareOpen(true)}
+              style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+              accessibilityRole="button"
+              accessibilityLabel="Share your finish"
+            >
+              <Icon name="share" size={20} color={colors.text} />
+            </TouchableOpacity>
+          )
+        : undefined,
+    });
+  }, [navigation, canShareFinish, myFinalRank, colors.text]);
+
   async function load() {
     try {
       await loadInner();
@@ -248,11 +308,11 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
     const [seasonRow, snapshotRows, finalRows, role, memberRows, matchRows, wagerRows, uid] = await Promise.all([
       sbCall(() => supabase.from('league_seasons').select('*').eq('id', seasonId).single()),
       sbCall(() => supabase.from('season_snapshots')
-        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
+        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id, deleted_at)')
         .eq('season_id', seasonId)
         .order('period_number').order('rank_at_snapshot')),
       sbCall(() => supabase.from('season_final_standings')
-        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id)')
+        .select('*, profile:profiles(full_name, avatar_id, avatar_url, name_color, list_name_style_id, deleted_at)')
         .eq('season_id', seasonId)
         .order('final_rank')),
       // A failed role read must not strip an admin's lock/complete controls.
@@ -889,6 +949,10 @@ function SeasonStandingsBody({ navigation, route, seasonId, leagueId }: Props & 
         summary={mine ? `You're #${mine.rank} · ${mine.plupr} PLUPR` : undefined}
         primary={{ title: 'Jump to me', onPress: jumpToMe }}
       />
+
+      {shareData ? (
+        <FinishShareStudio visible={shareOpen} onClose={() => setShareOpen(false)} data={shareData} />
+      ) : null}
     </View>
   );
 }
