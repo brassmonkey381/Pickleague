@@ -14,7 +14,8 @@ import type { PlayMode } from '../lib/courtRoutineRules';
 
 export type { CourtPlan };
 
-export const MY_COURT_PLANS_KEY = 'me:courtPlans:v1';
+/** v2: plans gained windows (a v1 copy on disk has none). */
+export const MY_COURT_PLANS_KEY = 'me:courtPlans:v2';
 /** Doggle's 5 minutes fresh; a day on disk (the feed shows them offline). */
 export const MY_COURT_PLANS_TTL_MS = 5 * 60_000;
 export const MY_COURT_PLANS_PERSIST_MS = DAY_MS;

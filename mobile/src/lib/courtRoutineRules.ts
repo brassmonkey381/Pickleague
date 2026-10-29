@@ -508,8 +508,9 @@ export function playModeLabel(mode: PlayMode | null): string {
 export const WINDOWS_COPY: WindowsCopy<PlayMode> = { mode: playModeLabel };
 
 /** Windows that say something (a single unsaid window says nothing). */
-export function windowsSaySomething(windows: readonly { mode: PlayMode | null }[]): boolean {
-  return windows.some((w) => w.mode != null);
+export function windowsSaySomething(windows: readonly { mode: PlayMode | null }[] | null | undefined): boolean {
+  // Missing on data cached by an older app version.
+  return !!windows?.some((w) => w.mode != null);
 }
 
 /** "Weekdays · 9 AM · 3 h". */
